@@ -168,7 +168,18 @@ because in each case the file reads correctly.
 ## Verifying
 
 ```bash
-# throwaway cluster; never point this at production
+scripts/verify/run-all.sh          # migrations + all three suites; exits non-zero on red
+```
+
+Connection comes from the standard `PG*` variables, so the identical script runs
+locally and in CI. **`.github/workflows/schema.yml` runs it on every PR touching
+`supabase/` or `scripts/`**, against `pgvector/pgvector:pg16` with `--locale=C.UTF-8`
+— so `0002` is exercised rather than assumed, and V0 fails the job if the collation is
+ever wrong. Validation only one person can perform is not durable validation.
+
+Individually:
+
+```bash
 scripts/localvalidate/run.sh                            # applies every migration in order
 psql -d dala_validate -f scripts/verify/catalog.sql     # 18 structural checks
 psql -d dala_validate -f scripts/verify/isolation.sql   # 10 behavioural, as superuser
