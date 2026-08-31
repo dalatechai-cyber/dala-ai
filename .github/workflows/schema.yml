@@ -27,8 +27,13 @@ jobs:
           # unchanged, silently. V0 asserts this, so getting it wrong here fails.
           POSTGRES_INITDB_ARGS: '--locale=C.UTF-8'
         ports: ['5432:5432']
+        # -U postgres, not bare pg_isready: the probe otherwise connects as the
+        # runner's OS user (root), which does not exist in the cluster. It still
+        # reports the server up — pg_isready treats an auth error as "responding" —
+        # so the gate passes while logging FATAL three times. A readiness check that
+        # is green for the wrong reason is the thing this repository keeps finding.
         options: >-
-          --health-cmd pg_isready --health-interval 5s
+          --health-cmd "pg_isready -U postgres -d postgres" --health-interval 5s
           --health-timeout 5s --health-retries 10
 
     env:
