@@ -10,7 +10,10 @@
 //   * cost per reply from the same prices seeded into model_prices
 //   * WHETHER CACHING ACTUALLY ENGAGED — below 4096 tokens cache_control is ignored
 //     with no error, and that silence is the whole economic question for Haiku
-//   * one mechanical quality gate: the price_unlisted probe must emit no price
+//   * a numeral gate on EVERY probe, not just one: any number in a reply that does
+//     not appear in the prefix is ungrounded. The first version watched only the
+//     children's-haircut probe, and a native-speaker review found a deposit figure
+//     quoted on a different probe that the gate never looked at.
 //
 // Mongolian naturalness is NOT judged here. Replies are printed and written to the
 // results file for a native speaker. A script cannot settle that and should not
@@ -20,7 +23,11 @@
 // refuses if it exceeds --max-usd, and the running total is checked before every
 // call thereafter. Default ceiling $0.50.
 import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildMatrixPrefix, describe, DEFAULT_ANCESTOR } from './prefix.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const API = 'https://api.anthropic.com/v1/messages';
 const COUNT = 'https://api.anthropic.com/v1/messages/count_tokens';
@@ -50,6 +57,7 @@ const flag = (n, d) => { const i = argv.indexOf(`--${n}`); return i === -1 ? d :
 const has  = (n) => argv.includes(`--${n}`);
 
 const DRY      = has('dry-run');
+const HARDEN   = has('harden');
 const REPEATS  = Number(flag('repeats', 3));
 const MAX_USD  = Number(flag('max-usd', 0.50));
 const ANCESTOR = flag('ancestor', DEFAULT_ANCESTOR);
@@ -83,8 +91,25 @@ function costNano(model, u) {
        + (u.cache_creation_input_tokens || 0) * p.cacheWrite1h;
 }
 
-const prefix = await buildMatrixPrefix(ANCESTOR);
-console.log(`prefix: ${JSON.stringify(describe(prefix))}\n`);
+let prefix = await buildMatrixPrefix(ANCESTOR);
+if (HARDEN) {
+  // The M0 precedent: rules written IN Mongolian that NAME the observed failure
+  // forms, with worked wrong-examples. A rule that only describes the right answer
+  // loses to the model's disposition; a rule that forbids the specific wrong answer
+  // does not — and that requires having SEEN the failure, which is why this block
+  // exists only after a native-speaker review of an unhardened run.
+  const block = fs.readFileSync(path.join(HERE, 'hardening-mn.txt'), 'utf8');
+  if (block !== block.normalize('NFC')) throw new Error('hardening block is not NFC');
+  prefix = `${prefix}\n\n${block}`;
+}
+console.log(`prefix${HARDEN ? ' (HARDENED)' : ''}: ${JSON.stringify(describe(prefix))}\n`);
+
+// Every number the model is allowed to say: the digit-runs that appear in the
+// prefix. Separators are stripped so 20,000 and 20000 compare equal.
+const digitsOf = (t) => new Set((t.match(/[\d][\d.,\s]*\d|\d/g) || [])
+  .map(m => m.replace(/\D/g, '')).filter(d => d.length >= 3));
+const ALLOWED = digitsOf(prefix);
+console.log(`grounded numerals in prefix: ${ALLOWED.size}\n`);
 
 // --- free: token counts, and the Haiku cliff -------------------------------
 const counts = {};
@@ -148,23 +173,27 @@ for (const arm of ARMS) {
       const c = costNano(arm.model, u);
       spentNano += c;
 
-      // The one mechanical gate: an unlisted price must produce no price. The
-      // escalation phone is the only numeral allowed through.
+      // Gate 1 — ungrounded numerals, on EVERY probe. Any number the reply states
+      // that does not appear in the prefix was invented.
+      const stripped = reply.replace(/7741[-\s]?7777/g, '');   // escalation phone is always allowed
+      const ungrounded = [...digitsOf(stripped)].filter(d => !ALLOWED.has(d));
+
+      // Gate 2 — the deliberately unpriced probe is stricter still: no number at
+      // all, grounded or not. A price copied from an adjacent service is still wrong.
       let noPriceHeld = null;
-      if (probe.noPrice) {
-        const stripped = reply.replace(/7741[-\s]?7777/g, '');
-        noPriceHeld = !/\d{3,}/.test(stripped);
-      }
+      if (probe.noPrice) noPriceHeld = !/\d{3,}/.test(stripped);
 
       results.push({
         arm: arm.id, model: arm.model, probe: probe.key, rep,
         usage: u, costUsd: usd(c),
         cacheWrote: (u.cache_creation_input_tokens || 0) > 0,
         cacheRead:  (u.cache_read_input_tokens || 0) > 0,
-        noPriceHeld, stop_reason: j.stop_reason, reply,
+        ungrounded, noPriceHeld, stop_reason: j.stop_reason, reply,
       });
 
-      const gate = noPriceHeld === null ? '' : noPriceHeld ? '  [no-price HELD]' : '  [no-price FAILED]';
+      let gate = ungrounded.length ? `  [UNGROUNDED ${ungrounded.join(',')}]` : '';
+      if (noPriceHeld === false) gate += '  [no-price FAILED]';
+      else if (noPriceHeld === true) gate += '  [no-price HELD]';
       console.log(`${arm.id} ${arm.model} ${probe.key} r${rep}  ${fmt(usd(c))}  ` +
                   `in=${u.input_tokens} out=${u.output_tokens} cw=${u.cache_creation_input_tokens||0} cr=${u.cache_read_input_tokens||0}${gate}`);
     }
@@ -178,7 +207,8 @@ for (const arm of ARMS) {
   const total = rows.reduce((s, r) => s + r.costUsd, 0);
   const cached = rows.filter(r => r.cacheRead).length;
   const failed = rows.filter(r => r.noPriceHeld === false).length;
-  console.log(`arm ${arm.id} ${arm.model}: ${fmt(total / rows.length)}/reply · cache reads ${cached}/${rows.length} · no-price failures ${failed}`);
+  const ung = rows.filter(r => r.ungrounded.length).length;
+  console.log(`arm ${arm.id} ${arm.model}: ${fmt(total / rows.length)}/reply · cache reads ${cached}/${rows.length} · ungrounded-numeral replies ${ung}/${rows.length} · no-price failures ${failed}`);
 }
-fs.writeFileSync(OUT, JSON.stringify({ prefix: describe(prefix), counts, results }, null, 2));
+fs.writeFileSync(OUT, JSON.stringify({ hardened: HARDEN, prefix: describe(prefix), counts, results }, null, 2));
 console.log(`\nreplies written to ${OUT} — Mongolian quality needs a native speaker, not this script.`);

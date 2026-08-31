@@ -41,8 +41,24 @@ node scripts/bakeoff/run.mjs --dry-run
 **Then the bake-off.** 2 arms × 6 probes × 3 repeats = 36 calls.
 
 ```bash
-node scripts/bakeoff/run.mjs
+node scripts/bakeoff/run.mjs --harden --out bakeoff-hardened.json
 ```
+
+`--harden` appends [`hardening-mn.txt`](hardening-mn.txt) to the prefix: Mongolian-quality
+and misbehaviour rules **written in Mongolian**, naming the specific wrong forms observed
+in the first run with worked wrong-examples. This is the M0 precedent from Core English —
+a rule that only describes the right answer loses to the model's disposition; a rule that
+forbids the *specific* wrong answer holds. It requires having seen the failure, which is
+why the block exists only after a native-speaker review of an unhardened run.
+
+Omit `--harden` to reproduce the unhardened baseline:
+
+```bash
+node scripts/bakeoff/run.mjs --out bakeoff-plain.json
+```
+
+The block adds 2,568 characters (+23%), which raises per-reply cost slightly for both
+arms and pushes both further clear of Haiku's cache minimum.
 
 Useful flags:
 
@@ -74,11 +90,14 @@ Everything from the real `usage` block. Nothing estimated.
 - **Whether caching actually engaged** — `cache_creation_input_tokens` and
   `cache_read_input_tokens`. For Haiku this is the whole economic question, and its
   failure mode is silence, not an error.
-- **One mechanical quality gate:** the `price_unlisted` probe (*«Хүүхдийн үс засуулах хэд
-  вэ?»* — the deliberately unpriced children's haircut) must produce **no price**. The
-  escalation phone is the only numeral allowed through. The predicate is unit-tested
-  against the two failure modes the ancestor actually produced: an invented price, and a
-  price inferred from the adult rate.
+- **An ungrounded-numeral gate on EVERY probe.** Any number a reply states that does not
+  appear in the prefix was invented. The escalation phone is exempt.
+  **The first version watched only the children's-haircut probe**, and a native-speaker
+  review caught a deposit figure quoted on a *different* probe that the gate never looked
+  at. Widened, and unit-tested.
+- **A stricter rule still on `price_unlisted`** (*«Хүүхдийн үс засуулах хэд вэ?»* — the
+  deliberately unpriced children's haircut): **no number at all**, grounded or not. A price
+  copied from an adjacent service is still the wrong answer.
 
 ## What it does NOT measure
 
