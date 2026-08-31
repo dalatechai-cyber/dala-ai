@@ -156,8 +156,44 @@ shape may have been the real variable.
 **Measured 2026-08-31:** the live Messenger prefix is **11,321 characters / 19,070 bytes /
 66% Cyrillic** (base 7,824 + Messenger addendum 3,497).
 
-**What settles it:** `count_tokens` on that exact prefix, and the approved bake-off
-(arm D vs arm E). **Both are now written and ready to run** —
+### Round 1 — run by the founder, unhardened. Still OPEN.
+
+**Native-speaker verdict: Haiku's Mongolian is broken; Sonnet is clean throughout.**
+Confirmed errors: «баригдлаа» (booking_confirm r2), «үнэ цэнэтэй үнэлэмж» and «яснаа»
+(health_question r2), «манайн» for «манай» (staff_availability r2) — and on the abuse
+probe Haiku opened with a cheerful «Сайн байна уу! 😊» self-introduction instead of
+acknowledging the customer.
+
+**One reported price was checked and is exonerated.** Haiku quoted a 20,000₮
+master-stylist deposit on `staff_availability` r3. That number is **real and grounded**:
+`systemPromptBuilder.js:148` sets «Мастер үсчин: 20,000₮ урьдчилгаа», and
+`currentClient.js:18` lists Оюунсүрэн as a «Мастер үсчин». It is not a hallucination.
+
+It is, however, a **relevance** failure, and a known one: the ancestor's own rule
+(`salonBrain.js:94`) fires deposit information only on *expressed booking intent*, and
+commit `df72418` exists specifically to stop a schedule question producing an
+Оюунсүрэн-deposit reply. Haiku reproduced a bug the ancestor already fixed. The hardening
+block therefore carries an explicit «цагийн хуваарь ≠ цаг захиалга» rule.
+
+**A gate of mine was too narrow, which is why this needed a human to catch.** The numeral
+check watched only the children's-haircut probe. It now runs on **every** probe: any
+number in a reply that does not appear in the prefix is flagged as ungrounded. Verified it
+does not flag the real 20,000₮ deposit.
+
+### Round 2 — hardened, not yet run
+
+Per the M0 precedent, [`hardening-mn.txt`](../scripts/bakeoff/hardening-mn.txt) adds
+Mongolian-quality and misbehaviour rules **written in Mongolian**, naming each observed
+wrong form above with a worked wrong-example. Run with `--harden`.
+
+**The decision rule, fixed before the run so the result cannot be rationalised:**
+- Hardened Haiku's Mongolian reads clean to the founder → **Haiku wins on economics**
+  (64% margin vs 29%).
+- Still broken → **Sonnet is Reception's model**, the 29% margin is recorded honestly, and
+  the prefix-trim work becomes the margin-recovery path.
+
+**What settles it:** `count_tokens` on that exact prefix, and the bake-off
+(arm D vs arm E). **Both are written and ready to run** —
 [`scripts/bakeoff/README.md`](../scripts/bakeoff/README.md). Neither has been run: no
 `ANTHROPIC_API_KEY` in the environment that produced them.
 
