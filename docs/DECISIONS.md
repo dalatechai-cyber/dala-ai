@@ -141,74 +141,63 @@ a tenant believes the rest of it.
 
 ---
 
-## D-009 — Reception's model is OPEN, pending measurement
+## D-009 — Reception runs Sonnet 5. No Haiku for customer-facing Mongolian prose.
 
-**Not settled, deliberately.** Do not pin a model, and do not set a spend ceiling that
-assumes one.
+**Settled 2026-08-31, by measurement and native-speaker review.**
 
-**What is known.** Sonnet 5 is both newer and cheaper than the Sonnet 4.6 the Core Language
-bake-off chose, so that verdict is superseded, not inherited. The incumbent Messenger bot
-runs Sonnet 5 for a production-observed reason (`salonBrain.js:16-18`: *"haiku occasionally
-slips on free-form Mongolian… language quality is customer-facing"*) — real evidence, but
-it predates the boundary-gate technique, and the sibling's own measurement suggests prompt
-shape may have been the real variable.
+`claude-sonnet-5`, `prompt_cache_mode = '1h'`, thinking pinned off, `max_tokens: 700`,
+non-streaming, zero tools.
 
-**Measured 2026-08-31:** the live Messenger prefix is **11,321 characters / 19,070 bytes /
-66% Cyrillic** (base 7,824 + Messenger addendum 3,497).
+**The rule, stated so it generalises past this one choice:**
 
-### Round 1 — run by the founder, unhardened. Still OPEN.
+> **No Haiku for customer-facing Mongolian prose.** Haiku 4.5 remains eligible for
+> internal and structured work — batch triage, classification, extraction, anything whose
+> output is a row rather than a sentence a customer reads.
 
-**Native-speaker verdict: Haiku's Mongolian is broken; Sonnet is clean throughout.**
-Confirmed errors: «баригдлаа» (booking_confirm r2), «үнэ цэнэтэй үнэлэмж» and «яснаа»
-(health_question r2), «манайн» for «манай» (staff_availability r2) — and on the abuse
-probe Haiku opened with a cheerful «Сайн байна уу! 😊» self-introduction instead of
-acknowledging the customer.
+**Why.** Two bake-off rounds on the real prefix and the six seeded probes.
 
-**One reported price was checked and is exonerated.** Haiku quoted a 20,000₮
-master-stylist deposit on `staff_availability` r3. That number is **real and grounded**:
-`systemPromptBuilder.js:148` sets «Мастер үсчин: 20,000₮ урьдчилгаа», and
-`currentClient.js:18` lists Оюунсүрэн as a «Мастер үсчин». It is not a hallucination.
+*Round 1, unhardened.* Native-speaker verdict: Haiku's Mongolian broken, Sonnet clean.
+Errors included «баригдлаа», «үнэ цэнэтэй үнэлэмж», «яснаа», «манайн» for «манай», and on
+the abuse probe a cheerful «Сайн байна уу! 😊» self-introduction instead of an
+acknowledgement.
 
-It is, however, a **relevance** failure, and a known one: the ancestor's own rule
-(`salonBrain.js:94`) fires deposit information only on *expressed booking intent*, and
-commit `df72418` exists specifically to stop a schedule question producing an
-Оюунсүрэн-deposit reply. Haiku reproduced a bug the ancestor already fixed. The hardening
-block therefore carries an explicit «цагийн хуваарь ≠ цаг захиалга» rule.
+*Round 2, hardened* — the M0 precedent applied in full: rules written in Mongolian naming
+each observed wrong form with a worked wrong-example. **Haiku was still broken.** New
+nonwords appeared (сөнөө, жирэмсэнцүүд, САЙХНААР сувьд) and «манайн» **recurred despite
+being named in the block with a corrected example**.
 
-**A gate of mine was too narrow, which is why this needed a human to catch.** The numeral
-check watched only the children's-haircut probe. It now runs on **every** probe: any
-number in a reply that does not appear in the prefix is flagged as ungrounded. Verified it
-does not flag the real 20,000₮ deposit.
+That last detail is the finding. The M0 technique works — it is what fixed Core English —
+and it did not work here, so the constraint is not the prompt. **It is a fluency ceiling.**
+A rule cannot teach a model a language it does not have; naming a wrong form only helps a
+model that can produce the right one. Hardening buys behaviour, not competence.
 
-### Round 2 — hardened, not yet run
+**What it costs.** Sonnet is roughly 2× Haiku per reply: **29% gross margin against a 60%
+target** at the volume a successful salon produces. That number is recorded honestly rather
+than smoothed. The recovery path is [`prefix-trim.md`](prefix-trim.md), which is worth
+doing and — stated plainly there — **does not reach 60% on its own**. The remaining levers
+are commercial: price, target margin, or the volume band a ₮250,000 plan is sold against.
 
-Per the M0 precedent, [`hardening-mn.txt`](../scripts/bakeoff/hardening-mn.txt) adds
-Mongolian-quality and misbehaviour rules **written in Mongolian**, naming each observed
-wrong form above with a worked wrong-example. Run with `--harden`.
+**What shipped from the hardening.** Only the relevance rule («цагийн хуваарь ≠ цаг
+захиалга») and the abuse response, in `prompts/platform/reception-mn.txt`. The
+Mongolian-fluency rules did **not** ship: they were written to correct Haiku, Sonnet was
+clean without them, and carrying rules for a model you do not run costs tokens on every
+message and buys nothing. They stay as evidence in `scripts/bakeoff/hardening-mn.txt`.
 
-**The decision rule, fixed before the run so the result cannot be rationalised:**
-- Hardened Haiku's Mongolian reads clean to the founder → **Haiku wins on economics**
-  (64% margin vs 29%).
-- Still broken → **Sonnet is Reception's model**, the 29% margin is recorded honestly, and
-  the prefix-trim work becomes the margin-recovery path.
+The forbidden phrasings Haiku produced are deliberately **not** seeded into
+`forbidden_phrasings` as runtime guards. They are evidence for this decision, not observed
+failures of the model that ships — seeding them would be guarding against a model that is
+not running.
 
-**What settles it:** `count_tokens` on that exact prefix, and the bake-off
-(arm D vs arm E). **Both are written and ready to run** —
-[`scripts/bakeoff/README.md`](../scripts/bakeoff/README.md). Neither has been run: no
-`ANTHROPIC_API_KEY` in the environment that produced them.
-
-Projected cost is **≈$0.07**, not the ~$0.45 originally budgeted — caching makes the
-repeats nearly free after the first call in each arm. The run refuses before the first
-call if the projection exceeds `--max-usd` (default $0.50) and stops mid-run rather than
-overshooting.
-
-**Why it matters commercially.** At the D-004 floor price the allowable spend is ₮80,000
-≈ $22.86/month. On estimated numbers a busy salon (~750 conversations, ~4,500 replies)
-costs roughly ₮142,000 on Sonnet 5 and ₮71,000 on Haiku 4.5 — **29% margin against 64%.**
-Sonnet clears the 60% target only up to roughly 420 conversations a month; Haiku clears it
-to roughly 840. So the model choice decides whether a *successful* tenant is profitable.
-That is a pricing decision wearing an engineering hat, and it gets measured rather than
-argued.
+**One measurement that survives.** The numeral gate had a false positive: the allowed set
+was built from unstripped text, where «+976 7741 7777» collapses into a single 11-digit
+run, while replies were checked stripped — leaving a bare `976` that was not in the set, so
+any reply quoting the international number was flagged as inventing a figure. Fixed on both
+sides, with 976 exempt universally rather than because one tenant's contact block happens
+to contain it. Pinned by `scripts/bakeoff/test/gate.test.mjs`, which also pins the gate's
+**known limit**: it asks whether a number appears in the prefix, not whether it is the right
+number for the question — a children's haircut quoted at 30,000₮ passes, because 30,000₮ is
+a real price for a hand spa. The `price_unlisted` probe's stricter no-number-at-all rule is
+what covers that, and that is why it exists.
 
 ---
 

@@ -90,11 +90,11 @@ each table independently — the last failure of this kind next door was partial
 
 ## Open, and blocking
 
-- **Reception's model is undecided on purpose.** The bake-off that settles it is written
-  and ready: `scripts/bakeoff/README.md`. `--dry-run` is free and answers the decisive
-  question (does the prefix clear Haiku's 4,096-token cache minimum?); the full run is
-  ~$0.07 against a $0.50 ceiling. Needs `ANTHROPIC_API_KEY` and the Matrix-Chatbot
-  checkout. Do not pin a model or a ceiling before it has run — see `DECISIONS.md` D-009.
+- **Reception runs Sonnet 5** (D-009, settled by two bake-off rounds and native-speaker
+  review). **No Haiku for customer-facing Mongolian prose** — it is a fluency ceiling, not
+  a prompt gap; hardening that names the wrong forms did not fix it. Haiku stays eligible
+  for internal/structured work. Margin is 29% against a 60% target; the recovery path is
+  `docs/prefix-trim.md`, which does not close it alone.
 - **No revenue path exists.** The platform can spend and cannot collect.
 - **KEK escrow and a second admin** on Meta, Supabase, GitHub and the registrar are not
   done. Losing either is unrecoverable.

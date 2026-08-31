@@ -104,9 +104,22 @@ if (HARDEN) {
 }
 console.log(`prefix${HARDEN ? ' (HARDENED)' : ''}: ${JSON.stringify(describe(prefix))}\n`);
 
+// Telephone noise, removed from BOTH sides before any digit is compared.
+//
+// The asymmetry here was a real false positive: the allowed set was built from
+// unstripped text, where "+976 7741 7777" collapses into one 11-digit run, while
+// replies were checked after stripping the escalation number — leaving a bare 976
+// that was not in the set. Any reply quoting the full international number was
+// flagged as inventing a figure.
+//
+// 976 is Mongolia's country code. It is exempt universally, not because it happens
+// to appear in this tenant's contact block — another tenant's prefix may write the
+// number without it, and a gate whose correctness depends on that is not a gate.
+const PHONE_NOISE = /\+?\s*976|7741[-\s]?7777/g;
+
 // Every number the model is allowed to say: the digit-runs that appear in the
 // prefix. Separators are stripped so 20,000 and 20000 compare equal.
-const digitsOf = (t) => new Set((t.match(/[\d][\d.,\s]*\d|\d/g) || [])
+const digitsOf = (t) => new Set((t.replace(PHONE_NOISE, ' ').match(/[\d][\d.,\s]*\d|\d/g) || [])
   .map(m => m.replace(/\D/g, '')).filter(d => d.length >= 3));
 const ALLOWED = digitsOf(prefix);
 console.log(`grounded numerals in prefix: ${ALLOWED.size}\n`);
@@ -175,13 +188,12 @@ for (const arm of ARMS) {
 
       // Gate 1 — ungrounded numerals, on EVERY probe. Any number the reply states
       // that does not appear in the prefix was invented.
-      const stripped = reply.replace(/7741[-\s]?7777/g, '');   // escalation phone is always allowed
-      const ungrounded = [...digitsOf(stripped)].filter(d => !ALLOWED.has(d));
+      const ungrounded = [...digitsOf(reply)].filter(d => !ALLOWED.has(d));
 
       // Gate 2 — the deliberately unpriced probe is stricter still: no number at
       // all, grounded or not. A price copied from an adjacent service is still wrong.
       let noPriceHeld = null;
-      if (probe.noPrice) noPriceHeld = !/\d{3,}/.test(stripped);
+      if (probe.noPrice) noPriceHeld = !/\d{3,}/.test(reply.replace(PHONE_NOISE, ' '));
 
       results.push({
         arm: arm.id, model: arm.model, probe: probe.key, rep,

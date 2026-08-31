@@ -1,3 +1,18 @@
+# SUPERSEDED AS A PRODUCTION ARTEFACT — kept as evidence, not as shipping config.
+#
+# This block was written to correct Haiku 4.5's Mongolian after a native-speaker
+# review of bake-off round 1. Round 2 ran with it and Haiku was STILL broken —
+# new nonwords (сөнөө, жирэмсэнцүүд, САЙХНААР сувьд) and «манайн» recurring despite
+# being named here with a worked wrong-example. That is a fluency ceiling, not a
+# prompt gap, and it settled D-009: Reception ships on Sonnet 5.
+#
+# What ships is in prompts/platform/reception-mn.txt — the relevance rule and the
+# abuse response only. Sonnet was clean without the fluency rules, and carrying
+# rules for a model you do not run costs tokens on every message for nothing.
+#
+# This file stays because it is the record of what was tried and what it cost to
+# learn. Do not add it to a production prefix.
+
 === МОНГОЛ ХЭЛНИЙ ЧАНАРЫН ХАТУУ ДҮРЭМ ===
 (Энэ хэсэг бусад бүх зааврын дээр. Хэл-найруулгын алдаа нь үнийн алдаатай адил
 ноцтой: аль аль нь хэрэглэгчийн итгэлийг алдагдуулна.)

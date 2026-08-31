@@ -51,6 +51,17 @@ jobs:
       - name: Apply migrations and run all three suites
         run: ./scripts/verify/run-all.sh dala_ci
 
+      - name: Bake-off gate unit tests
+        # Needs the ancestor checkout for the real prefix; skipped rather than
+        # silently passing if it is unavailable, so a green run never means
+        # "the gate is fine" when the gate was never exercised.
+        run: |
+          if git clone --depth 1 https://github.com/dalatechai-cyber/Matrix-Chatbot /tmp/ancestor 2>/dev/null; then
+            ANCESTOR=/tmp/ancestor node --test scripts/bakeoff/test/gate.test.mjs
+          else
+            echo "::warning::ancestor checkout unavailable — bake-off gate tests SKIPPED, not passed"
+          fi
+
       - name: Confirm the schema is on PostgreSQL, not on trust
         if: always()
         run: psql -d postgres -tAc "select version();"

@@ -20,7 +20,7 @@ it is in service of one falsifiable claim: onboarding client #3 is filling in a 
 | | Why it is first |
 |---|---|
 | ~~Merge `09-reconciliation.md` into one `schema.md` + `0001_*.sql`~~ **DONE 2026-08-31** — 79 tables, verified by execution (catalog 15/15, isolation 10/10). Never applied to a real project. | Until it existed there was no schema, only eight incompatible proposals (D-013) |
-| `count_tokens` on the real prefix + the approved bake-off | Settles D-009, which every ceiling depends on |
+| ~~`count_tokens` + the bake-off~~ **DONE 2026-08-31** — two rounds, native-speaker reviewed. Sonnet 5 ships; no Haiku for customer-facing Mongolian prose (D-009). Margin 29% vs 60% target; `docs/prefix-trim.md` is the recovery path. | Settles D-009, which every ceiling depends on |
 | KEK escrow; a second admin on Meta, Supabase, GitHub, the registrar | Losing either is unrecoverable, and it is 30 minutes |
 | Write the V1 cut line | Everything in the design is justified, so nothing is obviously cuttable — which is how four months pass with no customer message flowing |
 
