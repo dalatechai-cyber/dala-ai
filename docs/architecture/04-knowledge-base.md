@@ -1,3 +1,10 @@
+> **The DDL in this file is superseded.** It was one of eight independently written
+> proposals, and [`09-reconciliation.md`](09-reconciliation.md) arbitrated the twenty-three
+> places they contradicted each other. The schema is
+> [`../schema.md`](../schema.md) + `supabase/migrations/0001_initial_schema.sql`, which
+> is applied and verified; where this file disagrees with either, this file is stale.
+> The reasoning here is still live — it is why the schema is shaped as it is.
+
 ## 4. Per-tenant knowledge base and the owner update flow
 
 **Verified vs. assumed.** Everything with a `path:line` citation I read in the file this pass, or produced by executing the real module in `/home/user/Matrix-Chatbot` (Node 22, git HEAD `d7ae6c8`). Results marked **(measured)** came from running code against the ancestor in this session. Every token count is an **estimate**, labelled as one — there is no Anthropic API key and no tokeniser here; §4.3.2 gives the free procedure that replaces it with a fact, and §4.3.4 makes the design refuse to proceed on the estimate where the number is load-bearing. Where a review objection was raised and I disagree with it, the disagreement is stated inline in one line rather than dropped.

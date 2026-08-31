@@ -2,7 +2,8 @@
 
 **Status: approved 2026-08-31. No product code has been written yet.**
 Prices are settled (`DECISIONS.md` D-004); Reception's model is deliberately open pending
-measurement (D-009). Task one is the schema merge described in the Verdict below.
+measurement (D-009). The schema merge that was task one is done — see
+[`schema.md`](schema.md).
 
 Dala AI is Dalatech's multi-tenant AI-staff platform for Mongolian SMBs. It is a new
 business, separate from Core Language (`dalatech-english`) — shared **lessons only**, zero
@@ -23,17 +24,27 @@ The design **covers** all eight asks and is deep enough to build from. Two thing
 between it and the first line of product code — the first is approved work, the second is a
 measurement:
 
-**1. There was no canonical schema.** The eight sections were designed independently and
+**1. ~~There was no canonical schema.~~ Resolved 2026-08-31** — see
+[`schema.md`](schema.md). The account below is why it exists.
+
+**What was wrong.** The eight sections were designed independently and
 invented incompatible versions of the same tables — three names for the channel registry,
 three spend ledgers with *different concurrency guarantees*, four schemas for the
 deliberate-omission feature, and three signatures for the chokepoint. That is the
 `guardAiRoute()` lesson — one gate, no local re-implementations — violated inside the
 design document itself.
 
-[`09-reconciliation.md`](architecture/09-reconciliation.md) arbitrates all 23 contradictions
-with one answer each, and ends with the canonical table list and env-var list. **Merging it
-into a single `schema.md` + `0001_*.sql` is roughly a day of work and is the first task.**
-Until then, every section's DDL is a proposal, not a specification.
+[`09-reconciliation.md`](architecture/09-reconciliation.md) arbitrated all 23 contradictions
+with one answer each. That arbitration is now executed:
+**[`docs/schema.md`](schema.md) + `supabase/migrations/0001_initial_schema.sql`**, 79
+tables, applied to a scratch PostgreSQL 16.13 and verified by execution — `catalog.sql`
+15/15, `isolation.sql` 10/10, both of which raise rather than print. Every section file
+carries a banner saying its DDL is superseded.
+
+Running it found two things reading it did not: the RLS and grant loops were seeded
+*after* the metadata they read, so they created **zero policies and zero grants**
+silently; and three foreign keys were off the composite-FK spine. Both are fixed.
+**Nothing has been applied to a real Supabase project — none exists.**
 
 **2. The model choice is a pricing decision, and it is open on purpose.** Prices are now
 settled (`DECISIONS.md` D-004), and because the bundle discounts are **hard floors**, every

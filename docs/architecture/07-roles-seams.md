@@ -1,3 +1,10 @@
+> **The DDL in this file is superseded.** It was one of eight independently written
+> proposals, and [`09-reconciliation.md`](09-reconciliation.md) arbitrated the twenty-three
+> places they contradicted each other. The schema is
+> [`../schema.md`](../schema.md) + `supabase/migrations/0001_initial_schema.sql`, which
+> is applied and verified; where this file disagrees with either, this file is stale.
+> The reasoning here is still live — it is why the schema is shaped as it is.
+
 ## 7. The four AI staff roles, the Quality layer, and the phase seams
 
 > **Citation convention.** Every claim about existing code is cited as an absolute `path:line` and was read in this session. Claims marked *(assumed)* or *(unverified)* are inference I could not confirm from a file or a primary source. Ancestor repo root: `/home/user/Matrix-Chatbot`. Sibling lessons: `/home/user/dalatech-english/CLAUDE.md` and `/home/user/dalatech-english/docs/`.

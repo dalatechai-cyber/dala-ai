@@ -14,8 +14,8 @@ shared code, customers, or databases**. Never import from that repo.
 Tenant #1 Matrix Eco Salon (hair/beauty). Tenant #2 GS Auto Center. Customer-facing text
 is Mongolian Cyrillic. Keep it that way.
 
-**Status: architecture approved, nothing built.** No Supabase project, no Meta app, no
-product code.
+**Status: architecture approved; the schema exists and is verified locally.** No Supabase
+project, no Meta app, no product code — nothing has been applied to a real environment.
 
 ## The test every decision is measured against
 
@@ -68,15 +68,21 @@ is wrong — make it data.
 | [`docs/architecture/09-reconciliation.md`](docs/architecture/09-reconciliation.md) | **The arbitration. Takes precedence over every section file.** Canonical table and env lists live here |
 | [`docs/architecture/10-completeness.md`](docs/architecture/10-completeness.md) | What no section addressed; the CLAUDE.md carry-forward audit |
 | [`docs/architecture/`](docs/architecture/) | 01–08, the full design by dimension |
+| [`docs/schema.md`](docs/schema.md) | **The schema.** Beats every section file's DDL |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Settled calls and why. Pricing lives here |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Phases 3–5 |
 
-## Before writing product code
+## The schema
 
-Task one is **merging `09-reconciliation.md` into one `schema.md` + `0001_*.sql`.** The
-eight design sections were written independently and invented incompatible versions of the
-same tables; until that merge exists there is no schema, only proposals. Then delete the
-DDL from the section files and leave pointers, so there is exactly one place to be wrong.
+**Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
+are the schema; the eight section files carry a banner saying their DDL is superseded.
+Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 15/15,
+`isolation.sql` 10/10. **Never applied to a real Supabase project** — none exists.
+
+Before changing it: run `scripts/localvalidate/run.sh`, then both files in
+`scripts/verify/`. Both raise on failure, so a red check fails CI rather than printing.
+Re-run them after any migration touching grants, policies, triggers or seeds, and check
+each table independently — the last failure of this kind next door was partial.
 
 ## Open, and blocking
 

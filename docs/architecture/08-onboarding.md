@@ -1,3 +1,10 @@
+> **The DDL in this file is superseded.** It was one of eight independently written
+> proposals, and [`09-reconciliation.md`](09-reconciliation.md) arbitrated the twenty-three
+> places they contradicted each other. The schema is
+> [`../schema.md`](../schema.md) + `supabase/migrations/0001_initial_schema.sql`, which
+> is applied and verified; where this file disagrees with either, this file is stale.
+> The reasoning here is still live — it is why the schema is shaped as it is.
+
 ## 8. Matrix onboarding checklist and platform topology
 
 **Evidence convention.** Claims about existing code are marked **(verified: `path:line`)** and were read in the file on this machine or produced by running the code in this checkout (Node 22). Claims I could not confirm are marked **(ASSUMED)** and carry the check that would confirm them. Nothing marked ASSUMED may become a checklist step's *pass criterion* until it is verified — that distinction is the whole lesson of `supabase_migrations.schema_migrations` next door (`dalatech-english/docs/security-audit-2026-08-23.md:305-331`).

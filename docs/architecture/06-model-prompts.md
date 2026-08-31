@@ -1,3 +1,10 @@
+> **The DDL in this file is superseded.** It was one of eight independently written
+> proposals, and [`09-reconciliation.md`](09-reconciliation.md) arbitrated the twenty-three
+> places they contradicted each other. The schema is
+> [`../schema.md`](../schema.md) + `supabase/migrations/0001_initial_schema.sql`, which
+> is applied and verified; where this file disagrees with either, this file is stale.
+> The reasoning here is still live — it is why the schema is shaped as it is.
+
 ## 6. Model choice per surface and prompt architecture
 
 ### 6.0 What is verified, what is assumed, and what changed under review
