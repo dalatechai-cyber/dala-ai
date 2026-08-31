@@ -156,9 +156,15 @@ shape may have been the real variable.
 **Measured 2026-08-31:** the live Messenger prefix is **11,321 characters / 19,070 bytes /
 66% Cyrillic** (base 7,824 + Messenger addendum 3,497).
 
-**What settles it:** `count_tokens` on that exact prefix, and the approved ~$0.45 bake-off
-(arm D vs arm E). Neither could run in the session that produced this document — no
-`ANTHROPIC_API_KEY` in that environment.
+**What settles it:** `count_tokens` on that exact prefix, and the approved bake-off
+(arm D vs arm E). **Both are now written and ready to run** —
+[`scripts/bakeoff/README.md`](../scripts/bakeoff/README.md). Neither has been run: no
+`ANTHROPIC_API_KEY` in the environment that produced them.
+
+Projected cost is **≈$0.07**, not the ~$0.45 originally budgeted — caching makes the
+repeats nearly free after the first call in each arm. The run refuses before the first
+call if the projection exceeds `--max-usd` (default $0.50) and stops mid-run rather than
+overshooting.
 
 **Why it matters commercially.** At the D-004 floor price the allowable spend is ₮80,000
 ≈ $22.86/month. On estimated numbers a busy salon (~750 conversations, ~4,500 replies)

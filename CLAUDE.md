@@ -90,9 +90,11 @@ each table independently — the last failure of this kind next door was partial
 
 ## Open, and blocking
 
-- **Reception's model is undecided on purpose.** `count_tokens` on the real prefix and the
-  approved bake-off settle it. Do not pin a model or a ceiling before then — see
-  `DECISIONS.md` D-009.
+- **Reception's model is undecided on purpose.** The bake-off that settles it is written
+  and ready: `scripts/bakeoff/README.md`. `--dry-run` is free and answers the decisive
+  question (does the prefix clear Haiku's 4,096-token cache minimum?); the full run is
+  ~$0.07 against a $0.50 ceiling. Needs `ANTHROPIC_API_KEY` and the Matrix-Chatbot
+  checkout. Do not pin a model or a ceiling before it has run — see `DECISIONS.md` D-009.
 - **No revenue path exists.** The platform can spend and cannot collect.
 - **KEK escrow and a second admin** on Meta, Supabase, GitHub and the registrar are not
   done. Losing either is unrecoverable.
