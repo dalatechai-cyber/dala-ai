@@ -1,7 +1,8 @@
 # Dala AI — Architecture
 
-**Status: proposed, for founder review. Nothing is approved and no code has been written.**
-Date: 2026-08-31.
+**Status: approved 2026-08-31. No product code has been written yet.**
+Prices are settled (`DECISIONS.md` D-004); Reception's model is deliberately open pending
+measurement (D-009). Task one is the schema merge described in the Verdict below.
 
 Dala AI is Dalatech's multi-tenant AI-staff platform for Mongolian SMBs. It is a new
 business, separate from Core Language (`dalatech-english`) — shared **lessons only**, zero
@@ -18,9 +19,9 @@ section file; this summary beats nothing — it is a reading aid.
 
 ## Verdict: what this is, and what it is not yet
 
-The design **covers** all eight asks and is deep enough to build from. It is **not yet
-buildable as it stands**, for two reasons found by the review pass, and both are on you to
-resolve before code:
+The design **covers** all eight asks and is deep enough to build from. Two things stand
+between it and the first line of product code — the first is approved work, the second is a
+measurement:
 
 **1. There was no canonical schema.** The eight sections were designed independently and
 invented incompatible versions of the same tables — three names for the channel registry,
@@ -34,27 +35,50 @@ with one answer each, and ends with the canonical table list and env-var list. *
 into a single `schema.md` + `0001_*.sql` is roughly a day of work and is the first task.**
 Until then, every section's DDL is a proposal, not a specification.
 
-**2. The unit economics do not close on Sonnet 5.** Recomputed on one consistent basis
-(9,000-token prefix, 4,500 replies/month, 1h TTL):
+**2. The model choice is a pricing decision, and it is open on purpose.** Prices are now
+settled (`DECISIONS.md` D-004), and because the bundle discounts are **hard floors**, every
+ceiling derives from the *discounted* price. Reception inside a full-team bundle is
+₮200,000/month, so at the 60% target margin the allowable model spend is **₮80,000 ≈
+$22.86/month** — that, not ₮250,000, is what the ceiling comes from.
 
-| | $/reply | $/month | ₮/month | Margin @ ₮250,000 | Conversations at the $21.43 ceiling |
+**Measured 2026-08-31:** the live Messenger prefix is **11,321 characters / 19,070 bytes /
+66% Cyrillic** (base 7,824 + Messenger addendum 3,497). At an estimated ~6,300 tokens —
+*an estimate; `count_tokens` has not run* — it clears Haiku's 4,096 minimum comfortably, so
+**both models cache**, and Haiku's half price is real rather than illusory:
+
+| | $/reply (blended) | 4,500 replies/mo | ₮/mo | Margin @ ₮200,000 floor | Conversations still ≥60% |
 |---|---:|---:|---:|---:|---:|
-| **Sonnet 5** | $0.0113 | $50.85 | ₮178,000 | **29%** | 316/mo |
-| **Haiku 4.5** | $0.0057 | $25.46 | ₮89,100 | **64%** | 631/mo |
+| **Sonnet 5** | ~$0.0090 | ~$40.64 | ~₮142,000 | **29%** | ~420/mo |
+| **Haiku 4.5** | ~$0.0045 | ~$20.34 | ~₮71,000 | **64%** | ~840/mo |
 
-At 750 conversations a month the flagship tenant is a **29%-margin loss-maker** against a
-ceiling that would stop the bot mid-Saturday. §5 set the $25 ceiling from the *low* volume
-estimate while every other number used the high one, and its cache-write multiplier (1.25×)
-is the 5-minute rate — **Matrix runs a 1-hour TTL, where the multiplier is 2×.**
+So Sonnet clears the 60% target only up to roughly **420 conversations a month** and Haiku
+to roughly **840**. A *successful* salon is exactly where Sonnet stops being profitable —
+which is the wrong direction for a failure to point. Settled by `count_tokens` plus the
+approved ~$0.45 bake-off (arm D vs E), not by argument.
 
-**So the model choice is the pricing decision, and it is currently unmade.** Either
-Reception ships on Haiku 4.5 and the ₮250,000 plan works, or the plan is ₮400,000+, or the
-ceiling is $50. That is your call, not an engineering one — and it should be made on the
-bake-off's arm D vs arm E, not on either section's assumption.
+**The third lever, measured — and it is the biggest one.** Only **24%** of the prefix is
+the tenant's own knowledge; **64% is platform instruction identical across every tenant**:
 
-**Three free measurements settle most of this** and should happen before anything is built:
-`messages.count_tokens` on the rendered Matrix prompt; one production `usage` line from the
-ancestor's existing log (`salonBrain.js:249-253`); and the arm D/E comparison (~$0.45).
+| Category | chars | share |
+|---|---:|---:|
+| Platform instruction (channel guide 2,725 · price rules 1,849 · answer guide 1,342 · language rules 856) | ~7,266 | **64%** |
+| Few-shot examples | 873 | 8% |
+| Tenant knowledge (price list 1,249 · FAQ 648 · team 295 · contact 255 · intro 300) | ~2,747 | **24%** |
+
+Three consequences, in rising order of value:
+
+1. **The price rules, the answer guide and the boundary gate overlap.** The Ш1–Ш6 gate
+   subsumes much of what those 3,191 characters say twice. Consolidation is a quality-neutral
+   trim of perhaps 15–25% of the instruction bulk.
+2. **The 873 characters of few-shot examples are a bake-off arm**, not an assumption. The
+   gate may replace what they were doing.
+3. **Order the platform block first and give it its own cache breakpoint**, and it becomes
+   **one cache entry for the whole platform** instead of one per tenant. Worth little at two
+   tenants and a great deal at twenty. This is the single change that most improves
+   multi-tenant economics, and it costs nothing but prompt ordering.
+
+Trimming the prefix moves *both* models' costs before either is chosen — which is why it is
+worth doing before the bake-off, not after.
 
 ---
 
@@ -790,10 +814,11 @@ independently of anything here — and the same shape is the sibling's P1-1 find
 
 ## 11. Open questions — your call, not mine
 
-1. **Per-agent prices.** The margin-floor formula needs a price per role and a target gross
-   margin. ₮250,000/month and 70% are placeholders I invented to make the arithmetic
-   concrete.
-2. **The six starting ceilings** in §6.3 — all placeholders derived from assumed volumes.
+1. ~~Per-agent prices and target margin.~~ **Settled 2026-08-31** — see `DECISIONS.md`
+   D-004. Ceilings derive from the *discounted* floor price, because the bundle discounts
+   are hard floors.
+2. **The six starting ceilings** in §6.3 — recompute from the D-004 floors once
+   `count_tokens` has run; they were derived from assumed volumes and a wrong prefix size.
 3. **Does Matrix's booking site preserve a query parameter?** Ten minutes with a browser,
    and it decides whether Analytics can ever reach Tier B for tenant #1.
 4. **Meta re-verification** from an unblocked network, especially: what `entry[].id`
@@ -815,15 +840,16 @@ independently of anything here — and the same shape is the sibling's P1-1 find
 
 **This week, before any code — all cheap, and three of them change the design:**
 
-1. **Approve or amend this document.** Nothing is built until you do.
-2. **The free measurements**, because they decide the model and therefore the price:
-   `count_tokens` on the rendered Matrix prompt; one production `usage` line from
-   `salonBrain.js:249-253`; and whether Matrix's booking site preserves a query parameter
-   (ten minutes with a browser — it decides whether Analytics can ever reach Tier B).
-3. **KEK escrow and a second admin** on the Meta portfolio, Supabase, GitHub and the
+1. ~~Approve or amend this document.~~ **Approved 2026-08-31.**
+2. ~~Close the ancestor's open `/api/chat` proxy.~~ **Patched** —
+   `dalatechai-cyber/Matrix-Chatbot#26`, pending merge and deploy.
+3. **The measurements**, because they decide the model and therefore every ceiling:
+   `count_tokens` on the rendered prefix and the approved ~$0.45 bake-off. Neither could
+   run in the session that produced this document — no `ANTHROPIC_API_KEY` in that
+   environment. Also: whether Matrix's booking site preserves a query parameter (ten
+   minutes with a browser — it decides whether Analytics can ever reach Tier B).
+4. **KEK escrow and a second admin** on the Meta portfolio, Supabase, GitHub and the
    registrar. Thirty minutes; prevents losses that are not recoverable.
-4. **Close the ancestor's open `/api/chat` proxy** — an hour, and it is spending your money
-   right now.
 5. **Meta App Review started**, including the privacy policy, terms and data-deletion
    callback. It is the ~20-day long pole and it blocks the cutover.
 
