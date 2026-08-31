@@ -76,11 +76,15 @@ is wrong — make it data.
 
 **Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
 are the schema; the eight section files carry a banner saying their DDL is superseded.
-Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 15/15,
-`isolation.sql` 10/10. **Never applied to a real Supabase project** — none exists.
+Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 18/18,
+`isolation.sql` 10/10, `rls.sql` 8/8. **Never applied to a real Supabase project** —
+none exists.
 
-Before changing it: run `scripts/localvalidate/run.sh`, then both files in
-`scripts/verify/`. Both raise on failure, so a red check fails CI rather than printing.
+Before changing it: run `scripts/localvalidate/run.sh`, then all three files in
+`scripts/verify/`. All raise on failure, so a red check fails CI rather than printing.
+**`rls.sql` is not optional after a policy or grant change** — it runs as `anon` and
+`authenticated`, and it is the only one that distinguishes a policy that works from a
+policy that merely exists. It found three bugs the other two could not.
 Re-run them after any migration touching grants, policies, triggers or seeds, and check
 each table independently — the last failure of this kind next door was partial.
 

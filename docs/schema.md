@@ -14,9 +14,15 @@ Built against PostgreSQL 16.13 and verified by **execution**, not by reading:
 | | |
 |---|---|
 | `supabase/migrations/0001_initial_schema.sql` | applies clean on an empty database |
-| `scripts/verify/catalog.sql` | **15/15 PASS** — and it raises, so CI fails on red |
-| `scripts/verify/isolation.sql` | **10/10 PASS** — behavioural, not structural |
-| `supabase/migrations/0002_knowledge_embeddings.sql` | **not validated** — pgvector is not installed locally. P2; applied when retrieval is switched on |
+| `supabase/migrations/0002_knowledge_embeddings.sql` | applies; `vector(1536)` column + HNSW partial index confirmed present |
+| `scripts/verify/catalog.sql` | **18/18 PASS** — structural. Raises, so CI fails on red |
+| `scripts/verify/isolation.sql` | **10/10 PASS** — behavioural, as superuser |
+| `scripts/verify/rls.sql` | **8/8 PASS** — behavioural, **as `anon` and `authenticated`** |
+
+**The RLS suite is the one that matters most**, and it had to be written separately:
+the catalog pack proves a policy *exists*, and `isolation.sql` runs as superuser, which
+bypasses RLS unconditionally. Only `set role` proves a policy *bites*. It found three
+bugs the other two could not — see below.
 
 No Supabase project exists yet, so none of this has run against one. Supabase is on
 PG17, where Postgres grants an eighth privilege (`MAINTAIN`); the ACL checks read
@@ -113,7 +119,20 @@ The twenty-three conflicts and the shape that won. Full reasoning in
 | 22 | Contact key, message body, states | `(tenant_id, channel_id, external_id)`; one `body` column; six conversation states |
 | 23 | Names and enums | `tenant_channels`, `alerts`, `kb_change_proposals`, `default_locale`, `tenant_booking` + `booking_links` |
 
-## Two things the migration does that reading it would not reveal
+## Client-readable is a separate question from tenant-scoped
+
+67 tables carry a `tenant_id`. **31 are client-readable; 48 are not.** A tenant must
+never read its own spend ledger, its encrypted tokens, raw webhook payloads, quality
+verdicts, consent evidence or the audit trail — all of which carry a `tenant_id`.
+
+`ops.tenant_scope` answers *"what column scopes this table"* (for the spine, purge and
+export). `ops.table_security_class.client_readable` answers *"may the tenant see it"*,
+defaults to **false**, and is an explicit allowlist. V15 and V16 assert both directions.
+
+The read policies are dormant in v1 — there is no tenant login (item 12) — so this is
+what the dashboard *would* show, decided now rather than at the moment it is switched on.
+
+## Five things the migration does that reading it would not reveal
 
 **The ops metadata must be populated before the policy loops.** §10 and §11 are driven
 from `ops.tenant_scope`. On the first run the seed came *after* them, so both loops ran,
@@ -125,14 +144,39 @@ caught only by running the file and counting rows. Section 9.5 now precedes them
 `spend_ledger.reservation_id` and `spend_reservations.webhook_event_id` referenced bare
 parent ids. V14 found them; all three are now composite.
 
+**`FORCE ROW LEVEL SECURITY` broke the SECURITY DEFINER helpers.** FORCE applies RLS to
+the table *owner*, and `app.current_tenant_ids()` / `app.is_platform_admin()` execute as
+the owner — so they read **zero rows** from `tenant_members` and `platform_admins`. Every
+member read returned nothing and every admin check returned false, silently, with a
+policy set that looked perfect. Those two tables are now the documented FORCE exception,
+and V3 asserts the exception *exactly*, so a third table losing FORCE still fails.
+
+**The restrictive write-deny policy was `FOR ALL`, which includes SELECT.** Restrictive
+policies AND with everything else, so `false AND member_read` = false: the schema denied
+**every client read**, not just writes. It fails closed, so nothing was unsafe — but the
+dormant dashboard would never have worked when switched on, and the catalog pack still
+counted a policy on every table. Now three policies per table, one per write command,
+asserted by V17.
+
+**A mechanical grant rule handed tenants their own spend ledger.** Driving reads from
+"has a `tenant_id`" granted SELECT on `spend_ledger`, `tenant_secrets`, `webhook_events`
+and 45 others. Fixed by the allowlist above; V15 asserts it.
+
+All five were found by running the schema. Three of them are invisible to review,
+because in each case the file reads correctly.
+
 ## Verifying
 
 ```bash
 # throwaway cluster; never point this at production
-scripts/localvalidate/run.sh
-psql -d dala_validate -f scripts/verify/catalog.sql     # raises on failure
-psql -d dala_validate -f scripts/verify/isolation.sql   # raises on failure
+scripts/localvalidate/run.sh                            # applies every migration in order
+psql -d dala_validate -f scripts/verify/catalog.sql     # 18 structural checks
+psql -d dala_validate -f scripts/verify/isolation.sql   # 10 behavioural, as superuser
+psql -d dala_validate -f scripts/verify/rls.sql         # 8 behavioural, as anon/authenticated
 ```
+
+All three raise on failure. **Run `rls.sql` after any policy or grant change** — it is
+the only one that can tell a policy that works from a policy that merely exists.
 
 `scripts/localvalidate/shim.sql` recreates just enough of Supabase's `auth` schema and
 roles for `0001` to run offline. **It is never applied to a real project.**
@@ -143,7 +187,8 @@ partial, one of four tables.
 
 ## What is deliberately not here
 
-- **Embeddings** — `0002`, applied when retrieval is switched on per tenant.
+- **Embeddings at launch** — `0002` is validated and applied when retrieval is switched
+  on per tenant; no embeddings are populated.
 - **A tenant-owner login** — the policies exist and are dormant (item 12).
 - **Any SMS transport** — `channel_providers.sms` is seeded `enabled = false` and
   `outbound_policies.sms.per_message_cost_nanousd` is `NULL`, which **refuses**. An
