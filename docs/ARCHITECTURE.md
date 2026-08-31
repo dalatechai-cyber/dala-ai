@@ -9,9 +9,52 @@ shared code, customers, or databases. New Supabase project, new Meta app, new re
 
 This document is the reviewable summary. The full design lives in
 [`docs/architecture/`](architecture/), section by section, with the SQL, the failure
-tables, the Mongolian prompt text and the research notes that back each claim. Where this
-summary and a section file disagree, the section file is the detail and this file is the
-decision.
+tables, the Mongolian prompt text and the research notes that back each claim.
+
+**Precedence:** [`09-reconciliation.md`](architecture/09-reconciliation.md) beats every
+section file; this summary beats nothing — it is a reading aid.
+
+---
+
+## Verdict: what this is, and what it is not yet
+
+The design **covers** all eight asks and is deep enough to build from. It is **not yet
+buildable as it stands**, for two reasons found by the review pass, and both are on you to
+resolve before code:
+
+**1. There was no canonical schema.** The eight sections were designed independently and
+invented incompatible versions of the same tables — three names for the channel registry,
+three spend ledgers with *different concurrency guarantees*, four schemas for the
+deliberate-omission feature, and three signatures for the chokepoint. That is the
+`guardAiRoute()` lesson — one gate, no local re-implementations — violated inside the
+design document itself.
+
+[`09-reconciliation.md`](architecture/09-reconciliation.md) arbitrates all 23 contradictions
+with one answer each, and ends with the canonical table list and env-var list. **Merging it
+into a single `schema.md` + `0001_*.sql` is roughly a day of work and is the first task.**
+Until then, every section's DDL is a proposal, not a specification.
+
+**2. The unit economics do not close on Sonnet 5.** Recomputed on one consistent basis
+(9,000-token prefix, 4,500 replies/month, 1h TTL):
+
+| | $/reply | $/month | ₮/month | Margin @ ₮250,000 | Conversations at the $21.43 ceiling |
+|---|---:|---:|---:|---:|---:|
+| **Sonnet 5** | $0.0113 | $50.85 | ₮178,000 | **29%** | 316/mo |
+| **Haiku 4.5** | $0.0057 | $25.46 | ₮89,100 | **64%** | 631/mo |
+
+At 750 conversations a month the flagship tenant is a **29%-margin loss-maker** against a
+ceiling that would stop the bot mid-Saturday. §5 set the $25 ceiling from the *low* volume
+estimate while every other number used the high one, and its cache-write multiplier (1.25×)
+is the 5-minute rate — **Matrix runs a 1-hour TTL, where the multiplier is 2×.**
+
+**So the model choice is the pricing decision, and it is currently unmade.** Either
+Reception ships on Haiku 4.5 and the ₮250,000 plan works, or the plan is ₮400,000+, or the
+ceiling is $50. That is your call, not an engineering one — and it should be made on the
+bake-off's arm D vs arm E, not on either section's assumption.
+
+**Three free measurements settle most of this** and should happen before anything is built:
+`messages.count_tokens` on the rendered Matrix prompt; one production `usage` line from the
+ancestor's existing log (`salonBrain.js:249-253`); and the arm D/E comparison (~$0.45).
 
 ---
 
@@ -76,28 +119,48 @@ inbound path:
 A constraint makes `lifecycle='active'` with no published config *impossible*, rather than
 merely discouraged.
 
-### 2.2 Channel bindings are the routing registry
+### 2.2 `tenant_channels` is the routing registry
+
+*(Name and shape per the arbitration — the sections proposed four incompatible versions.)*
 
 ```sql
-create table channel_bindings (
+create table tenant_channels (
+  id            uuid primary key default gen_random_uuid(),
   tenant_id     uuid not null references tenants(id),
   provider      text not null references channel_providers(key),
   external_id   text not null,          -- Page ID, or IG professional account ID
-  enabled       bool not null default false,
+  status        text not null,          -- health: pending|probing|active|authorization_error|suspended|offboarded
+  delivery_mode text not null,          -- cutover: off|shadow_routing|shadow|live
   token_status  text not null default 'unprovisioned',
   verified_name text,                   -- fetched live from Graph at onboarding
-  ...
-  unique (provider, external_id),       -- ONE identity → exactly ONE tenant
+  unique (tenant_id, id),               -- enables the composite-FK spine
   constraint enabled_requires_name_confirmation
-    check (not enabled or name_confirmed_at is not null)
+    check (delivery_mode = 'off' or name_confirmed_at is not null)
 );
+
+-- An Instagram channel legitimately has several routing keys (IG user id,
+-- linked Page id, observed entry id), so identity is its own table.
+create table channel_identity (
+  channel_id uuid not null references tenant_channels(id),
+  provider text not null, external_id text not null, active bool not null
+);
+create unique index on channel_identity (provider, external_id) where active;
 ```
 
-`unique (provider, external_id)` is global and unconditional — a disabled binding still
-*reserves* the identity, so moving a Page between tenants is an explicit delete, never an
-accident. Two tenants claiming one Page is structurally impossible; the *attempt* raises
-`23505`, which the admin route translates into "Page 1234 is already bound to
-`matrix-eco`", not a 500.
+The identity index is unique **across all tenants** and partial on `active` — one identity
+routes to exactly one tenant, and a Page transfer is `active=false` plus an insert (recorded
+in `channel_transfers`), never an `UPDATE` in a dashboard editor. Two tenants claiming one
+Page is structurally impossible; the *attempt* raises `23505`, which the admin route
+translates into "Page 1234 is already bound to `matrix-eco`", not a 500.
+
+`status` and `delivery_mode` are **orthogonal, not duplicates**: one is health, the other is
+where the channel sits in the cutover. `shadow_routing` — resolve and persist, never
+generate — is what makes the zero-risk mirror phase cost nothing.
+
+`channel_providers` is a lookup **table**, not a Postgres enum: `alter type … add value`
+cannot run in a transaction with surrounding DDL and cannot be rolled back, and a table
+gives every provider an `enabled` flag — so pausing Instagram platform-wide is a row, not
+a deploy.
 
 `channel_providers` is a lookup **table**, not a Postgres enum: `alter type … add value`
 cannot run in a transaction with surrounding DDL and cannot be rolled back, and a table
@@ -128,17 +191,22 @@ and a clinic that starts empty starts with a bot willing to give a dose.
 Because Dala AI is sold **per agent**, entitlement is per capability, not one plan tier:
 
 ```sql
-create table tenant_capabilities (
+create table roles (key text primary key, enabled bool not null default false);  -- [seed]
+
+create table tenant_roles (
   tenant_id  uuid not null,
-  capability text not null,   -- reception_messenger | reception_instagram |
-  enabled    bool not null,   -- reception_comments | customer_care_sms |
-  price_mnt  numeric,         -- analytics_monthly | quality_review | voice
-  granted_by uuid not null,
-  primary key (tenant_id, capability)
+  role       text not null references roles(key),  -- reception_messenger |
+  state      text not null,   -- reception_instagram | reception_comments |
+  price_mnt  numeric,         -- customer_care_sms | analytics_monthly |
+  granted_by uuid not null,   -- quality_review | voice
+  primary key (tenant_id, role)
 );
 ```
 
-`enabled` has **no default** — onboarding must state it, so a missing row means *not
+*(Named per the arbitration; the sections proposed `tenant_capabilities`, `tenant_roles` and
+a bare capability column. `roles.enabled` is the platform-wide kill switch.)*
+
+`state` has **no default** — onboarding must state it, so a missing row means *not
 entitled* rather than *quietly on*. Each role carries its own price and therefore its own
 margin floor and its own budget slice (§6.2). `quality_review` is opt-in with three values
 — `off | metadata | full` — because a dental clinic will not sign a contract letting the
@@ -210,7 +278,7 @@ are processed inline"* (`api/messenger.js:118-120`). This promotes it to a first
 `GET /me/accounts` returns an **empty list** for Pages owned by a Business Portfolio — the
 trap you named. The token is fetched by Page ID instead, and the whole acquisition runs
 server-side inside one admin transaction: mint the token, `GET /{page-id}?fields=name` to
-capture `verified_name`, envelope-encrypt into `channel_secrets`,
+capture `verified_name`, envelope-encrypt into `tenant_secrets`,
 `POST /{page-id}/subscribed_apps`, insert the binding **disabled**. The founder then
 confirms the fetched Page name before `enabled` flips true.
 
@@ -294,17 +362,26 @@ directions ($2/$10 vs $3/$15) — **$0.00509/message against $0.00764, 33% less.
 no surviving argument for 4.6 on any Dala AI surface. The sibling's *conclusion* is dead;
 its *method* is what we reuse.
 
-**Fact 2 — Haiku's 4,096-token cache minimum is a silent economic cliff.** Below 4,096
-tokens `cache_control` is ignored with no error, detectable only by both
-`cache_creation_input_tokens` and `cache_read_input_tokens` returning 0.
+**Fact 2 — Haiku's 4,096-token cache minimum is a silent economic cliff, and which side of
+it we land on decides the business model.** Below 4,096 tokens `cache_control` is ignored
+with no error, detectable only by both `cache_creation_input_tokens` and
+`cache_read_input_tokens` returning 0.
 
 | System prefix | Haiku 4.5 | Sonnet 5 (85% hit) | Winner |
 |---|---|---|---|
 | 3,400 tokens | **cannot cache** → $0.00502 | caches → $0.00509 | tie (1.4% apart) |
 | 5,500 tokens | caches → $0.00312 | caches → $0.00624 | Haiku, exactly 2× |
 
-At the prefix size Reception actually wants, **Haiku's half-price headline buys nothing** —
-it pays full rate on the prefix every message while Sonnet 5 pays a tenth.
+At a *small* prefix Haiku's half-price headline buys nothing — it pays full rate on the
+prefix every message while Sonnet pays a tenth. But the measured Matrix prompt is **not
+small**: the L0 block alone is 9,441 characters, and the planning figure is **9,000 tokens,
+not the 7,000 §5 assumed.** Well past the cliff, Haiku caches too — and is then simply half
+the price. That is the finding that reopens the model choice and turns it into the pricing
+decision in the Verdict above.
+
+Two arithmetic corrections that fall out of the same review: the **cache-write multiplier is
+2× at a 1-hour TTL** (1.25× is the 5-minute rate), and Matrix runs 1h; and the FX planning
+rate must come from an `fx_rates` row, not a constant — two sections used ₮3,500 and ₮3,600.
 
 **Fact 3 — a live bug in the production Matrix bot, found while reading it.**
 `lib/salonBrain.js:207-224` sends no `thinking` parameter. On `claude-sonnet-5`, omitting it
@@ -319,7 +396,7 @@ it, and it is the cheapest measurement in the whole document.
 
 | Surface | Model | Why |
 |---|---|---|
-| **Reception AI** | `claude-sonnet-5`, thinking **pinned disabled**, `max_tokens: 700`, non-streaming, **zero tools** | Incumbent for a production-observed reason; Haiku within 1.4% at the design prefix; Opus 5 is 2.5×. Thinking disabled explicitly — a two-sentence price answer needs no reasoning, and Fact 3 shows what the default costs. |
+| **Reception AI** | **UNDECIDED — `claude-sonnet-5` vs `claude-haiku-4-5`**, thinking **pinned disabled**, `max_tokens: 700`, non-streaming, **zero tools** | Sonnet 5 is the incumbent for a production-observed reason (`salonBrain.js:16-18`: *"haiku occasionally slips on free-form Mongolian… language quality is customer-facing"*). But see the Verdict above: at the real 9,000-token prefix Haiku is **not** within 1.4% — it is half the cost, and it is the difference between a 29% and a 64% gross margin. **This is now a pricing decision and must be settled by bake-off arm D vs E before a ceiling is set.** Thinking disabled explicitly either way — a two-sentence price answer needs no reasoning, and Fact 3 shows what the default costs. |
 | **Quality layer** | Stage 1 `claude-sonnet-5` triage → Stage 2 `claude-opus-5` deep review, **both on the Batch API** | Internal, no latency constraint, being right beats being cheap. Batch's 50% discount is free money. $3.92/tenant-month vs $14.25 single-stage — but measure single-stage Opus at low effort first before shipping the cascade. |
 | **Analytics AI** | `claude-sonnet-5`, Batch, structured output | ₮48/tenant-month vs ₮119 on Opus. Pick on Mongolian narrative quality; the delta is ₮71. |
 | **Customer Care copy** | `claude-opus-5`, adaptive thinking, high effort, refusal fallbacks on | ~60 drafts/month platform-wide = **$2.55/month total**. Irreversible output to a real phone; no cost argument for anything cheaper. |
@@ -493,7 +570,7 @@ period_start)` makes a double-fire hit a constraint rather than a second bill, a
 with a zero analytics budget still gets a **fully templated** report with no model and no
 spend.
 
-**Voice AI** — a row in `platform_capabilities` with `enabled=false` and no code behind it.
+**Voice AI** — a row in the `roles` seed table with `enabled=false` and no code behind it.
 That is the Phase-4 seam: a row, not a stub.
 
 **Quality layer** — internal, admin-only, never client-facing. Two-stage batch review that
@@ -647,6 +724,70 @@ Meta app is configured, no code has been written.
 
 ---
 
+## 10a. What no section addressed
+
+Full detail: [`10-completeness.md`](architecture/10-completeness.md), which also carries a
+lesson-by-lesson audit of `dalatech-english/CLAUDE.md` marking each one carried, partially
+dropped, or dropped. The dropped ones are named there rather than quietly omitted.
+
+**Blocks starting or blocks launch:**
+
+1. **No canonical schema** — see the Verdict. Arbitrated; the merge is a day's work.
+2. **No build plan and no V1 line.** The eight sections describe several months of work,
+   all of it justified, so nothing is obviously cuttable — and the realistic failure is four
+   months of building before one customer message flows. A proposed ≈4–6 week V1 cut is in
+   the file: Messenger only, no Instagram, no comments, no Quality layer (you reading
+   conversations *is* the Quality layer at two tenants), no Analytics (hand-write the first
+   report), bind tenants by hand.
+3. **The KEK has no backup and there is no break-glass.** A deleted Vercel project or a
+   mistaken `vercel env rm` makes every tenant's page token permanently undecryptable. You
+   are also sole admin of the Meta Business Portfolio, the Supabase org, the registrar and
+   the GitHub org — a well-known way to lose a portfolio permanently. **This is a 30-minute
+   fix and it prevents a loss you cannot undo.**
+4. **No backups, PITR, or a rehearsed restore.** The database is sole authority for spend
+   ceilings, tokens, config and the conversation corpus — which §6 correctly calls the most
+   valuable data this business will ever have, and it is the only copy.
+5. **Meta App Review needs more than permissions:** a privacy policy URL, terms URL, a
+   **Data Deletion Request callback** that nothing designs, an icon, and a public app name.
+   A submission bounced for the missing callback costs a full ~20-day cycle. And if you
+   reuse Matrix's existing app, GS Auto's owner sees *Matrix Chatbot* in an OAuth dialog.
+
+**Blocks the first paying client:**
+
+6. **There is no revenue path.** The platform can spend money and cannot collect it. The
+   ceiling formula takes a subscription price the system does not store; a tenant who stops
+   paying is served indefinitely at your cost, because nothing connects payment state to
+   `tenant_roles.state`. For tenant #1 a bank transfer and a spreadsheet is a fine answer —
+   but say so, and add `paid_through` plus the daily job that suspends on it.
+7. **No tenant contract, and the most likely dispute is unaddressed:** *when the bot quotes
+   a wrong price and a customer demands it be honoured, who pays?* It will happen. Without a
+   written allocation the default is that you eat it, once per tenant per quarter, forever.
+
+**Two `CLAUDE.md` rate-limiter traps were silently dropped** by every section: Upstash's own
+`timeout` option resolves `{success: true, reason: 'timeout'}` — it fails **open** — and the
+Redis client constructor can throw, so it must sit *inside* the `try`. Port
+`src/lib/rateLimit.ts` as **code**, not as a principle.
+
+### One live finding in your production system, unrelated to Dala AI
+
+`Matrix-Chatbot`'s website chatbot is **an open, unauthenticated, effectively unmetered
+Anthropic proxy today.** I verified this by reading the code:
+
+- `lib/cors.js:17` — `originAllowed = allowAnyOrigin || !origin || allowedOrigins.includes(origin)`.
+  A request with **no `Origin` header** — every `curl`, every script, every server-side call
+  — satisfies `!origin` and is allowed **regardless of the allowlist**. If `ALLOWED_ORIGINS`
+  is unset, `allowAnyOrigin` allows everything anyway.
+- `api/chat.js:21` — `if (!cors.allowed) return 403` is the only authorization gate before
+  the Anthropic call.
+- `lib/rateLimiter.js:4` — the limiter is an in-memory `Map`. On serverless it is
+  per-instance, resets on every cold start, and does not limit across concurrent lambdas.
+
+CORS is a *browser* control; it was never an authorization mechanism for a server-side
+endpoint. Anyone who knows the URL can spend your Anthropic credit. Worth an hour this week
+independently of anything here — and the same shape is the sibling's P1-1 finding.
+
+---
+
 ## 11. Open questions — your call, not mine
 
 1. **Per-agent prices.** The margin-floor formula needs a price per role and a target gross
@@ -672,15 +813,32 @@ Meta app is configured, no code has been written.
 
 ## 12. Recommended order from here
 
-1. Approve or amend this document. Nothing is built until you do.
-2. The **ten-minute checks** first, because they change the design: the booking-site query
-   parameter, and one extra log field on the ancestor to settle the thinking/`max_tokens`
-   question (Fact 3, §5.1) — that one may be a live customer-facing bug today.
-3. Meta App Review **started immediately** — it is the long pole and it blocks the cutover.
-4. Then Phase A of the onboarding checklist: the platform stands up with the RLS
-   verification pack green before a single tenant row exists.
+**This week, before any code — all cheap, and three of them change the design:**
+
+1. **Approve or amend this document.** Nothing is built until you do.
+2. **The free measurements**, because they decide the model and therefore the price:
+   `count_tokens` on the rendered Matrix prompt; one production `usage` line from
+   `salonBrain.js:249-253`; and whether Matrix's booking site preserves a query parameter
+   (ten minutes with a browser — it decides whether Analytics can ever reach Tier B).
+3. **KEK escrow and a second admin** on the Meta portfolio, Supabase, GitHub and the
+   registrar. Thirty minutes; prevents losses that are not recoverable.
+4. **Close the ancestor's open `/api/chat` proxy** — an hour, and it is spending your money
+   right now.
+5. **Meta App Review started**, including the privacy policy, terms and data-deletion
+   callback. It is the ~20-day long pole and it blocks the cutover.
+
+**Then, before the first line of product code:**
+
+6. **Merge the reconciliation into one `schema.md` + `0001_*.sql`.** A day. Until it exists
+   there is no schema, only eight proposals.
+7. **Write the build plan with a hard V1 line**, and say explicitly which of the onboarding
+   checklist's steps V1 skips.
+8. **Run bake-off arms D and E** (~$0.45) and settle Reception's model — which settles the
+   plan price and every ceiling downstream of it.
+
+Only then Phase A: the platform stands up with the RLS verification pack green before a
+single tenant row exists.
 
 ---
 
-*Full sections: [`docs/architecture/`](architecture/). Research and verification notes with
-per-claim provenance: [`docs/architecture/00-research-notes.md`](architecture/00-research-notes.md).*
+*Full sections: [`docs/architecture/`](architecture/) — 01–08 by dimension, [09-reconciliation](architecture/09-reconciliation.md) (the arbitration, which wins), [10-completeness](architecture/10-completeness.md) (the gaps + the CLAUDE.md carry-forward audit), and [00-research-notes](architecture/00-research-notes.md) (per-claim provenance).*
