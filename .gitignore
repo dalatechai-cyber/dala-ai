@@ -1,0 +1,18 @@
+node_modules/
+.next/
+.vercel/
+out/
+dist/
+build/
+
+# Secrets never enter the repository. See CLAUDE.md.
+.env
+.env.*
+!.env.example
+
+*.log
+.DS_Store
+.idea/
+.vscode/
+coverage/
+*.tsbuildinfo
