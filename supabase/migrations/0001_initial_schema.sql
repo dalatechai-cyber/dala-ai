@@ -80,6 +80,11 @@ create table ops.table_security_class (
   table_schema  text not null,
   table_name    text not null,
   class         text not null check (class in ('server_owned','tenant_authored','platform_reference','append_only')),
+  -- Scoped-by-tenant and readable-by-that-tenant are DIFFERENT questions, and
+  -- conflating them hands a tenant its own spend ledger. Every tenant-scoped table
+  -- needs a tenant column for the spine, for purge and for export; only a deliberate
+  -- subset is ever client-readable. Default false, allowlist below.
+  client_readable boolean not null default false,
   note          text,
   primary key (table_schema, table_name)
 );
@@ -1483,6 +1488,27 @@ update ops.table_security_class set class = 'platform_reference',
  where table_name in ('channel_providers','roles','canned_response_kinds','outbound_policies',
                       'model_prices','fx_rates','mn_fold','probe_templates','platform_admins');
 
+-- The client-readable allowlist. Everything absent from it is invisible to a client
+-- even though it carries a tenant_id — spend, secrets, raw webhooks, quality verdicts,
+-- consent evidence, audit trails and the config-publish machinery are ours.
+-- Dormant in v1 (there is no tenant login); this decides what the dashboard WOULD show.
+update ops.table_security_class set client_readable = true
+ where table_name in (
+   -- what the business is
+   'tenants','tenant_channels','channel_health','tenant_roles','role_health',
+   -- what it sells
+   'services','service_variants','service_aliases','staff_members','faqs',
+   'business_hours','tenant_closures','contact_points','tenant_booking','deposit_rules',
+   'price_axes','disambiguation_pairs',
+   -- what it has said, and to whom
+   'canned_responses','disclosure_rules','out_of_scope_topics','prompt_examples',
+   'contacts','conversations','messages','handoffs',
+   -- what it earned
+   'analytics_reports','booking_links','link_clicks','attributed_bookings',
+   -- where onboarding got to
+   'onboarding_steps','config_revisions'
+ );
+
 -- ---------------------------------------------------------------------------
 -- 10. Row-level security
 --
@@ -1498,28 +1524,59 @@ update ops.table_security_class set class = 'platform_reference',
 -- append-only triggers are. RLS is the client-facing half.
 -- ---------------------------------------------------------------------------
 
+-- FORCE is applied to every table EXCEPT the two lookup tables the SECURITY DEFINER
+-- helpers read. This exception is load-bearing and was found by running the tests, not
+-- by reading the file:
+--
+--   FORCE makes RLS apply to the table OWNER as well. app.current_tenant_ids() and
+--   app.is_platform_admin() are SECURITY DEFINER, so they execute as the owner — and
+--   with FORCE on their source tables they see ZERO ROWS. Every member read then
+--   returns nothing, and every admin check returns false, silently. The policies look
+--   correct in pg_policies and deny everything.
+--
+-- Excluding these two costs nothing: anon and authenticated still hold no grant on
+-- them and are still bound by the restrictive deny policy, so no client can read
+-- membership or the admin list directly. Only the owner — which is superuser and
+-- bypasses RLS regardless — gains anything.
 do $$
-declare r record;
+declare
+  r record;
+  definer_sources constant text[] := array['tenant_members','platform_admins'];
 begin
   for r in select tablename from pg_tables where schemaname = 'public'
   loop
     execute format('alter table public.%I enable row level security', r.tablename);
-    execute format('alter table public.%I force row level security', r.tablename);
+    if not (r.tablename = any (definer_sources)) then
+      execute format('alter table public.%I force row level security', r.tablename);
+    end if;
   end loop;
 end $$;
 
--- Every table gets a RESTRICTIVE deny-writes policy. Restrictive policies AND with
+-- Every table gets RESTRICTIVE deny-WRITE policies. Restrictive policies AND with
 -- everything else, so no permissive policy added later can grant a client write by
 -- accident. Ownership RLS alone would be insufficient anyway: it checks who a row
 -- belongs to, never what it says, which is how a user once wrote themselves a band-9.
+--
+-- THREE policies, one per write command, and NOT a single `for all`. `for all`
+-- includes SELECT, so a restrictive `using (false)` over ALL commands ANDs with the
+-- permissive read policy and denies every client read too. That is a silent
+-- fail-closed: it looks like a working policy set, the catalog pack still counts a
+-- policy on every table, and the dormant dashboard would never have worked when it
+-- was switched on. Found by querying as the role, not by reading the file.
 do $$
 declare r record;
 begin
   for r in select tablename from pg_tables where schemaname = 'public'
   loop
     execute format(
-      'create policy %I on public.%I as restrictive for all to anon, authenticated using (false) with check (false)',
-      r.tablename || '_no_client_writes', r.tablename);
+      'create policy %I on public.%I as restrictive for insert to anon, authenticated with check (false)',
+      r.tablename || '_no_client_insert', r.tablename);
+    execute format(
+      'create policy %I on public.%I as restrictive for update to anon, authenticated using (false) with check (false)',
+      r.tablename || '_no_client_update', r.tablename);
+    execute format(
+      'create policy %I on public.%I as restrictive for delete to anon, authenticated using (false)',
+      r.tablename || '_no_client_delete', r.tablename);
   end loop;
 end $$;
 
@@ -1535,7 +1592,9 @@ begin
   for r in
     select ts.table_name, ts.tenant_column
       from ops.tenant_scope ts
-     where ts.table_schema = 'public'
+      join ops.table_security_class sc
+        on sc.table_schema = ts.table_schema and sc.table_name = ts.table_name
+     where ts.table_schema = 'public' and sc.client_readable
   loop
     execute format(
       'create policy %I on public.%I as permissive for select to authenticated using (%I in (select app.current_tenant_ids()))',
@@ -1563,7 +1622,12 @@ revoke all on all functions in schema app from anon;
 do $$
 declare r record;
 begin
-  for r in select table_name from ops.tenant_scope where table_schema = 'public'
+  for r in
+    select ts.table_name
+      from ops.tenant_scope ts
+      join ops.table_security_class sc
+        on sc.table_schema = ts.table_schema and sc.table_name = ts.table_name
+     where ts.table_schema = 'public' and sc.client_readable
   loop
     execute format('grant select on public.%I to authenticated', r.table_name);
   end loop;

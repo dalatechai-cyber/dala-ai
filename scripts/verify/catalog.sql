@@ -37,9 +37,13 @@ insert into _v select 'V2', 'RLS enabled on every public table',
   from pg_class c join pg_namespace n on n.oid = c.relnamespace
  where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity;
 
--- V3 — RLS also FORCED, so the table owner is bound too.
-insert into _v select 'V3', 'RLS forced on every public table',
-  coalesce(string_agg(c.relname, ', '), 'none missing'), count(*) = 0
+-- V3 — RLS also FORCED, so the table owner is bound too — except the two lookup
+-- tables the SECURITY DEFINER helpers read, where FORCE would make those helpers
+-- return zero rows and silently deny every member read. The exception is asserted
+-- exactly, so a third table quietly losing FORCE still fails this check.
+insert into _v select 'V3', 'RLS forced everywhere except the two definer sources',
+  coalesce(string_agg(c.relname, ', '), 'exactly as expected'),
+  coalesce(array_agg(c.relname::text order by c.relname::text), '{}'::text[]) = array['platform_admins','tenant_members']::text[]
   from pg_class c join pg_namespace n on n.oid = c.relnamespace
  where n.nspname = 'public' and c.relkind = 'r' and not c.relforcerowsecurity;
 
@@ -163,6 +167,41 @@ insert into _v select 'V14', 'tenant-scoped FKs carry tenant_id',
      select coalesce(bool_or(a.attname = 'tenant_id'), false)
        from unnest(con.conkey) k join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k
    );
+
+-- V15 — authenticated holds SELECT ONLY on tables deliberately marked client-readable.
+-- This is the check that catches a mechanical "has a tenant_id, therefore grant it"
+-- rule handing a tenant its own spend ledger, secrets or raw webhook payloads.
+insert into _v select 'V15', 'no client grant on non-readable tables',
+  coalesce(string_agg(distinct c.relname, ', '), 'none over-granted'), count(*) = 0
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+  cross join lateral aclexplode(c.relacl) a
+  join pg_roles r on r.oid = a.grantee
+  join ops.table_security_class sc on sc.table_schema='public' and sc.table_name = c.relname
+ where r.rolname = 'authenticated' and not sc.client_readable;
+
+-- V16 — and every client-readable table actually HAS its read policy. The inverse of
+-- V15, and the check that catches the seeding-order failure: loops that run, succeed
+-- and create nothing.
+insert into _v select 'V16', 'every client-readable table has a read policy',
+  coalesce(string_agg(sc.table_name, ', '), 'all present'), count(*) = 0
+  from ops.table_security_class sc
+ where sc.table_schema = 'public' and sc.client_readable
+   and not exists (select 1 from pg_policies p
+                    where p.schemaname='public' and p.tablename = sc.table_name
+                      and p.policyname = sc.table_name || '_member_read');
+
+-- V17 — the restrictive write-deny policies exist per command. A single `for all`
+-- restrictive policy would also deny SELECT and silently break every client read.
+insert into _v select 'V17', 'write-deny policies are per-command, not FOR ALL',
+  coalesce(string_agg(c.relname, ', '), 'all correct'), count(*) = 0
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace and n.nspname='public' and c.relkind='r'
+ where (select count(*) from pg_policies p
+         where p.schemaname='public' and p.tablename=c.relname
+           and p.policyname in (c.relname||'_no_client_insert',
+                                c.relname||'_no_client_update',
+                                c.relname||'_no_client_delete')) <> 3;
 
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned

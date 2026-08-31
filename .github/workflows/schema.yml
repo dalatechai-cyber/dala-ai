@@ -1,0 +1,56 @@
+# Runs the schema's own verification against a real PostgreSQL, on every change to
+# the migrations or the suites.
+#
+# This exists because validation only one person can perform is not durable
+# validation. The reconciliation requires the pack to run for any `supabase/` PR,
+# and the three suites raise rather than print, so a red check fails the job
+# instead of printing a table nobody reads.
+name: schema
+
+on:
+  pull_request:
+    paths: ['supabase/**', 'scripts/**', '.github/workflows/schema.yml']
+  push:
+    branches: [main]
+    paths: ['supabase/**', 'scripts/**', '.github/workflows/schema.yml']
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # pgvector image so 0002 is exercised too, rather than assumed.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres
+          # C.UTF-8, never C/POSIX: lower() on Cyrillic under C returns the string
+          # unchanged, silently. V0 asserts this, so getting it wrong here fails.
+          POSTGRES_INITDB_ARGS: '--locale=C.UTF-8'
+        ports: ['5432:5432']
+        # -U postgres, not bare pg_isready: the probe otherwise connects as the
+        # runner's OS user (root), which does not exist in the cluster. It still
+        # reports the server up — pg_isready treats an auth error as "responding" —
+        # so the gate passes while logging FATAL three times. A readiness check that
+        # is green for the wrong reason is the thing this repository keeps finding.
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Apply migrations and run all three suites
+        run: ./scripts/verify/run-all.sh dala_ci
+
+      - name: Confirm the schema is on PostgreSQL, not on trust
+        if: always()
+        run: psql -d postgres -tAc "select version();"

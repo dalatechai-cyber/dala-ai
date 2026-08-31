@@ -76,19 +76,25 @@ is wrong — make it data.
 
 **Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
 are the schema; the eight section files carry a banner saying their DDL is superseded.
-Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 15/15,
-`isolation.sql` 10/10. **Never applied to a real Supabase project** — none exists.
+Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 18/18,
+`isolation.sql` 10/10, `rls.sql` 8/8. **Never applied to a real Supabase project** —
+none exists.
 
-Before changing it: run `scripts/localvalidate/run.sh`, then both files in
-`scripts/verify/`. Both raise on failure, so a red check fails CI rather than printing.
+Before changing it: run `scripts/localvalidate/run.sh`, then all three files in
+`scripts/verify/`. All raise on failure, so a red check fails CI rather than printing.
+**`rls.sql` is not optional after a policy or grant change** — it runs as `anon` and
+`authenticated`, and it is the only one that distinguishes a policy that works from a
+policy that merely exists. It found three bugs the other two could not.
 Re-run them after any migration touching grants, policies, triggers or seeds, and check
 each table independently — the last failure of this kind next door was partial.
 
 ## Open, and blocking
 
-- **Reception's model is undecided on purpose.** `count_tokens` on the real prefix and the
-  approved bake-off settle it. Do not pin a model or a ceiling before then — see
-  `DECISIONS.md` D-009.
+- **Reception's model is undecided on purpose.** The bake-off that settles it is written
+  and ready: `scripts/bakeoff/README.md`. `--dry-run` is free and answers the decisive
+  question (does the prefix clear Haiku's 4,096-token cache minimum?); the full run is
+  ~$0.07 against a $0.50 ceiling. Needs `ANTHROPIC_API_KEY` and the Matrix-Chatbot
+  checkout. Do not pin a model or a ceiling before it has run — see `DECISIONS.md` D-009.
 - **No revenue path exists.** The platform can spend and cannot collect.
 - **KEK escrow and a second admin** on Meta, Supabase, GitHub and the registrar are not
   done. Losing either is unrecoverable.
