@@ -1,0 +1,31 @@
+{
+  "name": "dala-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dalatech's multi-tenant AI staff platform for Mongolian SMBs.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"src/**/*.test.ts\" \"scripts/bakeoff/test/*.test.mjs\"",
+    "guard": "node scripts/guards/check-supabase-nostore.mjs && node scripts/guards/check-env-example.mjs && node scripts/guards/check-no-ceiling-env.mjs && node scripts/guards/check-cyrillic-matchers.mjs",
+    "check": "npm run guard && npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.112.4",
+    "@upstash/qstash": "2.7.17",
+    "next": "16.3.4",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "20.16.10",
+    "@types/react": "18.3.11",
+    "typescript": "5.6.2"
+  }
+}
