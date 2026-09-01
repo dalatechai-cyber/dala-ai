@@ -141,74 +141,68 @@ a tenant believes the rest of it.
 
 ---
 
-## D-009 — Reception's model is OPEN, pending measurement
+## D-009 — Reception runs Sonnet 5. No Haiku for customer-facing Mongolian prose.
 
-**Not settled, deliberately.** Do not pin a model, and do not set a spend ceiling that
-assumes one.
+**Settled 2026-08-31, by measurement and native-speaker review.**
 
-**What is known.** Sonnet 5 is both newer and cheaper than the Sonnet 4.6 the Core Language
-bake-off chose, so that verdict is superseded, not inherited. The incumbent Messenger bot
-runs Sonnet 5 for a production-observed reason (`salonBrain.js:16-18`: *"haiku occasionally
-slips on free-form Mongolian… language quality is customer-facing"*) — real evidence, but
-it predates the boundary-gate technique, and the sibling's own measurement suggests prompt
-shape may have been the real variable.
+`claude-sonnet-5`, `prompt_cache_mode = '1h'`, thinking pinned off, `max_tokens: 700`,
+non-streaming, zero tools.
 
-**Measured 2026-08-31:** the live Messenger prefix is **11,321 characters / 19,070 bytes /
-66% Cyrillic** (base 7,824 + Messenger addendum 3,497).
+**The rule, stated so it generalises past this one choice:**
 
-### Round 1 — run by the founder, unhardened. Still OPEN.
+> **No Haiku for customer-facing Mongolian prose.** Haiku 4.5 remains eligible for
+> internal and structured work — batch triage, classification, extraction, anything whose
+> output is a row rather than a sentence a customer reads.
 
-**Native-speaker verdict: Haiku's Mongolian is broken; Sonnet is clean throughout.**
-Confirmed errors: «баригдлаа» (booking_confirm r2), «үнэ цэнэтэй үнэлэмж» and «яснаа»
-(health_question r2), «манайн» for «манай» (staff_availability r2) — and on the abuse
-probe Haiku opened with a cheerful «Сайн байна уу! 😊» self-introduction instead of
-acknowledging the customer.
+**Why.** Two bake-off rounds on the real prefix and the six seeded probes.
 
-**One reported price was checked and is exonerated.** Haiku quoted a 20,000₮
-master-stylist deposit on `staff_availability` r3. That number is **real and grounded**:
-`systemPromptBuilder.js:148` sets «Мастер үсчин: 20,000₮ урьдчилгаа», and
-`currentClient.js:18` lists Оюунсүрэн as a «Мастер үсчин». It is not a hallucination.
+*Round 1, unhardened.* Native-speaker verdict: Haiku's Mongolian broken, Sonnet clean.
+Errors included «баригдлаа», «үнэ цэнэтэй үнэлэмж», «яснаа», «манайн» for «манай», and on
+the abuse probe a cheerful «Сайн байна уу! 😊» self-introduction instead of an
+acknowledgement.
 
-It is, however, a **relevance** failure, and a known one: the ancestor's own rule
-(`salonBrain.js:94`) fires deposit information only on *expressed booking intent*, and
-commit `df72418` exists specifically to stop a schedule question producing an
-Оюунсүрэн-deposit reply. Haiku reproduced a bug the ancestor already fixed. The hardening
-block therefore carries an explicit «цагийн хуваарь ≠ цаг захиалга» rule.
+*Round 2, hardened* — the M0 precedent applied in full: rules written in Mongolian naming
+each observed wrong form with a worked wrong-example. **Haiku was still broken.** New
+nonwords appeared (сөнөө, жирэмсэнцүүд, САЙХНААР сувьд) and «манайн» **recurred despite
+being named in the block with a corrected example**.
 
-**A gate of mine was too narrow, which is why this needed a human to catch.** The numeral
-check watched only the children's-haircut probe. It now runs on **every** probe: any
-number in a reply that does not appear in the prefix is flagged as ungrounded. Verified it
-does not flag the real 20,000₮ deposit.
+That last detail is the finding. The M0 technique works — it is what fixed Core English —
+and it did not work here, so the constraint is not the prompt. **It is a fluency ceiling.**
+A rule cannot teach a model a language it does not have; naming a wrong form only helps a
+model that can produce the right one. Hardening buys behaviour, not competence.
 
-### Round 2 — hardened, not yet run
+**What it costs — superseded by [D-016](#d-016--matrixs-real-traffic-is-41-of-the-assumed-volume-and-reception-clears-60-at-it).**
+The paragraph below is left as written, per this file's convention. Its arithmetic was
+correct; its *volume input* was not. At Matrix's measured traffic the margin is **71%**,
+not 29%, and Reception clears the 60% target.
 
-Per the M0 precedent, [`hardening-mn.txt`](../scripts/bakeoff/hardening-mn.txt) adds
-Mongolian-quality and misbehaviour rules **written in Mongolian**, naming each observed
-wrong form above with a worked wrong-example. Run with `--harden`.
+**What it costs.** Sonnet is roughly 2× Haiku per reply: **29% gross margin against a 60%
+target** at the volume a successful salon produces. That number is recorded honestly rather
+than smoothed. The recovery path is [`prefix-trim.md`](prefix-trim.md), which is worth
+doing and — stated plainly there — **does not reach 60% on its own**. The remaining levers
+are commercial: price, target margin, or the volume band a ₮250,000 plan is sold against.
 
-**The decision rule, fixed before the run so the result cannot be rationalised:**
-- Hardened Haiku's Mongolian reads clean to the founder → **Haiku wins on economics**
-  (64% margin vs 29%).
-- Still broken → **Sonnet is Reception's model**, the 29% margin is recorded honestly, and
-  the prefix-trim work becomes the margin-recovery path.
+**What shipped from the hardening.** Only the relevance rule («цагийн хуваарь ≠ цаг
+захиалга») and the abuse response, in `prompts/platform/reception-mn.txt`. The
+Mongolian-fluency rules did **not** ship: they were written to correct Haiku, Sonnet was
+clean without them, and carrying rules for a model you do not run costs tokens on every
+message and buys nothing. They stay as evidence in `scripts/bakeoff/hardening-mn.txt`.
 
-**What settles it:** `count_tokens` on that exact prefix, and the bake-off
-(arm D vs arm E). **Both are written and ready to run** —
-[`scripts/bakeoff/README.md`](../scripts/bakeoff/README.md). Neither has been run: no
-`ANTHROPIC_API_KEY` in the environment that produced them.
+The forbidden phrasings Haiku produced are deliberately **not** seeded into
+`forbidden_phrasings` as runtime guards. They are evidence for this decision, not observed
+failures of the model that ships — seeding them would be guarding against a model that is
+not running.
 
-Projected cost is **≈$0.07**, not the ~$0.45 originally budgeted — caching makes the
-repeats nearly free after the first call in each arm. The run refuses before the first
-call if the projection exceeds `--max-usd` (default $0.50) and stops mid-run rather than
-overshooting.
-
-**Why it matters commercially.** At the D-004 floor price the allowable spend is ₮80,000
-≈ $22.86/month. On estimated numbers a busy salon (~750 conversations, ~4,500 replies)
-costs roughly ₮142,000 on Sonnet 5 and ₮71,000 on Haiku 4.5 — **29% margin against 64%.**
-Sonnet clears the 60% target only up to roughly 420 conversations a month; Haiku clears it
-to roughly 840. So the model choice decides whether a *successful* tenant is profitable.
-That is a pricing decision wearing an engineering hat, and it gets measured rather than
-argued.
+**One measurement that survives.** The numeral gate had a false positive: the allowed set
+was built from unstripped text, where «+976 7741 7777» collapses into a single 11-digit
+run, while replies were checked stripped — leaving a bare `976` that was not in the set, so
+any reply quoting the international number was flagged as inventing a figure. Fixed on both
+sides, with 976 exempt universally rather than because one tenant's contact block happens
+to contain it. Pinned by `scripts/bakeoff/test/gate.test.mjs`, which also pins the gate's
+**known limit**: it asks whether a number appears in the prefix, not whether it is the right
+number for the question — a children's haircut quoted at 30,000₮ passes, because 30,000₮ is
+a real price for a hand spa. The `price_unlisted` probe's stricter no-number-at-all rule is
+what covers that, and that is why it exists.
 
 ---
 
@@ -279,3 +273,177 @@ pins `thinking: {type:'disabled'}` and sizes `max_tokens` for the reply alone.
 measuring rather than shipping blind, and every hour spent on the ancestor is an hour not
 spent on the thing that replaces it. The exception was the origin-policy hole, which was
 live unmetered spend and could not wait.
+
+---
+
+## D-015 — Reception is sold against a conversation band, not unmetered
+
+**Settled 2026-09-01 by the founder**, resolving the collision between D-004's ceiling
+rule and D-009's model choice.
+
+**The band: 400 conversations/month included** in Reception's price. Beyond it, the
+existing degradation ladder applies — no new mechanism.
+
+**Why a band rather than a new ceiling.** The ceiling is unchanged and D-004's formula is
+untouched: ₮80,000 ≈ **$22.86/month**. What changes is *what is promised against it*. At
+the measured Sonnet 5 cost of ~$0.0090/reply and the design's own A7 = 6 messages per
+conversation, $22.86 buys **2,540 replies ≈ 423 conversations**. Selling "unlimited" against
+a ceiling that affords 423 was the contradiction; selling 400 removes it. The hard floor
+stays hard, and the ceiling stops being a promise the platform cannot keep.
+
+400 rather than 423 is deliberate headroom: a tenant at exactly the band should not be
+skating its own ceiling.
+
+**Overage is the degradation ladder, not an invoice.** At the band the tenant enters
+state 2 (§5.7): deterministic shortcuts still answer location, hours and greetings, canned
+refusals still answer, and anything needing the model gets the Mongolian handoff line once
+per conversation. **Billing overage is not designed and must not be**, because no revenue
+path exists yet — the platform can spend and cannot collect (see the open item in
+`CLAUDE.md`). A band that degrades costs nothing to enforce; a band that bills requires
+machinery we do not have.
+
+**The band makes state 1 an upsell trigger.** The 80% soft warn already tells the founder
+and not the customer. With a band, that alert is the signal to sell a bigger plan *before*
+the salon notices anything — which is the direction a limit should point. The price of the
+next band up is not set here.
+
+**What this rests on, and it is the weakest part.** The overshoot that forced this decision
+assumed **750 conversations/month** (`06-model-prompts.md` A8). That figure is a guess, and
+the design does not agree with itself about it — `05-spend-ledger.md` assumes **300–600
+conversations/month at ~5 replies each**. The spread matters enormously:
+
+| Real volume | Monthly spend | vs the $22.86 ceiling |
+|---:|---:|---|
+| 300 conv | $16.20 | 0.71× — comfortably under |
+| 420 conv | $22.68 | 0.99× — exactly at |
+| 600 conv | $32.40 | 1.42× — over |
+| 750 conv | $40.50 | 1.77× — over |
+
+**So Matrix may already be inside the band, and nobody has looked.** The number is
+countable today: `messengerProcess.js:117` in the ancestor logs one line per reply, and
+those logs are in Vercel. The mirror phase (V1 Track 4) measures it properly over 14 days
+before cutover, and it is the same measurement that sets `prompt_cache_mode`.
+
+**This closes an open question five sections asked independently.** `01-tenant-model.md`,
+`02-schema-rls.md`, `03-meta-routing.md`, `06-model-prompts.md` and `08-onboarding.md` each
+end with a variant of *"what is the monthly ceiling, and what happens when it is hit — hard
+stop, canned reply, or overage bill?"*, each noting their own gate cannot be finished
+without it. The answer is: **the number is the band, and the behaviour is `canned`** — state
+2 of the §5.7 ladder, which is what `07-roles-seams.md` already specified (*"Never silence"*)
+and what three of the five recommended. `hard_stop` and `overage_bill` are both rejected:
+the first is a broken product, the second needs a billing relationship that does not exist.
+
+**Therefore 400 is a starting value, not a finding.** It is set now so Track 2.2 has a
+constant to compile, and it is re-derived from real traffic before tenant #1 goes live. If
+the mirror says Matrix runs at 300, the band was never the binding constraint and can be
+raised on evidence.
+
+---
+
+## D-016 — Matrix's real traffic is 41% of the assumed volume, and Reception clears 60% at it
+
+**Measured 2026-09-01** from the ancestor's production Vercel logs, which is what
+[D-015](#d-015--reception-is-sold-against-a-conversation-band-not-unmetered) said to do
+rather than defend 400 from a guess.
+
+### Method, and what it can and cannot support
+
+Counted `/api/messenger-worker` invocations per 24h across **six consecutive days**, all
+on one production deployment (`dpl_2tEqj6Po…`, live since 2026-08-24), grouped
+server-side by request path. The worker is invoked once per queued message, so an
+invocation is one reply attempt.
+
+| | |
+|---|---|
+| Wed 26 Aug | 76 |
+| Thu 27 Aug | 28 |
+| Fri 28 Aug | 81 |
+| Sat 29 Aug | 94 |
+| Sun 30 Aug | 52 |
+| Mon 31 Aug | 32 |
+
+**Mean 60.5/day, range 28–94 — a 3.4× spread.** A single day would have been badly
+misleading: the first day sampled was 32, which extrapolates to less than half the
+six-day mean.
+
+**Invocations are an upper bound on model calls.** QStash retries and the `mid` dedupe
+both re-invoke the worker without reaching the model, so true spend is at or below every
+figure here. The bound errs in the safe direction.
+
+### The result
+
+| | Assumed (A8) | **Measured** |
+|---|---:|---:|
+| replies/month | 4,500 | **~1,842 (41%)** |
+| model spend/month | $40.50 | **$16.57** |
+| vs the $22.86 ceiling | 1.77× — over | **0.73× — under** |
+| gross margin at the ₮200,000 floor | 29% | **71%** |
+
+**Reception on Sonnet 5 clears the 60% target at Matrix's actual traffic**, with room.
+The 29% figure in D-009 was never wrong arithmetic — it was correct arithmetic on a
+volume assumption 2.4× reality.
+
+### What this does and does not settle
+
+**The margin figure is solid.** Spend depends only on the reply count, which is what was
+measured. 71% does not rest on any unmeasured quantity.
+
+**The conversation figure is not.** 1,842 replies ÷ **A7 = 6 messages per conversation**
+gives ~307 conversations/month — but A7 is still an unmeasured assumption, and at
+05-spend-ledger's ~5 it is ~368 instead. The log line carries the PSID, so distinct
+customers *are* countable, but the full-text query timed out where the aggregate did not.
+**So the band's adequacy is less certain than the margin's**, and anyone re-deriving the
+band should count distinct PSIDs rather than divide by A7.
+
+**A8 = 750 conversations/month is refuted.** `05-spend-ledger.md`'s 300–600 range is
+corroborated, at its lower end. Where the design contradicted itself, the ledger section
+was closer.
+
+### The PSID route was tried and is not viable through the log API
+
+Distinct PSIDs would measure conversations directly and retire A7. Tried 2026-09-01 in
+2-hour windows scoped to the production deployment, with and without the text filter:
+**every window carrying traffic timed out**, and only empty night windows returned. The
+line-level query cannot reach busy periods; only the path-grouped aggregate can. So A7
+stays unmeasured here, deliberately rather than by oversight, and the conversation figure
+above keeps its caveat. It becomes trivial the moment the platform exists — `messages`
+carries the PSID per row — and the mirror phase counts it over 14 real days.
+
+### One thing the single retrieved line did settle: the prefix is 7,955 tokens
+
+The one log line that came back carried `prompt cache: read=0 write=7955 uncached=15`.
+In the ancestor the cached block is exactly the system prompt (`salonBrain.js`, PR #25),
+so that is a **production-observed token count for the 11,321-character prefix** — the
+`count_tokens` figure `ARCHITECTURE.md` had marked as "an estimate; has not run". The
+estimate was ~6,300; the prefix runs at **~1.42 chars/token, not ~1.8**, so it was 26%
+low. Checked: the ancestor checkout differs from production only by the CORS commit,
+which touches no prompt file, and no code-shipped closure was active that day. An
+env-configured closure cannot be ruled out from here and would only make 7,955 an upper
+bound on the base prefix. **No cost figure moves** — the bake-off priced replies from real
+`usage` blocks, which already carried the true count — but every *token estimate* derived
+from chars ÷ 1.8 is low by about a quarter, and `prefix-trim.md` now says so.
+
+Credit where it was earned: `06-model-prompts.md` §6.5 refused the draft's 2.0 chars/token
+as the one density that happened to confirm its conclusion, and predicted **1.2–1.8** for
+this corpus from its `ө ү Ё` share. Measured 1.42 sits inside that range. The section's
+scepticism was right, and it is recorded here so the next density argument starts from a
+measurement rather than a preference.
+
+### The band stays at 400, and here is the case against raising it
+
+Typical traffic sits near 307. But **the busiest single day measured (94), sustained for
+a month, is ~477 conversations — outside the band.** A salon has seasons, and one good
+month can look like the best week. 400 is therefore neither obviously tight nor obviously
+generous, and it is *not* re-derived upward on six days of data.
+
+**Six days is not a month.** It carries weekly shape and no monthly or seasonal shape at
+all, and it is the whole life of the current production deployment, so it cannot be
+extended backwards. The mirror phase's 14 days before cutover remains the measurement
+that sets the band and `prompt_cache_mode`.
+
+### The consequence for prefix-trim.md
+
+[`prefix-trim.md`](prefix-trim.md) was written as *the margin-recovery path* for a
+29%-to-60% gap. **At Matrix's real volume that gap does not exist.** The trim is now
+worth doing for the reason L3 always was — it scales with tenant count — and not to
+rescue this tenant's margin. Reprioritise it accordingly: it is no longer urgent.

@@ -69,6 +69,30 @@ node scripts/bakeoff/run.mjs --ancestor ~/src/Matrix-Chatbot
 node scripts/bakeoff/run.mjs --out results.json   # default bakeoff-results.json
 ```
 
+## Measuring what the prefix is made of
+
+Separate from the bake-off, and free — it makes no API call:
+
+```bash
+node scripts/bakeoff/compose.mjs             # per-section table
+node scripts/bakeoff/compose.mjs --markdown  # regenerates the table in docs/prefix-trim.md
+```
+
+It splits the real prefix on the ancestor's own `=== TITLE ===` delimiters and classifies
+each section as platform, tenant or examples — which is the input to the margin-recovery
+argument in [`docs/prefix-trim.md`](../../docs/prefix-trim.md).
+
+It exists because that figure was typed by hand and drifted: two documents in this repo
+carried two different answers for the same prefix, and neither summed to its own total.
+So the script **throws** on a section it cannot classify rather than bucketing it as
+"other", and asserts the parts sum to the whole. Both of the original errors would now
+stop it instead of producing a plausible table.
+
+**Not wired into CI, deliberately** — it needs the ancestor checkout, which is private, so
+a CI step needing it fails to clone and skips green. That already happened here once. The
+accounting is tested against a synthetic fixture in
+[`test/compose.test.mjs`](test/compose.test.mjs), which does run in CI.
+
 ## What it costs
 
 **Projected ≈ $0.07 at the defaults**, against a $0.50 ceiling — materially less than the

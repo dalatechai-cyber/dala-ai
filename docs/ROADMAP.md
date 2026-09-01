@@ -19,10 +19,11 @@ it is in service of one falsifiable claim: onboarding client #3 is filling in a 
 
 | | Why it is first |
 |---|---|
-| ~~Merge `09-reconciliation.md` into one `schema.md` + `0001_*.sql`~~ **DONE 2026-08-31** — 79 tables, verified by execution (catalog 15/15, isolation 10/10). Never applied to a real project. | Until it existed there was no schema, only eight incompatible proposals (D-013) |
-| `count_tokens` on the real prefix + the approved bake-off | Settles D-009, which every ceiling depends on |
+| ~~Merge `09-reconciliation.md` into one `schema.md` + `0001_*.sql`~~ **DONE 2026-08-31** — 79 tables, verified by execution (catalog 18/18, isolation 10/10, rls 8/8). Never applied to a real project. | Until it existed there was no schema, only eight incompatible proposals (D-013) |
+| ~~`count_tokens` + the bake-off~~ **DONE 2026-08-31** — two rounds, native-speaker reviewed. Sonnet 5 ships; no Haiku for customer-facing Mongolian prose (D-009). ~~Margin 29% vs 60% target~~ — **measured 71% at real traffic (D-016)**, clearing the target; `docs/prefix-trim.md` is reprioritised from margin rescue to multi-tenant scaling. | Settles D-009, which every ceiling depends on |
 | KEK escrow; a second admin on Meta, Supabase, GitHub, the registrar | Losing either is unrecoverable, and it is 30 minutes |
-| Write the V1 cut line | Everything in the design is justified, so nothing is obviously cuttable — which is how four months pass with no customer message flowing |
+| ~~Write the V1 cut line~~ **DONE 2026-08-31**, [`docs/V1.md`](V1.md) — revised 2026-09-01 once D-009 closed | Everything in the design is justified, so nothing is obviously cuttable — which is how four months pass with no customer message flowing |
+| ~~Decide the Reception spend ceiling~~ **DONE 2026-09-01 (D-015)** — sold against a **400 conversation/month band**; the ceiling itself is unchanged | D-004's rule affords ~423 conversations at D-009's measured cost, and Reception was being sold with no stated limit against it. The band removes the mismatch without touching the hard floor. **The 400 rests on a volume guess the design contradicts itself on (750 vs 300–600) — re-derive it from the mirror phase** |
 
 ### 3.1 V1 — the smallest thing that can carry Matrix's Messenger traffic
 
@@ -130,11 +131,14 @@ morning can be removed, and whether ten tenants cost ten times the attention.
   reviewing. At two tenants it is a person; at twenty it cannot be.
 - **Retrieval over the knowledge base**, when a tenant's compiled prompt crosses the named
   size trigger. GS Auto's parts-and-labour catalogue is expected to cross it first.
-- **Platform-shared prompt caching.** Measured 2026-08-31: **64% of the prefix is platform
-  instruction, identical across tenants, and only 24% is tenant knowledge.** Ordering the
-  platform block first, with its own cache breakpoint, makes it one cache entry for the
-  whole platform instead of one per tenant. Worth little at two tenants and a great deal at
-  twenty — which is exactly why it belongs here and not in Phase 3.
+- **Platform-shared prompt caching.** Measured 2026-09-01 by `scripts/bakeoff/compose.mjs`:
+  **61.7% of the prefix is platform instruction, identical across tenants; 30.5% is tenant
+  knowledge.** Ordering the platform block first, with its own cache breakpoint, makes it
+  one cache entry for the whole platform instead of one per tenant. Worth little at two
+  tenants and a great deal at twenty — which is exactly why it belongs here and not in
+  Phase 3. (This line previously read 64%/24%, which was wrong on both sides and
+  disagreed with `docs/prefix-trim.md`; that file records what the error was. Re-run the
+  script rather than editing either number by hand.)
 - **Second-operator readiness.** Everything the break-glass note in Phase 3.0 says a
   delegate cannot do, they should by now be able to do.
 
