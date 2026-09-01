@@ -23,7 +23,7 @@ it is in service of one falsifiable claim: onboarding client #3 is filling in a 
 | ~~`count_tokens` + the bake-off~~ **DONE 2026-08-31** — two rounds, native-speaker reviewed. Sonnet 5 ships; no Haiku for customer-facing Mongolian prose (D-009). Margin 29% vs 60% target; `docs/prefix-trim.md` is the recovery path. | Settles D-009, which every ceiling depends on |
 | KEK escrow; a second admin on Meta, Supabase, GitHub, the registrar | Losing either is unrecoverable, and it is 30 minutes |
 | ~~Write the V1 cut line~~ **DONE 2026-08-31**, [`docs/V1.md`](V1.md) — revised 2026-09-01 once D-009 closed | Everything in the design is justified, so nothing is obviously cuttable — which is how four months pass with no customer message flowing |
-| **Decide the Reception spend ceiling** — [the ceiling contradiction](V1.md#the-ceiling-contradiction) | D-004's rule gives ₮80,000 ≈ $22.86/mo; D-009's model measures $40.50/mo at the assumed volume. **1.77× over.** The ledger fails closed, so as written Reception goes silent ~day 17 of each month. Track 2.2 cannot compile a cap without this number, and it is a commercial call |
+| ~~Decide the Reception spend ceiling~~ **DONE 2026-09-01 (D-015)** — sold against a **400 conversation/month band**; the ceiling itself is unchanged | D-004's rule affords ~423 conversations at D-009's measured cost, and Reception was being sold with no stated limit against it. The band removes the mismatch without touching the hard floor. **The 400 rests on a volume guess the design contradicts itself on (750 vs 300–600) — re-derive it from the mirror phase** |
 
 ### 3.1 V1 — the smallest thing that can carry Matrix's Messenger traffic
 

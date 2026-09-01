@@ -268,3 +268,67 @@ pins `thinking: {type:'disabled'}` and sizes `max_tokens` for the reply alone.
 measuring rather than shipping blind, and every hour spent on the ancestor is an hour not
 spent on the thing that replaces it. The exception was the origin-policy hole, which was
 live unmetered spend and could not wait.
+
+---
+
+## D-015 — Reception is sold against a conversation band, not unmetered
+
+**Settled 2026-09-01 by the founder**, resolving the collision between D-004's ceiling
+rule and D-009's model choice.
+
+**The band: 400 conversations/month included** in Reception's price. Beyond it, the
+existing degradation ladder applies — no new mechanism.
+
+**Why a band rather than a new ceiling.** The ceiling is unchanged and D-004's formula is
+untouched: ₮80,000 ≈ **$22.86/month**. What changes is *what is promised against it*. At
+the measured Sonnet 5 cost of ~$0.0090/reply and the design's own A7 = 6 messages per
+conversation, $22.86 buys **2,540 replies ≈ 423 conversations**. Selling "unlimited" against
+a ceiling that affords 423 was the contradiction; selling 400 removes it. The hard floor
+stays hard, and the ceiling stops being a promise the platform cannot keep.
+
+400 rather than 423 is deliberate headroom: a tenant at exactly the band should not be
+skating its own ceiling.
+
+**Overage is the degradation ladder, not an invoice.** At the band the tenant enters
+state 2 (§5.7): deterministic shortcuts still answer location, hours and greetings, canned
+refusals still answer, and anything needing the model gets the Mongolian handoff line once
+per conversation. **Billing overage is not designed and must not be**, because no revenue
+path exists yet — the platform can spend and cannot collect (see the open item in
+`CLAUDE.md`). A band that degrades costs nothing to enforce; a band that bills requires
+machinery we do not have.
+
+**The band makes state 1 an upsell trigger.** The 80% soft warn already tells the founder
+and not the customer. With a band, that alert is the signal to sell a bigger plan *before*
+the salon notices anything — which is the direction a limit should point. The price of the
+next band up is not set here.
+
+**What this rests on, and it is the weakest part.** The overshoot that forced this decision
+assumed **750 conversations/month** (`06-model-prompts.md` A8). That figure is a guess, and
+the design does not agree with itself about it — `05-spend-ledger.md` assumes **300–600
+conversations/month at ~5 replies each**. The spread matters enormously:
+
+| Real volume | Monthly spend | vs the $22.86 ceiling |
+|---:|---:|---|
+| 300 conv | $16.20 | 0.71× — comfortably under |
+| 420 conv | $22.68 | 0.99× — exactly at |
+| 600 conv | $32.40 | 1.42× — over |
+| 750 conv | $40.50 | 1.77× — over |
+
+**So Matrix may already be inside the band, and nobody has looked.** The number is
+countable today: `messengerProcess.js:117` in the ancestor logs one line per reply, and
+those logs are in Vercel. The mirror phase (V1 Track 4) measures it properly over 14 days
+before cutover, and it is the same measurement that sets `prompt_cache_mode`.
+
+**This closes an open question five sections asked independently.** `01-tenant-model.md`,
+`02-schema-rls.md`, `03-meta-routing.md`, `06-model-prompts.md` and `08-onboarding.md` each
+end with a variant of *"what is the monthly ceiling, and what happens when it is hit — hard
+stop, canned reply, or overage bill?"*, each noting their own gate cannot be finished
+without it. The answer is: **the number is the band, and the behaviour is `canned`** — state
+2 of the §5.7 ladder, which is what `07-roles-seams.md` already specified (*"Never silence"*)
+and what three of the five recommended. `hard_stop` and `overage_bill` are both rejected:
+the first is a broken product, the second needs a billing relationship that does not exist.
+
+**Therefore 400 is a starting value, not a finding.** It is set now so Track 2.2 has a
+constant to compile, and it is re-derived from real traffic before tenant #1 goes live. If
+the mirror says Matrix runs at 300, the band was never the binding constraint and can be
+raised on evidence.
