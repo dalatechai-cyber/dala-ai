@@ -64,32 +64,45 @@ $22.86/month** — that, not ₮250,000, is what the ceiling comes from.
 
 So Sonnet clears the 60% target only up to roughly **420 conversations a month** and Haiku
 to roughly **840**. A *successful* salon is exactly where Sonnet stops being profitable —
-which is the wrong direction for a failure to point. Settled by `count_tokens` plus the
-approved ~$0.45 bake-off (arm D vs E), not by argument.
+which is the wrong direction for a failure to point. **Settled 2026-08-31 by two bake-off
+rounds and native-speaker review: Reception ships on Sonnet 5** (D-009). Haiku's Mongolian
+was broken in both rounds, including after hardening that named its exact wrong forms — a
+fluency ceiling, not a prompt gap. The 29% margin is therefore real and is carried
+honestly; see **the ceiling contradiction** in [`V1.md`](V1.md), which this measurement
+produces and which is a commercial decision, not an engineering one.
 
-**The third lever, measured — and it is the biggest one.** Only **24%** of the prefix is
-the tenant's own knowledge; **64% is platform instruction identical across every tenant**:
+**The third lever, measured — and it is the biggest one.** Under a third of the prefix is
+the tenant's own knowledge; **the majority is platform instruction identical across every
+tenant.** Re-measured 2026-09-01 by `scripts/bakeoff/compose.mjs`, which classifies every
+character and refuses to run on a section it does not recognise:
 
 | Category | chars | share |
 |---|---:|---:|
-| Platform instruction (channel guide 2,725 · price rules 1,849 · answer guide 1,342 · language rules 856) | ~7,266 | **64%** |
-| Few-shot examples | 873 | 8% |
-| Tenant knowledge (price list 1,249 · FAQ 648 · team 295 · contact 255 · intro 300) | ~2,747 | **24%** |
+| Platform instruction | 6,980 | **61.7%** |
+| Tenant knowledge | 3,450 | 30.5% |
+| Few-shot examples | 891 | 7.9% |
+
+Those three sum to 11,321 — the whole prefix. An earlier revision of this table read
+64% / 8% / 24% over ~10,886 characters, which did not sum to the prefix it was measuring;
+`docs/prefix-trim.md` records what was wrong with it and why the figure is now generated
+rather than typed. **Do not hand-edit these numbers** — re-run
+`node scripts/bakeoff/compose.mjs --markdown`.
 
 Three consequences, in rising order of value:
 
 1. **The price rules, the answer guide and the boundary gate overlap.** The Ш1–Ш6 gate
-   subsumes much of what those 3,191 characters say twice. Consolidation is a quality-neutral
+   subsumes much of what those 3,249 characters say twice. Consolidation is a quality-neutral
    trim of perhaps 15–25% of the instruction bulk.
-2. **The 873 characters of few-shot examples are a bake-off arm**, not an assumption. The
+2. **The 891 characters of few-shot examples are a bake-off arm**, not an assumption. The
    gate may replace what they were doing.
 3. **Order the platform block first and give it its own cache breakpoint**, and it becomes
    **one cache entry for the whole platform** instead of one per tenant. Worth little at two
    tenants and a great deal at twenty. This is the single change that most improves
    multi-tenant economics, and it costs nothing but prompt ordering.
 
-Trimming the prefix moves *both* models' costs before either is chosen — which is why it is
-worth doing before the bake-off, not after.
+Trimming the prefix moves the cost of whichever model is chosen, which is why
+[`prefix-trim.md`](prefix-trim.md) is the margin-recovery path now that D-009 has chosen
+one. It states plainly that it **does not close the 29%-to-60% gap on its own.**
 
 ---
 
@@ -431,7 +444,7 @@ it, and it is the cheapest measurement in the whole document.
 
 | Surface | Model | Why |
 |---|---|---|
-| **Reception AI** | **UNDECIDED — `claude-sonnet-5` vs `claude-haiku-4-5`**, thinking **pinned disabled**, `max_tokens: 700`, non-streaming, **zero tools** | Sonnet 5 is the incumbent for a production-observed reason (`salonBrain.js:16-18`: *"haiku occasionally slips on free-form Mongolian… language quality is customer-facing"*). But see the Verdict above: at the real 9,000-token prefix Haiku is **not** within 1.4% — it is half the cost, and it is the difference between a 29% and a 64% gross margin. **This is now a pricing decision and must be settled by bake-off arm D vs E before a ceiling is set.** Thinking disabled explicitly either way — a two-sentence price answer needs no reasoning, and Fact 3 shows what the default costs. |
+| **Reception AI** | **`claude-sonnet-5`** (D-009, settled 2026-08-31), `prompt_cache_mode = '1h'`, thinking **pinned disabled**, `max_tokens: 700`, non-streaming, **zero tools** | The incumbent won, and for the reason `salonBrain.js:16-18` already gave (*"haiku occasionally slips on free-form Mongolian… language quality is customer-facing"*). Two bake-off rounds plus native-speaker review: Haiku's Mongolian was broken in both, and «манайн» recurred in round 2 **despite being named in the hardening block with a corrected worked example** — so it is a fluency ceiling, not a prompt gap. The generalised rule: **no Haiku for customer-facing Mongolian prose**; Haiku 4.5 stays eligible for internal and structured work. The cost is a 29% margin against a 60% target, which is carried honestly rather than smoothed — and which collides with the D-004 ceiling, see [`V1.md`](V1.md). Thinking disabled explicitly — a two-sentence price answer needs no reasoning, and Fact 3 shows what the default costs. |
 | **Quality layer** | Stage 1 `claude-sonnet-5` triage → Stage 2 `claude-opus-5` deep review, **both on the Batch API** | Internal, no latency constraint, being right beats being cheap. Batch's 50% discount is free money. $3.92/tenant-month vs $14.25 single-stage — but measure single-stage Opus at low effort first before shipping the cascade. |
 | **Analytics AI** | `claude-sonnet-5`, Batch, structured output | ₮48/tenant-month vs ₮119 on Opus. Pick on Mongolian narrative quality; the delta is ₮71. |
 | **Customer Care copy** | `claude-opus-5`, adaptive thinking, high effort, refusal fallbacks on | ~60 drafts/month platform-wide = **$2.55/month total**. Irreversible output to a real phone; no cost argument for anything cheaper. |

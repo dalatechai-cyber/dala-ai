@@ -38,10 +38,18 @@ tenant.
 
 ### Corrected 2026-09-01, and why the first numbers were wrong
 
-An earlier revision of this file published **platform 6,823 (60%) · tenant 3,241 (29%)**,
-and `ROADMAP.md` carried a third answer again — **64% / 24%**. Neither was right, and
-the table did not even sum to its own stated total: 10,937 against 11,321, **384
-characters missing**.
+**Three documents carried three different answers** for the same prefix:
+
+| Document | Published | Sums to |
+|---|---|---|
+| this file, earlier revision | platform 6,823 (60%) · tenant 3,241 (29%) | 10,937 — not 11,321 |
+| `ROADMAP.md` | 64% platform / 24% tenant | — |
+| `ARCHITECTURE.md` | 7,266 (64%) · 873 (8%) · 2,747 (24%) | 10,886 — not 11,321 |
+
+None was right, and two of the three did not sum to the prefix they were measuring. The
+third document was found only after the first two were corrected, which is itself the
+argument for generating the figure instead of typing it: a hand-typed number does not
+announce its own copies.
 
 Two causes, both worth naming because both are the same mistake:
 

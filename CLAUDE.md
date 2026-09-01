@@ -95,6 +95,15 @@ each table independently — the last failure of this kind next door was partial
   a prompt gap; hardening that names the wrong forms did not fix it. Haiku stays eligible
   for internal/structured work. Margin is 29% against a 60% target; the recovery path is
   `docs/prefix-trim.md`, which does not close it alone.
+- **The ceiling contradiction — this blocks V1 Track 2.2.** D-004 derives Reception's
+  spend ceiling from the discounted floor: ₮80,000 ≈ **$22.86/month**. D-009's measured
+  Sonnet 5 cost at the assumed 4,500 replies/month is **$40.50** — **1.77× the ceiling**,
+  which the ceiling buys only ~2,540 replies of. The ledger fails closed and reserves
+  before the call, so shipping both as written means **Reception stops replying around
+  day 17 of every month.** Neither decision is wrong; the arithmetic they produce
+  together is. The trim cannot close 1.77×, and reopening D-009 re-opens broken
+  Mongolian. It is a commercial call — options and a recommendation are in
+  [`docs/V1.md`](docs/V1.md#the-ceiling-contradiction). **Do not pick a number here.**
 - **No revenue path exists.** The platform can spend and cannot collect.
 - **KEK escrow and a second admin** on Meta, Supabase, GitHub and the registrar are not
   done. Losing either is unrecoverable.
