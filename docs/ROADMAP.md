@@ -130,11 +130,14 @@ morning can be removed, and whether ten tenants cost ten times the attention.
   reviewing. At two tenants it is a person; at twenty it cannot be.
 - **Retrieval over the knowledge base**, when a tenant's compiled prompt crosses the named
   size trigger. GS Auto's parts-and-labour catalogue is expected to cross it first.
-- **Platform-shared prompt caching.** Measured 2026-08-31: **64% of the prefix is platform
-  instruction, identical across tenants, and only 24% is tenant knowledge.** Ordering the
-  platform block first, with its own cache breakpoint, makes it one cache entry for the
-  whole platform instead of one per tenant. Worth little at two tenants and a great deal at
-  twenty — which is exactly why it belongs here and not in Phase 3.
+- **Platform-shared prompt caching.** Measured 2026-09-01 by `scripts/bakeoff/compose.mjs`:
+  **61.7% of the prefix is platform instruction, identical across tenants; 30.5% is tenant
+  knowledge.** Ordering the platform block first, with its own cache breakpoint, makes it
+  one cache entry for the whole platform instead of one per tenant. Worth little at two
+  tenants and a great deal at twenty — which is exactly why it belongs here and not in
+  Phase 3. (This line previously read 64%/24%, which was wrong on both sides and
+  disagreed with `docs/prefix-trim.md`; that file records what the error was. Re-run the
+  script rather than editing either number by hand.)
 - **Second-operator readiness.** Everything the break-glass note in Phase 3.0 says a
   delegate cannot do, they should by now be able to do.
 

@@ -8,28 +8,59 @@ This is a plan with measured inputs, not a proposal. Nothing here has been appli
 
 ## Measured composition
 
-The live Matrix Reception prefix, 11,321 characters, by section:
+The live Matrix Reception prefix, 11,321 characters. **Re-run it rather than
+trusting this table** — `node scripts/bakeoff/compose.mjs --markdown` regenerates it,
+and the numbers below are that command's output:
 
 | Section | chars | share | class |
 |---|---:|---:|---|
-| СУВГИЙН ЗААВАР (Facebook Messenger) | 2,725 | 24.1% | platform |
-| ҮНИЙН МЭДЭЭЛЭЛ ӨГӨХ ДҮРЭМ | 1,849 | 16.3% | platform |
-| ХАРИУЛАХ ЗААВАР | 1,342 | 11.9% | platform |
-| ҮНИЙН ЖАГСААЛТ | 1,249 | 11.0% | **tenant** |
-| ЖИШЭЭ ЯРИ | 873 | 7.7% | examples |
-| ХЭЛНИЙ ЧАНАРЫН ХАТУУ ДҮРЭМ | 692 | 6.1% | platform |
-| ТҮГЭЭМЭЛ АСУУЛТ | 648 | 5.7% | **tenant** |
-| УРЬДЧИЛГАА ТӨЛБӨРИЙН ДҮРЭМ | 494 | 4.4% | **tenant** |
-| КОМПАНИЙН ТАНИЛЦУУЛГА | 300 | 2.6% | **tenant** |
-| МАНАЙ БАГ | 295 | 2.6% | **tenant** |
-| ХОЛБОО БАРИХ МЭДЭЭЛЭЛ | 255 | 2.3% | **tenant** |
-| ХЭЛНИЙ ДҮРЭМ | 164 | 1.4% | platform |
-| preamble | 51 | 0.5% | platform |
+| СУВГИЙН ЗААВАР (Facebook Messenger) | 2,769 | 24.5% | platform |
+| ҮНИЙН МЭДЭЭЛЭЛ ӨГӨХ ДҮРЭМ | 1,883 | 16.6% | platform |
+| ХАРИУЛАХ ЗААВАР | 1,366 | 12.1% | platform |
+| ҮНИЙН ЖАГСААЛТ | 1,272 | 11.2% | **tenant** |
+| ЖИШЭЭ ЯРИ | 891 | 7.9% | examples |
+| ХЭЛНИЙ ЧАНАРЫН ХАТУУ ДҮРЭМ | 726 | 6.4% | platform |
+| ТҮГЭЭМЭЛ АСУУЛТ | 672 | 5.9% | **tenant** |
+| УРЬДЧИЛГАА ТӨЛБӨРИЙН ДҮРЭМ (цаг авах үед) | 544 | 4.8% | **tenant** |
+| КОМПАНИЙН ТАНИЛЦУУЛГА | 330 | 2.9% | **tenant** |
+| МАНАЙ БАГ | 313 | 2.8% | **tenant** |
+| ХОЛБОО БАРИХ МЭДЭЭЛЭЛ | 285 | 2.5% | **tenant** |
+| ХЭЛНИЙ ДҮРЭМ | 185 | 1.6% | platform |
+| (preamble) | 51 | 0.5% | platform |
+| ҮНИЙН ЖАГСААЛТЫН САН НӨӨЦ | 34 | 0.3% | **tenant** |
 
-**platform 6,823 (60%) · tenant 3,241 (29%) · examples 873 (8%)**
+**platform 6,980 (61.7%) · tenant 3,450 (30.5%) · examples 891 (7.9%)** — and those
+three sum to 11,321, every character of the prefix.
 
-The headline: **less than a third of what Reception pays for on every message is the
-salon's own knowledge.** The rest is instruction that is byte-identical for every tenant.
+The headline: **under a third of what Reception pays for on every message is the
+salon's own knowledge.** The rest is instruction that is byte-identical for every
+tenant.
+
+### Corrected 2026-09-01, and why the first numbers were wrong
+
+An earlier revision of this file published **platform 6,823 (60%) · tenant 3,241 (29%)**,
+and `ROADMAP.md` carried a third answer again — **64% / 24%**. Neither was right, and
+the table did not even sum to its own stated total: 10,937 against 11,321, **384
+characters missing**.
+
+Two causes, both worth naming because both are the same mistake:
+
+1. The measurement counted section *bodies* and dropped the `=== TITLE ===` delimiter
+   lines. Those are real tokens that are really paid for on every message.
+2. `УРЬДЧИЛГАА ТӨЛБӨРИЙН ДҮРЭМ` — 544 characters, the salon's own deposit policy, and
+   therefore **tenant** knowledge — was not in the classification at all, so it fell
+   out of the tenant total silently. That single omission is most of the gap between
+   "24%" and the true 30.5%.
+
+The fix is not a corrected number, because a corrected number typed by hand drifts
+the same way. It is `scripts/bakeoff/compose.mjs`, which **refuses to run** on a
+section it cannot classify and asserts that the parts sum to the whole. Both failures
+above would now be errors rather than a plausible-looking table.
+
+The direction of the original argument survives — platform instruction really is the
+majority of the prefix, and L3 really is the lever that scales. The tenant share being
+30.5% rather than 24% makes the trim slightly *less* promising, not more, and that is
+reflected below.
 
 ## The levers, ranked by value
 
@@ -39,11 +70,11 @@ saving.
 
 ### L3 — platform-first ordering, one shared cache entry — *the big one*
 
-6,823 characters are identical across every tenant. Render them **first**, with their own
+6,980 characters are identical across every tenant. Render them **first**, with their own
 cache breakpoint, and they become **one Anthropic cache entry for the whole platform**
 instead of one per tenant.
 
-Saves nothing at one tenant and roughly `(N−1) × 6,823 chars` of cache-write cost at N
+Saves nothing at one tenant and roughly `(N−1) × 6,980 chars` of cache-write cost at N
 tenants. It changes no wording, so it carries **no quality risk** — which makes it the
 first thing to do, not the last. It requires the compiler to emit platform blocks before
 tenant blocks and to place the breakpoint between them; `prompts/platform/reception-mn.txt`
@@ -51,10 +82,10 @@ is already written to sit there.
 
 ### L1 — consolidate the overlapping instruction blocks
 
-`ҮНИЙН МЭДЭЭЛЭЛ ӨГӨХ ДҮРЭМ` (1,849) and `ХАРИУЛАХ ЗААВАР` (1,342) overlap heavily with
+`ҮНИЙН МЭДЭЭЛЭЛ ӨГӨХ ДҮРЭМ` (1,883) and `ХАРИУЛАХ ЗААВАР` (1,366) overlap heavily with
 each other and with the Ш1–Ш6 boundary gate, which states the same refusals as a
-first-line decision procedure. Pool of 3,191 characters; **assume ~30% removable ≈ 950
-chars (~530 tokens)** until someone reads the two side by side and marks the actual
+first-line decision procedure. Pool of 3,249 characters; **assume ~30% removable ≈ 975
+chars (~540 tokens)** until someone reads the two side by side and marks the actual
 duplication.
 
 Carries real quality risk: these blocks are what keep prices correct. Any cut must be
@@ -62,16 +93,16 @@ validated by the bake-off before shipping.
 
 ### L2 — the few-shot examples
 
-873 characters. The Ш1–Ш6 gate may already do what they were doing. **This is a bake-off
+891 characters. The Ш1–Ш6 gate may already do what they were doing. **This is a bake-off
 arm, not an assumption** — run with and without, compare on the same probes.
 
 ## What NOT to trim
 
-The tenant knowledge (3,241 chars) is the product. `ҮНИЙН ЖАГСААЛТ` at 1,249 characters is
+The tenant knowledge (3,450 chars) is the product. `ҮНИЙН ЖАГСААЛТ` at 1,272 characters is
 the salon's actual price list; cutting it is how a bot starts inventing prices, which is
 the failure mode the entire boundary gate exists to prevent.
 
-The `ХЭЛНИЙ ЧАНАРЫН ХАТУУ ДҮРЭМ` block (692) is tempting now that Sonnet is clean without
+The `ХЭЛНИЙ ЧАНАРЫН ХАТУУ ДҮРЭМ` block (726) is tempting now that Sonnet is clean without
 extra fluency rules — but this block is the *ancestor's* original, written after observed
 production garbling («чадам туслаарай», the invented Russian «дополнительн»). It predates
 this bake-off and was in the prefix for both arms. **Removing it is its own experiment**,
@@ -91,7 +122,7 @@ choice did:
 
 ## Expected recovery, honestly bounded
 
-L1 and L2 together are ~1,800 characters, roughly **16% of the prefix**. Prefix cost is
+L1 and L2 together are ~1,866 characters, roughly **16% of the prefix**. Prefix cost is
 most of the per-reply cost on a cache hit, so the realistic ceiling here is a low-teens
 percentage improvement on Reception spend — that moves 29% margin to somewhere in the low
 30s. **It does not reach 60% on its own.**
