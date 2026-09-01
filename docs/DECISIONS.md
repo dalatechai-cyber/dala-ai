@@ -399,6 +399,36 @@ band should count distinct PSIDs rather than divide by A7.
 corroborated, at its lower end. Where the design contradicted itself, the ledger section
 was closer.
 
+### The PSID route was tried and is not viable through the log API
+
+Distinct PSIDs would measure conversations directly and retire A7. Tried 2026-09-01 in
+2-hour windows scoped to the production deployment, with and without the text filter:
+**every window carrying traffic timed out**, and only empty night windows returned. The
+line-level query cannot reach busy periods; only the path-grouped aggregate can. So A7
+stays unmeasured here, deliberately rather than by oversight, and the conversation figure
+above keeps its caveat. It becomes trivial the moment the platform exists — `messages`
+carries the PSID per row — and the mirror phase counts it over 14 real days.
+
+### One thing the single retrieved line did settle: the prefix is 7,955 tokens
+
+The one log line that came back carried `prompt cache: read=0 write=7955 uncached=15`.
+In the ancestor the cached block is exactly the system prompt (`salonBrain.js`, PR #25),
+so that is a **production-observed token count for the 11,321-character prefix** — the
+`count_tokens` figure `ARCHITECTURE.md` had marked as "an estimate; has not run". The
+estimate was ~6,300; the prefix runs at **~1.42 chars/token, not ~1.8**, so it was 26%
+low. Checked: the ancestor checkout differs from production only by the CORS commit,
+which touches no prompt file, and no code-shipped closure was active that day. An
+env-configured closure cannot be ruled out from here and would only make 7,955 an upper
+bound on the base prefix. **No cost figure moves** — the bake-off priced replies from real
+`usage` blocks, which already carried the true count — but every *token estimate* derived
+from chars ÷ 1.8 is low by about a quarter, and `prefix-trim.md` now says so.
+
+Credit where it was earned: `06-model-prompts.md` §6.5 refused the draft's 2.0 chars/token
+as the one density that happened to confirm its conclusion, and predicted **1.2–1.8** for
+this corpus from its `ө ү Ё` share. Measured 1.42 sits inside that range. The section's
+scepticism was right, and it is recorded here so the next density argument starts from a
+measurement rather than a preference.
+
 ### The band stays at 400, and here is the case against raising it
 
 Typical traffic sits near 307. But **the busiest single day measured (94), sustained for

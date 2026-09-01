@@ -53,9 +53,12 @@ ceiling derives from the *discounted* price. Reception inside a full-team bundle
 $22.86/month** — that, not ₮250,000, is what the ceiling comes from.
 
 **Measured 2026-08-31:** the live Messenger prefix is **11,321 characters / 19,070 bytes /
-66% Cyrillic** (base 7,824 + Messenger addendum 3,497). At an estimated ~6,300 tokens —
-*an estimate; `count_tokens` has not run* — it clears Haiku's 4,096 minimum comfortably, so
-**both models cache**, and Haiku's half price is real rather than illusory:
+66% Cyrillic** (base 7,824 + Messenger addendum 3,497). **7,955 tokens, observed in
+production** — the live deployment logs `prompt cache: write=7955` on a cache-miss turn,
+and that cached block is exactly this system prompt (D-016). The earlier ~6,300 estimate
+was 26% low: this prefix runs at **~1.42 chars/token**, not the ~1.8 assumed. It clears
+Haiku's 4,096 minimum comfortably, so **both models cache**, and Haiku's half price is
+real rather than illusory:
 
 | | $/reply (blended) | 4,500 replies/mo *(assumed; real is ~1,842 — D-016)* | ₮/mo | Margin @ ₮200,000 floor *(at the assumed volume)* | Conversations still ≥60% |
 |---|---:|---:|---:|---:|---:|

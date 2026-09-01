@@ -80,9 +80,11 @@ reflected below.
 
 ## The levers, ranked by value
 
-Token figures use ~1.8 chars/token and are **estimates**. The real numbers are in the
-`usage` blocks of the bake-off results — read them from there before committing to any
-saving.
+Token figures below were first written at ~1.8 chars/token. **Production measures ~1.42**
+(7,955 tokens for the 11,321-char prefix, from the live deployment's own cache-write log
+line — D-016), so every token estimate here is ~26% low; the char figures are exact and
+the shares are unaffected. Read the `usage` blocks of the bake-off results before
+committing to any saving.
 
 ### L3 — platform-first ordering, one shared cache entry — *the big one*
 
@@ -101,7 +103,7 @@ is already written to sit there.
 `ҮНИЙН МЭДЭЭЛЭЛ ӨГӨХ ДҮРЭМ` (1,883) and `ХАРИУЛАХ ЗААВАР` (1,366) overlap heavily with
 each other and with the Ш1–Ш6 boundary gate, which states the same refusals as a
 first-line decision procedure. Pool of 3,249 characters; **assume ~30% removable ≈ 975
-chars (~540 tokens)** until someone reads the two side by side and marks the actual
+chars (~690 tokens at the measured ratio)** until someone reads the two side by side and marks the actual
 duplication.
 
 Carries real quality risk: these blocks are what keep prices correct. Any cut must be
