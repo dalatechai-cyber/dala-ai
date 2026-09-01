@@ -93,18 +93,22 @@ each table independently — the last failure of this kind next door was partial
 - **Reception runs Sonnet 5** (D-009, settled by two bake-off rounds and native-speaker
   review). **No Haiku for customer-facing Mongolian prose** — it is a fluency ceiling, not
   a prompt gap; hardening that names the wrong forms did not fix it. Haiku stays eligible
-  for internal/structured work. Margin is 29% against a 60% target; the recovery path is
-  `docs/prefix-trim.md`, which does not close it alone.
+  for internal/structured work. **The 29% margin figure is superseded** — it assumed
+  4,500 replies/month; measured traffic is 41% of that, so the real margin is **71%**
+  and Reception clears the 60% target (D-016). `docs/prefix-trim.md` is therefore no
+  longer a margin rescue; it matters for scaling across tenants.
 - **Reception is sold against a 400-conversation/month band** (D-015). The ceiling is
-  unchanged — D-004's formula gives ₮80,000 ≈ $22.86/mo — and at ~$0.0090/reply with 6
-  messages per conversation that affords ~423 conversations. Selling no stated limit
-  against it was the contradiction; the band removes it. **Overage is the §5.7
+  unchanged — D-004's formula gives ₮80,000 ≈ $22.86/mo. **Overage is the §5.7
   degradation ladder, never an invoice** — billing overage is undesigned and must stay
-  that way while there is no revenue path. **400 is a starting value, not a finding:** it
-  rests on A8 = 750 conv/mo, a guess that `05-spend-ledger.md` contradicts with 300–600.
-  At 300 Matrix is already comfortably under. The real number is countable today from
-  `messengerProcess.js:117` in the ancestor's Vercel logs, and the mirror phase measures
-  it before cutover. **Re-derive the band from that; do not defend 400.**
+  that way while there is no revenue path.
+- **Matrix's real volume is measured (D-016):** 6 days of production logs, mean 60.5
+  replies/day → ~1,842/month, **41% of the assumed 4,500**. Spend $16.57/mo against a
+  $22.86 ceiling (0.73×), margin **71%**. A8 = 750 conv/mo is refuted;
+  `05-spend-ledger.md`'s 300–600 was closer. **The margin figure rests only on measured
+  replies and is solid. The conversation count still divides by the unmeasured A7 = 6 —
+  count distinct PSIDs instead** (the log line carries them). The band stays at 400: the
+  busiest measured day sustained is ~477 conversations, outside it. Six days carries no
+  seasonal shape; the mirror phase's 14 days still sets the final number.
 - **No revenue path exists.** The platform can spend and cannot collect.
 - **KEK escrow and a second admin** on Meta, Supabase, GitHub and the registrar are not
   done. Losing either is unrecoverable.

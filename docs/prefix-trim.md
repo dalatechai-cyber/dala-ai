@@ -1,8 +1,16 @@
 # Prefix trim — the margin-recovery path
 
-D-009 settled on Sonnet 5, which clears the quality bar and misses the margin one:
-**29% against a 60% target** at the volume a *successful* salon produces. Haiku would have
-closed that gap and cannot, so the gap closes by making the prefix cheaper instead.
+> **Reprioritised 2026-09-01 by D-016.** This document was written as the recovery path
+> for a 29%-to-60% margin gap. That gap was computed at an assumed 4,500 replies/month;
+> **measured traffic is 41% of that, and the real margin is 71%.** There is no gap to
+> recover at Matrix's volume. The trim is still worth doing — for the reason L3 always
+> gave, that it scales with tenant count — but it is **no longer urgent**, and nothing
+> below should be read as rescuing a margin.
+
+D-009 settled on Sonnet 5. At the *assumed* volume that looked like 29% against a 60%
+target, which is why this plan exists; at measured volume it is 71%. What remains true is
+that the prefix is mostly platform instruction, and that paying for it once per tenant
+rather than once per platform is waste that grows with every tenant added.
 
 This is a plan with measured inputs, not a proposal. Nothing here has been applied.
 
@@ -132,12 +140,12 @@ choice did:
 
 L1 and L2 together are ~1,866 characters, roughly **16% of the prefix**. Prefix cost is
 most of the per-reply cost on a cache hit, so the realistic ceiling here is a low-teens
-percentage improvement on Reception spend — that moves 29% margin to somewhere in the low
-30s. **It does not reach 60% on its own.**
+percentage improvement on Reception spend. At the assumed volume that moved 29% into the
+low 30s and did not reach 60% on its own — **but D-016 measured the real volume and the
+margin is already 71%**, so this lever is no longer sized against a gap.
 
 L3 is the one that scales, and it scales with tenant count rather than with wording.
 
-So the honest position: the prefix trim is worth doing, and the margin problem is not
-solved by prompt engineering alone. The other levers are commercial — the price, the
-target margin, or the volume band a ₮250,000 plan is sold against — and those are the
-founder's call, not this document's.
+So the honest position, as revised by D-016: **there is no margin emergency** — Matrix
+runs at 71% against a 60% target. The trim's value is L3's, and L3's value is
+proportional to tenant count, which is 1. Do it before tenant #3, not before tenant #1.

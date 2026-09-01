@@ -57,19 +57,25 @@ $22.86/month** — that, not ₮250,000, is what the ceiling comes from.
 *an estimate; `count_tokens` has not run* — it clears Haiku's 4,096 minimum comfortably, so
 **both models cache**, and Haiku's half price is real rather than illusory:
 
-| | $/reply (blended) | 4,500 replies/mo | ₮/mo | Margin @ ₮200,000 floor | Conversations still ≥60% |
+| | $/reply (blended) | 4,500 replies/mo *(assumed; real is ~1,842 — D-016)* | ₮/mo | Margin @ ₮200,000 floor *(at the assumed volume)* | Conversations still ≥60% |
 |---|---:|---:|---:|---:|---:|
 | **Sonnet 5** | ~$0.0090 | ~$40.64 | ~₮142,000 | **29%** | ~420/mo |
 | **Haiku 4.5** | ~$0.0045 | ~$20.34 | ~₮71,000 | **64%** | ~840/mo |
 
 So Sonnet clears the 60% target only up to roughly **420 conversations a month** and Haiku
-to roughly **840**. A *successful* salon is exactly where Sonnet stops being profitable —
-which is the wrong direction for a failure to point. **Settled 2026-08-31 by two bake-off
+to roughly **840**.
+
+> **Superseded in part, 2026-09-01 (D-016).** The 4,500 replies/month column above is an
+> *assumption* (A8 = 750 conversations), and it is wrong. Six days of the ancestor's
+> production logs give a mean of **60.5 replies/day ≈ 1,842/month — 41% of it**. At
+> measured volume Sonnet 5 costs **$16.57/mo against the $22.86 ceiling (0.73×)** and
+> returns a **71% margin**, clearing the target. The per-reply prices and the 420/840
+> break-evens below are unchanged and still correct; only the volume, and therefore the
+> margin verdict, moves. See [`DECISIONS.md` D-016](DECISIONS.md). **Settled 2026-08-31 by two bake-off
 rounds and native-speaker review: Reception ships on Sonnet 5** (D-009). Haiku's Mongolian
 was broken in both rounds, including after hardening that named its exact wrong forms — a
-fluency ceiling, not a prompt gap. The 29% margin is therefore real and is carried
-honestly; see **the ceiling contradiction** in [`V1.md`](V1.md), which this measurement
-produces and which is a commercial decision, not an engineering one.
+fluency ceiling, not a prompt gap. The 29% margin that follows was carried honestly and is
+now **superseded by measurement** — see D-016: at Matrix's real traffic it is 71%.
 
 **The third lever, measured — and it is the biggest one.** Under a third of the prefix is
 the tenant's own knowledge; **the majority is platform instruction identical across every
@@ -102,7 +108,8 @@ Three consequences, in rising order of value:
 
 Trimming the prefix moves the cost of whichever model is chosen, which is why
 [`prefix-trim.md`](prefix-trim.md) is the margin-recovery path now that D-009 has chosen
-one. It states plainly that it **does not close the 29%-to-60% gap on its own.**
+one — though D-016 since measured the real volume and found **no gap to close**, which
+reprioritises that document from margin rescue to multi-tenant scaling.
 
 ---
 
@@ -444,7 +451,7 @@ it, and it is the cheapest measurement in the whole document.
 
 | Surface | Model | Why |
 |---|---|---|
-| **Reception AI** | **`claude-sonnet-5`** (D-009, settled 2026-08-31), `prompt_cache_mode = '1h'`, thinking **pinned disabled**, `max_tokens: 700`, non-streaming, **zero tools** | The incumbent won, and for the reason `salonBrain.js:16-18` already gave (*"haiku occasionally slips on free-form Mongolian… language quality is customer-facing"*). Two bake-off rounds plus native-speaker review: Haiku's Mongolian was broken in both, and «манайн» recurred in round 2 **despite being named in the hardening block with a corrected worked example** — so it is a fluency ceiling, not a prompt gap. The generalised rule: **no Haiku for customer-facing Mongolian prose**; Haiku 4.5 stays eligible for internal and structured work. The cost is a 29% margin against a 60% target, which is carried honestly rather than smoothed — and which collides with the D-004 ceiling, see [`V1.md`](V1.md). Thinking disabled explicitly — a two-sentence price answer needs no reasoning, and Fact 3 shows what the default costs. |
+| **Reception AI** | **`claude-sonnet-5`** (D-009, settled 2026-08-31), `prompt_cache_mode = '1h'`, thinking **pinned disabled**, `max_tokens: 700`, non-streaming, **zero tools** | The incumbent won, and for the reason `salonBrain.js:16-18` already gave (*"haiku occasionally slips on free-form Mongolian… language quality is customer-facing"*). Two bake-off rounds plus native-speaker review: Haiku's Mongolian was broken in both, and «манайн» recurred in round 2 **despite being named in the hardening block with a corrected worked example** — so it is a fluency ceiling, not a prompt gap. The generalised rule: **no Haiku for customer-facing Mongolian prose**; Haiku 4.5 stays eligible for internal and structured work. The cost looked like a 29% margin against a 60% target — but that was computed at an assumed volume; **measured traffic gives 71%** and clears the target (D-016), and the ceiling collision it implied is resolved by the D-015 band. Thinking disabled explicitly — a two-sentence price answer needs no reasoning, and Fact 3 shows what the default costs. |
 | **Quality layer** | Stage 1 `claude-sonnet-5` triage → Stage 2 `claude-opus-5` deep review, **both on the Batch API** | Internal, no latency constraint, being right beats being cheap. Batch's 50% discount is free money. $3.92/tenant-month vs $14.25 single-stage — but measure single-stage Opus at low effort first before shipping the cascade. |
 | **Analytics AI** | `claude-sonnet-5`, Batch, structured output | ₮48/tenant-month vs ₮119 on Opus. Pick on Mongolian narrative quality; the delta is ₮71. |
 | **Customer Care copy** | `claude-opus-5`, adaptive thinking, high effort, refusal fallbacks on | ~60 drafts/month platform-wide = **$2.55/month total**. Irreversible output to a real phone; no cost argument for anything cheaper. |

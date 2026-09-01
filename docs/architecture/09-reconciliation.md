@@ -62,6 +62,8 @@ Conversations supported at the $21.43 margin-floor ceiling: **316/month on Sonne
 
 *Reason: at 750 conversations on Sonnet the flagship tenant is a 29%-margin loss-maker against a ceiling that stops the bot mid-Saturday; the model choice is the pricing decision, and it is currently unmade in one section and assumed in another.*
 
+> **Resolved and partly refuted, 2026-09-01.** The model choice was made by measurement (D-009: Sonnet 5). The *750 conversations* premise of this reasoning was then measured and refuted — Matrix runs at ~41% of it, giving a **71% margin, not 29%** (D-016). The reasoning was sound; its volume input was a guess. The ceiling question is settled by the D-015 band, and at the ceiling the bot degrades to shortcuts plus a handoff line (§5.7), never silence.
+
 ---
 
 ### 3. Two complete, incompatible spend-ceiling mechanisms

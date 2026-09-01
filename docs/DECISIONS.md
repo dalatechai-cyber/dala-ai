@@ -171,6 +171,11 @@ and it did not work here, so the constraint is not the prompt. **It is a fluency
 A rule cannot teach a model a language it does not have; naming a wrong form only helps a
 model that can produce the right one. Hardening buys behaviour, not competence.
 
+**What it costs — superseded by [D-016](#d-016--matrixs-real-traffic-is-41-of-the-assumed-volume-and-reception-clears-60-at-it).**
+The paragraph below is left as written, per this file's convention. Its arithmetic was
+correct; its *volume input* was not. At Matrix's measured traffic the margin is **71%**,
+not 29%, and Reception clears the 60% target.
+
 **What it costs.** Sonnet is roughly 2× Haiku per reply: **29% gross margin against a 60%
 target** at the volume a successful salon produces. That number is recorded honestly rather
 than smoothed. The recovery path is [`prefix-trim.md`](prefix-trim.md), which is worth
@@ -332,3 +337,83 @@ the first is a broken product, the second needs a billing relationship that does
 constant to compile, and it is re-derived from real traffic before tenant #1 goes live. If
 the mirror says Matrix runs at 300, the band was never the binding constraint and can be
 raised on evidence.
+
+---
+
+## D-016 — Matrix's real traffic is 41% of the assumed volume, and Reception clears 60% at it
+
+**Measured 2026-09-01** from the ancestor's production Vercel logs, which is what
+[D-015](#d-015--reception-is-sold-against-a-conversation-band-not-unmetered) said to do
+rather than defend 400 from a guess.
+
+### Method, and what it can and cannot support
+
+Counted `/api/messenger-worker` invocations per 24h across **six consecutive days**, all
+on one production deployment (`dpl_2tEqj6Po…`, live since 2026-08-24), grouped
+server-side by request path. The worker is invoked once per queued message, so an
+invocation is one reply attempt.
+
+| | |
+|---|---|
+| Wed 26 Aug | 76 |
+| Thu 27 Aug | 28 |
+| Fri 28 Aug | 81 |
+| Sat 29 Aug | 94 |
+| Sun 30 Aug | 52 |
+| Mon 31 Aug | 32 |
+
+**Mean 60.5/day, range 28–94 — a 3.4× spread.** A single day would have been badly
+misleading: the first day sampled was 32, which extrapolates to less than half the
+six-day mean.
+
+**Invocations are an upper bound on model calls.** QStash retries and the `mid` dedupe
+both re-invoke the worker without reaching the model, so true spend is at or below every
+figure here. The bound errs in the safe direction.
+
+### The result
+
+| | Assumed (A8) | **Measured** |
+|---|---:|---:|
+| replies/month | 4,500 | **~1,842 (41%)** |
+| model spend/month | $40.50 | **$16.57** |
+| vs the $22.86 ceiling | 1.77× — over | **0.73× — under** |
+| gross margin at the ₮200,000 floor | 29% | **71%** |
+
+**Reception on Sonnet 5 clears the 60% target at Matrix's actual traffic**, with room.
+The 29% figure in D-009 was never wrong arithmetic — it was correct arithmetic on a
+volume assumption 2.4× reality.
+
+### What this does and does not settle
+
+**The margin figure is solid.** Spend depends only on the reply count, which is what was
+measured. 71% does not rest on any unmeasured quantity.
+
+**The conversation figure is not.** 1,842 replies ÷ **A7 = 6 messages per conversation**
+gives ~307 conversations/month — but A7 is still an unmeasured assumption, and at
+05-spend-ledger's ~5 it is ~368 instead. The log line carries the PSID, so distinct
+customers *are* countable, but the full-text query timed out where the aggregate did not.
+**So the band's adequacy is less certain than the margin's**, and anyone re-deriving the
+band should count distinct PSIDs rather than divide by A7.
+
+**A8 = 750 conversations/month is refuted.** `05-spend-ledger.md`'s 300–600 range is
+corroborated, at its lower end. Where the design contradicted itself, the ledger section
+was closer.
+
+### The band stays at 400, and here is the case against raising it
+
+Typical traffic sits near 307. But **the busiest single day measured (94), sustained for
+a month, is ~477 conversations — outside the band.** A salon has seasons, and one good
+month can look like the best week. 400 is therefore neither obviously tight nor obviously
+generous, and it is *not* re-derived upward on six days of data.
+
+**Six days is not a month.** It carries weekly shape and no monthly or seasonal shape at
+all, and it is the whole life of the current production deployment, so it cannot be
+extended backwards. The mirror phase's 14 days before cutover remains the measurement
+that sets the band and `prompt_cache_mode`.
+
+### The consequence for prefix-trim.md
+
+[`prefix-trim.md`](prefix-trim.md) was written as *the margin-recovery path* for a
+29%-to-60% gap. **At Matrix's real volume that gap does not exist.** The trim is now
+worth doing for the reason L3 always was — it scales with tenant count — and not to
+rescue this tenant's margin. Reprioritise it accordingly: it is no longer urgent.
