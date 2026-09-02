@@ -447,3 +447,86 @@ that sets the band and `prompt_cache_mode`.
 29%-to-60% gap. **At Matrix's real volume that gap does not exist.** The trim is now
 worth doing for the reason L3 always was — it scales with tenant count — and not to
 rescue this tenant's margin. Reprioritise it accordingly: it is no longer urgent.
+
+---
+
+## D-017 — Single-owner risk is accepted; KEK escrow and second admins are deferred
+
+**Decided by the founder 2026-09-01.** This is an **accepted risk, not an open blocker.**
+It was previously carried in `CLAUDE.md` as blocking; it no longer is, and Phase 3.0 is
+complete.
+
+**What is accepted.** One person holds sole administrative control of Meta, Supabase,
+GitHub, the registrar, and (once generated) the KEK. There is no second admin and no
+key escrow.
+
+**The mitigation is provider recovery, not a second human.** Recovery email addresses and
+recovery/backup codes on each provider are what stands between the business and loss of
+access. That makes them load-bearing: they are the whole control, so they must actually
+exist, be current, and be stored somewhere that survives losing the primary device.
+
+**Why this is a reasonable call now.** Escrow and a second admin cost real setup and
+create their own risk surface — a second admin is a second account to compromise, and a
+copied KEK is a copied KEK. At one founder and zero paying tenants the loss scenario is a
+rebuild of things that are all still reproducible: the schema is in the repository, the
+Meta app is not yet created, and no customer data exists. The calculus changes the moment
+that stops being true.
+
+**Do not re-raise this.** Not in a status summary, not as a "remaining item", not as a
+recommendation. It is decided.
+
+**Re-raise only if one of these changes** — each is a fact a session can check, not a
+judgement call:
+
+| Trigger | Why it changes the calculus |
+|---|---|
+| A tenant is **live and paying** | Loss now costs someone else's business, not only ours |
+| **Customer conversation data** exists in Supabase | It is no longer reproducible from the repository |
+| The **KEK is generated** and encrypts real tenant tokens | Losing it orphans every tenant's Meta credentials irrecoverably |
+| A **second person** joins Dalatech | The main cost of a second admin disappears |
+
+When one fires, state that it fired and what changed — do not re-argue the original
+decision.
+
+---
+
+## D-018 — The platform builds on Next.js 16, not the documented 14.2
+
+**Decided 2026-09-01 during V1 Track 1 scaffolding, on evidence, not preference.**
+
+`ARCHITECTURE.md` states the topology as "Next.js 14.2 App Router on Vercel" — inherited
+from Core Language, where 14.2 is what runs. **Building V1 on 14.2 would ship a webhook
+that spends money on a framework with unpatched high-severity advisories.**
+
+`npm audit` at the newest 14.2 release (14.2.35):
+
+| Version | Result |
+|---|---|
+| `next@14.2.15` (first pick) | 1 critical, 1 high |
+| `next@14.2.35` (newest 14.2) | **2 high — and no 14.2.x fixes them** |
+| `next@15.5.25` | 1 moderate, 1 high |
+| **`next@16.3.4`** | **0 vulnerabilities** |
+
+The decisive fact is not the count but the **fixed-in ranges**: every advisory resolves at
+`<15.5.x` or `<15.5.21`. **The 14.2 line is not patched for any of them and will not be.**
+Staying on 14.2 is not "pinning a known-good version", it is pinning an unmaintained one.
+
+**One advisory is directly on V1's path.** *"Cache confusion of response bodies for
+requests with bodies"* (GHSA-68g3-v927-f742, and the invalid-UTF-8 variant
+GHSA-4633-3j49-mh5q) — a Meta webhook is precisely a request with a body, and the bodies
+here are **Mongolian Cyrillic**, which is exactly where an invalid-byte-sequence cache bug
+would bite. That is the same family as the caching trap in `CLAUDE.md` rule 8, which this
+project already knows costs money in production.
+
+**React is unaffected.** Next 16 accepts `react@^18.2.0`, so React stays at 18.3.1 and
+there is no React 19 migration in this change.
+
+**What this costs.** Divergence from Core Language's version, so a lesson learned there may
+not transfer verbatim. That is a smaller cost than a known-vulnerable framework, and the
+two products already share zero code by D-001. **Rule 8's caching trap must be re-verified
+against Next 16's behaviour rather than assumed** — the mechanism described in `CLAUDE.md`
+was read out of Next 14.2's source, and the guard script is what makes it enforceable
+regardless of version.
+
+Every dependency is pinned exactly, with no caret ranges: a platform that bills per tenant
+should not float its framework.

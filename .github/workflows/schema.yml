@@ -59,6 +59,21 @@ jobs:
         # and reports a skip as a skip when it is unavailable.
         run: node --test "scripts/bakeoff/test/*.test.mjs"
 
+      - name: Install app dependencies
+        run: npm ci
+
+      - name: Guards (caching, env parity, ceilings-not-env, Cyrillic matchers)
+        run: npm run guard
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: node --test "src/**/*.test.ts" "scripts/bakeoff/test/*.test.mjs"
+
+      - name: Build
+        run: npx next build
+
       - name: Confirm the schema is on PostgreSQL, not on trust
         if: always()
         run: psql -d postgres -tAc "select version();"

@@ -14,8 +14,13 @@ shared code, customers, or databases**. Never import from that repo.
 Tenant #1 Matrix Eco Salon (hair/beauty). Tenant #2 GS Auto Center. Customer-facing text
 is Mongolian Cyrillic. Keep it that way.
 
-**Status: architecture approved; the schema exists and is verified locally.** No Supabase
-project, no Meta app, no product code — nothing has been applied to a real environment.
+**Status: V1 BUILD AUTHORIZED 2026-09-01 by the founder. Product code is allowed.**
+The earlier "no product code" rule is lifted and must not be reinstated by inference.
+Build V1 Track 1 onward per [`docs/V1.md`](docs/V1.md).
+
+Still true, and still constraining: **no Supabase project and no Meta app exist.** The
+schema is verified against a scratch PostgreSQL only, so anything needing a live project
+is written and tested against local Postgres until one is provisioned.
 
 ## The test every decision is measured against
 
@@ -110,8 +115,9 @@ each table independently — the last failure of this kind next door was partial
   busiest measured day sustained is ~477 conversations, outside it. Six days carries no
   seasonal shape; the mirror phase's 14 days still sets the final number.
 - **No revenue path exists.** The platform can spend and cannot collect.
-- **KEK escrow and a second admin** on Meta, Supabase, GitHub and the registrar are not
-  done. Losing either is unrecoverable.
+- **Single-owner risk is ACCEPTED, not open** (D-017). KEK escrow and second admins are
+  deliberately deferred; provider recovery emails and codes are the mitigation. **Do not
+  raise this again** unless one of D-017's named triggers fires.
 
 ## The ancestor
 
