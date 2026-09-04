@@ -22,6 +22,21 @@ Still true, and still constraining: **no Supabase project and no Meta app exist.
 schema is verified against a scratch PostgreSQL only, so anything needing a live project
 is written and tested against local Postgres until one is provisioned.
 
+**The Supabase project is DEFERRED, and deliberately so** (2026-09-04). The free tier caps
+at two projects and both are spent on `core-english` and `core-chinese`; Pro is not being
+bought until Matrix is signed, because one tenant covers the $25 several times over. That
+makes it a cost against revenue rather than against hope — which is the same test D-017
+applied to KEK escrow, and it is not a blocker to raise again.
+
+The consequence is a standing rule, not a temporary inconvenience: **build everything that
+does not need Postgres, and mark what does as parked and unverified.** Parked today:
+
+- **Meta token decryption** (envelope encryption, per-request KEK unwrap).
+- **`isolation.sql` T8/T9 against a real project.** They pass against scratch Postgres in
+  CI, which is not the same claim and must never be written as if it were.
+
+Everything else is written against stubs and says so.
+
 ## The test every decision is measured against
 
 > **Onboarding client #3 must be filling in a config, not writing code.**
@@ -64,6 +79,29 @@ is wrong — make it data.
    `cache: 'no-store'` does. Use the shared clients; never construct a bare one.
 9. **Never mark work done without running it.** Say what you verified, what you did not,
    and why.
+
+## Merge authority
+
+**Open a PR for everything; merge your own once CI is fully green AND the job logs have
+been read step-by-step rather than the tick trusted.** Authorised 2026-09-04 by the
+founder. Reading the logs is the load-bearing half: a green tick has already hidden a
+skipped test here, and a step that prints nothing on success looks identical to one that
+did nothing.
+
+**Four things still wait for the founder**, and each is a category rather than a file:
+
+| Waits | Means |
+|---|---|
+| **Money movement** | Payments, billing, ceilings — anything that changes *what can be spent*. **Not** a code path that will eventually call a model under an existing ceiling. Settled 2026-09-04 after PR #9 tested the boundary |
+| **Credentials** | Provisioning, rotating or handling real secret material |
+| **Destructive migrations** | Anything that drops, rewrites or narrows existing data |
+| **Any customer-visible Mongolian string** | The words a customer reads. Matcher stems and test fixtures are not this; a sentence the bot sends is |
+
+The last one has a mechanism rather than a convention: platform Mongolian lives in
+`prompt/platform/*.mn.txt`, signed by **file hash** in `prompt/platform-mn-review.json`,
+and `scripts/guards/check-mn-review.mjs` fails the build when a block is unsigned or has
+changed since sign-off. Unsigned drafts live in `prompt/drafts/` and are loaded by
+nothing.
 
 ## Where things are
 

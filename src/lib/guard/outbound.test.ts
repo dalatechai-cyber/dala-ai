@@ -29,7 +29,7 @@ const MATRIX: TenantGuardView = {
   maxReplyChars: 1900,
 };
 
-const CLEAN: OutboundContext = { firedGates: [], refusedTopicBlocksPrice: false };
+const CLEAN: OutboundContext = { firedGates: [], refusedTopicBlocksPrice: false, customerText: '' };
 
 test('an ordinary correct reply passes every check', () => {
   const reply = 'Чёлк тайралт 33,000₮ байна. Дэлгэрэнгүйг https://www.matrixecosalon.org/ хаягаас үзнэ үү.';
@@ -55,14 +55,14 @@ test('THE Ш1 HOLE: a real, listed price is still refused on a refused topic', (
   const reply = 'Чёлк тайралт 33,000₮ байна.';
   assert.deepEqual(outboundGuard(MATRIX, CLEAN, reply), { ok: true }, 'fine for an adult');
 
-  const onRefusedTopic: OutboundContext = { firedGates: ['Ш1'], refusedTopicBlocksPrice: true };
+  const onRefusedTopic: OutboundContext = { firedGates: ['Ш1'], refusedTopicBlocksPrice: true, customerText: '' };
   const r = outboundGuard(MATRIX, onRefusedTopic, reply);
   assert.equal(r.ok, false);
   assert.equal(r.ok === false && r.code, 'outbound_refused_topic_price');
 });
 
 test('a refused topic still permits a reply carrying no numeral at all', () => {
-  const onRefusedTopic: OutboundContext = { firedGates: ['Ш1'], refusedTopicBlocksPrice: true };
+  const onRefusedTopic: OutboundContext = { firedGates: ['Ш1'], refusedTopicBlocksPrice: true, customerText: '' };
   assert.deepEqual(
     outboundGuard(MATRIX, onRefusedTopic, 'Уучлаарай, хүүхдийн үйлчилгээний мэдээллийг би өгөх боломжгүй.'),
     { ok: true },
@@ -134,7 +134,7 @@ test('a gate\'s forbidden phrasing fires only when that gate fired', () => {
   const health = 'Санаа зоволтгүй, манай будаг байгальд ээлтэй.';
   assert.deepEqual(outboundGuard(MATRIX, CLEAN, health), { ok: true }, 'Ш5 did not fire on this message');
 
-  const r = outboundGuard(MATRIX, { firedGates: ['Ш5'], refusedTopicBlocksPrice: false }, health);
+  const r = outboundGuard(MATRIX, { firedGates: ['Ш5'], refusedTopicBlocksPrice: false, customerText: '' }, health);
   assert.equal(r.ok === false && r.code, 'outbound_forbidden');
   assert.equal(r.ok === false && r.gate, 'Ш5');
 });
@@ -146,7 +146,7 @@ test('FLATTENING WOULD BREAK THIS: the same words in a parking answer are fine',
   // the guard exists to produce stops meaning anything.
   const parking = 'Санаа зоволтгүй, зогсоол манай барилгын ард байгаа.';
   assert.deepEqual(outboundGuard(MATRIX, CLEAN, parking), { ok: true });
-  assert.deepEqual(outboundGuard(MATRIX, { firedGates: ['Ш2'], refusedTopicBlocksPrice: false }, parking), { ok: true });
+  assert.deepEqual(outboundGuard(MATRIX, { firedGates: ['Ш2'], refusedTopicBlocksPrice: false, customerText: '' }, parking), { ok: true });
 });
 
 test('the always-on gates run even when nothing fired — Ш2, Ш3 and Ш6', () => {
@@ -164,7 +164,7 @@ test('the always-on gates run even when nothing fired — Ш2, Ш3 and Ш6', () 
 });
 
 test('a gate with no forbidden sequences configured does not throw', () => {
-  assert.deepEqual(outboundGuard(MATRIX, { firedGates: ['Ш9'], refusedTopicBlocksPrice: false }, 'Тийм ээ.'), { ok: true });
+  assert.deepEqual(outboundGuard(MATRIX, { firedGates: ['Ш9'], refusedTopicBlocksPrice: false, customerText: '' }, 'Тийм ээ.'), { ok: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -257,4 +257,90 @@ test('the guard never edits the reply — it only ever answers ok or refuses', (
   assert.equal(r.ok, false);
   assert.equal(original, copy, 'an edited reply is an unreviewed reply');
   assert.equal(Object.hasOwn(r, 'text'), false, 'the result carries no replacement text');
+});
+
+// ---------------------------------------------------------------------------
+// The echo allowance. A numeral the customer wrote may be confirmed; one the model
+// invents may not. Both directions, because only having one of them is how a
+// permission quietly becomes a hole.
+// ---------------------------------------------------------------------------
+
+/** «Tomorrow at 15:00, is that possible?» — the time is the customer's own. */
+const ASKED_ABOUT_A_TIME: OutboundContext = {
+  firedGates: [], refusedTopicBlocksPrice: false,
+  customerText: 'Маргааш 15:00 цагт болох уу?',
+};
+
+test('ECHO ALLOWED: a time the customer stated may be confirmed back', () => {
+  // 15:00 is NOT in allowed_numbers. Under the strict reading this reply was refused and
+  // the customer got the handoff line instead — a worse product for no safety gained,
+  // because the numeral was already on their screen, written by them.
+  assert.deepEqual(MATRIX.allowedNumbers.includes('15:00'), false, 'precondition: not compiled');
+  assert.deepEqual(outboundGuard(MATRIX, ASKED_ABOUT_A_TIME, '15:00 цагт болно.'), { ok: true });
+});
+
+test('ECHO REFUSED: a numeral in neither set is still an invention', () => {
+  // The customer asked about 15:00. The model answering with 16:30 is making something
+  // up, and that is exactly what check 2 exists to stop.
+  const r = outboundGuard(MATRIX, ASKED_ABOUT_A_TIME, '16:30 цагт болно.');
+  assert.equal(r.ok === false && r.code, 'outbound_price');
+  assert.equal(r.ok === false && r.detail.includes('16:30'), true);
+});
+
+test('ECHO REFUSED: a price the customer never stated is still refused', () => {
+  // The founder's own line: "quoting a price the customer didn't state is not [fine]".
+  const r = outboundGuard(MATRIX, ASKED_ABOUT_A_TIME, 'Тэр цагт 99,000₮ болно.');
+  assert.equal(r.ok === false && r.code, 'outbound_price');
+});
+
+test('the echo set and the reply are read by the SAME tokenizer', () => {
+  // The customer writes «7 000» (space-grouped); the model replies «7,000»
+  // (comma-grouped). Same value, different surface form. Both sides run through
+  // extractNumerals and compare on digits, so the echo matches — which is why the guard
+  // takes the raw text rather than a list somebody else extracted.
+  const ctx: OutboundContext = { ...CLEAN, customerText: 'Урьдчилгаа 7 000₮ юу?' };
+  assert.deepEqual(MATRIX.allowedNumbers.includes('7,000'), false, 'precondition: not compiled');
+  assert.deepEqual(outboundGuard(MATRIX, ctx, 'Тийм, 7,000₮ байна.'), { ok: true });
+});
+
+test('an empty customerText is exactly the old strict behaviour', () => {
+  // The field is REQUIRED rather than optional on purpose: a caller that forgot it would
+  // silently get strict matching, and a false refusal is far harder to notice than a
+  // compile error.
+  const r = outboundGuard(MATRIX, { ...CLEAN, customerText: '' }, '15:00 цагт болно.');
+  assert.equal(r.ok === false && r.code, 'outbound_price');
+});
+
+test('THE ECHO STOPS AT Ш1: a refused topic permits no numeral, whatever its provenance', () => {
+  // A customer who writes «Хүүхдийн үс 33,000₮ мөн үү?» has supplied the number that
+  // would make an echo read as confirmation of exactly the thing the topic exists to
+  // refuse. Check 2b is passed an empty allow-list, so neither allowed_numbers nor the
+  // customer's own numerals can satisfy it.
+  const ctx: OutboundContext = {
+    firedGates: ['Ш1'], refusedTopicBlocksPrice: true,
+    customerText: 'Хүүхдийн үс 33,000₮ мөн үү?',
+  };
+  const r = outboundGuard(MATRIX, ctx, 'Тийм ээ, 33,000₮.');
+  assert.equal(r.ok === false && r.code, 'outbound_refused_topic_price');
+});
+
+test('and on a refused topic a numeral-free reply still passes', () => {
+  const ctx: OutboundContext = {
+    firedGates: ['Ш1'], refusedTopicBlocksPrice: true,
+    customerText: 'Хүүхдийн үс 33,000₮ мөн үү?',
+  };
+  assert.deepEqual(
+    outboundGuard(MATRIX, ctx, 'Уучлаарай, хүүхдийн үйлчилгээний мэдээллийг би өгөх боломжгүй.'),
+    { ok: true },
+  );
+});
+
+test('the echo does not reopen the percentage tripwire', () => {
+  // A customer asking «10% хямдрал байдаг уу?» puts 10 in front of the model. The
+  // numeral is then echoable — but item 3 refuses the percentage regardless, because
+  // whether a discount EXISTS is a fact about the knowledge base, not about who typed
+  // the number.
+  const ctx: OutboundContext = { ...CLEAN, customerText: '10% хямдрал байдаг уу?' };
+  const r = outboundGuard({ ...MATRIX, concessionStems: [] }, ctx, 'Тийм ээ, 10% байна.');
+  assert.equal(r.ok === false && r.code, 'outbound_percent');
 });
