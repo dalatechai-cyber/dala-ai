@@ -27,6 +27,7 @@ import type { CallOutcome, ReceptionRequest } from '../model/reception.ts';
 import { isStale } from '../model/reception.ts';
 import type { Usage } from '../spend/settle.ts';
 import { matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
+import { matchDeterministic, type DeterministicRule, type HistoryState } from '../gate/deterministic.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { capToSingleMessage } from '../mn/text.ts';
 
@@ -60,6 +61,13 @@ export type ReceptionInput = {
   cacheMode: 'off' | '5m' | '1h';
   timeoutMs: number;
   rules: readonly GateRule[];
+  /** §6.8's pre-model layer. Empty is normal: every rule is opt-in per tenant. */
+  deterministic: readonly DeterministicRule[];
+  /**
+   * What we know about the conversation so far. `known: false` is NOT `empty: true` —
+   * collapsing them makes a storage hiccup greet an existing customer from scratch.
+   */
+  historyState: HistoryState;
   canned: readonly CannedRow[];
   tenantGuard: TenantGuardView;
   /** Label for the pinned-line section the gate's blocks point into. */
@@ -136,7 +144,23 @@ export async function handleReception(
     return { kind: 'retry', detail: `canned_response_unreviewed: ${section.kinds.join(', ')}` };
   }
 
-  // 4. The opt-in short-circuit: answer from a row, with no model call at all. Off by
+  // 4. §6.8's pre-model layer: a greeting or an address question answered from a row, in
+  //    ~200ms instead of ~3s, for ₮0. §6.3.8 prices what this absorbs at ₮26,300 per
+  //    tenant-month, which is the largest single saving in the design.
+  //
+  //    It runs AFTER the review gate on purpose: a deterministic reply is still a
+  //    customer-visible sentence, and an unreviewed one must not ship just because no
+  //    model was involved in choosing it.
+  const shortcut = matchDeterministic(input.customerMessage, input.deterministic, input.historyState);
+  if (shortcut.hit !== null) {
+    await deps.release();   // nothing was spent, so the hold goes straight back
+    const drafted = await deps.draft({ body: shortcut.hit.body, answeredBy: 'canned' });
+    return drafted.ok
+      ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned' }
+      : { kind: 'retry', detail: drafted.detail };
+  }
+
+  // 5. The opt-in short-circuit: answer from a row, with no model call at all. Off by
   //    default per topic per tenant; only a measured precision run turns it on.
   if (matched.shortCircuitKind !== null) {
     const line = canned(input.canned, matched.shortCircuitKind);

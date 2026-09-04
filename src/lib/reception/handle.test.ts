@@ -65,6 +65,8 @@ const base: ReceptionInput = {
   cacheMode: '1h',
   timeoutMs: 25_000,
   rules: [CHILDREN],
+  deterministic: [],
+  historyState: { known: true, empty: true },
   canned: CANNED,
   tenantGuard: GUARD_VIEW,
   cannedLabel: 'БЭЛЭН ХАРИУЛТ',
@@ -240,4 +242,64 @@ test('a reservation that cannot be marked called never reaches the provider', as
   assert.equal(r.kind, 'retry');
   assert.equal(calls.includes('callModel'), false);
   assert.equal(calls.includes('release'), true);
+});
+
+// ---------------------------------------------------------------------------
+// §6.8's pre-model layer, inside the flow.
+// ---------------------------------------------------------------------------
+
+const GREET = {
+  intent: 'greeting', body: 'Сайн байна уу! Танд юугаар туслах вэ?',
+  enabled: true, matchMode: 'whole_message' as const,
+  stems: ['сайн байна уу'], requiresEmptyHistory: true,
+};
+
+test('a greeting is answered from a row with NO model call, and the hold goes back', async () => {
+  // §6.3.8 prices what this absorbs at ₮26,300/tenant-month — the largest single saving
+  // in the design, and it was unreachable until the matcher columns existed.
+  const { deps: d, calls } = deps();
+  const r = await handleReception(d, { ...base, customerMessage: 'Сайн байна уу', deterministic: [GREET] });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
+  assert.deepEqual(calls, ['release', 'draft:canned']);
+});
+
+test('IT RUNS AFTER THE REVIEW GATE — an unreviewed line does not ship just because no model chose it', async () => {
+  const { deps: d, calls } = deps();
+  const r = await handleReception(d, {
+    ...base, customerMessage: 'Сайн байна уу', deterministic: [GREET],
+    canned: [...CANNED, { kind: 'refusal_health', body: 'x', reviewedAt: null }],
+  });
+  assert.equal(r.kind, 'retry');
+  assert.equal(calls.includes('draft:canned'), false);
+});
+
+test('a greeting mid-conversation falls through to the model', async () => {
+  const { deps: d, calls } = deps();
+  const r = await handleReception(d, {
+    ...base, customerMessage: 'Сайн байна уу', deterministic: [GREET],
+    historyState: { known: true, empty: false },
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model');
+  assert.equal(calls.includes('callModel'), true);
+});
+
+test('UNKNOWN history falls through to the model rather than greeting from scratch', async () => {
+  const { deps: d } = deps();
+  const r = await handleReception(d, {
+    ...base, customerMessage: 'Сайн байна уу', deterministic: [GREET],
+    historyState: { known: false },
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model');
+});
+
+test('a message that is not a greeting is untouched by the layer', async () => {
+  const { deps: d, calls } = deps();
+  await handleReception(d, { ...base, customerMessage: 'Чёлк тайралт хэд вэ?', deterministic: [GREET] });
+  assert.equal(calls.includes('callModel'), true);
+});
+
+test('an empty rule set is the normal case and costs nothing', async () => {
+  const { deps: d, calls } = deps();
+  await handleReception(d, { ...base, deterministic: [] });
+  assert.deepEqual(calls, ['markCalled', 'callModel', 'settle', 'draft:model']);
 });
