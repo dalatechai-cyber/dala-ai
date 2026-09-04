@@ -640,7 +640,10 @@ argument `0007` used for not creating one.
 
 ---
 
-## D-022 — App Review is one submission, with comments bundled in
+## D-022 — App Review is one submission, with comments bundled in — **SUPERSEDED BY D-023**
+
+**Taken 2026-09-04 and reversed the same day, on a false premise.** It is kept rather than
+deleted because the premise is the lesson. Read D-023 for the decision in force.
 
 **Decided 2026-09-04 by the founder.** *"One ~20-day cycle, not two, and the comment path
 now exists so it's demonstrable."*
@@ -661,3 +664,70 @@ omits it. That finding is search-corroborated, not confirmed against Meta's own 
 reference, because `developers.facebook.com` is blocked from this environment. Confirm it
 before submitting: a missing permission discovered mid-review is the cycle this decision
 was taken to avoid.
+
+---
+
+## D-023 — Submit for comments only. DM Reception ships without App Review.
+
+**Decided 2026-09-04 by the founder, reversing D-022 within hours, because D-022 rested on
+a claim this repository asserted and could not check.**
+
+> *"The Meta app exists — 'dalatech', I've used it. It already has `pages_messaging` and
+> `public_profile` at Advanced Access — I generated a working Page token for Matrix and
+> read the inbox with it. So Reception's DM path needs no App Review at all."*
+
+**The premise of D-022 was false.** Every document here said no Meta app existed. No session
+could falsify it — `developers.facebook.com` is blocked by this environment's egress proxy
+— so it was inherited, repeated, and eventually used to sequence a quarter of work. See
+CLAUDE.md's opening for the general rule this produced.
+
+### What actually changes
+
+**Reception's DM path is not gated on App Review.** The whole codebase makes exactly two
+Graph calls: `POST /{page-id}/messages` (`src/lib/meta/send.ts`) and
+`POST /{comment-id}/comments` (`src/lib/comments/send.ts`). The first runs under
+`pages_messaging`, already Advanced. Nothing reads `GET /{page-id}/conversations` or any
+other Graph edge — conversation history comes from our own `messages` table, which is
+D-019's whole point and now pays for itself twice: it also keeps `pages_read_engagement`
+off V1's critical path.
+
+**So the submission is the comment delta and nothing else:**
+
+| Permission | Why | Already held? |
+|---|---|---|
+| `pages_read_user_content` | Read customers' comments; gates the `feed` webhook field | **Submit** |
+| `pages_manage_engagement` | Post the public reply. Meta makes it *depend on* `pages_read_user_content`, so the two go together or neither | **Submit** |
+| `pages_messaging` | The DM send | Advanced already |
+| `public_profile` | — | Advanced already |
+
+**Business Verification is implied complete.** Advanced Access cannot be granted without
+it, and two permissions are already Advanced. That is the multi-week half of App Review and
+it is behind us — which is most of why bundling was ever attractive.
+
+### The cost of the reversal, stated plainly
+
+Bundling was the right call *given* the stated premise, and wrong given the truth. Two
+cycles is no longer the comparison: DM ships now and comments arrive when they arrive, so
+splitting costs nothing and buys weeks. The real cost was in the other direction and was
+nearly paid — bundling would have held a shippable DM product behind a review it does not
+need.
+
+### What is still unverified, and is one glance in the App Dashboard
+
+Nobody in this repository can read the App Dashboard. These are the founder's to check, and
+each is fast:
+
+- **`pages_read_engagement`** — its access level. V1 does not need it: no code reads
+  Page-owned content or conversation history from Graph. Take Advanced Access if the
+  dashboard offers it without a submission, since it is free and `subscribed_apps` is
+  reported to want it.
+- **`pages_manage_metadata`** — its access level. **This is the quiet one.** It gates
+  `POST /{page-id}/subscribed_apps`, which is how a tenant's Page gets subscribed to
+  `messages` and `feed` at all. At Standard Access it works only for Pages the app's own
+  users have a role on — enough for Matrix, not for GS Auto Center. A multi-tenant platform
+  that cannot subscribe tenant #2's Page has no inbound path for tenant #2, and it fails by
+  subscribing nothing rather than by erroring.
+- **Which app holds Matrix's current webhook subscription** — this one or the ancestor's.
+  §3.3's app-vs-identity cross-check exists for exactly the cutover case, and the answer
+  decides whether the mirror phase is a subscription change or a second subscription.
+
