@@ -1,0 +1,180 @@
+/**
+ * Load everything one Reception reply needs, from rows.
+ *
+ * Separated from `handle.ts` so the decision logic has no database in it. Here the
+ * opposite discipline applies: **every read that fails refuses.** There is no partial
+ * context — a missing gate rule is a refusal that will not fire, a missing canned line is
+ * a check with no answer, and either one changes what a customer is told.
+ */
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { DEFAULT_GATE, GATE_BY_RESPONSE_KIND, scriptForLocale } from '../../config/platform.ts';
+import { loadLiveSnapshot } from '../prompt/publish.ts';
+import type { CannedRow, GateRule } from '../gate/match.ts';
+import type { TenantGuardView } from '../guard/outbound.ts';
+import { MAX_REPLY_CHARS } from './handle.ts';
+
+export type TenantSettings = {
+  defaultLocale: string;
+  promptCacheMode: 'off' | '5m' | '1h';
+};
+
+export type ReceptionContext = {
+  promptStable: string;
+  allowedNumbers: string[];
+  revisionId: string;
+  rules: GateRule[];
+  canned: CannedRow[];
+  tenantGuard: TenantGuardView;
+  cacheMode: 'off' | '5m' | '1h';
+};
+
+export type LoadOutcome =
+  | { ok: true; context: ReceptionContext }
+  /** Any read that failed, or any state that cannot produce a safe reply. */
+  | { ok: false; code: 'unavailable' | 'not_provisioned'; detail: string };
+
+const CACHE_MODES = new Set(['off', '5m', '1h']);
+
+function gateFor(responseKind: string): string {
+  return GATE_BY_RESPONSE_KIND[responseKind] ?? DEFAULT_GATE;
+}
+
+/** Rows from one of the two refusal tables, normalised into `GateRule`. */
+function toRules(rows: unknown, quotePriceDefault: boolean): GateRule[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((raw) => {
+    const r = raw as Record<string, unknown>;
+    const responseKind = String(r['response_kind'] ?? '');
+    return {
+      gate: gateFor(responseKind),
+      topicKey: String(r['topic_key'] ?? ''),
+      matcher: r['matcher'],
+      // `out_of_scope_topics` has no quote_price column: "we cannot know" never licenses
+      // a number, so its default is false and the column's absence is not a gap.
+      quotePrice: 'quote_price' in r ? r['quote_price'] === true : quotePriceDefault,
+      deterministicShortcircuit: r['deterministic_shortcircuit'] === true,
+      responseKind,
+    };
+  });
+}
+
+export async function loadReceptionContext(
+  db: SupabaseClient,
+  input: { tenantId: string; channel: string; settings: TenantSettings },
+): Promise<LoadOutcome> {
+  const snapshot = await loadLiveSnapshot(db, { tenantId: input.tenantId, channel: input.channel });
+  if (!snapshot.ok) {
+    // `no_live_revision` is a provisioning state, not a transient one: there are no
+    // defaults to fall back to, and inventing one would be a bot answering with a prompt
+    // nobody approved.
+    return snapshot.code === 'unavailable'
+      ? { ok: false, code: 'unavailable', detail: snapshot.detail }
+      : { ok: false, code: 'not_provisioned', detail: snapshot.detail };
+  }
+
+  const [disclosure, outOfScope, canned, booking, services, phrasings] = await Promise.all([
+    db.from('disclosure_rules')
+      .select('topic_key, matcher, quote_price, response_kind, deterministic_shortcircuit')
+      .eq('tenant_id', input.tenantId),
+    db.from('out_of_scope_topics')
+      .select('topic_key, matcher, response_kind, deterministic_shortcircuit')
+      .eq('tenant_id', input.tenantId),
+    db.from('canned_responses')
+      .select('kind, body, reviewed_at')
+      .eq('tenant_id', input.tenantId)
+      .eq('locale', input.settings.defaultLocale),
+    db.from('tenant_booking').select('booking_url').eq('tenant_id', input.tenantId),
+    db.from('services').select('name').eq('tenant_id', input.tenantId),
+    // Platform-wide rows carry tenant_id null and apply to everyone; a tenant's own rows
+    // are added to them, never instead of them.
+    db.from('forbidden_phrasings')
+      .select('gate, stems, tenant_id')
+      .or(`tenant_id.is.null,tenant_id.eq.${input.tenantId}`),
+  ]);
+
+  for (const [name, res] of [
+    ['disclosure_rules', disclosure], ['out_of_scope_topics', outOfScope],
+    ['canned_responses', canned], ['tenant_booking', booking], ['services', services],
+    ['forbidden_phrasings', phrasings],
+  ] as const) {
+    if (res.error) return { ok: false, code: 'unavailable', detail: `${name} unreadable: ${res.error.message}` };
+  }
+
+  const cannedRows: CannedRow[] = (Array.isArray(canned.data) ? canned.data : []).map((raw) => {
+    const r = raw as Record<string, unknown>;
+    return { kind: String(r['kind']), body: String(r['body']), reviewedAt: r['reviewed_at'] === null ? null : String(r['reviewed_at']) };
+  });
+  if (cannedRows.length === 0) {
+    return { ok: false, code: 'not_provisioned', detail: 'the tenant has no canned responses for this locale' };
+  }
+
+  const rules = [
+    ...toRules(disclosure.data, false),
+    // "We cannot know" never licenses a number.
+    ...toRules(outOfScope.data, false),
+  ];
+
+  const allowedUrls = (Array.isArray(booking.data) ? booking.data : [])
+    .map((raw) => String((raw as Record<string, unknown>)['booking_url'] ?? ''))
+    .filter((u) => u !== '');
+
+  const serviceNames = (Array.isArray(services.data) ? services.data : [])
+    .map((raw) => String((raw as Record<string, unknown>)['name'] ?? ''))
+    .filter((n) => n !== '');
+
+  // Concession stems come from the tenant's own Ш6 rule, so a garage's vocabulary differs
+  // from a salon's without a line of code changing.
+  const concessionStems = rules
+    .filter((r) => r.responseKind === 'refusal_no_promotion')
+    .flatMap((r) => {
+      const m = r.matcher as Record<string, unknown> | null;
+      const stems = m === null || typeof m !== 'object' ? [] : m['stems'];
+      return Array.isArray(stems) ? stems.filter((s): s is string => typeof s === 'string') : [];
+    });
+
+  // Item 7's per-gate lists. A row with no gate is DOCUMENTARY — evidence recorded but
+  // not yet reduced to stems — and is skipped rather than silently flattened into some
+  // other gate's list, which is the exact failure §6.7(a) describes.
+  const forbiddenStemSeqs: Record<string, string[][]> = {};
+  for (const raw of Array.isArray(phrasings.data) ? phrasings.data : []) {
+    const r = raw as Record<string, unknown>;
+    const gate = r['gate'];
+    const stems = r['stems'];
+    if (typeof gate !== 'string' || !Array.isArray(stems) || stems.length === 0) continue;
+    const seq = stems.filter((x): x is string => typeof x === 'string' && x !== '');
+    if (seq.length === 0) continue;
+    (forbiddenStemSeqs[gate] ??= []).push(seq);
+  }
+
+  const tenantGuard: TenantGuardView = {
+    primaryScript: scriptForLocale(input.settings.defaultLocale),
+    allowedUrls,
+    allowedNumbers: snapshot.snapshot.allowedNumbers,
+    // A promotion is "the Ш6 rule exists and its own quote is permitted" — modelled as
+    // the presence of a reviewed `refusal_no_promotion` line being ABSENT. Until
+    // promotions are a first-class table this stays false, which refuses rather than
+    // permits, and is stated here rather than hidden in a default.
+    kbHasPromotion: false,
+    concessionStems,
+    forbiddenStemSeqs,
+    promptCorpus: snapshot.snapshot.promptStable,
+    cannedResponses: cannedRows.map((c) => c.body),
+    scriptShareExclusions: [...serviceNames, ...allowedUrls],
+    maxReplyChars: MAX_REPLY_CHARS,
+  };
+
+  const cacheMode = CACHE_MODES.has(input.settings.promptCacheMode) ? input.settings.promptCacheMode : 'off';
+
+  return {
+    ok: true,
+    context: {
+      promptStable: snapshot.snapshot.promptStable,
+      allowedNumbers: snapshot.snapshot.allowedNumbers,
+      revisionId: snapshot.snapshot.revisionId,
+      rules,
+      canned: cannedRows,
+      tenantGuard,
+      cacheMode,
+    },
+  };
+}

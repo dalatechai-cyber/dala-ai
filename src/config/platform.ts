@@ -102,3 +102,59 @@ export const CAPS = {
  * draft that buried it inside the abuse check let a polite question route straight past.
  */
 export const ALWAYS_ON_GATES = ['Ш2', 'Ш3', 'Ш6'] as const;
+
+/**
+ * How long the Reception provider call may run before the AbortController cancels it.
+ *
+ * A compiled constant, not a `tenants` column, because no tenant needs a different value
+ * yet and a nullable column nobody sets is a config surface that only ever confuses. §6.10.4
+ * names a per-tenant `upstream_timeout_ms` and the day one is needed this becomes its
+ * default — the read site already takes it as a parameter.
+ *
+ * It is NOT a ceiling: `check-no-ceiling-env` does not apply, and raising it spends
+ * nothing extra. It bounds latency, and the reservation's own expiry bounds the money.
+ */
+export const RECEPTION_UPSTREAM_TIMEOUT_MS = 25_000;
+
+/**
+ * Which boundary check answers a given canned kind.
+ *
+ * `disclosure_rules` and `out_of_scope_topics` carry a `response_kind` but no gate
+ * column, and the gate is what the outbound guard keys forbidden vocabulary by. Rather
+ * than add a column that would duplicate a fact the response kind already determines,
+ * the mapping lives here — platform reference data next to the gate list it belongs to.
+ *
+ * An unmapped kind falls to Ш8 ("not in the knowledge base"), which is the correct
+ * default: a refusal we cannot classify is still a refusal, and Ш8's forbidden list is
+ * hedging vocabulary, which is safe to apply to any of them.
+ */
+export const GATE_BY_RESPONSE_KIND: Readonly<Record<string, string>> = {
+  refusal_public_channel: 'Ш0',
+  refusal_topic:          'Ш1',
+  refusal_price_unlisted: 'Ш2',
+  booking_line:           'Ш3',
+  refusal_staff_schedule: 'Ш4',
+  refusal_health:         'Ш5',
+  refusal_no_promotion:   'Ш6',
+  refusal_off_topic:      'Ш7',
+  handoff:                'Ш8',
+  assistant_identity:     'Ш9',
+};
+
+export const DEFAULT_GATE = 'Ш8';
+
+/**
+ * The writing system a locale is written in, for the §6.10.3 script check.
+ *
+ * Derived from `tenants.default_locale` rather than stored, because it IS derivable and a
+ * second column holding the same fact is a second thing that can be wrong. Russian and
+ * Mongolian both resolve to Cyrillic, which is exactly right — the check asks "is this
+ * reply in the customer's writing system", not "which language is it".
+ */
+export function scriptForLocale(locale: string): string {
+  // ascii-safe: BCP-47 language tags are ASCII by definition.
+  const lang = locale.toLowerCase().split(/[-_]/)[0] ?? '';
+  if (['mn', 'ru', 'uk', 'bg', 'sr', 'kk', 'ky', 'be'].includes(lang)) return 'Cyrillic';
+  if (['zh', 'ja', 'ko'].includes(lang)) return 'Han';
+  return 'Latin';
+}
