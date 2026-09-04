@@ -731,3 +731,40 @@ each is fast:
   §3.3's app-vs-identity cross-check exists for exactly the cutover case, and the answer
   decides whether the mirror phase is a subscription change or a second subscription.
 
+---
+
+## D-024 — `allowed_numbers` comes from TENANT sections only, never from the gate
+
+**Corrected 2026-09-04, while building the `prompt_blocks` loader. Found by compiling the
+real signed blocks and reading the output.**
+
+`renderStablePrefix` derived `config_snapshots.allowed_numbers` from the whole compiled
+prefix. That was harmless for as long as L0 was a test fixture, and became a live defect
+the moment the twelve signed gate blocks were compiled into the prefix for the first time.
+
+**The gate's numerals are its counter-examples.** Ш1 contains «Чёлк тайралт 33,000₮» as
+the *wrong* answer to a children's price question. Ш2 contains «ойролцоогоор 20,000₮
+орчим байх аа» as the invented price it exists to forbid. Ш3 contains «маргааш 15:00
+цагт болно» as the booking it must never confirm.
+
+The outbound guard refuses any numeral in a reply that is not in `allowed_numbers`
+(`guard/outbound.ts:185`). So compiling the gate handed the guard the exact fabrications
+the gate is written to prevent: Ш2 would forbid the model from saying «20,000₮ орчим»,
+and if it said it anyway the guard — the backstop — would wave it through.
+
+That is §6's own worst case reproduced by the compiler: **two supposedly independent
+layers, perfectly correlated, both saying yes.** It is the same shape as the Ш1 failure
+that made `refusal_topics` its own check — the price tripwire passed a forbidden quote
+*because 33,000 genuinely was a known price*.
+
+**The rule: the gate is instructions; only tenant rows are facts, and only a fact may be
+quoted.** `allowed_numbers` is derived from `origin = 'tenant'` sections alone.
+
+**A tenant with no L2/L3 sections therefore gets an empty allow-list and the guard refuses
+every numeral.** That is the correct direction and is not a bug to fix later: a bot with no
+approved prices must not be able to emit a price.
+
+The schema's own comment — *"every numeral the model may emit"* — was always right. The
+implementation had simply stopped matching it once the prefix contained rules as well as
+facts.
+
