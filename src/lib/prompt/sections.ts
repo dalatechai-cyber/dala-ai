@@ -34,6 +34,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { renderStablePrefix, type PromptLayer, type PromptSection, type Rendered, type RenderRefusal } from './render.ts';
 import { publishRevision, type PublishOutcome } from './publish.ts';
+import { renderTenantSections, type PriceKind, type ServiceVariant, type TenantKb } from './tenant.ts';
 
 /** Layers the compiler renders. A row with `layer` null is not a prompt section at all —
  *  the data-deletion status strings and the comment reply template live in the same table
@@ -98,6 +99,114 @@ export async function loadPromptSections(
   return { ok: true, sections };
 }
 
+export type TenantKbOutcome =
+  | { ok: true; kb: TenantKb }
+  | { ok: false; detail: string };
+
+const str = (v: unknown): string => (typeof v === 'string' ? v : v === null || v === undefined ? '' : String(v));
+const orNull = (v: unknown): string | null => (v === null || v === undefined || v === '' ? null : String(v));
+const rows = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+
+/**
+ * Every row L2 and L3 are rendered from, for one tenant.
+ *
+ * ## Every query is explicitly ORDERED, and that is not tidiness
+ *
+ * PostgREST returns rows in whatever order the planner produced. An unordered read makes
+ * the rendered prefix — and therefore `content_hash`, and therefore the prompt-cache key —
+ * differ between two compiles of *identical rows*. The symptom is not an error: it is a
+ * cache that never hits, silently, and a bill that roughly triples. That is the same
+ * failure `renderStablePrefix` refuses as `ambiguous_order` at the section level, one
+ * layer down at the row level, where the renderer cannot see it.
+ *
+ * ## Every read that fails REFUSES
+ *
+ * `load.ts`'s discipline, for a stronger reason: this output is frozen into an immutable
+ * snapshot and served until somebody publishes again. A half-loaded knowledge base at
+ * request time is one bad reply; a half-loaded one at publish time is every reply until
+ * the next publish, with a price list missing the rows whose read happened to fail.
+ */
+export async function loadTenantKb(
+  db: SupabaseClient,
+  input: { tenantId: string },
+): Promise<TenantKbOutcome> {
+  const t = input.tenantId;
+  const [
+    tenant, disclosure, outOfScope, disambig, axes, deposits,
+    documents, staff, services, variants, faqs, contacts, booking,
+  ] = await Promise.all([
+    db.from('tenants').select('currency_symbol, currency_symbol_before').eq('id', t).maybeSingle(),
+    db.from('disclosure_rules').select('topic_key').eq('tenant_id', t).order('topic_key'),
+    db.from('out_of_scope_topics').select('topic_key').eq('tenant_id', t).order('topic_key'),
+    db.from('disambiguation_pairs').select('trigger_term, question').eq('tenant_id', t).order('trigger_term'),
+    db.from('price_axes').select('axis, verbatim_question').eq('tenant_id', t).order('ordinal').order('axis'),
+    db.from('deposit_rules').select('applies_to, rule_text').eq('tenant_id', t).order('ordinal').order('applies_to'),
+    db.from('knowledge_documents').select('title, body').eq('tenant_id', t).order('title'),
+    db.from('staff_members').select('name, group_name, tier').eq('tenant_id', t).eq('active', true).order('group_name').order('name'),
+    db.from('services').select('id, name').eq('tenant_id', t).eq('active', true).order('name'),
+    db.from('service_variants').select('service_id, variant_key, price_kind, price_min, price_max, refusal_topic').eq('tenant_id', t).order('variant_key'),
+    db.from('faqs').select('question, answer').eq('tenant_id', t).order('ordinal').order('question'),
+    db.from('contact_points').select('kind, value').eq('tenant_id', t).order('kind'),
+    db.from('tenant_booking').select('booking_url').eq('tenant_id', t).maybeSingle(),
+  ]);
+
+  for (const [name, res] of [
+    ['tenants', tenant], ['disclosure_rules', disclosure], ['out_of_scope_topics', outOfScope],
+    ['disambiguation_pairs', disambig], ['price_axes', axes], ['deposit_rules', deposits],
+    ['knowledge_documents', documents], ['staff_members', staff], ['services', services],
+    ['service_variants', variants], ['faqs', faqs], ['contact_points', contacts],
+    ['tenant_booking', booking],
+  ] as const) {
+    if (res.error) return { ok: false, detail: `${name} unreadable: ${res.error.message}` };
+  }
+  if (tenant.data === null) return { ok: false, detail: 'no such tenant' };
+
+  const tRow = tenant.data as Record<string, unknown>;
+  const byService = new Map<string, ServiceVariant[]>();
+  for (const v of rows(variants.data)) {
+    const id = str(v['service_id']);
+    const list = byService.get(id) ?? [];
+    list.push({
+      variantKey: str(v['variant_key']),
+      priceKind: str(v['price_kind']) as PriceKind,
+      priceMin: orNull(v['price_min']),
+      priceMax: orNull(v['price_max']),
+      refusalTopic: orNull(v['refusal_topic']),
+    });
+    byService.set(id, list);
+  }
+
+  return {
+    ok: true,
+    kb: {
+      currencySymbol: str(tRow['currency_symbol']) || '\u20ae',
+      currencySymbolBefore: tRow['currency_symbol_before'] === true,
+      // Both refusal tables feed one list: Ш1 asks whether the message matches a topic in
+      // «ХОРИОТОЙ СЭДВҮҮД», and does not care which table the topic came from.
+      refusalTopics: [
+        ...rows(disclosure.data).map((r) => str(r['topic_key'])),
+        ...rows(outOfScope.data).map((r) => str(r['topic_key'])),
+      ].filter((k) => k !== '').sort(),
+      clarify: [
+        ...rows(disambig.data).map((r) => ({ term: str(r['trigger_term']), question: str(r['question']) })),
+        ...rows(axes.data).map((r) => ({ term: str(r['axis']), question: str(r['verbatim_question']) })),
+      ],
+      deposits: rows(deposits.data).map((r) => `${str(r['applies_to'])}: ${str(r['rule_text'])}`),
+      documents: rows(documents.data).map((r) => ({ title: str(r['title']), body: str(r['body']) })),
+      staff: rows(staff.data).map((r) => ({
+        name: str(r['name']), groupName: orNull(r['group_name']), tier: orNull(r['tier']),
+      })),
+      services: rows(services.data).map((r) => ({
+        name: str(r['name']),
+        variants: byService.get(str(r['id'])) ?? [],
+      })),
+      faqs: rows(faqs.data).map((r) => ({ question: str(r['question']), answer: str(r['answer']) })),
+      contacts: rows(contacts.data).map((r) => ({ kind: str(r['kind']), value: str(r['value']) })),
+      bookingUrl: booking.data === null ? null : orNull((booking.data as Record<string, unknown>)['booking_url']),
+    },
+  };
+}
+
 export type CompileOutcome =
   | { ok: true; rendered: Rendered; sectionCount: number }
   | { ok: false; code: 'unavailable'; detail: string }
@@ -122,12 +231,20 @@ export type CompileOutcome =
  */
 export async function compileStablePrefix(
   db: SupabaseClient,
-  input: { tenantId: string },
+  input: { tenantId: string; approvedAt: string },
 ): Promise<CompileOutcome> {
-  const loaded = await loadPromptSections(db, input);
+  const loaded = await loadPromptSections(db, { tenantId: input.tenantId });
   if (!loaded.ok) return loaded;
 
-  if (!loaded.sections.some((s) => s.origin === 'platform')) {
+  // L2/L3 from the tenant's own rows. `prompt_blocks` can also hold tenant-scope sections
+  // and both are merged here; today nothing writes those, so in practice this is the
+  // platform gate plus the rendered knowledge base.
+  const kb = await loadTenantKb(db, { tenantId: input.tenantId });
+  if (!kb.ok) return { ok: false, code: 'unavailable', detail: kb.detail };
+
+  const sections = [...loaded.sections, ...renderTenantSections(kb.kb, input.approvedAt)];
+
+  if (!sections.some((s) => s.origin === 'platform')) {
     return {
       ok: false,
       code: 'no_gate',
@@ -137,9 +254,9 @@ export async function compileStablePrefix(
     };
   }
 
-  const result = renderStablePrefix(loaded.sections);
+  const result = renderStablePrefix(sections);
   return result.ok
-    ? { ok: true, rendered: result.rendered, sectionCount: loaded.sections.length }
+    ? { ok: true, rendered: result.rendered, sectionCount: sections.length }
     : { ok: false, code: 'refused', refusal: result.refusal };
 }
 
@@ -182,7 +299,11 @@ export async function compileAndPublish(
     return { ok: false, code: 'no_snapshot', detail: 'a revision with no channel cannot render a reply' };
   }
 
-  const compiled = await compileStablePrefix(db, { tenantId: input.tenantId });
+  const compiled = await compileStablePrefix(db, {
+    tenantId: input.tenantId,
+    // The revision IS the approval unit for tenant data — see renderTenantSections.
+    approvedAt: input.now.toISOString(),
+  });
   if (!compiled.ok) {
     return compiled.code === 'refused'
       ? {
