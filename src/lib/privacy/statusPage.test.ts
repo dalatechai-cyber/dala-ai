@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   escapeHtml,
   loadStatusBlocks,
@@ -162,4 +163,38 @@ test('a null requested date renders as a dash rather than an Invalid Date', () =
   const html = renderStatusPage(MN, { found: true, code: 'A'.repeat(24), status: 'completed', requestedAt: null });
   assert.ok(html.includes('—'));
   assert.ok(!html.includes('Invalid'));
+});
+
+// ---------------------------------------------------------------------------
+// The REAL signed text, through the real renderer
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: the signed platform blocks render a page, not an approximation of one', () => {
+  // Every test above uses a fixture. This one reads the eight files a native speaker
+  // actually signed and puts them through the renderer, which is the last boundary before
+  // a customer reads them. It catches what a fixture cannot: a block that is empty, that
+  // is not NFC, or that contains a character the escaper has to touch — none of which are
+  // visible to somebody reviewing Mongolian prose.
+  const signed = Object.fromEntries(
+    STATUS_BLOCK_KEYS.map((k) => [k, readFileSync(`prompt/platform/${k}.mn.txt`, 'utf8').trim()]),
+  ) as StatusBlocks;
+
+  for (const [key, body] of Object.entries(signed)) {
+    assert.notEqual(body, '', key);
+    assert.equal(body.normalize('NFC'), body, `${key} is not NFC`);
+  }
+
+  const html = renderStatusPage(signed, {
+    found: true,
+    code: 'ABCDEFGHJKLMNPQRSTUVWX23',
+    status: 'received',
+    requestedAt: new Date('2026-09-04T00:00:00Z'),
+  });
+  assert.ok(html.includes(signed.data_deletion_title));
+  assert.ok(html.includes(signed.data_deletion_state_received));
+  assert.ok(html.includes('2026-09-04'));
+  // The signed text must survive the escaper unchanged — if a block ever gains an
+  // ampersand or a quote, this says so rather than silently shipping an entity.
+  assert.ok(html.includes(signed.data_deletion_intro), 'the intro is altered by escaping');
+  assert.ok(!/<script/i.test(html));
 });

@@ -11,7 +11,7 @@ exists yet. The gap is not engineering. It is four accounts and one twenty-day w
 
 ## 1. What is built
 
-603 tests, 7 guards, 9 migrations, 55 modules. Every module below is merged on `main`
+610 tests, 7 guards, 10 migrations, 55 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |
@@ -70,7 +70,7 @@ the status page returns 503 rather than rendering unsigned Mongolian. Mutating t
 signature comparison to always-accept flips the forged case from 400 to 500, so the check
 is not vacuous.
 
-**Against stubs (everything else).** 603 unit tests — 602 in CI, where the one
+**Against stubs (everything else).** 610 unit tests — 609 in CI, where the one
 ancestor-dependent bake-off fixture check reports itself SKIPPED because `Matrix-Chatbot`
 is private and CI cannot clone it. That skip is deliberate and says so in its own reason
 string; it is named here so a count that does not match is investigated rather than
@@ -98,7 +98,7 @@ claims nobody has earned yet.
 | **The Graph error taxonomy** | Every code in it is from documentation and Chatwoot's handler. Not one has been observed | Production. Record the real codes as they appear |
 | **Any Anthropic call from this repo** | `ANTHROPIC_API_KEY` is unset. The bake-off made real calls, but through a separate harness | One key, one call |
 | **QStash redelivery and the crash property** | Unit-tested only. V1.md 1.5 has said so since it was written | A QStash account and a deliberately killed worker |
-| **The prompt compiler on real input** | `prompt/platform/` is empty, so no snapshot has ever been compiled | The signed Ш0–Ш9 blocks |
+| **The prompt compiler on real input** | The blocks are signed and seeded (`0010`), but **nothing reads `prompt_blocks` into `PromptSection[]`** — `renderStablePrefix` has still never been given real sections. Signed, seeded, not yet compiled | The loader. It is the next piece and it is small |
 | **Prompt caching, and therefore the cost model** | D-016's margin rests on measured *ancestor* traffic, not on this system's bill | A month of real invoices |
 | **Meta's data-deletion callback** | The `signed_request` format is SEARCH-CORROBORATED, never seen from Meta. No app exists, so nothing has ever posted to it. The response shape (`{url, confirmation_code}`) is standard JSON — several widely-copied implementations emit a JavaScript object literal instead, and one asserts JSON "fails" | The first real callback, or ten minutes on Meta's own docs |
 | **That an erasure request can be FULFILLED** | Meta sends an app-scoped id; every id we hold is page-scoped. Nothing bridges them. A request is recorded, not executed — see §5 | A Business Manager containing the app and the Pages, then the ID Matching API |
@@ -116,15 +116,8 @@ you find out from a customer.
 
 ## 4. Decisions waiting for you
 
-**None that block code. Three pieces of Mongolian, all yours, all in `prompt/drafts/`:**
-
-1. **Ш0–Ш9 wording.** Drafted with a red-pen table in its README. Until these are signed
-   into `prompt/platform/` the compiler has nothing to compile, so this blocks the first
-   reply rather than merely improving it.
-2. **The public comment line** (`comment_public_reply.mn.txt`). Its production home is a
-   per-tenant `canned_responses` row gated by `reviewed_at`, so sign-off is per tenant.
-3. **The eight data-deletion status blocks** (`data_deletion_status.mn.txt`). App Review
-   will visit that page, and until these are signed it returns **503** on purpose.
+**None.** All twenty-one Mongolian blocks were signed on 2026-09-04 and are seeded by
+`0010`; `prompt/drafts/` is empty of blocks and is now the design record.
 
 ### Settled 2026-09-04, and already built
 
@@ -138,6 +131,12 @@ you find out from a customer.
 - **The worker route has tests**, because it stopped being the route: the branching lives
   in `lib/worker/reception.ts` and the route is a binding that may not branch. Five
   mutations were each caught by exactly the test that should catch them.
+- **The Mongolian is signed, promoted and seeded** — twenty-one blocks in
+  `prompt/platform/`, hashed in `prompt/platform-mn-review.json` (`reviewed_by: Bilguun`),
+  and carried into `prompt_blocks` by `0010`, which is **generated** from the signed files
+  so the database can never hold text that differs from what was read. `catalog.sql` V22
+  asserts it. Reference-by-key was kept over inlining, on the founder's call: the
+  platform-wide cache entry is worth more later than the clarity gain now.
 - **The Meta app EXISTS and DM Reception needs no App Review** (D-023, superseding D-022).
   `dalatech` holds `pages_messaging` and `public_profile` at Advanced Access. Every earlier
   statement in this repo that no Meta app existed was an unfalsifiable claim inherited and
@@ -176,8 +175,7 @@ them out of order produces a database error rather than a broken deployment:
 | 1 | **Telegram bot token + alert chat id** (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALERT_CHAT_ID`) | Every alert is recorded in `alerts` and delivered nowhere. The condition is detected; nobody is told |
 | 2 | **`IDENTITY_PEPPER`** — any 32 random bytes | `person_identities.value_hash` cannot be computed; inbound persistence refuses |
 | 3 | **`TENANT_KEK_V1` + `TENANT_KEK_ACTIVE_VERSION=v1`** — `node scripts/kek/generate.ts` | No credential can be sealed or opened. Put the key in a password manager the moment it seals a real token: it has no issuer and no recovery path |
-| 4 | **Sign Ш0–Ш9** into `prompt/platform/*.mn.txt` + `prompt/platform-mn-review.json` | The compiler has no platform block, the gate refuses, and no reply can be generated |
-| 4b | **Sign the eight data-deletion status blocks** (`prompt/drafts/data_deletion_status.mn.txt`) | `/data-deletion/status` returns 503. App Review visits that URL, so this is a submission blocker rather than a polish item |
+| ~~4~~ | ~~Sign Ш0–Ш9~~ · ~~sign the data-deletion status blocks~~ | **Done 2026-09-04.** All twenty-one blocks signed, promoted to `prompt/platform/`, and seeded by `0010` |
 | 4c | **`DALA_PUBLIC_URL`** — the deployment's own origin, e.g. `https://dala.mn` | The deletion callback cannot build the status URL Meta requires. Never taken from the request's Host header, so it has to be configured |
 | 4d | **`SUPABASE_SECRET_PRIVACY`** — one more named key, once the project exists | The deletion callback cannot record anything; every callback is a 500 and Meta retries |
 

@@ -1,4 +1,131 @@
 {
   "$comment": "Native-speaker sign-off for the platform's own Mongolian. See ./README.md. Every file in ./platform/*.mn.txt needs an entry here whose sha256 matches the file's current contents, or scripts/guards/check-mn-review.mjs fails the build.",
-  "blocks": []
+  "blocks": [
+    {
+      "block_id": "00_gate_preamble",
+      "sha256": "517848c328f2f196e7179768f6d9a048a9924dd9e18bd0949bb95c1da96cd02e",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "01_data_marker",
+      "sha256": "64404d279474a058f8601649a97c1285e5586a84f9751ffa9c71d26492d768e3",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "comment_public_reply",
+      "sha256": "cae9ffbaaa7d5f2119b28a2a5b01830d60389c865e748563de25a7b20c70472e",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "data_deletion_code_label",
+      "sha256": "796727851bf2c61113e638e449c0c053916754b7f2bd45899085bdf3d3e157e3",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "data_deletion_intro",
+      "sha256": "c8ce732510d0d46ecc300ace04aba6d931acf63dfcc98bf2e64ecf2146f88ea5",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "data_deletion_not_found",
+      "sha256": "d1ea44bf606a0eb7750a0f44114941b7b16a762eafdb0101feacc80dda026983",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "data_deletion_requested_label",
+      "sha256": "925af678d1fbed8cb973c5bf8d4fa8128ba3c2342d2c8b1ba115674814095740",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "data_deletion_state_completed",
+      "sha256": "5b3e398997be1abcbfd335d0c6106ec66700cea4b7f63a0f64b0233d6e2faf6a",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "data_deletion_state_failed",
+      "sha256": "35583dece69f76dd0a241fe90382eae04055fa41618ae3427c4266686e8c7196",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "data_deletion_state_received",
+      "sha256": "62056ce724e8ec3a6b6461fb94e798c975fd2ab055200b60aa9bee8e1754d336",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "data_deletion_title",
+      "sha256": "e5a1edec36929f03bba3bf0274e141c3e2a1863732373e00d64da0f311c02e5d",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh0_channel",
+      "sha256": "5de589c7773c49f8708859b02d849b1b9234031389a70871fde29df70d6138a6",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh1_refusal_topics",
+      "sha256": "3169a318f3f55169b91228643a376eb9c931b102b8f10ae7262f88135d463784",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh2_price",
+      "sha256": "e60e800255cc6d6fa8f06cc89ab1390353fe4588d24f7b7c68c0d1ae9da3dc0e",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh3_booking",
+      "sha256": "19f4373c55860188d8df2b2146613606d9d25abfa12030e4c6e5d6bdcee53234",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh4_staff_schedule",
+      "sha256": "c0c7b6e2c8844cccfc951071139b6a69c904dce9df3d7e26c680139f73bf53a2",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh5_health",
+      "sha256": "bb2bec5b336266f59c7bf37ff5760fd818c227f26d0a367590895c0ef8b2ba69",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh6_concessions",
+      "sha256": "ab970d796511e534b67423c35c0a47b45ede765aaf8beb1a5347bcd903c66505",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh7_abuse_offtopic",
+      "sha256": "da2dcb8b0457bfcb5041772498d30295e45c3760c1d59f89553ecf77cba24cc5",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh8_not_in_kb",
+      "sha256": "2bdde27897389e1bf2114bb646c068083b919ce3c8eeff5f934d976bed4101c5",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh9_instruction_disclosure",
+      "sha256": "29ceca2692952c48894b31d5fb027559964a52c29f87f9085ce99e9d97071ff0",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    }
+  ]
 }

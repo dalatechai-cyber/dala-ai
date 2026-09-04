@@ -368,6 +368,62 @@ insert into _v select 'V21', 'the comment post cap has a column, a bound, and a 
           and indexname='outbound_messages_comment_post')
   ) q;
 
+-- V22 — the signed platform Mongolian is IN the database, signed, and unambiguous.
+-- 0010 is the wire between `prompt/platform/*.mn.txt` and everything that renders Mongolian.
+-- Three ways it goes wrong silently if the migration is in the repo and not applied, or is
+-- applied and then edited by hand:
+--   * the rows are absent, so `/data-deletion/status` returns 503 forever and the prompt
+--     compiler has no L0 to compile — both read as "the feature is broken", not "unseeded";
+--   * a row's `reviewed_at` is null, which every reader treats as unreviewed, so the text
+--     is present and unreachable;
+--   * two rows share a block_key, which reaches `render.ts` as `ambiguous_order` — a
+--     non-deterministic prefix, i.e. a cache miss on every request and a prompt that
+--     depends on which row sorted first.
+insert into _v select 'V22', 'the signed platform blocks are seeded, attributed, and one per key',
+  coalesce(string_agg(problem, '; '), 'correct'), count(*) = 0
+  from (
+    select 'the layer column is missing' as problem
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='prompt_blocks' and column_name='layer')
+    union all
+    select 'prompt_block_layer_matches_scope CHECK missing — a tenant row could claim L0'
+     where not exists (
+       select 1 from pg_constraint
+        where conrelid='public.prompt_blocks'::regclass and conname='prompt_block_layer_matches_scope')
+    union all
+    select 'the platform block_key unique index is missing'
+     where not exists (
+       select 1 from pg_indexes
+        where schemaname='public' and tablename='prompt_blocks'
+          and indexname='prompt_blocks_platform_key')
+    union all
+    -- `to_jsonb(p) ->> 'layer'` rather than `p.layer`, and that is not style. A bare
+    -- column reference does not PARSE when the column is absent, so this check errored
+    -- out against a database 0010 had not reached instead of reporting the very absence
+    -- it exists to detect — a check that cannot fail cleanly is the same defect as a
+    -- guard that under-reads its own source. Found by running it.
+    select 'the twelve-block boundary gate is not seeded at L0 (found ' ||
+           (select count(*) from prompt_blocks p
+             where p.scope='platform' and to_jsonb(p) ->> 'layer' = 'L0') || ')'
+     where (select count(*) from prompt_blocks p
+             where p.scope='platform' and to_jsonb(p) ->> 'layer' = 'L0') <> 12
+    union all
+    select 'the eight data-deletion status blocks are not seeded (found ' ||
+           (select count(*) from prompt_blocks where scope='platform' and block_key like 'data_deletion\_%') || ')'
+     where (select count(*) from prompt_blocks
+             where scope='platform' and block_key like 'data_deletion\_%') <> 8
+    union all
+    select 'the comment_public_reply template is not seeded'
+     where not exists (
+       select 1 from prompt_blocks where scope='platform' and block_key='comment_public_reply')
+    union all
+    select 'a platform block has no sign-off — every reader treats that as unreviewed'
+     where exists (
+       select 1 from prompt_blocks
+        where scope='platform' and (reviewed_at is null or coalesce(reviewed_by, '') = ''))
+  ) q;
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;

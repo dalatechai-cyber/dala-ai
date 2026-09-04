@@ -1,13 +1,21 @@
-# The Ш0–Ш9 boundary gate — DRAFT, unsigned, loaded by nothing
+# The boundary gate — the design record. The text itself has been promoted.
 
-**These files ship nowhere.** `scripts/guards/check-mn-review.mjs` scans
-`prompt/platform/*.mn.txt`; this directory is deliberately outside it, so a draft cannot
-reach a customer by being forgotten. Promotion is a deliberate move into `prompt/platform/`
-**plus** a sign-off entry keyed by file hash.
+**Promoted and signed 2026-09-04.** All twenty-one blocks now live in
+`prompt/platform/*.mn.txt` with sign-off entries in `prompt/platform-mn-review.json`
+(`reviewed_by: Bilguun`), and `scripts/guards/check-mn-review.mjs` fails the build if any
+of them changes without being re-read.
 
-The founder rewrites the wording. This directory supplies the **structure** and the
-**failure mode each block has to prevent** — which is the part that has to be right before
-the words are worth polishing.
+**The Mongolian is deliberately not duplicated here.** It lives in exactly one place, and
+that place is hashed. Two copies of an approved sentence — one signed, one not — is D-020's
+failure with the stakes raised: the unsigned copy is the one somebody edits.
+
+What this directory keeps is the part a hash cannot carry: **the structure, and the failure
+mode each block exists to prevent.** That is what the next draft starts from, and what a
+reviewer needs in order to judge whether a proposed rewording still does its job.
+
+**This directory is now empty of blocks, and that is the correct state.** New drafts land
+here, get red-penned, and leave. Nothing here ships; the guard scans `prompt/platform/`
+only.
 
 ## Evidence status, stated once
 
@@ -55,10 +63,58 @@ Today the whole prefix is already per-tenant (one breakpoint over L0+L1+L2+L3), 
 inlining would cost nothing **now** and forfeit the improvement **later**. I drafted the
 cheaper-later option. Say the word and I will inline them.
 
+## The other two families, and what they must never contain
+
+Neither is a gate block, and neither is read by the prompt compiler. Both are signed by the
+same mechanism because the test is *"does a customer read it"*, not *"does the model read
+it"*.
+
+### `comment_public_reply` — the entire public reply to a comment
+
+The whole reply, posted unconditionally and identically whatever the comment said. There is
+no code path from the customer's words to this text: `decideCommentReply` is not given the
+comment's text at all.
+
+**Must never contain:** any numeral — a price, a time, a duration, a phone number; anything
+that reads as confirming a booking, including a bare «за» or «болно», which Ш3 forbids for
+exactly this reason; a staff name, a service name, or any hint of an answer to what was
+asked; an apology, because nothing has gone wrong.
+
+**The failure it prevents:** a price quoted under the salon's own post, visible to everyone,
+forever. That is Ш0, and until comments existed Ш0 could not fire — there was no public
+surface.
+
+**Its production home is a per-tenant `canned_responses` row**, gated by that row's own
+`reviewed_at`. The signed platform file is the *template every tenant starts from*, copied
+at onboarding and then theirs to edit in their own voice. It is never a runtime fallback:
+`eligibility.ts` refuses to post when a tenant has no reviewed line, and must keep refusing.
+
+Since D-021 this line is posted **at most once per post per rolling 24 hours**, in whichever
+thread commented first — so write it to be read by everyone on that post, not as a reply to
+one person.
+
+### `data_deletion_*` — the eight strings on the data-deletion status page
+
+Read by a customer in Mongolia who has just told Facebook to delete their data, on a phone,
+probably inside the Facebook in-app browser. Not by an operator. There is no English version
+and there should not be one.
+
+**Must never contain:** a promise about *when* — we do not control the schedule and a date we
+miss is worse than no date; any claim that data **has** been deleted on any state but
+`completed`, which is why the states are separate blocks; a contact address, because there is
+no support channel yet and a line inviting people to write to one goes unanswered; anything
+identifying — the key to that page is a code that can be read over somebody's shoulder.
+
+**The failure it prevents:** a privacy promise kept in appearance only. The endpoint records
+a request it cannot yet fulfil (Meta sends an app-scoped id; we store page-scoped ids), so
+the page must say `received`, not `done`.
+
 ## Promotion checklist
 
 1. Founder red-pens the wording here.
-2. Files move to `prompt/platform/` with the same names.
+2. Files move to `prompt/platform/` with the same names — **moved, not copied.**
 3. A native speaker reads each and adds `{ block_id, sha256, reviewed_by, reviewed_at }`
    to `prompt/platform-mn-review.json`.
-4. `npm run guard` passes. Until then it fails, by design.
+4. `node scripts/prompt/generate-seed.ts` regenerates the seed migration from the signed
+   files, and `prompt-seed.test.ts` fails if the two ever drift.
+5. `npm run guard` passes. Until then it fails, by design.
