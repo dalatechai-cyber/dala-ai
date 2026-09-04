@@ -91,6 +91,12 @@ export type WorkerEffects = {
   db: SupabaseClient;
   now: Date;
   verifySignature: (raw: string, signature: string | null) => Promise<boolean>;
+  /**
+   * The channel is a secondary receiver and cannot answer anyone (§3.7). An effect rather
+   * than a direct `raiseAlert` so this module keeps its property of doing no I/O it did
+   * not declare.
+   */
+  alertStandby: (input: { tenantId: string; channelId: string; dayKey: string; events: number }) => Promise<void>;
   /** `META_GRAPH_VERSION`, read lazily so an unconfigured deployment fails at use. */
   graphVersionDefault: () => string;
   generateReply: (args: GenerateArgs) => Promise<ReceptionOutcome>;
@@ -156,7 +162,29 @@ export async function runReceptionJob(
   }
 
   const rawPayload = (event as Record<string, unknown>)['raw_payload'];
-  const { messages, skipped } = extractInboundMessages(rawPayload);
+  const { messages, skipped, standby } = extractInboundMessages(rawPayload);
+
+  // --- Secondary receiver (§3.7). Never a drop. -----------------------------
+  //
+  // Meta put these messages in `entry.standby` rather than `entry.messaging`, which means
+  // another app — almost always the Page Inbox — is the PRIMARY receiver for this Page.
+  // The webhook is well-formed, correctly signed and correctly routed; we simply may not
+  // answer, and until this branch existed the entry produced an empty extraction that was
+  // byte-identical to "no customer wrote in".
+  //
+  // 200 rather than 503: a redelivery cannot change a Page setting. The alert is the
+  // output, and `standby_not_primary` — a state `0001` already anticipated — is what stops
+  // the row reading as `processed`.
+  if (standby > 0) {
+    await markEventState(db, eventId, 'standby_not_primary');
+    fx.log('warn', 'standby_not_primary', { tenantId, channelId, events: standby });
+    // Per channel per day, not once per channel for ever. A misconfigured Page produces
+    // standby on EVERY message, so a bare channel key would fire on all of them; a key with
+    // no period at all would go quiet for good the first time somebody "fixed" it and it
+    // came back.
+    await fx.alertStandby({ tenantId, channelId, dayKey: now.toISOString().slice(0, 10), events: standby });
+    return ok({ refused: 'standby_not_primary' });
+  }
 
   // --- Tenant settings and the compiled context, read once for the whole entry.
   const { data: tenantRow, error: tenantErr } = await db

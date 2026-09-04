@@ -23,6 +23,7 @@ import { loadTenantSecret } from '@/lib/secrets/tenantSecret';
 import { sendCommentReply } from '@/lib/comments/send';
 import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
+import { raiseAlert } from '@/lib/alerts/alert';
 import { runReceptionJob, type WorkerEffects } from '@/lib/worker/reception';
 
 export const runtime = 'nodejs';
@@ -35,6 +36,19 @@ function effects(now: Date): WorkerEffects {
     now,
     verifySignature: (raw, signature) => verifyQStashSignature(raw, signature),
     graphVersionDefault: () => required('META_GRAPH_VERSION'),
+
+    alertStandby: async ({ tenantId, channelId, dayKey, events }) => {
+      await raiseAlert(db, {
+        tenantId,
+        severity: 'critical',
+        kind: 'channel.standby_not_primary',
+        dedupKey: `standby:${channelId}:${dayKey}`,
+        body:
+          `Channel ${channelId}: Meta delivered ${events} message(s) into entry.standby, so another app ` +
+          '(almost always the Page Inbox) is the PRIMARY receiver for this Page. Reception cannot answer ' +
+          'anyone here until that is changed in the Page settings.',
+      });
+    },
 
     generateReply: (a) =>
       handleReception(
