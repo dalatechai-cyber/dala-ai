@@ -60,6 +60,25 @@ Eight sections, all eight of the founder's explicit asks answered, and the depth
 
 **Sketch.** Add to Phase B, before submission: a public `dala.mn/privacy` and `dala.mn/terms` (they must exist as pages, and §8 Q6's answer must be consistent with them); `POST /api/meta/data-deletion` implementing Meta's signed-request flow, writing a `contact_erasure_requests` row (§2.4F already has the table) and returning the confirmation URL and code Meta requires; a neutral app display name ("Dala AI") and icon decided before reuse-and-rename, with the rename's review implications checked in Business Settings first — §8 flags that as unverified and it should be resolved in week one, not week five.
 
+**PARTLY CLOSED 2026-09-04 — the deletion callback is built.** On the founder's call:
+*"build it now, since a submission bounced for that costs a full cycle whatever else is in
+it."* `POST /api/meta/data-deletion` verifies Meta's `signed_request`, writes a
+`contact_erasure_requests` row, and returns the `url` + `confirmation_code` Meta requires;
+`GET /data-deletion/status` is the page that URL points at. Migration `0008` gives the row
+the columns it needs to be acted on later, and `catalog.sql` V20 asserts them.
+
+**What it does NOT do, and this is deliberate:** it does not delete anything. Meta's
+callback carries an **app-scoped id (ASID)**; every id this database holds for a customer
+is a **page-scoped id (PSID)** or an IGSID. A lookup that treats them as one namespace
+finds nothing, reports success, and leaves the data in place behind a confirmation code
+saying otherwise. Bridging them needs Meta's ID Matching API (`GET /{id}/ids_for_pages`),
+which needs a Business Manager containing the app and every Page — neither of which
+exists. So a request is **recorded**, its status says `received` rather than `completed`,
+and an alert fires. `docs/STATUS.md` carries the resolver as an ordered item.
+
+Still open in this section: the privacy policy and terms pages, the app icon, the display
+name, and the use-case description. None of them is code.
+
 ---
 
 # TIER B — blocks the first paying client, or the first contract

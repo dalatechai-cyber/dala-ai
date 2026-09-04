@@ -265,6 +265,68 @@ insert into _v select 'V19', 'tenant_channels comment switches exist and default
      where not exists (select 1 from canned_response_kinds where kind='comment_public_reply')
   ) q;
 
+-- V20 — the erasure request row can say what it is, and cannot lie about being done.
+-- 0008 turns 0001's seven-column stub into a row somebody can act on months later. Two
+-- silent failures if it is in the repo and not applied: `id_kind` is absent, so nothing
+-- records that Meta's callback sends an APP-scoped id while every contact we hold carries
+-- a PAGE-scoped one — and a later resolver joins two different namespaces and finds
+-- nothing, forever, reporting success. And `erasure_completed_has_evidence` is absent, so
+-- a row can be marked `completed` with no `rows_deleted` — "the job said it worked"
+-- becoming the only evidence that it did, which is the failure this whole file exists for.
+insert into _v select 'V20', 'contact_erasure_requests is identified, unique by code, and cannot claim completion without evidence',
+  coalesce(string_agg(problem, '; '), 'correct'), count(*) = 0
+  from (
+    select 'id_kind column missing' as problem
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='contact_erasure_requests' and column_name='id_kind')
+    union all
+    select 'status missing, nullable, or not defaulted to received'
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='contact_erasure_requests'
+          and column_name='status' and is_nullable='NO' and column_default like '''received''%')
+    union all
+    select 'source missing or nullable'
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='contact_erasure_requests'
+          and column_name='source' and is_nullable='NO')
+    union all
+    -- tenant_id MUST stay nullable: the callback is app-scoped and does not name a tenant.
+    -- A NOT NULL here would force a guess on the one path where guessing is least
+    -- acceptable, so this checks the absence of a constraint rather than its presence.
+    select 'tenant_id is NOT NULL — the callback cannot name a tenant and must not guess one'
+     where exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='contact_erasure_requests'
+          and column_name='tenant_id' and is_nullable='NO')
+    union all
+    select 'erasure_callback_is_identified CHECK missing'
+     where not exists (
+       select 1 from pg_constraint
+        where conrelid='public.contact_erasure_requests'::regclass
+          and conname='erasure_callback_is_identified')
+    union all
+    select 'erasure_completed_has_evidence CHECK missing'
+     where not exists (
+       select 1 from pg_constraint
+        where conrelid='public.contact_erasure_requests'::regclass
+          and conname='erasure_completed_has_evidence')
+    union all
+    select 'confirmation_code is not unique — two people would read one status page'
+     where not exists (
+       select 1 from pg_indexes
+        where schemaname='public' and tablename='contact_erasure_requests'
+          and indexname='contact_erasure_requests_code')
+    union all
+    select 'open-request index missing — a redelivery would mint a second code'
+     where not exists (
+       select 1 from pg_indexes
+        where schemaname='public' and tablename='contact_erasure_requests'
+          and indexname='contact_erasure_requests_open')
+  ) q;
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;

@@ -11,7 +11,7 @@ exists yet. The gap is not engineering. It is four accounts and one twenty-day w
 
 ## 1. What is built
 
-553 tests, 7 guards, 7 migrations, 50 modules. Every module below is merged on `main`
+590 tests, 7 guards, 8 migrations, 55 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |
@@ -40,6 +40,7 @@ with CI green.
 | | `channel/delivery`, `channel/halt` | Only `live` delivers; a `190` halts the channel and the token together |
 | **The worker** | `worker/reception`, `worker/freshness` | Every branch of the job, as a value-returning function the route merely binds |
 | **Comments** | `meta/comments`, `comments/eligibility`, `comments/send`, `worker/comments` | The `feed` firehose, the decision that never sees the comment's text, and the public reply |
+| **Privacy** | `meta/signedRequest`, `privacy/erasure`, `privacy/statusPage` | Meta's data-deletion callback: verify, record, and the status page it hands people |
 | **Operator** | `scripts/kek/generate.ts` | One 32-byte key to stdout. Writes nothing |
 | | `scripts/kek/seal.ts` | A token on **stdin** → the SQL for one `tenant_secrets` row, self-verified |
 | | `scripts/preflight.ts` | Every required variable, ok / BAD / MISSING, with the remedy and no values |
@@ -62,12 +63,19 @@ Next.js app and speaks HTTP to it: the verify handshake returns the challenge ve
 wrong token and an unknown app slug are 403, an HMAC over the raw bytes of a **Mongolian
 Cyrillic** body verifies, one changed character in a still-valid body is 401, and a
 verified POST against an unreachable registry is **500** — the transient half of the
-200/500 asymmetry, at the layer where it actually matters.
+200/500 asymmetry, at the layer where it actually matters. It now also drives the
+data-deletion callback: an unsigned request and a forged one are both 400, a **genuinely
+signed** `signed_request` gets past verification and 500s on the unreachable database, and
+the status page returns 503 rather than rendering unsigned Mongolian. Mutating the
+signature comparison to always-accept flips the forged case from 400 to 500, so the check
+is not vacuous.
 
-**Against stubs (everything else).** 553 unit tests. Load-bearing properties were checked
+**Against stubs (everything else).** 590 unit tests. Load-bearing properties were checked
 by mutation — the code was deliberately broken and the tests were watched to fail — for
 the AAD binding, KEK version selection, the `me` refusal, the failed/indeterminate split,
-and the signature comparison.
+and the signature comparison. Three more since: the comment dedup key (thread, not
+comment), the `algorithm` field being checked rather than dispatched on, and the
+status page's all-or-nothing block gate.
 
 ---
 
@@ -88,6 +96,8 @@ claims nobody has earned yet.
 | **QStash redelivery and the crash property** | Unit-tested only. V1.md 1.5 has said so since it was written | A QStash account and a deliberately killed worker |
 | **The prompt compiler on real input** | `prompt/platform/` is empty, so no snapshot has ever been compiled | The signed Ш0–Ш9 blocks |
 | **Prompt caching, and therefore the cost model** | D-016's margin rests on measured *ancestor* traffic, not on this system's bill | A month of real invoices |
+| **Meta's data-deletion callback** | The `signed_request` format is SEARCH-CORROBORATED, never seen from Meta. No app exists, so nothing has ever posted to it. The response shape (`{url, confirmation_code}`) is standard JSON — several widely-copied implementations emit a JavaScript object literal instead, and one asserts JSON "fails" | The first real callback, or ten minutes on Meta's own docs |
+| **That an erasure request can be FULFILLED** | Meta sends an app-scoped id; every id we hold is page-scoped. Nothing bridges them. A request is recorded, not executed — see §5 | A Business Manager containing the app and the Pages, then the ID Matching API |
 | **That any of it works together** | The furthest anything has run is: a signed webhook POST reaching tenant resolution and 500ing on an unreachable registry | The list in §5 |
 
 ### One thing worth saying plainly
@@ -102,12 +112,15 @@ you find out from a customer.
 
 ## 4. Decisions waiting for you
 
-**One.**
+**None that block code. Three pieces of Mongolian, all yours, all in `prompt/drafts/`:**
 
-1. **Ш0–Ш9 wording.** Drafted in `prompt/drafts/` with a red-pen table in its README.
-   Until these are signed into `prompt/platform/` the compiler has nothing to compile, so
-   this blocks the first reply rather than merely improving it. It is also the only thing
-   on the free half of §5 that nobody but you can do.
+1. **Ш0–Ш9 wording.** Drafted with a red-pen table in its README. Until these are signed
+   into `prompt/platform/` the compiler has nothing to compile, so this blocks the first
+   reply rather than merely improving it.
+2. **The public comment line** (`comment_public_reply.mn.txt`). Its production home is a
+   per-tenant `canned_responses` row gated by `reviewed_at`, so sign-off is per tenant.
+3. **The eight data-deletion status blocks** (`data_deletion_status.mn.txt`). App Review
+   will visit that page, and until these are signed it returns **503** on purpose.
 
 ### Settled 2026-09-04, and already built
 
@@ -121,6 +134,13 @@ you find out from a customer.
 - **The worker route has tests**, because it stopped being the route: the branching lives
   in `lib/worker/reception.ts` and the route is a binding that may not branch. Five
   mutations were each caught by exactly the test that should catch them.
+- **App Review is ONE submission, with comments bundled in** — *"one ~20-day cycle, not
+  two, and the comment path now exists so it's demonstrable."* The permission set is
+  therefore `pages_messaging` + `pages_manage_engagement` + `pages_read_user_content`.
+  The last of those is the one nothing in `docs/` had named; see §3.
+- **The Data Deletion Request callback is built** (`0008`, `catalog.sql` V20), because a
+  submission bounced for it costs a full cycle whatever else is in it. It records; it does
+  not yet delete. §5 item 17 is why.
 
 ---
 
@@ -145,6 +165,9 @@ them out of order produces a database error rather than a broken deployment:
 | 2 | **`IDENTITY_PEPPER`** — any 32 random bytes | `person_identities.value_hash` cannot be computed; inbound persistence refuses |
 | 3 | **`TENANT_KEK_V1` + `TENANT_KEK_ACTIVE_VERSION=v1`** — `node scripts/kek/generate.ts` | No credential can be sealed or opened. Put the key in a password manager the moment it seals a real token: it has no issuer and no recovery path |
 | 4 | **Sign Ш0–Ш9** into `prompt/platform/*.mn.txt` + `prompt/platform-mn-review.json` | The compiler has no platform block, the gate refuses, and no reply can be generated |
+| 4b | **Sign the eight data-deletion status blocks** (`prompt/drafts/data_deletion_status.mn.txt`) | `/data-deletion/status` returns 503. App Review visits that URL, so this is a submission blocker rather than a polish item |
+| 4c | **`DALA_PUBLIC_URL`** — the deployment's own origin, e.g. `https://dala.mn` | The deletion callback cannot build the status URL Meta requires. Never taken from the request's Host header, so it has to be configured |
+| 4d | **`SUPABASE_SECRET_PRIVACY`** — one more named key, once the project exists | The deletion callback cannot record anything; every callback is a 500 and Meta retries |
 
 ### Costs money
 
@@ -159,7 +182,8 @@ them out of order produces a database error rather than a broken deployment:
 
 | # | Supply | Note |
 |---|---|---|
-| 9 | **Meta app**, Business Verification, App Review for `pages_messaging` | ~20 days, unverified. `META_APP_ID`, `META_APP_SECRETS`, `META_VERIFY_TOKENS`. Nothing inbound or outbound is real until this clears |
+| 9 | **Meta app**, Business Verification, App Review for `pages_messaging` + `pages_manage_engagement` + `pages_read_user_content` | ~20 days, unverified. `META_APP_ID`, `META_APP_SECRETS`, `META_VERIFY_TOKENS`. Nothing inbound or outbound is real until this clears. Submit once, with comments bundled: the comment path exists and is demonstrable |
+| 9b | **The rest of App Review's non-permission deliverables**: privacy policy URL, terms URL, app icon, public app name, use-case description | Each bounces a submission on its own. The Data Deletion Request callback — the one nothing had designed — is built; the other five are not code and nobody but you can supply them |
 
 ### Then per-tenant, and all of it is rows rather than code
 
@@ -172,6 +196,16 @@ them out of order produces a database error rather than a broken deployment:
 | 14 | Subscribe the app to the Page, and **verify the app-level subscription too** — a page-level subscribe returns `{"success": true}` even when the app has never enabled that field, and no events are ever delivered |
 | 15 | `delivery_mode = 'shadow'` for the 14-day mirror. **Not `live`** |
 | 16 | After the mirror: unsubscribe the ancestor app first, confirm from each app's own token, then `delivery_mode = 'live'` |
+
+| 17 | **Once the Business Manager exists**, add the app and every Page to it, then say so — that is what makes the ID Matching API answerable, and it is the missing half of the erasure path |
+
+Step 17 is not optional and it is not urgent yet. Today a data deletion request is
+**recorded and alerted, not fulfilled**: Meta's callback carries an app-scoped id and every
+id we hold is page-scoped, so there is nothing to join. With the app and the Pages in one
+Business Manager, `GET /{asid}/ids_for_pages` bridges them and the resolver becomes an
+afternoon's work. Before there is a single real customer message there is also nothing to
+erase, which is why this sits after go-live rather than before it — but it must not still
+be sitting here when there is.
 
 Step 15 is the one worth not rushing. Meta delivers the identical event to every
 subscribed app, so during the mirror both this system and `Matrix-Chatbot` see every
