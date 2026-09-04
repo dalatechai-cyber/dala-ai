@@ -29,6 +29,7 @@ import { loadReceptionContext } from '@/lib/reception/load';
 import { handleReception } from '@/lib/reception/handle';
 import { buildDeps } from '@/lib/reception/deps';
 import { RECEPTION_HISTORY_TURNS } from '@/lib/model/reception';
+import { renderVolatile, tenantClock } from '@/lib/reception/volatile';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
 
 export const runtime = 'nodejs';
@@ -109,27 +110,11 @@ export async function POST(request: Request): Promise<NextResponse> {
     promptCacheMode: String(t['prompt_cache_mode'] ?? 'off') as 'off' | '5m' | '1h',
   };
   const timezone = String(t['timezone'] ?? 'Asia/Ulaanbaatar');
+  // "Today" is a question about the tenant's clock, so the date the closure query filters
+  // on is computed here rather than in SQL's `current_date`, which is the server's.
+  const localDate = tenantClock(now, timezone).date;
 
-  /**
-   * L4, the volatile tail. Never cached, and structurally unable to touch the prefix —
-   * it is a separate `system` block, which is what stops the ancestor's trap: it
-   * concatenates its closure section onto the cached base prompt, so the moment anything
-   * date-shaped joins that string every request writes a fresh entry and the bill
-   * roughly triples with no error and no symptom.
-   *
-   * INCOMPLETE, and stated rather than hidden: §6.4.2 also wants open/closed-now and the
-   * active closure sentence quoted verbatim from a row. Both need `business_hours` and
-   * `tenant_closures`, which nothing reads yet. What is here is correct; what is missing
-   * is missing.
-   */
-  const promptVolatile = [
-    `ОДООГИЙН ЦАГ: ${new Intl.DateTimeFormat('en-CA', {
-      timeZone: timezone, dateStyle: 'short', timeStyle: 'short', hour12: false,
-    }).format(now)} (${timezone})`,
-    'СУВАГ: facebook_page',
-  ].join('\n');
-
-  const loaded = await loadReceptionContext(db, { tenantId, channel: 'facebook_page', settings });
+  const loaded = await loadReceptionContext(db, { tenantId, channel: 'facebook_page', settings, localDate });
   if (!loaded.ok) {
     console.error('[worker] context_unavailable', { tenantId, code: loaded.code, detail: loaded.detail });
     if (loaded.code === 'not_provisioned') {
@@ -141,6 +126,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: loaded.code }, { status: 503 });
   }
   const ctx = loaded.context;
+
+  /**
+   * L4, the volatile tail. Its own `system` block with no `cache_control`, which is what
+   * makes the ancestor's trap structurally unavailable: it concatenates its closure
+   * section onto the cached base prompt, so anything date-shaped added there invalidates
+   * every entry, silently, and the bill roughly triples.
+   */
+  const promptVolatile = renderVolatile({
+    now, timezone, channel: 'facebook_page', hours: ctx.hours, closures: ctx.closures,
+  });
 
   // --- One message, one reservation, one reply. -----------------------------
   const drafted: string[] = [];
