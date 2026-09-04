@@ -39,6 +39,10 @@ const DEFAULTS: Record<string, unknown[]> = {
   canned_responses: [{ kind: 'handoff', body: 'Уучлаарай.', reviewed_at: '2026-09-04T00:00:00Z' }],
   tenant_booking: [{ booking_url: 'https://www.matrixecosalon.org/' }],
   services: [{ name: 'CICA' }],
+  deterministic_replies: [{
+    intent: 'greeting', body: 'Сайн байна уу!', enabled: true,
+    match_mode: 'whole_message', stems: ['сайн байна уу'], requires_empty_history: true,
+  }],
   business_hours: [{ weekday: 1, opens: '10:00:00', closes: '20:00:00', closed: false }],
   tenant_closures: [{ starts_on: '2026-09-07', ends_on: '2026-09-09', title: 'Наадам', message: 'Амарна.' }],
   forbidden_phrasings: [
@@ -120,7 +124,7 @@ test('a null opens/closes survives as null, so "we do not know" is not "closed"'
 });
 
 test('EVERY failed read refuses; none is treated as an empty result', async () => {
-  for (const table of ['disclosure_rules', 'out_of_scope_topics', 'canned_responses', 'tenant_booking', 'services', 'forbidden_phrasings', 'business_hours', 'tenant_closures']) {
+  for (const table of ['disclosure_rules', 'out_of_scope_topics', 'canned_responses', 'tenant_booking', 'services', 'forbidden_phrasings', 'business_hours', 'tenant_closures', 'deterministic_replies']) {
     const r = await loadReceptionContext(stubDb({ [table]: { data: null, error: { message: 'down' } } }).db, input);
     assert.equal(r.ok, false, table);
     assert.equal(!r.ok && r.code, 'unavailable', table);

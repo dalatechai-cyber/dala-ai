@@ -10,6 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { DEFAULT_GATE, GATE_BY_RESPONSE_KIND, scriptForLocale } from '../../config/platform.ts';
 import { loadLiveSnapshot } from '../prompt/publish.ts';
 import type { CannedRow, GateRule } from '../gate/match.ts';
+import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
 import { MAX_REPLY_CHARS } from './handle.ts';
 import type { BusinessHours, Closure } from './volatile.ts';
@@ -28,6 +29,7 @@ export type ReceptionContext = {
   allowedNumbers: string[];
   revisionId: string;
   rules: GateRule[];
+  deterministic: DeterministicRule[];
   canned: CannedRow[];
   tenantGuard: TenantGuardView;
   cacheMode: 'off' | '5m' | '1h';
@@ -77,7 +79,7 @@ export async function loadReceptionContext(
       : { ok: false, code: 'not_provisioned', detail: snapshot.detail };
   }
 
-  const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes] = await Promise.all([
+  const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes, detRes] = await Promise.all([
     db.from('disclosure_rules')
       .select('topic_key, matcher, quote_price, response_kind, deterministic_shortcircuit')
       .eq('tenant_id', input.tenantId),
@@ -104,12 +106,16 @@ export async function loadReceptionContext(
       .select('starts_on, ends_on, title, message')
       .eq('tenant_id', input.tenantId)
       .gte('ends_on', input.localDate),
+    db.from('deterministic_replies')
+      .select('intent, body, enabled, match_mode, stems, requires_empty_history')
+      .eq('tenant_id', input.tenantId),
   ]);
 
   for (const [name, res] of [
     ['disclosure_rules', disclosure], ['out_of_scope_topics', outOfScope],
     ['canned_responses', canned], ['tenant_booking', booking], ['services', services],
     ['forbidden_phrasings', phrasings], ['business_hours', hoursRes], ['tenant_closures', closuresRes],
+    ['deterministic_replies', detRes],
   ] as const) {
     if (res.error) return { ok: false, code: 'unavailable', detail: `${name} unreadable: ${res.error.message}` };
   }
@@ -197,10 +203,27 @@ export async function loadReceptionContext(
     };
   });
 
+  const deterministic: DeterministicRule[] = (Array.isArray(detRes.data) ? detRes.data : []).map((raw) => {
+    const r = raw as Record<string, unknown>;
+    const stems = r['stems'];
+    return {
+      intent: String(r['intent']),
+      body: String(r['body']),
+      enabled: r['enabled'] === true,
+      // An unrecognised mode falls to whole_message, the high-precision one. A typo must
+      // not silently widen a matcher into the mode that steals questions.
+      matchMode: r['match_mode'] === 'contains_stem' ? 'contains_stem' : 'whole_message',
+      stems: Array.isArray(stems) ? stems.filter((x): x is string => typeof x === 'string') : [],
+      // Absent reads as TRUE: greeting a customer mid-conversation is the worse error.
+      requiresEmptyHistory: r['requires_empty_history'] !== false,
+    };
+  });
+
   return {
     ok: true,
     context: {
       promptStable: snapshot.snapshot.promptStable,
+      deterministic,
       hours,
       closures,
       allowedNumbers: snapshot.snapshot.allowedNumbers,

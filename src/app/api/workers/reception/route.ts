@@ -223,6 +223,11 @@ export async function POST(request: Request): Promise<NextResponse> {
         cacheMode: ctx.cacheMode,
         timeoutMs: RECEPTION_UPSTREAM_TIMEOUT_MS,
         rules: ctx.rules,
+        deterministic: ctx.deterministic,
+        // The history was read successfully or we would have 503'd above, so `known` is
+        // true here. `empty` is about the turns BEFORE this one — the inbound row was
+        // stored a moment ago, so a first message leaves priorTurns empty.
+        historyState: { known: true, empty: priorTurns.length === 0 },
         canned: ctx.canned,
         tenantGuard: ctx.tenantGuard,
         cannedLabel: 'БЭЛЭН ХАРИУЛТ',
