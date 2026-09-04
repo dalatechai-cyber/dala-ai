@@ -45,7 +45,16 @@ for (const file of walk('src')) {
   // A TYPE-only import is fine: it erases at compile time and cannot construct a client.
   // What must not happen is a VALUE import, which can. `import type {...}` and the inline
   // `import { type X }` form are both allowed; anything else from that package is not.
-  for (const m of src.matchAll(/import\s+([\s\S]*?)\s*from\s+['"]@supabase\/supabase-js['"]/g)) {
+  // `[^;]*?` rather than `[\s\S]*?`: the clause may not cross a statement terminator.
+  //
+  // The first version used `[\s\S]*?`, which starts matching at the FIRST `import` in the
+  // file and runs to the supabase one — so in a file whose supabase import is not first,
+  // the captured clause was `{ createHmac } from 'node:crypto'; import type { SupabaseClient }`
+  // and the type-only test failed on it. A false positive, and one that only appears when
+  // another import comes first, which is why twelve pull requests never hit it. The cure a
+  // reader would reach for — reordering imports to appease it — would have left the bug in
+  // place for the next file.
+  for (const m of src.matchAll(/import\s+([^;]*?)\s*from\s+['"]@supabase\/supabase-js['"]/g)) {
     const clause = (m[1] ?? '').trim();
     const typeOnly =
       clause.startsWith('type ') ||
