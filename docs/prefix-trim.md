@@ -101,7 +101,7 @@ is already written to sit there.
 ### L1 — consolidate the overlapping instruction blocks
 
 `ҮНИЙН МЭДЭЭЛЭЛ ӨГӨХ ДҮРЭМ` (1,883) and `ХАРИУЛАХ ЗААВАР` (1,366) overlap heavily with
-each other and with the Ш1–Ш6 boundary gate, which states the same refusals as a
+each other and with the Ш0–Ш9 boundary gate, which states the same refusals as a
 first-line decision procedure. Pool of 3,249 characters; **assume ~30% removable ≈ 975
 chars (~690 tokens at the measured ratio)** until someone reads the two side by side and marks the actual
 duplication.
@@ -111,7 +111,7 @@ validated by the bake-off before shipping.
 
 ### L2 — the few-shot examples
 
-891 characters. The Ш1–Ш6 gate may already do what they were doing. **This is a bake-off
+891 characters. The Ш0–Ш9 gate may already do what they were doing. **This is a bake-off
 arm, not an assumption** — run with and without, compare on the same probes.
 
 ## What NOT to trim

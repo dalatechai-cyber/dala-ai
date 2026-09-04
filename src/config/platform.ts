@@ -84,3 +84,17 @@ export const CAPS = {
   analyticsRun: usdToNano(ANALYTICS_RUN_BUDGET_USD),
   qualityRun: usdToNano(QUALITY_RUN_BUDGET_USD),
 } satisfies Record<string, NanoUsd>;
+
+/**
+ * Boundary gates whose forbidden vocabulary is checked on EVERY outbound reply, whether
+ * or not their inbound matcher fired (§6.7).
+ *
+ * The rest are checked only when the gate fired, because a flat list refuses benign
+ * replies and makes the per-gate counters meaningless. These three are the exception
+ * because their failure is expensive and can appear in a reply to a question that did
+ * not obviously ask for it: a hedged price (Ш2), an invented booking confirmation (Ш3),
+ * and a promised discount (Ш6). Ш6 in particular is always-on by design — the dangerous
+ * discount answer is confident, so it evades a forbidden list made of hedges, and the
+ * draft that buried it inside the abuse check let a polite question route straight past.
+ */
+export const ALWAYS_ON_GATES = ['Ш2', 'Ш3', 'Ш6'] as const;

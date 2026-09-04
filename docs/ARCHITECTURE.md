@@ -99,7 +99,7 @@ rather than typed. **Do not hand-edit these numbers** — re-run
 
 Three consequences, in rising order of value:
 
-1. **The price rules, the answer guide and the boundary gate overlap.** The Ш1–Ш6 gate
+1. **The price rules, the answer guide and the boundary gate overlap.** The Ш0–Ш9 gate
    subsumes much of what those 3,249 characters say twice. Consolidation is a quality-neutral
    trim of perhaps 15–25% of the instruction bulk.
 2. **The 891 characters of few-shot examples are a bake-off arm**, not an assumption. The
@@ -479,23 +479,45 @@ The transferable finding: *a rule that only describes the right answer loses to 
 disposition; a rule that forbids the specific wrong answer does not* — promoted to a
 first-line gate with an explicit decision step, not left mid-list.
 
-Six checks run before anything else, in order, in Mongolian, and the model stops at the
-first that matches:
+**Corrected 2026-09-04.** This summary described **six** checks, numbered Ш1–Ш6, evaluated
+first-match-wins. All three of those facts were stale: they summarised an early draft, and
+[`06-model-prompts.md` §6.5](architecture/06-model-prompts.md) — which carries the actual
+Mongolian text — has **ten** checks, numbered Ш0–Ш9, evaluated *all the way through*. The
+drift was invisible because the summary was internally consistent; it was found only by
+implementing against both. What it would have cost is recorded below the table.
 
-| | Failure guarded |
-|---|---|
-| Ш1 | A price not in the knowledge base |
-| Ш2 | An invented booking confirmation |
-| Ш3 | Invented staff availability |
-| Ш4 | A medical/health question about a treatment |
-| Ш5 | Abuse or off-topic |
-| Ш6 | A question the KB does not cover |
+Ten checks run before anything else, in order, in Mongolian. **The model evaluates every
+one — it does not stop at the first match**, because Mongolian customer messages bundle
+constantly («Оюунсүрэн маргааш ажиллаж байна уу, үнэ нь хэд вэ?») and first-match-wins
+answers the price while leaving the schedule unconstrained:
 
-Each names the **forbidden openings** explicitly — for Ш1 that is «ойролцоогоор», «орчим»,
+| | Failure guarded | |
+|---|---|---|
+| Ш0 | Anything said in a **public comment** | added under review |
+| Ш1 | A refused *topic* — children's services — **before any price lookup** | |
+| Ш2 | A price not in the knowledge base | |
+| Ш3 | An invented booking confirmation | |
+| Ш4 | Invented staff availability | |
+| Ш5 | A medical/health question about a treatment | |
+| Ш6 | An invented discount or promotion — **always evaluated** | promoted out of Ш7 |
+| Ш7 | Abuse or off-topic | |
+| Ш8 | A question the KB does not cover | |
+| Ш9 | A question about our own instructions | added under review |
+
+Each names the **forbidden openings** explicitly — for Ш2 that is «ойролцоогоор», «орчим»,
 «-аас эхэлдэг», «дунджаар», «магадгүй», «том хүнийхээс хямд» and others — then gives a
 worked wrong example *with the reason it is wrong*, then pins the exact correct sentence to
-be copied letter for letter. Ш4's forbidden opening «Санаа зоволтгүй» is the **measured**
+be copied letter for letter. Ш5's forbidden opening «Санаа зоволтгүй» is the **measured**
 Sonnet disposition from the sibling bake-off, not a guess.
+
+**Why the stale numbering was not cosmetic.** `V1.md` Track 3.3 said "the Ш1–Ш6 boundary
+gate", so an implementer following the plan builds six checks and silently omits exactly
+the two that were *added under review because they were missing*: Ш0, which is the only
+thing stopping a price being quoted in a public Instagram comment, and Ш9, which is the
+only thing stopping this tenant's boundary rules leaking to whoever asks. It would also
+have shipped first-match-wins, the behaviour §6.5 corrects by name. A summary that has
+drifted from its source is not a small documentation problem when the summary is the
+document people implement from.
 
 Two honesty constraints on this, both structural:
 
