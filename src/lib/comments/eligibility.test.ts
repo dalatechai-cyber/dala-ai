@@ -6,16 +6,18 @@ const NOW = new Date('2026-09-04T12:00:00Z');
 const LINE = { body: 'Сайн байна уу! Дэлгэрэнгүйг хувийн мессежээр хүргэе.', reviewedAt: '2026-09-01T00:00:00Z' };
 
 const base: CommentDecisionInput = {
-  config: { policy: 'public_only', maxPostAgeDays: 30, ignoreCommenterIds: [] },
+  config: { policy: 'public_only', maxPostAgeDays: 30, ignoreCommenterIds: [], repliesPerPostPerDay: 1 },
   pinnedLine: LINE,
   comment: {
     commentId: 'c_1',
     threadId: 'c_1',
+    postId: 'p_1',
     fromId: 'customer_1',
     createdAt: new Date('2026-09-04T11:50:00Z'),
     parentIsOurs: false,
   },
   threadAlreadyAnswered: false,
+  postRepliesInWindow: 0,
   now: NOW,
 };
 
@@ -164,9 +166,10 @@ test('a tenant with comments off is attributed to that, not to a later check', (
   // A counter that said "we declined because the post was old" for a tenant who never
   // opted in would be a lie in an operator's dashboard.
   const r = decide({
-    config: { policy: 'none', maxPostAgeDays: 30, ignoreCommenterIds: ['customer_1'] },
+    config: { policy: 'none', maxPostAgeDays: 30, ignoreCommenterIds: ['customer_1'], repliesPerPostPerDay: 1 },
     comment: { ...base.comment, createdAt: new Date('2020-01-01'), parentIsOurs: true },
     threadAlreadyAnswered: true,
+    postRepliesInWindow: 99,
     pinnedLine: null,
   });
   assert.equal(r.reply === false && r.refusal, 'comment_policy_off');
@@ -193,4 +196,47 @@ test('every refusal carries a detail a person could act on', () => {
     }
   }
   assert.equal(seen.size, 8, 'every refusal reason is reachable and distinct');
+});
+
+// ---------------------------------------------------------------------------
+// The per-post daily cap (§3.8.2 rule 4; the founder's number is 1)
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: a post that already had its reply today gets no second one, in ANY thread', () => {
+  // The case the per-thread rule cannot catch and the whole reason this cap exists: five
+  // people commenting separately on one post are five threads. The reply is the same
+  // sentence every time, so five of them under one post is spam on the tenant's own wall.
+  const r = decide({ postRepliesInWindow: 1, comment: { ...base.comment, commentId: 'c_9', threadId: 'c_9' } });
+  assert.equal(r.reply, false);
+  assert.equal(r.reply === false && r.refusal, 'post_cap_reached');
+});
+
+test('the cap is the tenant\'s number, not a constant', () => {
+  for (const [cap, already, expected] of [
+    [1, 0, true], [1, 1, false],
+    [3, 2, true], [3, 3, false],
+    [10, 9, true], [10, 10, false],
+  ] as [number, number, boolean][]) {
+    const r = decide({ config: { ...base.config, repliesPerPostPerDay: cap }, postRepliesInWindow: already });
+    assert.equal(r.reply, expected, `cap ${cap}, already ${already}`);
+  }
+});
+
+test('DONE-TEST: the per-thread rule stays the inner guard and keeps its own attribution', () => {
+  // Both rules refuse this comment. `thread_already_answered` is the more specific truth
+  // and is what an operator should see; `post_cap_reached` is reserved for what the thread
+  // rule does not catch. Swapping the two checks makes this fail.
+  const r = decide({ threadAlreadyAnswered: true, postRepliesInWindow: 5 });
+  assert.equal(r.reply === false && r.refusal, 'thread_already_answered');
+});
+
+test('the cap is checked before the pinned line, so a capped post is never attributed to missing text', () => {
+  const r = decide({ postRepliesInWindow: 1, pinnedLine: null });
+  assert.equal(r.reply === false && r.refusal, 'post_cap_reached');
+});
+
+test('the decision carries the post id, so the count can be written with the draft', () => {
+  const r = decide();
+  assert.equal(r.reply === true && r.postId, 'p_1');
+  assert.equal(r.reply === true && r.threadId, 'c_1', 'and the thread, which is the dedup key');
 });

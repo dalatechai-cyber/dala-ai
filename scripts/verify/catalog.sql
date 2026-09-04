@@ -327,6 +327,47 @@ insert into _v select 'V20', 'contact_erasure_requests is identified, unique by 
           and indexname='contact_erasure_requests_open')
   ) q;
 
+-- V21 — the per-post daily cap has somewhere to count from, and a bound.
+-- 0009 puts the post id on the reply row instead of in a second table (0007's argument:
+-- two sources of truth for "did we already reply" disagree the first time a worker dies
+-- between them). If the migration is in the repo and not applied, the insert names a
+-- column PostgREST does not have and EVERY public reply fails — loudly, which is the
+-- tolerable direction. The quiet failure is the missing index: the count query then scans
+-- every comment reply the tenant has ever made, and the cap degrades from a 24-hour
+-- window into "once per post, forever" without anything saying so.
+insert into _v select 'V21', 'the comment post cap has a column, a bound, and a windowed index',
+  coalesce(string_agg(problem, '; '), 'correct'), count(*) = 0
+  from (
+    select 'outbound_messages.comment_post_id missing' as problem
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='outbound_messages' and column_name='comment_post_id')
+    union all
+    select 'comment_replies_per_post_per_day missing, nullable, or not defaulted to 1'
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='tenant_channels'
+          and column_name='comment_replies_per_post_per_day'
+          and is_nullable='NO' and column_default='1')
+    union all
+    select 'comment_post_id_only_on_comment_replies CHECK missing'
+     where not exists (
+       select 1 from pg_constraint
+        where conrelid='public.outbound_messages'::regclass
+          and conname='comment_post_id_only_on_comment_replies')
+    union all
+    select 'comment_post_cap_sane CHECK missing'
+     where not exists (
+       select 1 from pg_constraint
+        where conrelid='public.tenant_channels'::regclass and conname='comment_post_cap_sane')
+    union all
+    select 'the windowed index is missing — the cap becomes once per post FOREVER'
+     where not exists (
+       select 1 from pg_indexes
+        where schemaname='public' and tablename='outbound_messages'
+          and indexname='outbound_messages_comment_post')
+  ) q;
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;

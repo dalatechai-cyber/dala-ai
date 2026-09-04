@@ -59,6 +59,12 @@ export async function draftOnce(
   input: {
     tenantId: string; kind: OutboundKind; dedupKey: string; body: string;
     channelId?: string | null; conversationId?: string | null;
+    /**
+     * `comment_reply` only: the post the replied-to comment sits under, so the per-post
+     * daily cap can be counted from the rows that already exist rather than from a second
+     * table that would drift from them. A CHECK refuses it on any other kind.
+     */
+    commentPostId?: string | null;
   },
 ): Promise<DraftOutcome> {
   if (input.dedupKey === '') {
@@ -79,6 +85,7 @@ export async function draftOnce(
       kind: input.kind,
       body: input.body,
       dedup_key: input.dedupKey,
+      comment_post_id: input.commentPostId ?? null,
       state: 'draft',
     })
     .select('id, body, state, attempts')
