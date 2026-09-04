@@ -11,7 +11,7 @@ exists yet. The gap is not engineering. It is four accounts and one twenty-day w
 
 ## 1. What is built
 
-700 tests, 7 guards, 12 migrations, 63 modules. Every module below is merged on `main`
+706 tests, 7 guards, 12 migrations, 63 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |
@@ -20,7 +20,7 @@ with CI green.
 | | `tenant/resolve` | Per-entry, from `channel_identity`. No `?? DEFAULT_TENANT` anywhere |
 | | `webhook/events` | Claim-before-work; `unique (provider, dedup_key)`, global |
 | | `queue/qstash` | Enqueue with `deduplicationId`; worker verifies BOTH signing keys |
-| | `meta/extract` | Skips echoes, receipts, text-less attachments, postbacks — every skip reported |
+| | `meta/extract` | Skips echoes, receipts, text-less attachments, postbacks — every skip reported. **`entry.standby` is counted, not dropped** (§3.7) |
 | | `inbound/persist` | contact → person → conversation → message, and the history read |
 | **Money** | `guard/withTenantRole` | identity → entitlement → consent → budget, each failing closed |
 | | `spend/reserve`, `spend/settle` | Reserve **before** the call, settle after, CAS on the counter |
@@ -121,6 +121,8 @@ because a Page with our app as *secondary receiver* delivers into `entry[].stand
 we drop with a 200 while `last_webhook_at` stays fresh and every other signal reads green.
 Webhooks arriving with no messages persisted is the standby fault; neither arriving is the
 token; neither ever arriving is a field subscription that never worked.
+
+**And the standby case is now caught at the instant it happens**, not three open hours later: `meta/extract` counts `entry.standby`, and the worker marks the event `standby_not_primary` — a state `0001` anticipated — refuses with a 200, and alerts. Before this, an entry delivered to us as a secondary receiver produced an extraction byte-identical to "no customer wrote in".
 
 **Still not built: the 6-hourly token probe and the subscription reconciler.** Both need a
 Meta call, and they catch a different fault — a token that has expired but has not yet been

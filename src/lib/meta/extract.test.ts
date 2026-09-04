@@ -81,6 +81,52 @@ test('a missing timestamp yields an invalid date, for the caller to substitute',
 
 test('an entry with no messaging array yields nothing and reports nothing', () => {
   for (const bad of [null, undefined, {}, { messaging: 'x' }, 'string', 42]) {
-    assert.deepEqual(extractInboundMessages(bad), { messages: [], skipped: [] });
+    assert.deepEqual(extractInboundMessages(bad), { messages: [], skipped: [], standby: 0 });
   }
+});
+
+// ---------------------------------------------------------------------------
+// The secondary-receiver case (§3.7)
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: entry.standby is COUNTED, not silently dropped', () => {
+  // When a Page has the Page Inbox app as primary receiver — the default for many Pages,
+  // and the state a Page enters the moment anyone touches "Automated responses" — Meta
+  // stops populating `entry.messaging` and populates `entry.standby` instead.
+  //
+  // Until this existed the entry above and this one produced IDENTICAL output: an empty
+  // extraction with no skip recorded. The webhook is well-formed, correctly signed and
+  // correctly routed; we return 200; Reception answers nobody; and every health signal
+  // stays green. That is §3.7's whole point, and the only symptom is the salon phoning
+  // the founder.
+  const r = extractInboundMessages({
+    id: 'PAGE', time: 1,
+    standby: [
+      { sender: { id: 'PSID1' }, recipient: { id: 'PAGE' }, timestamp: 1, message: { mid: 'm1', text: 'Сайн байна уу' } },
+      { sender: { id: 'PSID2' }, recipient: { id: 'PAGE' }, timestamp: 2, message: { mid: 'm2', text: 'Үнэ хэд вэ?' } },
+    ],
+  });
+  assert.equal(r.standby, 2);
+  assert.deepEqual(r.messages, [], 'we may not answer as a secondary receiver');
+  assert.deepEqual(r.skipped, [], 'and it is not a per-message skip — it is a channel fault');
+});
+
+test('a normal entry reports standby 0, so the signal means something', () => {
+  const r = extractInboundMessages(entry([textEvent]));
+  assert.equal(r.standby, 0);
+  assert.equal(r.messages.length, 1);
+});
+
+test('a malformed standby field is 0, never a crash', () => {
+  for (const bad of [{ standby: 'x' }, { standby: null }, { standby: {} }]) {
+    assert.equal(extractInboundMessages(bad).standby, 0);
+  }
+});
+
+test('an entry carrying BOTH is counted and still extracted', () => {
+  // Not documented as possible, and cheap to be right about: the standby count must not
+  // suppress messages that arrived normally in the same entry.
+  const r = extractInboundMessages({ ...entry([textEvent]), standby: [{ sender: { id: 'X' } }] });
+  assert.equal(r.standby, 1);
+  assert.equal(r.messages.length, 1);
 });

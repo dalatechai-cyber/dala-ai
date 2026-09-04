@@ -136,11 +136,13 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
   const generated: GenerateArgs[] = [];
   const delivered: DeliverArgs[] = [];
   const flags: { tenantId: string; conversationId: string; code: string; detail: string }[] = [];
+  const standbyAlerts: { tenantId: string; channelId: string; dayKey: string; events: number }[] = [];
 
   const fx: WorkerEffects = {
     db,
     now: NOW,
     verifySignature: async () => true,
+    alertStandby: async (a) => { standbyAlerts.push(a); },
     graphVersionDefault: () => 'v21.0',
     generateReply: async (a) => {
       generated.push(a);
@@ -163,7 +165,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     },
     ...rest,
   };
-  return { fx, ops, logs, generated, delivered, flags };
+  return { fx, ops, logs, generated, delivered, flags, standbyAlerts };
 }
 
 const run = (fx: WorkerEffects, rawBody = job(), signature: string | null = 'sig') =>
@@ -250,6 +252,56 @@ test('an entry with nothing answerable is processed, not dropped silently', asyn
   assert.ok(reasons(logs).includes('nothing_to_answer'));
   // Seen and declined is a different fact from vanished: the event is marked processed.
   assert.ok(ops.some((o) => o.table === 'webhook_events' && o.op === 'update'));
+});
+
+// ---------------------------------------------------------------------------
+// Secondary receiver (§3.7)
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: a standby entry is refused, marked and ALERTED — never processed', async () => {
+  // §3.7: the Page Inbox app is the primary receiver, so Meta delivers into entry.standby
+  // and we may not answer. The webhook is well-formed, correctly signed and correctly
+  // routed for the right tenant, so before this branch the entry read as "no customer
+  // wrote in": 200, marked processed, every health signal green, and the only symptom the
+  // salon phoning the founder.
+  const { fx, logs, ops, standbyAlerts, generated } = stubEffects({
+    tables: {
+      webhook_events: {
+        data: {
+          raw_payload: {
+            id: 'PAGE',
+            standby: [{ sender: { id: 'PSID' }, timestamp: NOW.getTime(), message: { mid: 'm1', text: 'Сайн уу' } }],
+          },
+        },
+      },
+    },
+  });
+  const r = await run(fx);
+
+  // 200, because a redelivery cannot change a Page setting.
+  assert.equal(r.status, 200);
+  assert.equal(r.body['refused'], 'standby_not_primary');
+  assert.equal(generated.length, 0, 'no model call — we may not answer at all');
+  assert.ok(reasons(logs).includes('standby_not_primary'));
+  assert.equal(standbyAlerts.length, 1, 'the alert IS the output here');
+  assert.equal(standbyAlerts[0]?.events, 1);
+  // The STATE, not merely that a write happened. `processed` is precisely the reading
+  // that hides this fault — the row would say the entry was handled and nothing anywhere
+  // would disagree. `0001` anticipated `standby_not_primary` for exactly this.
+  const marked = ops.find((o) => o.table === 'webhook_events' && o.op === 'update');
+  assert.equal(marked?.patch?.['state'], 'standby_not_primary');
+});
+
+test('the standby alert is keyed per channel per DAY', async () => {
+  // A misconfigured Page produces standby on every message, so a bare channel key would
+  // fire on all of them. A key with no period at all would go quiet for good the first
+  // time somebody "fixed" it and it came back.
+  const { fx, standbyAlerts } = stubEffects({
+    tables: { webhook_events: { data: { raw_payload: { id: 'P', standby: [{ sender: { id: 'X' } }] } } } },
+  });
+  await run(fx);
+  assert.equal(standbyAlerts[0]?.dayKey, NOW.toISOString().slice(0, 10));
+  assert.ok(standbyAlerts[0]?.channelId);
 });
 
 // ---------------------------------------------------------------------------

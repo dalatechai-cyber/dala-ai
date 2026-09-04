@@ -82,7 +82,7 @@ export async function claimWebhookEvent(
 export async function markEventState(
   db: SupabaseClient,
   eventId: number,
-  state: 'pending_enqueue' | 'processed' | 'shed' | 'failed' | 'blocked_no_token',
+  state: 'pending_enqueue' | 'processed' | 'shed' | 'failed' | 'blocked_no_token' | 'standby_not_primary',
 ): Promise<void> {
   await db.from('webhook_events').update({ state }).eq('id', eventId);
 }
