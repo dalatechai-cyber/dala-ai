@@ -11,7 +11,7 @@ exists yet. The gap is not engineering. It is four accounts and one twenty-day w
 
 ## 1. What is built
 
-499 tests, 7 guards, 6 migrations, 46 modules. Every module below is merged on `main`
+553 tests, 7 guards, 7 migrations, 50 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |
@@ -39,6 +39,7 @@ with CI green.
 | | `outbound/claim`, `deliver`, `deliverDeps` | Draft, lease, deliver, and what each outcome costs |
 | | `channel/delivery`, `channel/halt` | Only `live` delivers; a `190` halts the channel and the token together |
 | **The worker** | `worker/reception`, `worker/freshness` | Every branch of the job, as a value-returning function the route merely binds |
+| **Comments** | `meta/comments`, `comments/eligibility`, `comments/send`, `worker/comments` | The `feed` firehose, the decision that never sees the comment's text, and the public reply |
 | **Operator** | `scripts/kek/generate.ts` | One 32-byte key to stdout. Writes nothing |
 | | `scripts/kek/seal.ts` | A token on **stdin** → the SQL for one `tenant_secrets` row, self-verified |
 | | `scripts/preflight.ts` | Every required variable, ok / BAD / MISSING, with the remedy and no values |
@@ -63,7 +64,7 @@ Cyrillic** body verifies, one changed character in a still-valid body is 401, an
 verified POST against an unreachable registry is **500** — the transient half of the
 200/500 asymmetry, at the layer where it actually matters.
 
-**Against stubs (everything else).** 499 unit tests. Load-bearing properties were checked
+**Against stubs (everything else).** 553 unit tests. Load-bearing properties were checked
 by mutation — the code was deliberately broken and the tests were watched to fail — for
 the AAD binding, KEK version selection, the `me` refusal, the failed/indeterminate split,
 and the signature comparison.
@@ -80,6 +81,8 @@ claims nobody has earned yet.
 | **Any PostgREST query** | No Supabase project exists. Every query in `src/` is exercised against a stub, never sent over the wire | A project, `0001`–`0005` applied, one real read |
 | **`isolation.sql` T8/T9 against a real project** | Same. They pass against scratch Postgres, which is a different claim | Same |
 | **Any Meta call, inbound or outbound** | No app, no Page, no token. The signature verifier has never seen a real Meta payload; the send has never reached Graph | The Meta app, and one message |
+| **The comment reply EDGE** | `POST /{comment-id}/comments` is SEARCH-CORROBORATED with an explicit "re-verify"; one source claims `POST /{comment-id}`. `developers.facebook.com` is blocked from this environment | Ten minutes on Meta's own docs, or the first real attempt. It is one constant, `REPLY_EDGE` |
+| **`pages_read_user_content`** | Required to read customers' comments and named nowhere in `docs/`. Community-corroborated, not confirmed against Meta's permission reference | The same ten minutes — before App Review is submitted, not after |
 | **The Graph error taxonomy** | Every code in it is from documentation and Chatwoot's handler. Not one has been observed | Production. Record the real codes as they appear |
 | **Any Anthropic call from this repo** | `ANTHROPIC_API_KEY` is unset. The bake-off made real calls, but through a separate harness | One key, one call |
 | **QStash redelivery and the crash property** | Unit-tested only. V1.md 1.5 has said so since it was written | A QStash account and a deliberately killed worker |

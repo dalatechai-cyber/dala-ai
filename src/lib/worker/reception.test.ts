@@ -153,6 +153,11 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     flagQuality: async (a) => {
       flags.push(a);
     },
+    // The comment surface. Defaults to a stub that would fail loudly if a DM-path test
+    // ever reached it: a `messages` entry carries no `changes`, so it must not.
+    replyToComment: async () => {
+      throw new Error('the DM path must never reach the comment surface');
+    },
     log: (level, event, fields) => {
       logs.push(fields === undefined ? { level, event } : { level, event, fields });
     },

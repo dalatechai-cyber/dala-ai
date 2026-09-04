@@ -19,6 +19,8 @@ import { required } from '@/lib/env';
 import { handleReception } from '@/lib/reception/handle';
 import { buildDeps } from '@/lib/reception/deps';
 import { deliverOutbound } from '@/lib/outbound/deliver';
+import { loadTenantSecret } from '@/lib/secrets/tenantSecret';
+import { sendCommentReply } from '@/lib/comments/send';
 import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
 import { runReceptionJob, type WorkerEffects } from '@/lib/worker/reception';
@@ -77,6 +79,21 @@ function effects(now: Date): WorkerEffects {
         }),
         a,
       ),
+
+    // The public surface, on the same per-request token as the DM path. `loadTenantSecret`
+    // is called per reply rather than hoisted, for the reason in secrets/tenantSecret.ts:
+    // a warm lambda is reused across tenants and there must be nothing cached to leak.
+    replyToComment: async ({ tenantId, channelId, commentId, body, graphVersion }) => {
+      const secret = await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+      if (!secret.ok) {
+        return {
+          outcome: 'failed', failure: 'unknown', retryable: secret.retryable,
+          code: null, subcode: null, status: null,
+          detail: `no credential: ${secret.code}`,
+        };
+      }
+      return sendCommentReply({ commentId, body, token: secret.secret, graphVersion });
+    },
 
     flagQuality: async ({ tenantId, conversationId, code, detail }) => {
       // Best-effort, exactly as `reception/deps.ts` treats its own flags: evidence for a

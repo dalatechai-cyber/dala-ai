@@ -41,6 +41,7 @@ import { claim } from '../outbound/claim.ts';
 import { markEventState } from '../webhook/events.ts';
 import { usdToNano } from '../money.ts';
 import { isFresh, replyAgeLimitMinutes } from './freshness.ts';
+import { runCommentJob, type CommentEffects, type CommentJobResult } from './comments.ts';
 import type { ReceptionOutcome } from '../reception/handle.ts';
 import type { Turn } from '../inbound/persist.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
@@ -102,6 +103,8 @@ export type WorkerEffects = {
   flagQuality: (args: { tenantId: string; conversationId: string; code: string; detail: string }) => Promise<void>;
   /** Structured, and injected so a test can assert the REASON rather than the status. */
   log: (level: 'info' | 'warn' | 'error', event: string, fields?: Record<string, unknown>) => void;
+  /** The public-comment surface. Its own effects, because it is its own surface. */
+  replyToComment: CommentEffects['replyToComment'];
 };
 
 export type JobResult = { status: number; body: Record<string, unknown> };
@@ -152,14 +155,8 @@ export async function runReceptionJob(
     return ok({ dropped: 'event_missing' });
   }
 
-  const { messages, skipped } = extractInboundMessages((event as Record<string, unknown>)['raw_payload']);
-  if (messages.length === 0) {
-    // Nothing answerable — echoes, receipts, a sticker. Seen and declined, which is a
-    // different fact from vanished, so the reason is logged and the event is processed.
-    fx.log('info', 'nothing_to_answer', { eventId, skipped });
-    await markEventState(db, eventId, 'processed');
-    return ok({ eventId, skipped });
-  }
+  const rawPayload = (event as Record<string, unknown>)['raw_payload'];
+  const { messages, skipped } = extractInboundMessages(rawPayload);
 
   // --- Tenant settings and the compiled context, read once for the whole entry.
   const { data: tenantRow, error: tenantErr } = await db
@@ -185,7 +182,7 @@ export async function runReceptionJob(
   // --- The channel: where a reply would go, and whether it may go at all. ---
   const { data: channelRow, error: channelErr } = await db
     .from('tenant_channels')
-    .select('external_id, delivery_mode, graph_version_override')
+    .select('external_id, delivery_mode, graph_version_override, comment_policy, comment_max_post_age_days, ignore_commenter_ids')
     .eq('id', channelId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
@@ -204,6 +201,41 @@ export async function runReceptionJob(
   const delivery = canDeliver(String(c['delivery_mode'] ?? ''));
   const override = c['graph_version_override'];
   const graphVersion = typeof override === 'string' && override !== '' ? override : fx.graphVersionDefault();
+
+  // --- The public surface. A `feed` entry has no `messaging`, so this is where a
+  // comments-only event is handled; a `messages` entry yields no comments and skips it.
+  let commentResult: CommentJobResult | null = null;
+  if (String(c['comment_policy'] ?? 'none') !== 'none') {
+    commentResult = await runCommentJob(
+      { db, now, replyToComment: fx.replyToComment, log: fx.log },
+      {
+        tenantId,
+        channelId,
+        pageExternalId: pageId,
+        deliveryMode: String(c['delivery_mode'] ?? ''),
+        graphVersion,
+        locale: settings.defaultLocale,
+        config: {
+          policy: String(c['comment_policy'] ?? 'none'),
+          maxPostAgeDays: Number(c['comment_max_post_age_days'] ?? 30),
+          ignoreCommenterIds: Array.isArray(c['ignore_commenter_ids'])
+            ? (c['ignore_commenter_ids'] as unknown[]).map(String)
+            : [],
+        },
+        rawPayload,
+      },
+    );
+    if (commentResult.retry) return unavailable('worker.comment_retry');
+  }
+
+  if (messages.length === 0) {
+    // Nothing answerable in the DM sense — an echo, a receipt, a sticker, or a `feed`
+    // entry that carried only comments. Seen and declined is a different fact from
+    // vanished, so the reason is recorded and the event is processed.
+    fx.log('info', 'nothing_to_answer', { eventId, skipped });
+    await markEventState(db, eventId, 'processed');
+    return ok({ eventId, skipped, ...(commentResult === null ? {} : { comments: commentResult }) });
+  }
 
   const loaded = await loadReceptionContext(db, { tenantId, channel: 'facebook_page', settings, localDate });
   if (!loaded.ok) {
@@ -404,5 +436,8 @@ export async function runReceptionJob(
 
   // Every message in the entry is accounted for.
   await markEventState(db, eventId, 'processed');
-  return ok({ eventId, drafted: drafted.length, sent: sent.length, stale: stale.length, skipped });
+  return ok({
+    eventId, drafted: drafted.length, sent: sent.length, stale: stale.length, skipped,
+    ...(commentResult === null ? {} : { comments: commentResult }),
+  });
 }
