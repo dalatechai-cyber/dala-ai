@@ -1,0 +1,67 @@
+# ---------------------------------------------------------------------------
+# DRAFT — unsigned, loaded by nothing. The founder rewrites the wording.
+#
+# EIGHT platform blocks for the data-deletion status page, the URL Meta hands a
+# person after they ask Facebook to delete their data. App Review will visit it.
+#
+# These are `prompt_blocks` rows with scope = platform and tenant_id = null, and
+# the gate on them is the same `reviewed_at is not null` gate every pinned
+# sentence passes. `src/app/data-deletion/status/route.ts` returns **503** while
+# any one of them is missing or unsigned — deliberately, because the alternative
+# is a page that renders seven signed Mongolian sentences and one English one and
+# never fails a build.
+#
+# WHO READS THIS
+#   A customer in Mongolia who has just told Facebook to delete their data, on a
+#   phone, probably inside the Facebook in-app browser. Not an operator. There is
+#   no English version and there should not be one.
+#
+# WHAT IT MUST NEVER CONTAIN
+#   - A promise about WHEN. We do not control the schedule and a date we miss is
+#     worse than no date.
+#   - Any claim that data HAS been deleted, on any state but `completed`. That is
+#     the whole reason the states are separate blocks: the confirmation code must
+#     not say one thing while the row says another.
+#   - A contact address or phone number. There is no support channel yet, and a
+#     line inviting people to write to one is a line that goes unanswered.
+#   - Anything identifying: no name, no id, no salon. The key to this page is a
+#     code that can be read over somebody's shoulder.
+#
+# THE FAILURE IT PREVENTS
+#   A privacy promise kept in appearance only. The endpoint records a request it
+#   cannot yet fulfil (Meta sends an app-scoped id; we store page-scoped ids —
+#   see src/lib/privacy/erasure.ts), so the page must say `received`, not `done`.
+#
+# PROMOTION
+#   Each block below becomes its own prompt/platform/<block_key>.mn.txt plus an
+#   entry in prompt/platform-mn-review.json, and then ONE seed migration inserting
+#   the eight rows with reviewed_by / reviewed_at.
+#
+#   Note: no file-to-`prompt_blocks` seeder exists yet, for these blocks or for
+#   the SH gate blocks. Promotion is a hand-written migration today. That is a gap
+#   in the promotion path, not in the gate.
+# ---------------------------------------------------------------------------
+
+block_key: data_deletion_title
+Мэдээлэл устгах хүсэлт
+
+block_key: data_deletion_intro
+Та Facebook-ээр дамжуулан мэдээллээ устгах хүсэлт илгээсэн байна. Хүсэлтийн явц энд харагдана.
+
+block_key: data_deletion_code_label
+Баталгааны код
+
+block_key: data_deletion_requested_label
+Хүсэлт хүлээн авсан огноо
+
+block_key: data_deletion_state_received
+Хүсэлтийг хүлээн авсан. Одоогоор боловсруулж байна.
+
+block_key: data_deletion_state_completed
+Таны мэдээллийг устгасан.
+
+block_key: data_deletion_state_failed
+Хүсэлтийг гүйцэтгэхэд асуудал гарсан тул бид шалгаж байна.
+
+block_key: data_deletion_not_found
+Ийм баталгааны кодтой хүсэлт олдсонгүй. Кодоо шалгаад дахин оролдоно уу.

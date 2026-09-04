@@ -41,6 +41,7 @@ function serviceClient(secret: string): SupabaseClient {
 
 let webhookClient: SupabaseClient | undefined;
 let workerClient: SupabaseClient | undefined;
+let privacyClient: SupabaseClient | undefined;
 
 /** For the Meta webhook surface: resolution and idempotency only. */
 export function supabaseWebhook(): SupabaseClient {
@@ -54,8 +55,23 @@ export function supabaseWorker(): SupabaseClient {
   return workerClient;
 }
 
+/**
+ * For the public privacy surface: Meta's data-deletion callback and the status page it
+ * hands people.
+ *
+ * Its own key rather than the webhook's, because this is the one surface that is
+ * unauthenticated by design AND writes a row — anybody on the internet can make it insert.
+ * A leak there must be revocable without taking Messenger down, which is the entire
+ * argument for one key per surface.
+ */
+export function supabasePrivacy(): SupabaseClient {
+  privacyClient ??= serviceClient(required('SUPABASE_SECRET_PRIVACY'));
+  return privacyClient;
+}
+
 /** Test seam: drop memoised clients so a test can change the environment. */
 export function __resetClientsForTests(): void {
   webhookClient = undefined;
   workerClient = undefined;
+  privacyClient = undefined;
 }

@@ -418,6 +418,9 @@ SUPABASE_SECRET_ADMIN
 SUPABASE_SECRET_ANALYTICS
 SUPABASE_SECRET_QUALITY
 SUPABASE_SECRET_PURGE
+SUPABASE_SECRET_PRIVACY       the data-deletion callback + its status page (§10.5).
+                              Its own key: the one surface that is unauthenticated by
+                              design AND writes a row
 TENANT_KEK_V1                 32-byte base64. No plaintext fallback, ever.
 TENANT_KEK_ACTIVE_VERSION
 META_APP_ID
@@ -425,6 +428,8 @@ META_APP_SECRETS              JSON map {app_slug: secret} — a SET, for rotatio
                               staging, and the dala-legacy cutover app
 META_VERIFY_TOKENS            JSON map {app_slug: token | token[]}
 META_GRAPH_VERSION            default; per-tenant override is a nullable column
+DALA_PUBLIC_URL               the deployment's own origin. The data-deletion status URL
+                              is built from it, NEVER from the request's Host header
 ANTHROPIC_API_KEY
 UPSTASH_REDIS_REST_URL
 UPSTASH_REDIS_REST_TOKEN

@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto';
 const SECRETS = {
   SUPABASE_SECRET_WEBHOOK: 'sb_secret_CANARYwebhookAAAAAAAA',
   SUPABASE_SECRET_WORKER: 'sb_secret_CANARYworkerBBBBBBBB',
+  SUPABASE_SECRET_PRIVACY: 'sb_secret_CANARYprivacyKKKKKKKK',
   TENANT_KEK_V1: randomBytes(32).toString('base64'),
   META_APP_SECRETS: '{"dala":"CANARYappsecretCCCC"}',
   META_VERIFY_TOKENS: '{"dala":"CANARYverifytokenDDDD"}',
@@ -28,6 +29,7 @@ const COMPLETE: Record<string, string> = {
   META_GRAPH_VERSION: 'v21.0',
   WORKER_PUBLIC_URL: 'https://dala.example.com/api/workers/reception',
   TELEGRAM_ALERT_CHAT_ID: '-1001234567890',
+  DALA_PUBLIC_URL: 'https://dala.example.com',
   ...SECRETS,
 };
 

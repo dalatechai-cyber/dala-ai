@@ -110,6 +110,22 @@ const HINTS: Record<string, (v: string) => Verdict> = {
 
   SUPABASE_SECRET_WEBHOOK: supabaseSecret,
   SUPABASE_SECRET_WORKER: supabaseSecret,
+  SUPABASE_SECRET_PRIVACY: supabaseSecret,
+
+  DALA_PUBLIC_URL: (v) => {
+    // This value is echoed to Meta and then shown to a member of the public, so a
+    // placeholder here is a status URL that goes nowhere for somebody exercising a
+    // privacy right. http is refused outright: Meta requires HTTPS for the callback.
+    let url: URL;
+    try {
+      url = new URL(v);
+    } catch {
+      return { ok: false, why: 'not a URL — expected the deployment origin, e.g. https://dala.mn' };
+    }
+    if (url.protocol !== 'https:') return { ok: false, why: 'must be https — Meta requires it' };
+    if (url.pathname !== '/') return { ok: false, why: 'origin only, with no path' };
+    return { ok: true, note: `${url.origin} — status URL ${url.origin}/data-deletion/status` };
+  },
 };
 
 function supabaseSecret(v: string): Verdict {
@@ -128,6 +144,8 @@ const WHY: Record<string, string> = {
   QSTASH_TOKEN: 'the webhook cannot hand off; nothing reaches the worker',
   QSTASH_CURRENT_SIGNING_KEY: 'both keys, not one — rotation is why there are two',
   QSTASH_NEXT_SIGNING_KEY: 'both keys, not one — rotation is why there are two',
+  SUPABASE_SECRET_PRIVACY: "Meta's data-deletion callback cannot record a request; every one is a 500 and Meta retries",
+  DALA_PUBLIC_URL: 'the data-deletion callback cannot build the status URL Meta requires; App Review fails on it',
 };
 
 // ---------------------------------------------------------------------------

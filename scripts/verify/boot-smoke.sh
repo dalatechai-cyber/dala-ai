@@ -78,6 +78,8 @@ export NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:9
 export SUPABASE_PUBLISHABLE_KEY=sb_publishable_placeholder
 export SUPABASE_SECRET_WEBHOOK=sb_secret_placeholder
 export SUPABASE_SECRET_WORKER=sb_secret_placeholder
+export SUPABASE_SECRET_PRIVACY=sb_secret_placeholder
+export DALA_PUBLIC_URL=https://dala.example.com
 export META_APP_SECRETS="{\"dala\":\"${APP_SECRET}\"}"
 export META_VERIFY_TOKENS="{\"dala\":\"${VERIFY_TOKEN}\"}"
 export META_GRAPH_VERSION=v21.0
@@ -176,6 +178,44 @@ check 'one changed character in a still-valid body is refused' 401 '{"error":"we
 
 check 'a POST with no signature at all is refused' 401 '{"error":"webhook.sig_missing"}' \
   -X POST "${BASE}/dala" -H 'content-type: application/json' --data-raw "$BODY"
+
+# ---------------------------------------------------------------------------
+# The data-deletion callback (§10.5). An App Review deliverable, so it is worth proving
+# it is reachable and that its signature path works over real HTTP rather than only in a
+# unit test — this is where a route that forgot to export POST looks identical to one that
+# refuses everything.
+# ---------------------------------------------------------------------------
+
+PRIVACY="http://127.0.0.1:${PORT}/api/meta/data-deletion"
+
+b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+# Meta signs the ENCODED payload string, not the decoded JSON — the single most common way
+# this is implemented wrongly, and a mistake that rejects every real deletion request.
+SR_PAYLOAD="$(printf '%s' '{"algorithm":"HMAC-SHA256","issued_at":1756900000,"user_id":"1234567890123456"}' | b64url)"
+SR_SIG="$(printf '%s' "$SR_PAYLOAD" | openssl dgst -sha256 -hmac "$APP_SECRET" -binary | b64url)"
+
+check 'data-deletion with no signed_request is refused' 400 \
+  '{"error":"privacy.signed_request_missing"}' \
+  -X POST "$PRIVACY" -H 'content-type: application/x-www-form-urlencoded' --data-raw 'nothing=here'
+
+check 'data-deletion with a forged signature is refused' 400 \
+  '{"error":"privacy.signature_invalid"}' \
+  -X POST "$PRIVACY" -H 'content-type: application/x-www-form-urlencoded' \
+  --data-raw "signed_request=$(printf '%s' 'forged' | b64url).${SR_PAYLOAD}"
+
+# A GENUINE signature gets past verification and fails at the write, because Supabase is
+# unreachable here. 500 rather than 200 is the whole design: a dropped deletion request is
+# a legal obligation nobody ever learns about, so Meta must retry.
+check 'a genuinely signed request verifies and 500s on an unreachable database' 500 \
+  '{"error":"privacy.not_recorded"}' \
+  -X POST "$PRIVACY" -H 'content-type: application/x-www-form-urlencoded' \
+  --data-raw "signed_request=${SR_SIG}.${SR_PAYLOAD}"
+
+# The status page. With no signed platform blocks it must refuse outright rather than
+# render a page in a language nobody chose — see lib/privacy/statusPage.ts.
+check 'the status page refuses rather than rendering unsigned Mongolian' 503 - \
+  "http://127.0.0.1:${PORT}/data-deletion/status?code=ABCDEFGHJKLMNPQRSTUVWXYZ"
 
 if [ "$fails" -ne 0 ]; then
   echo "BOOT SMOKE FAILED ($fails)"
