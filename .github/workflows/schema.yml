@@ -69,7 +69,7 @@ jobs:
       - name: Install app dependencies
         run: npm ci
 
-      - name: Guards (caching, env parity, ceilings-not-env, Cyrillic matchers)
+      - name: Guards (all seven — see package.json `guard`)
         run: npm run guard
 
       - name: Typecheck
@@ -77,6 +77,19 @@ jobs:
 
       - name: Unit tests
         run: node --test "src/**/*.test.ts" "scripts/bakeoff/test/*.test.mjs"
+
+      - name: Credential round-trip against PostgreSQL
+        # The unit tests seal and open in memory; this one stores the row, reads it back
+        # in the shape PostgREST serialises bytea in, and decrypts it through the runtime
+        # loader. It also runs scripts/kek/seal.ts as a subprocess, so what is exercised is
+        # the command an operator would actually type.
+        #
+        # The KEK is generated for this run and never persisted. It proves the mechanism,
+        # not a credential — nothing here touches a Supabase project or a real token.
+        run: |
+          export TENANT_KEK_V1="$(node scripts/kek/generate.ts)"
+          export TENANT_KEK_ACTIVE_VERSION=v1
+          node scripts/verify/secret-roundtrip.ts dala_ci
 
       - name: Build
         run: npx next build

@@ -55,13 +55,53 @@ for (const file of walk('src')) {
   }
 }
 
+// A third shape the first two cannot see: a name BUILT from a template literal, as
+// src/lib/crypto/kek.ts does for `TENANT_KEK_V${version}` — one accessor covering a whole
+// family of variables, because a KEK rotation needs V1 and V2 live at once. The literal
+// name exists nowhere, so both directions of this guard were blind to it: the read went
+// unnoticed, and every variable in the family looked documented-but-unread.
+//
+// It matches the template literal wherever it appears rather than only inside a
+// `required(` call, because the name is usually built one line before it is used (it is
+// also wanted for the error message). That is deliberately looser than the other two
+// patterns, and the looseness is bounded three ways: the prefix must be SCREAMING_SNAKE,
+// it must be at least MIN_PREFIX characters, and every prefix found is printed in the
+// summary line — so a prefix that starts excusing variables it should not is visible on
+// every run rather than silently widening the guard.
+const TEMPLATE_NAME = /`([A-Z][A-Z0-9_]{3,})\$\{/g;
+const MIN_PREFIX = 4;
+const prefixes = new Map();
+for (const file of walk('src')) {
+  const src = stripComments(fs.readFileSync(file, 'utf8'));
+  const re = new RegExp(TEMPLATE_NAME.source, 'g');
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const prefix = m[1];
+    if (prefix.length < MIN_PREFIX) {
+      problems.push(`${file} builds an env name from a template literal with a prefix shorter than ${MIN_PREFIX} characters (\`${prefix}\`), which this guard cannot check. Give it a real prefix or read the name literally.`);
+      continue;
+    }
+    if (!prefixes.has(prefix)) prefixes.set(prefix, `${file}:${src.slice(0, m.index).split('\n').length}`);
+  }
+}
+const matchedPrefix = (name) => [...prefixes.keys()].find((p) => name.startsWith(p) && name !== p);
+
 for (const [name, where] of read) {
   if (!documented.has(name)) {
     problems.push(`${where} reads process.env.${name}, which ${EXAMPLE} does not document.`);
   }
 }
 for (const name of documented) {
-  if (read.has(name)) {
+  const viaPrefix = matchedPrefix(name);
+  if (read.has(name) || viaPrefix) {
+    if (viaPrefix && !read.has(name)) {
+      if (pending.has(name)) {
+        problems.push(
+          `${EXAMPLE} still marks ${name} as \`# pending:\`, but ${prefixes.get(viaPrefix)} builds that name from \`${viaPrefix}\` and reads it. ` +
+          `Delete the pending marker — it exists to shrink, not to linger.`);
+      }
+      continue;
+    }
     if (pending.has(name)) {
       problems.push(
         `${EXAMPLE} still marks ${name} as \`# pending:\`, but ${read.get(name)} now reads it. ` +
@@ -77,6 +117,6 @@ for (const name of documented) {
 
 const stale = [...pending].filter((n) => !documented.has(n));
 if (stale.length) problems.push(`${EXAMPLE} marks unknown name(s) pending: ${stale.join(', ')}`);
-console.log(`  (${read.size} read, ${pending.size} declared pending, ${documented.size} documented)`);
+console.log(`  (${read.size} read, ${prefixes.size} computed prefix(es): ${[...prefixes.keys()].join(', ') || 'none'}, ${pending.size} declared pending, ${documented.size} documented)`);
 
 fail('check-env-example', problems);

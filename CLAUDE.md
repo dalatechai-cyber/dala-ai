@@ -31,11 +31,21 @@ applied to KEK escrow, and it is not a blocker to raise again.
 The consequence is a standing rule, not a temporary inconvenience: **build everything that
 does not need Postgres, and mark what does as parked and unverified.** Parked today:
 
-- **Meta token decryption** (envelope encryption, per-request KEK unwrap).
 - **`isolation.sql` T8/T9 against a real project.** They pass against scratch Postgres in
   CI, which is not the same claim and must never be written as if it were.
+- **Anything that needs PostgREST**, i.e. the `@supabase/supabase-js` transport. Every
+  query in `src/` is exercised against a stub and has never been sent over the wire.
 
 Everything else is written against stubs and says so.
+
+**Meta token decryption is no longer parked** (2026-09-04, on the founder's call: *"waiting
+until a Meta app exists means writing crypto at the worst moment — when I'm trying to go
+live"*). `src/lib/crypto/` and `src/lib/secrets/` are built, and
+`scripts/verify/secret-roundtrip.ts` runs the whole path against a real PostgreSQL in CI:
+seal, store in `bytea`, read back in PostgREST's hex form, decrypt through the runtime
+loader. What that does **not** prove, and must never be written as if it did: there is no
+Supabase project, no PostgREST hop, and no real token — the KEK in CI is generated per run
+and thrown away.
 
 ## The test every decision is measured against
 
