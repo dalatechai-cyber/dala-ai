@@ -94,6 +94,16 @@ jobs:
       - name: Build
         run: npx next build
 
+      - name: Boot smoke — a real server, over HTTP
+        # The only step that starts Next.js and speaks HTTP to it. Everything else here is
+        # a unit test or a database check, and neither can see the layer where a route is
+        # correct and still never runs: a middleware matcher that swallows the path, an env
+        # accessor that throws at module scope, a body read that decodes bytes as text.
+        #
+        # Every credential it uses is a placeholder and the registry points at a closed
+        # local port, so nothing reaches Meta, Supabase, Anthropic or QStash.
+        run: ./scripts/verify/boot-smoke.sh
+
       - name: Confirm the schema is on PostgreSQL, not on trust
         if: always()
         run: psql -d postgres -tAc "select version();"
