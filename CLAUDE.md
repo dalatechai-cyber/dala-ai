@@ -38,6 +38,11 @@ does not need Postgres, and mark what does as parked and unverified.** Parked to
 
 Everything else is written against stubs and says so.
 
+**The send is built and has never sent anything** (2026-09-04). Draft → claim → decrypt →
+`POST /{page-id}/messages` → mark, with the Graph error taxonomy, the failed/indeterminate
+split, and the `delivery_mode` gate. It has never reached Meta: no app, no token, no Page.
+`docs/STATUS.md` is the ordered list of what turns that into a real message.
+
 **Meta token decryption is no longer parked** (2026-09-04, on the founder's call: *"waiting
 until a Meta app exists means writing crypto at the worst moment — when I'm trying to go
 live"*). `src/lib/crypto/` and `src/lib/secrets/` are built, and

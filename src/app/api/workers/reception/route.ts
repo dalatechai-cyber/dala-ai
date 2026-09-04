@@ -7,9 +7,19 @@
  * one: persists the contact, conversation and message, takes a reservation through the
  * chokepoint, and runs the reception flow to a drafted reply.
  *
- * **The send is not here.** It needs a decrypted per-tenant Meta token and no KEK exists,
- * so a reply ends as an `outbound_messages` row in `draft`. That is deliberate rather than
- * unfinished: the row is the durable hand-off point, and the send path claims from it.
+ * ## The send is here now, and it is gated twice
+ *
+ * A drafted reply is claimed and delivered in the same invocation (§3.5's H14). Two things
+ * stand between a draft and a customer, and neither is optional:
+ *
+ *  - **`delivery_mode` must be `live`.** During Track 4's 14-day mirror the channel is
+ *    `shadow`: Meta delivers the same event to every subscribed app, so a `shadow` channel
+ *    that sent would give every Matrix customer two replies from one salon for two weeks.
+ *  - **A decrypted per-tenant token must exist.** No row, no send — never an env fallback,
+ *    which combined with `/me/messages` is how the ancestor would post as the wrong salon.
+ *
+ * A reply that cannot be delivered still exists as an `outbound_messages` row, which is
+ * the durable hand-off point: nothing is lost and nothing is regenerated.
  *
  * ## One reservation per reply, not per delivery
  *
@@ -31,6 +41,11 @@ import { buildDeps } from '@/lib/reception/deps';
 import { RECEPTION_HISTORY_TURNS } from '@/lib/model/reception';
 import { renderVolatile, tenantClock } from '@/lib/reception/volatile';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
+import { canDeliver } from '@/lib/channel/delivery';
+import { claim } from '@/lib/outbound/claim';
+import { deliverOutbound } from '@/lib/outbound/deliver';
+import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
+import { required } from '@/lib/env';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -114,6 +129,27 @@ export async function POST(request: Request): Promise<NextResponse> {
   // on is computed here rather than in SQL's `current_date`, which is the server's.
   const localDate = tenantClock(now, timezone).date;
 
+  // --- The channel: where a reply would go, and whether it may go at all. ---
+  const { data: channelRow, error: channelErr } = await db
+    .from('tenant_channels')
+    .select('external_id, delivery_mode, graph_version_override')
+    .eq('id', channelId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (channelErr || channelRow === null) {
+    // Unreadable is transient and a missing channel is not: the job named a binding that
+    // does not belong to this tenant, which retrying cannot fix.
+    console.error('[worker] channel_unreadable', { tenantId, channelId, detail: channelErr?.message });
+    if (channelErr) return NextResponse.json({ error: 'worker.channel_unreadable' }, { status: 503 });
+    return NextResponse.json({ ok: true, dropped: 'channel_missing' }, { status: 200 });
+  }
+  const c = channelRow as Record<string, unknown>;
+  const pageId = String(c['external_id'] ?? '');
+  const delivery = canDeliver(String(c['delivery_mode'] ?? ''));
+  const graphVersion = typeof c['graph_version_override'] === 'string' && c['graph_version_override'] !== ''
+    ? c['graph_version_override']
+    : required('META_GRAPH_VERSION');
+
   const loaded = await loadReceptionContext(db, { tenantId, channel: 'facebook_page', settings, localDate });
   if (!loaded.ok) {
     console.error('[worker] context_unavailable', { tenantId, code: loaded.code, detail: loaded.detail });
@@ -139,6 +175,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // --- One message, one reservation, one reply. -----------------------------
   const drafted: string[] = [];
+  const sent: string[] = [];
   for (const message of messages) {
     const contact = await ensureContact(db, {
       tenantId, channelId, externalId: message.senderId, now,
@@ -247,10 +284,69 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (outcome.refusal !== undefined) {
       console.warn('[worker] answered_with_handoff', { code: outcome.refusal, conversationId });
     }
+
+    // --- H14: claim the draft and put it on the wire. ---------------------
+    if (!delivery.deliver) {
+      // Generated and deliberately not sent. The row stays `draft`, so the day the
+      // channel goes live it is claimable rather than lost.
+      console.info('[worker] not_delivering', { tenantId, channelId, detail: delivery.detail });
+      continue;
+    }
+
+    const held = await claim(db, { id: outcome.outboundId, tenantId, now });
+    if (held.outcome === 'unavailable') {
+      console.error('[worker] claim_unavailable', { detail: held.detail });
+      return NextResponse.json({ error: 'worker.claim_unavailable' }, { status: 503 });
+    }
+    if (held.outcome !== 'claimed') {
+      // Already sent, or another worker holds a live lease. Both mean this reply is
+      // somebody else's business; neither is an error.
+      console.info('[worker] not_ours', { outboundId: outcome.outboundId, outcome: held.outcome });
+      continue;
+    }
+
+    const delivered = await deliverOutbound(
+      buildDeliverDeps({ db, tenantId, channelId, outboundId: held.id, attempts: held.attempts, now }),
+      {
+        tenantId,
+        channelId,
+        pageId,
+        recipientId: message.senderId,
+        outboundId: held.id,
+        // The STORED body, never the one just generated: on a redelivery `claim` returns
+        // what was written the first time, and re-reading it here is what makes a retry
+        // a re-send rather than a second answer.
+        body: held.body,
+        attempts: held.attempts,
+        graphVersion,
+      },
+    );
+
+    if (delivered.outcome === 'sent') {
+      sent.push(held.id);
+      if (delivered.bookkeeping !== undefined) {
+        // The customer has the message. Everything after that is bookkeeping, and a
+        // bookkeeping failure must never make the next redelivery send it again.
+        console.error('[worker] send_bookkeeping_failed', { outboundId: held.id, detail: delivered.bookkeeping });
+      }
+      continue;
+    }
+    if (delivered.outcome === 'indeterminate') {
+      // Parked, alerted, and outside CLAIMABLE. 200 so QStash does not retry it — the
+      // whole point is that no automatic retry may touch this row.
+      console.warn('[worker] send_indeterminate', { outboundId: held.id, detail: delivered.detail });
+      continue;
+    }
+    if (delivered.retryable) {
+      // 613 or a 5xx. The lease is released and the stored body is intact, so the
+      // redelivery re-sends rather than re-generating.
+      console.warn('[worker] send_retryable', { outboundId: held.id, failure: delivered.failure });
+      return NextResponse.json({ error: `worker.send_${delivered.failure}` }, { status: 503 });
+    }
+    console.error('[worker] send_terminal', { outboundId: held.id, failure: delivered.failure, detail: delivered.detail });
   }
 
-  // Every message in the entry is accounted for. The send path claims from
-  // `outbound_messages` and is not built.
+  // Every message in the entry is accounted for.
   await markEventState(db, eventId, 'processed');
-  return NextResponse.json({ ok: true, eventId, drafted: drafted.length, skipped }, { status: 200 });
+  return NextResponse.json({ ok: true, eventId, drafted: drafted.length, sent: sent.length, skipped }, { status: 200 });
 }
