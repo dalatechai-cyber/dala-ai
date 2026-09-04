@@ -12,6 +12,7 @@ import { loadLiveSnapshot } from '../prompt/publish.ts';
 import type { CannedRow, GateRule } from '../gate/match.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
 import { MAX_REPLY_CHARS } from './handle.ts';
+import type { BusinessHours, Closure } from './volatile.ts';
 
 export type TenantSettings = {
   defaultLocale: string;
@@ -20,6 +21,10 @@ export type TenantSettings = {
 
 export type ReceptionContext = {
   promptStable: string;
+  /** Weekly hours, for L4's open/closed-now. */
+  hours: BusinessHours[];
+  /** Closures that could be active today, for L4's verbatim notice. */
+  closures: Closure[];
   allowedNumbers: string[];
   revisionId: string;
   rules: GateRule[];
@@ -60,7 +65,7 @@ function toRules(rows: unknown, quotePriceDefault: boolean): GateRule[] {
 
 export async function loadReceptionContext(
   db: SupabaseClient,
-  input: { tenantId: string; channel: string; settings: TenantSettings },
+  input: { tenantId: string; channel: string; settings: TenantSettings; localDate: string },
 ): Promise<LoadOutcome> {
   const snapshot = await loadLiveSnapshot(db, { tenantId: input.tenantId, channel: input.channel });
   if (!snapshot.ok) {
@@ -72,7 +77,7 @@ export async function loadReceptionContext(
       : { ok: false, code: 'not_provisioned', detail: snapshot.detail };
   }
 
-  const [disclosure, outOfScope, canned, booking, services, phrasings] = await Promise.all([
+  const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes] = await Promise.all([
     db.from('disclosure_rules')
       .select('topic_key, matcher, quote_price, response_kind, deterministic_shortcircuit')
       .eq('tenant_id', input.tenantId),
@@ -90,12 +95,21 @@ export async function loadReceptionContext(
     db.from('forbidden_phrasings')
       .select('gate, stems, tenant_id')
       .or(`tenant_id.is.null,tenant_id.eq.${input.tenantId}`),
+    db.from('business_hours')
+      .select('weekday, opens, closes, closed')
+      .eq('tenant_id', input.tenantId),
+    // Only closures that could still be active. `ends_on >= today` on the TENANT's
+    // calendar — the caller supplies it, because "today" is a question about their clock.
+    db.from('tenant_closures')
+      .select('starts_on, ends_on, title, message')
+      .eq('tenant_id', input.tenantId)
+      .gte('ends_on', input.localDate),
   ]);
 
   for (const [name, res] of [
     ['disclosure_rules', disclosure], ['out_of_scope_topics', outOfScope],
     ['canned_responses', canned], ['tenant_booking', booking], ['services', services],
-    ['forbidden_phrasings', phrasings],
+    ['forbidden_phrasings', phrasings], ['business_hours', hoursRes], ['tenant_closures', closuresRes],
   ] as const) {
     if (res.error) return { ok: false, code: 'unavailable', detail: `${name} unreadable: ${res.error.message}` };
   }
@@ -165,10 +179,30 @@ export async function loadReceptionContext(
 
   const cacheMode = CACHE_MODES.has(input.settings.promptCacheMode) ? input.settings.promptCacheMode : 'off';
 
+  const hours: BusinessHours[] = (Array.isArray(hoursRes.data) ? hoursRes.data : []).map((raw) => {
+    const r = raw as Record<string, unknown>;
+    return {
+      weekday: Number(r['weekday']),
+      opens: r['opens'] === null ? null : String(r['opens']),
+      closes: r['closes'] === null ? null : String(r['closes']),
+      closed: r['closed'] === true,
+    };
+  });
+
+  const closures: Closure[] = (Array.isArray(closuresRes.data) ? closuresRes.data : []).map((raw) => {
+    const r = raw as Record<string, unknown>;
+    return {
+      startsOn: String(r['starts_on']), endsOn: String(r['ends_on']),
+      title: String(r['title']), message: String(r['message']),
+    };
+  });
+
   return {
     ok: true,
     context: {
       promptStable: snapshot.snapshot.promptStable,
+      hours,
+      closures,
       allowedNumbers: snapshot.snapshot.allowedNumbers,
       revisionId: snapshot.snapshot.revisionId,
       rules,

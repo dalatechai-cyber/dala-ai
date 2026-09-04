@@ -11,7 +11,7 @@ function stubDb(over: Record<string, { data?: unknown; error?: unknown }> = {}) 
   const table = (name: string) => {
     seen.push(name);
     const chain: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'or', 'limit', 'order']) chain[m] = () => chain;
+    for (const m of ['select', 'eq', 'or', 'limit', 'order', 'gte', 'lte', 'in', 'is']) chain[m] = () => chain;
     chain['maybeSingle'] = async () => {
       if (name === 'tenants') return { data: { live_revision_id: 'rev-1' }, error: null };
       if (name === 'config_snapshots') return over['config_snapshots'] ?? { data: SNAPSHOT, error: null };
@@ -39,6 +39,8 @@ const DEFAULTS: Record<string, unknown[]> = {
   canned_responses: [{ kind: 'handoff', body: 'Уучлаарай.', reviewed_at: '2026-09-04T00:00:00Z' }],
   tenant_booking: [{ booking_url: 'https://www.matrixecosalon.org/' }],
   services: [{ name: 'CICA' }],
+  business_hours: [{ weekday: 1, opens: '10:00:00', closes: '20:00:00', closed: false }],
+  tenant_closures: [{ starts_on: '2026-09-07', ends_on: '2026-09-09', title: 'Наадам', message: 'Амарна.' }],
   forbidden_phrasings: [
     { gate: 'Ш5', stems: ['санаа', 'зоволтгүй'], tenant_id: null },
     { gate: 'Ш5', stems: ['аюулгүй'], tenant_id: 't-1' },
@@ -46,7 +48,7 @@ const DEFAULTS: Record<string, unknown[]> = {
   ],
 };
 
-const input = { tenantId: 't-1', channel: 'facebook_page', settings: SETTINGS };
+const input = { tenantId: 't-1', channel: 'facebook_page', settings: SETTINGS, localDate: '2026-09-04' };
 
 test('the gate is derived from the response kind, not stored twice', async () => {
   const r = await loadReceptionContext(stubDb().db, input);
@@ -102,8 +104,23 @@ test('allowed_numbers comes from the SNAPSHOT, not from a live read of prices', 
   assert.equal(r.ok && r.context.tenantGuard.promptCorpus, 'PREFIX');
 });
 
+test('hours and closures are loaded for L4, typed rather than passed through raw', async () => {
+  const r = await loadReceptionContext(stubDb().db, input);
+  assert.deepEqual(r.ok && r.context.hours, [{ weekday: 1, opens: '10:00:00', closes: '20:00:00', closed: false }]);
+  assert.deepEqual(r.ok && r.context.closures, [
+    { startsOn: '2026-09-07', endsOn: '2026-09-09', title: 'Наадам', message: 'Амарна.' },
+  ]);
+});
+
+test('a null opens/closes survives as null, so "we do not know" is not "closed"', async () => {
+  const r = await loadReceptionContext(stubDb({
+    business_hours: { data: [{ weekday: 3, opens: null, closes: null, closed: false }] },
+  }).db, input);
+  assert.equal(r.ok && r.context.hours[0]?.opens, null);
+});
+
 test('EVERY failed read refuses; none is treated as an empty result', async () => {
-  for (const table of ['disclosure_rules', 'out_of_scope_topics', 'canned_responses', 'tenant_booking', 'services', 'forbidden_phrasings']) {
+  for (const table of ['disclosure_rules', 'out_of_scope_topics', 'canned_responses', 'tenant_booking', 'services', 'forbidden_phrasings', 'business_hours', 'tenant_closures']) {
     const r = await loadReceptionContext(stubDb({ [table]: { data: null, error: { message: 'down' } } }).db, input);
     assert.equal(r.ok, false, table);
     assert.equal(!r.ok && r.code, 'unavailable', table);
