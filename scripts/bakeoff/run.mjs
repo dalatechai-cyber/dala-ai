@@ -2,8 +2,9 @@
 // Reception model bake-off. Settles DECISIONS.md D-009.
 //
 // Two arms on the REAL Matrix prefix and the six seeded probe prompts:
-//   D  claude-sonnet-5    the incumbent (salonBrain.js:19)
-//   E  claude-haiku-4-5   half the price, IF its 4096-token cache minimum is cleared
+//   D  the reception tier   the incumbent (salonBrain.js:19)
+//   E  the internal tier    half the price, IF its 4096-token cache minimum is cleared
+// Both ids come from config/models.json — §6.2.6, one file, enforced by a guard.
 //
 // What it measures, none of it estimated:
 //   * input/output/cache tokens from the real `usage` block on every call
@@ -26,6 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildMatrixPrefix, describe, DEFAULT_ANCESTOR } from './prefix.mjs';
+import MODELS from '../../config/models.json' with { type: 'json' };
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -34,12 +36,11 @@ const COUNT = 'https://api.anthropic.com/v1/messages/count_tokens';
 
 // nano-USD per token, identical to the model_prices seed in 0001.
 const PRICES = {
-  'claude-sonnet-5':  { in: 2000, out: 10000, cacheRead: 200, cacheWrite1h: 4000, minCacheable: 1024 },
-  'claude-haiku-4-5': { in: 1000, out:  5000, cacheRead: 100, cacheWrite1h: 2000, minCacheable: 4096 },
+  ...MODELS.prices,
 };
 const ARMS = [
-  { id: 'D', model: 'claude-sonnet-5'  },
-  { id: 'E', model: 'claude-haiku-4-5' },
+  { id: 'D', model: MODELS.tiers.reception },
+  { id: 'E', model: MODELS.tiers.internal  },
 ];
 
 // The six probes seeded into probe_templates by 0001.
@@ -162,7 +163,7 @@ for (const arm of ARMS) {
   const p = PRICES[arm.model];
   // Reception pins thinking off. Sonnet 5 takes an explicit disabled; Haiku 4.5
   // predates the parameter, so it is omitted rather than sent.
-  const thinking = arm.model === 'claude-sonnet-5' ? { type: 'disabled' } : undefined;
+  const thinking = arm.model === MODELS.tiers.reception ? { type: 'disabled' } : undefined;
 
   for (let rep = 1; rep <= REPEATS; rep++) {
     for (const probe of PROBES) {

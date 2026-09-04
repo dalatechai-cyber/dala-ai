@@ -15,6 +15,10 @@
  * Name the approver in the commit message. That is the whole review process, and it is
  * the reason this file exists rather than a dashboard field.
  */
+
+// §6.2.6: model ids live in exactly ONE file, and it is JSON so the .mjs bake-off
+// harness reads the same source. Guarded by scripts/guards/check-model-ids.mjs.
+import MODELS from '../../config/models.json' with { type: 'json' };
 import { usdToNano, type NanoUsd } from '../lib/money.ts';
 
 /**
@@ -68,12 +72,12 @@ export const RECEPTION_CONVERSATION_BAND_PER_MONTH = 400;
  * `claude-haiku-4-5-20251001` in one channel and `claude-sonnet-5` in another, and one
  * of them was stale.
  */
-export const MODEL_REGISTRY = {
+export const MODEL_REGISTRY = MODELS.tiers as {
   /** D-009: customer-facing Mongolian prose. No Haiku here — it is a fluency ceiling. */
-  reception: 'claude-sonnet-5',
+  readonly reception: string;
   /** Internal and structured work, where the output is a row rather than a sentence. */
-  internal: 'claude-haiku-4-5',
-} as const;
+  readonly internal: string;
+};
 
 export type ModelTier = keyof typeof MODEL_REGISTRY;
 
