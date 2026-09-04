@@ -11,7 +11,7 @@ exists yet. The gap is not engineering. It is four accounts and one twenty-day w
 
 ## 1. What is built
 
-493 tests, 7 guards, 6 migrations, 47 modules. Every module below is merged on `main`
+493 tests, 7 guards, 6 migrations, 46 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |
