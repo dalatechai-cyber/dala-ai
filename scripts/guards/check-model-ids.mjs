@@ -24,7 +24,14 @@ for (const file of [...walk('src'), ...walk('scripts')]) {
   const raw = fs.readFileSync(file, 'utf8');
   const src = stripComments(raw);
 
+  const rawLines = raw.split('\n');
   src.split('\n').forEach((line, i) => {
+    // A line may opt out with an explicit `// not-a-pin:` justification. The one
+    // legitimate case is a TEST that demonstrates a dated id being DETECTED — the exact
+    // opposite of pinning one — and a grep cannot tell those apart. Same escape hatch as
+    // check-cyrillic-matchers', and for the same reason: without it the only way past a
+    // correct guard is to weaken the test, which is the worse outcome.
+    if (/not-a-pin:/.test(rawLines[i] ?? '')) return;
     if (DATE_SUFFIXED.test(line)) {
       problems.push(
         `${file}:${i + 1} pins a DATE-SUFFIXED model id.\n` +
