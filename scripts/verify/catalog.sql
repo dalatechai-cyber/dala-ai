@@ -470,6 +470,44 @@ insert into _v select 'V23', 'provenance is present, undefaulted, NOT NULL and c
           where conrelid = ('public.' || t)::regclass and conname = t || '_provenance_known')
   ) q;
 
+-- V24 — the channel can say when it started expecting traffic. (0012.)
+--
+-- `went_live_at` is what the silence watchdog measures from when a channel has NEVER
+-- received a webhook — the failure §5 item 15 names, where a page-level subscribe returns
+-- {"success": true} and no events are ever delivered. Without the column that case is
+-- unmeasurable, and unmeasurable means unalerted.
+--
+-- The TRIGGERS are the check that matters, not the column. `delivery_mode` is moved by an
+-- operator typing SQL; a timestamp that has to be set by hand alongside it gets forgotten
+-- exactly once, and the watchdog then says nothing about a channel that has never worked.
+-- Both triggers are required: the UPDATE one for a normal cutover, the INSERT one for a
+-- channel created directly at 'live', which never sees an UPDATE at all.
+insert into _v select 'V24', 'tenant_channels.went_live_at exists and is stamped by trigger, on insert and on update',
+  coalesce(string_agg(problem, '; '), 'correct'), count(*) = 0
+  from (
+    select 'the went_live_at column is missing' as problem
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='tenant_channels' and column_name='went_live_at')
+    union all
+    select 'ops.stamp_went_live() is missing — the column would have to be set by hand'
+     where not exists (
+       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname='ops' and p.proname='stamp_went_live')
+    union all
+    select 'the UPDATE trigger is missing — a normal cutover would not stamp'
+     where not exists (
+       select 1 from pg_trigger
+        where tgrelid='public.tenant_channels'::regclass
+          and tgname='tenant_channels_stamp_went_live' and not tgisinternal)
+    union all
+    select 'the INSERT trigger is missing — a channel created at live would never stamp'
+     where not exists (
+       select 1 from pg_trigger
+        where tgrelid='public.tenant_channels'::regclass
+          and tgname='tenant_channels_stamp_went_live_insert' and not tgisinternal)
+  ) q;
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;

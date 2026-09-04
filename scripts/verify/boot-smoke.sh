@@ -221,6 +221,18 @@ check 'the status page refuses, and says the database is why' 503 \
   '{"error":"privacy.unavailable"}' \
   "http://127.0.0.1:${PORT}/data-deletion/status?code=ABCDEFGHJKLMNPQRSTUVWXYZ"
 
+# ---------------------------------------------------------------------------
+# The scheduled health check. It reads rows and sends no money anywhere, but it is the
+# thing that notices Reception has gone quiet — so a route that failed to export POST, or
+# whose module scope throws on an env read, would leave the platform with no watchdog and
+# no error saying so. Unsigned here, because that is the branch that must never be open:
+# anything that can trigger a run can trigger the alerts it raises.
+# ---------------------------------------------------------------------------
+
+check 'the health worker refuses an unsigned call' 401 '{"error":"bad_signature"}' \
+  -X POST "http://127.0.0.1:${PORT}/api/workers/health" \
+  -H 'content-type: application/json' --data-raw '{}'
+
 if [ "$fails" -ne 0 ]; then
   echo "BOOT SMOKE FAILED ($fails)"
   echo '--- server log ---'
