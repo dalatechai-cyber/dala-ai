@@ -212,9 +212,13 @@ check 'a genuinely signed request verifies and 500s on an unreachable database' 
   -X POST "$PRIVACY" -H 'content-type: application/x-www-form-urlencoded' \
   --data-raw "signed_request=${SR_SIG}.${SR_PAYLOAD}"
 
-# The status page. With no signed platform blocks it must refuse outright rather than
-# render a page in a language nobody chose — see lib/privacy/statusPage.ts.
-check 'the status page refuses rather than rendering unsigned Mongolian' 503 - \
+# The status page, with the database unreachable. It must refuse OUTRIGHT rather than
+# render a partial page, and the body has to say WHICH refusal this is: `unavailable`
+# (we could not read the blocks) and `status_page_unsigned` (we read them and they are
+# not signed) are different incidents with different fixes. Asserting only the 503 passed
+# for either reason, which made it blind to the two being confused.
+check 'the status page refuses, and says the database is why' 503 \
+  '{"error":"privacy.unavailable"}' \
   "http://127.0.0.1:${PORT}/data-deletion/status?code=ABCDEFGHJKLMNPQRSTUVWXYZ"
 
 if [ "$fails" -ne 0 ]; then
