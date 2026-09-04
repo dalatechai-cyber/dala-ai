@@ -14,19 +14,34 @@ function block(over: Row = {}): Row {
   };
 }
 
-function stubDb(reply: { data?: unknown; error?: unknown }) {
-  const calls: { table: string; cols: string; filter: string }[] = [];
+/**
+ * `prompt_blocks` answers `reply`; every tenant-KB table answers from `kb` (empty by
+ * default) so a test about blocks does not have to describe a knowledge base.
+ */
+function stubDb(reply: { data?: unknown; error?: unknown }, kb: Record<string, { data?: unknown; error?: unknown }> = {}) {
+  const calls: { table: string; cols: string; filter: string; ordered: string[] }[] = [];
   const from = (table: string) => {
-    const rec = { table, cols: '', filter: '' };
+    const rec = { table, cols: '', filter: '', ordered: [] as string[] };
     calls.push(rec);
     const chain: Record<string, unknown> = {};
     chain['select'] = (cols: string) => ((rec.cols = cols), chain);
     chain['or'] = (f: string) => ((rec.filter = f), chain);
-    chain['then'] = (res: (v: unknown) => unknown) => res(reply);
+    chain['eq'] = () => chain;
+    chain['order'] = (col: string) => (rec.ordered.push(col), chain);
+    const answer = () => {
+      if (table === 'prompt_blocks') return reply;
+      if (table === 'tenants') return kb['tenants'] ?? { data: { currency_symbol: '₮', currency_symbol_before: false }, error: null };
+      if (table === 'tenant_booking') return kb[table] ?? { data: null, error: null };
+      return kb[table] ?? { data: [], error: null };
+    };
+    chain['maybeSingle'] = async () => answer();
+    chain['then'] = (res: (v: unknown) => unknown) => res(answer());
     return chain;
   };
   return { calls, db: { from } as never };
 }
+
+const APPROVED = '2026-09-04T00:00:00Z';
 
 // ---------------------------------------------------------------------------
 // What reaches the prompt, and what must not
@@ -61,7 +76,7 @@ test('DONE-TEST: an unreviewed block is LOADED, so the renderer refuses instead 
   const loaded = await loadPromptSections(db, { tenantId: TENANT });
   assert.equal(loaded.ok && loaded.sections.length, 2, 'both loaded — the unreviewed one is not dropped');
 
-  const compiled = await compileStablePrefix(db, { tenantId: TENANT });
+  const compiled = await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
   assert.equal(compiled.ok, false);
   assert.equal(compiled.ok === false && compiled.code, 'refused');
   const refusal = compiled.ok === false && compiled.code === 'refused' ? compiled.refusal : null;
@@ -78,7 +93,7 @@ test('DONE-TEST: a database with no platform blocks refuses rather than compilin
     data: [block({ scope: 'tenant', tenant_id: TENANT, block_key: 'price_list', layer: 'L3', ordinal: 0 })],
     error: null,
   });
-  const out = await compileStablePrefix(db, { tenantId: TENANT });
+  const out = await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
   assert.equal(out.ok, false);
   assert.equal(out.ok === false && out.code, 'no_gate');
 });
@@ -98,7 +113,7 @@ test('the read is scoped to this tenant and to platform rows, never across tenan
 
 test('an unreadable table is unavailable, never an empty prompt', async () => {
   const { db } = stubDb({ error: { message: 'reset' } });
-  const out = await compileStablePrefix(db, { tenantId: TENANT });
+  const out = await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
   assert.equal(out.ok === false && out.code, 'unavailable');
 });
 
@@ -107,7 +122,7 @@ test('scope becomes origin, so a tenant row can never claim a platform layer unn
     data: [block(), block({ scope: 'tenant', tenant_id: TENANT, block_key: 'sneaky', layer: 'L0', ordinal: 1 })],
     error: null,
   });
-  const out = await compileStablePrefix(db, { tenantId: TENANT });
+  const out = await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
   assert.equal(out.ok, false);
   const refusal = out.ok === false && out.code === 'refused' ? out.refusal : null;
   assert.equal(refusal?.code, 'layer_violation');
@@ -197,11 +212,16 @@ test('DONE-TEST: compiling the gate does NOT allow-list the fabricated prices it
 /** A db that answers each table by name, recording every write. */
 function chainDb(over: Record<string, { data?: unknown; error?: unknown }> = {}) {
   const writes: { table: string; op: string; patch: Record<string, unknown>[] }[] = [];
-  const answer = (table: string) =>
-    over[table] ?? { data: table === 'config_revisions' ? { status: 'draft' } : null, error: null };
+  const answer = (table: string) => {
+    if (over[table] !== undefined) return over[table];
+    if (table === 'config_revisions') return { data: { status: 'draft' }, error: null };
+    if (table === 'tenants') return { data: { currency_symbol: '₮', currency_symbol_before: false }, error: null };
+    if (table === 'tenant_booking') return { data: null, error: null };
+    return { data: [], error: null };
+  };
   const from = (table: string) => {
     const chain: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'neq', 'or', 'is']) chain[m] = () => chain;
+    for (const m of ['select', 'eq', 'neq', 'or', 'is', 'order']) chain[m] = () => chain;
     for (const m of ['insert', 'update'] as const) {
       chain[m] = (patch: Record<string, unknown> | Record<string, unknown>[]) => {
         writes.push({ table, op: m, patch: Array.isArray(patch) ? patch : [patch] });
