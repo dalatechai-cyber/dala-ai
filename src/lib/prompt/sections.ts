@@ -35,6 +35,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { renderStablePrefix, type PromptLayer, type PromptSection, type Rendered, type RenderRefusal } from './render.ts';
 import { publishRevision, type PublishOutcome } from './publish.ts';
 import { renderTenantSections, type PriceKind, type ServiceVariant, type TenantKb } from './tenant.ts';
+import { isTenantConfirmed, unconfirmedNames } from '../provenance.ts';
 
 /** Layers the compiler renders. A row with `layer` null is not a prompt section at all —
  *  the data-deletion status strings and the comment reply template live in the same table
@@ -99,8 +100,38 @@ export async function loadPromptSections(
   return { ok: true, sections };
 }
 
+/**
+ * What provenance changed about this compile (D-020).
+ *
+ * ## The asymmetry is the design, and it is not a compromise
+ *
+ * A row that is not `tenant_confirmed` is handled by what the row *does*, never by which
+ * table it sits in:
+ *
+ *  - **A FAQ is a fact stated to a customer.** An unconfirmed one is EXCLUDED. A guessed
+ *    answer in the prefix is a sentence the salon is then expected to honour, and — since
+ *    `allowed_numbers` is drawn from the tenant sections — a guessed *price* in a FAQ also
+ *    allow-lists itself past the outbound guard. Excluding costs a question the bot cannot
+ *    answer, which falls to the handoff line.
+ *  - **A refusal topic is an instruction not to answer.** An unconfirmed one is KEPT, and
+ *    counted. Dropping it would disarm a refusal — the exact failure `matchRules` refuses
+ *    to commit when a matcher will not parse. A seeded refusal is over-cautious; a missing
+ *    one lets a price out. Those costs are not comparable.
+ *
+ * Both halves are reported, because "the compile was quieter than the rows suggest" must
+ * be visible from the outside.
+ */
+export type KbProvenance = {
+  /** Questions whose FAQ rows were withheld from the prefix. */
+  faqsExcluded: string[];
+  /** Refusal topics that fired into the prompt without confirmation. */
+  refusalTopicsUnconfirmed: string[];
+};
+
+export const NO_UNCONFIRMED: KbProvenance = { faqsExcluded: [], refusalTopicsUnconfirmed: [] };
+
 export type TenantKbOutcome =
-  | { ok: true; kb: TenantKb }
+  | { ok: true; kb: TenantKb; unconfirmed: KbProvenance }
   | { ok: false; detail: string };
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === null || v === undefined ? '' : String(v));
@@ -136,8 +167,8 @@ export async function loadTenantKb(
     documents, staff, services, variants, faqs, contacts, booking,
   ] = await Promise.all([
     db.from('tenants').select('currency_symbol, currency_symbol_before').eq('id', t).maybeSingle(),
-    db.from('disclosure_rules').select('topic_key').eq('tenant_id', t).order('topic_key'),
-    db.from('out_of_scope_topics').select('topic_key').eq('tenant_id', t).order('topic_key'),
+    db.from('disclosure_rules').select('topic_key, provenance').eq('tenant_id', t).order('topic_key'),
+    db.from('out_of_scope_topics').select('topic_key, provenance').eq('tenant_id', t).order('topic_key'),
     db.from('disambiguation_pairs').select('trigger_term, question').eq('tenant_id', t).order('trigger_term'),
     db.from('price_axes').select('axis, verbatim_question').eq('tenant_id', t).order('ordinal').order('axis'),
     db.from('deposit_rules').select('applies_to, rule_text').eq('tenant_id', t).order('ordinal').order('applies_to'),
@@ -145,7 +176,7 @@ export async function loadTenantKb(
     db.from('staff_members').select('name, group_name, tier').eq('tenant_id', t).eq('active', true).order('group_name').order('name'),
     db.from('services').select('id, name').eq('tenant_id', t).eq('active', true).order('name'),
     db.from('service_variants').select('service_id, variant_key, price_kind, price_min, price_max, refusal_topic').eq('tenant_id', t).order('variant_key'),
-    db.from('faqs').select('question, answer').eq('tenant_id', t).order('ordinal').order('question'),
+    db.from('faqs').select('question, answer, provenance').eq('tenant_id', t).order('ordinal').order('question'),
     db.from('contact_points').select('kind, value').eq('tenant_id', t).order('kind'),
     db.from('tenant_booking').select('booking_url').eq('tenant_id', t).maybeSingle(),
   ]);
@@ -160,6 +191,19 @@ export async function loadTenantKb(
     if (res.error) return { ok: false, detail: `${name} unreadable: ${res.error.message}` };
   }
   if (tenant.data === null) return { ok: false, detail: 'no such tenant' };
+
+  // D-020, the facts half. Split rather than filtered inline so the excluded ones can be
+  // named: a FAQ that vanished from the prompt with nothing said about it is the silence
+  // this decision exists to end.
+  const faqRows = rows(faqs.data);
+  const faqsKept = faqRows.filter((r) => isTenantConfirmed(r['provenance']));
+  const faqsExcluded = unconfirmedNames(faqRows.filter((r) => !isTenantConfirmed(r['provenance'])).map((r) => str(r['question'])));
+
+  // D-020, the refusals half: kept whatever they claim, counted either way.
+  const refusalRows = [...rows(disclosure.data), ...rows(outOfScope.data)];
+  const refusalTopicsUnconfirmed = unconfirmedNames(
+    refusalRows.filter((r) => !isTenantConfirmed(r['provenance'])).map((r) => str(r['topic_key'])),
+  );
 
   const tRow = tenant.data as Record<string, unknown>;
   const byService = new Map<string, ServiceVariant[]>();
@@ -178,15 +222,13 @@ export async function loadTenantKb(
 
   return {
     ok: true,
+    unconfirmed: { faqsExcluded, refusalTopicsUnconfirmed },
     kb: {
       currencySymbol: str(tRow['currency_symbol']) || '\u20ae',
       currencySymbolBefore: tRow['currency_symbol_before'] === true,
       // Both refusal tables feed one list: Ш1 asks whether the message matches a topic in
       // «ХОРИОТОЙ СЭДВҮҮД», and does not care which table the topic came from.
-      refusalTopics: [
-        ...rows(disclosure.data).map((r) => str(r['topic_key'])),
-        ...rows(outOfScope.data).map((r) => str(r['topic_key'])),
-      ].filter((k) => k !== '').sort(),
+      refusalTopics: refusalRows.map((r) => str(r['topic_key'])).filter((k) => k !== '').sort(),
       clarify: [
         ...rows(disambig.data).map((r) => ({ term: str(r['trigger_term']), question: str(r['question']) })),
         ...rows(axes.data).map((r) => ({ term: str(r['axis']), question: str(r['verbatim_question']) })),
@@ -200,7 +242,7 @@ export async function loadTenantKb(
         name: str(r['name']),
         variants: byService.get(str(r['id'])) ?? [],
       })),
-      faqs: rows(faqs.data).map((r) => ({ question: str(r['question']), answer: str(r['answer']) })),
+      faqs: faqsKept.map((r) => ({ question: str(r['question']), answer: str(r['answer']) })),
       contacts: rows(contacts.data).map((r) => ({ kind: str(r['kind']), value: str(r['value']) })),
       bookingUrl: booking.data === null ? null : orNull((booking.data as Record<string, unknown>)['booking_url']),
     },
@@ -208,7 +250,7 @@ export async function loadTenantKb(
 }
 
 export type CompileOutcome =
-  | { ok: true; rendered: Rendered; sectionCount: number }
+  | { ok: true; rendered: Rendered; sectionCount: number; unconfirmed: KbProvenance }
   | { ok: false; code: 'unavailable'; detail: string }
   /** The renderer refused. Every case names the sections responsible. */
   | { ok: false; code: 'refused'; refusal: RenderRefusal }
@@ -256,13 +298,18 @@ export async function compileStablePrefix(
 
   const result = renderStablePrefix(sections);
   return result.ok
-    ? { ok: true, rendered: result.rendered, sectionCount: sections.length }
+    ? { ok: true, rendered: result.rendered, sectionCount: sections.length, unconfirmed: kb.unconfirmed }
     : { ok: false, code: 'refused', refusal: result.refusal };
 }
 
 
 export type CompilePublishOutcome =
-  | { ok: true; revisionId: string; contentHash: string; sectionCount: number }
+  /**
+   * `unconfirmed` is part of the SUCCESS shape on purpose. A publish that quietly dropped
+   * four FAQs is a successful publish of a different configuration, and a caller that
+   * never sees which rows were withheld cannot tell the two apart.
+   */
+  | { ok: true; revisionId: string; contentHash: string; sectionCount: number; unconfirmed: KbProvenance }
   | { ok: false; code: 'unavailable' | 'refused' | 'no_gate' | 'publish_failed' | 'no_snapshot' | 'not_draft'; detail: string };
 
 /**
@@ -332,6 +379,7 @@ export async function compileAndPublish(
         revisionId: published.revisionId,
         contentHash: compiled.rendered.contentHash,
         sectionCount: compiled.sectionCount,
+        unconfirmed: compiled.unconfirmed,
       }
     : { ok: false, code: published.code, detail: published.detail };
 }

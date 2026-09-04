@@ -603,12 +603,50 @@ The mechanism already exists for the two places it was applied to: `canned_respo
 `out_of_scope_topics` and `faqs` have no provenance column**, so a placeholder alias and a
 tenant-confirmed one are the same row.
 
-**Not built.** The change is a `provenance` column (`tenant_confirmed` | `seeded` |
-`inferred`) on those tables, plus: matchers that count a `seeded` hit separately rather
-than silently, and any analysis that reads them refusing to draw a conclusion from rows
-that are not `tenant_confirmed`. It is on `docs/STATUS.md`'s list. Until it exists, **the
-right move is not to seed those tables at all** — an empty matcher is honest, and a
-matcher full of invented Mongolian is not.
+**Built 2026-09-04** — migration `0011_provenance.sql`, `src/lib/provenance.ts`, and the
+readers below. `provenance` (`tenant_confirmed` | `seeded` | `inferred`) is on all four
+tables plus `disclosure_rules`, which is the same row in every respect that matters.
+
+**There is no DEFAULT, and that is the load-bearing half.** A default is the whole bug in
+miniature: `default 'tenant_confirmed'` blesses every placeholder somebody forgets to
+label, and `default 'seeded'` mislabels real tenant data and trains people to ignore the
+column. No default means the database refuses an INSERT that does not say where the row
+came from — the only version of this rule that survives somebody in a hurry. The
+TypeScript types mirror it: `provenance` is a required field, so a construction site that
+omits it fails to compile rather than being credited with a confirmation nobody gave.
+
+**What a reader does with an unconfirmed row depends on what the row *does*, never on
+which table it sits in.** The asymmetry is the design:
+
+| Row | Is | Unconfirmed → |
+|---|---|---|
+| `faqs` | a fact stated to a customer | **excluded** from the compiled prompt |
+| `deterministic_replies` | a sentence sent verbatim, with no model in the loop and **no `reviewed_at` column on this table** | **withheld**; the model answers instead, at the cost of one call |
+| `disclosure_rules`, `out_of_scope_topics` | an instruction *not* to answer | **kept, and counted** |
+
+Excluding a refusal would disarm the check the tenant asked for — the failure
+`matchRules` refuses to commit when a matcher will not parse. Including a guessed FAQ is
+worse than it first looks: `allowed_numbers` is derived from the tenant sections (D-024),
+so **a guessed price in a FAQ allow-lists itself past the outbound guard** — the one
+control that exists to catch an invented number would be holding it in its own allow-list.
+
+Counting is not logging: a fired-but-unconfirmed refusal writes `gate_rule_unconfirmed`
+and a withheld reply writes `deterministic_reply_unconfirmed` to `quality_flags`, naming
+the rows. `compileAndPublish` returns the excluded FAQs on the **success** path, because a
+publish that quietly dropped four answers is a successful publish of a different
+configuration.
+
+**`null` is an answer, not a gap.** `readProvenance` returns null for anything it does not
+recognise — an absent column, a database predating 0011, a value from a later migration —
+and every consumer treats that exactly as `seeded`. There is deliberately no `isSeeded()`:
+the only question a caller may ask is whether a row is confirmed, and every other state
+answers no. The opposite reading, *"nothing said it was seeded, so it is probably fine"*,
+is `role_table_grants` returning empty rather than refusing.
+
+`service_aliases` carries the column and has no reader yet; the first one inherits the
+rule rather than rediscovering it. Verified by execution: `catalog.sql` V23 against
+PostgreSQL, an unlabelled insert refused with a NOT NULL violation, `provenance =
+'probably_fine'` refused by the CHECK, and six mutations each caught by a test.
 
 ---
 

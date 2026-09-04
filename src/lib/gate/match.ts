@@ -26,6 +26,7 @@
  * match and the caller 503s. A 503 costs a retry; a silently disarmed refusal costs the
  * thing the rule existed to prevent.
  */
+import { isTenantConfirmed } from '../provenance.ts';
 import { containsStem, wholeMessageMatches } from '../mn/match.ts';
 import { cpLength } from '../mn/text.ts';
 import type { GateKey } from '../guard/outbound.ts';
@@ -56,6 +57,20 @@ export type GateRule = {
   deterministicShortcircuit: boolean;
   /** The canned kind whose sentence answers this topic. */
   responseKind: string;
+  /**
+   * `provenance`, raw as the row holds it (D-020).
+   *
+   * Required, with no default, for the same reason the column has none: a construction
+   * site that cannot say where the rule came from must be made to answer rather than be
+   * quietly credited with `tenant_confirmed`.
+   *
+   * **An unconfirmed rule still fires.** It is only counted. Withholding a refusal because
+   * nobody has confirmed it yet would disarm exactly the check the tenant asked for, which
+   * is the failure `parseMatcher` refuses to commit one function up; and this matcher does
+   * not silence a reply, it selects which rules the reply is held to. Over-refusing costs
+   * a handoff line. Under-refusing costs the thing the rule existed to prevent.
+   */
+  provenance: unknown;
 };
 
 export type ParseResult = { ok: true; spec: MatcherSpec } | { ok: false; detail: string };
@@ -113,6 +128,12 @@ export type MatchOutcome =
       /** Topic keys that matched, for the alert and the quality flag. */
       matchedTopics: string[];
       /**
+       * Of those, the ones whose row is not `tenant_confirmed` (D-020). They fired — this
+       * is the count, not a suppression list. Empty is the normal case and means every
+       * refusal that ran was one the tenant stands behind.
+       */
+      unconfirmedTopics: string[];
+      /**
        * The canned kind to send with NO model call, or null. Non-null only when a matched
        * rule has `deterministic_shortcircuit` explicitly enabled.
        */
@@ -132,6 +153,7 @@ export type MatchOutcome =
 export function matchRules(text: string, rules: readonly GateRule[]): MatchOutcome {
   const firedGates: GateKey[] = [];
   const matchedTopics: string[] = [];
+  const unconfirmedTopics: string[] = [];
   let refusedTopicBlocksPrice = false;
   let shortCircuitKind: string | null = null;
 
@@ -143,13 +165,16 @@ export function matchRules(text: string, rules: readonly GateRule[]): MatchOutco
     if (!matcherFires(text, parsed.spec)) continue;
 
     matchedTopics.push(rule.topicKey);
+    // D-020: counted, never silent — and counted AFTER the fire, so the number means "a
+    // seeded rule shaped this reply", not "a seeded rule exists somewhere in the table".
+    if (!isTenantConfirmed(rule.provenance)) unconfirmedTopics.push(rule.topicKey);
     if (!firedGates.includes(rule.gate)) firedGates.push(rule.gate);
     if (!rule.quotePrice) refusedTopicBlocksPrice = true;
     // First enabled short-circuit wins; rules are supplied in the tenant's own order.
     if (rule.deterministicShortcircuit && shortCircuitKind === null) shortCircuitKind = rule.responseKind;
   }
 
-  return { ok: true, firedGates, refusedTopicBlocksPrice, matchedTopics, shortCircuitKind };
+  return { ok: true, firedGates, refusedTopicBlocksPrice, matchedTopics, unconfirmedTopics, shortCircuitKind };
 }
 
 export type CannedRow = { kind: string; body: string; reviewedAt: string | null };

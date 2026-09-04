@@ -36,6 +36,7 @@
  */
 import { containsStem, wholeMessageMatches } from '../mn/match.ts';
 import { cpLength } from '../mn/text.ts';
+import { isTenantConfirmed } from '../provenance.ts';
 import { MIN_STEM_CHARS } from './match.ts';
 
 export type DeterministicRule = {
@@ -46,6 +47,20 @@ export type DeterministicRule = {
   matchMode: 'whole_message' | 'contains_stem';
   stems: readonly string[];
   requiresEmptyHistory: boolean;
+  /**
+   * `provenance`, raw as the row holds it (D-020). Required and undefaulted, as the column
+   * is.
+   *
+   * This is the one table where an unconfirmed row is WITHHELD rather than counted, and
+   * the reason is what the row is rather than which table it sits in: `body` is sent to
+   * the customer **verbatim, with no model in the loop and no `reviewed_at` gate on this
+   * table** — `canned_responses` has one, `deterministic_replies` does not. So an invented
+   * sentence here reaches a customer as the salon's own words.
+   *
+   * Not firing costs exactly one model call, which is the cost this whole table exists to
+   * avoid and the cost the header above already calls acceptable on any doubt.
+   */
+  provenance: unknown;
 };
 
 /**
@@ -68,6 +83,14 @@ export type DeterministicOutcome = {
   hit: DeterministicHit | null;
   /** One entry per rule that could have fired and did not, with the reason. */
   skipped: { intent: string; reason: SkipReason }[];
+  /**
+   * Rules that MATCHED this message and were withheld for provenance (D-020).
+   *
+   * Separate from `skipped` deliberately. `skipped` is "this rule was not applicable";
+   * this is "this rule had the answer and was not allowed to give it", which is the only
+   * one of the two an operator must act on — either confirm the row or delete it.
+   */
+  suppressed: string[];
 };
 
 export function matchDeterministic(
@@ -76,6 +99,20 @@ export function matchDeterministic(
   history: HistoryState,
 ): DeterministicOutcome {
   const skipped: { intent: string; reason: SkipReason }[] = [];
+  const suppressed: string[] = [];
+
+  /**
+   * A match, resolved against the row's provenance.
+   *
+   * Checked AFTER matching rather than before, so an unconfirmed rule that was never going
+   * to fire on this message stays quiet. `suppressed` then means precisely what it says:
+   * this row would have answered.
+   */
+  const answer = (rule: DeterministicRule): DeterministicHit | null => {
+    if (isTenantConfirmed(rule.provenance)) return { intent: rule.intent, body: rule.body };
+    suppressed.push(rule.intent);
+    return null;
+  };
 
   for (const rule of rules) {
     if (!rule.enabled) { skipped.push({ intent: rule.intent, reason: 'disabled' }); continue; }
@@ -89,7 +126,11 @@ export function matchDeterministic(
     }
 
     if (rule.matchMode === 'whole_message') {
-      if (wholeMessageMatches(text, rule.stems)) return { hit: { intent: rule.intent, body: rule.body }, skipped };
+      if (wholeMessageMatches(text, rule.stems)) {
+        const hit = answer(rule);
+        if (hit !== null) return { hit, skipped, suppressed };
+        continue;
+      }
       skipped.push({ intent: rule.intent, reason: 'no_match' });
       continue;
     }
@@ -101,10 +142,12 @@ export function matchDeterministic(
     if (short.length > 0) { skipped.push({ intent: rule.intent, reason: 'stem_too_short' }); continue; }
 
     if (rule.stems.some((stem) => containsStem(text, stem))) {
-      return { hit: { intent: rule.intent, body: rule.body }, skipped };
+      const hit = answer(rule);
+      if (hit !== null) return { hit, skipped, suppressed };
+      continue;
     }
     skipped.push({ intent: rule.intent, reason: 'no_match' });
   }
 
-  return { hit: null, skipped };
+  return { hit: null, skipped, suppressed };
 }

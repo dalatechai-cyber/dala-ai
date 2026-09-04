@@ -168,6 +168,13 @@ you find out from a customer.
   transcripts itself, from day one — D-016's conversation count is weak precisely because
   nothing did) and D-020 (a seeded or guessed row carries its provenance into every reader,
   or is not written at all).
+- **D-020 is built**: migration `0011`, `catalog.sql` V23, and readers that act on the
+  column rather than merely storing it. `provenance` has **no default**, so an unlabelled
+  INSERT is refused by the database and an unlabelled `GateRule` fails to compile. An
+  unconfirmed FAQ is excluded from the prompt — which also keeps a guessed price out of
+  `allowed_numbers`, where it would otherwise allow-list itself past the outbound guard —
+  an unconfirmed deterministic reply is withheld and the model answers instead, and an
+  unconfirmed refusal still fires and is counted into `quality_flags`.
 
 ---
 
@@ -237,7 +244,7 @@ under it. Nothing about a DM waits on Meta.
 | 17 | After the mirror: unsubscribe the ancestor app first, confirm from each app's own token, then `delivery_mode = 'live'` |
 
 | 18 | **Confirm the Business Portfolio holds the app AND every tenant Page**, then say so — that is what makes the ID Matching API answerable, and it is the missing half of the erasure path. A portfolio very likely exists already (Advanced Access implies Business Verification); what is unconfirmed is whether the Pages are in it |
-| 19 | **Do not seed `service_aliases`, `deterministic_replies`, `out_of_scope_topics` or `faqs` with invented phrasings** (D-020). They have no provenance column, so a placeholder is indistinguishable from a tenant-confirmed row and the next analysis reads its own fixtures back. An empty matcher is honest; a matcher full of invented Mongolian is not. The `provenance` column is the fix and is **not built** |
+| 19 | **Label every row you seed** (D-020). `provenance` now exists on those four tables plus `disclosure_rules`, with **no default**, so an INSERT that does not say where the row came from is refused by the database. Seeding is therefore safe again — a `seeded` FAQ stays out of the compiled prompt, a `seeded` deterministic reply is withheld and the model answers, and a `seeded` refusal still fires and is counted. What is **not** built is a resolver for the `service_aliases` reader, because nothing reads that table yet |
 
 Step 18 is not optional and it is not urgent yet. Today a data deletion request is
 **recorded and alerted, not fulfilled**: Meta's callback carries an app-scoped id and every

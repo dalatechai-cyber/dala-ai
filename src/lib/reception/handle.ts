@@ -150,6 +150,18 @@ export async function handleReception(
 
   // 3. Every pinned line has a native-speaker sign-off. A gate pointing at an unreviewed
   //    sentence is a check with no answer.
+  // D-020: a refusal that fired on a row nobody has confirmed still fired — the customer
+  // is protected either way — but it is recorded, because "the bot refused" and "the bot
+  // refused on a rule somebody guessed" are different facts about the same reply, and only
+  // the flag can tell them apart afterwards. Written before the review gate below, so the
+  // signal survives a request that ends there.
+  if (matched.unconfirmedTopics.length > 0) {
+    await deps.flag({
+      code: 'gate_rule_unconfirmed',
+      detail: `refusal rules fired without tenant confirmation: ${matched.unconfirmedTopics.join(', ')}`,
+    });
+  }
+
   const section = renderCannedSection(input.cannedLabel, input.canned);
   if (!section.ok) {
     await deps.release();
@@ -164,6 +176,16 @@ export async function handleReception(
   //    customer-visible sentence, and an unreviewed one must not ship just because no
   //    model was involved in choosing it.
   const shortcut = matchDeterministic(input.customerMessage, input.deterministic, input.historyState);
+  // The other direction of the same rule: this row MATCHED and was withheld, because its
+  // body would have been sent to the customer verbatim. The model answers instead, at the
+  // cost of one call — and the flag is the only trace that a provisioned answer existed and
+  // was not trusted.
+  if (shortcut.suppressed.length > 0) {
+    await deps.flag({
+      code: 'deterministic_reply_unconfirmed',
+      detail: `matched but withheld pending tenant confirmation: ${shortcut.suppressed.join(', ')}`,
+    });
+  }
   if (shortcut.hit !== null) {
     await deps.release();   // nothing was spent, so the hold goes straight back
     const drafted = await deps.draft({ body: shortcut.hit.body, answeredBy: 'canned' });
