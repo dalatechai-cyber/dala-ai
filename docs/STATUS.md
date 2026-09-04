@@ -11,7 +11,7 @@ exists yet. The gap is not engineering. It is four accounts and one twenty-day w
 
 ## 1. What is built
 
-610 tests, 7 guards, 10 migrations, 55 modules. Every module below is merged on `main`
+623 tests, 7 guards, 10 migrations, 56 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |
@@ -41,6 +41,7 @@ with CI green.
 | **The worker** | `worker/reception`, `worker/freshness` | Every branch of the job, as a value-returning function the route merely binds |
 | **Comments** | `meta/comments`, `comments/eligibility`, `comments/send`, `worker/comments` | The `feed` firehose, the decision that never sees the comment's text, and the public reply |
 | **Privacy** | `meta/signedRequest`, `privacy/erasure`, `privacy/statusPage` | Meta's data-deletion callback: verify, record, and the status page it hands people |
+| **The prompt** | `prompt/render`, `prompt/publish`, `prompt/sections` | The compiler, the immutable snapshot + pointer, and the loader that finally joins them |
 | **Operator** | `scripts/kek/generate.ts` | One 32-byte key to stdout. Writes nothing |
 | | `scripts/kek/seal.ts` | A token on **stdin** → the SQL for one `tenant_secrets` row, self-verified |
 | | `scripts/preflight.ts` | Every required variable, ok / BAD / MISSING, with the remedy and no values |
@@ -70,7 +71,7 @@ the status page returns 503 rather than rendering unsigned Mongolian. Mutating t
 signature comparison to always-accept flips the forged case from 400 to 500, so the check
 is not vacuous.
 
-**Against stubs (everything else).** 610 unit tests — 609 in CI, where the one
+**Against stubs (everything else).** 623 unit tests — 622 in CI, where the one
 ancestor-dependent bake-off fixture check reports itself SKIPPED because `Matrix-Chatbot`
 is private and CI cannot clone it. That skip is deliberate and says so in its own reason
 string; it is named here so a count that does not match is investigated rather than
@@ -98,7 +99,8 @@ claims nobody has earned yet.
 | **The Graph error taxonomy** | Every code in it is from documentation and Chatwoot's handler. Not one has been observed | Production. Record the real codes as they appear |
 | **Any Anthropic call from this repo** | `ANTHROPIC_API_KEY` is unset. The bake-off made real calls, but through a separate harness | One key, one call |
 | **QStash redelivery and the crash property** | Unit-tested only. V1.md 1.5 has said so since it was written | A QStash account and a deliberately killed worker |
-| **The prompt compiler on real input** | The blocks are signed and seeded (`0010`), but **nothing reads `prompt_blocks` into `PromptSection[]`** — `renderStablePrefix` has still never been given real sections. Signed, seeded, not yet compiled | The loader. It is the next piece and it is small |
+| **That a compiled prompt is a WORKING prompt** | The gate compiles and is coherent on its own terms, but `01_data_marker` declares that everything below the «=== ТУХАЙН БАЙГУУЛЛАГЫН МЭДЭЭЛЭЛ ===» marker is reference data, and **nothing renders that marker yet** — it arrives with the tenant L2/L3 sections, which no code writes. Today's compile is the gate and nothing else | The tenant-KB renderer: rows → L2/L3 sections |
+| **The prompt compiler against a real database** | **The chain is closed**: `prompt/sections.ts` loads blocks → `renderStablePrefix` → `publishRevision`. The twelve signed gate blocks compile into a 9,265-character prefix with a deterministic hash, proven in tests over the real signed bytes. What has never happened is the same compile **through PostgREST against a Supabase project**, and no tenant L2/L3 rows exist to compile alongside it | The project, and a tenant's config rows |
 | **Prompt caching, and therefore the cost model** | D-016's margin rests on measured *ancestor* traffic, not on this system's bill | A month of real invoices |
 | **Meta's data-deletion callback** | The `signed_request` format is SEARCH-CORROBORATED, never seen from Meta. No app exists, so nothing has ever posted to it. The response shape (`{url, confirmation_code}`) is standard JSON — several widely-copied implementations emit a JavaScript object literal instead, and one asserts JSON "fails" | The first real callback, or ten minutes on Meta's own docs |
 | **That an erasure request can be FULFILLED** | Meta sends an app-scoped id; every id we hold is page-scoped. Nothing bridges them. A request is recorded, not executed — see §5 | A Business Manager containing the app and the Pages, then the ID Matching API |
@@ -131,6 +133,14 @@ you find out from a customer.
 - **The worker route has tests**, because it stopped being the route: the branching lives
   in `lib/worker/reception.ts` and the route is a binding that may not branch. Five
   mutations were each caught by exactly the test that should catch them.
+- **The compiler chain is closed** (`prompt/sections.ts`): signed blocks → `prompt_blocks`
+  → `PromptSection[]` → `renderStablePrefix` → `config_snapshots`. `renderStablePrefix`
+  had been built, tested and **unreachable** since Track 1 — a pure function nothing called.
+  It now compiles the twelve gate blocks into a real 9,265-character prefix.
+- **`allowed_numbers` now comes from tenant sections only** (D-024), corrected while
+  building that loader. Deriving it from the whole prefix allow-listed «20,000» and
+  «33,000» — the fabricated prices Ш1 and Ш2 exist to forbid — handing the outbound guard
+  the exact output the gate is written to prevent.
 - **The Mongolian is signed, promoted and seeded** — twenty-one blocks in
   `prompt/platform/`, hashed in `prompt/platform-mn-review.json` (`reviewed_by: Bilguun`),
   and carried into `prompt_blocks` by `0010`, which is **generated** from the signed files

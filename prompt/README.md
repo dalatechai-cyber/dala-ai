@@ -69,8 +69,17 @@ request time, and a test asserts no file on the comment path so much as mentions
 ## What is signed, and what that still does not prove
 
 The signature covers the **file**, and the seed carries the attribution into
-`prompt_blocks.reviewed_at` so every reader's `reviewed_at is not null` gate passes. What
-no signature can cover: **`renderStablePrefix` has never been given real sections.**
-Nothing yet reads `prompt_blocks` into `PromptSection[]`, so the gate is signed, seeded,
-and not yet compiled. That loader is the next piece, and it is what turns twelve L0 rows
-into a system prompt.
+`prompt_blocks.reviewed_at` so every reader's `reviewed_at is not null` gate passes.
+
+**The chain is now closed.** `src/lib/prompt/sections.ts` reads these rows into
+`PromptSection[]`, `renderStablePrefix` compiles them, and `publishRevision` freezes the
+result into `config_snapshots`. The twelve L0 blocks compile into a 9,265-character prefix.
+
+Two things a signature still cannot cover:
+
+- **The compile has never run through PostgREST**, because no Supabase project exists.
+  Every query here is exercised against a stub.
+- **A gate-only prompt is not a working prompt.** `01_data_marker` declares that everything
+  below the «=== ТУХАЙН БАЙГУУЛЛАГЫН МЭДЭЭЛЭЛ ===» marker is reference data, and nothing
+  renders that marker yet — it comes with the tenant L2/L3 sections, which no code writes.
+  What compiles today is the boundary gate and nothing else.

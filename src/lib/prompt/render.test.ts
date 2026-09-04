@@ -92,12 +92,33 @@ test('BYTE STABILITY: the renderer takes no message and no clock, so it cannot v
   assert.equal(renderStablePrefix.length, 1, 'exactly one parameter: the sections');
 });
 
-test('allowed_numbers is every numeral the compiled prompt contains', () => {
+test('DONE-TEST: allowed_numbers is every numeral in the TENANT sections, and only those', () => {
+  // This used to be every numeral in the whole prefix, and the fixture put a phone number
+  // in an L0 body to prove it. That was harmless while L0 was a fixture. It stopped being
+  // harmless when the signed gate blocks were compiled into the prefix for real, because
+  // THE GATE'S NUMERALS ARE ITS COUNTER-EXAMPLES: Ш1 carries «33,000₮» as the wrong answer
+  // to a children's price question and Ш2 carries «20,000₮» as the invented price it
+  // exists to forbid. Allow-listing those hands the outbound guard the two exact
+  // fabrications the gate is written to prevent.
+  //
+  // The gate is instructions. Only tenant rows are facts, and only a fact may be quoted.
   const r = renderStablePrefix([
-    { ...L0, body: 'Утас 7741-7777' },
-    { ...L3, body: 'Чёлк тайралт 33,000₮ · Угаалт 22,000₮ · 10:00-20:00' },
+    { ...L0, body: 'Ш2. БУРУУ ЖИШЭЭ: «ойролцоогоор 20,000₮ орчим байх аа»' },
+    { ...L3, body: 'Чёлк тайралт 33,000₮ · Угаалт 22,000₮ · 10:00-20:00 · Утас 7741-7777' },
   ]);
   assert.deepEqual(r.ok && r.rendered.allowedNumbers, ['10:00-20:00', '22,000', '33,000', '7741-7777']);
+  assert.ok(
+    !(r.ok && r.rendered.allowedNumbers.includes('20,000')),
+    "the gate's own counter-example price must never be allow-listed",
+  );
+  // It is still in the PROMPT — the model must read the counter-example to learn from it.
+  assert.ok(r.ok && r.rendered.promptStable.includes('20,000₮'));
+});
+
+test('DONE-TEST: a tenant with no sections gets an EMPTY allow-list, not the platform\'s', () => {
+  // Fail closed: a bot with no approved prices must not be able to emit a price.
+  const r = renderStablePrefix([{ ...L0, body: 'Ш2. БУРУУ ЖИШЭЭ: 20,000₮. Утас 7741-7777' }]);
+  assert.deepEqual(r.ok && r.rendered.allowedNumbers, []);
 });
 
 test('allowed_numbers is sorted and de-duplicated, so the snapshot is deterministic', () => {

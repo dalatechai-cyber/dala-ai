@@ -134,16 +134,38 @@ export function renderStablePrefix(sections: readonly PromptSection[]): RenderRe
       promptStable,
       contentHash: createHash('sha256').update(promptStable, 'utf8').digest('hex'),
       promptChars: cpLength(promptStable),
-      allowedNumbers: allowedNumbersFrom(promptStable),
+      // TENANT sections only. See `allowedNumbersFrom` — this is not a narrowing for
+      // tidiness, it is the difference between the outbound guard working and not.
+      allowedNumbers: allowedNumbersFrom(
+        ordered.filter((s) => s.origin === 'tenant').map((s) => nfc(s.body)).join('\n\n'),
+      ),
       order: ordered.map((s) => s.key),
     },
   };
 }
 
 /**
- * Every numeral the compiled prompt contains — prices, the phone number, opening hours,
+ * Every numeral in the TENANT's sections — prices, the phone number, opening hours,
  * deposit amounts. This is `config_snapshots.allowed_numbers`, and the outbound guard
  * refuses any numeral in a reply that is not in it.
+ *
+ * ## Platform sections are excluded, and that is load-bearing
+ *
+ * It used to be every numeral in the whole prefix. That was harmless while L0 was a
+ * fixture and became a real defect the moment the signed gate blocks were compiled into
+ * it (`prompt/sections.ts`), because **the gate's numerals are its counter-examples.**
+ * Ш1 contains «Чёлк тайралт 33,000₮» as the wrong answer to a children's price question;
+ * Ш2 contains «ойролцоогоор 20,000₮ орчим» as the invented price it exists to forbid.
+ * Compiling those into `allowed_numbers` tells the outbound guard that the two exact
+ * fabrications the gate is written to prevent are approved output.
+ *
+ * That is §6's own worst case — two supposedly independent layers, perfectly correlated,
+ * both saying yes — reproduced by the compiler. The gate is instructions; only tenant
+ * rows are facts, and only a fact may be quoted.
+ *
+ * A tenant with no L2/L3 sections therefore gets an EMPTY allow-list and the guard
+ * refuses every numeral. That is the correct direction: a bot with no approved prices
+ * must not emit a price.
  *
  * **Deliberately NOT included: numerals from the customer's own message.** A customer who
  * writes «Үс засалт 5000₮ юу?» has put a number in front of the model, and echoing it back
