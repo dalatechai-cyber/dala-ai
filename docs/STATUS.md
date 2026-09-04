@@ -11,7 +11,7 @@ exists yet. The gap is not engineering. It is four accounts and one twenty-day w
 
 ## 1. What is built
 
-458 tests, 7 guards, 5 migrations, 44 modules. Every module below is merged on `main`
+499 tests, 7 guards, 6 migrations, 46 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |
@@ -38,8 +38,10 @@ with CI green.
 | | `meta/send` | `POST /{page-id}/messages`. `me` refused. Three outcomes, not two |
 | | `outbound/claim`, `deliver`, `deliverDeps` | Draft, lease, deliver, and what each outcome costs |
 | | `channel/delivery`, `channel/halt` | Only `live` delivers; a `190` halts the channel and the token together |
+| **The worker** | `worker/reception`, `worker/freshness` | Every branch of the job, as a value-returning function the route merely binds |
 | **Operator** | `scripts/kek/generate.ts` | One 32-byte key to stdout. Writes nothing |
 | | `scripts/kek/seal.ts` | A token on **stdin** → the SQL for one `tenant_secrets` row, self-verified |
+| | `scripts/preflight.ts` | Every required variable, ok / BAD / MISSING, with the remedy and no values |
 
 ---
 
@@ -61,7 +63,7 @@ Cyrillic** body verifies, one changed character in a still-valid body is 401, an
 verified POST against an unreachable registry is **500** — the transient half of the
 200/500 asymmetry, at the layer where it actually matters.
 
-**Against stubs (everything else).** 458 unit tests. Load-bearing properties were checked
+**Against stubs (everything else).** 499 unit tests. Load-bearing properties were checked
 by mutation — the code was deliberately broken and the tests were watched to fail — for
 the AAD binding, KEK version selection, the `me` refusal, the failed/indeterminate split,
 and the signature comparison.
@@ -97,24 +99,25 @@ you find out from a customer.
 
 ## 4. Decisions waiting for you
 
-Small, and each blocks something.
+**One.**
 
 1. **Ш0–Ш9 wording.** Drafted in `prompt/drafts/` with a red-pen table in its README.
    Until these are signed into `prompt/platform/` the compiler has nothing to compile, so
-   this blocks the first reply rather than merely improving it.
-2. **`max_reply_age_minutes`.** §3.9 wants a per-tenant freshness limit, default 30
-   minutes. It is **not built**, deliberately: `STALE_EVENT_HOURS = 20` is the current
-   platform-wide approximation, and it is more permissive. Choosing 30 minutes would stop
-   the bot answering an hour-old message — a product decision, not an engineering one.
-   Nothing was assumed on your behalf.
-3. **`contacts.last_inbound_at` / `window_expires_at`.** §3.9.1 asks for these columns and
-   `0001` has neither. For the one action type V1 has, they add nothing: answering a
-   message we just received, the window is exactly that message's own timestamp plus 24
-   hours, which `STALE_EVENT_HOURS` already bounds more tightly. They earn their place when
-   the §3.4.5 restoration replay is built, and not before.
-4. **Whether the worker route gets tests.** It is the one file with real branching and no
-   test coverage; a harness for Next route handlers is a half-day and nobody has asked for
-   it.
+   this blocks the first reply rather than merely improving it. It is also the only thing
+   on the free half of §5 that nobody but you can do.
+
+### Settled 2026-09-04, and already built
+
+- **`max_reply_age_minutes` = 30**, per tenant — *"a bot answering an hour-old Messenger
+  message reads as broken, not helpful."* Migration `0006`, checked by `catalog.sql` V18
+  (proven to fail against a database the migration has not reached). The check runs after
+  the message is persisted and before the reservation, so a stale message costs three rows
+  and no spend, and lands in `quality_flags` as `reply_too_late`.
+- **The `contacts.last_inbound_at` / `window_expires_at` columns are not being built.**
+  Not ahead of the §3.4.5 restoration replay that would be their only consumer.
+- **The worker route has tests**, because it stopped being the route: the branching lives
+  in `lib/worker/reception.ts` and the route is a binding that may not branch. Five
+  mutations were each caught by exactly the test that should catch them.
 
 ---
 
@@ -124,6 +127,12 @@ The order is not arbitrary. Several steps are enforced by CHECK constraints, so 
 them out of order produces a database error rather than a broken deployment:
 `active_requires_published_config`, `active_requires_probe_run`,
 `live_requires_name_confirmation`, `live_requires_active_token`.
+
+> **Check your work with one command:** `node scripts/preflight.ts`. It reports every
+> required variable as ok / BAD / MISSING with the reason and the remedy, and it **never
+> prints a value** — so the output is safe to paste anywhere. A pass means the
+> configuration is right and nothing more: it proves nothing about Meta, Supabase,
+> Anthropic or QStash actually answering.
 
 ### Free, and you can do all of it in an hour
 
