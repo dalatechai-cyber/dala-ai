@@ -168,6 +168,36 @@ await (async () => {
     assert.equal(out.ok && out.secret, 'not-a-real-app-secret');
   });
 
+  await step('halting a live channel needs all three columns — the CHECK says so', () => {
+    // §3.4.4 says "set token_status='revoked' … stop all outbound". Written as one column
+    // it is REJECTED, and only on the channels that matter: the live ones. That is the
+    // constraint forcing the revocation and the halt to be a single transition, and it is
+    // the reason src/lib/channel/halt.ts writes three columns rather than one.
+    psql(`
+      update tenant_channels set token_status = 'active', delivery_mode = 'live',
+             name_confirmed_at = now(), status = 'active'
+      where id = '${CHANNEL}';
+    `);
+    process.stdout.write('      (a CHECK violation is printed below by psql — it IS the assertion)\n');
+    let refused = '';
+    try {
+      psql(`update tenant_channels set token_status = 'revoked' where id = '${CHANNEL}';`);
+    } catch (e) {
+      refused = String((e as { stderr?: string }).stderr ?? '');
+    }
+    assert.match(refused, /live_requires_active_token/, 'the one-column revocation must be refused');
+
+    psql(`
+      update tenant_channels
+        set token_status = 'revoked', delivery_mode = 'off', status = 'authorization_error'
+      where id = '${CHANNEL}';
+    `);
+    assert.equal(
+      psql(`select token_status || '/' || delivery_mode || '/' || status from tenant_channels where id = '${CHANNEL}';`),
+      'revoked/off/authorization_error',
+    );
+  });
+
   await step('a revoked row refuses even though its bytes are intact', async () => {
     psql(`update tenant_secrets set status = 'revoked' where tenant_id = '${TENANT}' and kind = 'page_token';`);
     const out = await loadTenantSecret(db(readRow(TENANT, CHANNEL)), ref);

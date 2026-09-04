@@ -90,6 +90,17 @@ export const CAPS = {
 } satisfies Record<string, NanoUsd>;
 
 /**
+ * What one Messenger send costs at the provider: nothing.
+ *
+ * Standard messaging inside the 24-hour window is not billed by Meta, so this is zero and
+ * says so out loud rather than by omission. `outbound_messages.unit_cost_nanousd` is
+ * nevertheless NOT NULL for a sent row — the `sent_has_a_cost` CHECK — because the column
+ * exists for the surfaces that DO cost money per message, and "we did not meter this one"
+ * and "this one was free" must not be the same value in the ledger.
+ */
+export const MESSENGER_SEND_UNIT_COST = usdToNano(0);
+
+/**
  * Boundary gates whose forbidden vocabulary is checked on EVERY outbound reply, whether
  * or not their inbound matcher fired (§6.7).
  *
