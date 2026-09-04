@@ -4,8 +4,11 @@
 customer message, and what has to come from you?*
 
 The short version. **Every line of V1's code path exists and is tested.** None of it has
-ever touched Meta, a Supabase project, Anthropic, or QStash — because none of those four
-exists yet. The gap is not engineering. It is four accounts and one twenty-day wait.
+ever touched Meta, a Supabase project, Anthropic, or QStash. The Meta app **does** exist
+(D-023) and holds `pages_messaging` at Advanced Access; the other three do not. The gap is
+not engineering — it is three accounts. **The twenty-day App Review wait is no longer on
+this path at all**: it buys comments, and Reception's DM path makes exactly one Graph call
+under a permission the app already holds.
 
 ---
 
@@ -54,11 +57,18 @@ with CI green.
 Three different kinds of evidence, worth keeping apart because they support different
 claims.
 
-**Against a real PostgreSQL 16 (in CI, every run).** `catalog.sql` 18/18,
+**Against a real PostgreSQL 16 (in CI, every run).** `catalog.sql` **25/25**,
 `isolation.sql` 10/10, `rls.sql` 8/8, plus `secret-roundtrip.ts`: a token sealed by the
 operator's own command, stored in `bytea`, read back in the hex form PostgREST serialises,
 and decrypted through the runtime loader — including the cross-tenant copy attack performed
 in SQL, which fails.
+
+Each of the newer catalog checks was also run against a database the migration it tests had
+**not** reached, and made to FAIL cleanly rather than error. That distinction is not
+pedantry: V22's first version referenced `prompt_blocks.layer` directly, which does not
+*parse* when the column is absent, so the check errored out instead of reporting the very
+absence it existed to detect — a check that cannot fail cleanly is the same defect as a
+guard that under-reads its own source. Found by running it.
 
 **Against a real HTTP server (in CI, every run).** `boot-smoke.sh` starts the built
 Next.js app and speaks HTTP to it: the verify handshake returns the challenge verbatim, a
@@ -70,18 +80,33 @@ data-deletion callback: an unsigned request and a forged one are both 400, a **g
 signed** `signed_request` gets past verification and 500s on the unreachable database, and
 the status page returns 503 rather than rendering unsigned Mongolian. Mutating the
 signature comparison to always-accept flips the forged case from 400 to 500, so the check
-is not vacuous.
+is not vacuous. Eleven checks in all: the last is the scheduled health worker refusing an
+unsigned call, which is the branch that must never be open — anything able to trigger a run
+is able to trigger the alerts it raises.
 
-**Against stubs (everything else).** 636 unit tests — 635 in CI, where the one
-ancestor-dependent bake-off fixture check reports itself SKIPPED because `Matrix-Chatbot`
-is private and CI cannot clone it. That skip is deliberate and says so in its own reason
-string; it is named here so a count that does not match is investigated rather than
-shrugged at. Load-bearing properties were checked
-by mutation — the code was deliberately broken and the tests were watched to fail — for
-the AAD binding, KEK version selection, the `me` refusal, the failed/indeterminate split,
-and the signature comparison. Three more since: the comment dedup key (thread, not
-comment), the `algorithm` field being checked rather than dispatched on, and the
-status page's all-or-nothing block gate.
+**Against stubs (everything else).** 706 unit tests. In CI one of them — the
+ancestor-dependent bake-off fixture check — reports itself SKIPPED, because `Matrix-Chatbot`
+is private and CI cannot clone it, so CI's pass count is one lower than the local one. That
+skip is deliberate and says so in its own reason string; it is named here so a count that
+does not match is investigated rather than shrugged at.
+
+Load-bearing properties were checked **by mutation** — the code was deliberately broken and
+the tests were watched to fail — for the AAD binding, KEK version selection, the `me`
+refusal, the failed/indeterminate split, the signature comparison, the comment dedup key
+(thread, not comment), the `algorithm` field being checked rather than dispatched on, and
+the status page's all-or-nothing block gate. Since then, twenty-five more across four
+changes: D-020's provenance (six, including an absent column reading as confirmed and the
+loader dropping the field from its `select`), the silence watchdog (nine, including
+wall-clock instead of open minutes and the second stream dropped, which is the mutation
+that makes the standby trap green), Ш1's Mongolian list (five), and the standby path
+(five).
+
+**Two of those mutations survived on the first attempt, and both were tests that asserted
+too little.** The section-label check read only quoted and marker forms, so renaming a
+label the gate referenced as bare inflected text passed; and the standby test asserted that
+`webhook_events` was written without asserting *which state*, so marking the row
+`processed` — precisely the value that hides the fault — passed. A mutation that survives is
+the only reliable way to find a test shaped like a check.
 
 ---
 
@@ -104,7 +129,7 @@ claims nobody has earned yet.
 | ~~**The refusal-topic list the MODEL reads**~~ | **Fixed 2026-09-04, and it needed no new column.** «ХОРИОТОЙ СЭДВҮҮД» listed `children_services`, so Ш1's model-side check compared Mongolian customer text against an English identifier — defence in depth doing less than it looked, since the authoritative detection is `gate/match.ts` on `matcher` stems before the model. The fix was to read `decision_question`, which is **NOT NULL on both refusal tables**, is the Mongolian first-line gate §8 designed it to be, and was simply never selected. Rendered as `key: question`, the shape `clarify_axes` already used — the key stays because it is what an operator greps and what the price list names when it withholds a price | Done. What is still unproven is whether it helps, which is the bake-off |
 | **The prompt compiler against a real database** | **The chain is closed**: `prompt/sections.ts` loads blocks → `renderStablePrefix` → `publishRevision`. The twelve signed gate blocks compile into a 9,265-character prefix with a deterministic hash, proven in tests over the real signed bytes. What has never happened is the same compile **through PostgREST against a Supabase project**, and no tenant L2/L3 rows exist to compile alongside it | The project, and a tenant's config rows |
 | **Prompt caching, and therefore the cost model** | D-016's margin rests on measured *ancestor* traffic, not on this system's bill | A month of real invoices |
-| **Meta's data-deletion callback** | The `signed_request` format is SEARCH-CORROBORATED, never seen from Meta. No app exists, so nothing has ever posted to it. The response shape (`{url, confirmation_code}`) is standard JSON — several widely-copied implementations emit a JavaScript object literal instead, and one asserts JSON "fails" | The first real callback, or ten minutes on Meta's own docs |
+| **Meta's data-deletion callback** | The `signed_request` format is SEARCH-CORROBORATED, never seen from Meta. The app exists (D-023) but the callback URL has never been configured in it, so nothing has ever posted here. The response shape (`{url, confirmation_code}`) is standard JSON — several widely-copied implementations emit a JavaScript object literal instead, and one asserts JSON "fails" | The first real callback, or ten minutes on Meta's own docs |
 | **That an erasure request can be FULFILLED** | Meta sends an app-scoped id; every id we hold is page-scoped. Nothing bridges them. A request is recorded, not executed — see §5 | A Business Manager containing the app and the Pages, then the ID Matching API |
 | **That any of it works together** | The furthest anything has run is: a signed webhook POST reaching tenant resolution and 500ing on an unreachable registry | The list in §5 |
 
