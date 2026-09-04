@@ -13,7 +13,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"src/**/*.test.ts\" \"scripts/**/*.test.ts\" \"scripts/bakeoff/test/*.test.mjs\"",
-    "guard": "node scripts/guards/check-supabase-nostore.mjs && node scripts/guards/check-env-example.mjs && node scripts/guards/check-no-ceiling-env.mjs && node scripts/guards/check-cyrillic-matchers.mjs && node scripts/guards/check-mn-review.mjs && node scripts/guards/check-model-ids.mjs && node scripts/guards/check-gate-keys.mjs",
+    "guard": "node scripts/guards/check-supabase-nostore.mjs && node scripts/guards/check-env-example.mjs && node scripts/guards/check-no-ceiling-env.mjs && node scripts/guards/check-cyrillic-matchers.mjs && node scripts/guards/check-mn-review.mjs && node scripts/guards/check-model-ids.mjs && node scripts/guards/check-gate-keys.mjs && node scripts/guards/check-schema-doc.mjs",
     "check": "npm run guard && npm run typecheck && npm run test"
   },
   "dependencies": {

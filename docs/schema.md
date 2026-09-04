@@ -13,11 +13,38 @@ Built against PostgreSQL 16.13 and verified by **execution**, not by reading:
 
 | | |
 |---|---|
-| `supabase/migrations/0001_initial_schema.sql` | applies clean on an empty database |
-| `supabase/migrations/0002_knowledge_embeddings.sql` | applies; `vector(1536)` column + HNSW partial index confirmed present |
-| `scripts/verify/catalog.sql` | **18/18 PASS** — structural. Raises, so CI fails on red |
+| `supabase/migrations/0001`–`0012` | apply clean in order on an empty database (`scripts/localvalidate/run.sh`) |
+| `scripts/verify/catalog.sql` | **25/25 PASS** — structural. Raises, so CI fails on red |
 | `scripts/verify/isolation.sql` | **10/10 PASS** — behavioural, as superuser |
 | `scripts/verify/rls.sql` | **8/8 PASS** — behavioural, **as `anon` and `authenticated`** |
+
+## What every migration after `0001` adds
+
+**This list is enforced, not maintained by hope.** `scripts/guards/check-schema-doc.mjs`
+fails the build when a migration exists that this section does not name — because a
+schema document that is silently five migrations stale is the same defect as
+`supabase_migrations.schema_migrations` looking identical whether a migration ran or not,
+and this file is the one CLAUDE.md points at as authoritative. It was five behind when the
+guard was written.
+
+| Migration | Adds | Why it matters to someone writing INSERTs |
+|---|---|---|
+| `0002_knowledge_embeddings` | `knowledge_chunks.embedding vector(1536)` + a partial HNSW index | P2. Applied when retrieval is switched on, not at launch |
+| `0003_gate_canned_kinds` | six more `canned_response_kinds` rows | The Ш0–Ш9 gate names ten kinds; the initial seed had four. A gate pointing at a kind that cannot exist is a check with no answer |
+| `0004_forbidden_phrasing_gates` | `forbidden_phrasings.gate`, `.stems[]` | Without them the guard check that reads the table is inert — a row with no `gate` is documentary and is skipped, never flattened into another gate's list |
+| `0005_deterministic_matchers` | `deterministic_replies.match_mode`, `.stems[]`, `.requires_empty_history` | The table stored a reply and no way to decide when to send it |
+| `0006_reply_freshness` | `tenants.max_reply_age_minutes` | §3.9's H11 check 7. A redelivery hours later must not answer a customer who has moved on |
+| `0007_comment_replies` | `outbound_messages.kind`/`comment_id`, `tenant_channels.comment_*` | Public replies to comments on the tenant's own posts (§3.8) |
+| `0008_erasure_requests` | `contact_erasure_requests`: `id_kind`, `source`, `app_slug`, `status`, `confirmation_code` + two CHECKs | Meta's Data Deletion callback. `erasure_completed_has_evidence` makes a row unable to claim completion without it |
+| `0009_comment_post_cap` | `outbound_messages.comment_post_id`, `tenant_channels.comment_replies_per_post_per_day` (default 1, 1–50) | D-021's one public reply per post per day |
+| `0010_prompt_blocks_seed` | `prompt_blocks.layer` (nullable) + two CHECKs + a partial unique index; seeds 21 signed platform blocks | `layer is null` means customer-visible Mongolian the prompt compiler must NOT render — the status page and the comment template live in the same table |
+| `0011_provenance` | `provenance text` on `service_aliases`, `deterministic_replies`, `out_of_scope_topics`, `faqs`, `disclosure_rules` — **NOT NULL with NO DEFAULT** | D-020. **An INSERT into any of those five that does not say where the row came from is refused by the database.** `tenant_confirmed` \| `seeded` \| `inferred` |
+| `0012_channel_went_live` | `tenant_channels.went_live_at` + two triggers | D-025. Stamped automatically on the transition into `delivery_mode='live'`, and on an insert already at `live`. Never set it by hand |
+
+Two of those change what a hand-written INSERT must contain: **`0011`'s `provenance`**
+(five tables, no default, so omitting it is an error rather than a silent guess) and
+**`0010`'s `layer`** on `prompt_blocks`. `0012`'s column is the opposite — set by trigger,
+so writing it by hand is at best redundant.
 
 **The RLS suite is the one that matters most**, and it had to be written separately:
 the catalog pack proves a policy *exists*, and `isolation.sql` runs as superuser, which
