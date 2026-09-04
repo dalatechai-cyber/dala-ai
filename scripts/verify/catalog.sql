@@ -226,6 +226,45 @@ insert into _v select 'V18', 'tenants.max_reply_age_minutes exists, NOT NULL, bo
           and conname='reply_age_within_messaging_window')
   ) q;
 
+-- V19 — the comment feature's per-tenant switches exist, and DEFAULT TO OFF.
+-- A channel answers comments only when somebody deliberately turned it on. If 0007 were
+-- in the repo and not applied, `comment_policy` would be absent, the reader would see
+-- undefined, and the positive allow-list in `comments/eligibility.ts` would refuse
+-- everything — safe, but silently, so the feature would appear to be broken rather than
+-- unconfigured. The mirror failure is worse: a default of anything but 'none' turns the
+-- bot loose on every tenant's public wall at once.
+insert into _v select 'V19', 'tenant_channels comment switches exist and default to off',
+  coalesce(string_agg(problem, '; '), 'correct'), count(*) = 0
+  from (
+    select 'comment_policy missing, nullable, or not defaulted to none' as problem
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='tenant_channels'
+          and column_name='comment_policy'
+          and is_nullable='NO' and column_default like '''none''%')
+    union all
+    select 'comment_max_post_age_days missing or not defaulted to 30'
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='tenant_channels'
+          and column_name='comment_max_post_age_days'
+          and is_nullable='NO' and column_default='30')
+    union all
+    select 'ignore_commenter_ids missing'
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='tenant_channels'
+          and column_name='ignore_commenter_ids' and is_nullable='NO')
+    union all
+    select 'comment_policy_known CHECK missing'
+     where not exists (
+       select 1 from pg_constraint
+        where conrelid='public.tenant_channels'::regclass and conname='comment_policy_known')
+    union all
+    select 'canned kind comment_public_reply not seeded'
+     where not exists (select 1 from canned_response_kinds where kind='comment_public_reply')
+  ) q;
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;
