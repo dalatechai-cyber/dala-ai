@@ -806,3 +806,71 @@ The schema's own comment — *"every numeral the model may emit"* — was always
 implementation had simply stopped matching it once the prefix contained rules as well as
 facts.
 
+
+---
+
+## D-025 — The silence watchdog watches TWO clocks, because the obvious one is green during the worst failure
+
+**Decided 2026-09-04, while building the thing `STATUS.md` §3 says plainly:**
+
+> **A single failure could still make the whole thing silent.** A dead token produces no
+> error, because no request arrives to fail.
+
+Every other failure here announces itself: a refused reply writes a `quality_flags` row, a
+spent budget trips an alert, a Graph `190` halts the channel. A revoked token, an app Meta
+silently unsubscribed, a webhook field switched off — none of those produce anything at
+all. The only observable is an **absence**, and an absence has to be looked for.
+
+**`03-meta-routing.md` §3.10.5 designs that watchdog as `tenant_channels.last_webhook_at`,
+and this decision supersedes it**, because §3.7 of the same document describes a failure
+that column is green through:
+
+> When a Page has the **Page Inbox app as the primary receiver** — the default for many
+> Pages, and the state a Page enters the moment anyone touches "Automated responses" — our
+> app is a *secondary* receiver. Meta then delivers messages in `entry[].standby`, not
+> `entry[].messaging`. The webhook receives a well-formed, correctly-signed,
+> correctly-routed event for the right tenant, drops it, and returns 200. **Reception AI
+> answers nobody, and every health signal is green.**
+
+So the watchdog reads two clocks — webhook receipt, and inbound messages actually
+persisted — and the pair distinguishes three faults that share one symptom:
+
+| Webhooks | Messages kept | Diagnosis | Where the operator goes |
+|---|---|---|---|
+| arriving | arriving | healthy | — |
+| arriving | **stopped** | secondary-receiver (standby) Page, or the persist path | the Page's primary-receiver setting |
+| **stopped** | stopped | the token died, or Meta unsubscribed the app | re-auth, re-subscribe |
+| **never any** | never any | the subscription never worked | the app-level field subscription |
+
+The last row is §5 item 15's warning made detectable: a page-level subscribe returns
+`{"success": true}` even when the app has never enabled that field, and no events are ever
+delivered. Nothing else in the system would ever notice, because "no events" is exactly
+what a quiet Tuesday looks like.
+
+## Silence is measured in OPEN minutes, and that is the whole design
+
+The obvious threshold — "alert if nothing has arrived for six hours" — **fires every
+morning.** A salon closed 20:00–10:00 is silent for fourteen hours by the clock and
+perfectly healthy. An alarm that cries wolf nightly is muted within a week, and a muted
+alarm is worse than none: it is the failure `alerts/alert.ts` exists to prevent, arriving
+from the other direction.
+
+So the elapsed measure is the minutes during which the tenant was **open for business**,
+integrated between the last event and now, with closures subtracted and the tenant's own
+clock deciding. One threshold — three open hours — then means the same thing for a salon,
+a garage, a night-shift business and a tenant in another timezone, with no per-tenant knob.
+It is deliberately a platform constant: a per-tenant threshold invites tuning a real alert
+into silence one channel at a time.
+
+**When it cannot measure, it says so.** A tenant with no usable `business_hours` rows
+produces `unknown`, not a verdict. Counting unknown hours as open alerts every
+unprovisioned tenant nightly; counting them as closed disables the watchdog silently —
+the watchdog acquiring the exact defect it exists to detect. `isOpenAt` already refuses to
+collapse "we do not know" into "closed", and this is that refusal one layer up. The same
+rule governs a failed read: the channel is reported `unknown`, never skipped.
+
+Built: `health/silence.ts`, `health/channel.ts`, `health/watch.ts`, `worker/health.ts`,
+migration `0012` (`went_live_at`, stamped by trigger so an operator cannot forget it),
+`catalog.sql` V24. **Not built: the 6-hourly token probe and the subscription reconciler**,
+which need a Meta app call each; they catch a *different* fault (a token that has expired
+but has not yet been used) and they are the remaining half of `STATUS.md` §3's paragraph.

@@ -11,7 +11,7 @@ exists yet. The gap is not engineering. It is four accounts and one twenty-day w
 
 ## 1. What is built
 
-636 tests, 7 guards, 10 migrations, 57 modules. Every module below is merged on `main`
+696 tests, 7 guards, 12 migrations, 63 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |
@@ -39,6 +39,7 @@ with CI green.
 | | `outbound/claim`, `deliver`, `deliverDeps` | Draft, lease, deliver, and what each outcome costs |
 | | `channel/delivery`, `channel/halt` | Only `live` delivers; a `190` halts the channel and the token together |
 | **The worker** | `worker/reception`, `worker/freshness` | Every branch of the job, as a value-returning function the route merely binds |
+| **Health** | `health/silence`, `health/channel`, `health/watch`, `worker/health` | The silence watchdog: silence measured in OPEN minutes, two clocks so the standby trap cannot read as green (D-025) |
 | **Comments** | `meta/comments`, `comments/eligibility`, `comments/send`, `worker/comments` | The `feed` firehose, the decision that never sees the comment's text, and the public reply |
 | **Privacy** | `meta/signedRequest`, `privacy/erasure`, `privacy/statusPage` | Meta's data-deletion callback: verify, record, and the status page it hands people |
 | **The prompt** | `prompt/render`, `prompt/publish`, `prompt/sections`, `prompt/tenant` | The compiler, the immutable snapshot + pointer, the loader that joins them, and the tenant's rows rendered into L2/L3 |
@@ -110,10 +111,25 @@ claims nobody has earned yet.
 ### One thing worth saying plainly
 
 **A single failure could still make the whole thing silent**, and the design says which:
-a dead token produces no error, because no request arrives to fail. `channel_health`,
-the absence watchdog and the 6-hourly probe are all designed and **none of them is
-built** — they are Track 4. Until then, "Reception has stopped answering" is something
-you find out from a customer.
+a dead token produces no error, because no request arrives to fail.
+
+**The absence watchdog is now built** (D-025, migration `0012`, `catalog.sql` V24). It
+measures silence in **open minutes** rather than wall-clock — a salon shut overnight is
+silent for fourteen hours and perfectly healthy, and an alarm that fires every morning is
+muted within a week — and it watches **two** clocks rather than the one §3.10.5 specifies,
+because a Page with our app as *secondary receiver* delivers into `entry[].standby`, which
+we drop with a 200 while `last_webhook_at` stays fresh and every other signal reads green.
+Webhooks arriving with no messages persisted is the standby fault; neither arriving is the
+token; neither ever arriving is a field subscription that never worked.
+
+**Still not built: the 6-hourly token probe and the subscription reconciler.** Both need a
+Meta call, and they catch a different fault — a token that has expired but has not yet been
+used, which produces no absence to notice until a customer writes in. Until those exist,
+that particular failure is still something you find out from a customer.
+
+**And none of it has run.** The watchdog is exercised against stubs and a scratch
+PostgreSQL; it has never read a real `webhook_events` row, and nothing schedules it yet —
+that is one QStash schedule pointing at `/api/workers/health`, and QStash has no account.
 
 ---
 
@@ -210,6 +226,7 @@ them out of order produces a database error rather than a broken deployment:
 | 6 | **Anthropic API key**, plus a **provider-side spend limit** | The platform's own ceiling is compiled in code; the provider limit is the backstop that does not depend on our correctness |
 | 7 | **QStash**: `QSTASH_TOKEN` + both signing keys | Both, not one. Rotation is the reason there are two |
 | 8 | **Vercel deployment** → `WORKER_PUBLIC_URL` | The worker needs a public URL before QStash can reach it |
+| 8b | **One QStash schedule → `POST {WORKER_PUBLIC_URL}/api/workers/health`**, hourly | The silence watchdog is built and nothing calls it. It spends nothing — rows in, at most one Telegram message out — and it is the only thing that notices Reception has gone quiet (D-025). Unscheduled, that is still something you find out from a customer |
 
 ### From the Meta app you already have — no review, and it is not the long pole any more
 
