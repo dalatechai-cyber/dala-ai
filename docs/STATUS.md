@@ -92,9 +92,9 @@ claims nobody has earned yet.
 |---|---|---|
 | **Any PostgREST query** | No Supabase project exists. Every query in `src/` is exercised against a stub, never sent over the wire | A project, `0001`–`0005` applied, one real read |
 | **`isolation.sql` T8/T9 against a real project** | Same. They pass against scratch Postgres, which is a different claim | Same |
-| **Any Meta call, inbound or outbound** | No app, no Page, no token. The signature verifier has never seen a real Meta payload; the send has never reached Graph | The Meta app, and one message |
+| **Any Meta call, inbound or outbound** | The app, the Page and a working token all exist (D-023) — what is missing is a Supabase project holding the `tenant_channels` row and the sealed secret to read them from. The signature verifier has never seen a real Meta payload; the send has never reached Graph | The Supabase project, one channel row, one sealed token, one message |
 | **The comment reply EDGE** | `POST /{comment-id}/comments` is SEARCH-CORROBORATED with an explicit "re-verify"; one source claims `POST /{comment-id}`. `developers.facebook.com` is blocked from this environment | Ten minutes on Meta's own docs, or the first real attempt. It is one constant, `REPLY_EDGE` |
-| **`pages_read_user_content`** | Required to read customers' comments and named nowhere in `docs/`. Community-corroborated, not confirmed against Meta's permission reference | The same ten minutes — before App Review is submitted, not after |
+| **`pages_read_user_content`** | Required to read customers' comments; was named nowhere in `docs/` until 2026-09-04. Search-corroborated, including that `pages_manage_engagement` *depends* on it — not confirmed against Meta's own permission reference | One look at the App Dashboard's Permissions and Features table, which states each permission's live access level |
 | **The Graph error taxonomy** | Every code in it is from documentation and Chatwoot's handler. Not one has been observed | Production. Record the real codes as they appear |
 | **Any Anthropic call from this repo** | `ANTHROPIC_API_KEY` is unset. The bake-off made real calls, but through a separate harness | One key, one call |
 | **QStash redelivery and the crash property** | Unit-tested only. V1.md 1.5 has said so since it was written | A QStash account and a deliberately killed worker |
@@ -138,10 +138,11 @@ you find out from a customer.
 - **The worker route has tests**, because it stopped being the route: the branching lives
   in `lib/worker/reception.ts` and the route is a binding that may not branch. Five
   mutations were each caught by exactly the test that should catch them.
-- **App Review is ONE submission, with comments bundled in** — *"one ~20-day cycle, not
-  two, and the comment path now exists so it's demonstrable."* The permission set is
-  therefore `pages_messaging` + `pages_manage_engagement` + `pages_read_user_content`.
-  The last of those is the one nothing in `docs/` had named; see §3.
+- **The Meta app EXISTS and DM Reception needs no App Review** (D-023, superseding D-022).
+  `dalatech` holds `pages_messaging` and `public_profile` at Advanced Access. Every earlier
+  statement in this repo that no Meta app existed was an unfalsifiable claim inherited and
+  repeated — see CLAUDE.md's opening. **App Review is now a comments-only track**:
+  `pages_read_user_content` + `pages_manage_engagement`, and nothing else.
 - **The Data Deletion Request callback is built** (`0008`, `catalog.sql` V20), because a
   submission bounced for it costs a full cycle whatever else is in it. It records; it does
   not yet delete. §5 item 17 is why.
@@ -189,37 +190,50 @@ them out of order produces a database error rather than a broken deployment:
 | 7 | **QStash**: `QSTASH_TOKEN` + both signing keys | Both, not one. Rotation is the reason there are two |
 | 8 | **Vercel deployment** → `WORKER_PUBLIC_URL` | The worker needs a public URL before QStash can reach it |
 
-### The long pole — start it first, it runs in parallel with everything above
+### From the Meta app you already have — no review, and it is not the long pole any more
+
+**This section used to be "the long pole" and it was wrong** (D-023). `dalatech` holds
+`pages_messaging` at Advanced Access, and Reception's DM path makes exactly one Graph call
+under it. Nothing about a DM waits on Meta.
 
 | # | Supply | Note |
 |---|---|---|
-| 9 | **Meta app**, Business Verification, App Review for `pages_messaging` + `pages_manage_engagement` + `pages_read_user_content` | ~20 days, unverified. `META_APP_ID`, `META_APP_SECRETS`, `META_VERIFY_TOKENS`. Nothing inbound or outbound is real until this clears. Submit once, with comments bundled: the comment path exists and is demonstrable |
-| 9b | **The rest of App Review's non-permission deliverables**: privacy policy URL, terms URL, app icon, public app name, use-case description | Each bounces a submission on its own. The Data Deletion Request callback — the one nothing had designed — is built; the other five are not code and nobody but you can supply them |
+| 9 | **`META_APP_ID`, `META_APP_SECRETS`, `META_VERIFY_TOKENS`** from the existing app | Config, not a review. `META_APP_SECRETS` is a JSON **map** so the cutover app's secret can be valid at the same time |
+| 9b | **Confirm `pages_manage_metadata`'s access level** in the App Dashboard | It gates `POST /{page-id}/subscribed_apps`. At Standard Access it covers only Pages your own users have a role on — Matrix yes, GS Auto Center no — and it fails by subscribing nothing rather than by erroring |
+| 9c | **Say which app currently holds Matrix's webhook subscription** — this one, or the ancestor's | Decides whether the Track 4 mirror is a subscription change or a second subscription, and whether §3.3's app-vs-identity cross-check fires during it |
+
+### The comments track — parallel, and nothing else waits on it
+
+| # | Supply | Note |
+|---|---|---|
+| 10 | **App Review for `pages_read_user_content` + `pages_manage_engagement`** | Those two only. Meta makes the second *depend* on the first, so a submission naming only `pages_manage_engagement` is incomplete. Business Verification is implied done — Advanced Access cannot exist without it — which is the multi-week half already behind you |
+| 10b | **The rest of App Review's non-permission deliverables**: privacy policy URL, terms URL, app icon, public app name, use-case description | Each bounces a submission on its own. The Data Deletion Request callback — the one nothing had designed — is built; the other five are not code and nobody but you can supply them |
+| 10c | **A test Page and a test user with a real Page admin role** for the screencast | A personal profile or a Business Manager preview is a named rejection cause: Meta cannot verify the permission grant flow from one |
 
 ### Then per-tenant, and all of it is rows rather than code
 
 | # | Supply |
 |---|---|
-| 10 | A `tenants` row for Matrix; a `tenant_channels` row for the Page; `tenant_roles` with reception; `tenant_budgets` |
-| 11 | The tenant's config: `services`, `business_hours`, `contact_points`, `faqs`, `canned_responses` for all ten kinds the gate can answer with (`GATE_BY_RESPONSE_KIND`), `deterministic_replies`, `disclosure_rules`, `out_of_scope_topics` |
-| 12 | Publish a config revision → `tenants.live_revision_id` |
-| 13 | Seal the Page token: `printf %s "$TOKEN" \| node scripts/kek/seal.ts --tenant <id> --channel <id> --kind page_token`, then paste the SQL |
-| 14 | Subscribe the app to the Page, and **verify the app-level subscription too** — a page-level subscribe returns `{"success": true}` even when the app has never enabled that field, and no events are ever delivered |
-| 15 | `delivery_mode = 'shadow'` for the 14-day mirror. **Not `live`** |
-| 16 | After the mirror: unsubscribe the ancestor app first, confirm from each app's own token, then `delivery_mode = 'live'` |
+| 11 | A `tenants` row for Matrix; a `tenant_channels` row for the Page; `tenant_roles` with reception; `tenant_budgets` |
+| 12 | The tenant's config: `services`, `business_hours`, `contact_points`, `faqs`, `canned_responses` for all ten kinds the gate can answer with (`GATE_BY_RESPONSE_KIND`), `deterministic_replies`, `disclosure_rules`, `out_of_scope_topics` |
+| 13 | Publish a config revision → `tenants.live_revision_id` |
+| 14 | Seal the Page token: `printf %s "$TOKEN" \| node scripts/kek/seal.ts --tenant <id> --channel <id> --kind page_token`, then paste the SQL |
+| 15 | Subscribe the app to the Page, and **verify the app-level subscription too** — a page-level subscribe returns `{"success": true}` even when the app has never enabled that field, and no events are ever delivered |
+| 16 | `delivery_mode = 'shadow'` for the 14-day mirror. **Not `live`** |
+| 17 | After the mirror: unsubscribe the ancestor app first, confirm from each app's own token, then `delivery_mode = 'live'` |
 
-| 17 | **Once the Business Manager exists**, add the app and every Page to it, then say so — that is what makes the ID Matching API answerable, and it is the missing half of the erasure path |
-| 18 | **Do not seed `service_aliases`, `deterministic_replies`, `out_of_scope_topics` or `faqs` with invented phrasings** (D-020). They have no provenance column, so a placeholder is indistinguishable from a tenant-confirmed row and the next analysis reads its own fixtures back. An empty matcher is honest; a matcher full of invented Mongolian is not. The `provenance` column is the fix and is **not built** |
+| 18 | **Confirm the Business Portfolio holds the app AND every tenant Page**, then say so — that is what makes the ID Matching API answerable, and it is the missing half of the erasure path. A portfolio very likely exists already (Advanced Access implies Business Verification); what is unconfirmed is whether the Pages are in it |
+| 19 | **Do not seed `service_aliases`, `deterministic_replies`, `out_of_scope_topics` or `faqs` with invented phrasings** (D-020). They have no provenance column, so a placeholder is indistinguishable from a tenant-confirmed row and the next analysis reads its own fixtures back. An empty matcher is honest; a matcher full of invented Mongolian is not. The `provenance` column is the fix and is **not built** |
 
-Step 17 is not optional and it is not urgent yet. Today a data deletion request is
+Step 18 is not optional and it is not urgent yet. Today a data deletion request is
 **recorded and alerted, not fulfilled**: Meta's callback carries an app-scoped id and every
 id we hold is page-scoped, so there is nothing to join. With the app and the Pages in one
-Business Manager, `GET /{asid}/ids_for_pages` bridges them and the resolver becomes an
+Business Portfolio, `GET /{asid}/ids_for_pages` bridges them and the resolver becomes an
 afternoon's work. Before there is a single real customer message there is also nothing to
 erase, which is why this sits after go-live rather than before it — but it must not still
 be sitting here when there is.
 
-Step 15 is the one worth not rushing. Meta delivers the identical event to every
+Step 16 is the one worth not rushing. Meta delivers the identical event to every
 subscribed app, so during the mirror both this system and `Matrix-Chatbot` see every
 message. `shadow` is what stops the salon's customers getting two replies — and the code
 enforces it, but only if the row says `shadow`.

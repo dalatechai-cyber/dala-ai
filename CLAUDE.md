@@ -18,9 +18,27 @@ is Mongolian Cyrillic. Keep it that way.
 The earlier "no product code" rule is lifted and must not be reinstated by inference.
 Build V1 Track 1 onward per [`docs/V1.md`](docs/V1.md).
 
-Still true, and still constraining: **no Supabase project and no Meta app exist.** The
-schema is verified against a scratch PostgreSQL only, so anything needing a live project
-is written and tested against local Postgres until one is provisioned.
+**The Meta app EXISTS, and every earlier statement in this repo that it does not was
+wrong** (corrected 2026-09-04 by the founder). The app is **`dalatech`**, it holds
+**`pages_messaging` and `public_profile` at Advanced Access**, and the founder has
+generated a working Page access token for Matrix and read the inbox with it.
+
+That correction has teeth, so read how the error happened before trusting anything similar
+here. `developers.facebook.com` is blocked by this environment's egress proxy, so no
+session can check the App Dashboard. Earlier sessions read "no Meta app exists" in these
+docs, could not falsify it, and repeated it as established fact — until it was load-bearing
+in a schedule. **An unfalsifiable claim in this repository is a claim to re-ask the founder
+about, not a fact to inherit.** It is the same failure D-020 names: a source answering
+plausibly instead of admitting it cannot see.
+
+The consequence is large: **Reception's DM path needs no App Review.** It makes exactly one
+Graph call, `POST /{page-id}/messages`, under a permission the app already holds at
+Advanced Access. App Review is now a *comments-only* concern (D-023), and it no longer sits
+on the critical path to a first real message.
+
+Still true, and still constraining: **no Supabase project exists.** The schema is verified
+against a scratch PostgreSQL only, so anything needing a live project is written and
+tested against local Postgres until one is provisioned.
 
 **The Supabase project is DEFERRED, and deliberately so** (2026-09-04). The free tier caps
 at two projects and both are spent on `core-english` and `core-chinese`; Pro is not being
@@ -40,17 +58,23 @@ Everything else is written against stubs and says so.
 
 **The send is built and has never sent anything** (2026-09-04). Draft → claim → decrypt →
 `POST /{page-id}/messages` → mark, with the Graph error taxonomy, the failed/indeterminate
-split, and the `delivery_mode` gate. It has never reached Meta: no app, no token, no Page.
-`docs/STATUS.md` is the ordered list of what turns that into a real message.
+split, and the `delivery_mode` gate. **It has never reached Meta** — not for want of an app
+or a token, both of which exist, but because no Supabase project holds a `tenant_channels`
+row or a sealed secret for it to read. `docs/STATUS.md` is the ordered list of what turns
+that into a real message, and the list is shorter than it was.
 
 **Meta token decryption is no longer parked** (2026-09-04, on the founder's call: *"waiting
 until a Meta app exists means writing crypto at the worst moment — when I'm trying to go
-live"*). `src/lib/crypto/` and `src/lib/secrets/` are built, and
-`scripts/verify/secret-roundtrip.ts` runs the whole path against a real PostgreSQL in CI:
-seal, store in `bytea`, read back in PostgREST's hex form, decrypt through the runtime
-loader. What that does **not** prove, and must never be written as if it did: there is no
-Supabase project, no PostgREST hop, and no real token — the KEK in CI is generated per run
-and thrown away.
+live"*). The call was righter than the reasoning given for it: the app existed already, so
+the crypto was never being built early at all.
+
+`src/lib/crypto/` and `src/lib/secrets/` are built, and `scripts/verify/secret-roundtrip.ts`
+runs the whole path against a real PostgreSQL in CI: seal, store in `bytea`, read back in
+PostgREST's hex form, decrypt through the runtime loader. What that does **not** prove, and
+must never be written as if it did: there is no Supabase project and no PostgREST hop, and
+the KEK in CI is generated per run and thrown away. A real Page token now exists — the
+founder holds one for Matrix — but it has never been sealed by `scripts/kek/seal.ts` or
+read back by the runtime loader, so the round trip is still proven only over test material.
 
 ## The test every decision is measured against
 

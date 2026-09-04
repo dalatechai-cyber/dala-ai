@@ -79,6 +79,13 @@ and an alert fires. `docs/STATUS.md` carries the resolver as an ordered item.
 Still open in this section: the privacy policy and terms pages, the app icon, the display
 name, and the use-case description. None of them is code.
 
+**And the section's own premise was half wrong.** It assumed App Review was ahead of us in
+its entirety. The `dalatech` app exists with `pages_messaging` at Advanced Access, so
+Business Verification — the multi-week item — is behind us, and DM Reception needs no
+review at all (D-023). What remains is a comments-only submission for
+`pages_read_user_content` + `pages_manage_engagement`. The deliverables above still gate
+*that* submission; they no longer gate shipping.
+
 ---
 
 # TIER B — blocks the first paying client, or the first contract
