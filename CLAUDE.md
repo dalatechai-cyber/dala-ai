@@ -142,6 +142,11 @@ and `scripts/guards/check-mn-review.mjs` fails the build when a block is unsigne
 changed since sign-off. Unsigned drafts live in `prompt/drafts/` and are loaded by
 nothing.
 
+`docs/schema.md` has one too. `scripts/guards/check-schema-doc.mjs` fails the build when a
+migration exists that the document does not name — it was five behind when the guard was
+written, including `0011`, which adds a NOT NULL column with no default to five tables, so
+following the document produced INSERTs the database refuses.
+
 ## Where things are
 
 | | |
