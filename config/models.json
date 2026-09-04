@@ -1,0 +1,13 @@
+{
+  "$comment": "THE model registry. §6.2.6: a model id appears in exactly one file. This is JSON rather than TypeScript so the .mjs bake-off harness reads the same source as the app — two registries in two languages is the duplication the rule forbids, spelled differently. scripts/guards/check-model-ids.mjs enforces it.",
+  "tiers": {
+    "reception": "claude-sonnet-5",
+    "internal": "claude-haiku-4-5"
+  },
+  "prices": {
+    "claude-sonnet-5": { "in": 2000, "out": 10000, "cacheRead": 200, "cacheWrite1h": 4000, "minCacheable": 1024 },
+    "claude-haiku-4-5": { "in": 1000, "out": 5000, "cacheRead": 100, "cacheWrite1h": 2000, "minCacheable": 4096 }
+  },
+  "$prices_comment": "Nano-USD per token, and the minimum cacheable prefix in tokens. The minimum is load-bearing: a prefix below it silently does not cache — no error, no warning, just a bill that does not fall. Haiku's 4096 is four times Sonnet's, which is why the cheaper model is not automatically the cheaper choice.",
+  "$thinking_comment": "Sonnet 5 accepts thinking {type:'disabled'} and REJECTS budget_tokens with a 400, so pinning it off is the only way to stop thinking eating the reply budget (D-014). Sampling parameters (temperature/top_p/top_k) are also removed on Sonnet 5 and 400."
+}
