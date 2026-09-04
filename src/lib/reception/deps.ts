@@ -10,11 +10,15 @@ import { required } from '../env.ts';
 import { callReception } from '../model/reception.ts';
 import { draftOnce } from '../outbound/claim.ts';
 import { markCalled, release, type Reservation } from '../spend/reserve.ts';
+import { alertCacheCold, alertModelRetired, alertModelSwapped, checkCacheHealth, checkServedModel } from '../model/health.ts';
+import { dayKey } from '../spend/periods.ts';
 import { settle, type Usage } from '../spend/settle.ts';
 import type { ReceptionDeps } from './handle.ts';
 
 export type DepsInput = {
   db: SupabaseClient;
+  /** The tenant's cache mode, so a tenant paying full rate on purpose never alarms. */
+  cacheMode: 'off' | '5m' | '1h';
   tenantId: string;
   channelId: string;
   conversationId: string;
@@ -64,6 +68,33 @@ export function buildDeps(input: DepsInput): ReceptionDeps {
     },
 
     release: () => release(db, reservation.id),
+
+    /**
+     * §6.10.5's two bills-not-errors. Every branch is best-effort: an observability
+     * failure must never refuse a reply the customer is owed.
+     */
+    observe: async ({ requestedModel, servedModel, terminalReason }) => {
+      const period = dayKey(now);
+
+      if (terminalReason === 'model_not_found') {
+        await alertModelRetired(db, { modelId: requestedModel, detail: 'the API returned 404 for this model id' });
+        return;   // A retired model makes every other signal meaningless.
+      }
+
+      const served = checkServedModel(requestedModel, servedModel);
+      if (served.verdict === 'swapped') {
+        await alertModelSwapped(db, { tenantId, requested: served.requested, served: served.served, dayKey: period });
+      }
+
+      const cache = await checkCacheHealth(db, { tenantId, surface: 'reception', cacheMode: input.cacheMode });
+      if (cache.verdict === 'cold_run') {
+        await alertCacheCold(db, { tenantId, surface: 'reception', dayKey: period, sample: cache.sample });
+      } else if (cache.verdict === 'unavailable') {
+        // Silence because the check could not run looks exactly like silence because the
+        // cache is fine, so it is at least visible in the log.
+        console.warn('[reception] cache_health_unavailable', { tenantId, detail: cache.detail });
+      }
+    },
 
     flag: async ({ code, detail, attempted }) => {
       // Best-effort: a flag that cannot be written must not refuse a customer's reply.

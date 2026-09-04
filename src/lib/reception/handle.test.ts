@@ -42,6 +42,7 @@ const OK_REPLY: CallOutcome = {
 function deps(over: Partial<ReceptionDeps> & { result?: CallOutcome } = {}) {
   const calls: string[] = [];
   const flags: { code: string; attempted?: string }[] = [];
+  const observed: { requestedModel: string; servedModel: string; terminalReason?: string }[] = [];
   const d: ReceptionDeps = {
     callModel: async () => { calls.push('callModel'); return over.result ?? OK_REPLY; },
     draft: async ({ answeredBy }) => { calls.push(`draft:${answeredBy}`); return { ok: true, id: 'om-1' }; },
@@ -49,9 +50,10 @@ function deps(over: Partial<ReceptionDeps> & { result?: CallOutcome } = {}) {
     settle: async () => { calls.push('settle'); return { ok: true }; },
     release: async () => { calls.push('release'); },
     flag: async (f) => { calls.push(`flag:${f.code}`); flags.push(f); },
+    observe: async (o) => { calls.push('observe'); observed.push(o); },
     ...over,
   };
-  return { deps: d, calls, flags };
+  return { deps: d, calls, flags, observed };
 }
 
 const base: ReceptionInput = {
@@ -81,7 +83,7 @@ test('a clean reply is settled, guarded, then drafted — in that order', async 
   const r = await handleReception(d, base);
   assert.equal(r.kind, 'drafted');
   assert.equal(r.kind === 'drafted' && r.answeredBy, 'model');
-  assert.deepEqual(calls, ['markCalled', 'callModel', 'settle', 'draft:model']);
+  assert.deepEqual(calls, ['markCalled', 'callModel', 'observe', 'settle', 'draft:model']);
 });
 
 test('the reservation is marked called BEFORE the provider is reached', async () => {
@@ -301,5 +303,49 @@ test('a message that is not a greeting is untouched by the layer', async () => {
 test('an empty rule set is the normal case and costs nothing', async () => {
   const { deps: d, calls } = deps();
   await handleReception(d, { ...base, deterministic: [] });
-  assert.deepEqual(calls, ['markCalled', 'callModel', 'settle', 'draft:model']);
+  assert.deepEqual(calls, ['markCalled', 'callModel', 'observe', 'settle', 'draft:model']);
+});
+
+// ---------------------------------------------------------------------------
+// §6.10.5's health signals, inside the flow.
+// ---------------------------------------------------------------------------
+
+test('the served model is reported on every successful call', async () => {
+  const { deps: d, observed } = deps({ result: { ...OK_REPLY, modelReturned: 'served-by-other' } });
+  await handleReception(d, base);
+  assert.equal(observed[0]?.requestedModel, 'a-model');
+  assert.equal(observed[0]?.servedModel, 'served-by-other');
+});
+
+test('OBSERVE RUNS BEFORE SETTLE, so a bookkeeping failure cannot swallow the signal', async () => {
+  // The overridden settle does not record itself, so the ordering is asserted against the
+  // deadletter flag it produces — which is recorded, and which necessarily comes after.
+  const { deps: d, calls } = deps({ settle: async () => ({ ok: false, detail: 'ledger down' }) });
+  await handleReception(d, base);
+  assert.equal(calls.includes('observe'), true);
+  assert.equal(calls.indexOf('observe') < calls.indexOf('flag:ledger_deadletter'), true);
+});
+
+test('a terminal outcome still reports, and carries its reason', async () => {
+  // A refusal is billed and a retired model is an outage; both need the signal even
+  // though neither produces a reply.
+  const { deps: d, observed } = deps({
+    result: { kind: 'terminal', reason: 'model_not_found', detail: '404' },
+  });
+  await handleReception(d, base);
+  assert.equal(observed[0]?.terminalReason, 'model_not_found');
+  assert.equal(observed[0]?.servedModel, '', 'a failed call reports no served model');
+});
+
+test('a RETRYABLE failure does not report — nothing is known about the call', async () => {
+  const { deps: d, calls } = deps({ result: { kind: 'retryable', reason: 'upstream', detail: '503' } });
+  await handleReception(d, base);
+  assert.equal(calls.includes('observe'), false);
+});
+
+test('a short-circuited reply reports nothing, because no model was asked', async () => {
+  const opted: GateRule = { ...CHILDREN, deterministicShortcircuit: true };
+  const { deps: d, calls } = deps();
+  await handleReception(d, { ...base, customerMessage: 'Хүүхдийн үс', rules: [opted] });
+  assert.equal(calls.includes('observe'), false);
 });

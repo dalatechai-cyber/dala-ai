@@ -207,6 +207,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const outcome = await handleReception(
       buildDeps({
         db, tenantId, channelId, conversationId,
+        cacheMode: ctx.cacheMode,
         inboundExternalId: message.externalId,
         reservation: guard.reservation, now,
       }),

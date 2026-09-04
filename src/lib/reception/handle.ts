@@ -23,7 +23,7 @@
  * a stale event, an unparseable matcher, an unreviewed canned line. The cheapest refusals
  * are first, and none of them costs a token.
  */
-import type { CallOutcome, ReceptionRequest } from '../model/reception.ts';
+import type { CallOutcome, ReceptionRequest, TerminalReason } from '../model/reception.ts';
 import { isStale } from '../model/reception.ts';
 import type { Usage } from '../spend/settle.ts';
 import { matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
@@ -46,6 +46,18 @@ export type ReceptionDeps = {
   release: () => Promise<void>;
   /** Record a guard refusal or a terminal model outcome for the Quality layer. */
   flag: (input: { code: string; detail: string; attempted?: string }) => Promise<void>;
+  /**
+   * Health signals from the call itself (§6.10.5). Separate from `flag` because these are
+   * not about THIS reply — a cold cache and a swapped model are both correct answers that
+   * cost the wrong amount, and neither changes what the customer is told.
+   */
+  observe: (input: {
+    requestedModel: string;
+    /** `response.model`, or '' when the API did not report one. */
+    servedModel: string;
+    usage?: Usage;
+    terminalReason?: TerminalReason;
+  }) => Promise<void>;
 };
 
 export type ReceptionInput = {
@@ -205,6 +217,14 @@ export async function handleReception(
     // guessed, exactly as `indeterminate` is on the outbound side.
     return { kind: 'retry', detail: `${result.reason}: ${result.detail}` };
   }
+
+  // Health first, so a bookkeeping failure below cannot swallow the signal.
+  await deps.observe({
+    requestedModel: input.modelId,
+    servedModel: result.kind === 'ok' ? result.modelReturned : '',
+    ...(result.usage === undefined ? {} : { usage: result.usage }),
+    ...(result.kind === 'terminal' ? { terminalReason: result.reason } : {}),
+  });
 
   if (result.usage !== undefined) {
     const settled = await deps.settle(result.usage, input.modelId);
