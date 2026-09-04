@@ -1,0 +1,4 @@
+{
+  "$comment": "Native-speaker sign-off for the platform's own Mongolian. See ./README.md. Every file in ./platform/*.mn.txt needs an entry here whose sha256 matches the file's current contents, or scripts/guards/check-mn-review.mjs fails the build.",
+  "blocks": []
+}
