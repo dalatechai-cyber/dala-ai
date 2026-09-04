@@ -167,8 +167,8 @@ export async function loadTenantKb(
     documents, staff, services, variants, faqs, contacts, booking,
   ] = await Promise.all([
     db.from('tenants').select('currency_symbol, currency_symbol_before').eq('id', t).maybeSingle(),
-    db.from('disclosure_rules').select('topic_key, provenance').eq('tenant_id', t).order('topic_key'),
-    db.from('out_of_scope_topics').select('topic_key, provenance').eq('tenant_id', t).order('topic_key'),
+    db.from('disclosure_rules').select('topic_key, decision_question, provenance').eq('tenant_id', t).order('topic_key'),
+    db.from('out_of_scope_topics').select('topic_key, decision_question, provenance').eq('tenant_id', t).order('topic_key'),
     db.from('disambiguation_pairs').select('trigger_term, question').eq('tenant_id', t).order('trigger_term'),
     db.from('price_axes').select('axis, verbatim_question').eq('tenant_id', t).order('ordinal').order('axis'),
     db.from('deposit_rules').select('applies_to, rule_text').eq('tenant_id', t).order('ordinal').order('applies_to'),
@@ -228,7 +228,13 @@ export async function loadTenantKb(
       currencySymbolBefore: tRow['currency_symbol_before'] === true,
       // Both refusal tables feed one list: Ш1 asks whether the message matches a topic in
       // «ХОРИОТОЙ СЭДВҮҮД», and does not care which table the topic came from.
-      refusalTopics: refusalRows.map((r) => str(r['topic_key'])).filter((k) => k !== '').sort(),
+      // Sorted by key, so two compiles of identical rows produce identical bytes — the
+      // two tables are read separately and PostgREST promises nothing about their order
+      // relative to each other.
+      refusalTopics: refusalRows
+        .map((r) => ({ key: str(r['topic_key']), question: str(r['decision_question']) }))
+        .filter((t) => t.key !== '')
+        .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)),
       clarify: [
         ...rows(disambig.data).map((r) => ({ term: str(r['trigger_term']), question: str(r['question']) })),
         ...rows(axes.data).map((r) => ({ term: str(r['axis']), question: str(r['verbatim_question']) })),

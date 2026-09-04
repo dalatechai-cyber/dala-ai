@@ -86,8 +86,16 @@ export type ServiceVariant = {
 export type TenantKb = {
   currencySymbol: string;
   currencySymbolBefore: boolean;
-  /** `disclosure_rules` + `out_of_scope_topics`, already merged by the loader. */
-  refusalTopics: readonly string[];
+  /**
+   * `disclosure_rules` + `out_of_scope_topics`, already merged by the loader.
+   *
+   * The `question` is the row's `decision_question` — the Mongolian first-line gate §8
+   * designed this column to be, e.g. «Сүүлийн мессеж хүүхдийн үйлчилгээ, үнийн тухай юу?».
+   * It is rendered alongside the key rather than instead of it: the key is what an
+   * operator greps and what the alert names, and the question is the only half the model
+   * can actually match Mongolian customer text against.
+   */
+  refusalTopics: readonly { key: string; question: string }[];
   clarify: readonly { term: string; question: string }[];
   deposits: readonly string[];
   documents: readonly { title: string; body: string }[];
@@ -176,8 +184,15 @@ export function renderTenantSections(kb: TenantKb, approvedAt: string): PromptSe
   const out: (PromptSection | null)[] = [];
 
   // ---- L2: the boundary pack. Lists that CONSTRAIN. ----------------------
+  // `key: question`, the shape `clarify_axes` below already uses. Ш1 asks whether the
+  // message belongs to a topic listed here, and until now the list was English snake_case
+  // — so the model's own check compared Mongolian customer text against
+  // `children_services`. The authoritative detection is `gate/match.ts`, which runs on
+  // `matcher` stems before the model, so this was defence in depth doing less than it
+  // looked. A row whose question is missing still renders its key: a topic that appears
+  // without its Mongolian is worse read than one that does not appear at all.
   out.push(section('L2', 'refusal_topics', 1, SECTION_LABELS.refusalTopics,
-    kb.refusalTopics.map((t) => `- ${t}`), approvedAt));
+    kb.refusalTopics.map((t) => (t.question === '' ? `- ${t.key}` : `- ${t.key}: ${t.question}`)), approvedAt));
 
   out.push(section('L2', 'clarify_axes', 2, SECTION_LABELS.clarify,
     kb.clarify.map((c) => `- ${c.term}: ${c.question}`), approvedAt));
