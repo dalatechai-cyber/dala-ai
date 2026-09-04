@@ -9,11 +9,13 @@ const CHILDREN: GateRule = {
   gate: 'Ш1', topicKey: 'children_services',
   matcher: { mode: 'contains_stem', stems: ['хүүхэд', 'хүүхд'] },
   quotePrice: false, deterministicShortcircuit: false, responseKind: 'refusal_topic',
+  provenance: 'tenant_confirmed',
 };
 const HEALTH: GateRule = {
   gate: 'Ш5', topicKey: 'health',
   matcher: { mode: 'contains_stem', stems: ['жирэмс', 'харшил'] },
   quotePrice: true, deterministicShortcircuit: false, responseKind: 'refusal_health',
+  provenance: 'tenant_confirmed',
 };
 
 // ---------------------------------------------------------------------------
@@ -173,4 +175,44 @@ test('kindsReferencedBy reads the keys out of the rendered blocks', () => {
 
 test('Mongolian quotation marks are not mistaken for keys', () => {
   assert.deepEqual(kindsReferencedBy(['«БЭЛЭН ХАРИУЛТ» хэсгээс ол.']), []);
+});
+
+// ---------------------------------------------------------------------------
+// D-020 — provenance
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: an unconfirmed refusal rule STILL FIRES, and is counted', () => {
+  // The direction matters and it is the opposite of the FAQ rule one layer up. A refusal
+  // is an instruction not to answer: withholding it because nobody has confirmed the row
+  // yet turns a topic the tenant asked never to be discussed into a discussable one, with
+  // nothing anywhere going red. That is the same outcome `parseMatcher` refuses to produce
+  // when a matcher will not parse.
+  const seeded: GateRule = { ...CHILDREN, provenance: 'seeded' };
+  const r = matchRules('Хүүхдийн үс', [seeded]);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.ok && r.firedGates, ['Ш1'], 'it fired');
+  assert.deepEqual(r.ok && r.matchedTopics, ['children_services']);
+  assert.equal(r.ok && r.refusedTopicBlocksPrice, true, 'and it still blocks the price');
+  assert.deepEqual(r.ok && r.unconfirmedTopics, ['children_services'], 'and it was counted');
+});
+
+test('a rule with no provenance at all counts as unconfirmed, and still fires', () => {
+  const unlabelled: GateRule = { ...CHILDREN, provenance: undefined };
+  const r = matchRules('Хүүхдийн үс', [unlabelled]);
+  assert.deepEqual(r.ok && r.firedGates, ['Ш1']);
+  assert.deepEqual(r.ok && r.unconfirmedTopics, ['children_services']);
+});
+
+test('the count is of rules that FIRED, not of rules that exist', () => {
+  // Otherwise every reply from a tenant with one seeded row anywhere carries the flag, the
+  // flag stops meaning anything, and the signal is lost to noise.
+  const seededHealth: GateRule = { ...HEALTH, provenance: 'seeded' };
+  const r = matchRules('Хүүхдийн үс', [CHILDREN, seededHealth]);
+  assert.deepEqual(r.ok && r.matchedTopics, ['children_services']);
+  assert.deepEqual(r.ok && r.unconfirmedTopics, [], 'the seeded rule did not fire, so it is not counted');
+});
+
+test('a confirmed rule that fires is not counted', () => {
+  const r = matchRules('Хүүхдийн үс', [CHILDREN]);
+  assert.deepEqual(r.ok && r.unconfirmedTopics, []);
 });

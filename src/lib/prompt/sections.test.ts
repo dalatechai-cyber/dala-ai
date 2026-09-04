@@ -206,6 +206,91 @@ test('DONE-TEST: compiling the gate does NOT allow-list the fabricated prices it
 });
 
 // ---------------------------------------------------------------------------
+// D-020 — provenance, on the way into the prompt
+// ---------------------------------------------------------------------------
+
+const CONFIRMED_FAQ = { question: 'Зогсоол байдаг уу?', answer: 'Барилгын ард байрлана.', provenance: 'tenant_confirmed' };
+const SEEDED_FAQ = { question: 'Хүргэлт хийдэг үү?', answer: 'Тийм, 15,000₮.', provenance: 'seeded' };
+
+test('DONE-TEST: a seeded FAQ never reaches the prompt, and its PRICE never reaches allowed_numbers', async () => {
+  // This is where D-020 and D-024 meet, and it is the whole reason the facts half excludes
+  // rather than counts. `allowed_numbers` is derived from the tenant sections, so a
+  // guessed price in a FAQ does not merely get stated — it ALLOW-LISTS ITSELF past the
+  // outbound guard. The one control that exists to catch an invented number would be
+  // holding the invented number in its own allow-list.
+  const { db } = stubDb(
+    { data: [block({ block_key: 'gate', body: 'Ш0. дүрэм' })], error: null },
+    { faqs: { data: [CONFIRMED_FAQ, SEEDED_FAQ], error: null } },
+  );
+  const out = await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
+  assert.equal(out.ok, true);
+  if (!out.ok) return;
+
+  assert.ok(out.rendered.promptStable.includes('Зогсоол байдаг уу?'), 'the confirmed FAQ is rendered');
+  assert.equal(out.rendered.promptStable.includes('Хүргэлт хийдэг үү?'), false, 'the seeded FAQ is not');
+  assert.equal(out.rendered.allowedNumbers.includes('15,000'), false, 'and its price is not licensed');
+  assert.deepEqual(out.unconfirmed.faqsExcluded, ['Хүргэлт хийдэг үү?'], 'and the exclusion is NAMED, not silent');
+});
+
+test('DONE-TEST: a FAQ with no provenance column at all is excluded, not trusted', async () => {
+  // The realistic shape of this failure is a database that predates 0011, or a seed script
+  // written before it. Neither says `seeded`; both say nothing.
+  const { db } = stubDb(
+    { data: [block({ block_key: 'gate', body: 'Ш0. дүрэм' })], error: null },
+    { faqs: { data: [{ question: 'Хэдэн цагт нээдэг вэ?', answer: '10:00' }], error: null } },
+  );
+  const out = await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
+  assert.equal(out.ok && out.rendered.promptStable.includes('Хэдэн цагт нээдэг вэ?'), false);
+  assert.deepEqual(out.ok && out.unconfirmed.faqsExcluded, ['Хэдэн цагт нээдэг вэ?']);
+});
+
+test('DONE-TEST: a seeded REFUSAL topic is kept in the prompt — and counted', async () => {
+  // The opposite call from the FAQ above, on purpose. Dropping an unconfirmed refusal
+  // topic removes it from «ХОРИОТОЙ СЭДВҮҮД», so Ш1 stops asking about it and the topic
+  // becomes discussable — a silently disarmed refusal, which is the failure `matchRules`
+  // refuses to commit. Over-refusing costs a handoff line; under-refusing costs the thing
+  // the rule existed to prevent.
+  const { db } = stubDb(
+    { data: [block({ block_key: 'gate', body: 'Ш0. дүрэм' })], error: null },
+    {
+      disclosure_rules: { data: [{ topic_key: 'children_services', provenance: 'seeded' }], error: null },
+      out_of_scope_topics: { data: [{ topic_key: 'medical_advice', provenance: 'tenant_confirmed' }], error: null },
+    },
+  );
+  const out = await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
+  assert.equal(out.ok, true);
+  if (!out.ok) return;
+  assert.ok(out.rendered.promptStable.includes('children_services'), 'the seeded refusal still guards');
+  assert.ok(out.rendered.promptStable.includes('medical_advice'));
+  assert.deepEqual(out.unconfirmed.refusalTopicsUnconfirmed, ['children_services']);
+});
+
+test('a fully confirmed tenant reports nothing unconfirmed', async () => {
+  const { db } = stubDb(
+    { data: [block({ block_key: 'gate', body: 'Ш0. дүрэм' })], error: null },
+    {
+      faqs: { data: [CONFIRMED_FAQ], error: null },
+      disclosure_rules: { data: [{ topic_key: 'children_services', provenance: 'tenant_confirmed' }], error: null },
+    },
+  );
+  const out = await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
+  assert.deepEqual(out.ok && out.unconfirmed, { faqsExcluded: [], refusalTopicsUnconfirmed: [] });
+});
+
+test('the loader ASKS for provenance — a select that forgets it excludes everything', async () => {
+  // The column is only honoured if it is fetched. PostgREST returns exactly the columns
+  // named, so a dropped `provenance` from the select list would make every row read as
+  // unconfirmed and empty the knowledge base — loudly, but only if something checks that
+  // the query asked.
+  const { calls, db } = stubDb({ data: [block()], error: null });
+  await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
+  for (const table of ['faqs', 'disclosure_rules', 'out_of_scope_topics']) {
+    const call = calls.find((c) => c.table === table);
+    assert.ok(call?.cols.includes('provenance'), `${table} must select provenance`);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // The whole chain: blocks → sections → prefix → snapshot
 // ---------------------------------------------------------------------------
 

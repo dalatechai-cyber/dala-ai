@@ -17,6 +17,7 @@ const CHILDREN: GateRule = {
   gate: 'Ш1', topicKey: 'children_services',
   matcher: { mode: 'contains_stem', stems: ['хүүхэд', 'хүүхд'] },
   quotePrice: false, deterministicShortcircuit: false, responseKind: 'refusal_topic',
+  provenance: 'tenant_confirmed',
 };
 
 const GUARD_VIEW: TenantGuardView = {
@@ -253,7 +254,7 @@ test('a reservation that cannot be marked called never reaches the provider', as
 const GREET = {
   intent: 'greeting', body: 'Сайн байна уу! Танд юугаар туслах вэ?',
   enabled: true, matchMode: 'whole_message' as const,
-  stems: ['сайн байна уу'], requiresEmptyHistory: true,
+  stems: ['сайн байна уу'], requiresEmptyHistory: true, provenance: 'tenant_confirmed',
 };
 
 test('a greeting is answered from a row with NO model call, and the hold goes back', async () => {
@@ -348,4 +349,49 @@ test('a short-circuited reply reports nothing, because no model was asked', asyn
   const { deps: d, calls } = deps();
   await handleReception(d, { ...base, customerMessage: 'Хүүхдийн үс', rules: [opted] });
   assert.equal(calls.includes('observe'), false);
+});
+
+// ---------------------------------------------------------------------------
+// D-020 — provenance reaches the Quality layer
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: a seeded refusal that fires is flagged — the reply is unchanged', async () => {
+  // The customer is protected either way; the point is that afterwards somebody can tell
+  // "the bot refused" from "the bot refused on a rule somebody guessed". Without the flag
+  // those two replies are byte-identical in every record the platform keeps.
+  const { deps: d, calls, flags } = deps();
+  const r = await handleReception(d, {
+    ...base,
+    customerMessage: 'Хүүхдийн үс',
+    rules: [{ ...CHILDREN, provenance: 'seeded' }],
+  });
+  assert.equal(r.kind, 'drafted', 'the refusal still produced a reply');
+  assert.equal(calls.includes('flag:gate_rule_unconfirmed'), true);
+  assert.ok(flags.find((f) => f.code === 'gate_rule_unconfirmed'));
+});
+
+test('a confirmed refusal writes no flag — silence has to mean something', async () => {
+  const { deps: d, calls } = deps();
+  await handleReception(d, { ...base, customerMessage: 'Хүүхдийн үс' });
+  assert.equal(calls.some((c) => c.startsWith('flag:gate_rule_unconfirmed')), false);
+});
+
+test('DONE-TEST: a withheld deterministic reply falls to the MODEL, and is flagged', async () => {
+  // The cost of the whole rule, stated exactly: one model call. §6.3.8 prices the layer at
+  // ₮26,300/tenant-month, so this is not free — it is just far cheaper than sending a
+  // sentence nobody at the salon wrote.
+  const { deps: d, calls } = deps();
+  const r = await handleReception(d, {
+    ...base,
+    customerMessage: 'Сайн байна уу',
+    deterministic: [{
+      intent: 'greeting', body: 'Сайн байна уу! Танд юугаар туслах вэ?',
+      enabled: true, matchMode: 'whole_message' as const,
+      stems: ['сайн байна уу'], requiresEmptyHistory: true, provenance: 'seeded',
+    }],
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'the model answered instead');
+  assert.equal(calls.includes('callModel'), true);
+  assert.equal(calls.includes('flag:deterministic_reply_unconfirmed'), true);
+  assert.equal(calls.includes('draft:canned'), false, 'the guessed sentence was never drafted');
 });

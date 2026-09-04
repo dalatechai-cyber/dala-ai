@@ -6,13 +6,13 @@ const GREETING: DeterministicRule = {
   intent: 'greeting', body: 'Сайн байна уу! Танд юугаар туслах вэ?',
   enabled: true, matchMode: 'whole_message',
   stems: ['сайн байна уу', 'сайн байцгаана уу', 'байна уу'],
-  requiresEmptyHistory: true,
+  requiresEmptyHistory: true, provenance: 'tenant_confirmed',
 };
 const LOCATION: DeterministicRule = {
   intent: 'location', body: 'Бид Сүхбаатар дүүрэгт байрладаг.',
   enabled: true, matchMode: 'contains_stem',
   stems: ['хаана байрлад', 'байршил'],
-  requiresEmptyHistory: false,
+  requiresEmptyHistory: false, provenance: 'tenant_confirmed',
 };
 
 const FIRST: HistoryState = { known: true, empty: true };
@@ -132,5 +132,53 @@ test('every rule that could have fired and did not is reported', () => {
 });
 
 test('no rules at all is a clean miss, not an error', () => {
-  assert.deepEqual(matchDeterministic('юу ч', [], FIRST), { hit: null, skipped: [] });
+  assert.deepEqual(matchDeterministic('юу ч', [], FIRST), { hit: null, skipped: [], suppressed: [] });
+});
+
+// ---------------------------------------------------------------------------
+// D-020 — provenance
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: an unconfirmed deterministic reply MATCHES and is withheld', () => {
+  // The other direction from the gate matcher, and for a reason that is about the row
+  // rather than the table: `body` is sent to the customer verbatim, with no model in the
+  // loop — and unlike `canned_responses`, this table has no `reviewed_at` column at all.
+  // So provenance is the only thing standing between an invented sentence and a customer
+  // reading it as the salon's own words. Not firing costs one model call.
+  const seeded: DeterministicRule = { ...GREETING, provenance: 'seeded' };
+  const r = matchDeterministic('Сайн байна уу', [seeded], FIRST);
+  assert.equal(r.hit, null, 'the guessed sentence is not sent');
+  assert.deepEqual(r.suppressed, ['greeting'], 'and the withholding is named');
+});
+
+test('SUPPRESSED IS NOT SKIPPED — the two answer different questions', () => {
+  // `skipped` says "not applicable to this message". `suppressed` says "this row had the
+  // answer and was not allowed to give it", which is the only one an operator must act on.
+  // Collapsing them buries a provisioned-but-untrusted row among the ordinary misses.
+  const seeded: DeterministicRule = { ...GREETING, provenance: 'seeded' };
+  const r = matchDeterministic('Хаана байрладаг вэ?', [seeded], FIRST);
+  assert.deepEqual(r.suppressed, [], 'it never matched, so nothing was withheld');
+  assert.deepEqual(r.skipped.map((s) => s.reason), ['no_match']);
+});
+
+test('a later confirmed rule still answers after an unconfirmed one is withheld', () => {
+  // Withholding must not end the loop: the tenant may well have a confirmed row that
+  // covers the same message, and refusing to look at it would turn one bad row into a
+  // silently disabled layer.
+  const seeded: DeterministicRule = { ...GREETING, intent: 'greeting_seeded', provenance: 'seeded' };
+  const confirmed: DeterministicRule = { ...GREETING, intent: 'greeting_real', body: 'Сайн уу!' };
+  const r = matchDeterministic('Сайн байна уу', [seeded, confirmed], FIRST);
+  assert.equal(r.hit?.intent, 'greeting_real');
+  assert.deepEqual(r.suppressed, ['greeting_seeded']);
+});
+
+test('a rule with no provenance is withheld too', () => {
+  const unlabelled: DeterministicRule = { ...GREETING, provenance: undefined };
+  assert.equal(matchDeterministic('Сайн байна уу', [unlabelled], FIRST).hit, null);
+});
+
+test('a confirmed rule fires and reports nothing suppressed', () => {
+  const r = matchDeterministic('Сайн байна уу', [GREETING], FIRST);
+  assert.equal(r.hit?.intent, 'greeting');
+  assert.deepEqual(r.suppressed, []);
 });

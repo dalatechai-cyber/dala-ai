@@ -61,6 +61,10 @@ function toRules(rows: unknown, quotePriceDefault: boolean): GateRule[] {
       quotePrice: 'quote_price' in r ? r['quote_price'] === true : quotePriceDefault,
       deterministicShortcircuit: r['deterministic_shortcircuit'] === true,
       responseKind,
+      // Raw, unread. `isTenantConfirmed` is the only thing that interprets it, so a row
+      // whose column is absent — a database that predates 0011 — reads as unconfirmed
+      // rather than being credited with a confirmation nobody gave.
+      provenance: r['provenance'],
     };
   });
 }
@@ -81,10 +85,10 @@ export async function loadReceptionContext(
 
   const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes, detRes] = await Promise.all([
     db.from('disclosure_rules')
-      .select('topic_key, matcher, quote_price, response_kind, deterministic_shortcircuit')
+      .select('topic_key, matcher, quote_price, response_kind, deterministic_shortcircuit, provenance')
       .eq('tenant_id', input.tenantId),
     db.from('out_of_scope_topics')
-      .select('topic_key, matcher, response_kind, deterministic_shortcircuit')
+      .select('topic_key, matcher, response_kind, deterministic_shortcircuit, provenance')
       .eq('tenant_id', input.tenantId),
     db.from('canned_responses')
       .select('kind, body, reviewed_at')
@@ -107,7 +111,7 @@ export async function loadReceptionContext(
       .eq('tenant_id', input.tenantId)
       .gte('ends_on', input.localDate),
     db.from('deterministic_replies')
-      .select('intent, body, enabled, match_mode, stems, requires_empty_history')
+      .select('intent, body, enabled, match_mode, stems, requires_empty_history, provenance')
       .eq('tenant_id', input.tenantId),
   ]);
 
@@ -216,6 +220,7 @@ export async function loadReceptionContext(
       stems: Array.isArray(stems) ? stems.filter((x): x is string => typeof x === 'string') : [],
       // Absent reads as TRUE: greeting a customer mid-conversation is the worse error.
       requiresEmptyHistory: r['requires_empty_history'] !== false,
+      provenance: r['provenance'],
     };
   });
 

@@ -424,6 +424,52 @@ insert into _v select 'V22', 'the signed platform blocks are seeded, attributed,
         where scope='platform' and (reviewed_at is null or coalesce(reviewed_by, '') = ''))
   ) q;
 
+-- V23 — a seeded row cannot pass for a fact. (D-020, migration 0011.)
+--
+-- The column is only half the rule; the half that survives somebody in a hurry is that
+-- there is NO DEFAULT, so an INSERT that does not say where the row came from is refused
+-- by the database rather than quietly credited. Three ways that erodes, all invisible:
+--
+--   * the column is absent — every reader then sees `undefined`, treats it as unconfirmed,
+--     and the knowledge base empties itself into the handoff line;
+--   * a default gets added later "to make seeding easier", which is the original bug
+--     rebuilt: `tenant_confirmed` blesses every placeholder, `seeded` mislabels real data;
+--   * the CHECK is missing, so `provenance = 'probably_fine'` stores happily and reads as
+--     not-confirmed forever — the row is dead and nothing says so.
+--
+-- `is_nullable`/`column_default` come from information_schema.columns, which is safe here:
+-- it is not permission-filtered the way role_table_grants is, and it is queried per column
+-- rather than trusted to be complete.
+insert into _v select 'V23', 'provenance is present, undefaulted, NOT NULL and constrained on all five tables',
+  coalesce(string_agg(problem, '; '), 'correct'), count(*) = 0
+  from (
+    select t || ': the provenance column is missing' as problem
+      from unnest(array['service_aliases','deterministic_replies','out_of_scope_topics','faqs','disclosure_rules']) as t
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name=t and column_name='provenance')
+    union all
+    select t || ': provenance is nullable — an unlabelled row would be accepted'
+      from unnest(array['service_aliases','deterministic_replies','out_of_scope_topics','faqs','disclosure_rules']) as t
+     where exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name=t and column_name='provenance' and is_nullable='YES')
+    union all
+    select t || ': provenance HAS A DEFAULT — that is the bug this column exists to prevent'
+      from unnest(array['service_aliases','deterministic_replies','out_of_scope_topics','faqs','disclosure_rules']) as t
+     where exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name=t and column_name='provenance'
+          and column_default is not null)
+    union all
+    select t || ': the ' || t || '_provenance_known CHECK is missing'
+      from unnest(array['service_aliases','deterministic_replies','out_of_scope_topics','faqs','disclosure_rules']) as t
+     where to_regclass('public.' || t) is not null
+       and not exists (
+         select 1 from pg_constraint
+          where conrelid = ('public.' || t)::regclass and conname = t || '_provenance_known')
+  ) q;
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;
