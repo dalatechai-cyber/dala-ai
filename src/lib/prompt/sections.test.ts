@@ -265,6 +265,33 @@ test('DONE-TEST: a seeded REFUSAL topic is kept in the prompt — and counted', 
   assert.deepEqual(out.unconfirmed.refusalTopicsUnconfirmed, ['children_services']);
 });
 
+test('DONE-TEST: the loader reads decision_question and orders the merged list by key', () => {
+  // Two tables, read separately, merged into one list. PostgREST promises nothing about
+  // their order relative to each other, so without an explicit sort the rendered prefix —
+  // and therefore `content_hash`, and therefore the prompt-cache key — differs between two
+  // compiles of identical rows. The symptom is not an error: it is a cache that never hits.
+  return (async () => {
+    const { calls, db } = stubDb(
+      { data: [block({ block_key: 'gate', body: 'Ш0. дүрэм' })], error: null },
+      {
+        disclosure_rules: { data: [{ topic_key: 'zebra', decision_question: 'З?', provenance: 'tenant_confirmed' }], error: null },
+        out_of_scope_topics: { data: [{ topic_key: 'alpha', decision_question: 'А?', provenance: 'tenant_confirmed' }], error: null },
+      },
+    );
+    const out = await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
+    assert.equal(out.ok, true);
+    if (!out.ok) return;
+
+    for (const table of ['disclosure_rules', 'out_of_scope_topics']) {
+      assert.ok(calls.find((c) => c.table === table)?.cols.includes('decision_question'), `${table} must select it`);
+    }
+    const body = out.rendered.promptStable;
+    assert.ok(body.includes('- alpha: А?'), body);
+    assert.ok(body.includes('- zebra: З?'), body);
+    assert.ok(body.indexOf('- alpha') < body.indexOf('- zebra'), 'sorted by key, across both tables');
+  })();
+});
+
 test('a fully confirmed tenant reports nothing unconfirmed', async () => {
   const { db } = stubDb(
     { data: [block({ block_key: 'gate', body: 'Ш0. дүрэм' })], error: null },

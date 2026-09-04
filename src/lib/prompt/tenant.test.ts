@@ -16,7 +16,10 @@ const EMPTY: TenantKb = {
 /** A Matrix-shaped knowledge base, small enough to read in a failure message. */
 const MATRIX: TenantKb = {
   ...EMPTY,
-  refusalTopics: ['children_services', 'medical_advice'],
+  refusalTopics: [
+    { key: 'children_services', question: 'Сүүлийн мессеж хүүхдийн үйлчилгээ, үнийн тухай юу?' },
+    { key: 'medical_advice', question: 'Сүүлийн мессеж эмчилгээ, эрүүл мэндийн зөвлөгөөний тухай юу?' },
+  ],
   clarify: [{ term: 'тайралт', question: 'Эмэгтэй эсвэл эрэгтэй тайралт уу?' }],
   deposits: ['үс будалт: 20,000₮ урьдчилгаа'],
   documents: [{ title: 'Танилцуулга', body: 'Матрикс эко салон.' }],
@@ -183,6 +186,40 @@ test('formatMoney drops zero cents, groups thousands, and honours symbol placeme
   assert.equal(formatMoney(null, '₮', false), null);
   assert.equal(formatMoney('', '₮', false), null);
   assert.equal(formatMoney('nonsense', '₮', false), null);
+});
+
+test('DONE-TEST: the refusal list carries the Mongolian decision question, not just a key', () => {
+  // Ш1 asks whether the customer's message «ХОРИОТОЙ СЭДВҮҮД» хэсэгт жагсаасан сэдвийн аль
+  // нэгэнд хамаарч байна уу. Until now the list was English snake_case, so the model's own
+  // check compared Mongolian customer text against `children_services` — a check whose
+  // two sides were not in the same language.
+  //
+  // The authoritative detection is `gate/match.ts`, which runs on `matcher` stems before
+  // the model ever sees the message, so this was defence in depth doing less than it
+  // looked. `decision_question` is NOT NULL on both refusal tables and is exactly the
+  // Mongolian first-line gate §8 designed it to be; it was simply never read.
+  const body = bodyOf(renderTenantSections(MATRIX, APPROVED), 'refusal_topics');
+  assert.ok(body.includes('- children_services: Сүүлийн мессеж хүүхдийн үйлчилгээ, үнийн тухай юу?'), body);
+  assert.ok(body.includes('- medical_advice: '), body);
+});
+
+test('the key is KEPT alongside the question', () => {
+  // The key is what an operator greps, what `quality_flags` records and what the price
+  // list names when it withholds a price («үнэ мэдээлэхгүй: children_services»). Replacing
+  // it with the question would break the one thread that ties those together.
+  const sections = renderTenantSections(MATRIX, APPROVED);
+  assert.ok(bodyOf(sections, 'refusal_topics').includes('children_services'));
+  assert.ok(bodyOf(sections, 'price_list').includes('children_services'));
+});
+
+test('a topic with no question still appears, by key alone', () => {
+  // `decision_question` is NOT NULL in the schema, so this is the shape of a bad read
+  // rather than a bad row. A topic that vanishes from «ХОРИОТОЙ СЭДВҮҮД» is a refusal Ш1
+  // stops asking about; one that appears in English reads worse and refuses correctly.
+  const kb = { ...MATRIX, refusalTopics: [{ key: 'children_services', question: '' }] };
+  const body = bodyOf(renderTenantSections(kb, APPROVED), 'refusal_topics');
+  assert.ok(body.includes('- children_services'), body);
+  assert.equal(body.includes('- children_services:'), false, 'no dangling colon');
 });
 
 test('a withheld price names its refusal topic, so Ш1 and the price list agree', () => {
