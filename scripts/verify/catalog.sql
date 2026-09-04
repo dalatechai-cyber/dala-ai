@@ -203,6 +203,29 @@ insert into _v select 'V17', 'write-deny policies are per-command, not FOR ALL',
                                 c.relname||'_no_client_update',
                                 c.relname||'_no_client_delete')) <> 3;
 
+-- V18 — the freshness knob is a COLUMN with a bounded CHECK, not a constant.
+-- 0006 adds `tenants.max_reply_age_minutes`. Two ways this goes wrong silently: the
+-- migration is in the repo and never applied (the reader falls back to 30 for every
+-- tenant, so a configured 120 is quietly ignored), or the bound is missing (a
+-- fat-fingered 3000 turns the freshness gate off without an error). Both are invisible
+-- to a code review and to the application, which cannot tell "no column" from "no value".
+insert into _v select 'V18', 'tenants.max_reply_age_minutes exists, NOT NULL, bounded 1..1440',
+  coalesce(string_agg(problem, '; '), 'correct'), count(*) = 0
+  from (
+    select 'column missing or nullable or wrong default' as problem
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='tenants'
+          and column_name='max_reply_age_minutes'
+          and is_nullable='NO' and column_default='30')
+    union all
+    select 'bounding CHECK missing'
+     where not exists (
+       select 1 from pg_constraint
+        where conrelid='public.tenants'::regclass
+          and conname='reply_age_within_messaging_window')
+  ) q;
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;
