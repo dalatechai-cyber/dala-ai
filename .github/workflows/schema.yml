@@ -1,18 +1,25 @@
-# Runs the schema's own verification against a real PostgreSQL, on every change to
-# the migrations or the suites.
+# Everything this repository can check without a live Supabase, Meta app or QStash:
+# the schema against a real PostgreSQL, the four guards, typecheck, the unit tests,
+# and the build.
 #
-# This exists because validation only one person can perform is not durable
-# validation. The reconciliation requires the pack to run for any `supabase/` PR,
-# and the three suites raise rather than print, so a red check fails the job
-# instead of printing a table nobody reads.
-name: schema
+# ## Runs on EVERY pull request, deliberately — no `paths:` filter
+#
+# There used to be one: ['supabase/**', 'scripts/**', '.github/workflows/schema.yml'].
+# It predated `src/`, so once product code arrived this workflow silently stopped
+# running on the PRs that changed it. The Track 1 PR ran only because it happened to
+# edit this very file; the Track 2 PR touched `src/` alone and got NO runs at all —
+# and a pull request with zero runs shows no red, so it reads as fine.
+#
+# That is the same shape as the bake-off gate tests that skipped green: a check that
+# appears to gate and does not. The cost of running too broadly is a few seconds of
+# runner time. The cost of running too narrowly is unguarded code merging green.
+# Those are not comparable, so there is no filter.
+name: verify
 
 on:
   pull_request:
-    paths: ['supabase/**', 'scripts/**', '.github/workflows/schema.yml']
   push:
     branches: [main]
-    paths: ['supabase/**', 'scripts/**', '.github/workflows/schema.yml']
 
 jobs:
   verify:
