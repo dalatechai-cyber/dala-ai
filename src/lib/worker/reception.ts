@@ -182,7 +182,7 @@ export async function runReceptionJob(
   // --- The channel: where a reply would go, and whether it may go at all. ---
   const { data: channelRow, error: channelErr } = await db
     .from('tenant_channels')
-    .select('external_id, delivery_mode, graph_version_override, comment_policy, comment_max_post_age_days, ignore_commenter_ids')
+    .select('external_id, delivery_mode, graph_version_override, comment_policy, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day')
     .eq('id', channelId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
@@ -221,6 +221,9 @@ export async function runReceptionJob(
           ignoreCommenterIds: Array.isArray(c['ignore_commenter_ids'])
             ? (c['ignore_commenter_ids'] as unknown[]).map(String)
             : [],
+          // 1 is both the column default and the safe fallback, so a channel row from
+          // before 0009 caps at one reply per post rather than at none or at unlimited.
+          repliesPerPostPerDay: Number(c['comment_replies_per_post_per_day'] ?? 1),
         },
         rawPayload,
       },

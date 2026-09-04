@@ -145,6 +145,43 @@ async function answeredThreads(
   return { ok: true, answered: new Set(rows.map((r) => String((r as Record<string, unknown>)['dedup_key']))) };
 }
 
+/**
+ * How many public replies each of these posts has had in the last 24 hours.
+ *
+ * Counted from `outbound_messages` itself rather than from a counter kept beside it. 0007
+ * argued against a second table for the per-thread rule because the two would disagree the
+ * first time a worker died between them, and a counter incremented next to the row it
+ * counts is exactly that pair. One table answers both questions and there is nothing to
+ * reconcile.
+ *
+ * A draft row is written BEFORE the send, so a worker that dies mid-send leaves the count
+ * one too high and the post under-replied. That is the direction to fail in on a wall the
+ * tenant's customers are reading.
+ */
+async function repliesPerPost(
+  db: SupabaseClient,
+  input: { tenantId: string; postIds: readonly string[]; since: Date },
+): Promise<{ ok: true; counts: Map<string, number> } | { ok: false; detail: string }> {
+  if (input.postIds.length === 0) return { ok: true, counts: new Map() };
+  const { data, error } = await db
+    .from('outbound_messages')
+    .select('comment_post_id')
+    .eq('tenant_id', input.tenantId)
+    .eq('kind', 'comment_reply')
+    .in('comment_post_id', [...input.postIds])
+    .gte('created_at', input.since.toISOString());
+  if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
+  const counts = new Map<string, number>();
+  for (const row of Array.isArray(data) ? data : []) {
+    const id = String((row as Record<string, unknown>)['comment_post_id']);
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return { ok: true, counts };
+}
+
+/** The cap's window. A rolling 24 hours: see 0009 for why not a calendar day. */
+export const POST_CAP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 function count(into: CommentJobResult['refused'], key: keyof CommentJobResult['refused']): void {
   into[key] = (into[key] ?? 0) + 1;
 }
@@ -194,10 +231,24 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     return result;
   }
 
+  const perPost = await repliesPerPost(fx.db, {
+    tenantId: input.tenantId,
+    postIds: [...new Set(comments.map((c) => c.postId))],
+    since: new Date(fx.now.getTime() - POST_CAP_WINDOW_MS),
+  });
+  if (!perPost.ok) {
+    fx.log('error', 'comment_post_counts_unreadable', { tenantId: input.tenantId, detail: perPost.detail });
+    result.retry = true;
+    return result;
+  }
+
   // Threads answered within THIS entry, so two comments arriving together in one thread
   // still produce one reply. The database would catch it a moment later; catching it here
   // means the second one never becomes a draft row at all.
   const answeredNow = new Set(answered.answered);
+  // The same, one level out: five people commenting on ONE post in one delivery are five
+  // threads, and without this they would get five identical replies under it.
+  const postCounts = new Map(perPost.counts);
 
   for (const comment of comments) {
     const decision = decideCommentReply({
@@ -206,11 +257,13 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       comment: {
         commentId: comment.commentId,
         threadId: comment.threadId,
+        postId: comment.postId,
         fromId: comment.fromId,
         createdAt: comment.createdAt,
         parentIsOurs: parents.ours.has(comment.threadId),
       },
       threadAlreadyAnswered: answeredNow.has(comment.threadId),
+      postRepliesInWindow: postCounts.get(comment.postId) ?? 0,
       now: fx.now,
     });
 
@@ -229,6 +282,9 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       dedupKey: decision.threadId,
       body: decision.body,
       channelId: input.channelId,
+      // What the per-post cap is counted from. Written with the draft, i.e. before the
+      // send, so the count is high rather than low if this worker dies next.
+      commentPostId: decision.postId,
     });
     if (!drafted.ok) {
       fx.log('error', 'comment_draft_failed', { detail: drafted.detail });
@@ -236,12 +292,15 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       return result;
     }
     answeredNow.add(decision.threadId);
-    if (!drafted.created) {
-      // A redelivery, or the race above. Somebody else's row; it is already handled.
-      count(result.refused, 'thread_already_answered');
-      continue;
-    }
+    if (drafted.created) postCounts.set(decision.postId, (postCounts.get(decision.postId) ?? 0) + 1);
 
+    // Straight to the claim whether or not WE wrote the row, which is what the DM path in
+    // `worker/reception.ts` does and for the same reason. A short-circuit on
+    // `!drafted.created` reads as "somebody else has this", and for a `sent`, `sending` or
+    // `indeterminate` row it is right — but `failed` is also somebody else's row, and it
+    // is one this job asked to be retried. The CAS in `claim` already distinguishes all
+    // four (`CLAIMABLE` is draft and failed), so refusing before it turned every
+    // `retry: true` on this path into a redelivery that did nothing.
     const held = await claim(fx.db, { id: drafted.row.id, tenantId: input.tenantId, now: fx.now });
     if (held.outcome === 'unavailable') {
       fx.log('error', 'comment_claim_unavailable', { detail: held.detail });
@@ -249,6 +308,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       return result;
     }
     if (held.outcome !== 'claimed') {
+      // Already sent, or another worker holds a live lease. Neither is an error.
       count(result.refused, 'thread_already_answered');
       continue;
     }

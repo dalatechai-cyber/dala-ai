@@ -34,11 +34,14 @@
 #   is Ш0, and until comments existed Ш0 could not fire — there was no public
 #   surface. This feature is what makes Ш0 reachable for the first time.
 #
-# THE FAILURE IT DOES NOT PREVENT, AND YOU SHOULD KNOW ABOUT
-#   Five people commenting separately on one post are five threads, so they get
-#   five identical replies under that post. That reads as spam and it is the
-#   tenant's wall it reads as spam on. §3.8.2 rule 4 designs a
-#   `comment_replies_per_post_per_hour` cap (default 10) for precisely this and it
-#   is NOT built — the requirement given was per-thread. The number is a product
-#   decision, so it is yours; say a value and it is an afternoon's work.
+# THE SECOND FAILURE, NOW CLOSED
+#   Five people commenting separately on one post are five threads, so they used
+#   to get five identical replies under that post — spam, on the tenant's own
+#   wall. Closed by D-021: ONE public reply per post per rolling 24 hours,
+#   `tenant_channels.comment_replies_per_post_per_day`, default 1. The per-thread
+#   rule still applies inside it.
+#
+#   So this sentence is now posted AT MOST ONCE under any given post per day, in
+#   whichever thread commented first. Write it to be read by everyone on that
+#   post, not as a reply to one person.
 # ---------------------------------------------------------------------------

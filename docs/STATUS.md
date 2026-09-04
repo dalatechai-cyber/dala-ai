@@ -11,7 +11,7 @@ exists yet. The gap is not engineering. It is four accounts and one twenty-day w
 
 ## 1. What is built
 
-590 tests, 7 guards, 8 migrations, 55 modules. Every module below is merged on `main`
+603 tests, 7 guards, 9 migrations, 55 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |
@@ -70,7 +70,11 @@ the status page returns 503 rather than rendering unsigned Mongolian. Mutating t
 signature comparison to always-accept flips the forged case from 400 to 500, so the check
 is not vacuous.
 
-**Against stubs (everything else).** 590 unit tests. Load-bearing properties were checked
+**Against stubs (everything else).** 603 unit tests — 602 in CI, where the one
+ancestor-dependent bake-off fixture check reports itself SKIPPED because `Matrix-Chatbot`
+is private and CI cannot clone it. That skip is deliberate and says so in its own reason
+string; it is named here so a count that does not match is investigated rather than
+shrugged at. Load-bearing properties were checked
 by mutation — the code was deliberately broken and the tests were watched to fail — for
 the AAD binding, KEK version selection, the `me` refusal, the failed/indeterminate split,
 and the signature comparison. Three more since: the comment dedup key (thread, not
@@ -141,6 +145,13 @@ you find out from a customer.
 - **The Data Deletion Request callback is built** (`0008`, `catalog.sql` V20), because a
   submission bounced for it costs a full cycle whatever else is in it. It records; it does
   not yet delete. §5 item 17 is why.
+- **One public comment reply per POST per rolling 24 hours**, default 1, with the
+  per-thread rule kept as the inner guard (D-021). Migration `0009`, `catalog.sql` V21,
+  both proven to fail against a database the migration has not reached.
+- **Two lessons from the Matrix analysis are now decisions**: D-019 (the platform persists
+  transcripts itself, from day one — D-016's conversation count is weak precisely because
+  nothing did) and D-020 (a seeded or guessed row carries its provenance into every reader,
+  or is not written at all).
 
 ---
 
@@ -198,6 +209,7 @@ them out of order produces a database error rather than a broken deployment:
 | 16 | After the mirror: unsubscribe the ancestor app first, confirm from each app's own token, then `delivery_mode = 'live'` |
 
 | 17 | **Once the Business Manager exists**, add the app and every Page to it, then say so — that is what makes the ID Matching API answerable, and it is the missing half of the erasure path |
+| 18 | **Do not seed `service_aliases`, `deterministic_replies`, `out_of_scope_topics` or `faqs` with invented phrasings** (D-020). They have no provenance column, so a placeholder is indistinguishable from a tenant-confirmed row and the next analysis reads its own fixtures back. An empty matcher is honest; a matcher full of invented Mongolian is not. The `provenance` column is the fix and is **not built** |
 
 Step 17 is not optional and it is not urgent yet. Today a data deletion request is
 **recorded and alerted, not fulfilled**: Meta's callback carries an app-scoped id and every

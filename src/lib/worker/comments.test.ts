@@ -42,8 +42,14 @@ const DEFAULTS: Record<string, Reply> = {
  * reason and another failed for one. Keying on the operation cannot drift like that.
  */
 type OutboundStub = {
-  /** Rows the two lookups return: prior replies of ours. */
+  /** Rows the two id lookups return: prior replies of ours (parents, answered threads). */
   existing?: Reply;
+  /** Rows the per-post counter returns: one per prior reply, carrying `comment_post_id`. */
+  posts?: Reply;
+  /** `draftOnce`'s duplicate path: the row somebody else already wrote. */
+  reread?: Reply;
+  /** `claim`'s why-did-the-CAS-miss read. */
+  state?: Reply;
   /** The draft insert. */
   insert?: Reply;
   /** The claim CAS. */
@@ -51,22 +57,41 @@ type OutboundStub = {
 };
 
 function stubDb(over: Record<string, Reply> = {}, outbound: OutboundStub = {}) {
-  const ops: { table: string; op: string; patch?: Record<string, unknown> }[] = [];
+  const ops: {
+    table: string; op: string; cols?: string;
+    patch?: Record<string, unknown>;
+    filters: Record<string, unknown>;
+  }[] = [];
 
-  const answer = (table: string, op: string): Reply => {
+  const answer = (table: string, rec: (typeof ops)[number]): Reply => {
     if (table === 'outbound_messages') {
-      if (op === 'insert') return outbound.insert ?? { data: { id: 'om-1', body: LINE, state: 'draft', attempts: 0 }, error: null };
-      if (op === 'update') return outbound.claim ?? { data: { id: 'om-1', body: LINE, attempts: 0 }, error: null };
+      if (rec.op === 'insert') return outbound.insert ?? { data: { id: 'om-1', body: LINE, state: 'draft', attempts: 0 }, error: null };
+      if (rec.op === 'update') return outbound.claim ?? { data: { id: 'om-1', body: LINE, attempts: 0 }, error: null };
+      // Three different readers now, distinguished by what they SELECT rather than by
+      // call order — the same reason the stub stopped being a positional queue.
+      if ((rec.cols ?? '').includes('comment_post_id')) return outbound.posts ?? { data: [], error: null };
+      if ((rec.cols ?? '').includes('attempts')) return outbound.reread ?? { data: null, error: null };
+      if (rec.cols === 'state') return outbound.state ?? { data: null, error: null };
       return outbound.existing ?? { data: [], error: null };
     }
     return over[table] ?? DEFAULTS[table] ?? { data: null, error: null };
   };
 
   const from = (table: string) => {
-    const rec = { table, op: 'select' } as (typeof ops)[number];
+    const rec = { table, op: 'select', filters: {} } as (typeof ops)[number];
     ops.push(rec);
     const chain: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'in', 'is', 'or', 'lt', 'limit']) chain[m] = () => chain;
+    chain['select'] = (cols: string) => {
+      rec.cols = cols;
+      return chain;
+    };
+    for (const m of ['eq', 'in', 'is', 'not', 'gte', 'lt']) {
+      chain[m] = (col: string, val: unknown) => {
+        rec.filters[`${m}:${col}`] = val;
+        return chain;
+      };
+    }
+    for (const m of ['or', 'limit']) chain[m] = () => chain;
     for (const m of ['insert', 'update', 'upsert'] as const) {
       chain[m] = (patch: Record<string, unknown>) => {
         rec.op = m;
@@ -74,8 +99,8 @@ function stubDb(over: Record<string, Reply> = {}, outbound: OutboundStub = {}) {
         return chain;
       };
     }
-    chain['maybeSingle'] = async () => answer(table, rec.op);
-    chain['then'] = (res: (v: unknown) => unknown) => res(answer(table, rec.op));
+    chain['maybeSingle'] = async () => answer(table, rec);
+    chain['then'] = (res: (v: unknown) => unknown) => res(answer(table, rec));
     return chain;
   };
   return { ops, db: { from } as never };
@@ -88,7 +113,7 @@ const baseInput: CommentJobInput = {
   deliveryMode: 'live',
   graphVersion: 'v21.0',
   locale: 'mn-MN',
-  config: { policy: 'public_only', maxPostAgeDays: 30, ignoreCommenterIds: [] },
+  config: { policy: 'public_only', maxPostAgeDays: 30, ignoreCommenterIds: [], repliesPerPostPerDay: 1 },
   rawPayload: entry([comment()]),
 };
 
@@ -275,4 +300,115 @@ test('feed noise is counted, not answered', async () => {
   const r = await result;
   assert.equal(posted.length, 0);
   assert.deepEqual(r.skipped, ['not_a_comment', 'not_a_comment', 'not_an_add', 'hidden']);
+});
+
+// ---------------------------------------------------------------------------
+// The per-post daily cap. The founder's number is 1; the per-thread rule stays inside it.
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: two people, two threads, ONE post, one delivery — one reply', () => {
+  // The exact case the per-thread rule cannot catch. Five separate commenters on one post
+  // are five threads, so without this they get five identical replies under it. Caught
+  // here rather than by the database, so the second never becomes a draft row at all.
+  return (async () => {
+    const { posted, result } = run({}, {
+      rawPayload: entry([
+        comment({ comment_id: `${PAGE}_c1`, from: { id: 'customer_1', name: 'А' } }),
+        comment({ comment_id: `${PAGE}_c2`, from: { id: 'customer_2', name: 'Б' } }),
+        comment({ comment_id: `${PAGE}_c3`, from: { id: 'customer_3', name: 'В' } }),
+      ]),
+    });
+    const r = await result;
+    assert.equal(posted.length, 1);
+    assert.equal(r.replied, 1);
+    assert.equal(r.refused['post_cap_reached'], 2, 'not thread_already_answered — three DIFFERENT threads');
+  })();
+});
+
+test('a post that already had its reply in the window gets none', async () => {
+  const { posted, result } = run({ outbound: { posts: { data: [{ comment_post_id: `${PAGE}_p1` }], error: null } } });
+  const r = await result;
+  assert.equal(posted.length, 0);
+  assert.equal(r.refused['post_cap_reached'], 1);
+});
+
+test('DONE-TEST: the cap is per POST, not per delivery — two posts get two replies', async () => {
+  const { posted, result } = run({}, {
+    rawPayload: entry([
+      comment({ comment_id: `${PAGE}_c1`, post_id: `${PAGE}_p1` }),
+      comment({ comment_id: `${PAGE}_c2`, post_id: `${PAGE}_p2`, from: { id: 'customer_2', name: 'Б' } }),
+    ]),
+  });
+  const r = await result;
+  assert.equal(posted.length, 2);
+  assert.equal(r.replied, 2);
+  assert.deepEqual(r.refused, {});
+});
+
+test('the draft records which post it is under, which is what the count reads', async () => {
+  const { ops, result } = run();
+  await result;
+  const insert = ops.find((o) => o.table === 'outbound_messages' && o.op === 'insert');
+  assert.equal(insert?.patch?.['comment_post_id'], `${PAGE}_p1`);
+  assert.equal(insert?.patch?.['dedup_key'], `${PAGE}_c1`, 'and the thread is still the dedup key');
+});
+
+test('DONE-TEST: the count is a rolling 24-HOUR window, not everything ever posted', async () => {
+  // Without the lower bound this reads every reply the tenant has ever made and the cap
+  // becomes "one reply per post, forever" — which is a different product decision nobody
+  // took, and it silently switches the feature off after the first busy week.
+  const { ops, result } = run();
+  await result;
+  const counter = ops.find((o) => o.table === 'outbound_messages' && (o.cols ?? '').includes('comment_post_id'));
+  assert.equal(
+    counter?.filters['gte:created_at'],
+    new Date(NOW.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+  );
+  assert.deepEqual(counter?.filters['in:comment_post_id'], [`${PAGE}_p1`]);
+  assert.equal(counter?.filters['eq:tenant_id'], TENANT, 'never across tenants');
+  assert.equal(counter?.filters['eq:kind'], 'comment_reply');
+});
+
+test('an unreadable post count is retryable, and posts nothing', async () => {
+  const { posted, result } = run({ outbound: { posts: { error: { message: 'reset' } } } });
+  const r = await result;
+  assert.equal(r.retry, true);
+  assert.equal(posted.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// A redelivery of a FAILED reply is retried, not silently dropped
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: a redelivery of a row left in `failed` re-claims and sends it', async () => {
+  // `markFailed` releases the lease and `CLAIMABLE` includes `failed`, so a retryable
+  // send failure is meant to be retried — but the path used to refuse before reaching the
+  // claim whenever it had not written the row itself, which turned every `retry: true`
+  // on this path into a redelivery that did nothing. The CAS in `claim` already tells the
+  // four cases apart, so it decides.
+  const { posted, result } = run({
+    outbound: {
+      insert: { error: { code: '23505', message: 'duplicate key' } },
+      reread: { data: { id: 'om-1', body: LINE, state: 'failed', attempts: 1 }, error: null },
+      claim: { data: { id: 'om-1', body: LINE, attempts: 1 }, error: null },
+    },
+  });
+  const r = await result;
+  assert.equal(r.replied, 1);
+  assert.equal(posted[0]?.body, LINE, 'the STORED body, not a regenerated one');
+});
+
+test('a redelivery of a row already SENT posts nothing', async () => {
+  const { posted, result } = run({
+    outbound: {
+      insert: { error: { code: '23505', message: 'duplicate key' } },
+      reread: { data: { id: 'om-1', body: LINE, state: 'sent', attempts: 1 }, error: null },
+      // The CAS matches nothing, and `claim` then reads the state to say why.
+      claim: { data: null, error: null },
+      state: { data: { state: 'sent' }, error: null },
+    },
+  });
+  const r = await result;
+  assert.equal(posted.length, 0);
+  assert.equal(r.refused['thread_already_answered'], 1);
 });

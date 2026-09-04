@@ -44,11 +44,13 @@ export type CommentRefusal =
   | 'comment_age_unknown'
   /** This thread already has its one public reply. */
   | 'thread_already_answered'
+  /** This POST already has today's allowance of public replies, in any thread. */
+  | 'post_cap_reached'
   /** No reviewed pinned line for this tenant and locale. Silence, never a default. */
   | 'no_reviewed_line';
 
 export type CommentDecision =
-  | { reply: true; body: string; threadId: string }
+  | { reply: true; body: string; threadId: string; postId: string }
   | { reply: false; refusal: CommentRefusal; detail: string };
 
 export type CommentChannelConfig = {
@@ -57,6 +59,17 @@ export type CommentChannelConfig = {
   maxPostAgeDays: number;
   /** §3.8.2 rule 3. A stylist commenting from her personal account is a customer by id shape. */
   ignoreCommenterIds: readonly string[];
+  /**
+   * §3.8.2 rule 4, as the founder settled it: **1**. Public replies allowed under one
+   * post in any rolling 24 hours, across every thread on it.
+   *
+   * The per-thread rule alone does not stop this: five people commenting separately on
+   * one post are five threads, so they would get five identical replies under it. The
+   * reply is the same sentence every time and its whole job is "come to DM" — saying it
+   * once is enough for everyone reading, and saying it five times reads as spam on the
+   * tenant's own wall.
+   */
+  repliesPerPostPerDay: number;
 };
 
 export type CommentDecisionInput = {
@@ -66,6 +79,8 @@ export type CommentDecisionInput = {
   comment: {
     commentId: string;
     threadId: string;
+    /** The post the comment sits under. What the daily cap is counted against. */
+    postId: string;
     fromId: string;
     createdAt: Date;
     /** True when the parent comment is one of ours. Resolved by the caller from our rows. */
@@ -73,6 +88,12 @@ export type CommentDecisionInput = {
   };
   /** Whether this thread already carries a `comment_reply` outbound row. */
   threadAlreadyAnswered: boolean;
+  /**
+   * How many public replies this POST has already had in the window — from our own
+   * `outbound_messages` rows, counted by the caller. Not a boolean, because the cap is a
+   * number the tenant sets.
+   */
+  postRepliesInWindow: number;
   now: Date;
 };
 
@@ -129,6 +150,21 @@ export function decideCommentReply(input: CommentDecisionInput): CommentDecision
     return { reply: false, refusal: 'thread_already_answered', detail: 'this thread already has its one public reply' };
   }
 
+  // The post cap is checked AFTER the thread rule, not before, and the ordering is about
+  // attribution rather than safety — both must pass either way. A second comment in an
+  // already-answered thread is `thread_already_answered`, which is the more specific
+  // truth; `post_cap_reached` is then reserved for what the thread rule does not catch,
+  // which is the case this cap exists for: separate people, separate threads, one post.
+  if (input.postRepliesInWindow >= config.repliesPerPostPerDay) {
+    return {
+      reply: false,
+      refusal: 'post_cap_reached',
+      detail:
+        `this post has had ${input.postRepliesInWindow} public repl${input.postRepliesInWindow === 1 ? 'y' : 'ies'} ` +
+        `in the last 24 hours; this channel allows ${config.repliesPerPostPerDay}`,
+    };
+  }
+
   const line = input.pinnedLine;
   if (line === null || line.reviewedAt === null || line.body.trim() === '') {
     return {
@@ -140,5 +176,5 @@ export function decideCommentReply(input: CommentDecisionInput): CommentDecision
 
   // The tenant's sentence, unchanged. Nothing above read the comment's text, and nothing
   // here can transform it.
-  return { reply: true, body: line.body, threadId: comment.threadId };
+  return { reply: true, body: line.body, threadId: comment.threadId, postId: comment.postId };
 }

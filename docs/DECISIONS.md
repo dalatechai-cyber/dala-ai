@@ -530,3 +530,134 @@ regardless of version.
 
 Every dependency is pinned exactly, with no caret ranges: a platform that bills per tenant
 should not float its framework.
+
+---
+
+## D-019 — Customer transcripts are persisted from day one, by us
+
+**Decided 2026-09-04, from the Matrix production analysis.**
+
+D-016's volume and margin numbers exist because **Meta keeps the inbox.** Matrix's own
+service stored nothing: no message bodies, no conversation rows, no per-PSID history. Six
+days of production reasoning came out of Facebook's Page inbox and the ancestor's log
+lines, and every number in D-016 that rests on the log — replies per day, spend, margin —
+is solid, while every number that needed a *conversation* had to divide by an assumed
+messages-per-conversation constant (A7 = 6) that nothing measured. **That gap is not an
+analysis mistake. It is the direct consequence of not having stored the conversations.**
+
+So the rule, and it applies before there is a reason to want the data: **the platform
+persists the transcript itself, at ingest, as its own record.** `messages` and
+`conversations` are written by `inbound/persist.ts` before anything is generated, which is
+already how V1 works — this decision is what stops that being traded away later for a
+retention win or a schema simplification, because the value only becomes visible months
+after the moment you could have started.
+
+Three things follow, and each is a thing somebody would otherwise do:
+
+- **Storage is not the constraint, and arguing about it is a category error.** A year of
+  Matrix's measured traffic is on the order of 20,000 messages. The Quality corpus, the
+  conversation-count measurement that A7 is standing in for, the Ш-block bake-offs, and
+  any future analytics all read this table. §6.9.1 already calls it the most valuable data
+  the business will ever have.
+- **A retention policy shortens the window; it must never remove the row.** `messages` has
+  `body_redacted_at` and a `redacted_or_present` CHECK precisely so that expiry nulls the
+  body and keeps the fact that a message existed, at a time, in a conversation. Counting
+  conversations does not need anybody's words.
+- **Relying on the provider's copy is relying on somebody else's product decision.** The
+  inbox is not an export, it has no API we are entitled to, and it disappears with the
+  Page. It was enough to answer one question once; it is not a data store.
+
+**What it does not license.** This is not a reason to store more per message than the
+platform needs, and it does not touch the erasure path: a contact who asks to be forgotten
+is deleted, cascading `conversations` → `messages` (§2.4F). Persisting by default and
+deleting on request are the same policy, not opposing ones.
+
+---
+
+## D-020 — Seeded or guessed tenant config carries its provenance into whatever reads it
+
+**Decided 2026-09-04, from the Matrix production analysis. This one cost real work.**
+
+Placeholder `service_aliases` were generated to give the matcher something to chew on —
+plausible Mongolian phrasings for services, invented rather than observed. The analysis
+that was supposed to **validate** those aliases then read them as if they were tenant
+data, and its output was corrupted by its own fixtures. The failure is not that a guess
+was made; making one was reasonable. **It is that the guess became indistinguishable from
+a fact the moment it was written to a row.**
+
+This is the same shape as three failures this codebase already knows:
+`supabase_migrations.schema_migrations` looking identical whether a migration ran or not;
+`information_schema.role_table_grants` returning empty rather than refusing;
+`unaccent` mapping `Ё→Е` and passing nine tests in ten. In every case a source answered
+plausibly instead of admitting it could not.
+
+**The rule: a seeded, guessed or placeholder row must be marked unverified in a way that
+survives into every consumer, and a consumer that cannot tell must refuse rather than
+assume.** Not a comment in the seed script, not a naming convention, not a note in a doc —
+a column, and readers that honour it.
+
+The mechanism already exists for the two places it was applied to: `canned_responses` and
+`prompt_blocks` carry `reviewed_at`, the renderer refuses a null one, and
+`check-mn-review.mjs` signs platform Mongolian by file hash. What is missing is that the
+*matching* config has no equivalent. **`service_aliases`, `deterministic_replies`,
+`out_of_scope_topics` and `faqs` have no provenance column**, so a placeholder alias and a
+tenant-confirmed one are the same row.
+
+**Not built.** The change is a `provenance` column (`tenant_confirmed` | `seeded` |
+`inferred`) on those tables, plus: matchers that count a `seeded` hit separately rather
+than silently, and any analysis that reads them refusing to draw a conclusion from rows
+that are not `tenant_confirmed`. It is on `docs/STATUS.md`'s list. Until it exists, **the
+right move is not to seed those tables at all** — an empty matcher is honest, and a
+matcher full of invented Mongolian is not.
+
+---
+
+## D-021 — One public comment reply per post per day; the per-thread rule stays inside it
+
+**Decided 2026-09-04 by the founder.** *"Five identical Dalatech-shaped replies under one
+salon post reads as spam, and the reply's whole job is 'come to DM' — saying it once is
+enough for everyone reading. Keep the per-thread rule as the inner guard."*
+
+**This supersedes §3.8.2 rule 4's drafted `comment_replies_per_post_per_hour` (default
+10).** Ten an hour is a rate limit, and rate was never the problem: the public reply is
+one fixed sentence, identical every time, so the second one under a post adds nothing at
+any speed. A cap counted per post per day is the shape that matches what is actually
+objectionable.
+
+The per-thread rule (one reply per thread, ever) is unchanged and is checked **first**, so
+a second comment in an answered thread is still attributed to `thread_already_answered`;
+`post_cap_reached` is reserved for what the thread rule cannot catch, which is the case
+this cap exists for — separate people, separate threads, one post.
+
+**"Per day" is a rolling 24 hours.** A calendar day needs a per-tenant timezone lookup and
+has a hole at midnight: 23:59 and 00:01 are two days and would both be answered, two
+minutes apart, under the same post.
+
+Built in `0009`: `tenant_channels.comment_replies_per_post_per_day` (default 1, bounded
+1–50) and `outbound_messages.comment_post_id`, so the count comes from the reply rows
+that already exist rather than from a second table that would drift from them — the same
+argument `0007` used for not creating one.
+
+---
+
+## D-022 — App Review is one submission, with comments bundled in
+
+**Decided 2026-09-04 by the founder.** *"One ~20-day cycle, not two, and the comment path
+now exists so it's demonstrable."*
+
+The permission set is therefore `pages_messaging` + `pages_manage_engagement` +
+`pages_read_user_content` in a single request, rather than DM-only now and comments in a
+second cycle after Messenger is live.
+
+**The risk taken knowingly:** reviewers trigger real webhook events, and a permission they
+cannot verify sinks the whole submission rather than one feature of it. Bundling therefore
+puts the DM path's approval behind the comment path's demonstrability. It is worth it
+because the comment path is built end to end and demonstrable today, and because two
+twenty-day cycles is most of a quarter.
+
+**`pages_read_user_content` is the one to watch.** It is required to read customers'
+comments and it appears nowhere in `docs/` — `03-meta-routing.md`'s canonical scope list
+omits it. That finding is search-corroborated, not confirmed against Meta's own permission
+reference, because `developers.facebook.com` is blocked from this environment. Confirm it
+before submitting: a missing permission discovered mid-review is the cycle this decision
+was taken to avoid.
