@@ -76,7 +76,7 @@ jobs:
         run: npm run typecheck
 
       - name: Unit tests
-        run: node --test "src/**/*.test.ts" "scripts/bakeoff/test/*.test.mjs"
+        run: node --test "src/**/*.test.ts" "scripts/**/*.test.ts" "scripts/bakeoff/test/*.test.mjs"
 
       - name: Credential round-trip against PostgreSQL
         # The unit tests seal and open in memory; this one stores the row, reads it back

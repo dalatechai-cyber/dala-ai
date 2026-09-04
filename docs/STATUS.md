@@ -11,7 +11,7 @@ exists yet. The gap is not engineering. It is four accounts and one twenty-day w
 
 ## 1. What is built
 
-493 tests, 7 guards, 6 migrations, 46 modules. Every module below is merged on `main`
+499 tests, 7 guards, 6 migrations, 46 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |
@@ -41,6 +41,7 @@ with CI green.
 | **The worker** | `worker/reception`, `worker/freshness` | Every branch of the job, as a value-returning function the route merely binds |
 | **Operator** | `scripts/kek/generate.ts` | One 32-byte key to stdout. Writes nothing |
 | | `scripts/kek/seal.ts` | A token on **stdin** → the SQL for one `tenant_secrets` row, self-verified |
+| | `scripts/preflight.ts` | Every required variable, ok / BAD / MISSING, with the remedy and no values |
 
 ---
 
@@ -62,7 +63,7 @@ Cyrillic** body verifies, one changed character in a still-valid body is 401, an
 verified POST against an unreachable registry is **500** — the transient half of the
 200/500 asymmetry, at the layer where it actually matters.
 
-**Against stubs (everything else).** 493 unit tests. Load-bearing properties were checked
+**Against stubs (everything else).** 499 unit tests. Load-bearing properties were checked
 by mutation — the code was deliberately broken and the tests were watched to fail — for
 the AAD binding, KEK version selection, the `me` refusal, the failed/indeterminate split,
 and the signature comparison.
@@ -126,6 +127,12 @@ The order is not arbitrary. Several steps are enforced by CHECK constraints, so 
 them out of order produces a database error rather than a broken deployment:
 `active_requires_published_config`, `active_requires_probe_run`,
 `live_requires_name_confirmation`, `live_requires_active_token`.
+
+> **Check your work with one command:** `node scripts/preflight.ts`. It reports every
+> required variable as ok / BAD / MISSING with the reason and the remedy, and it **never
+> prints a value** — so the output is safe to paste anywhere. A pass means the
+> configuration is right and nothing more: it proves nothing about Meta, Supabase,
+> Anthropic or QStash actually answering.
 
 ### Free, and you can do all of it in an hour
 
