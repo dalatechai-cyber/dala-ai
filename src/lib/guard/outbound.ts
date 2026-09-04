@@ -35,7 +35,7 @@
  */
 import { ALWAYS_ON_GATES } from '../../config/platform.ts';
 import { matchesStemSequence } from '../mn/match.ts';
-import { containsPercentage, numeralsNotAllowed, urlsNotAllowed } from '../mn/extract.ts';
+import { containsPercentage, extractNumerals, numeralsNotAllowed, urlsNotAllowed } from '../mn/extract.ts';
 import { cpLength, fold, nfc, scriptShare } from '../mn/text.ts';
 
 /** A boundary-gate key, `Ш0`–`Ш9`. Platform scaffold, so the ids are stable. */
@@ -75,6 +75,21 @@ export type OutboundContext = {
    * because it is the Ш1 hole: a LISTED price is still forbidden on a refused topic.
    */
   refusedTopicBlocksPrice: boolean;
+  /**
+   * The customer's own message. A numeral THEY wrote may be echoed back when confirming
+   * or asking about that same value; the model still may not introduce one of its own.
+   *
+   * It is the raw text rather than a pre-extracted list on purpose: the guard runs
+   * `extractNumerals` over both sides itself, so the two sets are produced by the same
+   * tokenizer. A caller that extracted with its own rule could hand over «33 000» as two
+   * numerals while the guard reads the reply's as one, and the echo would silently fail
+   * to match — a false refusal with no cause a reader could find.
+   *
+   * Scope is the caller's to widen. Today the worker passes the current inbound message;
+   * joining earlier customer turns would extend the echo to values stated earlier in the
+   * conversation, which is a product decision rather than a code change.
+   */
+  customerText: string;
 };
 
 export type OutboundRefusal =
@@ -154,14 +169,35 @@ export function outboundGuard(
   const badUrls = urlsNotAllowed(text, tenant.allowedUrls);
   if (badUrls.length > 0) return refuse('outbound_url', `undeclared link: ${badUrls.join(', ')}`);
 
-  // 2. Every numeral must appear in allowed_numbers (V1.md 3.4).
-  const badNumbers = numeralsNotAllowed(text, tenant.allowedNumbers);
-  if (badNumbers.length > 0) return refuse('outbound_price', `numeral not in allowed_numbers: ${badNumbers.join(', ')}`);
+  // 2. Every numeral must be one the tenant compiled, OR one the customer themselves
+  //    wrote. The model may CONFIRM a value put in front of it; it may not INTRODUCE one.
+  //
+  //    «Маргааш 15:00 цагт болох уу?» — the time is the customer's own, and answering
+  //    «15:00 цагт болно» is the whole point of the conversation. Under the strict
+  //    reading that reply was refused and the customer got the handoff line instead,
+  //    which is a worse product for no safety gained: the numeral was already on the
+  //    screen, written by them.
+  //
+  //    What this does NOT relax: a numeral in neither set is still refused, so the model
+  //    cannot invent a price, a phone number or an opening hour. And 2b below is
+  //    deliberately not given the echo set — see there.
+  const echoed = extractNumerals(ctx.customerText).map((n) => n.raw);
+  const badNumbers = numeralsNotAllowed(text, [...tenant.allowedNumbers, ...echoed]);
+  if (badNumbers.length > 0) {
+    return refuse('outbound_price', `numeral neither compiled nor stated by the customer: ${badNumbers.join(', ')}`);
+  }
 
-  // 2b. THE Ш1 HOLE. «Хүүхдийн чёлк тайралт хэд вэ?» took the price-found branch because
-  //     33,000 genuinely IS in the price list — so check 2 passes it, and the two
-  //     supposedly independent layers were perfectly correlated, both saying yes. On a
-  //     refused topic, a listed price is still forbidden.
+  // 2b. THE Ш1 HOLE, and the echo allowance stops at its door.
+  //
+  //     «Хүүхдийн чёлк тайралт хэд вэ?» took the price-found branch because 33,000
+  //     genuinely IS in the price list — so check 2 passes it, and the two supposedly
+  //     independent layers were perfectly correlated, both saying yes.
+  //
+  //     This check is passed an EMPTY allow-list, so neither `allowed_numbers` nor the
+  //     customer's own numerals can satisfy it. On a refused topic Ш1 says to mention no
+  //     number at all, whatever its provenance — and a customer who writes
+  //     «Хүүхдийн үс 33,000₮ мөн үү?» has supplied the number that would make an echo
+  //     read as confirmation of exactly the thing the topic exists to refuse.
   if (ctx.refusedTopicBlocksPrice && numeralsNotAllowed(text, []).length > 0) {
     return refuse('outbound_refused_topic_price', 'a numeral was emitted on a topic whose rule forbids quoting a price');
   }
