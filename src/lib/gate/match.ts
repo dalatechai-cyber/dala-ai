@@ -182,7 +182,9 @@ export type CannedRow = { kind: string; body: string; reviewedAt: string | null 
 export type CannedSection =
   | { ok: true; body: string; kinds: string[] }
   /** A line has no native-speaker sign-off. The route 503s with this code. */
-  | { ok: false; code: 'canned_response_unreviewed'; kinds: string[] };
+  | { ok: false; code: 'canned_response_unreviewed'; kinds: string[] }
+  /** The prefix names a kind this tenant has no row for. The route 503s with this too. */
+  | { ok: false; code: 'canned_response_missing'; kinds: string[] };
 
 /**
  * Render the «БЭЛЭН ХАРИУЛТ» section the gate's blocks point into.
@@ -196,8 +198,34 @@ export type CannedSection =
  * a missing sentence is a check with no answer, and what the customer sees is then
  * whatever the model improvises in the gap. A partially provisioned tenant is an
  * operator-visible state, never a silent degradation.
+ *
+ * ## `required` is why that sentence is now true
+ *
+ * It was not. The paragraph above described the fault and the code only caught half of
+ * it: an *unreviewed* row refused, an **absent** one did not. A tenant with no
+ * `canned_responses` at all rendered `=== БЭЛЭН ХАРИУЛТ ===` and nothing under it, and
+ * every check in the gate still ended "write the X line from that section" — nine
+ * instructions pointing into an empty heading, with the model free to improvise exactly
+ * as the comment warns. Found 2026-09-05 while compiling tenant #0, whose knowledge base
+ * is empty; `kindsReferencedBy` existed for precisely this comparison and was called from
+ * nothing but its own test.
+ *
+ * So the kinds the prefix names are now an argument, and a missing one refuses. The
+ * parameter is required rather than defaulted: a default of `[]` would mean "nothing is
+ * required", which is the bug, and a new caller that forgets it should not compile.
  */
-export function renderCannedSection(label: string, rows: readonly CannedRow[]): CannedSection {
+export function renderCannedSection(
+  label: string,
+  rows: readonly CannedRow[],
+  /** Every kind the compiled prefix names — `kindsReferencedBy(promptStable)`. */
+  required: readonly string[],
+): CannedSection {
+  // Absence first: a row that does not exist cannot also be unreviewed, and "provision
+  // these nine" is a more actionable message than "review the three you have".
+  const have = new Set(rows.map((r) => r.kind));
+  const missing = required.filter((k) => !have.has(k));
+  if (missing.length > 0) return { ok: false, code: 'canned_response_missing', kinds: [...missing].sort() };
+
   const unreviewed = rows.filter((r) => r.reviewedAt === null).map((r) => r.kind);
   if (unreviewed.length > 0) return { ok: false, code: 'canned_response_unreviewed', kinds: unreviewed.sort() };
 
