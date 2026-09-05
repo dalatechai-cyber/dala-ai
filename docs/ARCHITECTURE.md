@@ -712,7 +712,7 @@ protects you from a *client*, the spine protects you from *your own bug*.
 
 **Server-owned tables** — spend, plan, analytics figures, quality verdicts — get the full
 treatment: `SELECT`-only client grants, a restrictive `_no_client_writes` policy
-(`with check (false)`), and an explicit revoke of **all seven** Postgres privileges where
+(`with check (false)`), and an explicit revoke of **all eight** Postgres privileges where
 not needed. `revoke insert, update, delete` is not "the client cannot write": TRUNCATE sits
 outside RLS entirely and would empty the table. Ownership RLS checks **who a row belongs
 to, never what it says**.

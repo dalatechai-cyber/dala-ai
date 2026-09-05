@@ -874,3 +874,51 @@ migration `0012` (`went_live_at`, stamped by trigger so an operator cannot forge
 `catalog.sql` V24. **Not built: the 6-hourly token probe and the subscription reconciler**,
 which need a Meta app call each; they catch a *different* fault (a token that has expired
 but has not yet been used) and they are the remaining half of `STATUS.md` §3's paragraph.
+
+---
+
+## D-026 — Ordering for the compiled prefix is done in JavaScript, by code point, never by the database
+
+**Decided 2026-09-05, from the first run of the schema against a real Supabase project.**
+
+`loadTenantKb` ordered every collection in SQL. That was deliberate and the reasoning was
+sound as far as it went — an unordered PostgREST read makes the prefix, and therefore
+`content_hash`, and therefore the prompt-cache key, differ between two compiles of
+identical rows. What it missed is that **`order by` sorts under the server's collation, and
+the two environments do not agree.**
+
+Measured on the same six Mongolian strings:
+
+| | order |
+|---|---|
+| CI, `C.UTF-8` | `Челк \| Чёлк \| ҮС ЗАСАЛТ \| Үс засалт \| Үс-засалт \| үс будалт` |
+| Supabase, `en_US.UTF-8` | `үс будалт \| Үс засалт \| ҮС ЗАСАЛТ \| Үс-засалт \| Челк \| Чёлк` |
+
+Completely different, and both databases are behaving correctly. `C.UTF-8` is code-point
+order; `en_US.UTF-8` applies linguistic weighting, so case folds together and punctuation
+is weighted differently.
+
+**Two consequences, and the second is the one that decided this.** The prefix CI compiles
+from a set of rows is not the prefix production compiles from the same rows — so a test
+asserting compiled output describes CI, not production. And glibc collation is *versioned*
+(the project reports `153.121`): an OS-level bump underneath the database would silently
+re-order every tenant section, change every `content_hash`, and cold-miss every warm cache
+entry, with no error anywhere. That is precisely the silent cache-invalidation
+`renderStablePrefix` was shaped to prevent, arriving underneath it through the database.
+
+**So ordering is a property of the rows, not of the machine they were read from.**
+`ordered()` in `prompt/sections.ts` sorts after loading using `byCodePoint`, and every call
+passes enough keys that no tie is left to input order. `localeCompare` is banned for the
+same reason SQL ordering is: locale-sensitive by definition. The `.order()` calls stay in
+the queries as documentation of intent and for deterministic pagination if a LIMIT is ever
+added, but **nothing relies on them**.
+
+Where a row carries an explicit `ordinal` — FAQs, price axes, deposit rules — the ordinal
+sorts first, because it is the tenant's own priority and not a tiebreak. The first version
+of the test for this used a fixture where ordinal order and alphabetical order happened to
+agree; a mutation that dropped the ordinal entirely walked straight through it. The fixture
+now makes them disagree.
+
+**Not covered:** ordering performed by PostgREST for anything that does not reach the
+prefix. This decision is about the compiled prompt and its cache key. A list rendered to an
+operator can sort however the database likes.

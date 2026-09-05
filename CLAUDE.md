@@ -36,25 +36,38 @@ Graph call, `POST /{page-id}/messages`, under a permission the app already holds
 Advanced Access. App Review is now a *comments-only* concern (D-023), and it no longer sits
 on the critical path to a first real message.
 
-Still true, and still constraining: **no Supabase project exists.** The schema is verified
-against a scratch PostgreSQL only, so anything needing a live project is written and
-tested against local Postgres until one is provisioned.
+**The Supabase project EXISTS as of 2026-09-05** — ref `tlggenaatnopnxzbkbuf`, PostgreSQL
+17.6, ap-southeast-1. All thirteen migrations are applied through the CLI with a real
+thirteen-row ledger (D-012), and `catalog.sql` returns 25/25 against it.
 
-**The Supabase project is DEFERRED, and deliberately so** (2026-09-04). The free tier caps
-at two projects and both are spent on `core-english` and `core-chinese`; Pro is not being
-bought until Matrix is signed, because one tenant covers the $25 several times over. That
-makes it a cost against revenue rather than against hope — which is the same test D-017
-applied to KEK escrow, and it is not a blocker to raise again.
+**Running it there immediately found three things CI structurally could not**, which is the
+argument for having bought it, and the reason to distrust "verified in CI" as a synonym for
+verified:
 
-The consequence is a standing rule, not a temporary inconvenience: **build everything that
-does not need Postgres, and mark what does as parked and unverified.** Parked today:
+- **0001's `alter default privileges … revoke all` is a no-op in CI and the entire defence
+  in production.** A vanilla cluster has no default ACLs, so tables come out ungranted
+  whether that line is right, wrong or absent. Supabase seeds defaults granting `anon` and
+  `authenticated` all **eight** PG17 privileges on every future table in `public`. The line
+  bites — proven by creating a table and reading its ACL — but nothing had ever tested it.
+- **There are two grantors and 0001 reached only one.** `supabase_admin` owns a second
+  default-ACL entry that `postgres` cannot revoke. `0013` attempts it and warns; V25
+  asserts the end state so the residual is visible rather than silent. It is latent, not
+  live: it only matters for objects created in `public` **by** `supabase_admin`.
+- **The collation differs and it is not cosmetic.** CI is `C.UTF-8`, the project is
+  `en_US.UTF-8`, and the same Mongolian strings sort differently under each — which fed
+  the compiled prefix and therefore the prompt-cache key. Ordering now happens in
+  JavaScript by code point (D-026).
 
-- **`isolation.sql` T8/T9 against a real project.** They pass against scratch Postgres in
-  CI, which is not the same claim and must never be written as if it were.
+**Still not proven, and do not write as if it were:**
+
+- **`isolation.sql` and `rls.sql` against the project.** They seed test tenants and depend
+  on `begin … rollback`; the MCP transport commits, and `config_audit` is append-only so a
+  seeded `tenants` row cannot be deleted. They must be run over psql. The critical claims
+  were confirmed by direct probe — `anon` refused everywhere, cross-tenant isolation holds,
+  TRUNCATE and INSERT refused — but the suites themselves have not been run there.
 - **Anything that needs PostgREST**, i.e. the `@supabase/supabase-js` transport. Every
-  query in `src/` is exercised against a stub and has never been sent over the wire.
-
-Everything else is written against stubs and says so.
+  query in `src/` is still exercised against a stub and has never been sent over the wire.
+  A schema applied to a project is not an application talking to it.
 
 **The send is built and has never sent anything** (2026-09-04). Draft → claim → decrypt →
 `POST /{page-id}/messages` → mark, with the Graph error taxonomy, the failed/indeterminate
@@ -103,9 +116,11 @@ is wrong — make it data.
    migration applied to the database.** Check each table independently — the last failure
    next door was partial, one of four. A policy on a table with RLS **off** is created,
    looks perfect, and is never evaluated.
-5. **`revoke insert, update, delete` is not "cannot write."** Postgres grants seven
-   privileges and TRUNCATE bypasses RLS entirely. Enumerate the ACL. Ownership RLS checks
-   *who a row belongs to, never what it says*.
+5. **`revoke insert, update, delete` is not "cannot write."** Postgres grants **eight**
+   privileges on PG17 — the eighth is `MAINTAIN`, and Supabase's bootstrap grants it to
+   `anon` — and TRUNCATE bypasses RLS entirely. Enumerate the ACL; never count on a
+   remembered list, which is how this said "seven" until the real project was read.
+   Ownership RLS checks *who a row belongs to, never what it says*.
 6. **Mongolian Cyrillic, not ASCII.** NFC-normalise at every input boundary. No `\b`, no
    `\w`, no `[a-z]`, no unanchored substring matchers over user text, no byte-length as
    character-length. `unaccent` must **not** be installed (it maps `Ё→Е` while leaving
@@ -147,6 +162,13 @@ migration exists that the document does not name — it was five behind when the
 written, including `0011`, which adds a NOT NULL column with no default to five tables, so
 following the document produced INSERTs the database refuses.
 
+And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
+call anywhere in `src/`. Ordering that can reach the compiled prompt decides
+`content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale
+any more than on the database's collation (D-026). Exemptions are written as
+`guard-ok:locale` on the line or the one above, so an exemption is always a sentence
+somebody wrote rather than a filename that happened to match.
+
 ## Where things are
 
 | | |
@@ -164,9 +186,10 @@ following the document produced INSERTs the database refuses.
 
 **Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
 are the schema; the eight section files carry a banner saying their DDL is superseded.
-Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 18/18,
-`isolation.sql` 10/10, `rls.sql` 8/8. **Never applied to a real Supabase project** —
-none exists.
+Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 26/26,
+`isolation.sql` 10/10, `rls.sql` 8/8. **Also applied to the real project** (PG17.6,
+2026-09-05, via the CLI): `catalog.sql` 25/25 there, with V25 failing by design until
+`supabase_admin`'s default ACL is revoked by a role that can.
 
 Before changing it: run `scripts/localvalidate/run.sh`, then all three files in
 `scripts/verify/`. All raise on failure, so a red check fails CI rather than printing.

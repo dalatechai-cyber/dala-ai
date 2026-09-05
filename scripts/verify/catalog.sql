@@ -508,6 +508,34 @@ insert into _v select 'V24', 'tenant_channels.went_live_at exists and is stamped
           and tgname='tenant_channels_stamp_went_live_insert' and not tgisinternal)
   ) q;
 
+-- V25 — no default ACL grants anon or authenticated on FUTURE tables in public,
+-- from ANY grantor. (0013. Found by running 0001 against a real Supabase project.)
+--
+-- 0001's `alter default privileges in schema public revoke all on tables from anon,
+-- authenticated` is a NO-OP on a vanilla cluster: there are no default ACL entries, so
+-- tables come out ungranted whether the statement is right, wrong or absent. This check is
+-- therefore near-vacuous in CI and load-bearing in production — which is exactly the shape
+-- of the gap that made the Supabase project worth paying for.
+--
+-- It reads every grantor, not just the current role, because `ALTER DEFAULT PRIVILEGES`
+-- without `FOR ROLE` rewrites only the current one. Supabase seeds TWO: `postgres` (which
+-- 0001 fixes) and `supabase_admin` (which it cannot reach — see 0013). A table created in
+-- public by supabase_admin would be born granting anon all eight privileges.
+--
+-- V5 is the backstop for the condition going live; this is the early warning while it is
+-- still latent. `aclexplode` over `defaclacl` decomposes whatever privilege bits are
+-- present, so MAINTAIN is covered on 17 without naming it.
+insert into _v select 'V25', 'no default ACL grants anon/authenticated on future public tables',
+  coalesce(string_agg(distinct pg_get_userbyid(d.defaclrole) || ' grants ' ||
+                               a.grantee::regrole::text || ':' || a.privilege_type, ', '),
+           'none from any grantor'),
+  count(*) = 0
+  from pg_default_acl d
+  join pg_namespace n on n.oid = d.defaclnamespace
+  cross join lateral aclexplode(d.defaclacl) a
+ where n.nspname = 'public' and d.defaclobjtype = 'r'
+   and a.grantee::regrole::text in ('anon','authenticated');
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;

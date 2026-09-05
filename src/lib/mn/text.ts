@@ -65,6 +65,47 @@ export function fold(s: string): string {
  * length. Mongolian Cyrillic is entirely BMP so the three agree on letters — but salon
  * DMs are full of emoji, where they do not.
  */
+/**
+ * Order two strings by Unicode CODE POINT, never by locale.
+ *
+ * ## Why this exists, and it is not a preference
+ *
+ * The compiled prefix's line order comes from the order rows are rendered in, and that
+ * order reaches `content_hash` — the prompt-cache key. Until now much of it came from SQL
+ * `order by`, which sorts under the DATABASE's collation. That is not the same collation
+ * everywhere:
+ *
+ *   CI     (C.UTF-8)     Челк | Чёлк | ҮС ЗАСАЛТ | Үс засалт | Үс-засалт | үс будалт
+ *   Real   (en_US.UTF-8) үс будалт | Үс засалт | ҮС ЗАСАЛТ | Үс-засалт | Челк | Чёлк
+ *
+ * Measured on 2026-09-05 against both. Two consequences, and the second is the dangerous
+ * one: the prefix CI compiles from a set of rows is not the prefix production compiles
+ * from the same rows; and glibc collation is versioned (the project reports 153.121), so
+ * an OS-level collation bump would silently re-order every tenant section and invalidate
+ * every warm cache entry with no error anywhere. That is the exact silent cache-miss
+ * `renderStablePrefix` was shaped to prevent, arriving underneath it through the database.
+ *
+ * Sorting here instead makes the order a property of the data rather than of the server
+ * it was read from. `localeCompare` is banned for the same reason SQL ordering is: it is
+ * locale-sensitive by definition.
+ *
+ * Compares by code point rather than by UTF-16 code unit, so an astral character (an emoji
+ * in a service name) sorts where Unicode says it does rather than where its surrogate half
+ * happens to land. Mongolian Cyrillic is entirely BMP, so the two agree today — this costs
+ * nothing and removes a class of surprise.
+ */
+export function byCodePoint(a: string, b: string): number {
+  const x = [...a];
+  const y = [...b];
+  const n = Math.min(x.length, y.length);
+  for (let i = 0; i < n; i += 1) {
+    const cx = x[i]?.codePointAt(0) ?? 0;
+    const cy = y[i]?.codePointAt(0) ?? 0;
+    if (cx !== cy) return cx < cy ? -1 : 1;
+  }
+  return x.length === y.length ? 0 : x.length < y.length ? -1 : 1;
+}
+
 export function cpLength(s: string): number {
   return Array.from(s).length;
 }
