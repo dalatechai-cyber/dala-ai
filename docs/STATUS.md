@@ -77,6 +77,32 @@ resolve statically listed by file and line rather than skipped. Proven by mutati
 misspelled select column, a table that does not exist, and a bad insert key are each
 caught. This is the check that would have found a `.select('naem')` before PostgREST did.
 
+**Supabase's own database linter, run against the project 2026-09-05.** Six security
+warnings, of which four are fixed and two are deliberately left:
+
+- **Fixed (`0014`, `catalog.sql` V26):** four `ops.*` trigger functions carried a mutable
+  `search_path`. V11 asks that question only of SECURITY DEFINER functions and all four are
+  INVOKER, so it passed 25/25 while they sat unpinned. The exploit is thin — none of them
+  resolves an unqualified table — but every `app.*` function already pinned, and four
+  permanent WARNs train the eye to skip the section by the time a fifth one means something.
+- **Left alone, deliberately:** `pg_trgm` and `vector` are installed in `public` rather than
+  Supabase's `extensions` schema, because `create extension` without a SCHEMA clause lands
+  in the first entry of `search_path`. This is **not** a CI-vs-real difference — a vanilla
+  cluster does the same — it is a Supabase convention the migrations do not follow.
+  `pg_trgm` would move cheaply; **`vector` would not**, because `knowledge_chunks.embedding`
+  is of that type and moving the extension moves the type out from under the column. `0002`
+  is explicitly "applied when retrieval is switched on, not at launch", so the right moment
+  to decide is then, in a migration that rebuilds the column rather than one that hopes.
+  What it costs meanwhile: `anon` and `authenticated` hold USAGE on `public` and can
+  therefore call trgm and vector functions. They hold no table privilege of any kind, so no
+  data is reachable — this is schema hygiene, not a leak.
+
+The performance linter returns ~40 INFO items, all unindexed foreign keys and unused
+indexes **on a database with zero rows in every table**. Acting on them now would be
+optimising a query plan nobody has run. Revisit after the 14-day mirror gives real volume
+and real `pg_stat` counters — several of the flagged composite FKs already have their
+leading column covered by a unique constraint, which the linter does not account for.
+
 **Against a real PostgreSQL 16 (in CI, every run).** `catalog.sql` **27/27**,
 `isolation.sql` 10/10, `rls.sql` 8/8, plus `secret-roundtrip.ts`: a token sealed by the
 operator's own command, stored in `bytea`, read back in the hex form PostgREST serialises,
