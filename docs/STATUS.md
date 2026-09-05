@@ -69,6 +69,14 @@ a member of A sees 1 of 2 services and 0 of tenant B's rows; a non-member sees 0
 **`anon` holds zero privileges on zero tables; `authenticated` holds SELECT and nothing
 else, on exactly 31 — matching this document's own count of client-readable tables.**
 
+**Against the source, checked against a real schema (in CI, every run).**
+`query-columns.ts` extracts every literal `.select()` list and every literal
+`.insert()`/`.update()`/`.upsert()` key set from `src/` and asserts each column exists on
+the table being queried: **277 references across 100 query sites**, with the 6 it cannot
+resolve statically listed by file and line rather than skipped. Proven by mutation — a
+misspelled select column, a table that does not exist, and a bad insert key are each
+caught. This is the check that would have found a `.select('naem')` before PostgREST did.
+
 **Against a real PostgreSQL 16 (in CI, every run).** `catalog.sql` **26/26**,
 `isolation.sql` 10/10, `rls.sql` 8/8, plus `secret-roundtrip.ts`: a token sealed by the
 operator's own command, stored in `bytea`, read back in the hex form PostgREST serialises,
@@ -129,7 +137,7 @@ claims nobody has earned yet.
 
 | Never proven | Why | What would prove it |
 |---|---|---|
-| **Any PostgREST query** | The project exists and carries the schema, but every query in `src/` is still exercised against a stub and has never been sent over the wire. A schema applied to a project is not an application talking to it | The app configured with the project's URL and service key, and one real read |
+| **Any PostgREST query** | The project exists and carries the schema, but every query in `src/` is still exercised against a stub and has never been sent over the wire. A schema applied to a project is not an application talking to it. **Narrowed 2026-09-05:** `scripts/verify/query-columns.ts` now reads the source and checks every literal column reference against the applied schema on every CI run — 277 references across 100 query sites — so a misspelled column or a table that does not exist no longer waits for the first real request. What remains untested is the transport, not the column names | The app configured with the project's URL and service key, and one real read |
 | **`isolation.sql` and `rls.sql` against the real project** | Both seed test tenants and depend on `begin … rollback`. The MCP transport commits, and `config_audit` is append-only so a seeded `tenants` row can never be deleted — running them there would leave permanent test tenants. The critical claims were confirmed by direct probe (anon refused everywhere, cross-tenant isolation holds, TRUNCATE/INSERT refused), but the suite files have not run there | `psql -f` against the project; they roll back by design |
 | **Any Meta call, inbound or outbound** | The app, the Page, a working token and now the database all exist — what is missing is a `tenant_channels` row and a sealed secret in it. The signature verifier has never seen a real Meta payload; the send has never reached Graph | One channel row, one sealed token, one message |
 | **The comment reply EDGE** | `POST /{comment-id}/comments` is SEARCH-CORROBORATED with an explicit "re-verify"; one source claims `POST /{comment-id}`. `developers.facebook.com` is blocked from this environment | Ten minutes on Meta's own docs, or the first real attempt. It is one constant, `REPLY_EDGE` |
