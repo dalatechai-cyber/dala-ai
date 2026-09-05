@@ -536,6 +536,23 @@ insert into _v select 'V25', 'no default ACL grants anon/authenticated on future
  where n.nspname = 'public' and d.defaclobjtype = 'r'
    and a.grantee::regrole::text in ('anon','authenticated');
 
+-- V26 — EVERY function in `app` and `ops` pins search_path, not just the definers.
+--
+-- V11 covers SECURITY DEFINER, and its reasoning is specific to that case. This is the
+-- wider one, and it exists because the narrower check passed 25/25 while four `ops` trigger
+-- functions sat unpinned — including two written the day before. Supabase's own linter
+-- found them; CI had no opinion, because nothing here asked the question.
+--
+-- The exploit against an invoker function is thin. The reason for the check is that every
+-- `app.*` function already pins (including the two non-definers), so `ops` was the
+-- inconsistent one — and that a linter carrying four permanent WARNs is a linter nobody
+-- reads by the time a fifth one means something.
+insert into _v select 'V26', 'every app/ops function pins search_path, definer or not',
+  coalesce(string_agg(n.nspname || '.' || p.proname, ', '), 'all pinned'), count(*) = 0
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname in ('app','ops')
+   and not exists (select 1 from unnest(coalesce(p.proconfig,'{}')) cfg where cfg like 'search_path=%');
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;

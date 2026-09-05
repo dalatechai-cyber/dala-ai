@@ -14,7 +14,7 @@ under a permission the app already holds.
 
 ## 1. What is built
 
-714 tests, 9 guards, 13 migrations, 63 modules. Every module below is merged on `main`
+714 tests, 9 guards, 14 migrations, 63 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |
@@ -77,7 +77,7 @@ resolve statically listed by file and line rather than skipped. Proven by mutati
 misspelled select column, a table that does not exist, and a bad insert key are each
 caught. This is the check that would have found a `.select('naem')` before PostgREST did.
 
-**Against a real PostgreSQL 16 (in CI, every run).** `catalog.sql` **26/26**,
+**Against a real PostgreSQL 16 (in CI, every run).** `catalog.sql` **27/27**,
 `isolation.sql` 10/10, `rls.sql` 8/8, plus `secret-roundtrip.ts`: a token sealed by the
 operator's own command, stored in `bytea`, read back in the hex form PostgREST serialises,
 and decrypted through the runtime loader — including the cross-tenant copy attack performed

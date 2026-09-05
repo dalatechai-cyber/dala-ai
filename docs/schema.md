@@ -13,8 +13,8 @@ Built against PostgreSQL 16.13 and verified by **execution**, not by reading:
 
 | | |
 |---|---|
-| `supabase/migrations/0001`–`0013` | apply clean in order on an empty database (`scripts/localvalidate/run.sh`) |
-| `scripts/verify/catalog.sql` | **26/26 PASS** on PG16. On the real project 25/26 — **V25 fails by design** until `supabase_admin`'s default ACL is revoked by a role that can |
+| `supabase/migrations/0001`–`0014` | apply clean in order on an empty database (`scripts/localvalidate/run.sh`) |
+| `scripts/verify/catalog.sql` | **27/27 PASS** on PG16. On the real project V25 fails by design until `supabase_admin`'s default ACL is revoked by a role that can, and V26 until `0014` is pushed |
 | `scripts/verify/isolation.sql` | **10/10 PASS** — behavioural, as superuser |
 | `scripts/verify/rls.sql` | **8/8 PASS** — behavioural, **as `anon` and `authenticated`** |
 
@@ -40,6 +40,7 @@ guard was written.
 | `0010_prompt_blocks_seed` | `prompt_blocks.layer` (nullable) + two CHECKs + a partial unique index; seeds 21 signed platform blocks | `layer is null` means customer-visible Mongolian the prompt compiler must NOT render — the status page and the comment template live in the same table |
 | `0011_provenance` | `provenance text` on `service_aliases`, `deterministic_replies`, `out_of_scope_topics`, `faqs`, `disclosure_rules` — **NOT NULL with NO DEFAULT** | D-020. **An INSERT into any of those five that does not say where the row came from is refused by the database.** `tenant_confirmed` \| `seeded` \| `inferred` |
 | `0012_channel_went_live` | `tenant_channels.went_live_at` + two triggers | D-025. Stamped automatically on the transition into `delivery_mode='live'`, and on an insert already at `live`. Never set it by hand |
+| `0014_pin_ops_search_path` | pins `search_path = ''` on the four `ops.*` trigger functions | Nothing for an INSERT. Found by Supabase's linter, not by CI: V11 only ever asked about SECURITY DEFINER functions, and all four are INVOKER. `catalog.sql` V26 now asks the wider question |
 | `0013_supabase_admin_default_acl` | attempts to revoke `supabase_admin`'s default table privileges from `anon`/`authenticated` in `public` | Nothing for an INSERT to know. It is a no-op on a vanilla cluster (no such role) and **warns rather than fails** on Supabase, where `postgres` is not a member of `supabase_admin` and cannot revoke it. `catalog.sql` V25 is what makes the residual visible |
 
 Two of those change what a hand-written INSERT must contain: **`0011`'s `provenance`**
