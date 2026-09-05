@@ -55,7 +55,7 @@ jobs:
       - name: Install psql client
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends postgresql-client
 
-      - name: Apply migrations and run all three suites
+      - name: Apply migrations, run all three suites, and check query columns
         run: ./scripts/verify/run-all.sh dala_ci
 
       - name: Bake-off gate unit tests
