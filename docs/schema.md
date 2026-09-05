@@ -7,7 +7,7 @@ arbitrated the twenty-three places the proposals contradicted each other.
 
 79 tables in `public`, 11 functions across `app` and `ops`.
 
-## Status: applied and verified locally, never applied to a real project
+## Status: applied and verified locally, and `0001`–`0012` applied to the real project
 
 Built against PostgreSQL 16.13 and verified by **execution**, not by reading:
 
@@ -244,7 +244,10 @@ All three raise on failure. **Run `rls.sql` after any policy or grant change** �
 the only one that can tell a policy that works from a policy that merely exists.
 
 `scripts/localvalidate/shim.sql` recreates just enough of Supabase's `auth` schema and
-roles for `0001` to run offline. **It is never applied to a real project.**
+roles for `0001` to run offline. **It must never be applied to a real project** — it defines
+its own `auth.uid()`, which on Supabase would overwrite the real one and hand every RLS
+policy in the database a stub. This was a note about a project that did not exist; one does
+now, so read it as a prohibition.
 
 Run `catalog.sql` after every migration touching grants, policies, triggers or seeds,
 and check each table independently — the last failure of this kind next door was

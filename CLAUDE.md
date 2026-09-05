@@ -75,9 +75,10 @@ verified:
 **The send is built and has never sent anything** (2026-09-04). Draft → claim → decrypt →
 `POST /{page-id}/messages` → mark, with the Graph error taxonomy, the failed/indeterminate
 split, and the `delivery_mode` gate. **It has never reached Meta** — not for want of an app
-or a token, both of which exist, but because no Supabase project holds a `tenant_channels`
-row or a sealed secret for it to read. `docs/STATUS.md` is the ordered list of what turns
-that into a real message, and the list is shorter than it was.
+or a token, both of which exist, and no longer for want of a database either — but because
+the project holds no `tenant_channels` row and no sealed secret for it to read.
+`docs/STATUS.md` is the ordered list of what turns that into a real message, and the list
+is shorter than it was.
 
 **Meta token decryption is no longer parked** (2026-09-04, on the founder's call: *"waiting
 until a Meta app exists means writing crypto at the worst moment — when I'm trying to go
@@ -87,10 +88,11 @@ the crypto was never being built early at all.
 `src/lib/crypto/` and `src/lib/secrets/` are built, and `scripts/verify/secret-roundtrip.ts`
 runs the whole path against a real PostgreSQL in CI: seal, store in `bytea`, read back in
 PostgREST's hex form, decrypt through the runtime loader. What that does **not** prove, and
-must never be written as if it did: there is no Supabase project and no PostgREST hop, and
-the KEK in CI is generated per run and thrown away. A real Page token now exists — the
-founder holds one for Matrix — but it has never been sealed by `scripts/kek/seal.ts` or
-read back by the runtime loader, so the round trip is still proven only over test material.
+must never be written as if it did: the hop is a local socket, not PostgREST, so the
+transport the runtime will actually use is still unexercised, and the KEK in CI is generated
+per run and thrown away. A real Page token now exists — the founder holds one for Matrix —
+but it has never been sealed by `scripts/kek/seal.ts` or read back by the runtime loader, so
+the round trip is still proven only over test material.
 
 ## The test every decision is measured against
 

@@ -36,5 +36,10 @@ needs a per-tenant code branch, it is wrong.
 | [`docs/architecture/10-completeness.md`](docs/architecture/10-completeness.md) | What no section addressed, and the CLAUDE.md carry-forward audit |
 | [`CLAUDE.md`](CLAUDE.md) | Rules and pointers for working in this repository |
 
-**Nothing is built yet.** No Supabase project exists, no Meta app is configured,
-and no product code is written.
+**This paragraph used to say "nothing is built yet". It is out of date and the
+correction matters more than the fact.** V1's code path exists: 63 modules, 714 tests,
+14 migrations. The Meta app `dalatech` exists and holds `pages_messaging` at Advanced
+Access. The Supabase project exists (`tlggenaatnopnxzbkbuf`, PostgreSQL 17.6) and carries
+migrations `0001`–`0012`. What does **not** exist is Anthropic, QStash and a deployment —
+so nothing has ever reached a customer. [`docs/STATUS.md`](docs/STATUS.md) is the honest
+account, kept current; this file is not the place to look for status.

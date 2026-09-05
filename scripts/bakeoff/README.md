@@ -26,7 +26,9 @@ and the margin depends on the per-reply cost.
    export ANTHROPIC_API_KEY=sk-ant-...
    ```
 
-Nothing else. No database, no Supabase project, no deployment.
+Nothing else — the bake-off reads a checked-out prefix and calls Anthropic. It needs no
+database, no Supabase project and no deployment, and that is a statement about its
+requirements, not about what exists.
 
 ## The commands
 
