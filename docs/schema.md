@@ -5,7 +5,10 @@ Where a file under `docs/architecture/` disagrees with either, that file is stal
 DDL was a proposal, and [`09-reconciliation.md`](architecture/09-reconciliation.md)
 arbitrated the twenty-three places the proposals contradicted each other.
 
-79 tables in `public`, 11 functions across `app` and `ops`.
+79 tables in `public`, **13** functions across `app` and `ops`. The count was 11 until
+`0012` added `ops.stamp_went_live` and `ops.stamp_went_live_on_insert`; `catalog.sql` V26
+now asserts the property that matters about all thirteen (every one pins `search_path`), so
+the number here is a description and the check is the guarantee.
 
 ## Status: applied and verified locally, and `0001`–`0012` applied to the real project
 

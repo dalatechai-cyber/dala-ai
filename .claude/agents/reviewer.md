@@ -24,7 +24,9 @@ answer instead of an error, learned next door and both applicable here:
   `pg_class.relacl` via `aclexplode()`, `pg_policies`, `pg_class.relrowsecurity`.
 
 Also: `revoke insert, update, delete` is not "the client cannot write." Postgres grants
-seven privileges and `TRUNCATE` bypasses RLS entirely. **Enumerate the ACL.**
+seven privileges — **eight on PostgreSQL 17, which adds `MAINTAIN`**, and the live project
+is on 17.6 — and `TRUNCATE` bypasses RLS entirely. **Enumerate the ACL**, and do not assume
+the enumeration you inherited was written against the same version.
 
 **After any grant or policy migration, re-check each table independently.** The last
 failure of this kind next door was partial — one of four tables.
