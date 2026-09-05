@@ -234,6 +234,33 @@ test('NEVER SILENCE: a missing handoff line retries instead of sending nothing',
   assert.equal(r.kind === 'retry' && r.detail.includes('handoff'), true);
 });
 
+test('a kind the PREFIX names with no row retries — the wiring, not just the check', async () => {
+  // The check lives in renderCannedSection; this asserts handle.ts actually feeds it the
+  // kinds out of `promptStable`. Without this test, a caller passing [] — which is the
+  // pre-fix behaviour — passes everything, and the whole fix is inert. That mutation
+  // survived until this test existed.
+  const { deps: d } = deps({});
+  const r = await handleReception(d, {
+    ...base,
+    promptStable: 'Ш5. ... «БЭЛЭН ХАРИУЛТ» хэсгийн "refusal_health" мөрийг яг хэвээр нь бич.',
+  });
+  assert.equal(r.kind, 'retry');
+  assert.equal(r.kind === 'retry' && r.detail.startsWith('canned_response_missing:'), true, JSON.stringify(r));
+  assert.equal(r.kind === 'retry' && r.detail.includes('refusal_health'), true);
+});
+
+test('the model is never called when a named kind is missing — the refusal is free', async () => {
+  const { deps: d, calls } = deps({});
+  await handleReception(d, {
+    ...base,
+    promptStable: '«БЭЛЭН ХАРИУЛТ» ... "refusal_health" ...',
+  });
+  // `calls` records every dep, and the refusal legitimately calls `release` to hand the
+  // budget hold back. What must not appear is the model.
+  assert.equal(calls.includes('callModel'), false, `a provisioning fault must cost no tokens; got ${calls.join(', ')}`);
+  assert.deepEqual(calls, ['release']);
+});
+
 test('a draft failure is a retry, not a lost reply', async () => {
   const { deps: d } = deps({ draft: async () => ({ ok: false, detail: 'insert failed' }) });
   assert.equal((await handleReception(d, base)).kind, 'retry');

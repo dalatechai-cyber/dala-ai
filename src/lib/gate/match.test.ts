@@ -133,7 +133,7 @@ const ROWS = [
 ];
 
 test('the section is keyed, so the blocks can name a sentence without carrying it', () => {
-  const s = renderCannedSection('БЭЛЭН ХАРИУЛТ', ROWS);
+  const s = renderCannedSection('БЭЛЭН ХАРИУЛТ', ROWS, ['booking_line', 'handoff']);
   assert.equal(s.ok, true);
   assert.equal(s.ok && s.body.startsWith('=== БЭЛЭН ХАРИУЛТ ==='), true);
   assert.equal(s.ok && s.body.includes('"handoff": Уучлаарай'), true);
@@ -142,8 +142,8 @@ test('the section is keyed, so the blocks can name a sentence without carrying i
 test('rows are ordered by kind, because the database promises no order', () => {
   // An unstable L2 moves the prompt-cache key on every deploy, silently, with no error
   // and a bill that roughly triples.
-  const a = renderCannedSection('X', ROWS);
-  const b = renderCannedSection('X', [...ROWS].reverse());
+  const a = renderCannedSection('X', ROWS, []);
+  const b = renderCannedSection('X', [...ROWS].reverse(), []);
   assert.equal(a.ok && a.body, b.ok && b.body);
   assert.deepEqual(a.ok && a.kinds, ['booking_line', 'handoff']);
 });
@@ -151,7 +151,7 @@ test('rows are ordered by kind, because the database promises no order', () => {
 test('ONE unreviewed line refuses the whole section', () => {
   // A gate pointing at a missing sentence is a check with no answer, and the customer
   // then gets whatever the model improvises in the gap.
-  const s = renderCannedSection('X', [...ROWS, { kind: 'refusal_health', body: 'x', reviewedAt: null }]);
+  const s = renderCannedSection('X', [...ROWS, { kind: 'refusal_health', body: 'x', reviewedAt: null }], []);
   assert.equal(s.ok, false);
   assert.equal(!s.ok && s.code, 'canned_response_unreviewed');
   assert.deepEqual(!s.ok && s.kinds, ['refusal_health']);
@@ -161,8 +161,50 @@ test('every unreviewed kind is named at once, so provisioning is one round trip'
   const s = renderCannedSection('X', [
     { kind: 'handoff', body: 'x', reviewedAt: null },
     { kind: 'booking_line', body: 'y', reviewedAt: null },
-  ]);
+  ], []);
   assert.deepEqual(!s.ok && s.kinds, ['booking_line', 'handoff']);
+});
+
+test('a kind the prefix names with no row REFUSES — it does not render an empty heading', () => {
+  // The bug this replaces: tenant #0 had zero canned_responses, so the section rendered as
+  // a bare `=== БЭЛЭН ХАРИУЛТ ===` and all nine gate checks still said "write the X line
+  // from that section". Nine instructions pointing into nothing, and the model free to
+  // improvise — the exact degradation the function's own comment forbids.
+  const s = renderCannedSection('X', [], ['handoff', 'refusal_health']);
+  assert.equal(s.ok, false);
+  assert.equal(!s.ok && s.code, 'canned_response_missing');
+  assert.deepEqual(!s.ok && s.kinds, ['handoff', 'refusal_health']);
+});
+
+test('every missing kind is named at once, so provisioning is one round trip', () => {
+  const s = renderCannedSection('X', [{ kind: 'handoff', body: 'x', reviewedAt: '2026-09-05' }],
+    ['refusal_health', 'booking_line', 'handoff']);
+  assert.deepEqual(!s.ok && s.kinds, ['booking_line', 'refusal_health']);
+});
+
+test('absence is reported before unreviewed: "provision these" beats "review that one"', () => {
+  const s = renderCannedSection('X', [{ kind: 'handoff', body: 'x', reviewedAt: null }],
+    ['handoff', 'booking_line']);
+  assert.equal(!s.ok && s.code, 'canned_response_missing');
+  assert.deepEqual(!s.ok && s.kinds, ['booking_line']);
+});
+
+test('a complete, reviewed set still renders', () => {
+  const s = renderCannedSection('X', ROWS, ['handoff', 'booking_line']);
+  assert.equal(s.ok, true);
+  assert.deepEqual(s.ok && s.kinds, ['booking_line', 'handoff']);
+});
+
+test('DONE-TEST: the real gate blocks name nine kinds, and an empty tenant refuses all nine', async () => {
+  // Reads the signed blocks rather than a fixture, so a block added to L0 that names a new
+  // kind changes this expectation instead of silently widening the gap.
+  const { readSignedBlocks } = await import('../../../scripts/prompt/generate-seed.ts');
+  const bodies = readSignedBlocks().filter((b) => b.layer !== null).map((b) => b.body);
+  const kinds = kindsReferencedBy(bodies);
+  assert.equal(kinds.length, 9, `expected nine kinds, got ${kinds.join(', ')}`);
+  const s = renderCannedSection('БЭЛЭН ХАРИУЛТ', [], kinds);
+  assert.equal(!s.ok && s.code, 'canned_response_missing');
+  assert.deepEqual(!s.ok && s.kinds, kinds);
 });
 
 test('kindsReferencedBy reads the keys out of the rendered blocks', () => {

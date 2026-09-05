@@ -26,7 +26,7 @@
 import type { CallOutcome, ReceptionRequest, TerminalReason } from '../model/reception.ts';
 import { isStale } from '../model/reception.ts';
 import type { Usage } from '../spend/settle.ts';
-import { matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
+import { kindsReferencedBy, matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
 import { matchDeterministic, type DeterministicRule, type HistoryState } from '../gate/deterministic.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { capToSingleMessage } from '../mn/text.ts';
@@ -162,10 +162,18 @@ export async function handleReception(
     });
   }
 
-  const section = renderCannedSection(input.cannedLabel, input.canned);
+  // The kinds are read out of the prefix the model will actually be given, not from a
+  // list kept in step by hand — the same reasoning as `ops.tenant_scope` being derived
+  // from the catalog. A block added to L0 that names a new kind therefore starts
+  // refusing for tenants that have not provisioned it, without anyone remembering to
+  // update a constant.
+  const section = renderCannedSection(input.cannedLabel, input.canned, kindsReferencedBy([input.promptStable]));
   if (!section.ok) {
     await deps.release();
-    return { kind: 'retry', detail: `canned_response_unreviewed: ${section.kinds.join(', ')}` };
+    // `retry`, not `dropped`, for both codes: the fault is a row an operator can add, and
+    // a 503 means QStash still holds the customer's message. Dropping it would lose a real
+    // question permanently to fix a problem that outlives the request by minutes.
+    return { kind: 'retry', detail: `${section.code}: ${section.kinds.join(', ')}` };
   }
 
   // 4. §6.8's pre-model layer: a greeting or an address question answered from a row, in
