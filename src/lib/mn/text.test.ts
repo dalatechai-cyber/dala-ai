@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { capToSingleMessage, cpLength, cpOffsets, fold, letters, nfc, scriptShare, stripSpans } from './text.ts';
+import { byCodePoint, capToSingleMessage, cpLength, cpOffsets, fold, letters, nfc, scriptShare, stripSpans } from './text.ts';
 
 test('the four ASCII constructs this module replaces really are broken on Mongolian', () => {
   // Pinned as executable evidence, not as a comment. If a future Node changed any of
@@ -144,4 +144,51 @@ test('the pinned suffix is a PARAMETER — a customer-visible sentence is never 
 
 test('a suffix longer than the whole limit returns null instead of a negative slice', () => {
   assert.equal(capToSingleMessage('урт '.repeat(50), 3, 'ХАРИУЛТ'), null);
+});
+
+// ---------------------------------------------------------------------------
+// byCodePoint — the ordering the prompt cache depends on
+// ---------------------------------------------------------------------------
+
+/** The exact strings measured against both databases on 2026-09-05. */
+const MEASURED = ['Үс засалт', 'үс будалт', 'Үс-засалт', 'ҮС ЗАСАЛТ', 'Чёлк тайралт', 'Челк тайралт'];
+
+test('DONE-TEST: sorting is by code point, matching neither database collation by accident', () => {
+  // Measured, not assumed:
+  //   CI   (C.UTF-8)     Челк | Чёлк | ҮС ЗАСАЛТ | Үс засалт | Үс-засалт | үс будалт
+  //   Real (en_US.UTF-8) үс будалт | Үс засалт | ҮС ЗАСАЛТ | Үс-засалт | Челк | Чёлк
+  //
+  // Code point order equals the C.UTF-8 order, because C.UTF-8 IS code point order. The
+  // point is not that we match CI — it is that we no longer ask a database at all, so the
+  // answer cannot change when the server does.
+  assert.deepEqual([...MEASURED].sort(byCodePoint), [
+    'Челк тайралт', 'Чёлк тайралт', 'ҮС ЗАСАЛТ', 'Үс засалт', 'Үс-засалт', 'үс будалт',
+  ]);
+});
+
+test('and it disagrees with localeCompare, which is why localeCompare is not used', () => {
+  // If these agreed, the test above would prove nothing about locale-independence.
+  const byLocale = [...MEASURED].sort((a, b) => a.localeCompare(b));
+  assert.notDeepEqual([...MEASURED].sort(byCodePoint), byLocale);
+});
+
+test('case is code-point case: uppercase sorts before lowercase, always', () => {
+  // en_US.UTF-8 gives a|B|c; code point gives B|a|c. A locale-sensitive sort would put
+  // «үс» and «Үс» adjacent; this does not, and that is the deterministic answer.
+  assert.deepEqual(['a', 'B', 'c'].sort(byCodePoint), ['B', 'a', 'c']);
+});
+
+test('astral characters sort by code point, not by surrogate half', () => {
+  // '\u{1F600}' (U+1F600) is above '\uFFFD' by code point, but its leading surrogate
+  // (0xD83D) is BELOW it as a UTF-16 unit. A naive `a < b` gets this backwards.
+  const emoji = '\u{1F600}';
+  const replacement = '\uFFFD';
+  assert.equal(byCodePoint(emoji, replacement) > 0, true, 'U+1F600 sorts after U+FFFD');
+  assert.equal(emoji < replacement, true, 'and a raw UTF-16 comparison disagrees');
+});
+
+test('it is a total order: reflexive, antisymmetric, and stable on equals', () => {
+  assert.equal(byCodePoint('үс', 'үс'), 0);
+  assert.equal(byCodePoint('үс', 'үсэн') < 0, true, 'a prefix sorts before its extension');
+  assert.equal(byCodePoint('үсэн', 'үс') > 0, true);
 });

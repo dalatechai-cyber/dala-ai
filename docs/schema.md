@@ -13,8 +13,8 @@ Built against PostgreSQL 16.13 and verified by **execution**, not by reading:
 
 | | |
 |---|---|
-| `supabase/migrations/0001`–`0012` | apply clean in order on an empty database (`scripts/localvalidate/run.sh`) |
-| `scripts/verify/catalog.sql` | **25/25 PASS** — structural. Raises, so CI fails on red |
+| `supabase/migrations/0001`–`0013` | apply clean in order on an empty database (`scripts/localvalidate/run.sh`) |
+| `scripts/verify/catalog.sql` | **26/26 PASS** on PG16. On the real project 25/26 — **V25 fails by design** until `supabase_admin`'s default ACL is revoked by a role that can |
 | `scripts/verify/isolation.sql` | **10/10 PASS** — behavioural, as superuser |
 | `scripts/verify/rls.sql` | **8/8 PASS** — behavioural, **as `anon` and `authenticated`** |
 
@@ -40,6 +40,7 @@ guard was written.
 | `0010_prompt_blocks_seed` | `prompt_blocks.layer` (nullable) + two CHECKs + a partial unique index; seeds 21 signed platform blocks | `layer is null` means customer-visible Mongolian the prompt compiler must NOT render — the status page and the comment template live in the same table |
 | `0011_provenance` | `provenance text` on `service_aliases`, `deterministic_replies`, `out_of_scope_topics`, `faqs`, `disclosure_rules` — **NOT NULL with NO DEFAULT** | D-020. **An INSERT into any of those five that does not say where the row came from is refused by the database.** `tenant_confirmed` \| `seeded` \| `inferred` |
 | `0012_channel_went_live` | `tenant_channels.went_live_at` + two triggers | D-025. Stamped automatically on the transition into `delivery_mode='live'`, and on an insert already at `live`. Never set it by hand |
+| `0013_supabase_admin_default_acl` | attempts to revoke `supabase_admin`'s default table privileges from `anon`/`authenticated` in `public` | Nothing for an INSERT to know. It is a no-op on a vanilla cluster (no such role) and **warns rather than fails** on Supabase, where `postgres` is not a member of `supabase_admin` and cannot revoke it. `catalog.sql` V25 is what makes the residual visible |
 
 Two of those change what a hand-written INSERT must contain: **`0011`'s `provenance`**
 (five tables, no default, so omitting it is an error rather than a silent guess) and
@@ -51,9 +52,32 @@ the catalog pack proves a policy *exists*, and `isolation.sql` runs as superuser
 bypasses RLS unconditionally. Only `set role` proves a policy *bites*. It found three
 bugs the other two could not — see below.
 
-No Supabase project exists yet, so none of this has run against one. Supabase is on
-PG17, where Postgres grants an eighth privilege (`MAINTAIN`); the ACL checks read
-`aclexplode` and so cover it without change, but that is reasoning, not a test.
+**Applied to the real project 2026-09-05** (`tlggenaatnopnxzbkbuf`, PostgreSQL 17.6, via
+the CLI with a 12-row ledger). `catalog.sql` returns **25/25** there.
+
+The PG17 reasoning above is now a measurement rather than an argument. Postgres grants an
+eighth privilege on 17, `MAINTAIN`, and Supabase's bootstrap default ACL grants it to
+`anon` and `authenticated` along with the other seven; `aclexplode` decomposes it without
+change, exactly as predicted, and `anon` ends with **zero privileges on zero tables**.
+
+Two things that reasoning did *not* predict, both found by running it:
+
+- **0001's `alter default privileges … revoke all` is a no-op in CI and the whole defence
+  in production.** A vanilla cluster has no default ACLs, so the statement changes nothing
+  whether it is right, wrong or absent. On Supabase it is the only thing standing between
+  every future table and an `anon` holding all eight privileges. It bites — verified by
+  creating a table and reading its ACL — but it was untested for as long as CI was the
+  only place the schema ran.
+- **There are two grantors, and 0001 only reached one.** `ALTER DEFAULT PRIVILEGES`
+  without `FOR ROLE` rewrites the current role's entry; Supabase also seeds one owned by
+  `supabase_admin`, which `postgres` is not a member of and cannot revoke. `0013` attempts
+  it and warns rather than failing; `catalog.sql` V25 asserts the end state so the
+  residual is visible rather than silent.
+
+The collation also differs and it is not cosmetic — CI is `C.UTF-8`, the project is
+`en_US.UTF-8`, and the same Mongolian strings sort differently under each. See
+`byCodePoint` in `src/lib/mn/text.ts`; ordering for the compiled prefix is done in
+JavaScript for that reason.
 
 ## Conventions, chosen once
 

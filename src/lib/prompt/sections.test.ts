@@ -318,6 +318,89 @@ test('the loader ASKS for provenance — a select that forgets it excludes every
 });
 
 // ---------------------------------------------------------------------------
+// Ordering — the prefix must not depend on the database's collation
+// ---------------------------------------------------------------------------
+
+/** Rows whose collation order differs between C.UTF-8 and en_US.UTF-8. Measured, not guessed. */
+const SERVICES = [
+  { id: 's1', name: 'Үс засалт' },
+  { id: 's2', name: 'үс будалт' },
+  { id: 's3', name: 'Чёлк тайралт' },
+  { id: 's4', name: 'Челк тайралт' },
+];
+/**
+ * Ordinal order and alphabetical order DISAGREE here, deliberately. «Ямар» (Я, U+042F)
+ * is alphabetically last and carries ordinal 0; «Ажлын» (А, U+0410) is alphabetically
+ * first and carries ordinal 1. A fixture where the two agree cannot tell a correct sort
+ * from one that silently dropped the tenant's own priority — the first version of this
+ * fixture had exactly that hole and a mutation walked straight through it.
+ */
+const FAQS = [
+  { question: 'Ажлын цаг?', answer: '10:00-20:00', ordinal: 1, provenance: 'tenant_confirmed' },
+  { question: 'Ямар үйлчилгээ байдаг вэ?', answer: 'Үс засалт, будалт.', ordinal: 0, provenance: 'tenant_confirmed' },
+];
+const CONTACTS = [{ kind: 'phone', value: '7741-7777' }, { kind: 'address', value: 'СБД' }];
+/** A service renders nothing without a priced variant, so each one needs one. */
+const VARIANTS = SERVICES.map((sv, i) => ({
+  service_id: sv.id, variant_key: '', price_kind: 'exact',
+  price_min: `${(i + 3) * 10000}.00`, price_max: null, refusal_topic: null,
+}));
+
+async function compileWith(order: 'given' | 'reversed') {
+  const flip = <T,>(a: T[]): T[] => (order === 'reversed' ? [...a].reverse() : a);
+  const { db } = stubDb(
+    { data: [block({ block_key: 'gate', body: 'Ш0. дүрэм' })], error: null },
+    {
+      services: { data: flip(SERVICES), error: null },
+      service_variants: { data: flip(VARIANTS), error: null },
+      faqs: { data: flip(FAQS), error: null },
+      contact_points: { data: flip(CONTACTS), error: null },
+    },
+  );
+  return compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
+}
+
+test('DONE-TEST: the same rows compile to the same prefix whatever order the database returns them in', async () => {
+  // This is the whole point. SQL `order by` sorts under the SERVER's collation, and the
+  // two environments disagree: CI is C.UTF-8, the Supabase project is en_US.UTF-8, and on
+  // these exact strings they produce completely different orders (measured 2026-09-05).
+  //
+  // That order becomes the line order of L2/L3, which becomes the prefix, which becomes
+  // `content_hash` — the prompt-cache key. If it tracked the database, the prefix CI
+  // compiled would not be the prefix production compiled from identical rows, and a glibc
+  // collation bump beneath the database would cold-miss every warm entry with nothing
+  // going red anywhere.
+  const a = await compileWith('given');
+  const b = await compileWith('reversed');
+  assert.equal(a.ok && b.ok, true);
+  assert.equal(a.ok && a.rendered.contentHash, b.ok && b.rendered.contentHash,
+    'a reversed read must not change the compiled prefix');
+  assert.equal(a.ok && a.rendered.promptStable, b.ok && b.rendered.promptStable);
+});
+
+test('and the order it settles on is code point, not the locale order', async () => {
+  const r = await compileWith('given');
+  assert.equal(r.ok, true);
+  if (!r.ok) return;
+  const body = r.rendered.promptStable;
+  // Code point: Челк < Чёлк < ҮС... < Үс... < үс...  (uppercase before lowercase)
+  assert.ok(body.indexOf('Челк тайралт') < body.indexOf('Чёлк тайралт'), 'Челк before Чёлк');
+  assert.ok(body.indexOf('Чёлк тайралт') < body.indexOf('Үс засалт'), 'Ч before Ү');
+  assert.ok(body.indexOf('Үс засалт') < body.indexOf('үс будалт'), 'uppercase Ү before lowercase ү');
+});
+
+test('ordinal outranks text, because it is the tenant\'s own priority', async () => {
+  // FAQs carry an explicit ordinal. Sorting them by question alone would silently discard
+  // the order the tenant chose, which is a different bug from a nondeterministic one.
+  const r = await compileWith('given');
+  assert.equal(r.ok, true);
+  if (!r.ok) return;
+  const body = r.rendered.promptStable;
+  assert.ok(body.indexOf('Ямар үйлчилгээ байдаг вэ?') < body.indexOf('Ажлын цаг?'),
+    'ordinal 0 (Ямар) must precede ordinal 1 (Ажлын), even though Ажлын sorts first alphabetically');
+});
+
+// ---------------------------------------------------------------------------
 // The whole chain: blocks → sections → prefix → snapshot
 // ---------------------------------------------------------------------------
 

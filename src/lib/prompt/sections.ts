@@ -36,6 +36,7 @@ import { renderStablePrefix, type PromptLayer, type PromptSection, type Rendered
 import { publishRevision, type PublishOutcome } from './publish.ts';
 import { renderTenantSections, type PriceKind, type ServiceVariant, type TenantKb } from './tenant.ts';
 import { isTenantConfirmed, unconfirmedNames } from '../provenance.ts';
+import { byCodePoint } from '../mn/text.ts';
 
 /** Layers the compiler renders. A row with `layer` null is not a prompt section at all —
  *  the data-deletion status strings and the comment reply template live in the same table
@@ -135,20 +136,69 @@ export type TenantKbOutcome =
   | { ok: false; detail: string };
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === null || v === undefined ? '' : String(v));
+const num = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+
+/**
+ * Order rows deterministically IN JAVASCRIPT, by code point, never by the database.
+ *
+ * SQL `order by` sorts under the server's collation, and the two environments do not agree:
+ * CI runs `C.UTF-8` and the Supabase project runs `en_US.UTF-8`. Measured on the same six
+ * Mongolian strings they produce completely different orders (see `byCodePoint`). That
+ * order becomes the line order of the rendered L2/L3 sections, which becomes the prefix,
+ * which becomes `content_hash` — the prompt-cache key.
+ *
+ * Two consequences, the second worse than the first: the prefix CI compiles from a set of
+ * rows is not the one production compiles from the same rows; and glibc collation carries
+ * a version, so an OS-level bump under the database would silently re-order every section
+ * and cold-miss every cached prefix, with no error to notice. Sorting here makes the order
+ * a property of the rows rather than of the machine they were read from.
+ *
+ * Every call passes enough keys to leave no ties to luck: the natural key first, then
+ * whatever else distinguishes two rows. `Array.prototype.sort` is stable, but the input
+ * order is PostgREST's, so stability alone would only preserve a nondeterminism.
+ */
+function ordered<T>(list: readonly T[], ...keys: readonly ((row: T) => string | number)[]): T[] {
+  return [...list].sort((a, b) => {
+    for (const key of keys) {
+      const av = key(a);
+      const bv = key(b);
+      if (typeof av === 'number' && typeof bv === 'number') {
+        if (av !== bv) return av < bv ? -1 : 1;
+      } else {
+        const c = byCodePoint(String(av), String(bv));
+        if (c !== 0) return c;
+      }
+    }
+    return 0;
+  });
+}
 const orNull = (v: unknown): string | null => (v === null || v === undefined || v === '' ? null : String(v));
 const rows = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
 
 /**
  * Every row L2 and L3 are rendered from, for one tenant.
  *
- * ## Every query is explicitly ORDERED, and that is not tidiness
+ * ## Ordering is decided HERE, in JavaScript — not by the database
  *
- * PostgREST returns rows in whatever order the planner produced. An unordered read makes
- * the rendered prefix — and therefore `content_hash`, and therefore the prompt-cache key —
- * differ between two compiles of *identical rows*. The symptom is not an error: it is a
- * cache that never hits, silently, and a bill that roughly triples. That is the same
- * failure `renderStablePrefix` refuses as `ambiguous_order` at the section level, one
- * layer down at the row level, where the renderer cannot see it.
+ * PostgREST returns rows in whatever order the planner produced, and an unordered read
+ * makes the rendered prefix — and therefore `content_hash`, and therefore the prompt-cache
+ * key — differ between two compiles of *identical rows*. The symptom is not an error: it
+ * is a cache that never hits, silently, and a bill that roughly triples. That is
+ * `renderStablePrefix`'s `ambiguous_order` refusal one layer down, where the renderer
+ * cannot see it.
+ *
+ * The queries below still carry `.order()`, but **nothing relies on it**. Ordering the
+ * database performs is collation-dependent, and the two environments disagree: CI runs
+ * `C.UTF-8`, the Supabase project runs `en_US.UTF-8`, and on the same six Mongolian
+ * strings they produce completely different orders (measured 2026-09-05; see
+ * `byCodePoint`). So the prefix CI compiles is not the prefix production compiles from the
+ * same rows — and worse, glibc collation is versioned, so an OS-level bump beneath the
+ * database would re-order every section and cold-miss every warm cache entry with nothing
+ * anywhere going red.
+ *
+ * `ordered()` therefore sorts by code point after loading, making the order a property of
+ * the rows rather than of the server they were read from. The `.order()` calls stay as
+ * documentation of intent and as deterministic pagination if a LIMIT is ever added.
  *
  * ## Every read that fails REFUSES
  *
@@ -207,7 +257,7 @@ export async function loadTenantKb(
 
   const tRow = tenant.data as Record<string, unknown>;
   const byService = new Map<string, ServiceVariant[]>();
-  for (const v of rows(variants.data)) {
+  for (const v of ordered(rows(variants.data), (r) => str(r['variant_key']))) {
     const id = str(v['service_id']);
     const list = byService.get(id) ?? [];
     list.push({
@@ -231,25 +281,35 @@ export async function loadTenantKb(
       // Sorted by key, so two compiles of identical rows produce identical bytes — the
       // two tables are read separately and PostgREST promises nothing about their order
       // relative to each other.
-      refusalTopics: refusalRows
-        .map((r) => ({ key: str(r['topic_key']), question: str(r['decision_question']) }))
-        .filter((t) => t.key !== '')
-        .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)),
+      refusalTopics: ordered(
+        refusalRows
+          .map((r) => ({ key: str(r['topic_key']), question: str(r['decision_question']) }))
+          .filter((t) => t.key !== ''),
+        (t) => t.key,
+      ),
       clarify: [
-        ...rows(disambig.data).map((r) => ({ term: str(r['trigger_term']), question: str(r['question']) })),
-        ...rows(axes.data).map((r) => ({ term: str(r['axis']), question: str(r['verbatim_question']) })),
+        ...ordered(rows(disambig.data), (r) => str(r['trigger_term']), (r) => str(r['question']))
+          .map((r) => ({ term: str(r['trigger_term']), question: str(r['question']) })),
+        // Ordinal first, because it is the tenant's own priority and not a tiebreak.
+        ...ordered(rows(axes.data), (r) => num(r['ordinal']), (r) => str(r['axis']))
+          .map((r) => ({ term: str(r['axis']), question: str(r['verbatim_question']) })),
       ],
-      deposits: rows(deposits.data).map((r) => `${str(r['applies_to'])}: ${str(r['rule_text'])}`),
-      documents: rows(documents.data).map((r) => ({ title: str(r['title']), body: str(r['body']) })),
-      staff: rows(staff.data).map((r) => ({
-        name: str(r['name']), groupName: orNull(r['group_name']), tier: orNull(r['tier']),
-      })),
-      services: rows(services.data).map((r) => ({
+      deposits: ordered(rows(deposits.data), (r) => num(r['ordinal']), (r) => str(r['applies_to']), (r) => str(r['rule_text']))
+        .map((r) => `${str(r['applies_to'])}: ${str(r['rule_text'])}`),
+      documents: ordered(rows(documents.data), (r) => str(r['title']), (r) => str(r['body']))
+        .map((r) => ({ title: str(r['title']), body: str(r['body']) })),
+      staff: ordered(rows(staff.data), (r) => str(r['group_name']), (r) => str(r['name']), (r) => str(r['tier']))
+        .map((r) => ({
+          name: str(r['name']), groupName: orNull(r['group_name']), tier: orNull(r['tier']),
+        })),
+      services: ordered(rows(services.data), (r) => str(r['name']), (r) => str(r['id'])).map((r) => ({
         name: str(r['name']),
         variants: byService.get(str(r['id'])) ?? [],
       })),
-      faqs: faqsKept.map((r) => ({ question: str(r['question']), answer: str(r['answer']) })),
-      contacts: rows(contacts.data).map((r) => ({ kind: str(r['kind']), value: str(r['value']) })),
+      faqs: ordered(faqsKept, (r) => num(r['ordinal']), (r) => str(r['question']), (r) => str(r['answer']))
+        .map((r) => ({ question: str(r['question']), answer: str(r['answer']) })),
+      contacts: ordered(rows(contacts.data), (r) => str(r['kind']), (r) => str(r['value']))
+        .map((r) => ({ kind: str(r['kind']), value: str(r['value']) })),
       bookingUrl: booking.data === null ? null : orNull((booking.data as Record<string, unknown>)['booking_url']),
     },
   };

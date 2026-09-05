@@ -4,7 +4,7 @@
 customer message, and what has to come from you?*
 
 The short version. **Every line of V1's code path exists and is tested.** None of it has
-ever touched Meta, a Supabase project, Anthropic, or QStash. The Meta app **does** exist
+ever touched Meta, Anthropic, or QStash. The Supabase project and the Meta app **do** exist
 (D-023) and holds `pages_messaging` at Advanced Access; the other three do not. The gap is
 not engineering — it is three accounts. **The twenty-day App Review wait is no longer on
 this path at all**: it buys comments, and Reception's DM path makes exactly one Graph call
@@ -14,7 +14,7 @@ under a permission the app already holds.
 
 ## 1. What is built
 
-706 tests, 8 guards, 12 migrations, 63 modules. Every module below is merged on `main`
+714 tests, 8 guards, 13 migrations, 63 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |
@@ -57,7 +57,19 @@ with CI green.
 Three different kinds of evidence, worth keeping apart because they support different
 claims.
 
-**Against a real PostgreSQL 16 (in CI, every run).** `catalog.sql` **25/25**,
+**Against the real Supabase project (PostgreSQL 17.6, 2026-09-05).** Thirteen migrations
+applied through the CLI with a thirteen-row ledger. `catalog.sql` **25/25** there — V25 is
+the twenty-sixth and fails by design until `supabase_admin`'s default ACL is revoked by a
+role that can. Seven direct behavioural probes pass: `anon` refused on `services` and
+`tenants`, `authenticated` refused TRUNCATE, INSERT, `tenant_secrets` and `spend_ledger`,
+no MAINTAIN leak. Cross-tenant isolation confirmed by seeding two tenants inside a
+transaction and returning the results through a deliberate exception so it rolled back:
+a member of A sees 1 of 2 services and 0 of tenant B's rows; a non-member sees 0.
+
+**`anon` holds zero privileges on zero tables; `authenticated` holds SELECT and nothing
+else, on exactly 31 — matching this document's own count of client-readable tables.**
+
+**Against a real PostgreSQL 16 (in CI, every run).** `catalog.sql` **26/26**,
 `isolation.sql` 10/10, `rls.sql` 8/8, plus `secret-roundtrip.ts`: a token sealed by the
 operator's own command, stored in `bytea`, read back in the hex form PostgREST serialises,
 and decrypted through the runtime loader — including the cross-tenant copy attack performed
@@ -117,9 +129,9 @@ claims nobody has earned yet.
 
 | Never proven | Why | What would prove it |
 |---|---|---|
-| **Any PostgREST query** | No Supabase project exists. Every query in `src/` is exercised against a stub, never sent over the wire | A project, `0001`–`0005` applied, one real read |
-| **`isolation.sql` T8/T9 against a real project** | Same. They pass against scratch Postgres, which is a different claim | Same |
-| **Any Meta call, inbound or outbound** | The app, the Page and a working token all exist (D-023) — what is missing is a Supabase project holding the `tenant_channels` row and the sealed secret to read them from. The signature verifier has never seen a real Meta payload; the send has never reached Graph | The Supabase project, one channel row, one sealed token, one message |
+| **Any PostgREST query** | The project exists and carries the schema, but every query in `src/` is still exercised against a stub and has never been sent over the wire. A schema applied to a project is not an application talking to it | The app configured with the project's URL and service key, and one real read |
+| **`isolation.sql` and `rls.sql` against the real project** | Both seed test tenants and depend on `begin … rollback`. The MCP transport commits, and `config_audit` is append-only so a seeded `tenants` row can never be deleted — running them there would leave permanent test tenants. The critical claims were confirmed by direct probe (anon refused everywhere, cross-tenant isolation holds, TRUNCATE/INSERT refused), but the suite files have not run there | `psql -f` against the project; they roll back by design |
+| **Any Meta call, inbound or outbound** | The app, the Page, a working token and now the database all exist — what is missing is a `tenant_channels` row and a sealed secret in it. The signature verifier has never seen a real Meta payload; the send has never reached Graph | One channel row, one sealed token, one message |
 | **The comment reply EDGE** | `POST /{comment-id}/comments` is SEARCH-CORROBORATED with an explicit "re-verify"; one source claims `POST /{comment-id}`. `developers.facebook.com` is blocked from this environment | Ten minutes on Meta's own docs, or the first real attempt. It is one constant, `REPLY_EDGE` |
 | **`pages_read_user_content`** | Required to read customers' comments; was named nowhere in `docs/` until 2026-09-04. Search-corroborated, including that `pages_manage_engagement` *depends* on it — not confirmed against Meta's own permission reference | One look at the App Dashboard's Permissions and Features table, which states each permission's live access level |
 | **The Graph error taxonomy** | Every code in it is from documentation and Chatwoot's handler. Not one has been observed | Production. Record the real codes as they appear |
@@ -127,7 +139,7 @@ claims nobody has earned yet.
 | **QStash redelivery and the crash property** | Unit-tested only. V1.md 1.5 has said so since it was written | A QStash account and a deliberately killed worker |
 | **That the compiled prompt is a GOOD prompt** | The gate and the tenant's L2/L3 both compile now, `allowed_numbers` carries the tenant's real prices, and the marker has content behind it. What no test can tell you is whether the resulting prompt produces good Mongolian replies — that is §6.9's bake-off, and it needs a model key and real traffic | The bake-off, then the 14-day mirror |
 | ~~**The refusal-topic list the MODEL reads**~~ | **Fixed 2026-09-04, and it needed no new column.** «ХОРИОТОЙ СЭДВҮҮД» listed `children_services`, so Ш1's model-side check compared Mongolian customer text against an English identifier — defence in depth doing less than it looked, since the authoritative detection is `gate/match.ts` on `matcher` stems before the model. The fix was to read `decision_question`, which is **NOT NULL on both refusal tables**, is the Mongolian first-line gate §8 designed it to be, and was simply never selected. Rendered as `key: question`, the shape `clarify_axes` already used — the key stays because it is what an operator greps and what the price list names when it withholds a price | Done. What is still unproven is whether it helps, which is the bake-off |
-| **The prompt compiler against a real database** | **The chain is closed**: `prompt/sections.ts` loads blocks → `renderStablePrefix` → `publishRevision`. The twelve signed gate blocks compile into a 9,265-character prefix with a deterministic hash, proven in tests over the real signed bytes. What has never happened is the same compile **through PostgREST against a Supabase project**, and no tenant L2/L3 rows exist to compile alongside it | The project, and a tenant's config rows |
+| **The prompt compiler against a real database** | **The chain is closed** and the blocks are now seeded in the real project by `0010`. What has never happened is the same compile **through PostgREST**, and no tenant L2/L3 rows exist to compile alongside them. Ordering no longer depends on the server's collation (D-026), so a compile there and a compile in CI would at least agree | A tenant's config rows, and the app pointed at the project |
 | **Prompt caching, and therefore the cost model** | D-016's margin rests on measured *ancestor* traffic, not on this system's bill | A month of real invoices |
 | **Meta's data-deletion callback** | The `signed_request` format is SEARCH-CORROBORATED, never seen from Meta. The app exists (D-023) but the callback URL has never been configured in it, so nothing has ever posted here. The response shape (`{url, confirmation_code}`) is standard JSON — several widely-copied implementations emit a JavaScript object literal instead, and one asserts JSON "fails" | The first real callback, or ten minutes on Meta's own docs |
 | **That an erasure request can be FULFILLED** | Meta sends an app-scoped id; every id we hold is page-scoped. Nothing bridges them. A request is recorded, not executed — see §5 | A Business Manager containing the app and the Pages, then the ID Matching API |
@@ -249,7 +261,7 @@ them out of order produces a database error rather than a broken deployment:
 
 | # | Supply | Note |
 |---|---|---|
-| 5 | **Supabase Pro, $25/mo** → a project → apply `0001`–`0005` via the CLI | Then run `scripts/verify/run-all.sh` **against the real project** and paste the output. A migration file in the repo is not a migration applied to a database |
+| ~~5~~ | ~~Supabase Pro → a project → apply the migrations via the CLI~~ | **Done 2026-09-05.** Ref `tlggenaatnopnxzbkbuf`, PG17.6, thirteen migrations through the CLI with a real ledger. `catalog.sql` 25/25 there. Three CI-invisible findings fell out of it — see §2 and D-026. Still owed: `isolation.sql` and `rls.sql` over psql |
 | 6 | **Anthropic API key**, plus a **provider-side spend limit** | The platform's own ceiling is compiled in code; the provider limit is the backstop that does not depend on our correctness |
 | 7 | **QStash**: `QSTASH_TOKEN` + both signing keys | Both, not one. Rotation is the reason there are two |
 | 8 | **Vercel deployment** → `WORKER_PUBLIC_URL` | The worker needs a public URL before QStash can reach it |
