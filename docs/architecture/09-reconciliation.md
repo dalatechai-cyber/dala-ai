@@ -267,6 +267,7 @@ And §8 defines `PLATFORM_MONTHLY_CEILING_USD` as an env var, while §5 states f
 
 **Resolution.**
 - Paths: **`/api/webhooks/meta/[app]`** and **`/api/workers/inbound`** — §8's prefixes (which the middleware matcher excludes as `/api/webhooks/:path*` and `/api/workers/:path*`) with §3's app slug, which the `matched_app_slug` cross-check and the §8 cutover mirror both require.
+  **Shipped 2026-09 as `/api/workers/reception`, not `/api/workers/inbound`** — the load-bearing half of this resolution was the `/api/workers/` prefix the matcher excludes, and that held; the leaf changed because there is now more than one worker behind it (`reception` and `health`). The webhook path shipped exactly as resolved.
 - **`META_APP_SECRETS` is a JSON map** (§3). §8's comma-separated set cannot produce `matched_app_slug`, and §3's `tenant_channels.meta_app_id` vs `matched_app_slug` comparison is what ties authenticity to identity.
 - **`META_VERIFY_TOKENS` is a JSON map** (§3), value `token | token[]` for rotation. §8's "one app, one token" is true today and false the moment `dala-legacy` and staging coexist — which §8's own cutover plan requires.
 - **`TENANT_KEK_V1` / `TENANT_KEK_ACTIVE_VERSION`** (§8's names — they generalise past Meta to the SIP password and any future credential).
@@ -423,6 +424,12 @@ SUPABASE_SECRET_PRIVACY       the data-deletion callback + its status page (§10
                               design AND writes a row
 TENANT_KEK_V1                 32-byte base64. No plaintext fallback, ever.
 TENANT_KEK_ACTIVE_VERSION
+IDENTITY_PEPPER               32 random bytes. `person_identities.value_hash` is a
+                              peppered hash of a PSID, so without it inbound
+                              persistence refuses rather than storing a bare hash.
+                              ADDED 2026-09-05: it was missing from this list while
+                              the build required it, which is the one thing a
+                              canonical list must never be
 META_APP_ID
 META_APP_SECRETS              JSON map {app_slug: secret} — a SET, for rotation,
                               staging, and the dala-legacy cutover app
