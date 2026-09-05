@@ -18,7 +18,7 @@ Built against PostgreSQL 16.13 and verified by **execution**, not by reading:
 |---|---|
 | `supabase/migrations/0001`–`0014` | apply clean in order on an empty database (`scripts/localvalidate/run.sh`) |
 | `scripts/verify/catalog.sql` | **27/27 PASS** on PG16. On the real project V25 fails by design until `supabase_admin`'s default ACL is revoked by a role that can, and V26 until `0014` is pushed |
-| `scripts/verify/isolation.sql` | **10/10 PASS** — behavioural, as superuser |
+| `scripts/verify/isolation.sql` | **14/14 PASS** — behavioural, **as `service_role`**, the role that writes. It must bypass RLS for these checks to mean anything; `T0` fails the run if it stops doing so (D-027) |
 | `scripts/verify/rls.sql` | **8/8 PASS** — behavioural, **as `anon` and `authenticated`** |
 
 ## What every migration after `0001` adds

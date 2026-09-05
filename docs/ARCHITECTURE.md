@@ -38,7 +38,8 @@ design document itself.
 with one answer each. That arbitration is now executed:
 **[`docs/schema.md`](schema.md) + `supabase/migrations/0001_initial_schema.sql`**, 79
 tables, applied to a scratch PostgreSQL 16.13 and verified by execution — `catalog.sql`
-15/15, `isolation.sql` 10/10, both of which raise rather than print. Every section file
+27/27, `isolation.sql` 14/14, both of which raise rather than print (the 15/15 and 10/10
+here were the packs' sizes when this paragraph was written). Every section file
 carries a banner saying its DDL is superseded.
 
 Running it found two things reading it did not: the RLS and grant loops were seeded

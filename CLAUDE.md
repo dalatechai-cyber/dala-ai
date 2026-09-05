@@ -192,10 +192,18 @@ somebody wrote rather than a filename that happened to match.
 **Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
 are the schema; the eight section files carry a banner saying their DDL is superseded.
 Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 27/27,
-`isolation.sql` 10/10, `rls.sql` 8/8. **Also applied to the real project** (PG17.6,
+`isolation.sql` 14/14, `rls.sql` 8/8. **Also applied to the real project** (PG17.6,
 2026-09-05, via the CLI): `catalog.sql` 25/25 there, against the twenty-five checks it then
 carried. Of the two written since, V26 fails there until `0014` is pushed, and V25 until
 `supabase_admin`'s default ACL is revoked by a role that can.
+
+**The two behavioural suites test different roles on purpose, and swapping them breaks
+them** (D-027). `rls.sql` runs as `anon`/`authenticated` and proves the policies bite.
+`isolation.sql` runs as **`service_role`** and proves the constraints bite for the role
+that bypasses those policies — the inbound writer. Its `T0` fails the run unless
+`service_role` bypasses RLS: measured, a non-bypassing role has T1's cross-tenant insert
+refused by the policy (`42501`) before the composite foreign key is reached, so the test
+would pass while the spine went untested.
 
 Before changing it: run `scripts/localvalidate/run.sh`, then all three files in
 `scripts/verify/`. All raise on failure, so a red check fails CI rather than printing.
