@@ -922,3 +922,67 @@ now makes them disagree.
 **Not covered:** ordering performed by PostgREST for anything that does not reach the
 prefix. This decision is about the compiled prompt and its cache key. A list rendered to an
 operator can sort however the database likes.
+
+---
+
+## D-027 — `isolation.sql` runs as `service_role`, and that role MUST bypass RLS
+
+**Settled 2026-09-05, by measurement, after the opposite was proposed.**
+
+The proposal was reasonable and the reasoning behind it was right about a fact: the suite
+connected as `postgres`, and `postgres` on this project holds `rolbypassrls = true`
+(measured — `rolsuper` is false, `rolbypassrls` is true; `service_role` is the same). The
+conclusion drawn from it was that the suite's tenant-separation checks therefore could not
+fail. **They could, and did.** BYPASSRLS disables row-level security and nothing else: not
+foreign keys, not unique indexes, not CHECK constraints, not triggers. Every one of T1–T9
+rests on one of those.
+
+**Running these assertions under a role where RLS is live would have broken them.**
+Measured on PostgreSQL 16.13, with a role holding identical table grants and no BYPASSRLS,
+T1's cross-tenant insert is refused with `42501 new row violates row-level security policy
+for table "service_variants"` — the policy refuses first and the composite foreign key is
+never reached. T1 would have printed PASS while the spine went completely untested. That is
+the "green for the wrong reason" failure this repository keeps finding, and it would have
+been introduced by a change intended to prevent exactly that.
+
+So the suite asserts the opposite of the instinct. `T0` fails the run unless `service_role`
+bypasses RLS **and** RLS is enabled and forced on the five tables involved — because both
+halves have to hold for a refusal below to be the constraint under test rather than a
+policy.
+
+**What was genuinely wrong, and is now fixed.** The suite ran as whoever connected —
+`postgres`, and in CI a superuser. The writer in production is `service_role`. T1's own
+comment claimed the control "still works when the writer is service_role", and nothing
+tested that. Every assertion now runs under `set local role service_role` and re-checks
+`current_user` immediately before the statement it is about, so deleting a role switch
+fails the test instead of silently reverting to the connecting superuser.
+
+**Two new checks, from asking what "the mechanism is live" would have to mean.**
+`session_replication_role = 'replica'` suppresses ORIGIN-enabled triggers, and is the one
+documented way a writer holding INSERT/UPDATE could dodge an append-only guard. T10 asserts
+`service_role` may not set it (`42501` on both PG16.13 and the live PG17.6). T11 asserts
+that a role which *can* set it still cannot rewrite the ledger, because the triggers are
+`ENABLE ALWAYS` rather than plain `ENABLE` — turning `catalog.sql` V9's static flag into
+behaviour. On the live project `postgres` can set the parameter, so T11 ran there rather
+than skipping, and the guard held.
+
+**Mutation found two tests that asserted too little**, both by accepting any
+`check_violation`:
+
+- **T4 named the wrong constraint.** It printed "activation refused without a published
+  config" while the refusal actually came from `active_requires_probe_run` — the test row
+  violated both, and Postgres reports whichever it evaluates first. Dropping
+  `active_requires_published_config` outright left the suite green. It is now T4a and T4b,
+  each setting up the other's precondition so exactly one constraint can fire, and each
+  asserting that constraint by name.
+- **T5 was covered by its neighbour.** `unpriced_variant_names_its_refusal` fires on the
+  same row, so dropping `unpriced_carries_no_number` left it green.
+
+Every refusal now reads `CONSTRAINT_NAME` out of `GET STACKED DIAGNOSTICS` and asserts it.
+Thirteen mutations, thirteen caught.
+
+**`rls.sql` is unchanged and stays the other half.** It runs as `anon` and `authenticated`
+and proves the policies bite; `isolation.sql` proves the constraints bite for the role that
+bypasses those policies. Neither is a substitute for the other, and the reason the split
+exists is written at the top of both files so the next reader does not have to rediscover
+it.
