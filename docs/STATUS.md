@@ -85,6 +85,29 @@ resolve statically listed by file and line rather than skipped. Proven by mutati
 misspelled select column, a table that does not exist, and a bad insert key are each
 caught. This is the check that would have found a `.select('naem')` before PostgREST did.
 
+**The documents, checked against their sources (2026-09-05).** Every countable claim in
+this file, `CLAUDE.md`, `schema.md`, `V1.md`, `ARCHITECTURE.md`, `README.md`, `ROADMAP.md`,
+`prompt/README.md` and `.claude/agents/reviewer.md` was re-derived from the thing it
+describes rather than from another document. **Five had drifted**, all in one direction —
+true when written, overtaken by the build:
+
+- the live project's migration count: thirteen → **twelve**, read off its own ledger
+- the `app`/`ops` function count: 11 → **13**, since `0012` added two
+- `.claude/agents/reviewer.md` still said Postgres grants **seven** privileges. An agent
+  told seven will enumerate seven and report a clean ACL
+- **`IDENTITY_PEPPER` was missing** from `09-reconciliation.md`'s canonical env list, which
+  is the list CLAUDE.md sends you to
+- **seven files** still asserted "no Supabase project exists", including a V1 row calling
+  `isolation.sql` T8/T9 against it *impossible*
+
+Correct, and re-measured rather than assumed: 714 tests, 9 guards, 14 migrations, 63
+modules, 79 tables, 31 client-readable tables, 21 signed blocks, a 9,265-character gate
+prefix, 27 catalog checks, every relative Markdown link, and every `D-nnn` reference.
+
+**The method is the finding.** A claim checked against another document is not checked —
+`schema.md` had the migration count right and two other files had it wrong, and reading any
+one of the three would have felt like verification.
+
 **Supabase's own database linter, run against the project 2026-09-05.** Six security
 warnings, of which four are fixed and two are deliberately left:
 
