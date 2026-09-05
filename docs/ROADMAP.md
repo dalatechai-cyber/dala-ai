@@ -19,7 +19,7 @@ it is in service of one falsifiable claim: onboarding client #3 is filling in a 
 
 | | Why it is first |
 |---|---|
-| ~~Merge `09-reconciliation.md` into one `schema.md` + `0001_*.sql`~~ **DONE 2026-08-31** — 79 tables, verified by execution (catalog 18/18, isolation 10/10, rls 8/8). Never applied to a real project. | Until it existed there was no schema, only eight incompatible proposals (D-013) |
+| ~~Merge `09-reconciliation.md` into one `schema.md` + `0001_*.sql`~~ **DONE 2026-08-31** — 79 tables, verified by execution (catalog 18/18, isolation 10/10, rls 8/8, the figures of the day — the pack is 27/27 now). Not applied to a real project **then**; `0001`–`0012` were applied to `tlggenaatnopnxzbkbuf` on 2026-09-05. | Until it existed there was no schema, only eight incompatible proposals (D-013) |
 | ~~`count_tokens` + the bake-off~~ **DONE 2026-08-31** — two rounds, native-speaker reviewed. Sonnet 5 ships; no Haiku for customer-facing Mongolian prose (D-009). ~~Margin 29% vs 60% target~~ — **measured 71% at real traffic (D-016)**, clearing the target; `docs/prefix-trim.md` is reprioritised from margin rescue to multi-tenant scaling. | Settles D-009, which every ceiling depends on |
 | KEK escrow; a second admin on Meta, Supabase, GitHub, the registrar | Losing either is unrecoverable, and it is 30 minutes |
 | ~~Write the V1 cut line~~ **DONE 2026-08-31**, [`docs/V1.md`](V1.md) — revised 2026-09-01 once D-009 closed | Everything in the design is justified, so nothing is obviously cuttable — which is how four months pass with no customer message flowing |

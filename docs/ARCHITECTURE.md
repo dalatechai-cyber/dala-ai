@@ -799,8 +799,14 @@ counts; the FX rate; conversation volumes; whether `matrixecosalon.org` preserve
 parameter; whether Anthropic supports per-workspace spend limits; and every Mongolian
 string, which needs native-speaker review before it ships.
 
-**Nothing here has been built or run against a live system.** No Supabase project exists, no
-Meta app is configured, no code has been written.
+**This paragraph is superseded and kept only so the correction is visible.** It said
+nothing here had been built and that no Supabase project, Meta app or code existed. All
+three are now wrong: V1's code path is written and tested, the Meta app `dalatech` holds
+`pages_messaging` at Advanced Access (D-023), and the Supabase project
+`tlggenaatnopnxzbkbuf` carries migrations `0001`–`0012`. What remains true is the shape of
+the caveat: **nothing here has run against a live system end to end** — no Meta call, no
+Anthropic call, no QStash delivery, no PostgREST query. See
+[`docs/STATUS.md`](STATUS.md), which is kept current and this document is not.
 
 ---
 

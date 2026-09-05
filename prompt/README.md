@@ -77,8 +77,9 @@ result into `config_snapshots`. The twelve L0 blocks compile into a 9,265-charac
 
 Two things a signature still cannot cover:
 
-- **The compile has never run through PostgREST**, because no Supabase project exists.
-  Every query here is exercised against a stub.
+- **The compile has never run through PostgREST.** The Supabase project exists now, so
+  that is no longer the reason: every query here is still exercised against a stub, and
+  nothing in `src/` has yet spoken to the project over the wire.
 - **A gate-only prompt is not a working prompt.** `01_data_marker` declares that everything
   below the «=== ТУХАЙН БАЙГУУЛЛАГЫН МЭДЭЭЛЭЛ ===» marker is reference data, and nothing
   renders that marker yet — it comes with the tenant L2/L3 sections, which no code writes.
