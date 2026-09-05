@@ -93,10 +93,34 @@ const HINTS: Record<string, (v: string) => Verdict> = {
       ? { ok: true, note: v }
       : { ok: false, why: 'expected a Graph version such as v21.0' },
 
-  WORKER_PUBLIC_URL: (v) =>
-    v.startsWith('https://') && v.includes('/api/workers/reception')
-      ? { ok: true, note: 'https, and points at the worker route' }
-      : { ok: false, why: 'expected https://<host>/api/workers/reception — QStash must be able to reach it' },
+  // An ORIGIN, with no path. `queue/qstash.ts` builds
+  // `${WORKER_PUBLIC_URL}/api/workers/reception`, and STATUS §5 item 8b builds
+  // `${WORKER_PUBLIC_URL}/api/workers/health` for the silence watchdog, so the path is
+  // appended here and must not already be in the value.
+  //
+  // This rule used to REQUIRE `/api/workers/reception` in the value, which is the exact
+  // opposite. Both halves were wrong and they hid each other: a correct origin was
+  // reported BAD, and a value that satisfied the check made QStash post to
+  // `…/api/workers/reception/api/workers/reception` — a 404 on every job, with the
+  // enqueue succeeding and nothing to see. Found 2026-09-05 by reading the two together;
+  // the test asserted the wrong contract too, so the suite was green.
+  WORKER_PUBLIC_URL: (v) => {
+    let url: URL;
+    try {
+      url = new URL(v);
+    } catch {
+      return { ok: false, why: 'not a URL — expected the deployment origin, e.g. https://api.dalatech.online' };
+    }
+    if (url.protocol !== 'https:') return { ok: false, why: 'must be https — QStash will not call http' };
+    if (url.pathname !== '/' || url.search !== '' || url.hash !== '') {
+      return {
+        ok: false,
+        why: 'origin only, with no path. The worker path is appended by queue/qstash.ts, so a path '
+          + 'here is sent twice and QStash posts to a 404 while the enqueue reports success',
+      };
+    }
+    return { ok: true, note: `${url.origin} — worker ${url.origin}/api/workers/reception` };
+  },
 
   TELEGRAM_ALERT_CHAT_ID: (v) =>
     /^-?\d+$/.test(v) // ascii-safe: a Telegram numeric chat id

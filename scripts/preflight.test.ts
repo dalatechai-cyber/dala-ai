@@ -27,7 +27,7 @@ const COMPLETE: Record<string, string> = {
   NEXT_PUBLIC_SUPABASE_URL: 'https://abcdefghijklm.supabase.co',
   TENANT_KEK_ACTIVE_VERSION: 'v1',
   META_GRAPH_VERSION: 'v21.0',
-  WORKER_PUBLIC_URL: 'https://dala.example.com/api/workers/reception',
+  WORKER_PUBLIC_URL: 'https://dala.example.com',
   TELEGRAM_ALERT_CHAT_ID: '-1001234567890',
   DALA_PUBLIC_URL: 'https://dala.example.com',
   ...SECRETS,
@@ -96,7 +96,10 @@ test('a malformed value fails with a reason, not just a flag', () => {
     ['DALA_ENV', 'prod', /production \| staging \| preview/],
     ['SUPABASE_SECRET_WORKER', 'sb_publishable_oops', /publishable key here would fail every write/],
     ['IDENTITY_PEPPER', 'short', /at least 32 random ones/],
-    ['WORKER_PUBLIC_URL', 'https://dala.example.com/', /api\/workers\/reception/],
+    // The value that USED to be the fixture: a path here is appended to, not used as-is.
+    ['WORKER_PUBLIC_URL', 'https://dala.example.com/api/workers/reception', /origin only, with no path/],
+    ['WORKER_PUBLIC_URL', 'http://dala.example.com', /must be https/],
+    ['WORKER_PUBLIC_URL', 'dala.example.com', /not a URL/],
   ];
   for (const [name, bad, expected] of cases) {
     const { status, out } = preflight({ ...COMPLETE, [name]: bad });

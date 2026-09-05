@@ -167,6 +167,24 @@ migration exists that the document does not name — it was five behind when the
 written, including `0011`, which adds a NOT NULL column with no default to five tables, so
 following the document produced INSERTs the database refuses.
 
+**The Vercel production build runs `scripts/preflight.ts` before `next build`**
+(`vercel.json`). A missing or malformed variable fails the deploy instead of shipping a
+deployment that 500s at the first customer message, and preflight never prints a value, so
+the build log stays safe to paste. It is gated on `VERCEL_ENV = production`: preview
+deployments are protected and serve nobody, and failing every PR build on Preview-scoped
+variables that were never set would train the eye to ignore a red build. CI is untouched —
+the workflow calls `npx next build` directly rather than through the package script.
+
+**A check that gates has to be right, and this one was not.** When it was wired into the
+build it still demanded that `WORKER_PUBLIC_URL` *contain* `/api/workers/reception`, while
+`queue/qstash.ts` appends that path itself. So the correct value — an origin — was reported
+BAD, and any value that satisfied the rule made QStash post to
+`…/api/workers/reception/api/workers/reception`: a 404 on every job, with the enqueue
+returning success and nothing to see. `preflight.test.ts` asserted the same wrong contract,
+so the suite was green on both halves. Both are fixed. The lesson is the one this repository
+keeps relearning: a rule and the code it describes have to be read *together*, because each
+one alone reads as correct.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale
