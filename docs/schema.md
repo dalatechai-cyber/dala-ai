@@ -54,7 +54,9 @@ bypasses RLS unconditionally. Only `set role` proves a policy *bites*. It found 
 bugs the other two could not — see below.
 
 **Applied to the real project 2026-09-05** (`tlggenaatnopnxzbkbuf`, PostgreSQL 17.6, via
-the CLI with a 12-row ledger). `catalog.sql` returns **25/25** there.
+the CLI with a 12-row ledger). `catalog.sql` returned **25/25** there — every check the file
+carried at the time. It carries 27 now: `0013` and `0014` were written after that push and
+have not reached the project, so V25 and V26 fail there until they do.
 
 The PG17 reasoning above is now a measurement rather than an argument. Postgres grants an
 eighth privilege on 17, `MAINTAIN`, and Supabase's bootstrap default ACL grants it to
