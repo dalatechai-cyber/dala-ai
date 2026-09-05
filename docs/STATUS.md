@@ -14,7 +14,7 @@ under a permission the app already holds.
 
 ## 1. What is built
 
-714 tests, 8 guards, 13 migrations, 63 modules. Every module below is merged on `main`
+714 tests, 9 guards, 13 migrations, 63 modules. Every module below is merged on `main`
 with CI green.
 
 | | Module | State |

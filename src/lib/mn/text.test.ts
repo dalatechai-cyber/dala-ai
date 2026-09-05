@@ -168,6 +168,7 @@ test('DONE-TEST: sorting is by code point, matching neither database collation b
 
 test('and it disagrees with localeCompare, which is why localeCompare is not used', () => {
   // If these agreed, the test above would prove nothing about locale-independence.
+  // guard-ok:locale — this is the comparison being ruled out, so it must be named here.
   const byLocale = [...MEASURED].sort((a, b) => a.localeCompare(b));
   assert.notDeepEqual([...MEASURED].sort(byCodePoint), byLocale);
 });

@@ -162,6 +162,13 @@ migration exists that the document does not name — it was five behind when the
 written, including `0011`, which adds a NOT NULL column with no default to five tables, so
 following the document produced INSERTs the database refuses.
 
+And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
+call anywhere in `src/`. Ordering that can reach the compiled prompt decides
+`content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale
+any more than on the database's collation (D-026). Exemptions are written as
+`guard-ok:locale` on the line or the one above, so an exemption is always a sentence
+somebody wrote rather than a filename that happened to match.
+
 ## Where things are
 
 | | |

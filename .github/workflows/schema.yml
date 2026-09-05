@@ -69,7 +69,7 @@ jobs:
       - name: Install app dependencies
         run: npm ci
 
-      - name: Guards (all eight — see package.json `guard`)
+      - name: Guards (all nine — see package.json `guard`)
         run: npm run guard
 
       - name: Typecheck
