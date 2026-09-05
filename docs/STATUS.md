@@ -1,11 +1,12 @@
 # STATUS — what is built, what is stubbed, what has never been proven
 
-**2026-09-04.** Written to answer one question honestly: *how far is this from a real
-customer message, and what has to come from you?*
+**2026-09-04, last revised 2026-09-05.** Written to answer one question honestly:
+*how far is this from a real customer message, and what has to come from you?*
 
 The short version. **Every line of V1's code path exists and is tested.** None of it has
-ever touched Meta, Anthropic, or QStash. The Supabase project and the Meta app **do** exist
-(D-023) and holds `pages_messaging` at Advanced Access; the other three do not. The gap is
+ever touched Meta, Anthropic, or QStash. The Supabase project and the Meta app both **do**
+exist — the app holds `pages_messaging` at Advanced Access (D-023), and the project carries
+the schema — but **Anthropic, QStash and the Vercel deployment do not**. The gap is
 not engineering — it is three accounts. **The twenty-day App Review wait is no longer on
 this path at all**: it buys comments, and Reception's DM path makes exactly one Graph call
 under a permission the app already holds.
@@ -15,7 +16,8 @@ under a permission the app already holds.
 ## 1. What is built
 
 714 tests, 9 guards, 14 migrations, 63 modules. Every module below is merged on `main`
-with CI green.
+with CI green. **Fourteen migrations is the repository's count; the project holds twelve** —
+`0013` and `0014` were written after the push and have not reached it (§2, §5 item 5b).
 
 | | Module | State |
 |---|---|---|
@@ -57,11 +59,17 @@ with CI green.
 Three different kinds of evidence, worth keeping apart because they support different
 claims.
 
-**Against the real Supabase project (PostgreSQL 17.6, 2026-09-05).** Thirteen migrations
-applied through the CLI with a thirteen-row ledger. `catalog.sql` **25/25** there — V25 is
-the twenty-sixth and fails by design until `supabase_admin`'s default ACL is revoked by a
-role that can. Seven direct behavioural probes pass: `anon` refused on `services` and
-`tenants`, `authenticated` refused TRUNCATE, INSERT, `tenant_secrets` and `spend_ledger`,
+**Against the real Supabase project (PostgreSQL 17.6, 2026-09-05).** **Twelve** migrations,
+`0001`–`0012`, applied through the CLI with a twelve-row ledger. That count is the
+project's own ledger read back, not the repository's file count, and the two now differ:
+`0013` and `0014` were written after the push and have not reached the project.
+`catalog.sql` was **25/25** there — all twenty-five checks the file carried when it ran
+(V0–V24). It carries twenty-seven now, and both of the newer ones fail against the project
+by design: V26 until `0014` is pushed, V25 until `supabase_admin`'s default ACL is revoked
+by a role that can, which is the one thing `0013` cannot do for itself.
+
+Seven direct behavioural probes pass there: `anon` refused on `services` and `tenants`,
+`authenticated` refused TRUNCATE, INSERT, `tenant_secrets` and `spend_ledger`, and
 no MAINTAIN leak. Cross-tenant isolation confirmed by seeding two tenants inside a
 transaction and returning the results through a deliberate exception so it rolled back:
 a member of A sees 1 of 2 services and 0 of tenant B's rows; a non-member sees 0.
@@ -130,11 +138,11 @@ is not vacuous. Eleven checks in all: the last is the scheduled health worker re
 unsigned call, which is the branch that must never be open — anything able to trigger a run
 is able to trigger the alerts it raises.
 
-**Against stubs (everything else).** 706 unit tests. In CI one of them — the
-ancestor-dependent bake-off fixture check — reports itself SKIPPED, because `Matrix-Chatbot`
-is private and CI cannot clone it, so CI's pass count is one lower than the local one. That
-skip is deliberate and says so in its own reason string; it is named here so a count that
-does not match is investigated rather than shrugged at.
+**Against stubs (everything else).** 714 unit tests, of which 713 pass in CI. The one
+that does not — the ancestor-dependent bake-off fixture check — reports itself SKIPPED,
+because `Matrix-Chatbot` is private and CI cannot clone it, so CI's pass count is one lower
+than the local 714. That skip is deliberate and says so in its own reason string; it is
+named here so a count that does not match is investigated rather than shrugged at.
 
 Load-bearing properties were checked **by mutation** — the code was deliberately broken and
 the tests were watched to fail — for the AAD binding, KEK version selection, the `me`
@@ -295,7 +303,8 @@ them out of order produces a database error rather than a broken deployment:
 
 | # | Supply | Note |
 |---|---|---|
-| ~~5~~ | ~~Supabase Pro → a project → apply the migrations via the CLI~~ | **Done 2026-09-05.** Ref `tlggenaatnopnxzbkbuf`, PG17.6, thirteen migrations through the CLI with a real ledger. `catalog.sql` 25/25 there. Three CI-invisible findings fell out of it — see §2 and D-026. Still owed: `isolation.sql` and `rls.sql` over psql |
+| ~~5~~ | ~~Supabase Pro → a project → apply the migrations via the CLI~~ | **Done 2026-09-05.** Ref `tlggenaatnopnxzbkbuf`, PG17.6, twelve migrations (`0001`–`0012`) through the CLI with a real ledger. `catalog.sql` 25/25 there, against the twenty-five checks it then carried. Three CI-invisible findings fell out of it — see §2 and D-026 |
+| 5b | **`supabase db push`** for `0013` and `0014`, then `psql -f` for `isolation.sql` and `rls.sql` | Both migrations are merged on `main` and neither has reached the project, so `catalog.sql` there is 25 of 27. `0014` pins `search_path` on the four `ops` trigger functions and needs nothing else. `0013` tries the `supabase_admin` default-ACL revoke and **warns rather than fails** when it cannot — so after the push, check V25: if it still reports a grantor, the revoke has to come from a role that can, and only you can run that. The two suites roll back by design; they need psql rather than the MCP transport, which commits |
 | 6 | **Anthropic API key**, plus a **provider-side spend limit** | The platform's own ceiling is compiled in code; the provider limit is the backstop that does not depend on our correctness |
 | 7 | **QStash**: `QSTASH_TOKEN` + both signing keys | Both, not one. Rotation is the reason there are two |
 | 8 | **Vercel deployment** → `WORKER_PUBLIC_URL` | The worker needs a public URL before QStash can reach it |

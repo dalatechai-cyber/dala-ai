@@ -37,8 +37,11 @@ Advanced Access. App Review is now a *comments-only* concern (D-023), and it no 
 on the critical path to a first real message.
 
 **The Supabase project EXISTS as of 2026-09-05** — ref `tlggenaatnopnxzbkbuf`, PostgreSQL
-17.6, ap-southeast-1. All thirteen migrations are applied through the CLI with a real
-thirteen-row ledger (D-012), and `catalog.sql` returns 25/25 against it.
+17.6, ap-southeast-1. Migrations `0001`–`0012` are applied through the CLI with a real
+**twelve**-row ledger (D-012), and `catalog.sql` returned 25/25 against it — all twenty-five
+checks the file carried at the time. **The repository now has fourteen migrations and the
+project still has twelve:** `0013` and `0014` were written after that push. Read the count
+off `supabase_migrations.schema_migrations`, never off `ls supabase/migrations/`.
 
 **Running it there immediately found three things CI structurally could not**, which is the
 argument for having bought it, and the reason to distrust "verified in CI" as a synonym for
@@ -186,9 +189,10 @@ somebody wrote rather than a filename that happened to match.
 
 **Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
 are the schema; the eight section files carry a banner saying their DDL is superseded.
-Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 26/26,
+Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 27/27,
 `isolation.sql` 10/10, `rls.sql` 8/8. **Also applied to the real project** (PG17.6,
-2026-09-05, via the CLI): `catalog.sql` 25/25 there, with V25 failing by design until
+2026-09-05, via the CLI): `catalog.sql` 25/25 there, against the twenty-five checks it then
+carried. Of the two written since, V26 fails there until `0014` is pushed, and V25 until
 `supabase_admin`'s default ACL is revoked by a role that can.
 
 Before changing it: run `scripts/localvalidate/run.sh`, then all three files in
