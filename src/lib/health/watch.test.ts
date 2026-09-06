@@ -68,6 +68,7 @@ test('DONE-TEST: HEALTHY IS WRITTEN TOO — "checked and fine" must differ from 
   await runSilenceWatch(db, { now: NOW });
   const health = writes.find((w) => w.table === 'channel_health');
   assert.equal(health?.patch['healthy'], true);
+  assert.equal(health?.patch['state'], 'healthy');
   assert.equal(health?.patch['observed_at'], NOW.toISOString());
 });
 
@@ -128,6 +129,10 @@ test('DONE-TEST: A PROVISIONING GAP IS RECORDED AND RAISES NOTHING', async () =>
   const health = writes.find((w) => w.table === 'channel_health');
   assert.equal(health?.patch['healthy'], false);
   assert.match(String(health?.patch['reason']), /business_hours/);
+  // 0017: the verdict itself, so a reader can tell an unfinished form from a dead token
+  // without parsing an alert sentence. The boolean alone would put this row and a revoked
+  // token in the same bucket.
+  assert.equal(health?.patch['state'], 'not_provisioned');
   assert.equal(writes.some((w) => w.table === 'alerts'), false, 'a provisioning gap must not alert');
 });
 

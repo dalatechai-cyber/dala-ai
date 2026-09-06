@@ -587,6 +587,34 @@ insert into _v select 'V27', 'public spend RPCs exist and only service_role may 
        and a.grantee::regrole::text in ('anon','authenticated','public','-')
   ) bad;
 
+-- V28 — `channel_health` can tell a provisioning gap from an outage (0017, D-032).
+--
+-- The watchdog's five verdicts used to reach this table as one boolean plus prose, so the
+-- first query anyone writes against it — "how many channels are unhealthy?" — would have
+-- counted a tenant whose opening hours are not entered yet as an outage. That is the same
+-- conflation D-032 removed from the alert, waiting one layer down for a dashboard.
+--
+-- The second half asserts the constraint, not just the column. `healthy` and `state` are
+-- two spellings of one fact and the CHECK is what stops them drifting; a column present
+-- with the constraint missing is the state where a future writer can put `healthy = true`
+-- next to `state = 'no_webhooks'` and nothing objects.
+insert into _v select 'V28', 'channel_health.state exists and cannot disagree with healthy',
+  coalesce(string_agg(detail, '; ' order by detail), 'column present, tied to healthy'),
+  count(*) = 0
+  from (
+    select 'missing column: channel_health.state' as detail
+     where not exists (
+       select 1 from pg_attribute a
+        where a.attrelid = 'channel_health'::regclass and a.attname = 'state'
+          and a.attnum > 0 and not a.attisdropped)
+    union all
+    select 'missing constraint: channel_health_state_matches_healthy'
+     where not exists (
+       select 1 from pg_constraint c
+        where c.conrelid = 'channel_health'::regclass and c.contype = 'c'
+          and c.conname = 'channel_health_state_matches_healthy')
+  ) bad;
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;

@@ -200,10 +200,11 @@ function lookbackDate(now: Date): string {
  * founder is currently using to decide whether the alerting can be trusted. The row still
  * carries the reason, so the gap is visible to anyone who looks; it just does not page.
  *
- * `healthy` stays false for it, because it is not a channel proven to be working. Nothing
- * reads that column today. The first thing that does must branch on the state in `reason`,
- * or it will re-make in a dashboard the exact conflation this function stopped making in
- * the alert.
+ * `healthy` stays false for it, because it is not a channel proven to be working — and the
+ * row carries `state` alongside it (0017) so a reader can tell an unfinished form from a
+ * dead token without parsing the prose in `reason`. Storing only the boolean would have
+ * left the conflation this function stopped making in the alert waiting one layer down for
+ * the first dashboard to ask how many channels are unhealthy.
  */
 async function record(
   db: SupabaseClient,
@@ -217,6 +218,8 @@ async function record(
     tenant_id: input.tenantId,
     channel_id: input.channelId,
     healthy,
+    // Both, because they are two spellings of one fact and a CHECK holds them together.
+    state: input.diagnosis.state,
     reason: input.diagnosis.reason,
     observed_at: input.now.toISOString(),
   }, { onConflict: 'tenant_id,channel_id' });

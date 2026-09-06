@@ -72,15 +72,17 @@ pushed 2026-09-06, read back off `supabase_migrations.schema_migrations` rather 
 Three different kinds of evidence, worth keeping apart because they support different
 claims.
 
-**Against the real Supabase project (PostgreSQL 17.6, 2026-09-05).** **Twelve** migrations,
-`0001`–`0012`, applied through the CLI with a twelve-row ledger. That count is the
-project's own ledger read back, not the repository's file count, and the two now differ:
-`0013` and `0014` were written after the push and reached the project on 2026-09-06.
-`catalog.sql` was **25/25** there — all twenty-five checks the file carried when it ran
-(V0–V24). It carries **twenty-eight** now: V26 passes there since `0014` landed, **V25
+**Against the real Supabase project (PostgreSQL 17.6, 2026-09-05).** **Fifteen** migrations,
+`0001`–`0015`, applied through the CLI with a **fifteen**-row ledger (read back
+2026-09-06: 15 rows, newest `0015`). That count is the project's own ledger, not the
+repository's file count, and the two differ by two: `0016` and `0017` are written and not
+yet pushed. `catalog.sql` was **25/25** there — all twenty-five checks the file carried
+when it ran (V0–V24). It carries **twenty-nine** now, and three of the four written since
+have been settled against the project: **V26 passes** since `0014` landed, **V27 passes**
+since `0015` (both wrappers in `public`, ACLs `postgres` and `service_role` only), **V25
 still fails** by design until `supabase_admin`'s default ACL is revoked by a role that can
-(re-measured 2026-09-06, still present), and **V27 fails until `0015` is pushed** — it is
-the check that asserts the two spend RPCs exist on the schema PostgREST actually serves.
+(re-measured 2026-09-06, still present), and **V28 fails until `0017` is pushed** — it is
+the check that asserts `channel_health` can tell a provisioning gap from an outage.
 
 Seven direct behavioural probes pass there: `anon` refused on `services` and `tenants`,
 `authenticated` refused TRUNCATE, INSERT, `tenant_secrets` and `spend_ledger`, and
@@ -148,7 +150,7 @@ optimising a query plan nobody has run. Revisit after the 14-day mirror gives re
 and real `pg_stat` counters — several of the flagged composite FKs already have their
 leading column covered by a unique constraint, which the linter does not account for.
 
-**Against a real PostgreSQL 16 (in CI, every run).** `catalog.sql` **28/28**,
+**Against a real PostgreSQL 16 (in CI, every run).** `catalog.sql` **29/29**,
 `isolation.sql` **14/14**, `rls.sql` 8/8, plus `secret-roundtrip.ts`: a token sealed by the
 operator's own command, stored in `bytea`, read back in the hex form PostgREST serialises,
 and decrypted through the runtime loader — including the cross-tenant copy attack performed
@@ -383,7 +385,7 @@ have hit a login wall.
 | # | Supply | Without it |
 |---|---|---|
 | ~~5d~~ | ~~`supabase db push` for `0015`~~ | **Pushed and verified 2026-09-06.** Both wrappers exist in `public`, `reserve_spend` returns boolean, `settle_spend` returns void, ACLs are `postgres` and `service_role` only |
-| **5e** | **`supabase db push` for `0016`** | `release()` gives no budget back, and a reservation that refuses at the platform counter still charges the tenant's day (D-031). Additive: three functions and their wrappers, no data touched |
+| **5e** | **`supabase db push` for `0016` and `0017`** | **Both are already depended on by the merged code.** Without `0016` every reply refuses again — `spend/reserve.ts` now calls `reserve_spend_all`, which the project does not have (D-031) — and without `0017` the watchdog's `channel_health` upsert names a column that does not exist, so health stops being recorded (logged, not alerted). Both additive: three functions plus wrappers, one nullable column plus one CHECK. No data touched |
 | ~~8b~~ | ~~One QStash schedule → `/api/workers/health`~~ | **Created and FIRING 2026-09-06, hourly.** Both alerts stamped 03:00:07/03:00:12 UTC and delivered; event `id 1` retired as `expired_unqueued`; `channel_health` upserted every run since (17:00:00 UTC at last read). One alert real, one a false alarm now fixed as a class (D-032) |
 
 ### Then tenant #0's rows — this is the whole remaining path to a reply
