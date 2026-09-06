@@ -460,29 +460,32 @@ Step 16 is the one worth not rushing. During the mirror both this system and
 `Matrix-Chatbot` are answering the same Page, and `shadow` is what stops the salon's
 customers getting two replies — the code enforces it, but only if the row says `shadow`.
 
-By what route both systems see the traffic is an open question. **[UNVERIFIED, and the citation was wrong.]** This document said "§3.10.5 establishes that
-Meta delivers the identical event to *every* subscribed app". §3.10.5 is *Back off the
-tenant, not the worker* and is about rate-limit backoff; it establishes nothing of the
-kind. The claim was never verified by anyone and had propagated into `STATUS.md`,
-`channel/delivery.ts` and two test comments as settled fact.
+By what route both systems see the traffic is an open question. **[UNVERIFIED, the citation was wrong, and the first correction was wrong too.]** This
+document said "§3.10.5 establishes that Meta delivers the identical event to *every*
+subscribed app". §3.10.5 is *Back off the tenant, not the worker* and is about rate-limit
+backoff. The correction then said there was only one Meta app, so no second subscriber was
+possible — also wrong, and instructively so: `tenant_channels.app_slug` for tenant #0 reads
+`dalatech` while that Page actually lives on a second app (D-041), so the database said one
+app and the console said two.
 
-Two things now bear on it, and both point the other way. The founder confirmed on
-2026-09-06 that `Matrix-Chatbot` runs on **the same `dalatech` app** — and one app has one
-callback URL, so on this deployment there is no second subscriber to fan out to. And §3.7
-records that a non-primary receiver gets `entry.standby` rather than `entry.messaging`,
-which `worker/reception.ts` refuses terminally and alerts on; so even two apps would not
-produce two `messaging` deliveries. D-023's own open list already asked which app holds
-Matrix's subscription and said the answer "decides whether the mirror phase is a
-subscription change or a second subscription" — it is neither. The likely shape is that the
-incumbent **forwards** each delivery, which is why `webhook_events.source` is written now
-(D-039).
+The facts, read from the App Dashboard on 2026-09-06:
 
-**What would settle it**, none of which any session here can do (`developers.facebook.com`
-is blocked by the egress proxy): `GET /{page-id}/subscribed_apps` with a Page token lists
-the apps actually subscribed to the Page; the App Dashboard's Webhooks page shows the one
-callback URL per app; and the standby half is settled by subscribing a second app and
-reading which array one real message lands in — which §3.15 already lists as needing
-verification.
+| app | App ID | holds |
+|---|---|---|
+| `dalatech` | 1380702870025418 | Matrix's Page 1520409424715591; the ancestor's callback at `matrix-chatbot-seven.vercel.app/api/messenger` |
+| `DALA_AI` | 1562862634970492 | tenant #0's Page 863503883522801; this platform's callback |
+
+So **a second subscription is available** — Matrix's Page can be subscribed to `DALA_AI`
+alongside `dalatech`, which is the answer to D-023's open question. What remains unverified
+is whether both apps then receive `entry.messaging`. §3.7 holds that a non-primary receiver
+gets `entry.standby` instead, and `worker/reception.ts` refuses those terminally and
+alerts — so if §3.7 is right, a second subscription produces a mirror that generates
+nothing and pages the founder every day.
+
+**What would settle it**, and §3.15 already asks for exactly this: subscribe Matrix's Page
+to `DALA_AI`, send one real message, and read which array it arrives in. That is a live
+test on a live Page, so it is the founder's to run. `webhook_events.source` (D-039) is
+there for the other outcome, where the incumbent forwarding is the only route.
 
 
 ---

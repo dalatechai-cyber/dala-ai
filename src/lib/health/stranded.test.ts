@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sweepStrandedEvents, SWEEP_LIMIT, RETRY_GRACE_MINUTES } from './stranded.ts';
-import { neverReachedQueue, UNQUEUED_STATES } from '../webhook/events.ts';
+import { sweepStrandedEvents, SWEEP_LIMIT, RETRY_GRACE_MINUTES, QUEUED_GRACE_MINUTES } from './stranded.ts';
+import { neverReachedQueue, QUEUED_STATES, UNQUEUED_STATES } from '../webhook/events.ts';
 import { DEFAULT_REPLY_AGE_LIMIT_MINUTES } from '../worker/freshness.ts';
 import type { EnqueueResult } from '../queue/qstash.ts';
 
@@ -234,17 +234,108 @@ test('an unparseable received_at is expired, never silently skipped', async () =
   assert.match(String(r.swept[0]?.ageMinutes), /-1/);
 });
 
-test('the query asks for exactly the states neverReachedQueue accepts', async () => {
-  // The sweep and the redelivery check are two halves of one definition. A state added to
-  // one and not the other is a class of event that nothing ever picks up.
+test('DONE-TEST: the query sweeps BOTH classes, and only one of them re-drives a redelivery', async () => {
+  // The sweep and the redelivery check are two halves of one definition, and a state in
+  // one and not the other is a class of event nothing picks up — which is exactly how
+  // `pending_enqueue` went unswept until D-040. So this pins both halves at once:
+  //
+  //   swept        = UNQUEUED_STATES ∪ QUEUED_STATES
+  //   re-published on a META redelivery = UNQUEUED_STATES only
+  //
+  // The second line is the safety property. If `pending_enqueue` ever joined
+  // `neverReachedQueue`, every Meta retry arriving while a QStash job was still in flight
+  // would publish the job a second time.
   const q = queue();
   const { db, reads } = stub({ webhook_events: { data: [], error: null } });
   await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
   const f = reads.find((r) => r.table === 'webhook_events')?.filters ?? [];
-  assert.equal(f.includes(`in:state=${JSON.stringify([...UNQUEUED_STATES])}`), true, f.join(' | '));
+  assert.equal(
+    f.includes(`in:state=${JSON.stringify([...UNQUEUED_STATES, ...QUEUED_STATES])}`), true, f.join(' | '),
+  );
   for (const s of UNQUEUED_STATES) assert.equal(neverReachedQueue(s), true, s);
-  for (const s of ['pending_enqueue', 'processed', 'shed', 'blocked_no_token', 'standby_not_primary', 'expired_unqueued'])
+  for (const s of [...QUEUED_STATES, 'processed', 'shed', 'blocked_no_token', 'standby_not_primary', 'expired_unqueued'])
     assert.equal(neverReachedQueue(s), false, s);
+});
+
+// ---------------------------------------------------------------------------
+// Published and never delivered (D-040)
+// ---------------------------------------------------------------------------
+
+const QUEUED = (minutes: number) => ({ ...EVENT, state: 'pending_enqueue', received_at: minutesAgo(minutes) });
+
+test('DONE-TEST: A ROW QSTASH TOOK AND NEVER DELIVERED IS FOUND, and named as that fault', async () => {
+  // Every completed worker run leaves a terminal state, so a row still reading
+  // `pending_enqueue` an hour later was never processed — and before D-040 nothing swept
+  // it and nothing alerted on it.
+  const q = queue();
+  const { db, writes } = stub({
+    webhook_events: { data: [QUEUED(90)], error: null }, tenants: TENANT_30, alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.equal(r.ok && r.swept[0]?.action, 'expired', JSON.stringify(r));
+  assert.equal(q.jobs.length, 0, 'past the reply limit, so no model call is bought');
+
+  // The alert must point at QStash and the worker, not at the webhook route.
+  const body = String(writes.find((w) => w.table === 'alerts' && w.op === 'insert')?.patch['body'] ?? '');
+  assert.match(body, /published to the queue and never delivered/);
+  assert.doesNotMatch(body, /claimed and never queued/);
+});
+
+test('DONE-TEST: A FRESH pending_enqueue ROW IS LEFT ALONE — QStash may still be retrying', async () => {
+  // The whole safety argument for the longer grace. Re-publishing on top of a retry that
+  // is still coming doubles the work on every transient QStash delay, and QStash delays
+  // are the ordinary case rather than the exception.
+  assert.ok(QUEUED_GRACE_MINUTES > RETRY_GRACE_MINUTES, 'the published class waits longer');
+  const q = queue();
+  const { db, writes } = stub({
+    webhook_events: { data: [QUEUED(QUEUED_GRACE_MINUTES - 1)], error: null }, tenants: TENANT_30, alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.deepEqual(r.ok && r.swept, []);
+  assert.equal(q.jobs.length, 0);
+  assert.equal(writes.filter((w) => w.table === 'alerts').length, 0, 'and says nothing about it yet');
+});
+
+test('a claimed-but-never-published row of the SAME age is swept, because its grace is shorter', async () => {
+  // The two classes side by side: identical age, different verdict, and the difference is
+  // the state. Without this the longer grace could be applied to everything and no test
+  // would notice.
+  const q = queue();
+  const { db } = stub({
+    webhook_events: { data: [{ ...EVENT, state: 'failed', received_at: minutesAgo(QUEUED_GRACE_MINUTES - 1) }], error: null },
+    tenants: TENANT_30, alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.equal(r.ok && r.swept.length, 1, JSON.stringify(r));
+});
+
+test('a tenant with a long reply limit gets the published row RE-PUBLISHED', async () => {
+  // The rescue arm is unreachable for a default tenant — 45 minutes is already past 30 —
+  // so it is only reachable, and only testable, for a tenant that raised its limit. Worth
+  // having: without it the arm is dead code that nothing would notice breaking.
+  const q = queue();
+  const { db } = stub({
+    webhook_events: { data: [QUEUED(50)], error: null },
+    tenants: { data: [{ id: 't-1', max_reply_age_minutes: 240 }], error: null },
+    alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.equal(r.ok && r.swept[0]?.action, 'requeued', JSON.stringify(r));
+  assert.equal(q.jobs.length, 1);
+  assert.equal(q.jobs[0]?.['eventId'], 1);
+});
+
+test('a published row with an unreadable timestamp is swept, never filtered out', async () => {
+  // The longer grace is applied in JavaScript, and a NaN comparison is false — so the
+  // naive filter would EXCLUDE exactly the rows whose age cannot be read. That restores
+  // the silence this sweep exists to break, one row at a time.
+  const q = queue();
+  const { db } = stub({
+    webhook_events: { data: [{ ...EVENT, state: 'pending_enqueue', received_at: 'not-a-date' }], error: null },
+    tenants: TENANT_30, alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.equal(r.ok && r.swept[0]?.action, 'expired', JSON.stringify(r));
 });
 
 test('DONE-TEST: unrouted events are excluded — they are never meant to reach the queue', async () => {

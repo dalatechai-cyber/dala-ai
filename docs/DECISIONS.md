@@ -1896,3 +1896,140 @@ The four rows on record are days old and terminal, and Meta's retry window is mi
 hours, so the exposure is nil in practice — but it is real, and the safe moment to ship it
 is one with no in-flight redeliveries.
 
+## D-040 — a row the queue accepted and never delivered is swept too
+
+**2026-09-06.** Found while answering what a `messaging_postbacks` event does; the answer
+was "nothing bad", and the trace found this next door.
+
+`UNQUEUED_STATES` is `['received', 'failed']` and the stranded sweep read its candidate
+list from it. `pending_enqueue` is written **after** a successful publish, so it is
+correctly absent from `neverReachedQueue` — a Meta redelivery arriving while a QStash job
+is in flight must not re-publish it. The sweep inherited that list and therefore inherited
+the exclusion, and a row QStash accepted and never delivered was swept by nothing and
+alerted by nothing, for ever.
+
+§3.6.3's original text *did* name `pending_enqueue`. The state's meaning moved during
+implementation, the sweep followed it, and the gap is what was left behind. `stranded.ts`
+even says so in its own header — "the state names moved as the schema was built" — one
+paragraph above the query that then excluded it.
+
+### Two classes, two graces
+
+**Claimed and never published** (`received`, `failed`): nobody else was ever going to act,
+so five minutes is enough — past Meta's own retries and the route's 60-second lease.
+
+**Published and never delivered** (`pending_enqueue`): QStash owns it until QStash gives
+up. `queue/qstash.ts` publishes with `retries: 3` and Upstash backs off exponentially;
+`QUEUED_GRACE_MINUTES = 45` is past that horizon with margin. **The exact schedule is
+[UNVERIFIED]** — Upstash's docs are unreachable from this environment — so the number is
+sized from the documented shape, and the errors are asymmetric: too long costs alert
+latency on a message already too old to answer, too short means re-publishing on top of a
+retry still to come, on every transient delay.
+
+The list is a **separate constant**, `QUEUED_STATES`, not an addition to `UNQUEUED_STATES`.
+That is the whole safety argument, and it is the tempting wrong fix: putting
+`pending_enqueue` into `neverReachedQueue` would make every Meta retry of a perfectly
+healthy in-flight event publish the job a second time.
+
+### What it actually does, stated rather than implied
+
+With the default `max_reply_age_minutes` of 30, a row old enough to sweep at 45 minutes is
+**already past the limit**, so it takes the expiry arm and the rescue arm is unreachable
+for a default tenant. That is correct rather than unfortunate: past the limit
+`worker/freshness.ts` refuses anyway, so a re-publish buys a model call that produces
+`reply_too_late`. **The alert is the product.** "QStash took this and never delivered it"
+is a fault worth knowing about whether or not the customer can still be answered — and the
+alert now names that fault instead of saying "claimed and never queued", which would send
+the reader to the wrong system.
+
+### Proven by mutation, four ways
+
+Dropping `QUEUED_STATES` from the query, sweeping the published class at the short grace,
+excluding unreadable timestamps from the longer-grace filter, and the tempting wrong fix of
+adding `pending_enqueue` to `UNQUEUED_STATES` — each fails a different test.
+
+The unreadable-timestamp case is the subtle one: the longer grace is applied in JavaScript
+and a NaN comparison is false, so the naive filter EXCLUDES exactly the rows whose age
+cannot be read — restoring the silence this sweep exists to break, one row at a time.
+
+### Two more columns nothing writes
+
+`webhook_events.attempts` and `max_attempts` are never written by any code; every
+`attempts` reference in `src/` is on `outbound_messages`. They are not wired here because
+age already answers the question — every completed worker run leaves a terminal state, so
+a row still reading `pending_enqueue` past the horizon was never processed. Recorded so the
+inventory is honest, next to `source` (D-039), which had the same shape until it was wired.
+
+---
+
+## D-041 — a slug is a callback path, and `app_slug` is not a Meta app
+
+**2026-09-06, from the founder reading the App Dashboard.** There are two Meta apps:
+
+| app | App ID | holds |
+|---|---|---|
+| `dalatech` | 1380702870025418 | Matrix's Page `1520409424715591`; the ancestor's callback |
+| `DALA_AI` | 1562862634970492 | tenant #0's Page `863503883522801`; this platform's callback |
+
+`DALA_AI` was created because `dalatech` was already serving Matrix's live customers and
+its callback could not be repointed. Both apps' secrets live under the **one** slug
+`dalatech` in `META_APP_SECRETS`, which is the `value | value[]` shape STATUS.md calls "the
+designed cutover mechanism", and `tenant_channels.app_slug` for tenant #0 says `dalatech`
+— naming the app that does not hold that Page.
+
+### The contradiction, which is the actual defect
+
+Two documents state incompatible meanings for one identifier, and both are load-bearing.
+
+- **STATUS.md:** *"The slug is our name for a callback path, not Meta's name for an app."*
+  Under that reading one slug legitimately fronts several apps, and the array is right.
+- **`webhook/entry.ts`, implementing §3.3:** *"During cutover a Page is legitimately
+  subscribed to two apps; without this, a leaked second app secret authenticates events for
+  a Page we believe is elsewhere and nothing notices."* Under that reading a slug **is** an
+  app, or the check means nothing.
+
+Measured against the code, the second reading loses. `verifyMetaSignature` tries every
+secret under every key and reports **the map key that matched, not the secret**. With both
+apps under one key, `matchedAppSlug` is `dalatech` whichever app signed — so
+`tenant.appSlug !== input.matchedAppSlug` **cannot fail**, and the cross-check reads as
+defence in depth in every review while being a no-op. The 19:12 delivery is the proof: it
+was signed by `DALA_AI` and passed a check whose stated purpose is to catch exactly that.
+
+This is also why a session on 2026-09-06 read the database, saw one app slug, and wrote
+"there is only one Meta app" into `CLAUDE.md` and three other files.
+
+### What the slug should mean, and the cost of changing it
+
+**One slug, one Meta app, one callback path, one secret.** Keep `value[]` for what it was
+designed for — rotating *one* app's secret — and never for two apps. Then `app_slug`
+identifies an app, the cross-check can fail, and the route path names the app whose
+handshake token and secret it will use.
+
+The alternative — keep slug = path, and re-derive the cross-check from *which secret
+matched* — needs `META_APP_SECRETS` reshaped to `{slug: {app: secret}}` so a matched secret
+has a name. It is more machinery for the same guarantee, and it leaves `app_slug` as a
+column whose name means the opposite of its contents.
+
+**Cost of moving tenant #0 to a `dala_ai` slug**, in the order it must happen, because
+three of the four steps take the channel dark if done alone:
+
+1. **Env first**: add `dala_ai` to `META_APP_SECRETS` and `META_VERIFY_TOKENS` alongside
+   the existing entry, so both slugs are valid at once. Credentials — founder-only, and no
+   session may ask for the values.
+2. **Meta console**: repoint `DALA_AI`'s callback to `/api/webhooks/meta/dala_ai` and
+   re-verify. The handshake reads `META_VERIFY_TOKENS[slug]`, so step 1 must already be
+   deployed or the verification 403s.
+3. **Database**: `update tenant_channels set app_slug = 'dala_ai'`. Doing this first
+   refuses every delivery with `app_mismatch` — tenant #0 dark, silently, until the
+   console catches up.
+4. **Env last**: drop the second secret from the `dalatech` array, which is what actually
+   restores the cross-check.
+
+Two smaller consequences. The slug is in `webhook_events.dedup_key`, so keys change from
+that point — same class as D-039's note, and nil in practice. And `dalatech` remains the
+correct slug for **Matrix**, whose Page really is on the app of that name, so the naming
+comes out truthful at the end rather than merely different.
+
+Not built. Steps 1 and 4 are credentials and step 2 is a live Meta config change on an app
+serving a real customer's Page.
+
