@@ -178,21 +178,55 @@ function store() {
     return chain;
   };
 
-  /** `app.reserve_spend`'s conditional update, in one step, as the RPC does it. */
+  /**
+   * `0016`'s all-or-nothing functions, mirrored: every target moves or none does, and a
+   * ceiling refusal is an ERROR carrying 23514 rather than a `false`, because that is what
+   * rolls the partial reservation back in PostgreSQL.
+   */
   const rpc = async (fn: string, args: Record<string, unknown>) => {
-    if (fn !== 'reserve_spend' && fn !== 'settle_spend') {
-      return { data: null, error: { message: `no such function ${fn}` } };
+    const targets = (args['p_targets'] ?? []) as { scope: string; scope_key: string; period_key: string }[];
+    const surface = String(args['p_surface']);
+    const find = (t: { scope: string; scope_key: string; period_key: string }) =>
+      rows('spend_counters').find((r) =>
+        r['scope'] === t.scope && r['scope_key'] === t.scope_key &&
+        r['surface'] === surface && r['period_key'] === t.period_key);
+
+    if (fn === 'reserve_spend_all') {
+      const amount = Number(args['p_amount_nanousd']);
+      const hit = targets.map(find);
+      const fits = hit.every((c) => c !== undefined &&
+        Number(c['reserved_nanousd']) + Number(c['settled_nanousd']) + amount <= Number(c['ceiling_nanousd']));
+      if (!fits) return { data: null, error: { code: '23514', message: 'ceiling_reached' } };
+      for (const c of hit) (c as Row)['reserved_nanousd'] = Number((c as Row)['reserved_nanousd']) + amount;
+      return { data: true, error: null };
     }
-    const c = rows('spend_counters').find((r) =>
-      r['scope'] === args['p_scope'] && r['scope_key'] === args['p_scope_key'] &&
-      r['surface'] === args['p_surface'] && r['period_key'] === args['p_period_key']);
-    if (c === undefined) return { data: false, error: null };
-    if (fn === 'settle_spend') return { data: null, error: null };
-    const amount = Number(args['p_amount_nanousd']);
-    const next = Number(c['reserved_nanousd']) + Number(c['settled_nanousd']) + amount;
-    if (next > Number(c['ceiling_nanousd'])) return { data: false, error: null };
-    c['reserved_nanousd'] = Number(c['reserved_nanousd']) + amount;
-    return { data: true, error: null };
+
+    if (fn === 'release_spend') {
+      const held = rows('spend_reservations').find(
+        (r) => r['id'] === args['p_reservation_id'] && r['state'] === 'held');
+      if (held === undefined) return { data: false, error: null };
+      held['state'] = 'released';
+      const amount = Number(args['p_amount_nanousd']);
+      for (const t of targets) {
+        const c = find(t);
+        if (c !== undefined) c['reserved_nanousd'] = Math.max(0, Number(c['reserved_nanousd']) - amount);
+      }
+      return { data: true, error: null };
+    }
+
+    if (fn === 'settle_spend_all') {
+      const hit = targets.map(find);
+      if (hit.some((c) => c === undefined)) return { data: null, error: { code: '23514', message: 'settle_incomplete' } };
+      for (const c of hit) {
+        (c as Row)['reserved_nanousd'] = Math.max(0, Number((c as Row)['reserved_nanousd']) - Number(args['p_reserved_nanousd']));
+        (c as Row)['settled_nanousd'] = Number((c as Row)['settled_nanousd']) + Number(args['p_actual_nanousd']);
+      }
+      return { data: true, error: null };
+    }
+
+    // Anything else is a name the runtime should not be calling — and a fake that answers
+    // `true` to every RPC is exactly what hid D-029's third bug for a whole build.
+    return { data: null, error: { message: `no such function ${fn}` } };
   };
 
   return {

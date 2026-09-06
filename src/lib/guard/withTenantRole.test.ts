@@ -126,14 +126,18 @@ test('STEP 4 budget: an unreadable tenant_budgets is 503, NOT the compiled cap',
   assert.equal(!res.ok && res.refusal.status, 503);
 });
 
-test('STEP 4 budget: reserve_spend returning false is 429, and nothing was called', async () => {
-  const { db } = stubDb({ roleRow: ENTITLED, rpcGranted: false });
+test('STEP 4 budget: a 23514 from reserve_spend_all is 429, and nothing was called', async () => {
+  // `0016` signals a ceiling by RAISING check_violation, because that is what rolls the
+  // partial reservation back. A refusal is therefore an error with a specific code, not a
+  // `false` — and reading any other code as a refusal would turn an outage into a
+  // degradation.
+  const { db } = stubDb({ roleRow: ENTITLED, rpcError: { code: '23514', message: 'ceiling_reached' } });
   const res = await withTenantRole(db, base);
   assert.equal(!res.ok && res.refusal.status, 429);
   assert.equal(!res.ok && res.refusal.code, 'ceiling_reached');
 });
 
-test('STEP 4 budget: an ERRORING reserve_spend is 503, never an implicit grant', async () => {
+test('STEP 4 budget: an ERRORING reserve_spend_all is 503, never an implicit grant', async () => {
   const { db } = stubDb({ roleRow: ENTITLED, rpcError: { message: 'deadlock' } });
   const res = await withTenantRole(db, base);
   assert.equal(!res.ok && res.refusal.status, 503);
@@ -154,7 +158,7 @@ test('THE DONE-TEST: a tenant at its cap is refused BEFORE an Anthropic client e
   // V1.md item 2.2. This is the property the whole reserve-before-call ordering exists
   // for: the refusal must happen while it is still free.
   let anthropicConstructed = false;
-  const { db } = stubDb({ roleRow: ENTITLED, rpcGranted: false });
+  const { db } = stubDb({ roleRow: ENTITLED, rpcError: { code: '23514', message: 'ceiling_reached' } });
 
   const res = await withTenantRole(db, base);
   if (res.ok) {

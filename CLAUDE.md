@@ -37,13 +37,12 @@ Advanced Access. App Review is now a *comments-only* concern (D-023), and it no 
 on the critical path to a first real message.
 
 **The Supabase project EXISTS as of 2026-09-05** — ref `tlggenaatnopnxzbkbuf`, PostgreSQL
-17.6, ap-southeast-1. Migrations `0001`–`0014` are applied through the CLI with a real
-**fourteen**-row ledger (D-012, read back 2026-09-06), and `catalog.sql` returned 25/25
-against it when the file carried twenty-five checks. It carries twenty-eight now: V26
-passes there since `0014` landed, **V25 still fails and is meant to** (see the second
-bullet below), and **V27 fails there until `0015` is pushed** — which is the check that
-would have caught the RPC bug before a customer did. **`0015` is written and NOT yet pushed, and until it is no tenant can be
-answered at all** (see the RPC bullet further down). Read the count off `supabase_migrations.schema_migrations`, never off
+17.6, ap-southeast-1. Migrations `0001`–`0015` are applied through the CLI with a real
+**fifteen**-row ledger (D-012, read back 2026-09-06), and `catalog.sql` returned 25/25
+against it when the file carried twenty-five checks. It carries twenty-eight now: V26 and V27
+pass there since `0014` and `0015` landed, and **V25 still fails and is meant to** (see the
+second bullet below). **`0016` is written and NOT yet pushed** — it closes two
+leaks in the money path (D-031), and until it lands `release()` still gives no budget back. Read the count off `supabase_migrations.schema_migrations`, never off
 `ls supabase/migrations/`.
 
 **Running it there immediately found three things CI structurally could not**, which is the
@@ -91,7 +90,9 @@ channel `active / live / active` with a sealed `page_token`. `tenants.status` st
 probe run sets, and the probe route is not built — **nothing on the reply path reads
 `tenants.status`**, so it does not gate a reply.
 
-What gates the reply is `0015`, and it must be pushed before tenant #0 can answer anything.
+`0015` is pushed and verified against the project: both wrappers exist in `public`,
+`reserve_spend` returns boolean, `settle_spend` returns void, and the ACLs are `postgres`
+and `service_role` only.
 
 **The first real webhook arrived on 2026-09-06 and was lost, with every status code
 behaving as written** — QStash refused the colon-joined `deduplicationId`, the route 500'd,
@@ -253,7 +254,7 @@ somebody wrote rather than a filename that happened to match.
 **Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
 are the schema; the eight section files carry a banner saying their DDL is superseded.
 Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 28/28,
-`isolation.sql` 14/14, `rls.sql` 8/8. **Also applied to the real project** (PG17.6,
+`isolation.sql` 14/14, `rls.sql` 8/8, `spend.sql` 10/10. **Also applied to the real project** (PG17.6,
 2026-09-05, via the CLI; `0013`–`0014` pushed 2026-09-06): `catalog.sql` was 25/25 there
 against the twenty-five checks it then carried, and of the two written since, **V26 now
 passes** and **V25 still fails** — `supabase_admin`'s default ACL, re-measured 2026-09-06,
@@ -267,7 +268,12 @@ that bypasses those policies — the inbound writer. Its `T0` fails the run unle
 refused by the policy (`42501`) before the composite foreign key is reached, so the test
 would pass while the spine went untested.
 
-Before changing it: run `scripts/localvalidate/run.sh`, then all three files in
+**PostgreSQL 16 is installed in this environment** — `/usr/lib/postgresql/16/bin`, not on
+`PATH`, which is why sessions keep concluding it is absent and leaving the SQL suites to
+CI. `initdb` a scratch cluster and they all run locally in seconds; a migration should
+never reach a PR without that.
+
+Before changing it: run `scripts/localvalidate/run.sh`, then all four files in
 `scripts/verify/`. All raise on failure, so a red check fails CI rather than printing.
 **`rls.sql` is not optional after a policy or grant change** — it runs as `anon` and
 `authenticated`, and it is the only one that distinguishes a policy that works from a

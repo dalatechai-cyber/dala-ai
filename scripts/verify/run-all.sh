@@ -10,7 +10,7 @@ export PGUSER=${PGUSER:-postgres}
 DB=${1:-dala_verify}
 ./scripts/localvalidate/run.sh "$DB"
 
-for suite in catalog isolation rls; do
+for suite in catalog isolation rls spend; do
   echo "--- $suite ---"
   psql -v ON_ERROR_STOP=1 -d "$DB" -f "scripts/verify/$suite.sql"
 done

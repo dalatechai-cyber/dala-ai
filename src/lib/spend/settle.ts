@@ -12,8 +12,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fromDb, toDb, type NanoUsd } from '../money.ts';
-import { dayKey } from './periods.ts';
-import type { Reservation, Surface } from './reserve.ts';
+import { dayTargets, type Reservation, type Surface } from './reserve.ts';
 
 /** Exactly the `usage` block Anthropic returns. Nothing estimated. */
 export type Usage = {
@@ -135,16 +134,17 @@ export async function settle(
   });
   if (ledgerErr) return { ok: false, detail: `ledger insert failed: ${ledgerErr.message}` };
 
-  const dKey = dayKey(input.now);
-  for (const [scope, scopeKey] of [['tenant', input.reservation.tenantId], ['platform', 'platform']] as const) {
-    const { error } = await db.rpc('settle_spend', {
-      p_scope: scope, p_scope_key: scopeKey, p_surface: surface,
-      p_period_kind: 'day', p_period_key: dKey,
-      p_reserved_nanousd: toDb(input.reservation.estimate),
-      p_actual_nanousd: toDb(cost),
-    });
-    if (error) return { ok: false, detail: `settle_spend failed: ${error.message}` };
-  }
+  // Both counters or neither, for the reason `reserve` has: a settlement that moved the
+  // tenant row and not the platform row leaves the platform's day permanently short by one
+  // reply's estimate, and no later run repairs it. `app.settle_spend_all` rolls back and
+  // the caller retries.
+  const { error } = await db.rpc('settle_spend_all', {
+    p_targets: dayTargets(input.reservation.tenantId, input.now),
+    p_surface: surface,
+    p_reserved_nanousd: toDb(input.reservation.estimate),
+    p_actual_nanousd: toDb(cost),
+  });
+  if (error) return { ok: false, detail: `settle_spend_all failed: ${error.message}` };
 
   await db.from('spend_reservations').update({ state: 'settled' }).eq('id', input.reservation.id);
   return { ok: true, cost };
