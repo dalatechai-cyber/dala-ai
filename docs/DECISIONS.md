@@ -1418,3 +1418,120 @@ shape written into shared prose. That is a platform decision rather than a fix, 
 `tenants.vertical` existing and being read by nothing is the tell. Refusing to publish a
 gate-only revision was considered and rejected by the founder: it would have made tenant #0
 unpublishable rather than answerable.
+
+---
+
+## D-034 — only the mirror generates without delivering
+
+**Settled 2026-09-06, from a question about a different bug.** The founder asked what
+reordering the credential check would break, after an undecryptable token cost $0.0161 for
+a message nobody received. The answer was that reordering the decrypt breaks the mirror
+phase and still cannot catch revocation — but the investigation found something cheaper and
+larger sitting next to it.
+
+**`canDeliver` was consulted AFTER the reply had been generated.** Every non-live mode
+therefore paid a model call for text it then discarded. Two of them are supposed to be
+free:
+
+- **`shadow_routing`'s own description is «routing is being rehearsed; nothing is generated
+  or sent»** — the string is in `delivery.ts`, two lines from the code that generated
+  anyway. The code and its documentation had disagreed since the mode existed and nothing
+  could notice, because the only symptom is a bill.
+- **A halted channel is `off`.** `haltChannelOutbound` sets `delivery_mode = 'off'` on a
+  Graph `190`, so after a token died every further message drafted a reply that could not
+  be sent, at $0.0159 each, until somebody re-authorised the Page.
+
+**The verdict is now three-way, not two.** `live` generates and delivers; `shadow`
+generates and withholds; everything else does neither. `shadow` is the whole reason this is
+a third state rather than a second boolean on the same axis — Track 4 runs Matrix for
+fourteen days generating replies nobody sends, and that phase is how the final conversation
+band gets measured. A blanket "do not generate when you cannot deliver" would delete it.
+
+**The check runs after the message is stored**, which is §3.4.5's "persist everything,
+generate nothing" taken literally for the first time. Losing the customer's question would
+be far worse than paying for an answer, and a routing rehearsal that dropped inbound
+messages would be rehearsing the wrong thing.
+
+`not_generating` is logged per message and `notGenerated` is counted in the worker's
+response, so QStash's delivery log distinguishes a channel that answered nothing from a
+channel nobody wrote to.
+
+**Made to go red both ways**: making the mirror stop generating fails three tests; making
+the worker ignore `generate: false` fails two.
+
+**What this does NOT close.** The FIRST message after a credential breaks still costs one
+model call, because nothing marks the channel until a send fails. Halting on an
+undecryptable secret was proposed and refused by the founder, for a reason worth keeping:
+*"a KEK deployment slip halting every channel at once is a self-inflicted outage from a
+config mistake."* The bounded version — alert immediately, stop drafting for one channel
+after N consecutive credential failures, and never halt more than one channel per interval
+— is specified and not built.
+
+---
+
+## D-035 — the gate's worked examples become per-vertical; its rationales become neutral
+
+**Shape approved 2026-09-06; the reading evening is deliberately not scheduled.**
+
+Five of the twelve platform gate blocks are written in salon language, and every tenant
+gets all twelve. That is Matrix's shape written into shared prose, and `tenants.vertical`
+existing since `0001` while being read by nothing was the tell (D-033).
+
+**The contamination is two kinds and they take different fixes:**
+
+| Block | Line | Kind | Fix |
+|---|---|---|---|
+| Ш3 | «захиалга байхгүй байх нь **салонд** шууд хохирол учруулна» | rationale | neutral wording |
+| Ш6 | «амлах нь **салоны** мөнгө» | rationale | neutral wording |
+| Ш1 | «**үсчний** зэрэглэл» | inline illustration | neutral wording |
+| Ш5 | «Жирэмсэн үедээ **үс будуулж** болох уу?» | worked example | per-vertical |
+| Ш8 | ХОРИОТОЙ … «ийм **салонуудад**» | forbidden phrase | neutral wording |
+| Ш8 | БУРУУ ЖИШЭЭ: «ийм **салонууд** ихэвчлэн бэлгийн карт зардаг…» | worked example | per-vertical |
+
+**The rationales lose nothing by being neutral** — «байгууллагын мөнгө» carries the same
+force. **The worked examples would lose the thing that makes them work.** D-011's finding
+is that hardening succeeds by naming the forbidden wrong answer, and Ш8's gift-card
+sentence is the most load-bearing line in its block precisely because it is concrete. So
+the examples stay concrete and stop being shared.
+
+**Substituting `display_name` into L0 was considered and rejected.** It would make every
+tenant's L0 bytes different, foreclosing the one cached platform prefix that
+`docs/prefix-trim.md` says matters for scaling across tenants.
+
+**Built now** (`0018`, and it changes no compiled prompt because no row carries a vertical):
+the column, the loader's most-specific-wins selection, `catalog.sql` V29, and a generator
+that emits per-vertical rows into their own migration. **Not built, on the founder's
+instruction:** nothing is signed and nothing is published. The four example blocks sit
+unsigned in `prompt/drafts/`, which is what that directory is for.
+
+**Most specific wins, per block key.** A key may have a generic row and per-vertical rows;
+taking both would put two sections in one layer/origin/ordinal slot and
+`renderStablePrefix` would refuse the whole compile as `ambiguous_order`. Preferring the
+vertical makes that unrepresentable, and a vertical nobody has written examples for keeps
+the generic block rather than losing the gate — a quieter gap, which is why V29 asks
+separately whether every vertical is covered.
+
+**Two things the SQL run found that inspection had not:**
+
+1. **`prompt_blocks_platform_key` was unique on `(block_key)` alone**, so two variants of
+   one key could not coexist. `0018` relaxes it to `(block_key, coalesce(vertical, ''))` —
+   the one non-additive line in the migration, and a relaxation, so it cannot fail on
+   existing data. The original reason survives: at most one row per key can reach the
+   renderer.
+2. **`catalog.sql` V22 asserted exactly twelve L0 platform rows**, which would have gone
+   red the day the examples landed. It now counts only rows with no vertical, so the
+   twelve-block gate stays exact while per-vertical variants do not disturb it.
+
+**The cost of the reading evening, measured rather than estimated:** five blocks edited and
+four new files, so **nine signatures**. The signature is a process gate, not a
+cryptographic one — `check-mn-review.mjs`'s own header records three errors already found
+in the draft platform text by an adversarial read, the worst of them a duplicated verb in
+the sentence whose job is to stop prompt injection. Then a migration, and a recompile and
+republish per tenant because `content_hash` changes.
+
+**One gap this exposed and did not fix.** `generate-seed.ts` writes `0010`, which is
+already applied to the project. Editing the text of a block that is already in `0010` needs
+a NEW migration; regenerating would produce a file that no longer describes what ran. The
+generator now says so in a comment and writes per-vertical rows to their own file, but it
+cannot express the edit case — so Ш1/Ш3/Ш6's neutral wording will need a hand-written
+migration on the evening, not a regeneration.

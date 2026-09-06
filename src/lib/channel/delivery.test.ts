@@ -4,10 +4,33 @@ import { readFileSync } from 'node:fs';
 import { canDeliver } from './delivery.ts';
 
 test('only `live` delivers', () => {
-  assert.deepEqual(canDeliver('live'), { deliver: true });
+  assert.deepEqual(canDeliver('live'), { deliver: true, generate: true });
   for (const mode of ['off', 'shadow_routing', 'shadow']) {
     assert.equal(canDeliver(mode).deliver, false, mode);
   }
+});
+
+test('DONE-TEST: ONLY THE MIRROR GENERATES WITHOUT DELIVERING — the rest are free', () => {
+  // The verdict used to be one boolean, consulted after the reply had already been
+  // generated, so every non-live mode paid for text nobody could receive. Two of them are
+  // supposed to cost nothing at all: `shadow_routing`, whose own description in this file
+  // reads «nothing is generated or sent», and `off` — which is what a channel becomes when
+  // `haltChannelOutbound` reacts to a Graph 190, so every message after a token dies was
+  // drafting a reply into a channel that could not send it.
+  assert.equal(canDeliver('shadow').generate, true, 'the mirror must keep generating');
+  for (const mode of ['off', 'shadow_routing', '', 'enabled']) {
+    assert.equal(canDeliver(mode).generate, false, mode);
+  }
+});
+
+test('the mirror is its own reason, so a log line can tell the two apart', () => {
+  // `not_live` on a halted channel and `not_live` on the mirror phase are different facts
+  // about different situations, and an operator reading the worker's output should not
+  // have to infer which from the mode.
+  const mirror = canDeliver('shadow');
+  const halted = canDeliver('off');
+  assert.equal(mirror.deliver === false && mirror.reason, 'mirror');
+  assert.equal(halted.deliver === false && halted.reason, 'not_live');
 });
 
 test('DONE-TEST: the mirror phase does not double-reply Matrix customers', () => {
@@ -38,5 +61,9 @@ test('every mode the schema permits is named here', () => {
   assert.notEqual(m, null, 'the delivery_mode constraint must still be findable');
   const modes = [...(m?.[1] ?? '').matchAll(/'([a-z_]+)'/g)].map((x) => x[1]); // ascii-safe: SQL string literals
   assert.deepEqual(modes.sort(), ['live', 'off', 'shadow', 'shadow_routing']);
-  for (const mode of modes) assert.equal(typeof canDeliver(String(mode)).deliver, 'boolean');
+  for (const mode of modes) {
+    assert.equal(typeof canDeliver(String(mode)).deliver, 'boolean');
+    // A fifth mode must also have a deliberate answer to "does this spend money?".
+    assert.equal(typeof canDeliver(String(mode)).generate, 'boolean');
+  }
 });

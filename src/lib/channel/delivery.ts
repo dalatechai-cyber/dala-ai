@@ -24,8 +24,18 @@
 export type DeliveryMode = 'off' | 'shadow_routing' | 'shadow' | 'live';
 
 export type DeliveryVerdict =
-  | { deliver: true }
-  | { deliver: false; reason: 'not_live'; detail: string };
+  /** Live: generate a reply and put it on the wire. */
+  | { deliver: true; generate: true }
+  /** The mirror phase: generate, and deliberately do not send. */
+  | { deliver: false; generate: true; reason: 'mirror'; detail: string }
+  /**
+   * Neither generated nor sent.
+   *
+   * Distinct from the mirror because the cost differs and nothing was measuring it: a
+   * reply generated for a channel that will never send it is a model call spent on text
+   * no customer can receive.
+   */
+  | { deliver: false; generate: false; reason: 'not_live'; detail: string };
 
 const WHY: Record<string, string> = {
   off: 'delivery is off for this channel',
@@ -35,16 +45,38 @@ const WHY: Record<string, string> = {
 };
 
 /**
- * Exactly one mode delivers.
+ * Exactly one mode delivers, and exactly two generate.
  *
  * An unrecognised value is refused rather than assumed live — the same posture
  * `loadTenantSecret` takes on an unrecognised `status`. A row that says something this
- * code does not understand is not a row to send a customer a message on.
+ * code does not understand is not a row to send a customer a message on, and it is not a
+ * row to spend a model call on either.
+ *
+ * ## Why "may it send" was not enough
+ *
+ * The caller evaluated this AFTER generating, so every non-live mode paid for a reply it
+ * then discarded. Two of them are supposed to be free:
+ *
+ *  - **`shadow_routing`'s own description is «nothing is generated or sent»** — the string
+ *    two lines above this one — and it generated. The code and its documentation had
+ *    disagreed since the mode existed, and nothing could notice, because the only symptom
+ *    is a bill.
+ *  - **A halted channel is `off`.** `haltChannelOutbound` sets `delivery_mode = 'off'` on
+ *    a Graph `190`, so after a token dies every further message drafted a reply that could
+ *    not be sent, at the measured $0.0159 each, until somebody re-authorised the Page.
+ *
+ * `shadow` is the one that must keep generating, and it is the whole reason this is a
+ * three-way answer rather than a second boolean on the same axis: Track 4 runs Matrix for
+ * fourteen days generating replies nobody sends, and that phase is how the final
+ * conversation band gets measured. A blanket "do not generate when you cannot deliver"
+ * would delete it.
  */
 export function canDeliver(mode: string): DeliveryVerdict {
-  if (mode === 'live') return { deliver: true };
+  if (mode === 'live') return { deliver: true, generate: true };
+  if (mode === 'shadow') return { deliver: false, generate: true, reason: 'mirror', detail: WHY['shadow'] ?? '' };
   return {
     deliver: false,
+    generate: false,
     reason: 'not_live',
     detail: WHY[mode] ?? `unrecognised delivery_mode ${JSON.stringify(mode)}`,
   };

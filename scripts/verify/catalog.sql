@@ -403,11 +403,21 @@ insert into _v select 'V22', 'the signed platform blocks are seeded, attributed,
     -- out against a database 0010 had not reached instead of reporting the very absence
     -- it exists to detect — a check that cannot fail cleanly is the same defect as a
     -- guard that under-reads its own source. Found by running it.
+    -- The twelve SHARED gate blocks. Counting rows would have been wrong from 0018: a
+    -- per-vertical example block is a real L0 row and there is one per vertical, so the
+    -- row count grows with the number of verticals while the gate does not. Restricting
+    -- to `vertical is null` keeps the tripwire exact where it matters — a thirteenth
+    -- block shared by every tenant is still a failure — without it firing on a design
+    -- the platform now supports. `to_jsonb` for `vertical` for the same reason as `layer`
+    -- directly below: a bare column reference does not parse on a database 0018 has not
+    -- reached, and a check that cannot fail cleanly is the defect it exists to detect.
     select 'the twelve-block boundary gate is not seeded at L0 (found ' ||
            (select count(*) from prompt_blocks p
-             where p.scope='platform' and to_jsonb(p) ->> 'layer' = 'L0') || ')'
+             where p.scope='platform' and to_jsonb(p) ->> 'layer' = 'L0'
+               and to_jsonb(p) ->> 'vertical' is null) || ' shared blocks)'
      where (select count(*) from prompt_blocks p
-             where p.scope='platform' and to_jsonb(p) ->> 'layer' = 'L0') <> 12
+             where p.scope='platform' and to_jsonb(p) ->> 'layer' = 'L0'
+               and to_jsonb(p) ->> 'vertical' is null) <> 12
     union all
     select 'the eight data-deletion status blocks are not seeded (found ' ||
            (select count(*) from prompt_blocks where scope='platform' and block_key like 'data_deletion\_%') || ')'
@@ -613,6 +623,37 @@ insert into _v select 'V28', 'channel_health.state exists and cannot disagree wi
        select 1 from pg_constraint c
         where c.conrelid = 'channel_health'::regclass and c.contype = 'c'
           and c.conname = 'channel_health_state_matches_healthy')
+  ) bad;
+
+-- V29 — every vertical a tenant actually has is covered by every per-vertical block (0018).
+--
+-- The gate blocks are shared, and five of them are written in salon language. `0018` lets
+-- the worked examples be per-vertical instead — D-011's finding is that hardening works by
+-- naming the forbidden wrong answer, so the examples must stay concrete, and a salon's
+-- wrong answer is not a garage's.
+--
+-- The hole that opens with them is silent: onboard a tenant in a vertical nobody has
+-- written examples for, and its prompt loses those blocks entirely. Nothing throws, the
+-- compile succeeds, and the gate is one example weaker for that tenant alone — which is
+-- the shape of defect this repository keeps finding after it has cost something.
+--
+-- This asks the question rows can answer: for each vertical some tenant HAS, and each
+-- block that is per-vertical AT ALL, is there a row? It is vacuously green until the first
+-- per-vertical block exists, and it goes red on the day a vertical is onboarded without
+-- one — not on the day somebody remembers to look.
+insert into _v select 'V29', 'every tenant vertical has every per-vertical platform block',
+  coalesce(string_agg(detail, '; ' order by detail), 'no per-vertical blocks, or all verticals covered'),
+  count(*) = 0
+  from (
+    select 'no ' || pv.block_key || ' for vertical ' || t.vertical as detail
+      from (select distinct vertical from tenants where vertical is not null and vertical <> '') t
+      cross join (
+        select distinct block_key from prompt_blocks
+         where scope = 'platform' and vertical is not null and vertical <> ''
+      ) pv
+     where not exists (
+       select 1 from prompt_blocks b
+        where b.scope = 'platform' and b.block_key = pv.block_key and b.vertical = t.vertical)
   ) bad;
 
 -- ---- verdict -------------------------------------------------------------

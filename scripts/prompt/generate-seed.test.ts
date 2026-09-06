@@ -1,7 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { buildSeedSql, readSignedBlocks, SEED_PATH } from './generate-seed.ts';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { buildSeedSql, buildVerticalSeedSql, readSignedBlocks, splitVertical, SEED_PATH, VERTICAL_SEED_PATH } from './generate-seed.ts';
 
 test('DONE-TEST: the checked-in migration is exactly what the signed files produce', () => {
   // The whole reason this generator exists. The Mongolian has to be COPIED into SQL —
@@ -94,4 +97,65 @@ test('DONE-TEST: the comment template is seeded platform-side and no runtime rea
       `${file} must read canned_responses only, never the platform template`,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// 0018/0019 — per-vertical blocks
+// ---------------------------------------------------------------------------
+
+/** A fixture root with its own `prompt/platform` and sign-off. */
+function fixture(files: Record<string, string>): string {
+  const root = mkdtempSync(path.join(tmpdir(), 'seed-'));
+  mkdirSync(path.join(root, 'prompt', 'platform'), { recursive: true });
+  for (const [name, body] of Object.entries(files)) {
+    writeFileSync(path.join(root, 'prompt', 'platform', name), body);
+  }
+  writeFileSync(path.join(root, 'prompt', 'platform-mn-review.json'), JSON.stringify({
+    blocks: Object.keys(files).map((f) => ({
+      block_id: f.slice(0, -'.mn.txt'.length), sha256: 'x', reviewed_by: 'Bilguun', reviewed_at: '2026-09-07',
+    })),
+  }));
+  return root;
+}
+
+test('the filename carries the vertical, and a block without one applies to everybody', () => {
+  assert.deepEqual(splitVertical('sh8_not_in_kb'), { key: 'sh8_not_in_kb', vertical: null });
+  assert.deepEqual(splitVertical('sh8_examples.salon'), { key: 'sh8_examples', vertical: 'salon' });
+  assert.deepEqual(splitVertical('sh8_examples.software'), { key: 'sh8_examples', vertical: 'software' });
+});
+
+test('DONE-TEST: TODAY THERE IS NO 0019, and the generator says so rather than writing an empty one', () => {
+  // The founder approved the shape and deliberately did not schedule the reading evening.
+  // Until the drafts are signed and moved into `prompt/platform`, nothing per-vertical is
+  // seeded — and an empty migration in a directory whose contract is "these get pushed"
+  // would be a file that claims work nobody did.
+  assert.equal(buildVerticalSeedSql(), null);
+  assert.equal(existsSync(VERTICAL_SEED_PATH), false, `${VERTICAL_SEED_PATH} must not exist yet`);
+});
+
+test('a signed per-vertical block seeds into 0019, NEVER into 0010', () => {
+  // 0010 is applied to the project. A generator that rewrote it would produce a migration
+  // that no longer describes what ran — the same class of untruth as a schema doc that
+  // has drifted from the schema.
+  const root = fixture({
+    'sh0_channel.mn.txt': 'Ш0. СУВАГ.\n',
+    'sh8_examples.salon.mn.txt': 'Ш8 жишээ: салон.\n',
+    'sh8_examples.software.mn.txt': 'Ш8 жишээ: софтвэр.\n',
+  });
+  const shared = buildSeedSql(root);
+  assert.ok(shared.includes('Ш0. СУВАГ.'));
+  assert.equal(shared.includes('Ш8 жишээ'), false, 'a per-vertical block must not reach 0010');
+
+  const perVertical = buildVerticalSeedSql(root) ?? '';
+  assert.ok(perVertical.includes("'salon'") && perVertical.includes("'software'"));
+  assert.ok(perVertical.includes('Ш8 жишээ: салон.') && perVertical.includes('Ш8 жишээ: софтвэр.'));
+  // Both variants share one block_key, which is exactly what 0018 relaxed the index for.
+  assert.equal((perVertical.match(/'sh8_examples'/g) ?? []).length, 2);
+  assert.ok(perVertical.includes("on conflict (block_key, coalesce(vertical, ''))"));
+});
+
+test('an unsigned per-vertical block is refused like any other', () => {
+  const root = fixture({ 'sh0_channel.mn.txt': 'Ш0.\n' });
+  writeFileSync(path.join(root, 'prompt', 'platform', 'sh8_examples.salon.mn.txt'), 'Ш8.\n');
+  assert.throws(() => readSignedBlocks(root), /no sign-off/);
 });
