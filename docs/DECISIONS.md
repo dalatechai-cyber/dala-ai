@@ -1127,3 +1127,46 @@ something real: `absent` double-replies to a customer, `answered` drops them.
 dropped `detail`, so a one-line schema mismatch and a database outage produced byte-
 identical evidence — and the difference took an evening of inference over the ledger to
 recover. The detail is logged on the 503 branch, where it exists.
+
+---
+
+## D-030 — the exactly-once property is tested at the entry points, not at the sites that broke
+
+**Settled 2026-09-06, after three lost messages in one night.**
+
+Each of the three was found in production, one at a time, after it had already cost a
+message; each was fixed with a test that could only ever have caught the bug it was written
+for. `src/lib/replay.test.ts` asserts the property all three violated:
+
+> Replay any entry point with the same delivery, and the customer is answered exactly once
+> — never twice, and never zero times.
+
+Both entry points are driven directly: `handleMetaEntry` (extracted from the webhook route
+for exactly this reason — *a branch in a route is a branch no test can reach*, and the
+branch that lost the first message lived there) and `runReceptionJob`. Each is run twice
+with the same delivery, and the harness asserts one `webhook_events` row, one `messages`
+row, one `outbound_messages` row and one send. Two failure shapes get their own case: an
+enqueue that failed must be re-driven rather than skipped (D-028), and a worker that died
+after persisting must answer on the retry (D-029).
+
+**The fake's constraints are read off `0001`, not transcribed.** The first draft of the
+harness keyed `messages` on two columns when the real index is
+`(tenant_id, conversation_id, external_id) where external_id is not null`, and it went
+green on a duplicate the database would have refused. A fake carrying remembered
+constraints is worse than no fake: it passes while asserting the wrong thing. So
+`uniquesFromSchema()` parses the migration, partial indexes included.
+
+**What it does not cover, and must not be read as covering.** The store is in-process. It
+is not PostgREST, so it cannot catch a function name resolved against the wrong schema —
+which is what D-029's third bug was, and which shipped under a suite that stubbed
+`db.rpc` to return `true`. Closing that class needs PostgREST as a CI service container
+with `db-schemas=public`, so that a `.rpc()` the runtime cannot reach fails in CI the same
+way it failed in production. That is proposed, not built.
+
+**A mutation the harness did not catch, and what was added.** Reverting `draftOnce` to
+treat the unique violation as an error instead of reading the winner **survived** every
+sequential replay, because `findReplyFor` closes the window before the index is ever
+reached. The window it cannot close is two workers reading `absent` at the same instant,
+where `outbound_messages_dedup` is the only floor left. That is now its own case. The
+lesson generalises: a harness that only replays sequentially tests the read, never the
+index underneath it.

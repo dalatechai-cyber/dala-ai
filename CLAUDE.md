@@ -115,6 +115,12 @@ never have worked:
   customer message been answered?" with `findReplyFor`, keyed on the reply's own dedup key,
   because the evidence that a reply happened is a reply.
 
+**`src/lib/replay.test.ts` is where that property now lives** (D-030): both entry points
+run twice with the same delivery, asserting one event, one message, one reply, one send.
+Its fake reads its unique constraints out of `0001` rather than carrying transcribed ones.
+It is not PostgREST and cannot catch a name resolved against the wrong schema — the third
+bug of that night — so do not read a green harness as covering the transport.
+
 **Meta token decryption is no longer parked** (2026-09-04, on the founder's call: *"waiting
 until a Meta app exists means writing crypto at the worst moment — when I'm trying to go
 live"*). The call was righter than the reasoning given for it: the app existed already, so
