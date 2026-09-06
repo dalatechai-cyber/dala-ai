@@ -250,3 +250,47 @@ export function renderTenantSections(kb: TenantKb, approvedAt: string): PromptSe
     ...sections,
   ];
 }
+
+/**
+ * Does this compiled prefix carry any of the tenant's own data?
+ *
+ * ## Why this question needs asking at all
+ *
+ * `renderTenantSections` returns `[]` for a tenant with no rows, so the compiled prefix is
+ * the platform gate and nothing else — and the gate is written for a tenant that HAS a
+ * knowledge base. `00_gate_preamble` rule (4) says «Ямар ч шалгалт бэлэн хариулт
+ * шаардаагүй бол доорх мэдлэгийн санд тулгуурлан хэвийн хариул» — answer normally from
+ * the knowledge base below — and there is no rule for the case where nothing is below.
+ * `01_data_marker` points at a marker that was never emitted, for the same reason.
+ *
+ * Measured on the first real reply this platform ever sent (D-033): tenant #0, whose
+ * `vertical` is `software`, greeted a customer as a beauty salon and offered price
+ * information. The word «салон» appears four times in the compiled prefix — in Ш1, Ш3, Ш6
+ * and Ш8's own examples — and the tenant's name and vertical appear nowhere, so it was the
+ * only business-type noun in the model's context.
+ *
+ * ## Derived from the prefix, not stored beside it
+ *
+ * The alternative was a boolean on `config_snapshots` written at compile time. It reads
+ * better and answers worse: every snapshot compiled before the column existed would carry
+ * `null`, including the live one that has the defect, and neither reading of `null` is
+ * acceptable — fail closed silences provisioned tenants, fail open keeps the bug exactly
+ * where it already is. Deriving it answers correctly for every snapshot ever compiled,
+ * with no republish and no migration.
+ *
+ * ## The marker as its OWN LINE is the whole test
+ *
+ * `renderTenantSections` emits `=== ТУХАЙН БАЙГУУЛЛАГЫН МЭДЭЭЛЭЛ ===` as a section of its
+ * own, and only when at least one tenant section follows it. `01_data_marker` also names
+ * the marker — inside a sentence, mid-line — which is why a substring test would answer
+ * `true` for every tenant on the platform. Measured against the live snapshot: one
+ * mention, zero standalone lines.
+ *
+ * That coupling is guarded rather than hoped for: `tenant.test.ts` asserts that no signed
+ * platform block contains the marker on a line of its own, so a future block edit breaks
+ * the build instead of silently re-enabling the model for tenants with nothing to say.
+ */
+export function hasTenantData(promptStable: string): boolean {
+  const marker = heading(SECTION_LABELS.dataMarker);
+  return nfc(promptStable).split('\n').some((line) => line.trim() === marker);
+}

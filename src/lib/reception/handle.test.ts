@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { SECTION_LABELS } from '../prompt/tenant.ts';
 import { handleReception, type ReceptionDeps, type ReceptionInput } from './handle.ts';
 import type { CallOutcome } from '../model/reception.ts';
 import type { GateRule } from '../gate/match.ts';
@@ -57,12 +58,26 @@ function deps(over: Partial<ReceptionDeps> & { result?: CallOutcome } = {}) {
   return { deps: d, calls, flags, observed };
 }
 
+/**
+ * A prefix that carries tenant data, because the fixture must not be a state the platform
+ * refuses to answer from.
+ *
+ * Before the `no_tenant_data` check existed, `promptStable: 'STABLE'` stood for "a compiled
+ * prompt" in every test here — and eighteen of them went green while describing exactly the
+ * production configuration that greeted a customer as a beauty salon (D-033). The marker is
+ * the difference between a gate-only prefix and a provisioned one, so the fixture carries it.
+ */
+const STABLE = `STABLE\n=== ${SECTION_LABELS.dataMarker} ===\n=== ҮНИЙН ЖАГСААЛТ ===\n- Чёлк тайралт: 33,000₮`;
+
+/** The same prompt for a tenant that has entered nothing: the gate, and nothing under it. */
+const GATE_ONLY = 'STABLE';
+
 const base: ReceptionInput = {
   customerMessage: 'Чёлк тайралт хэд вэ?',
   history: [],
   eventAt: new Date('2026-09-04T09:59:00Z'),
   now: new Date('2026-09-04T10:00:00Z'),
-  promptStable: 'STABLE',
+  promptStable: STABLE,
   promptVolatile: 'VOLATILE',
   modelId: 'a-model',
   cacheMode: '1h',
@@ -149,6 +164,78 @@ test('a short-circuit naming an unprovisioned kind retries rather than improvisi
   const opted: GateRule = { ...CHILDREN, deterministicShortcircuit: true, responseKind: 'refusal_health' };
   const { deps: d, calls } = deps();
   const r = await handleReception(d, { ...base, customerMessage: 'Хүүхдийн үс', rules: [opted] });
+  assert.equal(r.kind, 'retry');
+  assert.equal(calls.includes('callModel'), false);
+});
+
+// ---------------------------------------------------------------------------
+// A tenant with no facts is never asked to produce any.
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: NO TENANT DATA, NO MODEL CALL — the handoff line, for free', async () => {
+  // The first real reply this platform sent, on a tenant whose vertical is `software`:
+  // «Манай гоо сайхны салонтой холбоотой асуулт байвал асуугаарай — үнийн мэдээлэл…»
+  // ("questions about our beauty salon… price information"). Nobody supplied either fact.
+  // «салон» appears four times in the compiled prefix — Ш1, Ш3, Ш6 and Ш8's own examples —
+  // and the tenant's name and vertical appear nowhere in it, so it was the only
+  // business-type noun in the model's context (D-033).
+  const { deps: d, calls, flags } = deps();
+  const r = await handleReception(d, { ...base, promptStable: GATE_ONLY });
+
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
+  assert.equal(r.kind === 'drafted' && r.refusal, 'no_tenant_data');
+  assert.deepEqual(calls, ['release', 'flag:no_tenant_data', 'draft:canned']);
+  assert.equal(flags[0]?.code, 'no_tenant_data');
+});
+
+test('it costs nothing: no reservation is marked called and nothing is settled', async () => {
+  // The saving is real ($0.0159 a message at the measured rate) but it is the second
+  // reason. A refusal that spent the money and then declined to send it would be just as
+  // correct about what the customer sees, and this one is cheaper because the safe order
+  // happens to be the cheap one.
+  const { deps: d, calls } = deps();
+  await handleReception(d, { ...base, promptStable: GATE_ONLY });
+  for (const step of ['markCalled', 'callModel', 'settle', 'observe']) {
+    assert.equal(calls.includes(step), false, `${step} must not run for a tenant with no data`);
+  }
+});
+
+test('THE ROW-BACKED ANSWERS STILL WORK — the check runs after both short-circuits', async () => {
+  // A deterministic reply and a gate short-circuit both send a sentence the tenant wrote,
+  // with no model in the loop, so nothing can be invented and there is nothing to withhold.
+  // Refusing them would turn a safety fix into a product regression on the two paths that
+  // were already safe.
+  const greet = deps();
+  const g = await handleReception(greet.deps, {
+    ...base, promptStable: GATE_ONLY, customerMessage: 'Сайн байна уу', deterministic: [GREET],
+  });
+  assert.equal(g.kind === 'drafted' && g.answeredBy, 'canned');
+  assert.equal(g.kind === 'drafted' && g.refusal, undefined, 'a deterministic hit is an answer, not a refusal');
+
+  const opted: GateRule = { ...CHILDREN, deterministicShortcircuit: true };
+  const sc = deps();
+  const c = await handleReception(sc.deps, {
+    ...base, promptStable: GATE_ONLY, customerMessage: 'Хүүхдийн үс хэд вэ?', rules: [opted],
+  });
+  assert.equal(c.kind === 'drafted' && c.answeredBy, 'canned');
+  assert.deepEqual(sc.calls, ['release', 'draft:canned']);
+});
+
+test('a stale event still wins: the cheapest refusal stays first', async () => {
+  const { deps: d, calls } = deps();
+  const r = await handleReception(d, {
+    ...base, promptStable: GATE_ONLY, eventAt: new Date('2026-09-03T00:00:00Z'),
+  });
+  assert.equal(r.kind, 'dropped');
+  assert.deepEqual(calls, ['release']);
+});
+
+test('with no reviewed handoff line it RETRIES rather than inventing one', async () => {
+  // The one case where this refusal cannot be honoured. A tenant with neither data nor a
+  // handoff line is unprovisioned in both directions, and a 503 keeps the customer's
+  // message in the queue while somebody adds the row.
+  const { deps: d, calls } = deps();
+  const r = await handleReception(d, { ...base, promptStable: GATE_ONLY, canned: [] });
   assert.equal(r.kind, 'retry');
   assert.equal(calls.includes('callModel'), false);
 });

@@ -83,15 +83,27 @@ verified:
   across 100 sites, checked against the applied schema every CI run) is what stands under
   those until they run for real.
 
-**The send is built and has never sent anything** (2026-09-04; still true 2026-09-06, for a
-third reason). Draft → claim → decrypt → `POST /{page-id}/messages` → mark, with the Graph
-error taxonomy, the failed/indeterminate split, and the `delivery_mode` gate. **Tenant #0
-is now fully provisioned**: nine founder-approved `canned_responses`, config revision
-`26814470-…` published (`content_hash 8b35d072…`, 9,265 chars, `allowed_numbers []`), the
-channel `active / live / active` with a sealed `page_token`. `tenants.status` stays
-`provisioning` because `active_requires_probe_run` wants a `probe_passed_at` that only a
-probe run sets, and the probe route is not built — **nothing on the reply path reads
-`tenants.status`**, so it does not gate a reply.
+**The send WORKS. It ran end to end on 2026-09-06 at 19:12:45 UTC** — draft → claim →
+decrypt → `POST /{page-id}/messages` → mark, with a real `provider_message_id`. Every
+earlier statement here that it had never sent anything is superseded. Tenant #0 is
+provisioned: nine founder-approved `canned_responses`, config revision `26814470-…`
+published (`content_hash 8b35d072…`, 9,265 chars, `allowed_numbers []`), the channel
+`active / live / active` with a sealed `page_token`. `tenants.status` stays `provisioning`
+because `active_requires_probe_run` wants a `probe_passed_at` that only a probe run sets,
+and the probe route is not built — **nothing on the reply path reads `tenants.status`**, so
+it does not gate a reply.
+
+**And the first reply it ever sent invented the business** (D-033). The customer wrote
+`hi bro`; tenant #0, whose `vertical` is `software`, answered on behalf of a beauty salon
+and offered price information. Nothing was wrong with the send, the guard or the ledger:
+the compiled prefix is the twelve platform gate blocks and **nothing else** — 9,243 chars
+of blocks plus eleven separators is 9,265 to the character — and five of those blocks are
+written in salon language, while `vertical` and `display_name` are read by no code in
+`src/lib/prompt/` or `src/lib/reception/`. «салон» was the only business-type noun in the
+model's context. **A tenant with no rendered sections now takes the handoff line before the
+provider call**; read D-033 before touching `handleReception`'s ordering or
+`hasTenantData`. The gate blocks are still salon-flavoured — that is a platform decision,
+open.
 
 `0015` is pushed and verified against the project: both wrappers exist in `public`,
 `reserve_spend` returns boolean, `settle_spend` returns void, and the ACLs are `postgres`
