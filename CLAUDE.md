@@ -39,11 +39,14 @@ on the critical path to a first real message.
 **The Supabase project EXISTS as of 2026-09-05** — ref `tlggenaatnopnxzbkbuf`, PostgreSQL
 17.6, ap-southeast-1. Migrations `0001`–`0015` are applied through the CLI with a real
 **fifteen**-row ledger (D-012, read back 2026-09-06), and `catalog.sql` returned 25/25
-against it when the file carried twenty-five checks. It carries twenty-eight now: V26 and V27
+against it when the file carried twenty-five checks. It carries twenty-nine now: V26 and V27
 pass there since `0014` and `0015` landed, and **V25 still fails and is meant to** (see the
-second bullet below). **`0016` is written and NOT yet pushed** — it closes two
-leaks in the money path (D-031), and until it lands `release()` still gives no budget back. Read the count off `supabase_migrations.schema_migrations`, never off
-`ls supabase/migrations/`.
+second bullet below). **`0016` and `0017` are written and NOT yet pushed.** `0016` closes two
+leaks in the money path (D-031), and until it lands `release()` still gives no budget back
+**and every reply refuses**, because the merged code calls `reserve_spend_all`. `0017` adds
+`channel_health.state` (D-032), and until it lands the watchdog's health row cannot be
+written at all — V28 is the check that says so. Read the count off
+`supabase_migrations.schema_migrations`, never off `ls supabase/migrations/`.
 
 **Running it there immediately found three things CI structurally could not**, which is the
 argument for having bought it, and the reason to distrust "verified in CI" as a synonym for
@@ -253,7 +256,7 @@ somebody wrote rather than a filename that happened to match.
 
 **Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
 are the schema; the eight section files carry a banner saying their DDL is superseded.
-Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 28/28,
+Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 29/29,
 `isolation.sql` 14/14, `rls.sql` 8/8, `spend.sql` 10/10. **Also applied to the real project** (PG17.6,
 2026-09-05, via the CLI; `0013`–`0014` pushed 2026-09-06): `catalog.sql` was 25/25 there
 against the twenty-five checks it then carried, and of the two written since, **V26 now

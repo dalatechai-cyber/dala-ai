@@ -648,6 +648,31 @@ rule rather than rediscovering it. Verified by execution: `catalog.sql` V23 agai
 PostgreSQL, an unlabelled insert refused with a NOT NULL violation, `provenance =
 'probably_fine'` refused by the CHECK, and six mutations each caught by a test.
 
+### The sibling failure: a column that looks like evidence, answering a different question
+
+**Added 2026-09-06, by the founder, after it happened twice in one day.** D-020 is about a
+row that cannot say where it came from. This is the case one step over: the row is
+perfectly honest, it is *read* as the answer to a question it was never asked, and nothing
+about the value says so.
+
+| Read as | Actually answers | Cost |
+|---|---|---|
+| `webhook_events.state = 'processed'` — this message was answered | *the loop finished* — including the retry that skipped its own half-written row | A customer message silently lost (D-029) |
+| `channel_health.observed_at` — when this fault was found | *when the watchdog last ran* — the row is upserted every hour, so the timestamp moves while the finding does not | A wrong time in a written report; caught before it was acted on |
+
+Neither column is wrong. Both are aggregates of a *process*, read as facts about an
+*event*, and the tell is the same in both: **the value changes for a reason unrelated to
+the thing being asked about.** A `processed` row becomes processed because a worker
+returned, not because a customer was answered. `observed_at` moves because an hour passed.
+
+The rule that follows is narrow enough to apply: **before citing a column as evidence,
+name the write that sets it.** If that write can happen when the claim is false — a retry
+that returns, a scheduler that ticks — the column is not the evidence, and the evidence is
+whatever the claim is actually about: a reply row for "was this answered", the alert's own
+`at` for "when was this found". `findReplyFor` is that rule made structural for the first
+case; the second was caught by reading the writer, which is the only tool that generalises
+until a case is worth building for.
+
 ---
 
 ## D-021 — One public comment reply per post per day; the per-thread rule stays inside it
@@ -1276,12 +1301,27 @@ holds no trading time in a fortnight is a fact somebody should see, and unlike a
 has filled in, it does not resolve itself by being ignored. Widening `not_configured` to
 cover it is the mutation that makes this decision worthless, so it is a test.
 
-**`channel_health.healthy` is still a boolean, and stays `false` here.** A provisioning gap
-is not a channel proven to be working. Nothing reads that column today; the first thing that
-does must branch on the state carried in `reason`, or it will re-make in a dashboard the
-exact conflation this removed from the alert. Making the state a column is a one-line
-additive migration and is not written — it would be the third thing in a queue the founder
-is pushing by hand tonight.
+**`channel_health.healthy` stays `false` here, and `0017` puts the verdict beside it.** A
+provisioning gap is not a channel proven to be working, so the boolean is honest — but it
+is one bit of a five-state answer, and the first dashboard question ("how many channels are
+unhealthy?") would have counted an unfinished form as an outage. That is this same
+conflation, waiting one layer down for a reader. **The founder called it and asked for the
+migration in the same push as `0016`:** *"the first dashboard that reads a boolean will
+re-make the conflation you just spent a PR removing, and an additive migration now is
+cheaper than finding it later in a customer-facing view."*
+
+`0017` adds `channel_health.state` (nullable text, no default, no backfill — a row written
+before the column has no state, and inventing one is D-020 in miniature) plus one CHECK:
+
+    healthy = (state = 'healthy')
+
+**The CHECK names no state**, so it holds for every verdict that will ever be added while
+making the drift between the two spellings unrepresentable. Deliberately absent is the
+obvious `check (state in (...))`: the vocabulary is a TypeScript union that has already
+grown once, `record()` only logs a failed write, and a constraint migrated out of lockstep
+would silently stop health being recorded on exactly the release that added a state.
+`catalog.sql` V28 asserts the column *and* the constraint — dropping either fails it, and
+an inconsistent pair is refused by PostgreSQL on insert.
 
 **Made to go red three ways**: restoring the alert gate to `if (healthy) return` fails the
 watch test; collapsing `not_configured` back into `unknown` fails three; widening it to the
