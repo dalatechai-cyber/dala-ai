@@ -61,6 +61,17 @@ export type DeliverDeps = {
   /** Graph 190 only: mark the secret revoked and stop delivery on the channel. */
   revokeCredential: (code: number) => Promise<{ ok: boolean; detail?: string }>;
   alert: (input: { severity: 'warn' | 'critical'; kind: string; dedupKey: string; body: string }) => Promise<unknown>;
+  /**
+   * A credential failure happened. The breaker (D-036) decides whether this channel has
+   * failed often enough to stop drafting, and whether the platform-wide cap is holding
+   * that decision back.
+   *
+   * A dep rather than logic here for the reason the whole module exists: this file is a
+   * pure decision over injected effects, and the breaker needs three reads and a write.
+   * Its failure is deliberately not propagated — a breaker that cannot see its evidence
+   * must not change what this send reports, which is already `no_credential`.
+   */
+  onCredentialFailure: (code: string) => Promise<void>;
 };
 
 export type DeliverOutcome =
@@ -104,6 +115,10 @@ export async function deliverOutbound(deps: DeliverDeps, input: DeliverInput): P
         body: `Tenant ${input.tenantId} channel ${input.channelId}: the stored credential will not decrypt. ${secret.detail}`,
       });
     }
+    // After the alert and after the row is marked, because the breaker reads that row: the
+    // streak it counts is the sequence of failures in `outbound_messages`, so this attempt
+    // has to be in it before the count means anything.
+    await deps.onCredentialFailure(secret.code);
     return { outcome: 'failed', failure: 'no_credential', retryable: secret.retryable, detail: secret.detail };
   }
 

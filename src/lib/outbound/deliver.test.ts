@@ -24,7 +24,12 @@ function stubDeps(over: { secret?: SecretOutcome; send?: SendOutcome } = {}) {
   const calls: string[] = [];
   const alerts: { severity: string; kind: string; dedupKey: string; body: string }[] = [];
   const sends: unknown[] = [];
+  const breakerCodes: string[] = [];
   const deps: DeliverDeps = {
+    onCredentialFailure: async (code) => {
+      calls.push(`breaker(${code})`);
+      breakerCodes.push(code);
+    },
     loadSecret: async () => {
       calls.push('loadSecret');
       return over.secret ?? okSecret;
@@ -64,7 +69,7 @@ function stubDeps(over: { secret?: SecretOutcome; send?: SendOutcome } = {}) {
       return null;
     },
   };
-  return { deps, calls, alerts, sends };
+  return { deps, calls, alerts, sends, breakerCodes };
 }
 
 const failed = (over: Partial<Extract<SendOutcome, { outcome: 'failed' }>>): SendOutcome => ({
@@ -259,6 +264,26 @@ test('a missing credential is not silently quiet — it still marks the row fail
   });
   await deliverOutbound(deps, input);
   assert.ok(calls.some((c) => c.startsWith('markFailed(no credential: token_missing)')));
+});
+
+test('DONE-TEST: THE BREAKER IS TOLD, AFTER THE ROW IS MARKED', async () => {
+  // The breaker counts consecutive failures out of `outbound_messages`, so this attempt
+  // must already be in that table before the count means anything. Calling it first would
+  // make every streak one short — off by one in the direction that costs money.
+  const { deps, calls, breakerCodes } = stubDeps({
+    secret: { ok: false, code: 'secret_undecryptable', retryable: false, detail: 'aead' },
+  });
+  await deliverOutbound(deps, input);
+  assert.deepEqual(breakerCodes, ['secret_undecryptable']);
+  const marked = calls.findIndex((c) => c.startsWith('markFailed('));
+  const told = calls.indexOf('breaker(secret_undecryptable)');
+  assert.ok(marked >= 0 && told > marked, `markFailed must precede the breaker: ${calls.join(' → ')}`);
+});
+
+test('a send that works never wakes the breaker', async () => {
+  const { deps, breakerCodes } = stubDeps();
+  await deliverOutbound(deps, input);
+  assert.deepEqual(breakerCodes, []);
 });
 
 test('no outcome ever puts the token in a recorded reason', async () => {
