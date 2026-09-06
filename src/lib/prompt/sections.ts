@@ -256,7 +256,7 @@ export async function loadTenantKb(
     db.from('price_axes').select('axis, verbatim_question').eq('tenant_id', t).order('ordinal').order('axis'),
     db.from('deposit_rules').select('applies_to, rule_text').eq('tenant_id', t).order('ordinal').order('applies_to'),
     db.from('knowledge_documents').select('title, body').eq('tenant_id', t).order('title'),
-    db.from('staff_members').select('name, group_name, tier').eq('tenant_id', t).eq('active', true).order('group_name').order('name'),
+    db.from('staff_members').select('name, short_name, group_name, tier').eq('tenant_id', t).eq('active', true).order('group_name').order('name'),
     db.from('services').select('id, name').eq('tenant_id', t).eq('active', true).order('name'),
     db.from('service_variants').select('service_id, variant_key, price_kind, price_min, price_max, refusal_topic').eq('tenant_id', t).order('variant_key'),
     db.from('faqs').select('question, answer, provenance').eq('tenant_id', t).order('ordinal').order('question'),
@@ -333,7 +333,8 @@ export async function loadTenantKb(
         .map((r) => ({ title: str(r['title']), body: str(r['body']) })),
       staff: ordered(rows(staff.data), (r) => str(r['group_name']), (r) => str(r['name']), (r) => str(r['tier']))
         .map((r) => ({
-          name: str(r['name']), groupName: orNull(r['group_name']), tier: orNull(r['tier']),
+          name: str(r['name']), shortName: orNull(r['short_name']),
+          groupName: orNull(r['group_name']), tier: orNull(r['tier']),
         })),
       services: ordered(rows(services.data), (r) => str(r['name']), (r) => str(r['id'])).map((r) => ({
         name: str(r['name']),

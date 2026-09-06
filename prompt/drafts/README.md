@@ -133,10 +133,43 @@ Four files, named `<block_key>.<vertical>.mn.txt`, which is the convention
 
 They are loaded by nothing. To activate them: read them, move them into
 `prompt/platform/`, add a sign-off entry per file to `prompt/platform-mn-review.json`, run
-`node scripts/prompt/generate-seed.ts`, and push the `0019` it writes.
+`node scripts/prompt/generate-seed.ts`, and push the migration it writes (the next free
+number — `0019` was taken by `staff_short_name` in the meantime).
 
 **Ш8 is the strong case and Ш5 is the weaker one.** Ш8's example is domain-flavoured by its
 nature — a confidently invented fact belongs to a business type. Ш5's is a health question,
 and a neutral one may serve every vertical better than two variants; that is a call for the
 reading evening, and both are here so it can be made against the text rather than in the
 abstract.
+
+## Ш10 — a staff name that matches nobody, unsigned (D-038)
+
+`sh10_staff_name_clarify.mn.txt`. A new check, not a rewording of an existing one, so it is
+here rather than in `prompt/platform/` until it is read.
+
+**The hole it fills.** Ш4's non-application clause routes a named stylist's *price* to Ш2:
+«багийн жагсаалтаас зэрэглэлийг олж, тэр зэрэглэлийн үнийг хэл». That instruction assumes
+the name is found. Nothing said what happens when it is not — and Matrix Eco Salon has nine
+staff and exactly ONE short form between them, so a customer who half-remembers a name is
+the ordinary case, not the edge. The two answers available without Ш10 are both wrong: pick
+the nearest-sounding name (invent a person), or fall through to Ш8 and refuse (end the
+conversation over a spelling).
+
+**Why the correct action is composed and not a canned key.** Every other block ends by
+naming a `canned_responses` row. This one cannot: the useful reply *lists the roster*, and
+the roster is tenant data — a platform sentence cannot carry it. That makes Ш10 the first
+check whose reply the model writes rather than copies.
+
+**State the residual risk plainly, because it is real.** The block forbids emitting a name
+that is not in БАГИЙН ЖАГСААЛТ, and nothing mechanical enforces that: the outbound guard's
+allow-list is over NUMERALS, so an invented stylist name would pass it exactly as «салон»
+passed everything on the first real reply (D-033). The bound here is prompt-level only.
+A name allow-list is not obviously buildable — Mongolian names are not distinguishable from
+other nouns by shape, and a deny-list over user text is the input-filter fallacy the guard's
+own header rejects. This is a known gap, written down rather than implied.
+
+**What is data, and what is not.** `staff_members.short_name` (`0019`) holds what customers
+call a person when it differs from their name — «Оюунаа» for one Matrix stylist. It is one
+nullable column on the person and deliberately NOT a `staff_aliases` table: an alias table
+answers only the names somebody thought to type into it, and the case that actually happens
+is the one it cannot hold.

@@ -74,6 +74,106 @@ export function namesFromSource(root = process.cwd()): { rpcs: string[]; tables:
 }
 
 /**
+ * Every `.from('t').select('a, b')` pair in the runtime source, with its columns.
+ *
+ * The reachability half of this file answers "does the NAME resolve". It does not answer
+ * "does the column exist", and the gap between those two is a live failure mode rather
+ * than a hypothetical: `loadTenantKb` issues thirteen selects and a single wrong column
+ * name in any of them makes the whole publish refuse, at publish time, for one tenant —
+ * exactly the shape of the bug D-029 catalogued one level up. TypeScript cannot catch it
+ * because a PostgREST select list is a string.
+ *
+ * Embedded resources (`tenant_channels!inner(app_slug, status)`) are parsed rather than
+ * skipped, and their columns are checked against the EMBEDDED table. Skipping them would
+ * make the check quietly weakest exactly where the query is most complex.
+ */
+export type SelectUse = {
+  file: string;
+  table: string;
+  columns: string[];
+  embeds: { table: string; columns: string[] }[];
+};
+
+/** Split a select list on commas that are not inside an embed's parentheses. */
+function splitTopLevel(list: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of list) {
+    if (ch === '(') depth += 1;
+    if (ch === ')') depth -= 1;
+    if (ch === ',' && depth === 0) { out.push(cur); cur = ''; continue; }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.map((x) => x.trim()).filter((x) => x !== '');
+}
+
+export function parseSelect(file: string, table: string, list: string): SelectUse {
+  const columns: string[] = [];
+  const embeds: { table: string; columns: string[] }[] = [];
+  for (const raw of splitTopLevel(list)) {
+    const open = raw.indexOf('(');
+    if (open === -1) {
+      // `alias:column` renames; the right-hand side is the real column.
+      const col = (raw.includes(':') ? raw.slice(raw.indexOf(':') + 1) : raw).trim();
+      if (col !== '*' && col !== '') columns.push(col);
+      continue;
+    }
+    // `alias:relation!inner(a, b)` — the relation name is what PostgREST resolves.
+    const head = raw.slice(0, open);
+    const rel = (head.includes(':') ? head.slice(head.indexOf(':') + 1) : head)
+      .split('!')[0]?.trim() ?? '';
+    const inner = raw.slice(open + 1, raw.lastIndexOf(')'));
+    const parsed = parseSelect(file, rel, inner);
+    if (rel !== '') embeds.push({ table: rel, columns: parsed.columns });
+  }
+  return { file, table, columns, embeds };
+}
+
+export function selectsFromSource(root = process.cwd()): SelectUse[] {
+  const uses: SelectUse[] = [];
+  for (const file of walk(path.join(root, SRC))) {
+    const text = readFileSync(file, 'utf8');
+    // ascii-safe: PostgREST identifiers and select lists, ASCII by construction. The
+    // `\s*` between the calls is what lets a chain wrap across lines.
+    for (const m of text.matchAll(/\.from\(\s*'([a-z0-9_]+)'\s*\)\s*\.select\(\s*'([^']*)'/g)) {
+      uses.push(parseSelect(path.relative(root, file), String(m[1]), String(m[2])));
+    }
+  }
+  return uses;
+}
+
+/** `definitions` in PostgREST's Swagger 2.0 document: one entry per exposed relation. */
+export function columnsFrom(openApi: unknown): Map<string, Set<string>> {
+  const defs = (openApi as { definitions?: Record<string, { properties?: Record<string, unknown> }> })
+    ?.definitions ?? {};
+  const out = new Map<string, Set<string>>();
+  for (const [table, def] of Object.entries(defs)) {
+    out.set(table, new Set(Object.keys(def?.properties ?? {})));
+  }
+  return out;
+}
+
+export function selectProblems(uses: readonly SelectUse[], known: Map<string, Set<string>>): string[] {
+  const problems: string[] = [];
+  const check = (file: string, table: string, columns: readonly string[]) => {
+    const cols = known.get(table);
+    // A table absent from `definitions` is already reported by the reachability check;
+    // reporting every one of its columns too would bury that one line in noise.
+    if (cols === undefined) return;
+    for (const c of columns) {
+      if (!cols.has(c)) problems.push(`${file}: ${table}.${c} does not exist on the public profile`);
+    }
+  };
+  for (const u of uses) {
+    check(u.file, u.table, u.columns);
+    for (const e of u.embeds) check(u.file, e.table, e.columns);
+  }
+  return problems;
+}
+
+/**
  * What the profile exposes to the role in the JWT.
  *
  * `follow-privileges` is PostgREST's default OpenAPI mode, so this document answers the
@@ -152,10 +252,14 @@ async function main(): Promise<void> {
 
   const res = await fetch(url, { headers: { Authorization: `Bearer ${jwt}`, apikey: jwt } });
   if (!res.ok) throw new Error(`PostgREST root returned ${res.status}: ${await res.text()}`);
-  const exposed = exposedFrom(await res.json());
+  const openApi: unknown = await res.json();
+  const exposed = exposedFrom(openApi);
 
   const { rpcs, tables } = namesFromSource();
+  const selects = selectsFromSource();
   const problems: string[] = [];
+
+  problems.push(...selectProblems(selects, columnsFrom(openApi)));
 
   for (const name of rpcs) {
     if (!exposed.rpcs.has(name)) {
@@ -192,14 +296,15 @@ async function main(): Promise<void> {
   }
 
   process.stdout.write(
-    `  ${rpcs.length} RPC name(s) and ${tables.length} table(s) from src/, against `
-    + `${exposed.rpcs.size} exposed function(s) and ${exposed.tables.size} exposed relation(s)\n`,
+    `  ${rpcs.length} RPC name(s), ${tables.length} table(s) and ${selects.length} select list(s) `
+    + `from src/, against ${exposed.rpcs.size} exposed function(s) and `
+    + `${exposed.tables.size} exposed relation(s)\n`,
   );
   if (problems.length > 0) {
     process.stderr.write(`POSTGREST REACHABILITY FAILED:\n  - ${problems.join('\n  - ')}\n`);
     process.exit(1);
   }
-  process.stdout.write('POSTGREST OK (every name the runtime calls is exposed on the default profile)\n');
+  process.stdout.write('POSTGREST OK (every name and column the runtime selects is exposed on the default profile)\n');
 }
 
 if (process.argv[1] !== undefined && process.argv[1].endsWith('postgrest.ts')) {
