@@ -1696,11 +1696,23 @@ A migration that invented a login role would be creating a credential, so it liv
 `scripts/verify/postgrest-roles.sql`, applied only by this check, after the migrations that
 create the three roles it must be able to become.
 
-**No health check on the container, deliberately.** `dala_ci` does not exist until the
-migration step runs, so PostgREST cannot connect at boot and a health check would kill it
-before the database it needs exists. It retries on its own; the step polls until it answers
-and fails loudly if it never does, rather than running the check against nothing and
-reporting a transport failure as a schema failure.
+**PostgREST is started by the step, not as a service container — and the first attempt is
+why.** As a service it booted before `dala_ci` existed and before `authenticator` did, had
+nothing to connect to, and stopped trying. Starting it after the migrations removes the
+ordering question entirely rather than depending on how long somebody else's image retries,
+which is behaviour and not a contract. The step still polls, and on a timeout prints
+`docker logs` — so a transport failure explains itself instead of being reported as a schema
+failure.
+
+**And the CI run found an auth gap that local testing structurally could not.** The role was
+created with `login` and no password. That works over a unix socket under `trust`, which is
+how the local scratch cluster is reached, and fails over TCP under `scram-sha-256`, which is
+how the CI container is reached: `fe_sendauth: no password supplied`. The auth method was
+never part of what local testing exercised, so "it works locally" was true and worthless —
+the same shape as `0001`'s default-privileges line being a no-op in CI and the entire
+defence in production. Reproduced by switching the local `pg_hba.conf` line for 127.0.0.1 to
+`scram-sha-256` and watching the identical message appear, then fixed and re-run green over
+that path.
 
 **Sixteen lines of proxy, because the client is part of what is verified.**
 `@supabase/supabase-js` addresses `${url}/rest/v1/…`, which in production is Supabase's
