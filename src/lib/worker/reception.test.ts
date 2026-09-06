@@ -423,9 +423,13 @@ test('the STORED body is what gets sent, never the freshly generated one', async
 // ---------------------------------------------------------------------------
 
 test('DONE-TEST: a shadow channel drafts and does NOT send', async () => {
-  // Track 4's 14-day mirror. Meta delivers the identical event to every subscribed app,
-  // so a shadow channel that sent would give every Matrix customer two replies from one
-  // salon for two weeks.
+  // Track 4's 14-day mirror. Both systems see the traffic during it, so a shadow channel
+  // that sent would give every Matrix customer two replies from one salon for two weeks.
+  //
+  // BY WHAT ROUTE both see it is an open question: the "Meta delivers to every subscribed
+  // app" fan-out this repository asserted is [UNVERIFIED] and was cited to a section about
+  // rate-limit backoff. `channel/delivery.ts` carries the correction. It does not change
+  // what this test is about — whichever way the events arrive, one sender is the point.
   const { fx, delivered, logs } = stubEffects({
     tables: {
       tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'shadow', graph_version_override: null } },

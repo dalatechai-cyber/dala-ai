@@ -33,6 +33,24 @@ const OBJECT_PROVIDERS: Record<string, string> = {
   instagram: 'instagram',
 };
 
+/**
+ * Did the incumbent forward this, or did Meta send it here?
+ *
+ * A mirror puts `Matrix-Chatbot` in front: it keeps the callback URL, verifies and answers
+ * Meta, and forwards the raw bytes and the original `x-hub-signature-256` here. Both
+ * arrive over the same route with the same signature, so the only thing that can tell them
+ * apart is something the forwarder adds.
+ *
+ * Strict allow-list, defaulting to `meta`: an unrecognised value is not a third source, and
+ * `webhook_events.source` only accepts two. The header is not a trust boundary and must
+ * never become one — the request has already passed the HMAC, so only a holder of the app
+ * secret can set it at all, and nothing downstream branches on `source`. It is a label for
+ * reading the table afterwards, which is the whole reason the column exists.
+ */
+function webhookSource(header: string | null): 'meta' | 'mirror' {
+  return header === 'mirror' ? 'mirror' : 'meta';
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ app: string }> },
@@ -111,8 +129,8 @@ export async function POST(
       { db, enqueue: enqueueReception, log: (level, event, fields) => console[level](`[webhook] ${event}`, fields) },
       {
         provider, entry, index,
-        bodyBytes: body.bytes.length,
         matchedAppSlug: signature.matchedAppSlug,
+        source: webhookSource(request.headers.get('x-dala-webhook-source')),
       },
     );
 

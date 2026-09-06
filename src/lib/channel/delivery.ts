@@ -10,8 +10,28 @@
  *
  * Track 4 runs Matrix for 14 days in the incumbent's shadow: Dala AI receives the
  * webhooks, persists, generates, and **does not send**, because `Matrix-Chatbot` is still
- * the thing answering that Page. Meta delivers the same event to every subscribed app
- * (§3.10.5), so both systems see every message.
+ * the thing answering that Page.
+ *
+ * **How the events reach both systems is an open question, and this file used to assert an
+ * answer it could not support.** It said "Meta delivers the same event to every subscribed
+ * app (§3.10.5)". §3.10.5 is *Back off the tenant, not the worker* — rate-limit backoff. It
+ * says nothing about multi-app delivery, and the claim it was cited for is **[UNVERIFIED]**.
+ * It had propagated into `V1.md`, `STATUS.md` and two test comments as settled fact.
+ *
+ * Two things bear on it. The founder confirmed on 2026-09-06 that `Matrix-Chatbot` runs on
+ * **the same `dalatech` app**, and one app has one callback URL — so on this deployment
+ * there is no second subscriber to deliver to, whatever Meta does with two apps. And §3.7
+ * records that a non-primary receiver gets `entry.standby`, which `worker/reception.ts`
+ * refuses terminally and alerts on, so even two apps would not produce two `messaging`
+ * deliveries. The likely shape of a mirror is therefore that the incumbent FORWARDS each
+ * delivery — which is why `webhook_events.source` is now written (D-039).
+ *
+ * What would settle it: `GET /{page-id}/subscribed_apps` with a Page token, the App
+ * Dashboard's Webhooks page, and — for the standby half — subscribing a second app and
+ * reading which array one real message lands in. §3.15 already lists that as needing
+ * verification.
+ *
+ * None of it changes what `shadow` is FOR.
  *
  * If the send path treated `shadow` as deliverable, every Matrix customer would get two
  * replies from the same salon for two weeks, and the phase whose purpose is *zero risk*

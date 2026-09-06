@@ -22,6 +22,11 @@ Build V1 Track 1 onward per [`docs/V1.md`](docs/V1.md).
 wrong** (corrected 2026-09-04 by the founder). The app is **`dalatech`**, it holds
 **`pages_messaging` and `public_profile` at Advanced Access**, and the founder has
 generated a working Page access token for Matrix and read the inbox with it.
+**`Matrix-Chatbot` runs on that same app** (confirmed 2026-09-06), which settles D-023's
+open question and unsettles the mirror: one app has one callback URL, so the
+"Meta delivers to every subscribed app" fan-out this repository asserted is **[UNVERIFIED]
+and was cited to §3.10.5, a section about rate-limit backoff**. See `channel/delivery.ts`
+for the correction and what would actually settle it.
 
 That correction has teeth, so read how the error happened before trusting anything similar
 here. `developers.facebook.com` is blocked by this environment's egress proxy, so no
@@ -141,8 +146,21 @@ never have worked:
   customer message been answered?" with `findReplyFor`, keyed on the reply's own dedup key,
   because the evidence that a reply happened is a reply.
 
+**And the same table's dedup key could not tell two customers apart** (D-039, found
+2026-09-06 by reading the live project while designing Matrix's cutover). It was
+`{page}:{index}:{body bytes}:{app}`, and the envelope is a constant — measured across every
+real delivery on record, `body_bytes = 307 + utf8_length(customer text)`. So two messages of
+equal byte length were one event: the second got `already_queued`, a `console.info` and a
+200, and `unique (provider, dedup_key)` is global with no time component. «Сайн байна уу» is
+24 bytes and so is «Хэдэн цагт вэ». At Matrix's ~60 messages/day the common lengths burn out
+within hours. **This was not a mirror risk; it was why nothing could go live.** The key is
+now built from Meta's own ids (`message.mid`, `value.comment_id`) in
+`src/lib/webhook/identity.ts`, and `webhook_events.source` is finally written so a forwarded
+delivery is distinguishable from a direct one. Read D-039 before touching either.
+
 **`src/lib/replay.test.ts` is where that property now lives** (D-030): both entry points
-run twice with the same delivery, asserting one event, one message, one reply, one send.
+run twice with the same delivery, asserting one event, one message, one reply, one send —
+and since D-039 also the inverse, that two different messages are answered twice.
 Its fake reads its unique constraints out of `0001` rather than carrying transcribed ones.
 It is not PostgREST and cannot catch a name resolved against the wrong schema — the third
 bug of that night — so do not read a green harness as covering the transport.

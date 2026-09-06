@@ -43,10 +43,22 @@ export type ClaimResult =
   /** The ledger is unreachable. The caller must 500 so Meta retries. */
   | { outcome: 'unavailable'; detail: string };
 
+/**
+ * How a delivery reached us. `webhook_events.source` has carried this CHECK since `0001`
+ * and nothing had ever written anything but the default, so every row said `meta` whether
+ * it was one or not — the same shape as `expires_at`, `duration_minutes` and the rest of
+ * the columns this repository has had to go back for. During a mirror the incumbent
+ * forwards a copy of each delivery, and after the fact there was no way to tell a
+ * forwarded event from one Meta sent here directly.
+ */
+export type EventSource = 'meta' | 'mirror';
+
 export type ClaimInput = {
   provider: string;
-  /** Globally unique per event. Meta's message id where present. */
+  /** Globally unique per event: `identity.ts` derives it from Meta's own ids. */
   dedupKey: string;
+  /** Defaults to `meta` at the caller, so a forgotten value is the conservative one. */
+  source: EventSource;
   routing: 'routed' | 'unrouted' | 'provisional';
   tenantId: string | null;
   channelId: string | null;
@@ -72,7 +84,7 @@ export async function claimWebhookEvent(
     .insert({
       provider: input.provider,
       dedup_key: input.dedupKey,
-      source: 'meta',
+      source: input.source,
       routing: input.routing,
       tenant_id: input.tenantId,
       channel_id: input.channelId,

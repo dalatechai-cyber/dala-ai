@@ -1795,3 +1795,104 @@ that should have restarted had exited with the port already bound, and the workf
 correct for the same reason CI is not exposed to it — PostgREST is started after the
 migrations, once.
 
+## D-039 — the event key is Meta's ids, not the length of the envelope they arrived in
+
+**2026-09-06.** Found while designing Matrix's cutover, by reading the live project rather
+than the code.
+
+### The measurement
+
+`webhook_events.dedup_key` was `` `${externalId}:${index}:${bodyBytes}:${matchedAppSlug}` ``
+and `unique (provider, dedup_key)` is global with no time component; `purge_after` is a
+column nothing writes. Every real Meta delivery this platform has received, read back from
+the project:
+
+| body bytes | text |
+|---:|---|
+| 310 | `yoo` |
+| 313 | `hi bro` |
+
+`310 − 3 = 307`. `313 − 6 = 307`. Both `mid` values are exactly 88 characters; the page id,
+the PSID and both timestamps are fixed width. So
+
+```
+body_bytes = 307 + utf8_length(customer text)
+```
+
+and the key was, in effect, **`{page}:0:{307 + text_bytes}:{app}`**. The only thing that
+distinguished two events was how many bytes the customer typed. «Сайн байна уу» is 24
+bytes; so is «Хэдэн цагт вэ». The second one to arrive gets `already_queued`, a
+`console.info`, and HTTP 200 — no reply, no alert, and the key is spent for ever.
+
+At Matrix's measured ~60 messages/day the common greeting lengths are consumed within
+hours. This was not a mirror-phase risk; it was why Dala AI could not go live for anyone.
+Four events exist on record and all four happened to differ in length, which is the only
+reason nothing had noticed.
+
+### Why it read as fine
+
+`ClaimInput.dedupKey` has been documented as *"Globally unique per event. Meta's message id
+where present"* since it was written. The sentence was aspirational and nothing compared it
+to the code. `events.ts` reasons carefully about the key's **scope** — global, not
+per-tenant, so one event cannot process twice under two tenants — and never about its
+**entropy**. Both halves of a correct key, and only one of them was ever examined.
+
+### What it keys on now
+
+`src/lib/webhook/identity.ts` collects Meta's own identifiers for what the entry carries —
+`message.mid` from `messaging` and from `standby`, `value.comment_id` from `changes` —
+sorts them by code point, joins on U+0000 and hashes. The key is
+`{page}:{index}:m{128-bit digest}:{app}`.
+
+They cannot collide because a mid is Meta's identity for that message: a redelivery carries
+the same one, and two distinct messages never share one. The hash is for length, not
+secrecy — a btree unique index has a row limit and 88-character mids add up.
+
+An entry carrying nothing identifiable (delivery and read receipts) falls back to a digest
+of the entry's own JSON, tagged `d`. That is weaker — it depends on Meta resending
+identical bytes — and is deliberately confined to events that cannot produce a reply:
+`meta/extract.ts` skips receipts and postbacks, so the worst case is a receipt claimed
+twice and doing nothing twice. Everything that can be answered has an id.
+
+### This is not the exactly-once guarantee
+
+`outbound_messages_dedup` on `(tenant_id, kind, dedup_key)` is, and the reply's key comes
+from the customer message's mid (D-029, D-030). An event claimed twice still cannot produce
+two replies. What the event key buys is the other direction — a new message is never
+mistaken for a redelivery — and no downstream key can recover from that one, because the
+message never reaches them.
+
+### Proven by mutation, in both directions
+
+`replay.test.ts` gains the inverse of the property it was built for: two customers writing
+the same words are two events, two messages, two replies, two sends. Reverting the key to
+a length-derived one fails seven tests across both layers; making every key unique fails
+eight, including the original replay property. Both were run.
+
+**The harness had the same bug in miniature.** Its `generateReply` stub drafted with
+`replyDedupKey(MID)` — a constant — where `reception/deps.ts` derives it from the message
+being answered. Every draft in the file collided on one key, silently capping the store at
+one reply. Nothing noticed while every test replayed a single message; the first test to
+send two different ones found it immediately.
+
+### `webhook_events.source` is written now
+
+The column has carried `check (source in ('meta','mirror'))` since `0001` and every row
+said `meta` because nothing ever passed anything else — the same shape as `expires_at` and
+`services.duration_minutes`. A mirror has the incumbent forward each delivery, and without
+this there is no way to tell a forwarded event from a direct one afterwards, which is the
+question a mirror exists to answer. It is set from an `x-dala-webhook-source: mirror`
+request header, strict allow-list, defaulting to `meta`.
+
+It is **not** in the dedup key, deliberately: a mirrored copy of an event Meta also
+delivered directly is the same event and must dedup against it. And it is not a trust
+boundary — the request has already passed the HMAC, and nothing branches on it.
+
+### One consequence of deploying this
+
+The key format changes, so an event already in the table keeps its old key. If Meta
+redelivered a pre-deploy event afterwards it would be claimed as new and answered again.
+The four rows on record are days old and terminal, and Meta's retry window is minutes to
+hours, so the exposure is nil in practice — but it is real, and the safe moment to ship it
+is one with no in-flight redeliveries.
+
