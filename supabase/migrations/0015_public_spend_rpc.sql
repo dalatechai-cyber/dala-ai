@@ -58,6 +58,12 @@ as $$
   select app.reserve_spend(p_scope, p_scope_key, p_surface, p_period_kind, p_period_key, p_amount_nanousd);
 $$;
 
+-- `returns void`, and the asymmetry with `reserve_spend` above is real rather than an
+-- oversight: reserving ANSWERS a question (did the ceiling allow it?) and settling states
+-- a fact. `spend/settle.ts` reads only `error` from the call, which is the same shape.
+-- Declaring `boolean` here fails at CREATE with "return type mismatch … Actual return type
+-- is void" — caught by CI on the first push of this migration, because a wrapper's
+-- signature has to be read off the function it wraps, not assumed from its neighbour.
 create or replace function public.settle_spend(
   p_scope             text,
   p_scope_key         text,
@@ -66,7 +72,7 @@ create or replace function public.settle_spend(
   p_period_key        text,
   p_reserved_nanousd  bigint,
   p_actual_nanousd    bigint
-) returns boolean
+) returns void
 language sql
 security invoker
 set search_path = 'public', 'pg_temp'
