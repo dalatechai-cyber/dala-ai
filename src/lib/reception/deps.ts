@@ -8,7 +8,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { required } from '../env.ts';
 import { callReception } from '../model/reception.ts';
-import { draftOnce } from '../outbound/claim.ts';
+import { draftOnce, replyDedupKey } from '../outbound/claim.ts';
 import { markCalled, release, type Reservation } from '../spend/reserve.ts';
 import { alertCacheCold, alertModelRetired, alertModelSwapped, checkCacheHealth, checkServedModel } from '../model/health.ts';
 import { dayKey } from '../spend/periods.ts';
@@ -44,7 +44,7 @@ export function buildDeps(input: DepsInput): ReceptionDeps {
       const r = await draftOnce(db, {
         tenantId,
         kind: 'reply',
-        dedupKey: `in:${input.inboundExternalId}`,
+        dedupKey: replyDedupKey(input.inboundExternalId),
         body,
         channelId: input.channelId,
         conversationId,

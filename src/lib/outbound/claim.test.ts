@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { claim, draftOnce, markFailed, markIndeterminate, markRefused, markSent } from './claim.ts';
+import { claim, draftOnce, findReplyFor, markFailed, markIndeterminate, markRefused, markSent, replyDedupKey } from './claim.ts';
 
 /**
  * Records every write and lets each be made to fail independently, so the state machine
@@ -204,4 +204,68 @@ test('a refusal may catch a message in draft OR sending, but never one already s
   const filters = (ops[0]?.filters ?? []).join(' ');
   assert.equal(filters.includes('draft,sending'), true);
   assert.equal(filters.includes('in(state,sent'), false);
+});
+
+// ---------------------------------------------------------------------------
+// findReplyFor — "has this customer message been answered?"
+//
+// The question `worker/reception.ts` used to answer from the wrong row. Every case below
+// is one the old `if (stored.value.duplicate) continue;` got wrong or could not express.
+
+test('the dedup key has ONE definition, and the draft path uses it', () => {
+  assert.equal(replyDedupKey('m_abc123'), 'in:m_abc123');
+});
+
+test('DONE-TEST: a duplicate inbound with NO reply row is `absent`, not "already answered"', async () => {
+  // The 2026-09-06 loss exactly: attempt one persisted the message and died at the spend
+  // guard, so the inbound row exists and no reply does. Reading this as "answered" is what
+  // made the message permanently unanswerable.
+  const { db } = stubDb({ existingRow: null });
+  const r = await findReplyFor(db, { tenantId: 't-1', kind: 'reply', dedupKey: 'in:m_1' });
+  assert.deepEqual(r, { outcome: 'absent' });
+});
+
+test('an existing reply row is `answered`, and carries which one and what state', async () => {
+  const { db } = stubDb({ existingRow: { id: 'om-9', state: 'sent' } });
+  const r = await findReplyFor(db, { tenantId: 't-1', kind: 'reply', dedupKey: 'in:m_1' });
+  assert.deepEqual(r, { outcome: 'answered', outboundId: 'om-9', state: 'sent' });
+});
+
+test('a DRAFT counts as answered — the reply exists and something else owns sending it', async () => {
+  const { db } = stubDb({ existingRow: { id: 'om-9', state: 'draft' } });
+  const r = await findReplyFor(db, { tenantId: 't-1', kind: 'reply', dedupKey: 'in:m_1' });
+  assert.equal(r.outcome, 'answered');
+});
+
+test('DONE-TEST: an unreadable lookup is `unavailable` — never absent, never answered', async () => {
+  // Both wrong answers cost something: `absent` double-replies, `answered` drops the
+  // customer. A 503 costs a redelivery.
+  const { db } = stubDb({ existingError: { message: 'connection reset' } });
+  const r = await findReplyFor(db, { tenantId: 't-1', kind: 'reply', dedupKey: 'in:m_1' });
+  assert.equal(r.outcome, 'unavailable');
+  assert.match(r.outcome === 'unavailable' ? r.detail : '', /outbound_messages unreadable: connection reset/);
+});
+
+test('an empty dedup key refuses rather than guessing', async () => {
+  // The unique index is partial on a non-empty key, so an empty one proves nothing.
+  const { db, ops } = stubDb({});
+  const r = await findReplyFor(db, { tenantId: 't-1', kind: 'reply', dedupKey: '' });
+  assert.equal(r.outcome, 'unavailable');
+  assert.equal(ops.length, 0, 'and it does not even ask the database');
+});
+
+test('the lookup is scoped to the tenant AND the kind, not the key alone', async () => {
+  // `dedup_key` is unique per (tenant, kind, key). Asking on the key alone would let one
+  // tenant\'s comment reply answer another tenant\'s DM.
+  const { db } = stubDb({ existingRow: null });
+  await findReplyFor(db, { tenantId: 't-1', kind: 'reply', dedupKey: 'in:m_1' });
+  // stubDb records filters only for write ops; assert via a read-recording stub instead.
+  const seen: string[] = [];
+  const chain: Record<string, unknown> = {};
+  for (const m of ['select', 'eq']) chain[m] = (...a: unknown[]) => (seen.push(`${m}(${a.join(',')})`), chain);
+  chain['maybeSingle'] = async () => ({ data: null, error: null });
+  await findReplyFor({ from: () => chain } as never, { tenantId: 't-1', kind: 'reply', dedupKey: 'in:m_1' });
+  assert.ok(seen.includes('eq(tenant_id,t-1)'), seen.join(' '));
+  assert.ok(seen.includes('eq(kind,reply)'), seen.join(' '));
+  assert.ok(seen.includes('eq(dedup_key,in:m_1)'), seen.join(' '));
 });

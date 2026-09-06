@@ -16,8 +16,8 @@ Built against PostgreSQL 16.13 and verified by **execution**, not by reading:
 
 | | |
 |---|---|
-| `supabase/migrations/0001`–`0014` | apply clean in order on an empty database (`scripts/localvalidate/run.sh`) |
-| `scripts/verify/catalog.sql` | **27/27 PASS** on PG16. On the real project V25 fails by design until `supabase_admin`'s default ACL is revoked by a role that can, and V26 until `0014` is pushed |
+| `supabase/migrations/0001`–`0015` | apply clean in order on an empty database (`scripts/localvalidate/run.sh`) |
+| `scripts/verify/catalog.sql` | **28/28 PASS** on PG16. On the real project V25 fails by design until `supabase_admin`'s default ACL is revoked by a role that can; V26 passes since `0014` landed; V27 fails until `0015` is pushed |
 | `scripts/verify/isolation.sql` | **14/14 PASS** — behavioural, **as `service_role`**, the role that writes. It must bypass RLS for these checks to mean anything; `T0` fails the run if it stops doing so (D-027) |
 | `scripts/verify/rls.sql` | **8/8 PASS** — behavioural, **as `anon` and `authenticated`** |
 
@@ -43,6 +43,7 @@ guard was written.
 | `0010_prompt_blocks_seed` | `prompt_blocks.layer` (nullable) + two CHECKs + a partial unique index; seeds 21 signed platform blocks | `layer is null` means customer-visible Mongolian the prompt compiler must NOT render — the status page and the comment template live in the same table |
 | `0011_provenance` | `provenance text` on `service_aliases`, `deterministic_replies`, `out_of_scope_topics`, `faqs`, `disclosure_rules` — **NOT NULL with NO DEFAULT** | D-020. **An INSERT into any of those five that does not say where the row came from is refused by the database.** `tenant_confirmed` \| `seeded` \| `inferred` |
 | `0012_channel_went_live` | `tenant_channels.went_live_at` + two triggers | D-025. Stamped automatically on the transition into `delivery_mode='live'`, and on an insert already at `live`. Never set it by hand |
+| `0015_public_spend_rpc` | adds `public.reserve_spend` / `public.settle_spend` — thin `SECURITY INVOKER` wrappers over the `app.*` originals — and revokes `PUBLIC`/`anon`/`authenticated` EXECUTE on all four | Nothing for an INSERT, and everything for the runtime. `supabase/clients.ts` builds every client on the default `public` profile, so `db.rpc('reserve_spend')` asked PostgREST for `public.reserve_spend`, which did not exist: **every reply refused with `guard_unavailable`, for every tenant, from the first message that ever reached the worker** (2026-09-06). The unit tests stub `db.rpc` and answered `true`, so nothing could have caught it short of a real request |
 | `0014_pin_ops_search_path` | pins `search_path = ''` on the four `ops.*` trigger functions | Nothing for an INSERT. Found by Supabase's linter, not by CI: V11 only ever asked about SECURITY DEFINER functions, and all four are INVOKER. `catalog.sql` V26 now asks the wider question |
 | `0013_supabase_admin_default_acl` | attempts to revoke `supabase_admin`'s default table privileges from `anon`/`authenticated` in `public` | Nothing for an INSERT to know. It is a no-op on a vanilla cluster (no such role) and **warns rather than fails** on Supabase, where `postgres` is not a member of `supabase_admin` and cannot revoke it. `catalog.sql` V25 is what makes the residual visible |
 

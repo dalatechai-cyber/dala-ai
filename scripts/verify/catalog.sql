@@ -553,6 +553,40 @@ insert into _v select 'V26', 'every app/ops function pins search_path, definer o
  where n.nspname in ('app','ops')
    and not exists (select 1 from unnest(coalesce(p.proconfig,'{}')) cfg where cfg like 'search_path=%');
 
+-- V27 — the two RPCs the runtime calls exist on the schema PostgREST serves, and are
+-- callable by NOBODY except service_role. (0015. Found in production 2026-09-06.)
+--
+-- `supabase/clients.ts` builds every client on the default `public` profile, so
+-- `db.rpc('reserve_spend')` asks PostgREST for `public.reserve_spend`. That function did
+-- not exist — the originals live in `app` — and every reply refused with
+-- `guard_unavailable` from the first message that ever reached the worker. No unit test
+-- could see it: the worker's stub answers `db.rpc` with `true`.
+--
+-- The second half of the check is the more dangerous one. A function in `public` is
+-- REST-reachable, and PostgreSQL grants EXECUTE to PUBLIC on every new function. An
+-- unrevoked wrapper lets an unauthenticated caller POST to /rest/v1/rpc/reserve_spend and
+-- drive any tenant's daily counter to its ceiling — silencing that tenant until midnight.
+-- So this asserts the grant, not just the existence.
+insert into _v select 'V27', 'public spend RPCs exist and only service_role may execute',
+  coalesce(string_agg(detail, '; ' order by detail), 'both present, service_role only'),
+  count(*) = 0
+  from (
+    select 'missing: public.' || want as detail
+      from (values ('reserve_spend'), ('settle_spend')) as w(want)
+     where not exists (
+       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = w.want)
+    union all
+    select 'executable by ' || a.grantee::regrole::text || ': ' || n.nspname || '.' || p.proname
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+     where p.proname in ('reserve_spend','settle_spend')
+       and n.nspname in ('public','app')
+       and a.privilege_type = 'EXECUTE'
+       and a.grantee::regrole::text in ('anon','authenticated','public','-')
+  ) bad;
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;

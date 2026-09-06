@@ -1056,3 +1056,74 @@ arrive inside that stream.
 `/api/workers/health`, and no QStash schedule points at it yet (§5 item 8b). The sweep has
 also never read a real `webhook_events` row — it is proven against stubs and eight
 mutations, not against the project.
+
+---
+
+## D-029 — the runtime's RPCs live where PostgREST can see them, and "answered" is proven by a reply
+
+**Settled 2026-09-06, by two failures on the same message.**
+
+The second real message reached the worker — QStash's first delivery of a signed job, the
+hop that had never run — and refused with `guard_unavailable`. Then its retry marked the
+event `processed` without answering it. Two bugs, and the second is the one that made the
+loss permanent.
+
+### 1. The spend RPC could never have worked
+
+`app.reserve_spend` and `app.settle_spend` live in schema `app`. Every client in
+`supabase/clients.ts` is constructed with no `db: { schema }` option, so supabase-js sends
+PostgREST the default profile — `public` — and `db.rpc('reserve_spend')` asks for
+`public.reserve_spend`, which does not exist. Not a race, not a permission: a name in the
+wrong schema, failing identically for every tenant on every message since the code was
+written.
+
+**Nothing in the suite could have caught it.** The worker's test stub is
+`{ from, rpc: async () => ({ data: true, error: null }) }` — it answers what it is told,
+so 748 passing tests said exactly nothing about whether the function exists. That is the
+general shape of the risk CLAUDE.md already names: *a schema applied to a project is not
+an application talking to it.*
+
+`0015` adds two thin `SECURITY INVOKER` wrappers in `public` rather than exposing the
+`app` schema to the Data API, because exposing a schema makes everything in it
+REST-reachable and `app` holds the spend primitives. The grants are the security boundary:
+PostgreSQL grants EXECUTE to PUBLIC on every new function, and a `public` function is
+REST-reachable, so an unrevoked wrapper would let `anon` POST to
+`/rest/v1/rpc/reserve_spend` and drive any tenant's daily counter to its ceiling —
+silencing that tenant until midnight, unauthenticated. The same revoke is applied to the
+`app.*` originals, which have carried PUBLIC EXECUTE since `0001` and are safe today only
+because the schema is not exposed.
+
+### 2. A row exists ≠ the work was done, for the third time in one night
+
+```ts
+// "already stored, so it has already been answered or is being answered"
+if (stored.value.duplicate) continue;
+```
+
+Attempt one persisted the customer's message and then died at the spend guard. QStash
+retried. The retry found the inbound row *it had just written*, skipped, fell out of the
+loop and marked the event `processed` — a state `neverReachedQueue` deliberately excludes,
+so no redelivery will ever re-drive it. Every status code was the intended one and the
+message is unanswerable.
+
+This is D-028's mistake one layer down, and the third instance in a night: a
+`webhook_events` row read as "enqueued", a `messages` row read as "answered", and a
+reservation row that existed because the RPC had failed *after* inserting it.
+
+**The fix is to ask for the artefact the work produces.** `findReplyFor` looks up the
+reply by its own dedup key — `in:<inbound message id>`, exported from `outbound/claim.ts`
+as `replyDedupKey` so the writer and the reader cannot drift — and returns `answered`,
+`absent` or `unavailable`. Proceeding on `absent` cannot double-answer, because
+`outbound_messages` is unique on `(tenant_id, kind, dedup_key)`: two workers racing the
+same redelivery both attempt the insert and the loser reads the winner's row. The index
+closes the window, not the read.
+
+`unavailable` is a 503 rather than either answer, because both wrong answers cost
+something real: `absent` double-replies to a customer, `answered` drops them.
+
+### 3. The refusal log now carries the detail
+
+`guard_unavailable` names a category. The log emitted `{ code, tenantId, eventId }` and
+dropped `detail`, so a one-line schema mismatch and a database outage produced byte-
+identical evidence — and the difference took an evening of inference over the ledger to
+recover. The detail is logged on the 503 branch, where it exists.

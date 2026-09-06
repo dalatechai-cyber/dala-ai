@@ -75,11 +75,12 @@ claims.
 **Against the real Supabase project (PostgreSQL 17.6, 2026-09-05).** **Twelve** migrations,
 `0001`–`0012`, applied through the CLI with a twelve-row ledger. That count is the
 project's own ledger read back, not the repository's file count, and the two now differ:
-`0013` and `0014` were written after the push and have not reached the project.
+`0013` and `0014` were written after the push and reached the project on 2026-09-06.
 `catalog.sql` was **25/25** there — all twenty-five checks the file carried when it ran
-(V0–V24). It carries twenty-seven now, and both of the newer ones fail against the project
-by design: V26 until `0014` is pushed, V25 until `supabase_admin`'s default ACL is revoked
-by a role that can, which is the one thing `0013` cannot do for itself.
+(V0–V24). It carries **twenty-eight** now: V26 passes there since `0014` landed, **V25
+still fails** by design until `supabase_admin`'s default ACL is revoked by a role that can
+(re-measured 2026-09-06, still present), and **V27 fails until `0015` is pushed** — it is
+the check that asserts the two spend RPCs exist on the schema PostgREST actually serves.
 
 Seven direct behavioural probes pass there: `anon` refused on `services` and `tenants`,
 `authenticated` refused TRUNCATE, INSERT, `tenant_secrets` and `spend_ledger`, and
@@ -147,7 +148,7 @@ optimising a query plan nobody has run. Revisit after the 14-day mirror gives re
 and real `pg_stat` counters — several of the flagged composite FKs already have their
 leading column covered by a unique constraint, which the linter does not account for.
 
-**Against a real PostgreSQL 16 (in CI, every run).** `catalog.sql` **27/27**,
+**Against a real PostgreSQL 16 (in CI, every run).** `catalog.sql` **28/28**,
 `isolation.sql` **14/14**, `rls.sql` 8/8, plus `secret-roundtrip.ts`: a token sealed by the
 operator's own command, stored in `bytea`, read back in the hex form PostgREST serialises,
 and decrypted through the runtime loader — including the cross-tenant copy attack performed
@@ -365,7 +366,8 @@ have hit a login wall.
 
 | # | Supply | Without it |
 |---|---|---|
-| **8b** | **One QStash schedule → `POST {WORKER_PUBLIC_URL}/api/workers/health`**, hourly | Two watchdogs are built and nothing calls either. The silence watch is the only thing that notices Reception has gone quiet (D-025); the stranded sweep is the only thing that re-drives a message the route claimed and failed to queue, or retires it and tells you (D-028). Both spend nothing — rows in, at most one Telegram message out. **This is no longer hypothetical: event `id 1` is stranded right now, and nothing is scheduled to find it** |
+| **5d** | **`supabase db push` for `0015`** | **Nothing can be answered at all.** `db.rpc('reserve_spend')` resolves against `public`; the function lives in `app`, so every reply refuses with `guard_unavailable` (D-029). Two wrapper functions, additive, no data touched |
+| ~~8b~~ | ~~One QStash schedule → `/api/workers/health`~~ | **Created 2026-09-06, hourly.** Effects not yet observed: `channel_health` is still empty and event `id 1` is still `failed`, which is what a schedule that has not fired yet looks like. A `channel_health` row is how we will know |
 
 ### Then tenant #0's rows — this is the whole remaining path to a reply
 
@@ -379,11 +381,11 @@ and that is now the only thing between a message arriving and a message being an
 |---|---|---|
 | 11 | `tenants`, `tenant_channels`, `channel_identity`, `tenant_roles` | **Done.** `tenants.status` is `provisioning`, which is correct: `active_requires_published_config` refuses `active` until item 13 |
 | 14 | Seal the Page token | **Done.** One `tenant_secrets` row, `page_token`, `status=active`, KEK v1. `last_ok_at` is null — it has never been opened by the runtime |
-| 12 | **The tenant's config rows**: `services`, `business_hours`, `contact_points`, `faqs`, `canned_responses` for every kind the gate names, `deterministic_replies`, `disclosure_rules`, `out_of_scope_topics` | **Not started, and it is the blocker.** The gate's nine checks each end "write the X line from that section", so a compile with no `canned_responses` rows now REFUSES rather than rendering an empty heading (PR #42). Nine Mongolian sentences are drafted as a proposal and **await your wording** — customer-visible Mongolian is yours, not mine |
-| 13 | Publish a config revision → `tenants.live_revision_id` | Blocked by 12. `config_snapshots` is append-only, so this is written once and rolled back by moving a pointer, never by editing |
+| 12 | **The tenant's config rows** | **Done for the nine that gate a reply.** `canned_responses` carries all nine kinds the compiled prompt names — founder-approved wording, `reviewed_at` set, `locale mn-MN`. Everything else (`services`, `faqs`, `business_hours`, `contact_points`, `deterministic_replies`) is still empty, which is a *product* limit rather than a blocker: with no facts, `allowed_numbers` is empty and every numeric answer is refused into the handoff line, by design |
+| 13 | Publish a config revision → `tenants.live_revision_id` | **Done.** Revision `26814470-50c6-4cb9-b613-826bf536480b`, seq 1, published; snapshot `facebook_page`, 9,265 chars, `content_hash 8b35d072…`, `allowed_numbers []`. Compiled two ways that had to agree — the repo's `renderStablePrefix` over the signed files, and `string_agg(normalize(body, NFC), …)` over `prompt_blocks` — because `compileAndPublish` needs a service key this environment does not have |
 | 15 | Subscribe the app to the Page, and **verify the app-level subscription too** | A page-level subscribe returns `{"success": true}` even when the app has never enabled that field, and no events are ever delivered. The 2026-09-06 delivery proves the subscription works for `messages` on this Page |
-| 16 | `delivery_mode` — `shadow` for the mirror, and the channel is `off` today | `off` drafts nothing and sends nothing. The 14-day mirror runs on `shadow`: it drafts and does not send. **Not `live`** |
-| 17 | After the mirror: unsubscribe the ancestor app first, confirm from each app's own token, then `delivery_mode = 'live'` and `token_status = 'active'` | `live_requires_active_token` refuses the two halves separately, so the flip is one statement setting both |
+| 16 | `delivery_mode` | **Tenant #0 is `live`** (`status active / delivery_mode live / token_status active`, `name_confirmed_at` set). Setting `token_status = 'active'` is an ASSERTION: the sealed token has never been opened, `last_ok_at` is null. **Matrix is different** — its 14-day mirror runs on `shadow`, which drafts and does not send. **Not `live`** |
+| 17 | After Matrix's mirror: unsubscribe the ancestor app first, confirm from each app's own token, then `delivery_mode = 'live'` and `token_status = 'active'` | `live_requires_active_token` refuses the two halves separately, so the flip is one statement setting both |
 
 ### From the Meta app — the second app changed the answers here
 

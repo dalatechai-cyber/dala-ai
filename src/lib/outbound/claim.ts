@@ -38,6 +38,83 @@ export type OutboundState = 'draft' | 'claiming' | 'sending' | 'sent' | 'failed'
 /** States a claim may legitimately pick up. Everything else is somebody else's business. */
 const CLAIMABLE: readonly OutboundState[] = ['draft', 'failed'];
 
+/**
+ * The dedup key for a reply to ONE inbound customer message.
+ *
+ * Exported so the two places that need it cannot drift: `reception/deps.ts` writes the
+ * draft under this key, and `worker/reception.ts` asks under the same key whether a
+ * redelivery has already been answered. Spelling it twice is how "already stored" and
+ * "already answered" become two different strings that look like one fact.
+ */
+export function replyDedupKey(inboundExternalId: string): string {
+  return `in:${inboundExternalId}`;
+}
+
+export type ReplyLookup =
+  /** A reply to this inbound message exists — drafted, sending or sent. */
+  | { outcome: 'answered'; outboundId: string; state: OutboundState }
+  /** No reply exists. Whatever ran before did not get as far as drafting one. */
+  | { outcome: 'absent' }
+  /** The read failed. Neither answer may be assumed. */
+  | { outcome: 'unavailable'; detail: string };
+
+/**
+ * Has this customer message already been answered?
+ *
+ * ## Why this exists, and what it replaces
+ *
+ * `worker/reception.ts` used to skip a redelivery whose inbound row already existed:
+ *
+ * ```ts
+ * // "already stored, so it has already been answered or is being answered"
+ * if (stored.value.duplicate) continue;
+ * ```
+ *
+ * That premise is false, and on 2026-09-06 it cost a real message. The first attempt
+ * persisted the customer's message and then died at the spend guard; QStash retried; the
+ * retry saw the inbound row, skipped silently, and marked the event `processed` — a state
+ * no redelivery re-drives. The message became permanently unanswerable, and every status
+ * code along the way was the one the code intended.
+ *
+ * It is the same false inference `webhook/events.ts` documents one layer up: **a row
+ * existing says a row exists.** The evidence that a reply happened is a reply.
+ *
+ * ## Why proceeding on `absent` cannot double-answer
+ *
+ * `outbound_messages` is unique on `(tenant_id, kind, dedup_key)`, so two workers racing
+ * the same redelivery both attempt the insert and one loses at the database —
+ * `draftOnce` then returns the winner's row rather than writing a second reply. The
+ * check-then-act window is closed by the index, not by this read.
+ */
+export async function findReplyFor(
+  db: SupabaseClient,
+  input: { tenantId: string; kind: OutboundKind; dedupKey: string },
+): Promise<ReplyLookup> {
+  if (input.dedupKey === '') {
+    // The unique index is partial on a non-empty key, so an empty one proves nothing
+    // either way. Refusing is the only answer that is not a guess.
+    return { outcome: 'unavailable', detail: 'empty dedup key: cannot tell whether a reply exists' };
+  }
+
+  const { data, error } = await db
+    .from('outbound_messages')
+    .select('id, state')
+    .eq('tenant_id', input.tenantId)
+    .eq('kind', input.kind)
+    .eq('dedup_key', input.dedupKey)
+    .maybeSingle();
+
+  if (error) return { outcome: 'unavailable', detail: `outbound_messages unreadable: ${error.message}` };
+  if (data === null) return { outcome: 'absent' };
+
+  const row = data as Record<string, unknown>;
+  return {
+    outcome: 'answered',
+    outboundId: String(row['id']),
+    state: String(row['state']) as OutboundState,
+  };
+}
+
 export type DraftRow = { id: string; body: string; state: OutboundState; attempts: number };
 
 export type DraftOutcome =

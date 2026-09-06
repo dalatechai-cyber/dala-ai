@@ -39,9 +39,11 @@ on the critical path to a first real message.
 **The Supabase project EXISTS as of 2026-09-05** — ref `tlggenaatnopnxzbkbuf`, PostgreSQL
 17.6, ap-southeast-1. Migrations `0001`–`0014` are applied through the CLI with a real
 **fourteen**-row ledger (D-012, read back 2026-09-06), and `catalog.sql` returned 25/25
-against it when the file carried twenty-five checks. It carries twenty-seven now: V26
-passes there since `0014` landed, and **V25 still fails and is meant to** — see the second
-bullet below. Read the count off `supabase_migrations.schema_migrations`, never off
+against it when the file carried twenty-five checks. It carries twenty-eight now: V26
+passes there since `0014` landed, **V25 still fails and is meant to** (see the second
+bullet below), and **V27 fails there until `0015` is pushed** — which is the check that
+would have caught the RPC bug before a customer did. **`0015` is written and NOT yet pushed, and until it is no tenant can be
+answered at all** (see the RPC bullet further down). Read the count off `supabase_migrations.schema_migrations`, never off
 `ls supabase/migrations/`.
 
 **Running it there immediately found three things CI structurally could not**, which is the
@@ -80,15 +82,16 @@ verified:
   those until they run for real.
 
 **The send is built and has never sent anything** (2026-09-04; still true 2026-09-06, for a
-different reason). Draft → claim → decrypt → `POST /{page-id}/messages` → mark, with the
-Graph error taxonomy, the failed/indeterminate split, and the `delivery_mode` gate. Tenant
-#0 (`dalatech`, Page `863503883522801`) now HAS a `tenant_channels` row, a
-`channel_identity` row that routed a real delivery, and a sealed `page_token`. What it has
-no rows for is its **config**: no `config_revisions`, no `canned_responses`, so the compile
-refuses (PR #42) and `tenants.status` is still `provisioning` — `active_requires_published_config`
-would refuse anything else. The channel is `delivery_mode = 'off'`, `token_status =
-'unprovisioned'`. `docs/STATUS.md` §5 is the ordered list, and it is now rows and one QStash
-schedule rather than accounts.
+third reason). Draft → claim → decrypt → `POST /{page-id}/messages` → mark, with the Graph
+error taxonomy, the failed/indeterminate split, and the `delivery_mode` gate. **Tenant #0
+is now fully provisioned**: nine founder-approved `canned_responses`, config revision
+`26814470-…` published (`content_hash 8b35d072…`, 9,265 chars, `allowed_numbers []`), the
+channel `active / live / active` with a sealed `page_token`. `tenants.status` stays
+`provisioning` because `active_requires_probe_run` wants a `probe_passed_at` that only a
+probe run sets, and the probe route is not built — **nothing on the reply path reads
+`tenants.status`**, so it does not gate a reply.
+
+What gates the reply is `0015`, and it must be pushed before tenant #0 can answer anything.
 
 **The first real webhook arrived on 2026-09-06 and was lost, with every status code
 behaving as written** — QStash refused the colon-joined `deduplicationId`, the route 500'd,
@@ -96,6 +99,21 @@ and Meta's two retries were skipped as duplicates and answered 200, which ends r
 Read D-028 before touching `webhook/events.ts`, `queue/qstash.ts` or `health/stranded.ts`:
 the id is hashed, a duplicate that never reached the queue is re-enqueued, and the sweeper
 §3.6.3 specified is finally built.
+
+**Then the second message found two more of the same shape** (D-029), and this is the
+sentence to carry forward: **three lost messages in one night, all three from reading "a
+row exists" as "the work was done."** The queue layer (a `webhook_events` row ⇒ enqueued),
+the reply layer (a `messages` row ⇒ answered), and underneath both, a spend RPC that could
+never have worked:
+
+- **`db.rpc('reserve_spend')` asked PostgREST for `public.reserve_spend`; the function
+  lives in `app`.** Every client in `supabase/clients.ts` is built with no `db: { schema }`
+  option, so the default profile is `public`. Every reply, for every tenant, refused with
+  `guard_unavailable`. `0015` adds the wrappers. **The unit tests stub `db.rpc` and answer
+  `true`** — so a passing suite said nothing at all about this, and could not have.
+- **A row proves itself and nothing else.** `outbound/claim.ts` now answers "has this
+  customer message been answered?" with `findReplyFor`, keyed on the reply's own dedup key,
+  because the evidence that a reply happened is a reply.
 
 **Meta token decryption is no longer parked** (2026-09-04, on the founder's call: *"waiting
 until a Meta app exists means writing crypto at the worst moment — when I'm trying to go
@@ -228,7 +246,7 @@ somebody wrote rather than a filename that happened to match.
 
 **Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
 are the schema; the eight section files carry a banner saying their DDL is superseded.
-Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 27/27,
+Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 28/28,
 `isolation.sql` 14/14, `rls.sql` 8/8. **Also applied to the real project** (PG17.6,
 2026-09-05, via the CLI; `0013`–`0014` pushed 2026-09-06): `catalog.sql` was 25/25 there
 against the twenty-five checks it then carried, and of the two written since, **V26 now

@@ -37,7 +37,7 @@ import { loadReceptionContext } from '../reception/load.ts';
 import { renderVolatile, tenantClock } from '../reception/volatile.ts';
 import { RECEPTION_HISTORY_TURNS } from '../model/reception.ts';
 import { withTenantRole } from '../guard/withTenantRole.ts';
-import { claim } from '../outbound/claim.ts';
+import { claim, findReplyFor, replyDedupKey } from '../outbound/claim.ts';
 import { markEventState } from '../webhook/events.ts';
 import { usdToNano } from '../money.ts';
 import { isFresh, replyAgeLimitMinutes } from './freshness.ts';
@@ -331,9 +331,25 @@ export async function runReceptionJob(
       fx.log('error', 'message_failed', { detail: stored.detail });
       return unavailable('worker.message_failed');
     }
-    // A redelivery: this exact customer message is already stored, so it has already been
-    // answered or is being answered. Generating again would double-reply and double-bill.
-    if (stored.value.duplicate) continue;
+    // A redelivery. The inbound row already existing does NOT mean the reply happened —
+    // that inference cost a real message on 2026-09-06, when the first attempt persisted
+    // and then died at the spend guard, and the retry skipped on the row it had just
+    // written. Ask for the reply instead; `findReplyFor` carries the full account.
+    if (stored.value.duplicate) {
+      const answered = await findReplyFor(db, {
+        tenantId, kind: 'reply', dedupKey: replyDedupKey(message.externalId),
+      });
+      if (answered.outcome === 'unavailable') {
+        fx.log('error', 'reply_lookup_failed', { eventId, detail: answered.detail });
+        return unavailable('worker.reply_lookup_failed');
+      }
+      if (answered.outcome === 'answered') {
+        fx.log('info', 'already_answered', { eventId, outboundId: answered.outboundId, state: answered.state });
+        continue;
+      }
+      // absent: whatever ran before never got as far as drafting. Answer it.
+      fx.log('info', 'redelivery_unanswered', { eventId, externalId: message.externalId });
+    }
 
     // §3.9's check 7. AFTER the message is persisted — §3.4.5's "persist everything,
     // generate nothing" — and before the reservation, so a message nobody wants answered
@@ -372,7 +388,13 @@ export async function runReceptionJob(
 
     if (!guard.ok) {
       const { refusal } = guard;
-      fx.log('warn', 'refused', { code: refusal.code, tenantId, eventId });
+      // The detail is the whole diagnosis on a 503 — without it `guard_unavailable` names
+      // a category and nothing more, which is what turned a one-line schema mismatch into
+      // an evening of inference on 2026-09-06.
+      fx.log('warn', 'refused', {
+        code: refusal.code, tenantId, eventId,
+        ...(refusal.code === 'guard_unavailable' ? { detail: refusal.detail } : {}),
+      });
       // 503 means "we could not determine" — QStash must retry, so nothing is lost.
       if (refusal.status === 503) return unavailable(refusal.code);
       // 403/429 are determinate. Retrying cannot change them, so ACK and let the §5.7
