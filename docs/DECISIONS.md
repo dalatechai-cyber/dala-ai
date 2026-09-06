@@ -1326,3 +1326,95 @@ an inconsistent pair is refused by PostgreSQL on insert.
 **Made to go red three ways**: restoring the alert gate to `if (healthy) return` fails the
 watch test; collapsing `not_configured` back into `unknown` fails three; widening it to the
 closed fortnight fails three.
+
+---
+
+## D-033 — a tenant with no facts is never asked to produce any
+
+**Settled 2026-09-06, from the first real reply this platform ever sent.** The customer
+wrote `hi bro`. Tenant #0 answered:
+
+> Сайн байна уу? 😊 Манай **гоо сайхны салонтой** холбоотой асуулт байвал асуугаарай —
+> **үнийн мэдээлэл**, үйлчилгээний талаар туслахад бэлэн байна.
+
+*"If you have questions about our beauty salon, ask — I'm ready to help with price
+information and services."* Tenant #0's `vertical` is `software`, its knowledge base is
+empty, and nobody supplied either fact.
+
+### Where it came from, measured against the published snapshot
+
+`config_snapshots`, hash `8b35d072`, the bytes that were actually sent:
+
+| | |
+|---|---|
+| `length(prompt_stable)` | **9,265** |
+| Occurrences of «салон» | **4** |
+| Occurrences of «үсч» / «үс буд» | **2** |
+| Contains "Dalatech" or "software" | **false** |
+| Heading lines (`=== … ===`) in the whole prompt | **1** |
+
+The prefix is the twelve platform L0 blocks and nothing else — the stored block lengths
+sum to 9,243, joined by eleven `\n\n` separators, which is `prompt_chars` to the character.
+`renderTenantSections` returns `[]` for a tenant with no rows, deliberately.
+
+**Five of those twelve blocks are written in salon language**, Ш8's forbidden-phrase list
+(«ийм салонуудад») among them. `vertical` and `display_name` are read by no code under
+`src/lib/prompt/` or `src/lib/reception/`, so the prompt tells the model in detail how a
+salon should behave and never tells it who it is working for. «салон» was the only
+business-type noun in its context.
+
+Two instructions then pointed at nothing. `01_data_marker` says everything below the
+«=== ТУХАЙН БАЙГУУЛЛАГЫН МЭДЭЭЛЭЛ ===» marker is reference data — the marker appears once,
+inside that sentence, and **zero times as its own line**. `00_gate_preamble` rule (4) says
+that when no check requires a canned answer, answer normally **from the knowledge base
+below**; there was none, and no rule covers that. A greeting matches none of Ш0–Ш9, so
+rule (4) fired with no else-branch.
+
+**The outbound guard could not have caught it, and did not fail.** Its allow-list is over
+NUMERALS, and it worked: `allowed_numbers` was empty, which is exactly why the reply
+offered price *information* rather than a price. There is no allow-list of permissible
+claims about what a business IS, and in Mongolian a deny-list of them would be the
+input-filter fallacy the guard's own header rejects.
+
+### The fix is upstream of the model, not downstream of it
+
+`handleReception` gains a fourth free refusal: **no tenant data, no model call.** The
+tenant's `handoff` line is sent instead, the hold is released, and `quality_flags` records
+`no_tenant_data`. It runs after both short-circuits on purpose — a deterministic reply and
+a gate short-circuit each send a sentence the tenant wrote, with no model in the loop, so
+there is nothing to withhold.
+
+It saves $0.0159 a message at the measured rate, and that is the second reason. A refusal
+that spent the money and then declined to send the text would be equally correct about what
+the customer sees; the safe order happens to be the cheap one.
+
+**`hasTenantData` derives the answer from the prefix rather than reading a stored flag**,
+and that was the design decision worth the most thought. A boolean on `config_snapshots`
+written at compile time reads better and answers worse: every snapshot compiled before the
+column existed carries `null` — including the live one with the defect — and neither
+reading of `null` is acceptable. Fail closed and every provisioned tenant goes silent; fail
+open and the bug stays exactly where it is. Deriving it answers correctly for every
+snapshot ever compiled, with no republish and no migration.
+
+**The test is the marker as a LINE OF ITS OWN**, because `01_data_marker` names it
+mid-sentence and a substring test would therefore answer `true` for every tenant on the
+platform. That coupling is guarded rather than hoped for: a test asserts no signed platform
+block contains the marker on a line by itself, so a future edit fails the build instead of
+silently re-enabling the model for tenants with nothing to say.
+
+**Known and accepted:** business hours live in the volatile tail, not the stable prefix, so
+a tenant with hours entered and nothing else is refused here despite having one fact.
+Conservative in the safe direction, and it describes a tenant minutes into provisioning
+rather than one in service.
+
+**Made to go red three ways.** Removing the check fails three tests; making `hasTenantData`
+a substring test fails the gate-only case; moving the check ahead of the short-circuits
+fails the row-backed-answers case. Eighteen existing tests in `handle.test.ts` failed when
+the check was added, because `promptStable: 'STABLE'` had stood for "a compiled prompt"
+throughout — the fixture was the production configuration that produced the salon reply.
+
+**Not done, and separate:** the gate blocks are still salon-flavoured, which is Matrix's
+shape written into shared prose. That is a platform decision rather than a fix, and
+`tenants.vertical` existing and being read by nothing is the tell. Refusing to publish a
+gate-only revision was considered and rejected by the founder: it would have made tenant #0
+unpublishable rather than answerable.

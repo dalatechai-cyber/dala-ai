@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { formatMoney, renderTenantSections, SECTION_LABELS, type TenantKb } from './tenant.ts';
+import { formatMoney, hasTenantData, renderTenantSections, SECTION_LABELS, type TenantKb } from './tenant.ts';
 import { renderStablePrefix, type PromptSection } from './render.ts';
 import { extractNumerals, numeralsNotAllowed } from '../mn/extract.ts';
 
@@ -270,4 +270,54 @@ test('the rendered body is NFC, because the schema will reject anything else', (
   for (const s of renderTenantSections(kb, APPROVED)) {
     assert.equal(s.body.normalize('NFC'), s.body, s.key);
   }
+});
+
+// ---------------------------------------------------------------------------
+// hasTenantData — the predicate that decides whether the model is asked at all
+// ---------------------------------------------------------------------------
+
+/** The compiled prefix for a tenant, as `renderStablePrefix` would produce it. */
+function prefixFor(kb: TenantKb): string {
+  const platform: PromptSection = {
+    layer: 'L0', key: '01_data_marker', ordinal: 1, origin: 'platform', reviewedAt: APPROVED,
+    // The signed block NAMES the marker inside a sentence. That is the whole reason the
+    // test below is about a line and not a substring.
+    body: readFileSync('prompt/platform/01_data_marker.mn.txt', 'utf8'),
+  };
+  const r = renderStablePrefix([platform, ...renderTenantSections(kb, APPROVED)]);
+  assert.equal(r.ok, true);
+  return r.ok ? r.rendered.promptStable : '';
+}
+
+test('DONE-TEST: A GATE-ONLY PREFIX HAS NO TENANT DATA, even though it names the marker', async () => {
+  // Measured against the live snapshot that produced the beauty-salon reply (D-033):
+  // «ТУХАЙН БАЙГУУЛЛАГЫН МЭДЭЭЛЭЛ» appears ONCE and on NO line of its own. A substring
+  // test answers `true` there — for every tenant on the platform, since `01_data_marker`
+  // is a platform block — and the check would be a check in name only.
+  const prefix = prefixFor(EMPTY);
+  assert.equal(prefix.includes(SECTION_LABELS.dataMarker), true, 'the signed block names it');
+  assert.equal(hasTenantData(prefix), false);
+});
+
+test('one row is enough: the marker becomes a line of its own', () => {
+  assert.equal(hasTenantData(prefixFor({ ...EMPTY, faqs: [{ question: 'Зогсоол?', answer: 'Ард нь.' }] })), true);
+  assert.equal(hasTenantData(prefixFor(MATRIX)), true);
+});
+
+test('THE DERIVATION IS GUARDED: no signed block may put the marker on its own line', () => {
+  // `hasTenantData` reads the prefix rather than a stored flag, which is what lets it
+  // answer correctly for snapshots compiled before it existed — including the live one
+  // that has the defect. The cost of that is a coupling: a platform block that ever wrote
+  // the marker as a standalone line would make every tenant look provisioned, silently.
+  // This is the tripwire, and it fails the build rather than the customer.
+  const lines = readdirSync('prompt/platform')
+    .filter((f) => f.endsWith('.mn.txt'))
+    .flatMap((f) => readFileSync(`prompt/platform/${f}`, 'utf8').split('\n').map((l) => ({ f, l: l.trim() })));
+  const offenders = lines.filter((x) => x.l === `=== ${SECTION_LABELS.dataMarker} ===`).map((x) => x.f);
+  assert.deepEqual(offenders, [], 'a platform block emits the tenant data marker as its own line');
+});
+
+test('an empty prompt has no tenant data, and neither does whitespace', () => {
+  assert.equal(hasTenantData(''), false);
+  assert.equal(hasTenantData('   \n\n   '), false);
 });

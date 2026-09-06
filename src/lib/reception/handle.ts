@@ -16,12 +16,12 @@
  *
  * ## The order is the design, again
  *
- *   stale? → match → canned lines reviewed? → short-circuit? → mark called → call →
- *   settle → guard → draft
+ *   stale? → match → canned lines reviewed? → short-circuit? → any tenant data? →
+ *   mark called → call → settle → guard → draft
  *
- * Three of those come **before** the model call and each can end the request for free:
- * a stale event, an unparseable matcher, an unreviewed canned line. The cheapest refusals
- * are first, and none of them costs a token.
+ * Four of those come **before** the model call and each can end the request for free:
+ * a stale event, an unparseable matcher, an unreviewed canned line, and a tenant with no
+ * knowledge base at all. The cheapest refusals are first, and none of them costs a token.
  */
 import type { CallOutcome, ReceptionRequest, TerminalReason } from '../model/reception.ts';
 import { isStale } from '../model/reception.ts';
@@ -29,6 +29,7 @@ import type { Usage } from '../spend/settle.ts';
 import { kindsReferencedBy, matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
 import { matchDeterministic, type DeterministicRule, type HistoryState } from '../gate/deterministic.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
+import { hasTenantData } from '../prompt/tenant.ts';
 import { capToSingleMessage } from '../mn/text.ts';
 
 /** One Messenger send, in characters. */
@@ -215,6 +216,39 @@ export async function handleReception(
     return drafted.ok
       ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned' }
       : { kind: 'retry', detail: drafted.detail };
+  }
+
+  // 6. NO FACTS, NO CALL. A tenant whose compiled prefix carries none of its own data
+  //    gets the handoff line, and the model is never asked.
+  //
+  //    This is not a saving that happens to be safe; it is a safety property that happens
+  //    to be cheap. The gate blocks describe how a business with a knowledge base should
+  //    behave, and `00_gate_preamble` rule (4) ends with "answer normally from the
+  //    knowledge base below". For a tenant with no rows there is nothing below, no rule
+  //    covers the case, and the only business-type vocabulary left in the context is the
+  //    salon in Ш1, Ш3, Ш6 and Ш8's examples. The first real reply this platform sent
+  //    greeted a customer on behalf of a beauty salon; the tenant sells software (D-033).
+  //
+  //    The outbound guard cannot catch it. Its allow-list is over NUMERALS — which worked:
+  //    `allowed_numbers` was empty, so no price could be quoted. There is no allow-list of
+  //    permissible claims about what the business IS, and in Mongolian there could not be
+  //    a useful deny-list of them either; that is the input-filter fallacy the guard's own
+  //    header rejects. So the fix is upstream of the model, not downstream of it.
+  //
+  //    It runs AFTER both short-circuits on purpose: a deterministic reply and a gate
+  //    short-circuit both answer from a row the tenant wrote, so nothing can be invented
+  //    and there is no reason to withhold them.
+  //
+  //    KNOWN AND ACCEPTED: business hours live in the volatile tail, not the stable
+  //    prefix, so a tenant with hours entered and nothing else is refused here even though
+  //    one fact exists. Conservative in the safe direction, and it describes a tenant that
+  //    is minutes into provisioning rather than one in service.
+  if (!hasTenantData(input.promptStable)) {
+    await deps.release();   // nothing was spent, so the hold goes straight back
+    return handoff(deps, input, {
+      code: 'no_tenant_data',
+      detail: 'the compiled prefix carries no tenant sections: the model would have nothing to answer from',
+    });
   }
 
   // ---- The point of no return --------------------------------------------
