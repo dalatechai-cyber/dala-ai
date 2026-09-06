@@ -562,21 +562,73 @@ test('every persistence failure is 503 — nothing is lost to a 200', async () =
   }
 });
 
-test('a redelivery of the same customer message never generates a second reply', async () => {
-  // `recordInbound` reports a duplicate. Generating again would double-reply and
-  // double-bill, which is the whole reason the message id is the idempotency key.
-  const { fx, generated } = stubEffects({
+/** `recordInbound` loses the unique index, then reads the winner's row: a redelivery. */
+const DUPLICATE_INBOUND: Reply[] = [
+  { error: { code: '23505', message: 'duplicate key' } },
+  { data: { id: 'msg-1' }, error: null },
+];
+
+test('a redelivery whose reply ALREADY EXISTS never generates a second one', async () => {
+  // The idempotency that was always intended: a reply row under `in:<mid>` exists, so the
+  // question has been answered and answering again would double-reply and double-bill.
+  const { fx, generated, logs } = stubEffects({
     tables: {
-      // The insert loses the unique index, then the follow-up read finds the winner's row.
-      // That is a redelivery, not an error — the same shape `outbound/claim.ts` relies on.
-      messages: [
-        { error: { code: '23505', message: 'duplicate key' } },
-        { data: { id: 'msg-1' }, error: null },
-      ],
+      messages: DUPLICATE_INBOUND,
+      outbound_messages: { data: { id: 'om-9', state: 'sent' }, error: null },
     },
   });
   const r = await run(fx);
   assert.equal(r.status, 200);
   assert.equal(generated.length, 0);
   assert.equal(r.body['drafted'], 0);
+  assert.equal(logs.find((l) => l.event === 'already_answered')?.fields?.['outboundId'], 'om-9');
+});
+
+test('DONE-TEST: a redelivery with NO reply row is ANSWERED, not skipped', async () => {
+  // 2026-09-06, event 4. The first attempt persisted the customer's message and then died
+  // at the spend guard; QStash retried; the retry saw the inbound row it had just written,
+  // skipped, and marked the event `processed` — which no redelivery re-drives. The message
+  // became permanently unanswerable and every status code was the intended one.
+  //
+  // The inbound row says a row exists. Only a reply says a reply happened.
+  const { fx, generated, logs } = stubEffects({
+    tables: {
+      messages: DUPLICATE_INBOUND,
+      outbound_messages: [
+        { data: null, error: null },                                                   // no reply yet
+        { data: { id: 'om-1', body: 'ХАРИУЛТ', state: 'draft', attempts: 0 }, error: null },
+      ],
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(generated.length, 1, 'the customer gets an answer on the retry');
+  assert.equal(r.body['drafted'], 1);
+  assert.ok(logs.some((l) => l.event === 'redelivery_unanswered'), 'and it says so');
+});
+
+test('a redelivery whose reply lookup FAILS is 503 — neither skipped nor answered twice', async () => {
+  const { fx, generated } = stubEffects({
+    tables: {
+      messages: DUPLICATE_INBOUND,
+      outbound_messages: { data: null, error: { message: 'connection reset' } },
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+  assert.equal(generated.length, 0, 'and nothing was generated on a guess');
+});
+
+test('DONE-TEST: a 503 refusal logs the DETAIL, not just the category', async () => {
+  // `guard_unavailable` names a class. Without the detail, a one-line schema mismatch
+  // between `db.rpc('reserve_spend')` and `app.reserve_spend` reads identically to a
+  // database outage — which is exactly how 2026-09-06 was spent.
+  const { fx, logs } = stubEffects({
+    tables: { tenant_roles: { data: null, error: { message: 'permission denied' } } },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+  const refused = logs.find((l) => l.event === 'refused');
+  assert.equal(refused?.fields?.['code'], 'guard_unavailable');
+  assert.match(String(refused?.fields?.['detail']), /permission denied/);
 });
