@@ -23,7 +23,7 @@ const MATRIX: TenantKb = {
   clarify: [{ term: 'тайралт', question: 'Эмэгтэй эсвэл эрэгтэй тайралт уу?' }],
   deposits: ['үс будалт: 20,000₮ урьдчилгаа'],
   documents: [{ title: 'Танилцуулга', body: 'Матрикс эко салон.' }],
-  staff: [{ name: 'Сараа', groupName: 'Үсчин', tier: 'ахлах' }],
+  staff: [{ name: 'Сараа', shortName: null, groupName: 'Үсчин', tier: 'ахлах' }],
   services: [
     { name: 'Чёлк тайралт', variants: [{ variantKey: '', priceKind: 'exact', priceMin: '33000.00', priceMax: null, refusalTopic: null }] },
     { name: 'Үс будалт', variants: [{ variantKey: 'эмэгтэй', priceKind: 'range', priceMin: '80000.00', priceMax: '150000.00', refusalTopic: null }] },
@@ -320,4 +320,49 @@ test('THE DERIVATION IS GUARDED: no signed block may put the marker on its own l
 test('an empty prompt has no tenant data, and neither does whitespace', () => {
   assert.equal(hasTenantData(''), false);
   assert.equal(hasTenantData('   \n\n   '), false);
+});
+
+// ---------------------------------------------------------------------------
+// The short name is an attribute of the person, not a resolver (0019)
+// ---------------------------------------------------------------------------
+
+const staffKb = (staff: TenantKb['staff']): TenantKb => ({ ...EMPTY, staff });
+const staffLines = (staff: TenantKb['staff']) =>
+  bodyOf(renderTenantSections(staffKb(staff), APPROVED), 'staff_list')
+    .split('\n')
+    .filter((l) => l.startsWith('- '));
+
+test('a staff member with no short name renders exactly as before', () => {
+  // The column is nullable and almost every row will leave it null — Matrix has nine
+  // staff and one short form between them. An empty parenthesis after every other name
+  // would be scaffolding the model has to interpret, in the section Ш4 reads for tiers.
+  assert.deepEqual(staffLines([{ name: 'Сараа', shortName: null, groupName: 'Үсчин', tier: 'ахлах' }]),
+    ['- Сараа · Үсчин · ахлах']);
+});
+
+test('BOTH SPELLINGS ARE IN THE ROSTER, on one line, for the person who has two', () => {
+  // This is the whole point of the column: a customer writing the short form must find a
+  // match without the model having to guess, and a customer writing the full name must
+  // find the same person. One line per person keeps Ш4's tier lookup unambiguous.
+  assert.deepEqual(staffLines([{ name: 'Оюунсүрэн', shortName: 'Оюунаа', groupName: 'Үсчин', tier: 'Мастер' }]),
+    ['- Оюунсүрэн (Оюунаа) · Үсчин · Мастер']);
+});
+
+test('an empty short name is absence, not a name', () => {
+  // PostgREST hands back whatever is in the column, and a text column collects '' from
+  // any form that posts a blank field. «Сараа ()» is worse than «Сараа».
+  assert.deepEqual(staffLines([{ name: 'Сараа', shortName: '', groupName: null, tier: null }]),
+    ['- Сараа']);
+});
+
+test('TWO PEOPLE MAY SHARE A SHORT NAME, and the roster shows both in full', () => {
+  // 0019 deliberately puts no unique constraint on the column. Under Ш10 a duplicate
+  // short form is not an ambiguity the database must prevent — it is one the reply
+  // resolves by asking, the same path as a name that matches nothing at all. What this
+  // asserts is that the roster still carries the information the ask needs: both full
+  // names, visible, rather than one row winning and the other disappearing.
+  assert.deepEqual(staffLines([
+    { name: 'Оюунсүрэн', shortName: 'Оюунаа', groupName: null, tier: null },
+    { name: 'Оюунгэрэл', shortName: 'Оюунаа', groupName: null, tier: null },
+  ]), ['- Оюунсүрэн (Оюунаа)', '- Оюунгэрэл (Оюунаа)']);
 });

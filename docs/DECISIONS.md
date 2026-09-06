@@ -1731,3 +1731,67 @@ than by reading them.
 The transport, not the behaviour: `spend.sql` and the unit tests own that. And it is
 PostgREST 12.2.3 against PostgreSQL 16, not Supabase's build against 17.6 — the schema is
 the same, the gateway and the version are not.
+
+## D-038 — a half-remembered name is answered by the roster, not by a lookup table
+
+**2026-09-06.** Matrix Eco Salon answered the onboarding questions. Of the seven stylist
+nicknames the knowledge-base form asked for, **there is one**: «Оюунаа». The other eight
+staff have none. The founder's instruction was to *design the behaviour rather than treat
+it as a lookup table — the useful case is a customer who half-remembers a name.*
+
+### The build that was refused
+
+`staff_aliases (tenant_id, alias, staff_id)`, mirroring `service_aliases`. It is the
+obvious shape and it is the wrong one here. An alias table answers exactly the strings
+somebody thought to type into it, and with one real row it would look like a mechanism
+while behaving like a constant. Every name it does not hold — a misspelling, a half-heard
+syllable, the wrong stylist entirely — falls through to whatever the model does with an
+unmatched name, which is the case that actually happens and the case nobody designed.
+
+### What was built instead, split by what kind of thing it is
+
+**A fact about a person → data.** `staff_members.short_name` (`0019`): nullable, one column
+on the person, rendered inline as `Оюунсүрэн (Оюунаа)` so both spellings sit in the roster
+Ш4 already reads. Deliberately **not unique** — two people may share a short form, and a
+unique constraint would have the schema assert they cannot while defending nothing: under
+Ш10 a duplicate resolves the same way an unknown name does, by asking.
+
+**What to do when nothing matches → the gate.** Ш10, drafted in `prompt/drafts/` and
+unsigned. It fills a hole that was invisible until it was named: Ш4's non-application
+clause says a named stylist's *price* falls through to Ш2, «багийн жагсаалтаас зэрэглэлийг
+олж» — find the tier in the roster — and that instruction assumes the name is in the roster.
+Without Ш10 the two available answers are both failures: pick the nearest-sounding name
+(invent a person) or fall through to Ш8 and refuse (end a booking over a spelling). Ш10's
+correct action is to ask for the full name **and show the roster**, because the roster is
+the answer to "I can't remember what she's called".
+
+### The part that is a real gap, written down rather than implied
+
+Ш10 is the first check whose reply is **composed rather than copied** — every other block
+ends by naming a `canned_responses` row, and no platform sentence can carry a per-tenant
+roster. The block forbids emitting a name that is not in БАГИЙН ЖАГСААЛТ and **nothing
+mechanical enforces that**: the outbound guard's allow-list is over numerals, so an invented
+stylist name passes it exactly as «салон» passed everything in D-033. A name allow-list is
+not obviously buildable — Mongolian names are not distinguishable from other nouns by
+shape, and a deny-list over user text is the input-filter fallacy the guard's own header
+rejects. The bound is prompt-level only. That is stated in `prompt/drafts/README.md` so the
+reading evening judges it with the text in front of it.
+
+### And the column found a gap in D-037
+
+`loadTenantKb` selects `short_name`. A select naming a column that does not exist fails the
+**whole** publish for that tenant — thirteen reads, one error, `staff_members unreadable`,
+no new revision — and TypeScript cannot see it, because a PostgREST select list is a string.
+D-037's check proved every `.rpc()` and `.from()` NAME resolves and said so explicitly about
+its own limits. It now also parses every `.select()` in `src/` and asserts each column
+exists on the profile, embedded resources included, resolved against the embedded table.
+
+**Proven by mutation against a real PostgREST, three ways**: dropping `short_name`,
+mistyping a plain column, mistyping a column inside `tenant_channels!inner(…)`. The first
+run of the first mutation reported OK — **and that was a stale schema cache** in a PostgREST
+left running from a previous attempt, not a passing check. Worth recording twice over: it is
+the same shape as D-037's original defect, it was caught only by noticing that the process
+that should have restarted had exited with the port already bound, and the workflow is
+correct for the same reason CI is not exposed to it — PostgREST is started after the
+migrations, once.
+

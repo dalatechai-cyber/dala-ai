@@ -99,7 +99,18 @@ export type TenantKb = {
   clarify: readonly { term: string; question: string }[];
   deposits: readonly string[];
   documents: readonly { title: string; body: string }[];
-  staff: readonly { name: string; groupName: string | null; tier: string | null }[];
+  /**
+   * `shortName` is what customers commonly call this person, when that differs from
+   * `name`. It is an attribute of the person and NOT a resolver: a name matching neither
+   * column is handled by asking (Ш10), which is the case that actually happens — see
+   * `0019`'s note on why this is not an alias table.
+   */
+  staff: readonly {
+    name: string;
+    shortName: string | null;
+    groupName: string | null;
+    tier: string | null;
+  }[];
   services: readonly { name: string; variants: readonly ServiceVariant[] }[];
   faqs: readonly { question: string; answer: string }[];
   contacts: readonly { kind: string; value: string }[];
@@ -206,7 +217,11 @@ export function renderTenantSections(kb: TenantKb, approvedAt: string): PromptSe
 
   out.push(section('L3', 'staff_list', 1, SECTION_LABELS.staffList,
     kb.staff.map((s) => {
-      const parts = [s.name];
+      // The short form goes in parentheses immediately after the name so BOTH spellings
+      // are in the roster the model reads, and the roster stays one line per person. It
+      // carries no digits, so nothing here reaches `allowed_numbers`.
+      const shown = s.shortName === null || s.shortName === '' ? s.name : `${s.name} (${s.shortName})`;
+      const parts = [shown];
       if (s.groupName !== null && s.groupName !== '') parts.push(s.groupName);
       if (s.tier !== null && s.tier !== '') parts.push(s.tier);
       return `- ${parts.join(' · ')}`;

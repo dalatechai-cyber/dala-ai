@@ -656,6 +656,30 @@ insert into _v select 'V29', 'every tenant vertical has every per-vertical platf
         where b.scope = 'platform' and b.block_key = pv.block_key and b.vertical = t.vertical)
   ) bad;
 
+-- V30 — `staff_members.short_name` exists, and every column the prompt loader reads with
+-- it (0019, D-038).
+--
+-- The column half is the obvious assertion. The rest of the list is the point: this is the
+-- exact select `loadTenantKb` issues, and a select naming a column that is not there fails
+-- the WHOLE publish for that tenant — thirteen reads, one error, `staff_members
+-- unreadable`, and no new revision. So the deployment order matters (migration first, code
+-- second) and this is where a database that is behind the code says so.
+--
+-- `scripts/verify/postgrest.ts` asks the same question through the REST profile, which is
+-- the transport the runtime actually uses. Both are worth having: this one runs against
+-- any psql-reachable database including the real project, that one proves the column is
+-- reachable as well as present.
+insert into _v select 'V30', 'staff_members carries every column the prompt loader selects',
+  coalesce(string_agg('missing column: staff_members.' || c, ', ' order by c), 'all present'),
+  count(*) = 0
+  from (
+    select c from unnest(array['name','short_name','group_name','tier','active','tenant_id']) as c
+     where not exists (
+       select 1 from pg_attribute a
+        where a.attrelid = 'staff_members'::regclass and a.attname = c
+          and a.attnum > 0 and not a.attisdropped)
+  ) bad;
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;
