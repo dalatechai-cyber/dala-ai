@@ -361,6 +361,12 @@ test('TWO PEOPLE MAY SHARE A SHORT NAME, and the roster shows both in full', () 
   // resolves by asking, the same path as a name that matches nothing at all. What this
   // asserts is that the roster still carries the information the ask needs: both full
   // names, visible, rather than one row winning and the other disappearing.
+  //
+  // Оюунсүрэн is the real case — Matrix Eco Salon has nine staff and «Оюунаа» is the one
+  // short form among them. THE SECOND ROW IS INVENTED for this test: there is no
+  // Оюунгэрэл on that roster, and nothing here should be read as saying there is. It is
+  // named because a session mis-transcribed exactly this name once, and a plausible
+  // string sitting next to a true one is how this repository has been wrong before.
   assert.deepEqual(staffLines([
     { name: 'Оюунсүрэн', shortName: 'Оюунаа', groupName: null, tier: null },
     { name: 'Оюунгэрэл', shortName: 'Оюунаа', groupName: null, tier: null },
