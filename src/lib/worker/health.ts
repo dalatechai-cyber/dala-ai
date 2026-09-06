@@ -1,5 +1,6 @@
 /**
- * The health worker's decision logic — the scheduled half of the silence watchdog.
+ * The health worker's decision logic — the scheduled half of the silence watchdog, and
+ * since 2026-09-06 the stranded-event sweep that runs beside it.
  *
  * Same shape as `worker/reception.ts` and for the same reason: a Next.js route handler is
  * awkward to test for uninteresting reasons, so anything that branches lives here and
@@ -24,11 +25,14 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { runSilenceWatch } from '../health/watch.ts';
+import { sweepStrandedEvents, type SweepInput } from '../health/stranded.ts';
 
 export type HealthEffects = {
   db: SupabaseClient;
   now: Date;
   verifySignature: (rawBody: string, signature: string | null) => Promise<boolean>;
+  /** How the sweep re-publishes a job that never reached the queue. */
+  enqueue: SweepInput['enqueue'];
 };
 
 export type HealthJobResult = { status: number; body: Record<string, unknown> };
@@ -44,10 +48,25 @@ export async function runHealthJob(
   const run = await runSilenceWatch(effects.db, { now: effects.now });
   if (!run.ok) return { status: 503, body: { error: 'unavailable', detail: run.detail } };
 
+  // Two different faults, both scheduled here because both are cheap reads and neither
+  // spends anything: the watch asks whether messages are ARRIVING, the sweep asks whether
+  // an arrived one was ever picked up. The first real webhook was lost in the gap between
+  // those questions — arriving fine, never queued, and every silence signal green.
+  const sweep = await sweepStrandedEvents(effects.db, { now: effects.now, enqueue: effects.enqueue });
+  if (!sweep.ok) return { status: 503, body: { error: 'unavailable', detail: sweep.detail } };
+
   // The counts, not the verdicts: this body goes to QStash's delivery log, and a channel's
   // health belongs in `channel_health` and the alert rather than in a queue receipt.
   const counts: Record<string, number> = {};
   for (const v of run.verdicts) counts[v.diagnosis.state] = (counts[v.diagnosis.state] ?? 0) + 1;
 
-  return { status: 200, body: { checked: run.checked, states: counts } };
+  // Counts by action, for the same reason: which events were rescued and which were
+  // retired is in `webhook_events` and in the alerts, not in a queue receipt.
+  const sweptCounts: Record<string, number> = {};
+  for (const e of sweep.swept) sweptCounts[e.action] = (sweptCounts[e.action] ?? 0) + 1;
+
+  return {
+    status: 200,
+    body: { checked: run.checked, states: counts, swept: sweptCounts },
+  };
 }

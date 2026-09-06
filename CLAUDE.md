@@ -37,11 +37,12 @@ Advanced Access. App Review is now a *comments-only* concern (D-023), and it no 
 on the critical path to a first real message.
 
 **The Supabase project EXISTS as of 2026-09-05** — ref `tlggenaatnopnxzbkbuf`, PostgreSQL
-17.6, ap-southeast-1. Migrations `0001`–`0012` are applied through the CLI with a real
-**twelve**-row ledger (D-012), and `catalog.sql` returned 25/25 against it — all twenty-five
-checks the file carried at the time. **The repository now has fourteen migrations and the
-project still has twelve:** `0013` and `0014` were written after that push. Read the count
-off `supabase_migrations.schema_migrations`, never off `ls supabase/migrations/`.
+17.6, ap-southeast-1. Migrations `0001`–`0014` are applied through the CLI with a real
+**fourteen**-row ledger (D-012, read back 2026-09-06), and `catalog.sql` returned 25/25
+against it when the file carried twenty-five checks. It carries twenty-seven now: V26
+passes there since `0014` landed, and **V25 still fails and is meant to** — see the second
+bullet below. Read the count off `supabase_migrations.schema_migrations`, never off
+`ls supabase/migrations/`.
 
 **Running it there immediately found three things CI structurally could not**, which is the
 argument for having bought it, and the reason to distrust "verified in CI" as a synonym for
@@ -54,7 +55,9 @@ verified:
   bites — proven by creating a table and reading its ACL — but nothing had ever tested it.
 - **There are two grantors and 0001 reached only one.** `supabase_admin` owns a second
   default-ACL entry that `postgres` cannot revoke. `0013` attempts it and warns; V25
-  asserts the end state so the residual is visible rather than silent. It is latent, not
+  asserts the end state so the residual is visible rather than silent. **Re-measured
+  2026-09-06, after `0013` was pushed: still there** — `supabase_admin` grants `anon` and
+  `authenticated` all eight privileges on every future table in `public`. It is latent, not
   live: it only matters for objects created in `public` **by** `supabase_admin`.
 - **The collation differs and it is not cosmetic.** CI is `C.UTF-8`, the project is
   `en_US.UTF-8`, and the same Mongolian strings sort differently under each — which fed
@@ -68,17 +71,31 @@ verified:
   seeded `tenants` row cannot be deleted. They must be run over psql. The critical claims
   were confirmed by direct probe — `anon` refused everywhere, cross-tenant isolation holds,
   TRUNCATE and INSERT refused — but the suites themselves have not been run there.
-- **Anything that needs PostgREST**, i.e. the `@supabase/supabase-js` transport. Every
-  query in `src/` is still exercised against a stub and has never been sent over the wire.
-  A schema applied to a project is not an application talking to it.
+- **Most of what needs PostgREST.** The transport itself is no longer unproven: on
+  2026-09-06 a real Meta delivery had the app read `channel_identity` and insert into
+  `webhook_events` against the project, over `@supabase/supabase-js` with the service key.
+  Everything downstream of the queue — the config compile, the outbound claim, the spend
+  ledger — is still exercised only against a stub, and `query-columns.ts` (277 references
+  across 100 sites, checked against the applied schema every CI run) is what stands under
+  those until they run for real.
 
-**The send is built and has never sent anything** (2026-09-04). Draft → claim → decrypt →
-`POST /{page-id}/messages` → mark, with the Graph error taxonomy, the failed/indeterminate
-split, and the `delivery_mode` gate. **It has never reached Meta** — not for want of an app
-or a token, both of which exist, and no longer for want of a database either — but because
-the project holds no `tenant_channels` row and no sealed secret for it to read.
-`docs/STATUS.md` is the ordered list of what turns that into a real message, and the list
-is shorter than it was.
+**The send is built and has never sent anything** (2026-09-04; still true 2026-09-06, for a
+different reason). Draft → claim → decrypt → `POST /{page-id}/messages` → mark, with the
+Graph error taxonomy, the failed/indeterminate split, and the `delivery_mode` gate. Tenant
+#0 (`dalatech`, Page `863503883522801`) now HAS a `tenant_channels` row, a
+`channel_identity` row that routed a real delivery, and a sealed `page_token`. What it has
+no rows for is its **config**: no `config_revisions`, no `canned_responses`, so the compile
+refuses (PR #42) and `tenants.status` is still `provisioning` — `active_requires_published_config`
+would refuse anything else. The channel is `delivery_mode = 'off'`, `token_status =
+'unprovisioned'`. `docs/STATUS.md` §5 is the ordered list, and it is now rows and one QStash
+schedule rather than accounts.
+
+**The first real webhook arrived on 2026-09-06 and was lost, with every status code
+behaving as written** — QStash refused the colon-joined `deduplicationId`, the route 500'd,
+and Meta's two retries were skipped as duplicates and answered 200, which ends redelivery.
+Read D-028 before touching `webhook/events.ts`, `queue/qstash.ts` or `health/stranded.ts`:
+the id is hashed, a duplicate that never reached the queue is re-enqueued, and the sweeper
+§3.6.3 specified is finally built.
 
 **Meta token decryption is no longer parked** (2026-09-04, on the founder's call: *"waiting
 until a Meta app exists means writing crypto at the worst moment — when I'm trying to go
@@ -90,9 +107,11 @@ runs the whole path against a real PostgreSQL in CI: seal, store in `bytea`, rea
 PostgREST's hex form, decrypt through the runtime loader. What that does **not** prove, and
 must never be written as if it did: the hop is a local socket, not PostgREST, so the
 transport the runtime will actually use is still unexercised, and the KEK in CI is generated
-per run and thrown away. A real Page token now exists — the founder holds one for Matrix —
-but it has never been sealed by `scripts/kek/seal.ts` or read back by the runtime loader, so
-the round trip is still proven only over test material.
+per run and thrown away. **Half of that changed on 2026-09-06:** a real Page token has now
+been sealed by `scripts/kek/seal.ts` into `tenant_secrets` for tenant #0, under KEK `v1`
+from the platform environment. It has never been *opened* — `last_ok_at` is null — because
+nothing has reached the send, so the read half of the round trip is still proven only over
+CI's test material.
 
 ## The test every decision is measured against
 
@@ -211,9 +230,10 @@ somebody wrote rather than a filename that happened to match.
 are the schema; the eight section files carry a banner saying their DDL is superseded.
 Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 27/27,
 `isolation.sql` 14/14, `rls.sql` 8/8. **Also applied to the real project** (PG17.6,
-2026-09-05, via the CLI): `catalog.sql` 25/25 there, against the twenty-five checks it then
-carried. Of the two written since, V26 fails there until `0014` is pushed, and V25 until
-`supabase_admin`'s default ACL is revoked by a role that can.
+2026-09-05, via the CLI; `0013`–`0014` pushed 2026-09-06): `catalog.sql` was 25/25 there
+against the twenty-five checks it then carried, and of the two written since, **V26 now
+passes** and **V25 still fails** — `supabase_admin`'s default ACL, re-measured 2026-09-06,
+and only a role that can act as `supabase_admin` will clear it.
 
 **The two behavioural suites test different roles on purpose, and swapping them breaks
 them** (D-027). `rls.sql` runs as `anon`/`authenticated` and proves the policies bite.
