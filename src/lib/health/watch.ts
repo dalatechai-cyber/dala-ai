@@ -185,18 +185,33 @@ function lookbackDate(now: Date): string {
 }
 
 /**
- * Record the verdict and, when it is not healthy, alert.
+ * Record the verdict and, when it is a fault, alert.
  *
  * `channel_health` is upserted every run — including on healthy — because "this channel was
  * checked at 14:00 and was fine" and "this channel has not been checked since Tuesday" must
  * not look the same. `observed_at` is what tells them apart, and a watchdog that only writes
  * on failure cannot be distinguished from one that stopped running.
+ *
+ * ## Recorded and alerted are two different questions
+ *
+ * `not_provisioned` is written like any other verdict and raises nothing. A channel whose
+ * tenant has no `business_hours` yet cannot be measured, and saying so once a day forever
+ * is not information — it is the alarm learning to be ignored, on the one channel the
+ * founder is currently using to decide whether the alerting can be trusted. The row still
+ * carries the reason, so the gap is visible to anyone who looks; it just does not page.
+ *
+ * `healthy` stays false for it, because it is not a channel proven to be working. Nothing
+ * reads that column today. The first thing that does must branch on the state in `reason`,
+ * or it will re-make in a dashboard the exact conflation this function stopped making in
+ * the alert.
  */
 async function record(
   db: SupabaseClient,
   input: { tenantId: string; channelId: string; externalId: string; diagnosis: ChannelDiagnosis; now: Date },
 ): Promise<void> {
   const healthy = input.diagnosis.state === 'healthy';
+  // A provisioning gap is not an outage: recorded below, never alerted.
+  const fault = !healthy && input.diagnosis.state !== 'not_provisioned';
 
   const { error } = await db.from('channel_health').upsert({
     tenant_id: input.tenantId,
@@ -207,7 +222,7 @@ async function record(
   }, { onConflict: 'tenant_id,channel_id' });
   if (error) console.error('[health] channel_health write failed', { channelId: input.channelId, detail: error.message });
 
-  if (healthy) return;
+  if (!fault) return;
 
   // The day key means a condition that persists re-alerts once tomorrow rather than every
   // run — the same reasoning `alerts/alert.ts` gives for putting the period in the key. The

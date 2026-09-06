@@ -97,14 +97,33 @@ test('a channel that went live ten minutes ago is not yet silent', () => {
   assert.equal(r.verdict, 'ok');
 });
 
-test('DONE-TEST: no business_hours row is UNKNOWN, never a verdict', () => {
+test('DONE-TEST: no business_hours row is NOT_CONFIGURED, never a verdict', () => {
   // Counting unknown hours as open alerts every unprovisioned tenant nightly; counting
   // them as closed disables the watchdog silently — the watchdog acquiring the exact
   // defect it exists to detect. `isOpenAt` already refuses to collapse "we do not know"
   // into "closed"; this is the same refusal one layer up.
   const r = assessSilence(input({ hours: [] }));
-  assert.equal(r.verdict, 'unknown');
-  assert.match(r.verdict === 'unknown' ? r.detail : '', /business_hours/);
+  assert.equal(r.verdict, 'not_configured');
+  assert.match(r.verdict === 'not_configured' ? r.detail : '', /business_hours/);
+});
+
+test('DONE-TEST: A PROVISIONING GAP IS NOT UNKNOWN — the two unmeasurables are separate verdicts', () => {
+  // They used to share `unknown`, and `unknown` alerts. Since every tenant sits between
+  // being provisioned and having its hours entered, the first live channel on the platform
+  // raised a fresh alert every day saying only that setup was unfinished — the dedup key
+  // carries the date, so it never suppressed. Two verdicts, because the remedies are
+  // nothing alike: one is a form to fill in, the other is a question that should have had
+  // an answer and did not.
+  const missingSchedule = assessSilence(input({ hours: [] }));
+  const noClock = assessSilence(input({ lastInboundAt: null, liveSince: null }));
+  const closedFortnight = assessSilence(input({
+    lastInboundAt: new Date('2026-08-01T00:00:00Z'),
+    hours: DAILY.map((h) => ({ ...h, closed: true, opens: null, closes: null })),
+  }));
+  assert.equal(missingSchedule.verdict, 'not_configured');
+  assert.equal(noClock.verdict, 'not_configured');
+  // Hours that SAY closed are configured. That is an answer, and it keeps alerting.
+  assert.equal(closedFortnight.verdict, 'unknown');
 });
 
 test('a day marked closed:true is known, not unknown', () => {
@@ -115,9 +134,11 @@ test('a day marked closed:true is known, not unknown', () => {
   assert.equal(r.verdict, 'ok');
 });
 
-test('nothing to measure from is unknown, not silence', () => {
+test('nothing to measure from is a provisioning gap, not silence', () => {
+  // No inbound event ever AND no `went_live_at`. A channel that was never stamped live and
+  // has never received anything did not stop working; it was never finished.
   const r = assessSilence(input({ lastInboundAt: null, liveSince: null }));
-  assert.equal(r.verdict, 'unknown');
+  assert.equal(r.verdict, 'not_configured');
 });
 
 test('an event stamped in the future is clock skew, not a fault', () => {
