@@ -57,10 +57,11 @@ on the critical path to a first real message.
 against it when the file carried twenty-five checks. It carries twenty-nine now: V26 and V27
 pass there since `0014` and `0015` landed, and **V25 still fails and is meant to** (see the
 second bullet below). **The ledger reads eighteen rows, `0001`–`0018`, read back 2026-09-06 21:0x UTC.** That was
-every migration in the repo when it was read; `0019_staff_short_name` has landed since
-(D-038), so **the project is one behind until it is pushed** — and `loadTenantKb` selects
-the column it adds, so a publish against the un-migrated project refuses with
-`staff_members unreadable` rather than degrading quietly. Note the timing, because it matters for reading anything
+every migration in the repo when it was read. **`0019_staff_short_name` was pushed the same
+evening and the ledger reads nineteen** — verified by the founder against the ledger, with
+`staff_members.short_name` present (D-038). A session asserted "the project is one behind"
+after that push; it was reading its own memory of the state rather than the ledger, which
+is the mistake the paragraph below exists to forbid. Note the timing, because it matters for reading anything
 above: at ~19:00 the same ledger read **fifteen**, newest `0015`, and the first successful
 send at 19:12 required `reserve_spend_all`, which is `0016`. So `0016` and `0017` landed
 between those two reads, on the 6th. Read the count off
