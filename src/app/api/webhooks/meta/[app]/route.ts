@@ -13,7 +13,7 @@ import { readRawBody } from '@/lib/meta/rawBody';
 import { verifyMetaSignature, verifyHandshakeToken } from '@/lib/meta/signature';
 import { supabaseWebhook } from '@/lib/supabase/clients';
 import { resolveTenantForEntry } from '@/lib/tenant/resolve';
-import { claimWebhookEvent, markEventState } from '@/lib/webhook/events';
+import { claimWebhookEvent, markEventState, neverReachedQueue } from '@/lib/webhook/events';
 import { enqueueReception } from '@/lib/queue/qstash';
 
 // node:crypto.timingSafeEqual and the Upstash SDKs are unavailable on the edge runtime.
@@ -143,7 +143,13 @@ export async function POST(
       console.error('[webhook] ledger_unavailable', { detail: claim.detail });
       return NextResponse.json({ error: 'webhook.ledger_unavailable' }, { status: 500 });
     }
-    if (claim.outcome === 'duplicate') continue; // Meta redelivery. Already ours.
+    // A redelivery is only safe to skip if the FIRST attempt actually reached QStash.
+    // It is not enough that a row exists: on 2026-09-06 the first delivery claimed the
+    // row, the enqueue was refused, and both of Meta's retries landed here, skipped the
+    // enqueue and answered 200 — which told Meta the message was delivered and ended the
+    // only chance to queue it. Re-enqueueing is safe because `deduplicationIdFor` gives
+    // QStash a stable id for this event, so a racing double-enqueue collapses to one job.
+    if (claim.outcome === 'duplicate' && !neverReachedQueue(claim.state)) continue;
 
     const enqueued = await enqueueReception({
       provider, dedupKey, eventId: claim.eventId,
@@ -151,7 +157,7 @@ export async function POST(
     });
     await markEventState(db, claim.eventId, enqueued.ok ? 'pending_enqueue' : 'failed');
     if (!enqueued.ok) {
-      console.error('[webhook] enqueue_failed', { detail: enqueued.detail });
+      console.error('[webhook] enqueue_failed', { detail: enqueued.detail, eventId: claim.eventId });
       return NextResponse.json({ error: 'webhook.enqueue_failed' }, { status: 500 });
     }
   }
