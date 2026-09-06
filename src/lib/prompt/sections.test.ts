@@ -60,7 +60,7 @@ test('DONE-TEST: rows with a null layer never become prompt sections', async () 
     ],
     error: null,
   });
-  const out = await loadPromptSections(db, { tenantId: TENANT });
+  const out = await loadPromptSections(db, { tenantId: TENANT, vertical: 'salon' });
   assert.equal(out.ok, true);
   assert.deepEqual(out.ok === true ? out.sections.map((s) => s.key) : [], ['sh0_channel']);
 });
@@ -73,7 +73,7 @@ test('DONE-TEST: an unreviewed block is LOADED, so the renderer refuses instead 
     data: [block(), block({ block_key: 'sh5_health', ordinal: 105, reviewed_at: null })],
     error: null,
   });
-  const loaded = await loadPromptSections(db, { tenantId: TENANT });
+  const loaded = await loadPromptSections(db, { tenantId: TENANT, vertical: 'salon' });
   assert.equal(loaded.ok && loaded.sections.length, 2, 'both loaded — the unreviewed one is not dropped');
 
   const compiled = await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
@@ -103,7 +103,7 @@ test('the read is scoped to this tenant and to platform rows, never across tenan
   // adding the tenant filter, so its absence would pull every tenant's blocks into one
   // prompt.
   const { db, calls } = stubDb({ data: [block()], error: null });
-  await loadPromptSections(db, { tenantId: TENANT });
+  await loadPromptSections(db, { tenantId: TENANT, vertical: 'salon' });
   assert.equal(calls[0]?.table, 'prompt_blocks');
   assert.ok(calls[0]?.filter.includes(`tenant_id.eq.${TENANT}`));
   assert.ok(calls[0]?.filter.includes('scope.eq.platform'));
@@ -134,7 +134,7 @@ test('a malformed row is skipped rather than sorting as NaN', async () => {
     data: [block(), block({ block_key: '', ordinal: 5 }), block({ block_key: 'x', ordinal: 'nonsense', layer: 'L0' })],
     error: null,
   });
-  const out = await loadPromptSections(db, { tenantId: TENANT });
+  const out = await loadPromptSections(db, { tenantId: TENANT, vertical: 'salon' });
   assert.deepEqual(out.ok === true ? out.sections.map((s) => s.key) : [], ['sh0_channel', 'x']);
   assert.equal(out.ok === true ? out.sections[1]?.ordinal : null, 0, 'NaN would compare false against everything');
 });
@@ -488,4 +488,96 @@ test('publishing no channels is refused before anything is compiled', async () =
   });
   assert.equal(out.ok === false && out.code, 'no_snapshot');
   assert.equal(writes.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// 0018 — a platform block written for one vertical
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: A PER-VERTICAL BLOCK REACHES ITS OWN VERTICAL AND NOBODY ELSE', async () => {
+  // The gate blocks are shared and five of them are written in salon language, which is
+  // why tenant #0 — `vertical: software` — greeted a customer on behalf of a beauty salon
+  // (D-033). The examples stay concrete, because D-011's finding is that naming the
+  // forbidden wrong answer is what works; they stop being shared.
+  const rows = [
+    block(),
+    block({ block_key: 'sh8_examples', ordinal: 108, vertical: 'salon', body: 'Ш8 жишээ: салон.' }),
+    block({ block_key: 'sh8_examples', ordinal: 108, vertical: 'software', body: 'Ш8 жишээ: софтвэр.' }),
+  ];
+  const keysFor = async (vertical: string) => {
+    const { db } = stubDb({ data: rows, error: null });
+    const out = await loadPromptSections(db, { tenantId: TENANT, vertical });
+    return out.ok ? out.sections.map((x) => x.body) : [];
+  };
+  assert.deepEqual(await keysFor('salon'), ['Ш0. СУВАГ.', 'Ш8 жишээ: салон.']);
+  assert.deepEqual(await keysFor('software'), ['Ш0. СУВАГ.', 'Ш8 жишээ: софтвэр.']);
+  // A vertical with no examples gets the shared blocks and nothing invented in their place.
+  assert.deepEqual(await keysFor('garage'), ['Ш0. СУВАГ.']);
+});
+
+test('exactly one variant survives, so the renderer never sees an ordinal clash', async () => {
+  // Two blocks in the same layer/origin/ordinal slot make `renderStablePrefix` refuse with
+  // `ambiguous_order`. The per-vertical variants deliberately SHARE an ordinal — they are
+  // the same slot — so the loader's filter is the only thing standing between a correct
+  // compile and a refused one, and that is worth asserting rather than assuming.
+  const rows = [
+    block({ block_key: 'sh8_examples', ordinal: 108, vertical: 'salon', body: 'А.' }),
+    block({ block_key: 'sh8_examples', ordinal: 108, vertical: 'software', body: 'Б.' }),
+  ];
+  const { db } = stubDb({ data: rows, error: null });
+  const out = await loadPromptSections(db, { tenantId: TENANT, vertical: 'salon' });
+  assert.equal(out.ok && out.sections.length, 1);
+  const rendered = renderStablePrefix(out.ok ? out.sections : []);
+  assert.equal(rendered.ok, true, 'one variant per slot must render');
+});
+
+test('an empty vertical on the row means every tenant, like null', async () => {
+  // `tenants.vertical` is `text not null` with no CHECK, so '' is representable at both
+  // ends. Treating it as "all" rather than as a vertical named empty-string keeps a
+  // half-filled row harmless instead of making it match a tenant nobody meant.
+  const { db } = stubDb({ data: [block({ vertical: '' })], error: null });
+  const out = await loadPromptSections(db, { tenantId: TENANT, vertical: 'software' });
+  assert.equal(out.ok && out.sections.length, 1);
+});
+
+test('an unreadable tenant refuses the compile rather than compiling the generic prompt', async () => {
+  // Falling back to "no vertical" would silently give a tenant WITH examples the shared
+  // blocks — a quieter version of exactly the bug this column exists to fix.
+  const { db } = stubDb({ data: [block()], error: null }, { tenants: { data: null, error: { message: 'connection reset' } } });
+  const out = await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
+  assert.equal(out.ok, false);
+  assert.equal(out.ok === false && out.code, 'unavailable');
+});
+
+test('DONE-TEST: the vertical variant WINS over the generic row for the same key', () => {
+  // Taking both would put two sections in one layer/origin/ordinal slot, and
+  // `renderStablePrefix` refuses the whole compile as `ambiguous_order` — so "keep them
+  // all" is not a conservative choice here, it is an outage for that tenant.
+  const rows = [
+    block({ block_key: 'sh8_examples', ordinal: 108, body: 'Ерөнхий.' }),
+    block({ block_key: 'sh8_examples', ordinal: 108, vertical: 'salon', body: 'Салон.' }),
+  ];
+  return (async () => {
+    const pick = async (vertical: string) => {
+      const { db } = stubDb({ data: rows, error: null });
+      const out = await loadPromptSections(db, { tenantId: TENANT, vertical });
+      return out.ok ? out.sections.map((x) => x.body) : [];
+    };
+    assert.deepEqual(await pick('salon'), ['Салон.'], 'the vertical variant wins');
+    // And a vertical nobody wrote examples for keeps the generic block rather than losing
+    // the gate entirely. V29 is what says the gap exists at all.
+    assert.deepEqual(await pick('garage'), ['Ерөнхий.']);
+  })();
+});
+
+test('order does not decide the winner — the generic row may come second', async () => {
+  // The rows arrive in whatever order PostgREST returns them, which is not ordered here.
+  // A "last one wins" implementation passes the test above and fails this one.
+  const rows = [
+    block({ block_key: 'sh8_examples', ordinal: 108, vertical: 'salon', body: 'Салон.' }),
+    block({ block_key: 'sh8_examples', ordinal: 108, body: 'Ерөнхий.' }),
+  ];
+  const { db } = stubDb({ data: rows, error: null });
+  const out = await loadPromptSections(db, { tenantId: TENANT, vertical: 'salon' });
+  assert.deepEqual(out.ok ? out.sections.map((x) => x.body) : [], ['Салон.']);
 });

@@ -118,3 +118,25 @@ the page must say `received`, not `done`.
 4. `node scripts/prompt/generate-seed.ts` regenerates the seed migration from the signed
    files, and `prompt-seed.test.ts` fails if the two ever drift.
 5. `npm run guard` passes. Until then it fails, by design.
+
+## Per-vertical gate examples — unsigned, awaiting a reading evening (D-035)
+
+Four files, named `<block_key>.<vertical>.mn.txt`, which is the convention
+`scripts/prompt/generate-seed.ts` reads:
+
+| File | Replaces |
+|---|---|
+| `sh5_health_examples.salon.mn.txt` | Ш5's «Жирэмсэн үедээ үс будуулж болох уу?» |
+| `sh5_health_examples.software.mn.txt` | the same example, for a vertical that never dyes hair |
+| `sh8_not_in_kb_examples.salon.mn.txt` | Ш8's gift-card БУРУУ ЖИШЭЭ, with «салонууд» → «газрууд» |
+| `sh8_not_in_kb_examples.software.mn.txt` | the same shape: a free trial nobody offers |
+
+They are loaded by nothing. To activate them: read them, move them into
+`prompt/platform/`, add a sign-off entry per file to `prompt/platform-mn-review.json`, run
+`node scripts/prompt/generate-seed.ts`, and push the `0019` it writes.
+
+**Ш8 is the strong case and Ш5 is the weaker one.** Ш8's example is domain-flavoured by its
+nature — a confidently invented fact belongs to a business type. Ш5's is a health question,
+and a neutral one may serve every vertical better than two variants; that is a call for the
+reading evening, and both are here so it can be made against the text rather than in the
+abstract.

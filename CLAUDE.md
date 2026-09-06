@@ -41,11 +41,13 @@ on the critical path to a first real message.
 **fifteen**-row ledger (D-012, read back 2026-09-06), and `catalog.sql` returned 25/25
 against it when the file carried twenty-five checks. It carries twenty-nine now: V26 and V27
 pass there since `0014` and `0015` landed, and **V25 still fails and is meant to** (see the
-second bullet below). **`0016` and `0017` are written and NOT yet pushed.** `0016` closes two
+second bullet below). **`0016`, `0017` and `0018` are written and NOT yet pushed.** `0016` closes two
 leaks in the money path (D-031), and until it lands `release()` still gives no budget back
 **and every reply refuses**, because the merged code calls `reserve_spend_all`. `0017` adds
 `channel_health.state` (D-032), and until it lands the watchdog's health row cannot be
-written at all — V28 is the check that says so. Read the count off
+written at all — V28 is the check that says so. `0018` adds `prompt_blocks.vertical` and
+relaxes the platform-key index (D-035); it changes no compiled prompt, because nothing
+carries a vertical yet and nothing will until the platform Mongolian is re-signed. Read the count off
 `supabase_migrations.schema_migrations`, never off `ls supabase/migrations/`.
 
 **Running it there immediately found three things CI structurally could not**, which is the
@@ -102,8 +104,11 @@ written in salon language, while `vertical` and `display_name` are read by no co
 `src/lib/prompt/` or `src/lib/reception/`. «салон» was the only business-type noun in the
 model's context. **A tenant with no rendered sections now takes the handoff line before the
 provider call**; read D-033 before touching `handleReception`'s ordering or
-`hasTenantData`. The gate blocks are still salon-flavoured — that is a platform decision,
-open.
+`hasTenantData`. The gate blocks are still salon-flavoured. The mechanism to fix that is built
+and deliberately inert (D-035): `0018`, the loader's most-specific-wins selection, V29, and
+four unsigned drafts in `prompt/drafts/`. **Nothing is signed and nothing is published** —
+the founder holds the reading evening, and `check-mn-review.mjs` is what stops anyone
+skipping it.
 
 `0015` is pushed and verified against the project: both wrappers exist in `public`,
 `reserve_spend` returns boolean, `settle_spend` returns void, and the ACLs are `postgres`
@@ -268,7 +273,7 @@ somebody wrote rather than a filename that happened to match.
 
 **Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
 are the schema; the eight section files carry a banner saying their DDL is superseded.
-Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 29/29,
+Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 30/30,
 `isolation.sql` 14/14, `rls.sql` 8/8, `spend.sql` 10/10. **Also applied to the real project** (PG17.6,
 2026-09-05, via the CLI; `0013`–`0014` pushed 2026-09-06): `catalog.sql` was 25/25 there
 against the twenty-five checks it then carried, and of the two written since, **V26 now

@@ -84,18 +84,51 @@ function toSection(row: Record<string, unknown>): PromptSection | null {
  */
 export async function loadPromptSections(
   db: SupabaseClient,
-  input: { tenantId: string },
+  input: { tenantId: string; vertical: string },
 ): Promise<SectionsOutcome> {
   const { data, error } = await db
     .from('prompt_blocks')
-    .select('scope, tenant_id, block_key, ordinal, layer, body, reviewed_at')
+    .select('scope, tenant_id, block_key, ordinal, layer, body, reviewed_at, vertical')
     .or(`and(scope.eq.platform,tenant_id.is.null),and(scope.eq.tenant,tenant_id.eq.${input.tenantId})`);
 
   if (error) return { ok: false, code: 'unavailable', detail: `prompt_blocks unreadable: ${error.message}` };
 
+  const rows = (Array.isArray(data) ? data : []) as Record<string, unknown>[];
+
+  // 0018: a platform block may be written for one vertical. Null (or empty) means every
+  // tenant, which is every block that exists today.
+  //
+  // ## The match happens HERE and not in the `.or()` above
+  //
+  // `tenants.vertical` is free-form text an operator types, and interpolating it into a
+  // PostgREST filter string is an injection surface — the tenant id above is a uuid and
+  // safe, a vertical is not. The platform block set is a dozen rows, so filtering in
+  // JavaScript costs nothing and removes the question entirely.
+  //
+  // ## Most specific wins, per block key
+  //
+  // A key may have a generic row and per-vertical rows; taking both would put two sections
+  // in one layer/origin/ordinal slot and `renderStablePrefix` would refuse the whole
+  // compile as `ambiguous_order`. Preferring the vertical makes that unrepresentable
+  // rather than merely discouraged, and it means a vertical nobody has written examples
+  // for keeps the generic block instead of losing it — a quieter gap, which is why
+  // `catalog.sql` V29 asks separately whether every vertical is covered.
+  const chosen = new Map<string, Record<string, unknown>>();
+  for (const row of rows) {
+    if (String(row['scope'] ?? '') !== 'platform') continue;
+    const key = String(row['block_key'] ?? '');
+    const vertical = typeof row['vertical'] === 'string' ? row['vertical'] : '';
+    if (vertical !== '' && vertical !== input.vertical) continue;
+    const held = chosen.get(key);
+    const heldVertical = held === undefined ? null : (typeof held['vertical'] === 'string' ? held['vertical'] : '');
+    if (held === undefined || (heldVertical === '' && vertical !== '')) chosen.set(key, row);
+  }
+
   const sections: PromptSection[] = [];
-  for (const raw of Array.isArray(data) ? data : []) {
-    const section = toSection(raw as Record<string, unknown>);
+  for (const row of rows) {
+    const isPlatform = String(row['scope'] ?? '') === 'platform';
+    if (isPlatform && chosen.get(String(row['block_key'] ?? '')) !== row) continue;
+    const section = toSection(row);
     if (section !== null) sections.push(section);
   }
   return { ok: true, sections };
@@ -341,7 +374,17 @@ export async function compileStablePrefix(
   db: SupabaseClient,
   input: { tenantId: string; approvedAt: string },
 ): Promise<CompileOutcome> {
-  const loaded = await loadPromptSections(db, { tenantId: input.tenantId });
+  // The tenant's vertical selects which per-vertical platform blocks apply (0018). Read
+  // before the blocks rather than alongside them: an unreadable tenant must not silently
+  // become a tenant with no vertical, which would compile the generic prompt for a tenant
+  // that has examples of its own.
+  const { data: tenantRow, error: tenantErr } = await db
+    .from('tenants').select('vertical').eq('id', input.tenantId).maybeSingle();
+  if (tenantErr) return { ok: false, code: 'unavailable', detail: `tenants unreadable: ${tenantErr.message}` };
+  if (tenantRow === null) return { ok: false, code: 'unavailable', detail: 'no such tenant' };
+  const vertical = String((tenantRow as Record<string, unknown>)['vertical'] ?? '');
+
+  const loaded = await loadPromptSections(db, { tenantId: input.tenantId, vertical });
   if (!loaded.ok) return loaded;
 
   // L2/L3 from the tenant's own rows. `prompt_blocks` can also hold tenant-scope sections

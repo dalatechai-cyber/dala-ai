@@ -295,6 +295,8 @@ export async function runReceptionJob(
   const drafted: string[] = [];
   const sent: string[] = [];
   const stale: string[] = [];
+  /** Stored and deliberately not answered: the channel cannot send and is not mirroring. */
+  const notGenerated: string[] = [];
 
   for (const message of messages) {
     // A missing Meta timestamp arrives as an invalid date; treating it as `now` stops it
@@ -349,6 +351,26 @@ export async function runReceptionJob(
       }
       // absent: whatever ran before never got as far as drafting. Answer it.
       fx.log('info', 'redelivery_unanswered', { eventId, externalId: message.externalId });
+    }
+
+    // The channel cannot send, and is not the mirror. Stop here — after the message is
+    // stored, which is §3.4.5's "persist everything, generate nothing" taken literally for
+    // the first time. `canDeliver` used to be consulted only after the reply existed, so
+    // `off` and `shadow_routing` each paid for text nobody could receive; `shadow_routing`
+    // did it while its own description read «nothing is generated or sent».
+    //
+    // The case that costs real money is a halted channel: `haltChannelOutbound` sets
+    // `delivery_mode = 'off'` on a Graph 190, so before this every message after a token
+    // died drafted a reply into a channel that could not send it.
+    //
+    // `shadow` deliberately does NOT stop here — the mirror phase generates and withholds,
+    // and `delivery.deliver` below is what withholds it.
+    if (!delivery.generate) {
+      fx.log('info', 'not_generating', {
+        tenantId, channelId, externalId: message.externalId, detail: delivery.detail,
+      });
+      notGenerated.push(message.externalId);
+      continue;
     }
 
     // §3.9's check 7. AFTER the message is persisted — §3.4.5's "persist everything,
@@ -491,6 +513,7 @@ export async function runReceptionJob(
   await markEventState(db, eventId, 'processed');
   return ok({
     eventId, drafted: drafted.length, sent: sent.length, stale: stale.length, skipped,
+    notGenerated: notGenerated.length,
     ...(commentResult === null ? {} : { comments: commentResult }),
   });
 }

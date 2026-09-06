@@ -54,7 +54,7 @@ pushed 2026-09-06, read back off `supabase_migrations.schema_migrations` rather 
 | | `secrets/tenantSecret` | The per-request decrypt. Six codes, exactly one retryable, nothing cached |
 | | `meta/send` | `POST /{page-id}/messages`. `me` refused. Three outcomes, not two |
 | | `outbound/claim`, `deliver`, `deliverDeps` | Draft, lease, deliver, and what each outcome costs |
-| | `channel/delivery`, `channel/halt` | Only `live` delivers; a `190` halts the channel and the token together |
+| | `channel/delivery`, `channel/halt` | Only `live` delivers, and only `live` and `shadow` **generate** — a halted channel is `off`, so after a `190` it stops paying for replies it cannot send (D-034). A `190` halts the channel and the token together |
 | **The worker** | `worker/reception`, `worker/freshness` | Every branch of the job, as a value-returning function the route merely binds |
 | | `reception/handle` | The reply flow. Four refusals cost nothing and come before the call: a stale event, an unparseable matcher, an unreviewed canned line, and **a tenant whose compiled prefix carries none of its own data** — that one takes the handoff line, because the gate blocks describe a business with a knowledge base and the model would have only their salon examples to go on (D-033) |
 | **Health** | `health/silence`, `health/channel`, `health/watch`, `worker/health` | The silence watchdog: silence measured in OPEN minutes, two clocks so the standby trap cannot read as green (D-025). A tenant whose hours are not entered yet is `not_provisioned` — recorded, never alerted (D-032) |

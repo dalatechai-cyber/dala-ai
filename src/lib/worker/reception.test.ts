@@ -450,6 +450,43 @@ test('every non-live mode refuses to deliver', async () => {
   }
 });
 
+test('DONE-TEST: A CHANNEL THAT CANNOT SEND DOES NOT GENERATE — except the mirror', async () => {
+  // `canDeliver` was consulted only after the reply existed, so every non-live mode paid a
+  // model call for text nobody could receive. The case that costs real money is a halted
+  // channel: `haltChannelOutbound` sets `delivery_mode = 'off'` on a Graph 190, so after a
+  // token died every further message drafted into a channel that could not send.
+  //
+  // `shadow_routing` is the sharper one — its own description reads «nothing is generated
+  // or sent», and it generated. The code and its documentation had disagreed since the
+  // mode existed, and the only symptom was a bill.
+  for (const mode of ['off', 'shadow_routing', 'unrecognised']) {
+    const { fx, generated, logs } = stubEffects({
+      tables: {
+        tenant_channels: { data: { external_id: '1', delivery_mode: mode, graph_version_override: null } },
+      },
+    });
+    const r = await run(fx);
+    assert.equal(generated.length, 0, `${mode} must not reach the model`);
+    assert.equal(r.body['drafted'], 0, mode);
+    assert.equal(r.body['notGenerated'], 1, mode);
+    assert.ok(reasons(logs).includes('not_generating'), mode);
+  }
+});
+
+test('the customer message is still STORED for a channel that cannot send', async () => {
+  // §3.4.5: persist everything, generate nothing. Losing the question would be far worse
+  // than paying for an answer — a routing rehearsal that dropped inbound messages would be
+  // rehearsing the wrong thing.
+  const { fx, ops } = stubEffects({
+    tables: {
+      tenant_channels: { data: { external_id: '1', delivery_mode: 'off', graph_version_override: null } },
+    },
+  });
+  await run(fx);
+  assert.ok(ops.some((o) => o.table === 'messages'), 'the inbound message must be persisted');
+  assert.equal(ops.some((o) => o.table === 'spend_reservations'), false, 'and no hold is taken');
+});
+
 // ---------------------------------------------------------------------------
 // What each send outcome does to the response
 // ---------------------------------------------------------------------------
