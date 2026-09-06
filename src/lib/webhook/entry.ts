@@ -27,7 +27,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { EnqueueResult } from '../queue/qstash.ts';
 import { resolveTenantForEntry } from '../tenant/resolve.ts';
-import { claimWebhookEvent, markEventState, neverReachedQueue } from './events.ts';
+import { claimWebhookEvent, markEventState, neverReachedQueue, type EventSource } from './events.ts';
+import { dedupKeyForEntry } from './identity.ts';
 
 export type MetaEntry = { id?: unknown; messaging?: unknown[] };
 
@@ -62,9 +63,14 @@ export type EntryInput = {
   entry: MetaEntry;
   /** Index within this POST — part of the dedup key, so two entries never collide. */
   index: number;
-  /** Length of the raw body in bytes, also part of the dedup key. */
-  bodyBytes: number;
   matchedAppSlug: string;
+  /**
+   * How this delivery reached us: straight from Meta, or forwarded by the incumbent
+   * during a mirror. Descriptive only — it is NOT in the dedup key, because a mirrored
+   * copy of an event Meta also delivered directly is the same event and must dedup
+   * against it. Defaults to `meta`.
+   */
+  source?: EventSource;
   leaseSeconds?: number;
 };
 
@@ -85,12 +91,17 @@ export async function handleMetaEntry(deps: EntryDeps, input: EntryInput): Promi
     return { outcome: 'registry_unavailable', detail: resolution.detail };
   }
 
-  const dedupKey = `${externalId}:${input.index}:${input.bodyBytes}:${input.matchedAppSlug}`;
+  // Meta's own ids for what the entry carries, not the length of the envelope that
+  // carried it. `identity.ts` has the measurement that condemned the old key.
+  const dedupKey = dedupKeyForEntry({
+    externalId, index: input.index, entry, matchedAppSlug: input.matchedAppSlug,
+  });
   const leaseSeconds = input.leaseSeconds ?? 60;
+  const source: EventSource = input.source ?? 'meta';
 
   if (resolution.outcome === 'unknown_channel') {
     await claimWebhookEvent(db, {
-      provider: input.provider, dedupKey, routing: 'unrouted', tenantId: null, channelId: null,
+      provider: input.provider, dedupKey, source, routing: 'unrouted', tenantId: null, channelId: null,
       entryId: externalId, rawPayload: entry, leaseSeconds,
     });
     return { outcome: 'unrouted', externalId };
@@ -106,7 +117,7 @@ export async function handleMetaEntry(deps: EntryDeps, input: EntryInput): Promi
   }
 
   const claim = await claimWebhookEvent(db, {
-    provider: input.provider, dedupKey, routing: 'routed', tenantId: tenant.tenantId,
+    provider: input.provider, dedupKey, source, routing: 'routed', tenantId: tenant.tenantId,
     channelId: tenant.channelId, entryId: externalId, rawPayload: entry, leaseSeconds,
   });
   if (claim.outcome === 'unavailable') return { outcome: 'ledger_unavailable', detail: claim.detail };

@@ -456,10 +456,34 @@ afternoon's work. Before there is a single real customer message there is also n
 erase, which is why this sits after go-live rather than before it — but it must not still
 be sitting here when there is.
 
-Step 16 is the one worth not rushing. Meta delivers the identical event to every
-subscribed app, so during the mirror both this system and `Matrix-Chatbot` see every
-message. `shadow` is what stops the salon's customers getting two replies — and the code
-enforces it, but only if the row says `shadow`.
+Step 16 is the one worth not rushing. During the mirror both this system and
+`Matrix-Chatbot` are answering the same Page, and `shadow` is what stops the salon's
+customers getting two replies — the code enforces it, but only if the row says `shadow`.
+
+By what route both systems see the traffic is an open question. **[UNVERIFIED, and the citation was wrong.]** This document said "§3.10.5 establishes that
+Meta delivers the identical event to *every* subscribed app". §3.10.5 is *Back off the
+tenant, not the worker* and is about rate-limit backoff; it establishes nothing of the
+kind. The claim was never verified by anyone and had propagated into `STATUS.md`,
+`channel/delivery.ts` and two test comments as settled fact.
+
+Two things now bear on it, and both point the other way. The founder confirmed on
+2026-09-06 that `Matrix-Chatbot` runs on **the same `dalatech` app** — and one app has one
+callback URL, so on this deployment there is no second subscriber to fan out to. And §3.7
+records that a non-primary receiver gets `entry.standby` rather than `entry.messaging`,
+which `worker/reception.ts` refuses terminally and alerts on; so even two apps would not
+produce two `messaging` deliveries. D-023's own open list already asked which app holds
+Matrix's subscription and said the answer "decides whether the mirror phase is a
+subscription change or a second subscription" — it is neither. The likely shape is that the
+incumbent **forwards** each delivery, which is why `webhook_events.source` is written now
+(D-039).
+
+**What would settle it**, none of which any session here can do (`developers.facebook.com`
+is blocked by the egress proxy): `GET /{page-id}/subscribed_apps` with a Page token lists
+the apps actually subscribed to the Page; the App Dashboard's Webhooks page shows the one
+callback URL per app; and the standby half is settled by subscribing a second app and
+reading which array one real message lands in — which §3.15 already lists as needing
+verification.
+
 
 ---
 

@@ -267,17 +267,17 @@ function provisioned() {
   return s;
 }
 
-const entry = (mid = MID) => ({
+const entry = (mid = MID, text = 'Сайн байна уу', psid = PSID) => ({
   id: PAGE,
   messaging: [{
-    sender: { id: PSID }, recipient: { id: PAGE },
+    sender: { id: psid }, recipient: { id: PAGE },
     timestamp: NOW.getTime() - 60_000,
-    message: { mid, text: 'Сайн байна уу' },
+    message: { mid, text },
   }],
 });
 
 /** The webhook entry point, driven directly. `enqueue` is the seam a test steers. */
-function webhook(s: ReturnType<typeof store>, enqueue: EntryDeps['enqueue']) {
+function webhook(s: ReturnType<typeof store>, enqueue: EntryDeps['enqueue'], e: unknown = entry()) {
   const calls: string[] = [];
   const deps: EntryDeps = {
     db: s.db,
@@ -286,7 +286,7 @@ function webhook(s: ReturnType<typeof store>, enqueue: EntryDeps['enqueue']) {
   };
   return {
     calls,
-    run: () => handleMetaEntry(deps, { provider: 'facebook_page', entry: entry(), index: 0, bodyBytes: 311, matchedAppSlug: 'dalatech' }),
+    run: () => handleMetaEntry(deps, { provider: 'facebook_page', entry: e as never, index: 0, matchedAppSlug: 'dalatech' }),
   };
 }
 
@@ -304,9 +304,15 @@ function worker(s: ReturnType<typeof store>, eventId: number) {
     alertStandby: async () => {},
     graphVersionDefault: () => 'v21.0',
     generateReply: async (a) => {
-      generated.push(a.inboundExternalId ?? MID);
+      // The reply's dedup key comes from THE MESSAGE BEING ANSWERED, exactly as
+      // `reception/deps.ts` derives it. It used to be `replyDedupKey(MID)` — a constant —
+      // which made every draft in this file collide on one key and silently capped the
+      // harness at one reply per store. Nothing noticed while every test replayed a single
+      // message; the first test to send two different ones found it.
+      const answering = a.inboundExternalId ?? MID;
+      generated.push(answering);
       const drafted = await draftOnce(s.db, {
-        tenantId: TENANT, kind: 'reply', dedupKey: replyDedupKey(MID),
+        tenantId: TENANT, kind: 'reply', dedupKey: replyDedupKey(answering),
         body: 'Хариулт', channelId: CHANNEL, conversationId: 'conv-1',
       });
       return (drafted.ok
@@ -436,4 +442,71 @@ test('DONE-TEST: the fake carries the schema\'s own uniques, not remembered ones
   assert.ok(named('outbound_messages').includes('tenant_id+kind+dedup_key'), JSON.stringify(named('outbound_messages')));
   // And the partial ones stay partial: a message with no Meta id must still be storable.
   assert.equal(UNIQUES.find((u) => u.table === 'messages' && u.cols.length === 3)?.notNull, 'external_id');
+});
+
+// ---------------------------------------------------------------------------
+// The inverse property: two messages are two events (D-039)
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: THE INVERSE PROPERTY — two different messages are answered twice', async () => {
+  // Everything above proves a redelivery is not a new message. This proves a new message
+  // is not a redelivery, which is the half that was live and broken.
+  //
+  // `webhook_events.dedup_key` was `{page}:{index}:{bodyBytes}:{app}`, and measured against
+  // the real project the envelope is a constant: `body_bytes = 307 + utf8_length(text)`.
+  // These two messages are IDENTICAL text from two customers, so under the old key they
+  // were the same event — the second answered 200 at `info` level and never replied to,
+  // for ever, because `unique (provider, dedup_key)` has no time component and
+  // `purge_after` is written by nothing.
+  const s = provisioned();
+
+  const a = await webhook(s, async () => ok, entry('m_AAA', 'Баярлалаа', 'PSID-A')).run();
+  assert.equal(a.outcome, 'queued');
+  const b = await webhook(s, async () => ok, entry('m_BBB', 'Баярлалаа', 'PSID-B')).run();
+  assert.equal(b.outcome, 'queued', 'the second customer is NOT a redelivery of the first');
+
+  const idA = a.outcome === 'queued' ? a.eventId : 0;
+  const idB = b.outcome === 'queued' ? b.eventId : 0;
+  assert.notEqual(idA, idB);
+
+  const j1 = worker(s, idA);
+  assert.equal((await j1.run()).status, 200, j1.logs.join(' | '));
+  const j2 = worker(s, idB);
+  assert.equal((await j2.run()).status, 200, j2.logs.join(' | '));
+
+  assert.equal(s.count('webhook_events'), 2, 'two events');
+  assert.equal(s.count('messages'), 2, 'two inbound messages');
+  assert.equal(s.count('outbound_messages'), 2, 'TWO replies');
+  assert.equal(j1.sends.length + j2.sends.length, 2, 'TWO sends');
+});
+
+test('DONE-TEST: and the same for two messages of merely EQUAL LENGTH', async () => {
+  // The subtler shape, and the common one: a greeting and a question about opening hours,
+  // both 24 bytes of UTF-8. Different people, different questions, one key.
+  assert.equal(Buffer.byteLength('Сайн байна уу', 'utf8'), Buffer.byteLength('Хэдэн цагт вэ', 'utf8'));
+
+  const s = provisioned();
+  const a = await webhook(s, async () => ok, entry('m_AAA', 'Сайн байна уу', 'PSID-A')).run();
+  const b = await webhook(s, async () => ok, entry('m_BBB', 'Хэдэн цагт вэ', 'PSID-B')).run();
+  assert.equal(a.outcome, 'queued');
+  assert.equal(b.outcome, 'queued');
+  assert.equal(s.count('webhook_events'), 2);
+});
+
+test('the claim records HOW the delivery arrived, not just that it did', async () => {
+  // `webhook_events.source` has had its CHECK since `0001` and nothing ever wrote it, so
+  // every row said `meta` whether it was or not. A mirror forwards a copy of each delivery
+  // from the incumbent; without this there is no way to tell the two apart afterwards,
+  // which is the whole question the mirror exists to answer.
+  const s = provisioned();
+  await webhook(s, async () => ok).run();
+  assert.equal(s.rows('webhook_events')[0]?.['source'], 'meta');
+
+  const s2 = provisioned();
+  const deps: EntryDeps = { db: s2.db, enqueue: async () => ok, log: () => {} };
+  await handleMetaEntry(deps, {
+    provider: 'facebook_page', entry: entry() as never, index: 0,
+    matchedAppSlug: 'dalatech', source: 'mirror',
+  });
+  assert.equal(s2.rows('webhook_events')[0]?.['source'], 'mirror');
 });

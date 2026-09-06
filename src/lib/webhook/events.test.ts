@@ -22,7 +22,7 @@ function stubDb(
 }
 
 const base = {
-  provider: 'facebook_page', dedupKey: 'k1', routing: 'routed' as const,
+  provider: 'facebook_page', dedupKey: 'k1', source: 'meta' as const, routing: 'routed' as const,
   tenantId: 't-1', channelId: 'c-1', entryId: 'e-1', rawPayload: {}, leaseSeconds: 60,
 };
 

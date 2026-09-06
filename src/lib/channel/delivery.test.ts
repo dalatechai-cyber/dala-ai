@@ -34,7 +34,10 @@ test('the mirror is its own reason, so a log line can tell the two apart', () =>
 });
 
 test('DONE-TEST: the mirror phase does not double-reply Matrix customers', () => {
-  // Meta delivers the identical event to EVERY subscribed app, and during Track 4's
+  // During Track 4's mirror both systems see the traffic — by whatever route; the claim
+  // that Meta fans one delivery out to every subscribed app is [UNVERIFIED] and was cited
+  // to a section about rate-limit backoff (see `delivery.ts`). What is certain is that if
+  // both are receiving and both send, the salon answers twice. And during Track 4's
   // 14-day mirror both Dala AI and the incumbent Matrix-Chatbot are subscribed to that
   // Page. A `shadow` channel that delivered would send a second reply from the same salon
   // to every customer for two weeks — turning the phase whose entire purpose is zero risk
