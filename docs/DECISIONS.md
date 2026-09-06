@@ -1233,9 +1233,9 @@ shape is a query in the health worker beside the stranded sweep — proposed, no
 
 **Settled 2026-09-06, from the first alert the platform ever raised about itself.**
 
-The hourly health schedule fired at 15:00 UTC and the silence watchdog delivered two
-alerts. One was real (event `id 1`, 102 minutes old, past the tenant's 30-minute reply
-limit). The other said:
+The hourly health schedule's first alerting run is stamped 03:00:07 UTC, and the silence
+watchdog delivered two alerts. One was real (event `id 1`, 102 minutes old, past the
+tenant's 30-minute reply limit). The other said:
 
 > Page 863503883522801: no usable business_hours row for 2026-09-06
 
@@ -1244,7 +1244,10 @@ measured in **open minutes** (D-025), so with no schedule there is nothing to me
 `assessSilence` correctly refused to guess. The defect was one layer up: that refusal came
 back as `unknown`, `unknown` alerts, and the dedup key carries the date — so the same
 sentence would arrive once a day, for ever, on the first and only channel the platform was
-watching.
+watching. **Measured, not predicted:** `channel_health` is upserted every run, and by
+17:00:00 UTC its reason read *"no usable business_hours row for 2026-09-07"* — the tenant's
+clock had rolled over, the UTC-keyed dedup had not, and the next raise was waiting at
+midnight UTC.
 
 **The instance was one INSERT away and the instance was not the problem.** Every tenant
 sits between having a channel row and having its hours entered, and Matrix will be in that

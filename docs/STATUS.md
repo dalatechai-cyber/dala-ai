@@ -258,12 +258,17 @@ used, which produces no absence to notice until a customer writes in. Until thos
 that particular failure is still something you find out from a customer.
 
 **It has now run, and the first thing it did was find a false alarm in itself.** The
-hourly QStash schedule fired at 15:00:01 UTC on 2026-09-06: `channel_health` was written,
-the sweep retired event `id 1` as `expired_unqueued` — 102 minutes old, past the tenant's
-30-minute reply limit — and two alerts were delivered. One was that. The other was
-`channel.unknown`: *"no usable business_hours row for 2026-09-06"*, on a tenant that has
-never needed hours. With the date in the dedup key, that sentence was going to arrive once
-a day for ever.
+hourly QStash schedule's first alerting run was **03:00:07 UTC on 2026-09-06**, and both
+alerts are stamped there and `delivered = true`. The sweep retired event `id 1` as
+`expired_unqueued` — 102 minutes old, past the tenant's 30-minute reply limit. The second
+alert was `channel.unknown`: *"no usable business_hours row"*, on a tenant that has never
+needed hours.
+
+**That it re-fires is now measured rather than predicted.** `channel_health` is upserted
+every run, and at 17:00:00 UTC it read *"no usable business_hours row for 2026-09-07"* —
+the tenant's clock (UTC+8) had rolled over while the dedup key, which is keyed on the UTC
+day, had not. The alert was suppressed as a same-day duplicate and would have been raised
+again at 00:00 UTC, and every day after that.
 
 **Fixed as a class, not as a row** (D-032). Seeding tenant #0's hours would have silenced
 this channel and left every future tenant in the same window — Matrix included, on day one,
@@ -379,7 +384,7 @@ have hit a login wall.
 |---|---|---|
 | ~~5d~~ | ~~`supabase db push` for `0015`~~ | **Pushed and verified 2026-09-06.** Both wrappers exist in `public`, `reserve_spend` returns boolean, `settle_spend` returns void, ACLs are `postgres` and `service_role` only |
 | **5e** | **`supabase db push` for `0016`** | `release()` gives no budget back, and a reservation that refuses at the platform counter still charges the tenant's day (D-031). Additive: three functions and their wrappers, no data touched |
-| ~~8b~~ | ~~One QStash schedule → `/api/workers/health`~~ | **Created and FIRED 2026-09-06, hourly.** First run 15:00:01 UTC: `channel_health` written, event `id 1` retired as `expired_unqueued`, two alerts delivered — one real, one a false alarm now fixed as a class (D-032) |
+| ~~8b~~ | ~~One QStash schedule → `/api/workers/health`~~ | **Created and FIRING 2026-09-06, hourly.** Both alerts stamped 03:00:07/03:00:12 UTC and delivered; event `id 1` retired as `expired_unqueued`; `channel_health` upserted every run since (17:00:00 UTC at last read). One alert real, one a false alarm now fixed as a class (D-032) |
 
 ### Then tenant #0's rows — this is the whole remaining path to a reply
 
