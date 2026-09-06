@@ -121,18 +121,33 @@ jobs:
             -e PGRST_JWT_SECRET="$PGRST_JWT_SECRET" \
             -e PGRST_SERVER_PORT=3001 \
             postgrest/postgrest:v12.2.3
+          # ## Poll for 200, NOT for "anything but a connection failure"
+          #
+          # The first version broke the loop on any code that was not `000`, which reads
+          # as "the socket answered, so it is up". It is not: PostgREST binds its port
+          # before it has connected to Postgres and built the schema cache, and answers
+          # **503** in that window. The run of 2026-09-06 printed `PostgREST answered 503`
+          # and then passed anyway, because the check's own fetch happened ~300ms later
+          # and got a healthy server. That is luck, and the unlucky version is a red build
+          # whose message names PostgREST rather than this loop.
+          #
+          # An unauthenticated `GET /` is 200 once ready — measured against
+          # postgrest:v12.2.3 with `PGRST_DB_ANON_ROLE=anon`, which is the config below.
+          # Both branches were reproduced against a stub that answers 503 N times: the old
+          # loop accepted 503, the new one waited and then proceeded, and a stub that never
+          # recovers exits 1 with the code named.
           code=000
           for i in $(seq 1 30); do
             code=$(curl -s -o /dev/null -w '%{http_code}' "$PGRST_URL/" || true)
-            if [ "$code" != "000" ]; then break; fi
+            if [ "$code" = "200" ]; then break; fi
             sleep 2
           done
           echo "PostgREST answered $code"
           # An `if`, not `[ … ] && { … }`. The step runs under `bash -e`, where a trailing
           # `&&` whose left side is FALSE makes the whole step exit non-zero — so the terse
           # version fails the build precisely when PostgREST came up correctly.
-          if [ "$code" = "000" ]; then
-            echo "PostgREST never came up. Its own log says why:"
+          if [ "$code" != "200" ]; then
+            echo "PostgREST never became ready (last code $code). Its own log says why:"
             docker logs pgrst
             exit 1
           fi
