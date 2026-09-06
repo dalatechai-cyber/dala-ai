@@ -1,23 +1,35 @@
 # STATUS — what is built, what is stubbed, what has never been proven
 
-**2026-09-04, last revised 2026-09-05.** Written to answer one question honestly:
+**2026-09-04, last revised 2026-09-06.** Written to answer one question honestly:
 *how far is this from a real customer message, and what has to come from you?*
 
-The short version. **Every line of V1's code path exists and is tested.** None of it has
-ever touched Meta, Anthropic, or QStash. The Supabase project and the Meta app both **do**
-exist — the app holds `pages_messaging` at Advanced Access (D-023), and the project carries
-the schema — but **Anthropic, QStash and the Vercel deployment do not**. The gap is
-not engineering — it is three accounts. **The twenty-day App Review wait is no longer on
-this path at all**: it buys comments, and Reception's DM path makes exactly one Graph call
-under a permission the app already holds.
+The short version has changed, and the change is the first real webhook. **On 2026-09-06 at
+01:17:25 UTC Meta delivered a message to this system, the signature verified, and the
+tenant resolved from `channel_identity`.** All nineteen required variables are set and
+well-formed — the production build's own preflight says so — and the deployment is live on
+`api.dalatech.online`. That is presence, not proof each credential answers: two now have
+proof (Meta signed a real delivery we verified; QStash answered our publish, with a
+rejection), and Anthropic and the Supabase transport still have none. So the question is
+no longer "what has to be bought": it is what tenant #0 still has no rows for.
+
+**The message was not answered, and reading why is worth more than the summary.** The
+enqueue was refused (QStash rejects `:` in a deduplication id, and every part of ours was
+colon-joined), the route 500'd, and both of Meta's retries were skipped as duplicates and
+answered **200** — which told Meta the message was delivered. Meta stopped. The event sat
+in `failed` with nothing that would ever pick it up. Both halves are fixed (PR #43) and
+the sweep that would have rescued it is built (§1, D-028), but the shape of the failure is
+the thing to remember: **every status code was the one the code intended, and the message
+was still lost.**
 
 ---
 
 ## 1. What is built
 
-714 tests, 9 guards, 14 migrations, 63 modules. Every module below is merged on `main`
-with CI green. **Fourteen migrations is the repository's count; the project holds twelve** —
-`0013` and `0014` were written after the push and have not reached it (§2, §5 item 5b).
+748 tests, 9 guards, 14 migrations, 64 modules. Every module below is merged on `main`
+with CI green. **The project's ledger now reads fourteen too** — `0013` and `0014` were
+pushed 2026-09-06, read back off `supabase_migrations.schema_migrations` rather than off
+`ls`. `catalog.sql` V26 passes there as a result; **V25 still fails**, and it is meant to
+(§2).
 
 | | Module | State |
 |---|---|---|
@@ -45,6 +57,7 @@ with CI green. **Fourteen migrations is the repository's count; the project hold
 | | `channel/delivery`, `channel/halt` | Only `live` delivers; a `190` halts the channel and the token together |
 | **The worker** | `worker/reception`, `worker/freshness` | Every branch of the job, as a value-returning function the route merely binds |
 | **Health** | `health/silence`, `health/channel`, `health/watch`, `worker/health` | The silence watchdog: silence measured in OPEN minutes, two clocks so the standby trap cannot read as green (D-025) |
+| | `health/stranded` | §3.6.3's sweeper, built 2026-09-06 after the first real webhook was lost between the claim and the queue. Re-publishes an unqueued event while a reply is still wanted; past the tenant's own reply-age limit marks it `expired_unqueued` and tells the founder. Alerts on anything it finds, because finding a row means the primary floor failed (D-028) |
 | **Comments** | `meta/comments`, `comments/eligibility`, `comments/send`, `worker/comments` | The `feed` firehose, the decision that never sees the comment's text, and the public reply |
 | **Privacy** | `meta/signedRequest`, `privacy/erasure`, `privacy/statusPage` | Meta's data-deletion callback: verify, record, and the status page it hands people |
 | **The prompt** | `prompt/render`, `prompt/publish`, `prompt/sections`, `prompt/tenant` | The compiler, the immutable snapshot + pointer, the loader that joins them, and the tenant's rows rendered into L2/L3 |
@@ -194,9 +207,11 @@ claims nobody has earned yet.
 
 | Never proven | Why | What would prove it |
 |---|---|---|
-| **Any PostgREST query** | The project exists and carries the schema, but every query in `src/` is still exercised against a stub and has never been sent over the wire. A schema applied to a project is not an application talking to it. **Narrowed 2026-09-05:** `scripts/verify/query-columns.ts` now reads the source and checks every literal column reference against the applied schema on every CI run — 277 references across 100 query sites — so a misspelled column or a table that does not exist no longer waits for the first real request. What remains untested is the transport, not the column names | The app configured with the project's URL and service key, and one real read |
+| ~~**Any PostgREST query**~~ | **Proven 2026-09-06, and by the incident rather than by a test.** The webhook read `channel_identity` and inserted into `webhook_events` over the `@supabase/supabase-js` transport with the service key, against the real project: row `id 1` exists, `routing='routed'`, tenant and channel bound. That closes the transport question this file had carried since the project was bought. It says nothing about the queries no path has reached yet — the config compile, the outbound claim, the spend ledger — which are still stub-only, and `query-columns.ts` (277 references across 100 sites) is what stands under those until they run | Done for the inbound path; open for every other query |
 | ~~**`isolation.sql` and `rls.sql` against the real project**~~ | **Run there 2026-09-05, both green: isolation 14/14, rls 8/8 + R0.** Not by `psql -f` — Postgres is unreachable from this environment (5432 and 6543 refused on the session pooler and on the direct host; HTTPS to the project host is 403'd by the egress policy), so every assertion was sent as one `execute_sql` call that seeds, checks, and then `raise exception`s with the results aggregated, forcing the rollback the transport will not do for you. Verified zero residue afterwards: `tenants`, `services`, `tenant_channels`, `channel_identity`, `spend_ledger`, `spend_counters`, `config_revisions` and `config_audit` all back to 0 rows. **What is still owed is the file itself run by psql**, which is a different claim: same SQL, different transport, and no aggregation step to get wrong | `psql -f` from a machine that can reach the pooler |
-| **Any Meta call, inbound or outbound** | The app, the Page, a working token and now the database all exist — what is missing is a `tenant_channels` row and a sealed secret in it. The signature verifier has never seen a real Meta payload; the send has never reached Graph | One channel row, one sealed token, one message |
+| ~~**Any Meta call INBOUND**~~ | **Proven 2026-09-06.** A real Meta delivery reached `/api/webhooks/meta/dalatech`: raw-body signature verified, entry routed to tenant #0 through `channel_identity`, `webhook_events` row claimed. (Fourteen deliveries between 01:13:27 and 01:16:37 were refused `sig_invalid` with `matched_app_slug: none` — the second Meta app signing against the first one's secret — and the delivery after the 01:16:42 redeploy verified.) The verify handshake (`GET`, `hub.challenge`) had returned 200 minutes earlier. What that does **not** prove is anything past the claim | Done. The rest is below |
+| **Any Meta call OUTBOUND** | `POST /{page-id}/messages` has still never run. The token is sealed in `tenant_secrets` and has never been opened by the runtime, so the whole envelope-decrypt path is still proven only over CI's test material | One reply actually sent |
+| **That a job survives the queue** | QStash has answered — with a rejection, which is how the colon bug was found — but no job has ever been published, delivered, or verified at `/api/workers/reception`. Every signature check on that route is still stub-tested | One enqueued job that arrives |
 | **The comment reply EDGE** | `POST /{comment-id}/comments` is SEARCH-CORROBORATED with an explicit "re-verify"; one source claims `POST /{comment-id}`. `developers.facebook.com` is blocked from this environment | Ten minutes on Meta's own docs, or the first real attempt. It is one constant, `REPLY_EDGE` |
 | **`pages_read_user_content`** | Required to read customers' comments; was named nowhere in `docs/` until 2026-09-04. Search-corroborated, including that `pages_manage_engagement` *depends* on it — not confirmed against Meta's own permission reference | One look at the App Dashboard's Permissions and Features table, which states each permission's live access level |
 | **The Graph error taxonomy** | Every code in it is from documentation and Chatwoot's handler. Not one has been observed | Production. Record the real codes as they appear |
@@ -208,7 +223,7 @@ claims nobody has earned yet.
 | **Prompt caching, and therefore the cost model** | D-016's margin rests on measured *ancestor* traffic, not on this system's bill | A month of real invoices |
 | **Meta's data-deletion callback** | The `signed_request` format is SEARCH-CORROBORATED, never seen from Meta. The app exists (D-023) but the callback URL has never been configured in it, so nothing has ever posted here. The response shape (`{url, confirmation_code}`) is standard JSON — several widely-copied implementations emit a JavaScript object literal instead, and one asserts JSON "fails" | The first real callback, or ten minutes on Meta's own docs |
 | **That an erasure request can be FULFILLED** | Meta sends an app-scoped id; every id we hold is page-scoped. Nothing bridges them. A request is recorded, not executed — see §5 | A Business Manager containing the app and the Pages, then the ID Matching API |
-| **That any of it works together** | The furthest anything has run is: a signed webhook POST reaching tenant resolution and 500ing on an unreachable registry | The list in §5 |
+| **That any of it works together** | The furthest anything has run is now real rather than synthetic: Meta → signature → tenant resolution → claim → **the enqueue, refused**. Nothing downstream of the queue has ever executed against a live dependency | The list in §5 |
 
 ### One thing worth saying plainly
 
@@ -226,14 +241,26 @@ token; neither ever arriving is a field subscription that never worked.
 
 **And the standby case is now caught at the instant it happens**, not three open hours later: `meta/extract` counts `entry.standby`, and the worker marks the event `standby_not_primary` — a state `0001` anticipated — refuses with a 200, and alerts. Before this, an entry delivered to us as a secondary receiver produced an extraction byte-identical to "no customer wrote in".
 
+**And there was a second silence the watchdog could not see, which is now closed too.**
+A webhook that ARRIVES and is never answered leaves every silence signal green:
+`last_webhook_at` is fresh, the channel reads healthy, and a customer is waiting. That is
+precisely what happened on the first real message. `health/stranded.ts` asks the other
+question — is anything claimed and never queued? — and it is §3.6.3's sweeper, which the
+design specified and nothing had built. Inside the tenant's reply-age limit it re-publishes
+the job; past it, it marks the row `expired_unqueued` (the state `0001` named and nothing
+had ever written) and says so. It alerts on **anything** it finds, because finding a row
+means the route's own publish failed (D-028).
+
 **Still not built: the 6-hourly token probe and the subscription reconciler.** Both need a
 Meta call, and they catch a different fault — a token that has expired but has not yet been
 used, which produces no absence to notice until a customer writes in. Until those exist,
 that particular failure is still something you find out from a customer.
 
-**And none of it has run.** The watchdog is exercised against stubs and a scratch
-PostgreSQL; it has never read a real `webhook_events` row, and nothing schedules it yet —
-that is one QStash schedule pointing at `/api/workers/health`, and QStash has no account.
+**And none of it has run.** The watchdog and the sweep are exercised against stubs and a
+scratch PostgreSQL; neither has ever read a real `webhook_events` row, and nothing schedules
+them — that is one QStash schedule pointing at `/api/workers/health`. QStash exists now, so
+this is a five-minute step rather than an account, and until it is taken the sweep cannot
+rescue anything: **event `id 1` is still sitting there, and no schedule will come for it.**
 
 ---
 
@@ -300,50 +327,76 @@ that is one QStash schedule pointing at `/api/workers/health`, and QStash has no
 
 ## 5. The ordered list — what you supply to get one real message
 
-The order is not arbitrary. Several steps are enforced by CHECK constraints, so getting
-them out of order produces a database error rather than a broken deployment:
-`active_requires_published_config`, `active_requires_probe_run`,
+**Revised 2026-09-06, after the first real webhook.** Most of this section used to be
+accounts and variables; nearly all of that is now done, and what is left is rows and one
+schedule. The order is still not arbitrary: several steps are enforced by CHECK
+constraints, so getting them out of order produces a database error rather than a broken
+deployment — `active_requires_published_config`, `active_requires_probe_run`,
 `live_requires_name_confirmation`, `live_requires_active_token`.
 
 > **Check your work with one command:** `node scripts/preflight.ts`. It reports every
 > required variable as ok / BAD / MISSING with the reason and the remedy, and it **never
-> prints a value** — so the output is safe to paste anywhere. A pass means the
+> prints a value** — so the output is safe to paste anywhere. It also runs inside the
+> Vercel production build (`vercel.json`), so a bad value fails the deploy instead of
+> shipping a deployment that 500s at the first customer message. A pass means the
 > configuration is right and nothing more: it proves nothing about Meta, Supabase,
 > Anthropic or QStash actually answering.
 
-### Free, and you can do all of it in an hour
+### Done — the whole environment, and it is not worth re-litigating
+
+All **nineteen** required variables pass preflight inside the production build (2026-09-06).
+Three had been wrong and are fixed: `TENANT_KEK_ACTIVE_VERSION` was empty, and both Meta
+variables were missing the JSON map wrapper. That covers what used to be items 1, 2, 3, 4c,
+4d, 6, 7 and 8 — Telegram, `IDENTITY_PEPPER`, the KEK, the two public URLs, Anthropic,
+QStash and the deployment.
+
+Two of those credentials now have live proof rather than a format check: **Meta** signed a
+delivery this system verified, and **QStash** answered a publish (by refusing it — which is
+how the colon bug was found). **Anthropic and the Supabase service keys have never been
+exercised by a real request** beyond the webhook's own two queries.
+
+The deployment is live on **`api.dalatech.online`**, which is also what solved the
+Vercel-Authentication trap: the project protected `all_except_custom_domains` with no
+custom domain, so every URL it had answered `302 → vercel.com/sso-api` — Meta's verify
+handshake, QStash's call to the worker, and the public data-deletion status page would all
+have hit a login wall.
+
+### The one step that is still just a step
 
 | # | Supply | Without it |
 |---|---|---|
-| 1 | **Telegram bot token + alert chat id** (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALERT_CHAT_ID`) | Every alert is recorded in `alerts` and delivered nowhere. The condition is detected; nobody is told |
-| 2 | **`IDENTITY_PEPPER`** — any 32 random bytes | `person_identities.value_hash` cannot be computed; inbound persistence refuses |
-| 3 | **`TENANT_KEK_V1` + `TENANT_KEK_ACTIVE_VERSION=v1`** — `node scripts/kek/generate.ts` | No credential can be sealed or opened. Put the key in a password manager the moment it seals a real token: it has no issuer and no recovery path |
-| ~~4~~ | ~~Sign Ш0–Ш9~~ · ~~sign the data-deletion status blocks~~ | **Done 2026-09-04.** All twenty-one blocks signed, promoted to `prompt/platform/`, and seeded by `0010` |
-| 4c | **`DALA_PUBLIC_URL`** — the deployment's own origin, e.g. `https://dala.mn` | The deletion callback cannot build the status URL Meta requires. Never taken from the request's Host header, so it has to be configured |
-| 4d | **`SUPABASE_SECRET_PRIVACY`** — one more named key, once the project exists | The deletion callback cannot record anything; every callback is a 500 and Meta retries |
+| **8b** | **One QStash schedule → `POST {WORKER_PUBLIC_URL}/api/workers/health`**, hourly | Two watchdogs are built and nothing calls either. The silence watch is the only thing that notices Reception has gone quiet (D-025); the stranded sweep is the only thing that re-drives a message the route claimed and failed to queue, or retires it and tells you (D-028). Both spend nothing — rows in, at most one Telegram message out. **This is no longer hypothetical: event `id 1` is stranded right now, and nothing is scheduled to find it** |
 
-### Costs money
+### Then tenant #0's rows — this is the whole remaining path to a reply
+
+Tenant `dalatech` (`919e21d4-224d-44b3-bb62-273caa6237ce`) exists, and so do its channel
+(`cc5e2748-1bd9-4a36-9a31-4910acfafe2f`, Page `863503883522801`), its `channel_identity`
+row — which is what routed the real delivery — its `tenant_roles` row (`reception`,
+`active`), and its sealed `page_token`. What it has **no rows for at all** is the config,
+and that is now the only thing between a message arriving and a message being answered.
+
+| # | Supply | State |
+|---|---|---|
+| 11 | `tenants`, `tenant_channels`, `channel_identity`, `tenant_roles` | **Done.** `tenants.status` is `provisioning`, which is correct: `active_requires_published_config` refuses `active` until item 13 |
+| 14 | Seal the Page token | **Done.** One `tenant_secrets` row, `page_token`, `status=active`, KEK v1. `last_ok_at` is null — it has never been opened by the runtime |
+| 12 | **The tenant's config rows**: `services`, `business_hours`, `contact_points`, `faqs`, `canned_responses` for every kind the gate names, `deterministic_replies`, `disclosure_rules`, `out_of_scope_topics` | **Not started, and it is the blocker.** The gate's nine checks each end "write the X line from that section", so a compile with no `canned_responses` rows now REFUSES rather than rendering an empty heading (PR #42). Nine Mongolian sentences are drafted as a proposal and **await your wording** — customer-visible Mongolian is yours, not mine |
+| 13 | Publish a config revision → `tenants.live_revision_id` | Blocked by 12. `config_snapshots` is append-only, so this is written once and rolled back by moving a pointer, never by editing |
+| 15 | Subscribe the app to the Page, and **verify the app-level subscription too** | A page-level subscribe returns `{"success": true}` even when the app has never enabled that field, and no events are ever delivered. The 2026-09-06 delivery proves the subscription works for `messages` on this Page |
+| 16 | `delivery_mode` — `shadow` for the mirror, and the channel is `off` today | `off` drafts nothing and sends nothing. The 14-day mirror runs on `shadow`: it drafts and does not send. **Not `live`** |
+| 17 | After the mirror: unsubscribe the ancestor app first, confirm from each app's own token, then `delivery_mode = 'live'` and `token_status = 'active'` | `live_requires_active_token` refuses the two halves separately, so the flip is one statement setting both |
+
+### From the Meta app — the second app changed the answers here
+
+**9c is answered.** The app called `dalatech` is the **ancestor's**, still serving Matrix's
+customer DMs, which is why its callback could not be repointed. The app signing this
+system's webhooks is the new one, **DALA_AI** (`1562862634970492`), configured under the
+same slug `dalatech` in `META_APP_SECRETS` / `META_VERIFY_TOKENS`. The slug is our name for
+a callback path, not Meta's name for an app — worth knowing before reading either variable.
 
 | # | Supply | Note |
 |---|---|---|
-| ~~5~~ | ~~Supabase Pro → a project → apply the migrations via the CLI~~ | **Done 2026-09-05.** Ref `tlggenaatnopnxzbkbuf`, PG17.6, twelve migrations (`0001`–`0012`) through the CLI with a real ledger. `catalog.sql` 25/25 there, against the twenty-five checks it then carried. Three CI-invisible findings fell out of it — see §2 and D-026 |
-| 5b | **`supabase db push`** for `0013` and `0014`, then `psql -f` for `isolation.sql` and `rls.sql` | Both migrations are merged on `main` and neither has reached the project, so `catalog.sql` there is 25 of 27. `0014` pins `search_path` on the four `ops` trigger functions and needs nothing else. `0013` tries the `supabase_admin` default-ACL revoke and **warns rather than fails** when it cannot — so after the push, check V25: if it still reports a grantor, the revoke has to come from a role that can, and only you can run that. The two suites roll back by design; they need psql rather than the MCP transport, which commits |
-| 6 | **Anthropic API key**, plus a **provider-side spend limit** | The platform's own ceiling is compiled in code; the provider limit is the backstop that does not depend on our correctness |
-| 7 | **QStash**: `QSTASH_TOKEN` + both signing keys | Both, not one. Rotation is the reason there are two |
-| 8 | **Vercel deployment** → `WORKER_PUBLIC_URL` and `DALA_PUBLIC_URL`, both the **origin only** | The worker needs a public URL before QStash can reach it. **Two traps, both measured 2026-09-05.** (a) The project had **Vercel Authentication on for `all_except_custom_domains` with no custom domain**, so every URL it had returned `302 → vercel.com/sso-api`: Meta's verify handshake, QStash's call to the worker, and the public data-deletion status page would all have hit a login wall. A custom domain (or turning the protection off) is what makes the deployment reachable at all. (b) `preflight.ts` demanded that `WORKER_PUBLIC_URL` *contain* `/api/workers/reception` while `queue/qstash.ts` appends it — so the correct value was reported BAD and a value that passed made QStash post to `…/reception/api/workers/reception`, a 404 per job with the enqueue reporting success. Fixed; the test had asserted the wrong contract too |
-| 8b | **One QStash schedule → `POST {WORKER_PUBLIC_URL}/api/workers/health`**, hourly | The silence watchdog is built and nothing calls it. It spends nothing — rows in, at most one Telegram message out — and it is the only thing that notices Reception has gone quiet (D-025). Unscheduled, that is still something you find out from a customer |
-
-### From the Meta app you already have — no review, and it is not the long pole any more
-
-**This section used to be "the long pole" and it was wrong** (D-023). `dalatech` holds
-`pages_messaging` at Advanced Access, and Reception's DM path makes exactly one Graph call
-under it. Nothing about a DM waits on Meta.
-
-| # | Supply | Note |
-|---|---|---|
-| 9 | **`META_APP_ID`, `META_APP_SECRETS`, `META_VERIFY_TOKENS`** from the existing app | Config, not a review. `META_APP_SECRETS` is a JSON **map** so the cutover app's secret can be valid at the same time |
-| 9b | **Confirm `pages_manage_metadata`'s access level** in the App Dashboard | It gates `POST /{page-id}/subscribed_apps`. At Standard Access it covers only Pages your own users have a role on — Matrix yes, GS Auto Center no — and it fails by subscribing nothing rather than by erroring |
-| 9c | **Say which app currently holds Matrix's webhook subscription** — this one, or the ancestor's | Decides whether the Track 4 mirror is a subscription change or a second subscription, and whether §3.3's app-vs-identity cross-check fires during it |
+| 9 | `META_APP_ID`, `META_APP_SECRETS`, `META_VERIFY_TOKENS` | **Done, for DALA_AI.** Both maps accept `value | value[]`, which is the designed cutover mechanism: during the mirror, the ancestor's secret can be valid at the same time as this one's |
+| 9b | **Confirm `pages_manage_metadata`'s access level** in the App Dashboard | Unchanged. It gates `POST /{page-id}/subscribed_apps`. At Standard Access it covers only Pages your own users have a role on — Matrix yes, GS Auto Center no — and it fails by subscribing nothing rather than by erroring |
 
 ### The comments track — parallel, and nothing else waits on it
 
@@ -353,17 +406,12 @@ under it. Nothing about a DM waits on Meta.
 | 10b | **The rest of App Review's non-permission deliverables**: privacy policy URL, terms URL, app icon, public app name, use-case description | Each bounces a submission on its own. The Data Deletion Request callback — the one nothing had designed — is built; the other five are not code and nobody but you can supply them |
 | 10c | **A test Page and a test user with a real Page admin role** for the screencast | A personal profile or a Business Manager preview is a named rejection cause: Meta cannot verify the permission grant flow from one |
 
-### Then per-tenant, and all of it is rows rather than code
+### Still owed against the database
 
-| # | Supply |
-|---|---|
-| 11 | A `tenants` row for Matrix; a `tenant_channels` row for the Page; `tenant_roles` with reception; `tenant_budgets` |
-| 12 | The tenant's config: `services`, `business_hours`, `contact_points`, `faqs`, `canned_responses` for all ten kinds the gate can answer with (`GATE_BY_RESPONSE_KIND`), `deterministic_replies`, `disclosure_rules`, `out_of_scope_topics` |
-| 13 | Publish a config revision → `tenants.live_revision_id` |
-| 14 | Seal the Page token: `printf %s "$TOKEN" \| node scripts/kek/seal.ts --tenant <id> --channel <id> --kind page_token`, then paste the SQL |
-| 15 | Subscribe the app to the Page, and **verify the app-level subscription too** — a page-level subscribe returns `{"success": true}` even when the app has never enabled that field, and no events are ever delivered |
-| 16 | `delivery_mode = 'shadow'` for the 14-day mirror. **Not `live`** |
-| 17 | After the mirror: unsubscribe the ancestor app first, confirm from each app's own token, then `delivery_mode = 'live'` |
+| # | Supply | Note |
+|---|---|---|
+| 5b | **`psql -f` for `isolation.sql` and `rls.sql`** against the project | `0013` and `0014` are pushed — the ledger reads fourteen — and `catalog.sql` V26 passes there as a result. The two behavioural suites have been run through `execute_sql` with an aggregated rollback, but never as the files themselves, which is a different claim: same SQL, different transport, no aggregation step to get wrong |
+| 5c | **The `supabase_admin` default ACL** | Measured again 2026-09-06 and **still live**: `supabase_admin` grants `anon` and `authenticated` all eight privileges on every future table in `public`, and `postgres` cannot revoke it — which is why `0013` warns instead of failing and V25 stays red. It is latent, not exploitable: it only bites for a table created in `public` **by** `supabase_admin`. Clearing it needs a role neither this session nor the CLI has |
 
 | 18 | **Confirm the Business Portfolio holds the app AND every tenant Page**, then say so — that is what makes the ID Matching API answerable, and it is the missing half of the erasure path. A portfolio very likely exists already (Advanced Access implies Business Verification); what is unconfirmed is whether the Pages are in it |
 | 19 | **Label every row you seed** (D-020). `provenance` now exists on those four tables plus `disclosure_rules`, with **no default**, so an INSERT that does not say where the row came from is refused by the database. Seeding is therefore safe again — a `seeded` FAQ stays out of the compiled prompt, a `seeded` deterministic reply is withheld and the model answers, and a `seeded` refusal still fires and is counted. What is **not** built is a resolver for the `service_aliases` reader, because nothing reads that table yet |

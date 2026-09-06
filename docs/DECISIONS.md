@@ -986,3 +986,73 @@ and proves the policies bite; `isolation.sql` proves the constraints bite for th
 bypasses those policies. Neither is a substitute for the other, and the reason the split
 exists is written at the top of both files so the next reader does not have to rediscover
 it.
+
+---
+
+## D-028 — an event claimed and never queued is re-published, and only expires once no reply would be sent anyway
+
+**Settled 2026-09-06, by an incident on the first real webhook.**
+
+Meta delivered, the signature verified, the tenant resolved, `webhook_events` row `id 1`
+was claimed — and the enqueue was refused, because QStash rejects `:` in a
+`deduplicationId` and every part of ours was colon-joined. The route returned 500, Meta
+retried twice, both retries hit `if (claim.outcome === 'duplicate') continue;` **before**
+the enqueue and answered **200**. Meta stopped. The event sat in `failed`, `attempts 0`,
+`replied_at null`, and nothing in the system would ever pick it up.
+
+Three things were wrong, and only the first is the one that looks like the bug.
+
+**1. The id.** Fixed by hashing rather than by swapping the separator. The parts are joined
+without escaping, so any separator that can also occur inside a part makes two different
+events capable of producing one id — `('facebook_page','a-b')` and `('facebook_page-a','b')`
+both spell `facebook_page-a-b`. A rejected request is visible; a collision silently drops
+somebody's message. `sha256` over the exact string the code already built keeps the
+identity and changes only its spelling.
+
+**2. The skip.** A unique violation says a row exists. It says nothing about whether that
+row ever reached the queue, and the two facts had been treated as one. `claimWebhookEvent`
+now returns the existing row's `state`, and the route re-enqueues when that state is
+`received` or `failed` — the only two written before the queue is involved. Fix 1 is what
+makes fix 2 safe: a racing double-enqueue collapses to one job precisely because the
+deduplication id is now valid.
+
+**3. Nothing swept.** Both fixes above still depend on Meta trying again, and Meta had
+already been told to stop. §3.6.3 had specified the sweeper for this — *"re-publishing with
+the same `deduplicationId` … older rows → `state='expired_unqueued'`"* — and it was the one
+piece of H7's second floor nobody had built. `0001` even carried the state name, and no
+code wrote it.
+
+**The threshold is the tenant's own `max_reply_age_minutes`, and that choice is the
+decision.** Two obvious alternatives are worse:
+
+- *A fixed platform grace* would expire an event for a tenant that answers up to two hours
+  while a reply was still wanted, and hold one for thirty minutes for a tenant that wants
+  five.
+- *Re-publishing regardless of age* would spend a model call to produce a `reply_too_late`
+  refusal, which `worker/freshness.ts` would then apply anyway.
+
+Splitting at the tenant's own limit makes the two arms exhaustive and non-overlapping: on
+one side a reply is still wanted, so the job is re-published; on the other no reply would
+be sent, so the row is marked `expired_unqueued` and the founder is told a customer went
+unanswered. It also composes with the redelivery fix — `expired_unqueued` is deliberately
+*not* in `neverReachedQueue`, so a redelivery arriving after the limit is skipped rather
+than re-driven, which is correct only because by then it could not be answered. The
+customer's text is not lost either way: `raw_payload` still holds the delivery.
+
+**It alerts whenever it finds anything at all**, including a successful rescue. §3.6.3 gives
+the reason and it is the important one: this sweep is the *second* floor, so a row here
+means the first one failed. A rescue that healed silently would hide a recurring fault
+behind a system that looked like it was working — which is, exactly, what the 200s did.
+
+**Two smaller calls inside it, both erring toward visibility.** An event is expired only
+after the alert is *recorded* (`alerts` is insert-first, so "recorded" survives Telegram
+being down); if even the row cannot be written, the event is left alone to be swept again,
+because a state change nobody was told about is worse than a repeat. And **unrouted events
+are excluded** — they are claimed for diagnosis and deliberately never queued, so without
+that filter every one of them would look stranded forever and the alert that mattered would
+arrive inside that stream.
+
+**What this does not do.** Nothing here helps event `id 1` itself: the sweep runs from
+`/api/workers/health`, and no QStash schedule points at it yet (§5 item 8b). The sweep has
+also never read a real `webhook_events` row — it is proven against stubs and eight
+mutations, not against the project.

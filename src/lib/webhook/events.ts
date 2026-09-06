@@ -130,15 +130,26 @@ export async function claimWebhookEvent(
  * test can reach — the pattern the worker routes already follow. It was extracted after a
  * mutation proved the point: reverting the route to skip every duplicate broke nothing.
  */
+export const UNQUEUED_STATES = ['received', 'failed'] as const;
+
 export function neverReachedQueue(state: string): boolean {
-  return state === 'received' || state === 'failed';
+  return (UNQUEUED_STATES as readonly string[]).includes(state);
 }
 
-/** Advance an event's state. Best-effort: never turn a bookkeeping failure into a 500. */
+/**
+ * Advance an event's state.
+ *
+ * Never throws — a bookkeeping failure must not turn a delivered reply into a 500 — but it
+ * does REPORT, because one caller cares: the stranded sweep marks `expired_unqueued` after
+ * telling the founder, and an unreported failure there would leave the row in a state
+ * nobody was told about while the sweep believed it was handled.
+ */
 export async function markEventState(
   db: SupabaseClient,
   eventId: number,
-  state: 'pending_enqueue' | 'processed' | 'shed' | 'failed' | 'blocked_no_token' | 'standby_not_primary',
-): Promise<void> {
-  await db.from('webhook_events').update({ state }).eq('id', eventId);
+  state: 'pending_enqueue' | 'processed' | 'shed' | 'failed' | 'blocked_no_token'
+       | 'standby_not_primary' | 'expired_unqueued',
+): Promise<{ ok: boolean; detail: string | null }> {
+  const { error } = await db.from('webhook_events').update({ state }).eq('id', eventId);
+  return error ? { ok: false, detail: error.message } : { ok: true, detail: null };
 }

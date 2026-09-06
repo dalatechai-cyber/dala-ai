@@ -2,15 +2,28 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runHealthJob, type HealthEffects } from './health.ts';
 
+process.env['ALERTS_ENABLED'] = 'false';
+
 const NOW = new Date('2026-09-04T06:00:00Z');
 const FRESH = '2026-09-04T05:30:00Z';
 const STALE = '2026-09-04T02:00:00Z';
 
 const HOURS = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: '10:00', closes: '20:00', closed: false }));
 
-function effects(over: Record<string, { data?: unknown; error?: unknown }> = {}, verified = true): HealthEffects {
-  const answer = (table: string): { data?: unknown; error?: unknown } => {
-    if (over[table] !== undefined) return over[table];
+type Answer = { data?: unknown; error?: unknown };
+
+/**
+ * `webhook_events` is now read twice in one run — once by the silence watch, once by the
+ * stranded sweep — so an override may be a LIST, consumed in order. A single value answers
+ * every call, as before.
+ */
+function effects(over: Record<string, Answer | Answer[]> = {}, verified = true): HealthEffects {
+  const queue: Record<string, Answer[]> = {};
+  for (const [table, v] of Object.entries(over)) queue[table] = Array.isArray(v) ? [...v] : [v];
+
+  const answer = (table: string): Answer => {
+    const q = queue[table];
+    if (q !== undefined && q.length > 0) return q.length === 1 ? q[0]! : q.shift()!;
     if (table === 'tenants') return { data: { timezone: 'Asia/Ulaanbaatar' }, error: null };
     if (table === 'tenant_channels') {
       return { data: [{ id: 'ch-1', tenant_id: 't-1', external_id: '1001', last_webhook_at: null, went_live_at: '2026-08-01T00:00:00Z' }], error: null };
@@ -21,12 +34,12 @@ function effects(over: Record<string, { data?: unknown; error?: unknown }> = {},
   };
   const from = (table: string) => {
     const chain: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'gte', 'order', 'limit', 'insert', 'update', 'upsert']) chain[m] = () => chain;
+    for (const m of ['select', 'eq', 'neq', 'gte', 'in', 'is', 'lt', 'order', 'limit', 'insert', 'update', 'upsert']) chain[m] = () => chain;
     chain['maybeSingle'] = async () => answer(table);
     chain['then'] = (res: (v: unknown) => unknown) => res(answer(table));
     return chain;
   };
-  return { db: { from } as never, now: NOW, verifySignature: async () => verified };
+  return { db: { from } as never, now: NOW, verifySignature: async () => verified, enqueue: async () => ({ ok: true, messageId: 'msg-1' }) };
 }
 
 test('an unsigned call is 401 and reads nothing', async () => {
@@ -36,12 +49,13 @@ test('an unsigned call is 401 and reads nothing', async () => {
 
 test('a healthy run is 200 with the counts', async () => {
   const r = await runHealthJob(effects({
-    webhook_events: { data: [{ received_at: FRESH }], error: null },
+    webhook_events: [{ data: [{ received_at: FRESH }], error: null }, { data: [], error: null }],
     conversations: { data: [{ last_message_at: FRESH }], error: null },
   }), { rawBody: '{}', signature: 'sig' });
   assert.equal(r.status, 200);
   assert.equal(r.body['checked'], 1);
   assert.deepEqual(r.body['states'], { healthy: 1 });
+  assert.deepEqual(r.body['swept'], {});
 });
 
 test('DONE-TEST: a run that cannot read is 503, so QStash retries', async () => {
@@ -56,7 +70,7 @@ test('a silent channel still returns 200 — the alert is the output, not the st
   // The run SUCCEEDED; it found something. A non-200 here would make QStash retry a
   // condition only a human can clear, re-alerting on every redelivery.
   const r = await runHealthJob(effects({
-    webhook_events: { data: [{ received_at: STALE }], error: null },
+    webhook_events: [{ data: [{ received_at: STALE }], error: null }, { data: [], error: null }],
     conversations: { data: [{ last_message_at: STALE }], error: null },
   }), { rawBody: '{}', signature: 'sig' });
   assert.equal(r.status, 200);
@@ -67,5 +81,32 @@ test('the body carries counts, never the verdicts themselves', async () => {
   // This lands in QStash's delivery log. A channel's health belongs in `channel_health`
   // and in the alert, not in a queue receipt somebody may or may not read.
   const r = await runHealthJob(effects(), { rawBody: '{}', signature: 'sig' });
-  assert.deepEqual(Object.keys(r.body).sort(), ['checked', 'states']);
+  assert.deepEqual(Object.keys(r.body).sort(), ['checked', 'states', 'swept']);
+});
+
+test('DONE-TEST: the stranded sweep runs beside the watch, and its count is reported', async () => {
+  // The first real webhook was lost in the gap between the two questions: arriving fine,
+  // never queued. A run that only answers the first one reports green through it.
+  const r = await runHealthJob(effects({
+    webhook_events: [
+      { data: [{ received_at: FRESH }], error: null },
+      { data: [{ id: 1, provider: 'facebook_page', dedup_key: '1001:0:9:dalatech', tenant_id: 't-1', channel_id: 'ch-1', state: 'failed', received_at: STALE }], error: null },
+      { data: null, error: null },
+    ],
+    conversations: { data: [{ last_message_at: FRESH }], error: null },
+    tenants: [{ data: { timezone: 'Asia/Ulaanbaatar' }, error: null }, { data: [{ id: 't-1', max_reply_age_minutes: 30 }], error: null }],
+    alerts: [{ data: null, error: null }, { data: { id: 7 }, error: null }],
+  }), { rawBody: '{}', signature: 'sig' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body['states'], { healthy: 1 });
+  assert.deepEqual(r.body['swept'], { expired: 1 });
+});
+
+test('a sweep that cannot read is 503, exactly like a watch that cannot', async () => {
+  const r = await runHealthJob(effects({
+    webhook_events: [{ data: [{ received_at: FRESH }], error: null }, { data: null, error: { message: 'timeout' } }],
+    conversations: { data: [{ last_message_at: FRESH }], error: null },
+  }), { rawBody: '{}', signature: 'sig' });
+  assert.equal(r.status, 503);
+  assert.match(String(r.body['detail']), /webhook_events unreadable/);
 });

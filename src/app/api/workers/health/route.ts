@@ -5,7 +5,7 @@
  * condition no test can reach. The decision is `@/lib/worker/health`.
  */
 import { NextResponse } from 'next/server';
-import { verifyQStashSignature } from '@/lib/queue/qstash';
+import { enqueueReception, verifyQStashSignature } from '@/lib/queue/qstash';
 import { supabaseWorker } from '@/lib/supabase/clients';
 import { runHealthJob } from '@/lib/worker/health';
 
@@ -18,6 +18,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       db: supabaseWorker(),
       now: new Date(),
       verifySignature: (raw, signature) => verifyQStashSignature(raw, signature),
+      enqueue: (job) => enqueueReception(job),
     },
     { rawBody: await request.text(), signature: request.headers.get('upstash-signature') },
   );

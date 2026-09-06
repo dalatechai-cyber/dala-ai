@@ -595,6 +595,8 @@ The ancestor processes inline when QStash is unconfigured or the publish hard-fa
 
 The sweeper is scheduled, so non-negotiable #6 applies: row ceiling, age cutoff, an alert **whenever it finds anything at all** (finding rows means the primary floor is failing), and it touches no model. All downstream spend still passes the H11 gate. `vercel.json` carries the sweeper, the reconciler, the token probe and the refresh job — and nothing that reaches Anthropic.
 
+**BUILT 2026-09-06 as `src/lib/health/stranded.ts`, after this exact failure happened** (D-028). Two differences from the text above, both forced by what the schema became: the pre-queue states are `received` and `failed` here, because `pending_enqueue` is written *after* a successful publish; and the age cutoff is the tenant's own `max_reply_age_minutes` rather than a fixed twenty minutes, so the split lands exactly where a reply stops being wanted. It runs inside `/api/workers/health` rather than on its own `vercel.json` cron — QStash already schedules and already signs, and a second authentication path to do that is a credential to rotate for nothing.
+
 ---
 
 ## 3.7 The Handover Protocol — the branch the draft wrote as a throwaway
