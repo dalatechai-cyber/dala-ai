@@ -116,6 +116,21 @@ test('DONE-TEST: a failed read makes the channel UNKNOWN, never skipped', async 
   assert.equal(writes.find((w) => w.table === 'alerts')?.patch['severity'], 'warn');
 });
 
+test('DONE-TEST: A PROVISIONING GAP IS RECORDED AND RAISES NOTHING', async () => {
+  // The live false alarm, at the layer that decides. Tenant #0's channel went live before
+  // its `business_hours` were entered, and the daily `channel.unknown` it raised is the
+  // alert the founder was trying to learn to trust. Recorded — so the gap is visible to
+  // anyone who looks at the table — and never paged.
+  const { db, writes } = stub({ business_hours: { data: [], error: null } });
+  const r = await runSilenceWatch(db, { now: NOW });
+  assert.equal(r.ok && r.verdicts[0]?.diagnosis.state, 'not_provisioned');
+
+  const health = writes.find((w) => w.table === 'channel_health');
+  assert.equal(health?.patch['healthy'], false);
+  assert.match(String(health?.patch['reason']), /business_hours/);
+  assert.equal(writes.some((w) => w.table === 'alerts'), false, 'a provisioning gap must not alert');
+});
+
 test('an unreadable channel list refuses the whole run rather than reporting zero', async () => {
   // "Checked 0 channels" and "could not read the channel list" look identical in a log and
   // mean opposite things.

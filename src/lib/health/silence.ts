@@ -39,11 +39,26 @@
  *
  * ## When it cannot measure, it says so — it does not guess
  *
- * If the tenant has no usable `business_hours` rows, this returns `unknown` rather than
- * picking a side. Counting unknown hours as OPEN alerts every unprovisioned tenant nightly;
- * counting them as CLOSED disables the watchdog silently, which is the watchdog having the
- * exact defect it exists to detect. `isOpenAt` already refuses to collapse "we do not know"
- * into "closed", and this is the same refusal one layer up.
+ * If the tenant has no usable `business_hours` rows, this returns `not_configured` rather
+ * than picking a side. Counting unknown hours as OPEN alerts every unprovisioned tenant
+ * nightly; counting them as CLOSED disables the watchdog silently, which is the watchdog
+ * having the exact defect it exists to detect. `isOpenAt` already refuses to collapse "we
+ * do not know" into "closed", and this is the same refusal one layer up.
+ *
+ * ## A provisioning gap is not an outage, and it is not `unknown` either
+ *
+ * Those two unmeasurable cases — no schedule, and no clock to measure from — used to share
+ * the `unknown` verdict with "the read failed" and "a fortnight held no open time". That
+ * conflation had teeth: `unknown` alerts, the dedup key carries the date, and every tenant
+ * sits between being provisioned and having its hours entered. So the first live channel on
+ * the platform raised a fresh alert every single day, saying only that setup was
+ * unfinished — training the operator to skim past the key exactly as the nightly
+ * wall-clock alarm above would have.
+ *
+ * `not_configured` is therefore its own verdict. It means **the setup is incomplete, so
+ * there is nothing to measure against**, and its remedy is data entry rather than an
+ * incident. `unknown` keeps its original meaning: the question *should* have been
+ * answerable and was not. The two are recorded alike and alerted differently.
  */
 import { activeClosure, isOpenAt, tenantClock, type BusinessHours, type Closure } from '../reception/volatile.ts';
 
@@ -93,6 +108,15 @@ export type SilenceVerdict =
    * the failure D-020 is named after.
    */
   | { verdict: 'silent'; openMinutesAtLeast: number; since: Date; everReceived: boolean }
+  /**
+   * Setup is incomplete, so there is nothing to measure against.
+   *
+   * Deliberately NOT `unknown`: this is the expected state of every tenant between being
+   * provisioned and having its hours entered, and a channel in that window has no outage to
+   * report — it has an unfinished form. Kept separate so the watchdog can record it without
+   * alerting on it. `detail` names which part of the setup is missing.
+   */
+  | { verdict: 'not_configured'; detail: string }
   /** The question could not be answered. An operator-visible state, never a default. */
   | { verdict: 'unknown'; detail: string };
 
@@ -117,7 +141,7 @@ function openAt(input: SilenceInput, at: Date): boolean | null {
  * months ago costs the same handful of probes as one revoked this morning; the forward
  * version would walk ninety days to reach a conclusion it had after the first three hours.
  */
-function openMinutesSince(input: SilenceInput, since: Date): { minutes: number; exhausted: boolean } | { unknown: string } {
+function openMinutesSince(input: SilenceInput, since: Date): { minutes: number; exhausted: boolean } | { notConfigured: string } {
   const floor = input.now.getTime() - MAX_LOOKBACK_DAYS * 24 * 60 * 60_000;
   const stop = Math.max(since.getTime(), floor);
   const step = PROBE_MINUTES * 60_000;
@@ -131,7 +155,8 @@ function openMinutesSince(input: SilenceInput, since: Date): { minutes: number; 
     // opening time would count a whole step either side of it depending on alignment.
     const open = openAt(input, new Date((cursor + probe) / 2));
     if (open === null) {
-      return { unknown: `no usable business_hours row for ${tenantClock(new Date(probe), input.timezone).date}` };
+      // No row, or a row with no times: the schedule was never entered. Not an outage.
+      return { notConfigured: `no usable business_hours row for ${tenantClock(new Date(probe), input.timezone).date}` };
     }
     if (open) minutes += (cursor - probe) / 60_000;
     cursor = probe;
@@ -154,15 +179,18 @@ export function assessSilence(input: SilenceInput): SilenceVerdict {
   if (since === null) {
     // Neither a delivered event nor a go-live time. There is no clock to measure from, and
     // inventing one would either alert on a channel that was provisioned a minute ago or
-    // stay quiet about one that has never worked.
-    return { verdict: 'unknown', detail: 'no last inbound event and no live-since time: nothing to measure from' };
+    // stay quiet about one that has never worked. A channel whose `went_live_at` was never
+    // stamped and has never received anything is not a channel that stopped working — it is
+    // one that has not been finished, so it is `not_configured` alongside the missing
+    // schedule rather than `unknown`.
+    return { verdict: 'not_configured', detail: 'no last inbound event and no live-since time: nothing to measure from' };
   }
 
   // Clock skew, or an event stamped in the future. Not silence, and not worth an alarm.
   if (since.getTime() >= input.now.getTime()) return { verdict: 'ok', openMinutes: 0 };
 
   const walked = openMinutesSince(input, since);
-  if ('unknown' in walked) return { verdict: 'unknown', detail: walked.unknown };
+  if ('notConfigured' in walked) return { verdict: 'not_configured', detail: walked.notConfigured };
 
   if (walked.minutes > input.thresholdOpenMinutes) {
     return { verdict: 'silent', openMinutesAtLeast: walked.minutes, since, everReceived };
@@ -173,6 +201,11 @@ export function assessSilence(input: SilenceInput): SilenceVerdict {
     // been closed, not unreachable — reporting silence here would be an alarm about a
     // holiday. Reported as unmeasurable rather than healthy, because a schedule this empty
     // is itself worth an operator's glance.
+    //
+    // This stays `unknown` and keeps alerting. The hours ARE configured here; they say the
+    // business is shut. That is an answer, and a live channel whose schedule holds no
+    // trading time in a fortnight is a fact somebody should see — unlike a form nobody has
+    // filled in yet, it does not resolve itself by being ignored.
     return {
       verdict: 'unknown',
       detail: `${MAX_LOOKBACK_DAYS} days of lookback held only ${Math.round(walked.minutes)} open minutes, below the ${input.thresholdOpenMinutes}-minute threshold`,

@@ -66,6 +66,17 @@ export type ChannelDiagnosis =
   | { state: 'no_webhooks'; reason: string; everReceived: boolean }
   /** Events arrive and none becomes a message: standby, or the persist path. */
   | { state: 'no_messages'; reason: string; everReceived: boolean }
+  /**
+   * Setup is unfinished, so nothing can be measured. Recorded, never alerted.
+   *
+   * `silence.ts` calls this `not_configured` because what is missing there is a schedule;
+   * here the subject is the channel, so it is named for the gap the operator would close.
+   * It is the same fact, and it is deliberately NOT `unknown`: a provisioning gap is not an
+   * outage. Every tenant passes through this state between having a channel row and having
+   * its hours entered, and alerting on it means the first live channel on the platform
+   * raises an alert a day for a form nobody has filled in yet.
+   */
+  | { state: 'not_provisioned'; reason: string }
   /** Not measurable. Reported, never guessed at. */
   | { state: 'unknown'; reason: string };
 
@@ -95,8 +106,9 @@ function describe(v: SilenceVerdict): string {
 export function diagnoseChannel(o: ChannelObservation): ChannelDiagnosis {
   const webhooks = assessSilence(inputFor(o, o.lastWebhookAt));
 
-  // Unknown upstream stops the analysis: without a usable schedule neither stream can be
-  // measured, and running the second one would produce the same non-answer twice.
+  // An unmeasurable upstream stops the analysis: without a usable schedule neither stream
+  // can be measured, and running the second one would produce the same non-answer twice.
+  if (webhooks.verdict === 'not_configured') return { state: 'not_provisioned', reason: webhooks.detail };
   if (webhooks.verdict === 'unknown') return { state: 'unknown', reason: webhooks.detail };
 
   if (webhooks.verdict === 'silent') {
@@ -110,6 +122,10 @@ export function diagnoseChannel(o: ChannelObservation): ChannelDiagnosis {
   }
 
   const messages = assessSilence(inputFor(o, o.lastInboundMessageAt));
+  // Reachable independently of the webhook stream: the schedule is shared, but the clock is
+  // not, so a channel with webhooks but no message ever has nothing to measure the second
+  // stream from.
+  if (messages.verdict === 'not_configured') return { state: 'not_provisioned', reason: messages.detail };
   if (messages.verdict === 'unknown') return { state: 'unknown', reason: messages.detail };
 
   if (messages.verdict === 'silent') {

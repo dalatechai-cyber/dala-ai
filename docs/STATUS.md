@@ -56,7 +56,7 @@ pushed 2026-09-06, read back off `supabase_migrations.schema_migrations` rather 
 | | `outbound/claim`, `deliver`, `deliverDeps` | Draft, lease, deliver, and what each outcome costs |
 | | `channel/delivery`, `channel/halt` | Only `live` delivers; a `190` halts the channel and the token together |
 | **The worker** | `worker/reception`, `worker/freshness` | Every branch of the job, as a value-returning function the route merely binds |
-| **Health** | `health/silence`, `health/channel`, `health/watch`, `worker/health` | The silence watchdog: silence measured in OPEN minutes, two clocks so the standby trap cannot read as green (D-025) |
+| **Health** | `health/silence`, `health/channel`, `health/watch`, `worker/health` | The silence watchdog: silence measured in OPEN minutes, two clocks so the standby trap cannot read as green (D-025). A tenant whose hours are not entered yet is `not_provisioned` — recorded, never alerted (D-032) |
 | | `health/stranded` | §3.6.3's sweeper, built 2026-09-06 after the first real webhook was lost between the claim and the queue. Re-publishes an unqueued event while a reply is still wanted; past the tenant's own reply-age limit marks it `expired_unqueued` and tells the founder. Alerts on anything it finds, because finding a row means the primary floor failed (D-028) |
 | **Comments** | `meta/comments`, `comments/eligibility`, `comments/send`, `worker/comments` | The `feed` firehose, the decision that never sees the comment's text, and the public reply |
 | **Privacy** | `meta/signedRequest`, `privacy/erasure`, `privacy/statusPage` | Meta's data-deletion callback: verify, record, and the status page it hands people |
@@ -257,11 +257,22 @@ Meta call, and they catch a different fault — a token that has expired but has
 used, which produces no absence to notice until a customer writes in. Until those exist,
 that particular failure is still something you find out from a customer.
 
-**And none of it has run.** The watchdog and the sweep are exercised against stubs and a
-scratch PostgreSQL; neither has ever read a real `webhook_events` row, and nothing schedules
-them — that is one QStash schedule pointing at `/api/workers/health`. QStash exists now, so
-this is a five-minute step rather than an account, and until it is taken the sweep cannot
-rescue anything: **event `id 1` is still sitting there, and no schedule will come for it.**
+**It has now run, and the first thing it did was find a false alarm in itself.** The
+hourly QStash schedule fired at 15:00:01 UTC on 2026-09-06: `channel_health` was written,
+the sweep retired event `id 1` as `expired_unqueued` — 102 minutes old, past the tenant's
+30-minute reply limit — and two alerts were delivered. One was that. The other was
+`channel.unknown`: *"no usable business_hours row for 2026-09-06"*, on a tenant that has
+never needed hours. With the date in the dedup key, that sentence was going to arrive once
+a day for ever.
+
+**Fixed as a class, not as a row** (D-032). Seeding tenant #0's hours would have silenced
+this channel and left every future tenant in the same window — Matrix included, on day one,
+with a real customer's Page. A provisioning gap is now its own verdict: `not_provisioned` is
+written to `channel_health`, counted in the health worker's response, and **never alerted**.
+A schedule that exists and says *closed* is a different thing and still alerts.
+
+**Still exercised only against stubs and a scratch PostgreSQL below that**: the watchdog and
+the sweep have now read real rows once, on one channel, with one live tenant.
 
 ---
 
@@ -366,8 +377,9 @@ have hit a login wall.
 
 | # | Supply | Without it |
 |---|---|---|
-| **5d** | **`supabase db push` for `0015`** | **Nothing can be answered at all.** `db.rpc('reserve_spend')` resolves against `public`; the function lives in `app`, so every reply refuses with `guard_unavailable` (D-029). Two wrapper functions, additive, no data touched |
-| ~~8b~~ | ~~One QStash schedule → `/api/workers/health`~~ | **Created 2026-09-06, hourly.** Effects not yet observed: `channel_health` is still empty and event `id 1` is still `failed`, which is what a schedule that has not fired yet looks like. A `channel_health` row is how we will know |
+| ~~5d~~ | ~~`supabase db push` for `0015`~~ | **Pushed and verified 2026-09-06.** Both wrappers exist in `public`, `reserve_spend` returns boolean, `settle_spend` returns void, ACLs are `postgres` and `service_role` only |
+| **5e** | **`supabase db push` for `0016`** | `release()` gives no budget back, and a reservation that refuses at the platform counter still charges the tenant's day (D-031). Additive: three functions and their wrappers, no data touched |
+| ~~8b~~ | ~~One QStash schedule → `/api/workers/health`~~ | **Created and FIRED 2026-09-06, hourly.** First run 15:00:01 UTC: `channel_health` written, event `id 1` retired as `expired_unqueued`, two alerts delivered — one real, one a false alarm now fixed as a class (D-032) |
 
 ### Then tenant #0's rows — this is the whole remaining path to a reply
 

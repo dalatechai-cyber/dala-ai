@@ -66,8 +66,32 @@ test('ONE FAULT, ONE NAME: no webhooks does not also report no messages', () => 
   assert.equal(d.state, 'no_webhooks');
 });
 
-test('an unmeasurable schedule is unknown, and is not reported as an outage', () => {
+test('DONE-TEST: NO HOURS CONFIGURED IS A PROVISIONING GAP, not an outage and not unknown', () => {
+  // The live false alarm this state exists for: tenant #0 went live with no `business_hours`
+  // rows, so every run produced `unknown` with the date in the dedup key — one alert a day,
+  // for ever, on the first channel the platform ever watched. Seeding the hours would have
+  // fixed that channel and left the class: every tenant is in this window on day one.
   const d = diagnoseChannel(obs({ hours: [] }));
+  assert.equal(d.state, 'not_provisioned');
+  assert.match(d.reason, /business_hours/);
+});
+
+test('a channel that was never stamped live and never received is not provisioned either', () => {
+  // Same class, different missing field: there is no clock to measure from, so there is no
+  // outage to report — only a setup that stops short.
+  const d = diagnoseChannel(obs({ lastWebhookAt: null, lastInboundMessageAt: null, wentLiveAt: null }));
+  assert.equal(d.state, 'not_provisioned');
+});
+
+test('a schedule that exists and says CLOSED stays unknown, and keeps alerting', () => {
+  // The boundary of the new state. Hours entered and marked closed are an answer, so a
+  // fortnight of them on a live channel is a fact worth an operator's glance — unlike a
+  // form nobody has filled in, it does not resolve itself by being ignored.
+  const shut = DAILY.map((h) => ({ ...h, closed: true, opens: null, closes: null }));
+  const d = diagnoseChannel(obs({
+    hours: shut, lastWebhookAt: new Date('2026-08-01T00:00:00Z'),
+    lastInboundMessageAt: new Date('2026-08-01T00:00:00Z'),
+  }));
   assert.equal(d.state, 'unknown');
 });
 

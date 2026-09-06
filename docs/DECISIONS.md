@@ -1226,3 +1226,60 @@ caught by `spend/reserve.test.ts`, which did not exist before — `reserve.ts` a
 nothing, and the `'expired'` state has no writer, so a reservation whose process died is
 neither settled nor released and its budget stays consumed until the day rolls over. The
 shape is a query in the health worker beside the stranded sweep — proposed, not built.
+
+---
+
+## D-032 — a provisioning gap is not an outage
+
+**Settled 2026-09-06, from the first alert the platform ever raised about itself.**
+
+The hourly health schedule fired at 15:00 UTC and the silence watchdog delivered two
+alerts. One was real (event `id 1`, 102 minutes old, past the tenant's 30-minute reply
+limit). The other said:
+
+> Page 863503883522801: no usable business_hours row for 2026-09-06
+
+Tenant #0 has no `business_hours` rows, because nothing has needed them yet. Silence is
+measured in **open minutes** (D-025), so with no schedule there is nothing to measure and
+`assessSilence` correctly refused to guess. The defect was one layer up: that refusal came
+back as `unknown`, `unknown` alerts, and the dedup key carries the date — so the same
+sentence would arrive once a day, for ever, on the first and only channel the platform was
+watching.
+
+**The instance was one INSERT away and the instance was not the problem.** Every tenant
+sits between having a channel row and having its hours entered, and Matrix will be in that
+window on day one, with a real customer's Page raising a daily alert while the founder is
+still deciding whether the alerting can be trusted. An alarm that cries wolf nightly is
+muted within a week — which is the argument `silence.ts` opens with, arriving from a
+direction its author did not look in.
+
+**So `not_configured` / `not_provisioned` is its own verdict, recorded and never alerted.**
+`silence.ts` returns `not_configured` (what is missing there is a schedule); `channel.ts`
+maps it to `not_provisioned` (there the subject is the channel). It is written to
+`channel_health` with the reason intact and it appears in the health worker's state counts,
+so the gap is visible to anyone who looks — it simply does not page. Two conditions produce
+it, and they are the same fact wearing different missing fields:
+
+| Condition | Why it is a gap and not a fault |
+|---|---|
+| No usable `business_hours` row for a day the walk touched | The schedule was never entered. The remedy is a form, not an incident |
+| No last inbound event **and** no `went_live_at` | There is no clock to measure from. A channel never stamped live and never used did not stop working; it was never finished |
+
+**The boundary is deliberate, and it is where the value of the distinction lives.**
+Everything else stays `unknown` and keeps alerting: a failed read, an absent tenant, and —
+the one worth naming — a schedule that exists and says **closed** for the whole fourteen-day
+lookback. Hours entered and marked closed are an *answer*. A live channel whose schedule
+holds no trading time in a fortnight is a fact somebody should see, and unlike a form nobody
+has filled in, it does not resolve itself by being ignored. Widening `not_configured` to
+cover it is the mutation that makes this decision worthless, so it is a test.
+
+**`channel_health.healthy` is still a boolean, and stays `false` here.** A provisioning gap
+is not a channel proven to be working. Nothing reads that column today; the first thing that
+does must branch on the state carried in `reason`, or it will re-make in a dashboard the
+exact conflation this removed from the alert. Making the state a column is a one-line
+additive migration and is not written — it would be the third thing in a queue the founder
+is pushing by hand tonight.
+
+**Made to go red three ways**: restoring the alert gate to `if (healthy) return` fails the
+watch test; collapsing `not_configured` back into `unknown` fails three; widening it to the
+closed fortnight fails three.
