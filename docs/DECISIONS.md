@@ -1535,3 +1535,104 @@ a NEW migration; regenerating would produce a file that no longer describes what
 generator now says so in a comment and writes per-vertical rows to their own file, but it
 cannot express the edit case — so Ш1/Ш3/Ш6's neutral wording will need a hand-written
 migration on the evening, not a regeneration.
+
+---
+
+## D-036 — three strikes, one halt an hour, and the suppression is the alarm
+
+**Settled 2026-09-06.** A channel whose stored credential will not open fails every send,
+and until D-034 it failed them expensively: the reply is drafted before the token is read.
+Measured, not hypothetical — a `secret_undecryptable` cost $0.0161 for a message nobody
+received. D-034 made the *second* such message free by moving the delivery gate ahead of
+the model call. This closes the other half: what puts a channel out of `live` when nothing
+is talking to Meta at all.
+
+### N = 3, and the reason is not flakiness
+
+Every code this counts is terminal by construction — the same bytes under the same KEK fail
+identically next time — so **one** failure already proves the channel is broken. Halting on
+one was refused, in the founder's words: *"a KEK deployment slip halting every channel at
+once is a self-inflicted outage from a config mistake,"* from somebody who had made two KEK
+mistakes that day. So N buys evidence that the cause is **this channel** and not **the
+platform**:
+
+| N | What it cannot distinguish |
+|---|---|
+| 1 | a bad row from an env var briefly wrong on one warm lambda |
+| 2 | one bad deploy, observed twice inside its own rollout |
+| **3 consecutive** | — three separate messages, each failing on this channel's own row |
+
+At Matrix's measured 60.5 replies/day that is roughly an hour of traffic: long enough to
+span a rollback, and it bounds the cost at 3 × $0.0159 ≈ **$0.05 per broken channel once**,
+rather than per message for ever.
+
+**A streak, not a rate.** A rate over a window is a number somebody has to tune and re-tune;
+consecutive-with-reset-on-success is a property of the sequence, and the reset is the
+strongest evidence available that the credential works — the provider accepted it.
+
+### The cap, and the hole the founder found in it
+
+One halt per hour, platform-wide, so a global cause cannot cascade: if the KEK is wrong,
+every channel trips its third strike within minutes and only the first halts.
+
+**But a global EXTERNAL event looks identical from here** — Meta revoking tokens across many
+Pages — and there the cap is exactly wrong. The founder's objection, which changed the
+design: it *"would leave forty-nine channels paying full model cost for two days while one
+halts per hour."* Nothing would say so, because **each individual suppression is a correct
+decision.**
+
+**So the suppression is the signal.** The first time the cap holds a halt back,
+`channel.credential_halt_suppressed` fires — critical, hourly, carrying the number of
+distinct channels currently failing credentials. Two channels failing to open a credential
+in the same hour is already anomalous; fifty is the incident, and it reaches a person in the
+first hour rather than the fiftieth.
+
+### Two exclusions, and they are the load-bearing part
+
+`kek_unavailable` **never counts**. Its own definition says it is not one tenant: *"the
+platform cannot decrypt ANYTHING sealed under that version."* Counting it counts the global
+cause as local, and the cap would then be rescuing the breaker from a state it should never
+have entered — better not to enter it. `secret_unreadable` is excluded for the opposite
+reason: it is the one retryable code, a failed *read* rather than a failed credential.
+
+**Neither one BREAKS a streak either.** A KEK blip between two undecryptable failures does
+not make the channel healthy, and reading it as a reset would invent a fact from an absence.
+
+### `token_status = 'error'`, never `'revoked'`
+
+`haltChannelOutbound` answers a Graph `190`: Meta said the token is invalid, so `revoked` is
+a fact reported by the authority on the matter. The breaker is answering something weaker —
+a row that will not decrypt. The token may be perfectly valid at Meta; we cannot get to it.
+Writing `revoked` would send an operator to re-authorise a Page whose authorisation was
+never the problem, and would put something Meta never said into the platform's record of
+Meta's opinion. `'error'` has been in `0001`'s CHECK since the beginning and nothing had
+ever written it.
+
+**`delivery_mode = 'off'` is not optional**, and it is the half that saves the money:
+`canDeliver` (D-034) refuses to generate for a channel that is neither live nor mirroring.
+Proven against the real constraints rather than by reading them — `token_status = 'error'`
+alone on a live channel is refused by `live_requires_active_token`, and the three-column
+write is accepted.
+
+### The clock is the alert row
+
+There is no `halted_at` on `tenant_channels`, and adding one would be a second place for the
+same fact to drift from. `haltsInInterval` counts `channel.credential_halt` alert rows,
+which are written by the halt and by nothing else — the D-020 addendum's rule applied
+forwards for once, rather than after a wrong reading.
+
+### An unreadable breaker never halts
+
+Every read failure produces `unreadable`, not a guess. Not halting costs a bounded number of
+model calls; halting a working channel on evidence nobody could read is an outage caused by
+the thing that exists to prevent one.
+
+**Made to go red six ways**: N = 1; a global code allowed to halt; an excluded code breaking
+the streak instead of being skipped; the cap removed; `revoked` instead of `error`; and the
+breaker never being told. Each fails one or two tests and no others.
+
+### Still not closed
+
+The **first** message after a credential breaks still costs one model call, because the
+streak needs an attempt to count. That is the design, not an oversight: the alternative is
+halting on evidence that cannot distinguish a channel from a deploy.

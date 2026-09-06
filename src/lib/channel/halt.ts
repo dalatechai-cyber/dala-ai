@@ -61,3 +61,44 @@ export async function haltChannelOutbound(
 
   return error ? { ok: false, detail: `haltChannelOutbound failed: ${error.message}` } : { ok: true };
 }
+
+/**
+ * Stop delivery on a channel whose stored credential could not be USED — which is not the
+ * same claim as Meta having revoked it.
+ *
+ * `haltChannelOutbound` above answers a Graph `190`: Meta said the token is invalid, so
+ * `token_status = 'revoked'` is a fact reported by the authority on the matter. The
+ * credential breaker (D-036) is answering something weaker — a row that will not decrypt,
+ * a token that is missing, a secret that opened into something unusable. The token itself
+ * may be perfectly valid at Meta; we simply cannot get to it.
+ *
+ * So this writes `token_status = 'error'`, which `0001`'s CHECK has always permitted and
+ * nothing had ever written. Recording `revoked` here would send an operator to Meta's
+ * Business Settings to re-authorise a Page whose authorisation was never the problem, and
+ * it would make the platform's own record of Meta's opinion contain something Meta never
+ * said — the D-020 failure, one table over.
+ *
+ * `delivery_mode = 'off'` is not optional and not cosmetic: `live_requires_active_token`
+ * rejects the whole statement on a live channel otherwise. It is also the half that saves
+ * the money, because `canDeliver` (D-034) refuses to GENERATE for a channel that is not
+ * live or mirroring.
+ *
+ * Idempotent, and deliberately unfiltered on the current state: a second failure arriving
+ * from a request already in flight must not fail because the first one already halted it.
+ */
+export async function haltChannelCredential(
+  db: SupabaseClient,
+  input: { tenantId: string; channelId: string },
+): Promise<HaltOutcome> {
+  const { error } = await db
+    .from('tenant_channels')
+    .update({
+      token_status: 'error',
+      delivery_mode: 'off',
+      status: 'authorization_error',
+    })
+    .eq('id', input.channelId)
+    .eq('tenant_id', input.tenantId);
+
+  return error ? { ok: false, detail: `haltChannelCredential failed: ${error.message}` } : { ok: true };
+}

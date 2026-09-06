@@ -12,6 +12,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { MESSENGER_SEND_UNIT_COST } from '../../config/platform.ts';
 import { haltChannelOutbound } from '../channel/halt.ts';
+import { runCredentialBreaker } from '../channel/breaker.ts';
 import { sendMessage } from '../meta/send.ts';
 import { raiseAlert } from '../alerts/alert.ts';
 import { loadTenantSecret, recordSecretError, recordSecretOk, revokeSecret, type SecretRef } from '../secrets/tenantSecret.ts';
@@ -69,5 +70,24 @@ export function buildDeliverDeps(input: DeliverDepsInput): DeliverDeps {
     },
 
     alert: (a) => raiseAlert(db, { tenantId, severity: a.severity, kind: a.kind, dedupKey: a.dedupKey, body: a.body }),
+
+    /**
+     * Best-effort by construction. The customer's message has already failed to send and
+     * the caller already knows why; a breaker that cannot read `outbound_messages` must
+     * not turn that into a different outcome. It logs and returns.
+     */
+    onCredentialFailure: async (code) => {
+      const decision = await runCredentialBreaker(
+        db,
+        {
+          alert: (a) => raiseAlert(db, { tenantId, severity: a.severity, kind: a.kind, dedupKey: a.dedupKey, body: a.body }),
+          log: (level, event, fields) => console[level](`[breaker] ${event}`, fields ?? {}),
+        },
+        { tenantId, channelId, code, now },
+      );
+      if (decision.action === 'unreadable') {
+        console.error('[breaker] unreadable', { channelId, detail: decision.detail });
+      }
+    },
   };
 }

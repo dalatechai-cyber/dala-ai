@@ -55,6 +55,7 @@ pushed 2026-09-06, read back off `supabase_migrations.schema_migrations` rather 
 | | `meta/send` | `POST /{page-id}/messages`. `me` refused. Three outcomes, not two |
 | | `outbound/claim`, `deliver`, `deliverDeps` | Draft, lease, deliver, and what each outcome costs |
 | | `channel/delivery`, `channel/halt` | Only `live` delivers, and only `live` and `shadow` **generate** — a halted channel is `off`, so after a `190` it stops paying for replies it cannot send (D-034). A `190` halts the channel and the token together |
+| | `channel/breaker` | The credential circuit breaker (D-036): three consecutive channel-local failures stop a channel drafting, at most one halt an hour platform-wide, and the **suppressed** halt is a critical alert carrying how many channels are failing — because a mass revocation and a config slip look identical from here, and only one of them should be absorbed quietly |
 | **The worker** | `worker/reception`, `worker/freshness` | Every branch of the job, as a value-returning function the route merely binds |
 | | `reception/handle` | The reply flow. Four refusals cost nothing and come before the call: a stale event, an unparseable matcher, an unreviewed canned line, and **a tenant whose compiled prefix carries none of its own data** — that one takes the handoff line, because the gate blocks describe a business with a knowledge base and the model would have only their salon examples to go on (D-033) |
 | **Health** | `health/silence`, `health/channel`, `health/watch`, `worker/health` | The silence watchdog: silence measured in OPEN minutes, two clocks so the standby trap cannot read as green (D-025). A tenant whose hours are not entered yet is `not_provisioned` — recorded, never alerted (D-032) |
@@ -386,7 +387,7 @@ have hit a login wall.
 | # | Supply | Without it |
 |---|---|---|
 | ~~5d~~ | ~~`supabase db push` for `0015`~~ | **Pushed and verified 2026-09-06.** Both wrappers exist in `public`, `reserve_spend` returns boolean, `settle_spend` returns void, ACLs are `postgres` and `service_role` only |
-| **5e** | **`supabase db push` for `0016` and `0017`** | **Both are already depended on by the merged code.** Without `0016` every reply refuses again — `spend/reserve.ts` now calls `reserve_spend_all`, which the project does not have (D-031) — and without `0017` the watchdog's `channel_health` upsert names a column that does not exist, so health stops being recorded (logged, not alerted). Both additive: three functions plus wrappers, one nullable column plus one CHECK. No data touched |
+| ~~5e~~ | ~~`supabase db push` for `0016`–`0018`~~ | **All applied.** The ledger reads eighteen rows, `0001`–`0018` (read back 2026-09-06). Nothing in `supabase/migrations/` is now unpushed |
 | ~~8b~~ | ~~One QStash schedule → `/api/workers/health`~~ | **Created and FIRING 2026-09-06, hourly.** Both alerts stamped 03:00:07/03:00:12 UTC and delivered; event `id 1` retired as `expired_unqueued`; `channel_health` upserted every run since (17:00:00 UTC at last read). One alert real, one a false alarm now fixed as a class (D-032) |
 
 ### Then tenant #0's rows — this is the whole remaining path to a reply
