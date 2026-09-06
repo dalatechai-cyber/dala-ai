@@ -27,6 +27,24 @@
  * customer was still waiting. Silence and strandedness are different faults, and a
  * watchdog that only watches arrivals reports green through the whole of this one.
  *
+ * ## Two CLASSES of candidate, and they fail differently (D-040)
+ *
+ * **Claimed and never published** — `received`, `failed`. Nothing else in the system was
+ * ever going to act on these; the story above is one of them.
+ *
+ * **Published and never delivered** — `pending_enqueue`. QStash accepted the message and
+ * the worker never ran it. Until D-040 this class was swept by nothing and alerted by
+ * nothing: `pending_enqueue` is written *after* a successful publish, so it is correctly
+ * absent from `neverReachedQueue`, and the sweep read its candidate list from that same
+ * constant. §3.6.3's original text DID name `pending_enqueue`; the state's meaning moved
+ * during implementation and the sweep followed it, which left the gap.
+ *
+ * The two get different graces, and that is the whole safety argument. A `received` row is
+ * nobody's job after five minutes. A `pending_enqueue` row is QStash's job until QStash
+ * gives up, and re-publishing before then races a retry that is still coming. Every
+ * completed worker run leaves a terminal state, so a row still reading `pending_enqueue`
+ * past that horizon has not been processed and never will be.
+ *
  * ## Two arms, split at the tenant's own reply-age limit
  *
  * **Younger than the limit → re-publish.** The job body is five ids the candidate row
@@ -57,7 +75,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { raiseAlert } from '../alerts/alert.ts';
-import { markEventState, UNQUEUED_STATES } from '../webhook/events.ts';
+import { markEventState, QUEUED_STATES, UNQUEUED_STATES } from '../webhook/events.ts';
 import type { EnqueueResult } from '../queue/qstash.ts';
 import { DEFAULT_REPLY_AGE_LIMIT_MINUTES, replyAgeLimitMinutes } from '../worker/freshness.ts';
 
@@ -80,6 +98,29 @@ export const SWEEP_LIMIT = 100;
  * clear of both while still being far shorter than any tenant's reply-age limit.
  */
 export const RETRY_GRACE_MINUTES = 5;
+
+/**
+ * How long a PUBLISHED event is left to QStash before the sweep will touch it.
+ *
+ * `queue/qstash.ts` publishes with `retries: 3`, and Upstash backs off exponentially
+ * between them; the horizon is tens of minutes, not hours. Forty-five is past it with
+ * margin, and the two errors are not symmetrical: too long costs only alert latency on a
+ * message that is already too old to answer, while too short means re-publishing on top of
+ * a retry that was still coming, doubling the work on every transient QStash delay.
+ *
+ * **The exact backoff schedule is [UNVERIFIED] here** — Upstash's docs are not reachable
+ * from this environment — so this is sized from the documented shape, not from a measured
+ * horizon. If it is ever measured and is longer, this number is the one to move.
+ *
+ * Note what this implies with the default `max_reply_age_minutes` of 30: a
+ * `pending_enqueue` row old enough to sweep is ALREADY past the limit, so it takes the
+ * expiry arm and the rescue arm is unreachable for a default tenant. That is correct
+ * rather than unfortunate — past the limit `worker/freshness.ts` refuses anyway, so a
+ * re-publish would buy a model call that produces `reply_too_late`. The alert is the
+ * product here: "QStash took this and never delivered it" is a fault worth knowing about
+ * whether or not the customer can still be answered.
+ */
+export const QUEUED_GRACE_MINUTES = 45;
 
 export type SweepAction =
   /** Re-published to QStash, and the row now reads `pending_enqueue`. */
@@ -122,14 +163,16 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : v === null || v
 
 export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput): Promise<SweepOutcome> {
   const graceIso = new Date(input.now.getTime() - RETRY_GRACE_MINUTES * 60_000).toISOString();
+  const queuedGraceMs = input.now.getTime() - QUEUED_GRACE_MINUTES * 60_000;
 
   const { data, error } = await db
     .from('webhook_events')
-    // The state list comes from `webhook/events.ts` rather than being spelled again here:
+    // Both state lists come from `webhook/events.ts` rather than being spelled again here:
     // this query and `neverReachedQueue` are two halves of one definition, and a third
-    // state added to one and not the other is a class of event nothing ever sweeps.
+    // state added to one and not the other is a class of event nothing ever sweeps. That
+    // is not hypothetical — it is exactly how `pending_enqueue` went unswept (D-040).
     .select('id, provider, dedup_key, tenant_id, channel_id, state, received_at')
-    .in('state', [...UNQUEUED_STATES])
+    .in('state', [...UNQUEUED_STATES, ...QUEUED_STATES])
     .is('replied_at', null)
     // An UNROUTED event is claimed for diagnosis and deliberately never queued — a Page we
     // do not serve. Without this every one of them would look stranded forever, and the
@@ -140,7 +183,17 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
     .limit(input.limit ?? SWEEP_LIMIT);
   if (error) return { ok: false, detail: `webhook_events unreadable: ${error.message}` };
 
-  const candidates = rows(data);
+  // The longer grace for the published class, applied here rather than in the filter.
+  // PostgREST can express a per-state cutoff with `.or()`, and this is more legible: the
+  // query already returns oldest-first, so what this drops is the NEWEST `pending_enqueue`
+  // rows — precisely the ones QStash may still be retrying. They come back next run.
+  const candidates = rows(data).filter((r) => {
+    if (!(QUEUED_STATES as readonly string[]).includes(str(r['state']))) return true;
+    const at = new Date(str(r['received_at'])).getTime();
+    // An unreadable timestamp reads as infinitely old in the loop below, and must not be
+    // excluded here — that would restore the silence this sweep exists to break.
+    return Number.isNaN(at) || at < queuedGraceMs;
+  });
   if (candidates.length === 0) return { ok: true, candidates: 0, swept: [] };
 
   // One read for every tenant named by a candidate. A tenant we cannot read falls back to
@@ -175,6 +228,13 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
     const state = str(raw['state']);
     const limitMinutes = limits.get(tenantId) ?? DEFAULT_REPLY_AGE_LIMIT_MINUTES;
 
+    // The two classes fail at different places, and an alert that names the wrong one
+    // sends the reader to the wrong system. "Never queued" points at this route; "never
+    // delivered" points at QStash and the worker.
+    const fault = (QUEUED_STATES as readonly string[]).includes(state)
+      ? 'was published to the queue and never delivered to the worker'
+      : 'was claimed and never queued';
+
     const record = (action: SweepAction, detail: string | null): void => {
       swept.push({
         eventId, tenantId, channelId, provider, dedupKey, state,
@@ -202,7 +262,7 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
         severity: 'warn',
         kind: 'webhook.requeued',
         dedupKey: `requeued_event:${eventId}`,
-        body: `Inbound event ${eventId} (${provider} ${dedupKey}) was claimed and never queued; `
+        body: `Inbound event ${eventId} (${provider} ${dedupKey}) ${fault}; `
           + `re-published ${again.ok ? 'successfully' : `and REFUSED: ${again.detail}`}. `
           + `State was ${state}, ${Math.floor(ageMinutes)} min old.`,
       });
@@ -210,14 +270,14 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
     }
 
     // ── Past the limit: expire ──────────────────────────────────────────────────────
-    // The body carries ids, never message text: `dedup_key` is page id, entry index,
-    // payload size and app slug, and nothing a customer wrote.
+    // The body carries ids, never message text: since D-039 `dedup_key` is page id, entry
+    // index, a digest of Meta's own ids and the app slug, and nothing a customer wrote.
     const alert = await raiseAlert(db, {
       tenantId,
       severity: 'critical',
       kind: 'webhook.stranded_event',
       dedupKey: `stranded_event:${eventId}`,
-      body: `Inbound event ${eventId} (${provider} ${dedupKey}) was claimed and never queued. `
+      body: `Inbound event ${eventId} (${provider} ${dedupKey}) ${fault}. `
         + `State ${state}, ${Number.isFinite(ageMinutes) ? `${Math.floor(ageMinutes)} min old` : 'age unreadable'}, `
         + `past this tenant's ${limitMinutes}-minute reply limit. `
         + `The customer was not answered; the delivery is in webhook_events.raw_payload.`,

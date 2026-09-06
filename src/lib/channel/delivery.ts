@@ -12,24 +12,33 @@
  * webhooks, persists, generates, and **does not send**, because `Matrix-Chatbot` is still
  * the thing answering that Page.
  *
- * **How the events reach both systems is an open question, and this file used to assert an
- * answer it could not support.** It said "Meta delivers the same event to every subscribed
- * app (§3.10.5)". §3.10.5 is *Back off the tenant, not the worker* — rate-limit backoff. It
- * says nothing about multi-app delivery, and the claim it was cited for is **[UNVERIFIED]**.
- * It had propagated into `V1.md`, `STATUS.md` and two test comments as settled fact.
+ * **How the events reach both systems is an open question, and this file has now been
+ * wrong about it twice.** It first asserted "Meta delivers the same event to every
+ * subscribed app (§3.10.5)" — §3.10.5 is *Back off the tenant, not the worker*, about
+ * rate-limit backoff, and establishes nothing of the kind. The correction then said there
+ * was only ONE Meta app, so there could be no second subscriber. **That was also wrong**,
+ * and for an instructive reason: `tenant_channels.app_slug` for tenant #0 reads `dalatech`
+ * and names the wrong Meta app (D-041), so the database said one app while the console
+ * said two.
  *
- * Two things bear on it. The founder confirmed on 2026-09-06 that `Matrix-Chatbot` runs on
- * **the same `dalatech` app**, and one app has one callback URL — so on this deployment
- * there is no second subscriber to deliver to, whatever Meta does with two apps. And §3.7
- * records that a non-primary receiver gets `entry.standby`, which `worker/reception.ts`
- * refuses terminally and alerts on, so even two apps would not produce two `messaging`
- * deliveries. The likely shape of a mirror is therefore that the incumbent FORWARDS each
- * delivery — which is why `webhook_events.source` is now written (D-039).
+ * The facts, read from the console on 2026-09-06:
  *
- * What would settle it: `GET /{page-id}/subscribed_apps` with a Page token, the App
- * Dashboard's Webhooks page, and — for the standby half — subscribing a second app and
- * reading which array one real message lands in. §3.15 already lists that as needing
- * verification.
+ * | app | App ID | holds |
+ * |---|---|---|
+ * | `dalatech` | 1380702870025418 | Matrix's Page 1520409424715591; the ancestor's callback |
+ * | `DALA_AI`  | 1562862634970492 | tenant #0's Page 863503883522801; this app's callback |
+ *
+ * So a **second subscription is available** — Matrix's Page can be subscribed to `DALA_AI`
+ * as well, which is what D-023's open question was asking. What is still **[UNVERIFIED]**
+ * is whether both apps then receive `entry.messaging`. §3.7 says a non-primary receiver
+ * gets `entry.standby` instead, and `worker/reception.ts` refuses those terminally and
+ * alerts — so if the Handover Protocol works the way §3.7 describes, a second subscription
+ * yields a mirror that generates nothing and pages the founder daily.
+ *
+ * That is now directly testable, and §3.15 already lists it as needing exactly this:
+ * subscribe the second app, send one real message, and read which array it lands in.
+ * `webhook_events.source` (D-039) distinguishes a forwarded delivery from a direct one if
+ * the answer turns out to be that forwarding is the only route.
  *
  * None of it changes what `shadow` is FOR.
  *

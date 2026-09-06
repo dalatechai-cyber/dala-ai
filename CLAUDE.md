@@ -22,11 +22,21 @@ Build V1 Track 1 onward per [`docs/V1.md`](docs/V1.md).
 wrong** (corrected 2026-09-04 by the founder). The app is **`dalatech`**, it holds
 **`pages_messaging` and `public_profile` at Advanced Access**, and the founder has
 generated a working Page access token for Matrix and read the inbox with it.
-**`Matrix-Chatbot` runs on that same app** (confirmed 2026-09-06), which settles D-023's
-open question and unsettles the mirror: one app has one callback URL, so the
-"Meta delivers to every subscribed app" fan-out this repository asserted is **[UNVERIFIED]
-and was cited to §3.10.5, a section about rate-limit backoff**. See `channel/delivery.ts`
-for the correction and what would actually settle it.
+**There are TWO Meta apps** (console, 2026-09-06): `dalatech` (`1380702870025418`) holds
+Matrix's Page `1520409424715591` and the ancestor's callback; `DALA_AI`
+(`1562862634970492`) holds tenant #0's Page `863503883522801` and this platform's. So
+D-023's open question resolves to **a second subscription is available**. Whether both apps
+then receive `entry.messaging` rather than one getting `entry.standby` is **[UNVERIFIED]**,
+and the "Meta delivers to every subscribed app" fan-out was cited to §3.10.5, a section
+about rate-limit backoff. `channel/delivery.ts` carries the correction.
+
+**A session got this wrong on 2026-09-06 and wrote "one app" here**, having read STATUS.md's
+mirror paragraph without reading its own "the second app changed the answers here" section
+sixty lines above. What made it plausible was D-041: `tenant_channels.app_slug` for tenant
+#0 says `dalatech` and names the wrong Meta app, so the database agreed with the mistake.
+**A slug is this platform's name for a callback path, not Meta's name for an app** — read
+D-041 before touching `META_APP_SECRETS`, `app_slug`, or §3.3's cross-check, which cannot
+currently fail.
 
 That correction has teeth, so read how the error happened before trusting anything similar
 here. `developers.facebook.com` is blocked by this environment's egress proxy, so no

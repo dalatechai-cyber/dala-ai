@@ -149,6 +149,26 @@ export function neverReachedQueue(state: string): boolean {
 }
 
 /**
+ * Claimed, published to QStash — and still not finished.
+ *
+ * Separate from `UNQUEUED_STATES` on purpose, and the separation is the whole safety
+ * argument. `neverReachedQueue` gates whether a META redelivery re-publishes, and a
+ * redelivery arriving while a QStash job is still in flight is the ordinary case: adding
+ * `pending_enqueue` there would re-publish on every Meta retry of a healthy event.
+ *
+ * What this list is for is the OTHER reader — the stranded sweep, which waits out QStash's
+ * own retry horizon first. Until it existed, a row QStash accepted and never delivered was
+ * swept by nothing and alerted by nothing: every completed worker run leaves a terminal
+ * state, so a row still reading `pending_enqueue` an hour later has not been processed and
+ * nothing was ever going to notice (D-040).
+ *
+ * `persist_deferred` and `routed_provisionally` belong here the day anything writes them.
+ * Neither is written today, which is why neither is listed — a state in this array that no
+ * code produces is a sweep arm no test can reach.
+ */
+export const QUEUED_STATES = ['pending_enqueue'] as const;
+
+/**
  * Advance an event's state.
  *
  * Never throws — a bookkeeping failure must not turn a delivered reply into a 500 — but it
