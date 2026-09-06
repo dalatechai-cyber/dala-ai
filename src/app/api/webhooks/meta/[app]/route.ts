@@ -12,8 +12,7 @@ import { NextResponse } from 'next/server';
 import { readRawBody } from '@/lib/meta/rawBody';
 import { verifyMetaSignature, verifyHandshakeToken } from '@/lib/meta/signature';
 import { supabaseWebhook } from '@/lib/supabase/clients';
-import { resolveTenantForEntry } from '@/lib/tenant/resolve';
-import { claimWebhookEvent, markEventState, neverReachedQueue } from '@/lib/webhook/events';
+import { handleMetaEntry, type MetaEntry } from '@/lib/webhook/entry';
 import { enqueueReception } from '@/lib/queue/qstash';
 
 // node:crypto.timingSafeEqual and the Upstash SDKs are unavailable on the edge runtime.
@@ -33,8 +32,6 @@ const OBJECT_PROVIDERS: Record<string, string> = {
   page: 'facebook_page',
   instagram: 'instagram',
 };
-
-type MetaEntry = { id?: unknown; messaging?: unknown[] };
 
 export async function GET(
   request: Request,
@@ -97,68 +94,55 @@ export async function POST(
   const db = supabaseWebhook();
 
   // --- 4. PER ENTRY. One POST can carry two tenants. -------------------------
+  //
+  // The decision is `webhook/entry.ts`; this maps its outcomes to a status code and a log
+  // line. **Nothing here may branch on anything else** — a branch in a route is a branch
+  // no test can reach, and the one that used to live here answered 200 for a message that
+  // had never been queued (D-028).
+  if (entries.length === 0) {
+    // Signed, parsed, and carrying nothing to route. Silent until 2026-09-06, when a real
+    // delivery produced no row and no log and there was no way to tell this apart from a
+    // delivery that never arrived.
+    console.warn('[webhook] no_entries', { provider, app: signature.matchedAppSlug });
+  }
+
   for (const [index, entry] of entries.entries()) {
-    const externalId = typeof entry.id === 'string' ? entry.id : null;
-    if (externalId === null) continue;
+    const result = await handleMetaEntry(
+      { db, enqueue: enqueueReception, log: (level, event, fields) => console[level](`[webhook] ${event}`, fields) },
+      {
+        provider, entry, index,
+        bodyBytes: body.bytes.length,
+        matchedAppSlug: signature.matchedAppSlug,
+      },
+    );
 
-    const resolution = await resolveTenantForEntry(db, provider, externalId);
-
-    // TRANSIENT: we do not know whether we serve this Page. 500 so Meta retries.
-    // A 200 here would drop a real customer's message forever, silently.
-    if (resolution.outcome === 'registry_unavailable') {
-      console.error('[webhook] registry_unavailable', { provider, detail: resolution.detail });
-      return NextResponse.json({ error: 'webhook.registry_unavailable' }, { status: 500 });
-    }
-
-    const dedupKey = `${externalId}:${index}:${body.bytes.length}:${signature.matchedAppSlug}`;
-
-    // PERMANENT: a Page we do not serve. Persist tenant-less so it is diagnosable, then 200.
-    if (resolution.outcome === 'unknown_channel') {
-      console.warn('[webhook] unknown_channel', { provider, externalId });
-      await claimWebhookEvent(db, {
-        provider, dedupKey, routing: 'unrouted', tenantId: null, channelId: null,
-        entryId: externalId, rawPayload: entry, leaseSeconds: 60,
-      });
-      continue;
-    }
-
-    const { tenant } = resolution;
-
-    // The app-vs-identity cross-check. During cutover a Page is legitimately subscribed to
-    // two apps; without this, a leaked second app secret authenticates events for a Page we
-    // believe is elsewhere and nothing notices. It costs one string comparison.
-    if (tenant.appSlug !== null && tenant.appSlug !== signature.matchedAppSlug) {
-      console.error('[webhook] app_mismatch', {
-        expected: tenant.appSlug, matched: signature.matchedAppSlug, tenantId: tenant.tenantId,
-      });
-      continue;
-    }
-
-    const claim = await claimWebhookEvent(db, {
-      provider, dedupKey, routing: 'routed', tenantId: tenant.tenantId,
-      channelId: tenant.channelId, entryId: externalId, rawPayload: entry, leaseSeconds: 60,
-    });
-
-    if (claim.outcome === 'unavailable') {
-      console.error('[webhook] ledger_unavailable', { detail: claim.detail });
-      return NextResponse.json({ error: 'webhook.ledger_unavailable' }, { status: 500 });
-    }
-    // A redelivery is only safe to skip if the FIRST attempt actually reached QStash.
-    // It is not enough that a row exists: on 2026-09-06 the first delivery claimed the
-    // row, the enqueue was refused, and both of Meta's retries landed here, skipped the
-    // enqueue and answered 200 — which told Meta the message was delivered and ended the
-    // only chance to queue it. Re-enqueueing is safe because `deduplicationIdFor` gives
-    // QStash a stable id for this event, so a racing double-enqueue collapses to one job.
-    if (claim.outcome === 'duplicate' && !neverReachedQueue(claim.state)) continue;
-
-    const enqueued = await enqueueReception({
-      provider, dedupKey, eventId: claim.eventId,
-      tenantId: tenant.tenantId, channelId: tenant.channelId,
-    });
-    await markEventState(db, claim.eventId, enqueued.ok ? 'pending_enqueue' : 'failed');
-    if (!enqueued.ok) {
-      console.error('[webhook] enqueue_failed', { detail: enqueued.detail, eventId: claim.eventId });
-      return NextResponse.json({ error: 'webhook.enqueue_failed' }, { status: 500 });
+    switch (result.outcome) {
+      case 'registry_unavailable':
+        // TRANSIENT: we do not know whether we serve this Page. 500 so Meta retries.
+        // A 200 here would drop a real customer's message forever, silently.
+        console.error('[webhook] registry_unavailable', { provider, detail: result.detail });
+        return NextResponse.json({ error: 'webhook.registry_unavailable' }, { status: 500 });
+      case 'ledger_unavailable':
+        console.error('[webhook] ledger_unavailable', { detail: result.detail });
+        return NextResponse.json({ error: 'webhook.ledger_unavailable' }, { status: 500 });
+      case 'enqueue_failed':
+        console.error('[webhook] enqueue_failed', { detail: result.detail, eventId: result.eventId });
+        return NextResponse.json({ error: 'webhook.enqueue_failed' }, { status: 500 });
+      case 'no_entry_id':
+        console.warn('[webhook] no_entry_id', { provider, idType: result.idType, index });
+        break;
+      case 'unrouted':
+        console.warn('[webhook] unknown_channel', { provider, externalId: result.externalId });
+        break;
+      case 'app_mismatch':
+        console.error('[webhook] app_mismatch', { expected: result.expected, matched: result.matched });
+        break;
+      case 'already_queued':
+        console.info('[webhook] already_queued', { eventId: result.eventId, state: result.state });
+        break;
+      case 'queued':
+        if (result.redelivery) console.warn('[webhook] requeued', { eventId: result.eventId });
+        break;
     }
   }
 

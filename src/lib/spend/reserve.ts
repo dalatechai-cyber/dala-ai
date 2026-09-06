@@ -109,6 +109,34 @@ async function ensureCounter(
   return error ? { ok: false, detail: `spend_counters upsert failed: ${error.message}` } : { ok: true };
 }
 
+/** One counter the ledger must move: a row in `spend_counters`, addressed by its key. */
+export type SpendTarget = {
+  scope: 'tenant' | 'platform';
+  scope_key: string;
+  period_kind: 'day' | 'month';
+  period_key: string;
+};
+
+/**
+ * Every counter one reservation touches, in ONE definition.
+ *
+ * `reserve`, `release` and `settle` must address the same set or the ledger drifts —
+ * reserving against two counters and refunding one is the leak `0016` exists to close, and
+ * two lists spelled separately is how that comes back. Adding the monthly ceiling is
+ * therefore a change HERE and nowhere else: append the month entries and every operation
+ * covers them, because the all-or-nothing property is per call, not per period.
+ */
+export function dayTargets(tenantId: string, now: Date): SpendTarget[] {
+  const period_key = dayKey(now);
+  return [
+    { scope: 'tenant', scope_key: tenantId, period_kind: 'day', period_key },
+    { scope: 'platform', scope_key: 'platform', period_kind: 'day', period_key },
+  ];
+}
+
+/** PostgreSQL's `check_violation`. `0016` raises it, and ONLY it, for a ceiling. */
+const CEILING_REACHED = '23514';
+
 export async function reserve(
   db: SupabaseClient,
   input: {
@@ -157,23 +185,26 @@ export async function reserve(
   if (held === null) return { outcome: 'unavailable', detail: 'reservation insert returned no row' };
   const reservationId = String((held as Record<string, unknown>)['id']);
 
-  // BOTH ceilings, tenant then platform. app.reserve_spend is a single conditional
-  // UPDATE, so the check and the increment cannot interleave — the CAS is in its WHERE
-  // clause, not in application code.
-  for (const [scope, scopeKey] of [['tenant', input.tenantId], ['platform', 'platform']] as const) {
-    const { data: granted, error } = await db.rpc('reserve_spend', {
-      p_scope: scope, p_scope_key: scopeKey, p_surface: input.surface,
-      p_period_kind: 'day', p_period_key: dKey,
-      p_amount_nanousd: toDb(input.estimate),
-    });
-    if (error) {
-      await release(db, reservationId);
-      return { outcome: 'unavailable', detail: `reserve_spend failed: ${error.message}` };
-    }
-    if (granted !== true) {
-      await release(db, reservationId);
-      return { outcome: 'refused', reason: 'ceiling_reached' };
-    }
+  // EVERY ceiling, in one statement. `app.reserve_spend_all` moves all of its targets or
+  // raises and rolls back — so there is no partial reservation to compensate for, and no
+  // compensating write that has to succeed at the exact moment something else just failed.
+  //
+  // It used to be a loop, tenant then platform, and it leaked: the tenant counter was
+  // incremented, the platform one refused, and `release()` set a state without touching a
+  // counter. The tenant's day was charged for a reply that never happened, until midnight.
+  const targets = dayTargets(input.tenantId, input.now);
+  const { error } = await db.rpc('reserve_spend_all', {
+    p_targets: targets,
+    p_surface: input.surface,
+    p_amount_nanousd: toDb(input.estimate),
+  });
+  if (error) {
+    // 23514 is the ceiling refusing — the one case that degrades rather than retries.
+    // Every other code means we could not determine, and a 503 costs a redelivery.
+    await release(db, { id: reservationId, tenantId: input.tenantId, surface: input.surface, estimate: input.estimate }, input.now);
+    return error.code === CEILING_REACHED
+      ? { outcome: 'refused', reason: 'ceiling_reached' }
+      : { outcome: 'unavailable', detail: `reserve_spend_all failed: ${error.message}` };
   }
 
   return {
@@ -201,6 +232,20 @@ export async function markCalled(
 }
 
 /** Give back an unused hold. Best-effort; the expiry sweeps whatever this misses. */
-export async function release(db: SupabaseClient, reservationId: string): Promise<void> {
-  await db.from('spend_reservations').update({ state: 'released' }).eq('id', reservationId);
+export async function release(
+  db: SupabaseClient,
+  reservation: Reservation,
+  now: Date,
+): Promise<void> {
+  // Was a state label and nothing else until 2026-09-06: it marked the row `released` and
+  // left `reserved_nanousd` where it was, so every 503 after a successful reserve consumed
+  // the estimate permanently — once per QStash retry. `app.release_spend` gives the budget
+  // back, and CASes on `held` so a reservation already `called` (where the provider may
+  // have been reached, and the money with it) is never refunded by a late release.
+  await db.rpc('release_spend', {
+    p_reservation_id: reservation.id,
+    p_targets: dayTargets(reservation.tenantId, now),
+    p_surface: reservation.surface,
+    p_amount_nanousd: toDb(reservation.estimate),
+  });
 }

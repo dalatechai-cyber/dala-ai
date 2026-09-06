@@ -1127,3 +1127,102 @@ something real: `absent` double-replies to a customer, `answered` drops them.
 dropped `detail`, so a one-line schema mismatch and a database outage produced byte-
 identical evidence — and the difference took an evening of inference over the ledger to
 recover. The detail is logged on the 503 branch, where it exists.
+
+---
+
+## D-030 — the exactly-once property is tested at the entry points, not at the sites that broke
+
+**Settled 2026-09-06, after three lost messages in one night.**
+
+Each of the three was found in production, one at a time, after it had already cost a
+message; each was fixed with a test that could only ever have caught the bug it was written
+for. `src/lib/replay.test.ts` asserts the property all three violated:
+
+> Replay any entry point with the same delivery, and the customer is answered exactly once
+> — never twice, and never zero times.
+
+Both entry points are driven directly: `handleMetaEntry` (extracted from the webhook route
+for exactly this reason — *a branch in a route is a branch no test can reach*, and the
+branch that lost the first message lived there) and `runReceptionJob`. Each is run twice
+with the same delivery, and the harness asserts one `webhook_events` row, one `messages`
+row, one `outbound_messages` row and one send. Two failure shapes get their own case: an
+enqueue that failed must be re-driven rather than skipped (D-028), and a worker that died
+after persisting must answer on the retry (D-029).
+
+**The fake's constraints are read off `0001`, not transcribed.** The first draft of the
+harness keyed `messages` on two columns when the real index is
+`(tenant_id, conversation_id, external_id) where external_id is not null`, and it went
+green on a duplicate the database would have refused. A fake carrying remembered
+constraints is worse than no fake: it passes while asserting the wrong thing. So
+`uniquesFromSchema()` parses the migration, partial indexes included.
+
+**What it does not cover, and must not be read as covering.** The store is in-process. It
+is not PostgREST, so it cannot catch a function name resolved against the wrong schema —
+which is what D-029's third bug was, and which shipped under a suite that stubbed
+`db.rpc` to return `true`. Closing that class needs PostgREST as a CI service container
+with `db-schemas=public`, so that a `.rpc()` the runtime cannot reach fails in CI the same
+way it failed in production. That is proposed, not built.
+
+**A mutation the harness did not catch, and what was added.** Reverting `draftOnce` to
+treat the unique violation as an error instead of reading the winner **survived** every
+sequential replay, because `findReplyFor` closes the window before the index is ever
+reached. The window it cannot close is two workers reading `absent` at the same instant,
+where `outbound_messages_dedup` is the only floor left. That is now its own case. The
+lesson generalises: a harness that only replays sequentially tests the read, never the
+index underneath it.
+
+---
+
+## D-031 — the spend ledger moves every counter or none, and a release is a refund
+
+**Settled 2026-09-06, before it cost anything.** `reserved_nanousd` is still `0` on both
+counters: this is the rare one built ahead of the incident rather than after it.
+
+`reserve()` walked the counters one at a time — tenant, then platform — and two leaks fell
+out of that shape:
+
+1. **A partial reservation.** The tenant counter is incremented, the platform counter
+   refuses, and the tenant's day is charged for a reply that never happened. Nothing gives
+   it back; the ceiling is simply lower until midnight.
+2. **`release()` was a label, not a refund.** It set `spend_reservations.state` and touched
+   no counter, so every 503 after a successful reserve consumed the estimate permanently —
+   **once per QStash retry.** Three attempts at $0.012 is $0.036 of tenant #0's $0.475 day,
+   for one message nobody answered.
+
+**One statement per operation, not a loop that undoes itself.** A compensating undo has to
+run to be correct, and the case it exists for is precisely the case where something has
+just failed. `app.reserve_spend_all` updates every target in one `update … from want`,
+keeping the per-row `reserved + settled + amount <= ceiling` guard that made the single-row
+version safe under concurrency, and **raises if fewer rows moved than were asked for** —
+so PostgreSQL rolls back the partial write and there is no state to compensate for.
+
+**The two error codes are load-bearing.** `23514` means a ceiling refused and the caller
+degrades (429). Anything else means we could not determine, and the caller refuses (503).
+A negative amount therefore raises `22023`, not `23514`: it is a programming error, and
+dressing it as a ceiling would quietly turn a bug into a degradation.
+
+`app.release_spend` CASes the reservation `held → released` and refunds **only if that
+matched** — so a reservation already `called`, where the provider may have been reached and
+the money with it, is never refunded by a late release. `settle_spend_all` gets the same
+all-or-nothing treatment for the same reason: a settlement that moved the tenant row and
+not the platform row leaves the platform's day short by one estimate, permanently.
+
+**`dayTargets()` is one definition.** Reserve, release and settle must address the same set
+of counters or the ledger drifts, and two lists spelled separately is exactly how a refund
+comes to miss a counter the reservation charged. Adding the monthly ceiling is a change
+there and nowhere else — the all-or-nothing property is per call, not per period.
+
+**No month is wired.** The platform's monthly cap and what a tenant sees at a month ceiling
+are the founder's numbers, and `monthly_ceiling_nanousd` remains documentation until they
+are picked.
+
+**Proven at both levels, and made to go red first.** `scripts/verify/spend.sql` (10 checks,
+now in `run-all.sh`) exercises the functions against a real PostgreSQL: restoring the leak
+fails S2, and removing the release CAS fails S6 and S7. Four TypeScript mutations are
+caught by `spend/reserve.test.ts`, which did not exist before — `reserve.ts` and
+`settle.ts` had no test file at all, and were covered only incidentally through the guard.
+
+**Still open: nothing sweeps an expired reservation.** `expires_at` is written and read by
+nothing, and the `'expired'` state has no writer, so a reservation whose process died is
+neither settled nor released and its budget stays consumed until the day rolls over. The
+shape is a query in the health worker beside the stranded sweep — proposed, not built.

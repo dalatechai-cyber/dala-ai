@@ -67,7 +67,7 @@ export function buildDeps(input: DepsInput): ReceptionDeps {
       return r.ok ? { ok: true } : { ok: false, detail: r.detail };
     },
 
-    release: () => release(db, reservation.id),
+    release: () => release(db, reservation, now),
 
     /**
      * §6.10.5's two bills-not-errors. Every branch is best-effort: an observability
