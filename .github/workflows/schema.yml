@@ -91,6 +91,53 @@ jobs:
           export TENANT_KEK_ACTIVE_VERSION=v1
           node scripts/verify/secret-roundtrip.ts dala_ci
 
+      - name: The transport — every name the runtime calls, over real PostgREST
+        # Nothing in this workflow had ever spoken PostgREST, and that is the layer
+        # D-029's third bug lived in: `db.rpc('reserve_spend')` asked for
+        # `public.reserve_spend` while the function lived in `app`, so every reply for
+        # every tenant refused — under a green suite that stubs `db.rpc` and answers `true`.
+        #
+        # ## Started HERE, not as a service container, and the first attempt taught why
+        #
+        # As a service it booted before `dala_ci` existed and before `authenticator` did,
+        # so it had nothing to connect to and gave up. Starting it after the migrations
+        # removes the ordering question entirely rather than depending on how long a
+        # container retries — which is behaviour of somebody else's image, not a contract.
+        #
+        # `--network host` so it reaches the postgres service on the port this job already
+        # publishes, and serves on 3001 where the check expects it.
+        env:
+          PGRST_URL: http://127.0.0.1:3001
+          # A CI literal, not a credential: the only thing that trusts it is a PostgREST
+          # that lives for the length of this job. `postgrest.ts` mints its own token from
+          # it, so no token is written down anywhere.
+          PGRST_JWT_SECRET: dala-ci-postgrest-secret-at-least-32-chars
+        run: |
+          psql -v ON_ERROR_STOP=1 -q -d dala_ci -f scripts/verify/postgrest-roles.sql
+          docker run -d --name pgrst --network host \
+            -e PGRST_DB_URI="postgres://authenticator:dala-ci-authenticator@localhost:5432/dala_ci" \
+            -e PGRST_DB_ANON_ROLE=anon \
+            -e PGRST_DB_SCHEMAS=public \
+            -e PGRST_JWT_SECRET="$PGRST_JWT_SECRET" \
+            -e PGRST_SERVER_PORT=3001 \
+            postgrest/postgrest:v12.2.3
+          code=000
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$PGRST_URL/" || true)
+            if [ "$code" != "000" ]; then break; fi
+            sleep 2
+          done
+          echo "PostgREST answered $code"
+          # An `if`, not `[ … ] && { … }`. The step runs under `bash -e`, where a trailing
+          # `&&` whose left side is FALSE makes the whole step exit non-zero — so the terse
+          # version fails the build precisely when PostgREST came up correctly.
+          if [ "$code" = "000" ]; then
+            echo "PostgREST never came up. Its own log says why:"
+            docker logs pgrst
+            exit 1
+          fi
+          node scripts/verify/postgrest.ts
+
       - name: Build
         run: npx next build
 

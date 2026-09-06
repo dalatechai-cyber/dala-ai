@@ -76,13 +76,13 @@ verified:
   seeded `tenants` row cannot be deleted. They must be run over psql. The critical claims
   were confirmed by direct probe — `anon` refused everywhere, cross-tenant isolation holds,
   TRUNCATE and INSERT refused — but the suites themselves have not been run there.
-- **Most of what needs PostgREST.** The transport itself is no longer unproven: on
-  2026-09-06 a real Meta delivery had the app read `channel_identity` and insert into
-  `webhook_events` against the project, over `@supabase/supabase-js` with the service key.
-  Everything downstream of the queue — the config compile, the outbound claim, the spend
-  ledger — is still exercised only against a stub, and `query-columns.ts` (277 references
-  across 100 sites, checked against the applied schema every CI run) is what stands under
-  those until they run for real.
+- **Behaviour downstream of the queue.** The config compile, the outbound claim and the
+  spend ledger are still exercised against a stub. What is no longer unproven is
+  **reachability**: CI runs a real PostgREST beside the database on `db-schemas=public`,
+  and `scripts/verify/postgrest.ts` asserts every `.rpc()` and `.from()` name in `src/` is
+  exposed on that profile, with one live round trip through the real client (D-037). That
+  closes the class D-029's third bug belonged to. Read D-037 before trusting it further
+  than that: it proves names resolve, not that the code behind them is right.
 
 **The send WORKS. It ran end to end on 2026-09-06 at 19:12:45 UTC** — draft → claim →
 decrypt → `POST /{page-id}/messages` → mark, with a real `provider_message_id`. Every

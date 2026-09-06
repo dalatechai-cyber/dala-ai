@@ -95,6 +95,15 @@ a member of A sees 1 of 2 services and 0 of tenant B's rows; a non-member sees 0
 **`anon` holds zero privileges on zero tables; `authenticated` holds SELECT and nothing
 else, on exactly 31 — matching this document's own count of client-readable tables.**
 
+**Against a real PostgREST (in CI, every run).** A `postgrest/postgrest:v12.2.3` service
+container runs beside the database on `db-schemas=public` — the profile the runtime asks
+for — and `scripts/verify/postgrest.ts` asserts every `.rpc()` and `.from()` name extracted
+from `src/` is exposed there, then makes one live round trip through the real
+`@supabase/supabase-js` client. This is the layer that had never been tested and that
+D-029's third bug lived in. Made to go red both ways: dropping `public.reserve_spend_all`
+reproduces that bug exactly, and revoking a table from `service_role` fails it from the
+other side (D-037).
+
 **Against the source, checked against a real schema (in CI, every run).**
 `query-columns.ts` extracts every literal `.select()` list and every literal
 `.insert()`/`.update()`/`.upsert()` key set from `src/` and asserts each column exists on
