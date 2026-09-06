@@ -43,6 +43,35 @@ jobs:
           --health-cmd "pg_isready -U postgres -d postgres" --health-interval 5s
           --health-timeout 5s --health-retries 10
 
+      # Real PostgREST, because nothing in this workflow had ever spoken it.
+      #
+      # The bug that made this necessary: `db.rpc('reserve_spend')` asked for
+      # `public.reserve_spend` while the function lived in `app`, so every reply for every
+      # tenant refused — and the unit tests stubbed `db.rpc` and answered `true`. A green
+      # suite said nothing, `catalog.sql` reads the catalog rather than the REST profile,
+      # and `query-columns.ts` checks columns against the schema rather than against the
+      # thing that serves them. The transport was the one layer with no test at all.
+      #
+      # NO HEALTH CHECK, deliberately. `dala_ci` does not exist until the migration step
+      # runs, so PostgREST cannot connect at boot; a health check would kill the container
+      # before the database it needs is created. It retries on its own, and the step below
+      # polls until it answers rather than assuming.
+      postgrest:
+        image: postgrest/postgrest:v12.2.3
+        env:
+          PGRST_DB_URI: postgres://authenticator@postgres:5432/dala_ci
+          PGRST_DB_ANON_ROLE: anon
+          # The profile the runtime asks for, because `clients.ts` passes no
+          # `db: { schema }` — which is precisely the omission that caused the bug.
+          PGRST_DB_SCHEMAS: public
+          # A CI literal, not a credential: the only thing that trusts it is a PostgREST
+          # that lives for the length of this job. `scripts/verify/postgrest.ts` mints its
+          # own token from it, so no token is written down anywhere.
+          PGRST_JWT_SECRET: dala-ci-postgrest-secret-at-least-32-chars
+          PGRST_DB_CHANNEL_ENABLED: 'true'
+          PGRST_SERVER_PORT: '3000'
+        ports: ['3001:3000']
+
     env:
       PGHOST: localhost
       PGPORT: '5432'
@@ -90,6 +119,36 @@ jobs:
           export TENANT_KEK_V1="$(node scripts/kek/generate.ts)"
           export TENANT_KEK_ACTIVE_VERSION=v1
           node scripts/verify/secret-roundtrip.ts dala_ci
+
+      - name: The transport — every name the runtime calls, over real PostgREST
+        # AFTER the migrations, because the database PostgREST connects to is created by
+        # them, and after `npm ci`, because this speaks through the real
+        # `@supabase/supabase-js` rather than a stub.
+        #
+        # `postgrest-roles.sql` is local/CI only and is not a migration: Supabase provides
+        # `authenticator` itself, and a migration that invented a login role would be
+        # creating a credential.
+        env:
+          PGRST_URL: http://127.0.0.1:3001
+          PGRST_JWT_SECRET: dala-ci-postgrest-secret-at-least-32-chars
+        run: |
+          psql -v ON_ERROR_STOP=1 -q -d dala_ci -f scripts/verify/postgrest-roles.sql
+          psql -q -d dala_ci -c "notify pgrst, 'reload schema'"
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$PGRST_URL/" || true)
+            [ "$code" != "000" ] && break
+            sleep 2
+          done
+          # Say what it answered rather than assuming it is up: a poll that times out and
+          # then runs the check anyway reports a transport failure as a schema failure.
+          echo "PostgREST answered $code after $((i * 2))s"
+          # An `if`, not `[ … ] && { … }`. The step runs under `bash -e`, where a trailing
+          # `&&` whose left side is FALSE makes the whole step exit non-zero — so the
+          # terse version fails the build precisely when PostgREST came up correctly.
+          if [ "$code" = "000" ]; then echo "PostgREST never came up"; exit 1; fi
+          psql -q -d dala_ci -c "notify pgrst, 'reload schema'"
+          sleep 2
+          node scripts/verify/postgrest.ts
 
       - name: Build
         run: npx next build

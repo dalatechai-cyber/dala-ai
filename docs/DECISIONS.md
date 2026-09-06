@@ -1636,3 +1636,86 @@ breaker never being told. Each fails one or two tests and no others.
 The **first** message after a credential breaks still costs one model call, because the
 streak needs an attempt to count. That is the design, not an oversight: the alternative is
 halting on evidence that cannot distinguish a channel from a deploy.
+
+---
+
+## D-037 — CI speaks PostgREST now, and the first version of the check was green while broken
+
+**Settled 2026-09-06.** The third bug of the lost-message night was a name resolved against
+the wrong schema: `db.rpc('reserve_spend')` asked PostgREST for `public.reserve_spend` while
+the function lived in `app`, so **every reply for every tenant refused from the first
+message that ever reached the worker.** Nothing could have caught it:
+
+| Check | Why it was blind |
+|---|---|
+| the unit suite | stubs `db.rpc` and answers `true` |
+| `catalog.sql` | reads the catalog directly; never asks what a REST profile exposes |
+| `query-columns.ts` | checks columns against the applied schema, not against the thing that serves them |
+| `replay.test.ts` | an in-process store, not PostgREST — D-030 says so itself |
+
+**The missing layer was always the same one: nothing in CI had ever spoken PostgREST.** Now
+a `postgrest/postgrest:v12.2.3` service container runs beside the database, on
+`db-schemas=public` — the profile the runtime asks for, because `clients.ts` passes no
+`db: { schema }`, and that omission *is* the bug.
+
+`scripts/verify/postgrest.ts` extracts every `.rpc('…')` and `.from('…')` literal from
+`src/` (the way `query-columns.ts` extracts columns — a transcribed list would pass while
+the code called something else) and asserts each is exposed. Then it makes one live round
+trip through the real `@supabase/supabase-js` client, so the check cannot pass on a document
+alone.
+
+### The first version was green while broken, and that is the part worth keeping
+
+It called each RPC with `{}` and treated `PGRST202` as "not found". **It reported everything
+healthy including a function I had just dropped.** Two faults, and the second is the one
+that matters:
+
+1. `PGRST202` does not mean "no such function". PostgREST resolves overloads by argument
+   *names*, so `release_spend` — which exists — returns `PGRST202` when called with none.
+   The signal did not mean what the check assumed.
+2. **It passed anyway.** A check whose pass condition is "no specific error came back" is
+   green when it is broken. That is the same defect as a stub answering `true`, which is
+   the thing this file was written to catch.
+
+It was found by dropping a function and watching the check not care — which is the only
+reason it is not in the repository now, wearing a green tick.
+
+**So the check enumerates rather than infers.** `GET /` returns PostgREST's OpenAPI
+description, filtered by `follow-privileges` to what the presented role may actually reach.
+A name is in that document or it is not. There is no error code to misread.
+
+**Made to go red two ways, from both directions**: dropping `public.reserve_spend_all` —
+D-029 reproduced exactly — fails it with both the enumeration and the live client probe;
+`revoke all on tenant_channels from service_role` fails it on the table side. Green again
+after each restore.
+
+### Three smaller things this needed, each of them a real decision
+
+**`authenticator` is not a migration.** Supabase provides it; `0001` deliberately does not.
+A migration that invented a login role would be creating a credential, so it lives in
+`scripts/verify/postgrest-roles.sql`, applied only by this check, after the migrations that
+create the three roles it must be able to become.
+
+**No health check on the container, deliberately.** `dala_ci` does not exist until the
+migration step runs, so PostgREST cannot connect at boot and a health check would kill it
+before the database it needs exists. It retries on its own; the step polls until it answers
+and fails loudly if it never does, rather than running the check against nothing and
+reporting a transport failure as a schema failure.
+
+**Sixteen lines of proxy, because the client is part of what is verified.**
+`@supabase/supabase-js` addresses `${url}/rest/v1/…`, which in production is Supabase's
+gateway in front of PostgREST; a bare PostgREST serves at `/`. The alternative to bridging
+that was to stop using the client the runtime actually uses, which is most of the value.
+
+**And one bug caught in this diff before it shipped**, which is the lesson this repository
+keeps relearning: the poll first read
+`[ "$code" = "000" ] && { echo …; exit 1; }`. Steps run under `bash -e`, where a trailing
+`&&` whose left side is false makes the step exit non-zero — so the terse form fails the
+build **precisely when PostgREST came up correctly**. Proven by running both shapes rather
+than by reading them.
+
+### What it still does not prove
+
+The transport, not the behaviour: `spend.sql` and the unit tests own that. And it is
+PostgREST 12.2.3 against PostgreSQL 16, not Supabase's build against 17.6 — the schema is
+the same, the gateway and the version are not.
