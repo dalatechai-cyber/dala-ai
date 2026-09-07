@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chainWindow, parseObjectKeys, chainsFromSource } from './querysites.ts';
+import { CHECKED_ROOTS, chainWindow, parseObjectKeys, chainsFromSource } from './querysites.ts';
 
 test('DONE-TEST: A SEMICOLON INSIDE A COMMENT DOES NOT END THE CHAIN', () => {
   // The window was `indexOf(';')`. `settle.ts`'s ledger insert carries the comment
@@ -50,4 +50,28 @@ test('every write in src/ that resolves, resolves completely', () => {
   const ledger = chains.find((c) => c.table === 'spend_ledger' && c.writes.length > 0);
   assert.ok(ledger?.writes[0]?.keys?.includes('cost_nanousd'),
     `the ledger insert must resolve past its comment: ${JSON.stringify(ledger?.writes[0]?.keys)}`);
+});
+
+test('DONE-TEST: THE PUBLISH COMMAND IS INSIDE THE CHECKED SET', () => {
+  // scripts/publish/tenant.ts is the only thing outside src/ that speaks PostgREST to the
+  // REAL project. A select there naming a column the database does not have fails at an
+  // operator's shell in the middle of a publish — the same failure the runtime's checks
+  // exist to prevent, in the one other place that reaches production data.
+  assert.ok(CHECKED_ROOTS.includes('scripts/publish'), 'the publish command must be checked');
+  const chains = chainsFromSource(CHECKED_ROOTS);
+  const publish = chains.filter((c) => c.file.includes('scripts/publish/'));
+  assert.ok(publish.length >= 3, `expected the publish command's queries, found ${publish.length}`);
+  assert.ok(publish.some((c) => c.table === 'config_revisions'),
+    'the draft-revision insert must be among them — it is the one write this command makes by hand');
+  for (const w of publish.flatMap((c) => c.writes)) {
+    assert.notEqual(w.keys, null, `an unresolvable payload in the publish command: ${JSON.stringify(w)}`);
+  }
+});
+
+test('and the verify scripts are NOT — they are psql, not PostgREST', () => {
+  // Widening the set to all of scripts/ would drag in every fixture and stub in the
+  // repository and report columns that no transport ever sees. The narrowness is the point.
+  const roots: readonly string[] = CHECKED_ROOTS;
+  assert.equal(roots.includes('scripts'), false);
+  assert.equal(roots.includes('scripts/verify'), false);
 });

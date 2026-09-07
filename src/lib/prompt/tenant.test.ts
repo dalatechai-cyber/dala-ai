@@ -3,16 +3,13 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { clockTime, formatMoney, hasTenantData, renderTenantSections, SECTION_LABELS, type TenantKb } from './tenant.ts';
 import { cannedSectionBody, renderCannedSection } from '../gate/match.ts';
+import { CANNED_ROWS, DAY_ONE_KB, EMPTY_KB } from './tenantKb.fixtures.ts';
 import { renderStablePrefix, type PromptSection } from './render.ts';
 import { extractNumerals, numeralsNotAllowed } from '../mn/extract.ts';
 
 const APPROVED = '2026-09-04T00:00:00Z';
 
-const EMPTY: TenantKb = {
-  currencySymbol: '₮', currencySymbolBefore: false,
-  refusalTopics: [], clarify: [], deposits: [], documents: [], canned: [],
-  staff: [], services: [], faqs: [], contacts: [], bookingUrl: null, hours: [],
-};
+const EMPTY = EMPTY_KB;
 
 /** A Matrix-shaped knowledge base, small enough to read in a failure message. */
 const MATRIX: TenantKb = {
@@ -395,10 +392,7 @@ const HOURS: TenantKb['hours'] = [
 // The canned lines, in the cached prefix (D-058).
 // ---------------------------------------------------------------------------
 
-const CANNED_ROWS = [
-  { kind: 'handoff', body: 'Манай ажилтан тантай холбогдоно.' },
-  { kind: 'refusal_health', body: 'Эмнэлгийн зөвлөгөө өгөх боломжгүй.' },
-];
+
 
 test('DONE-TEST: THE PUBLISH SIDE AND THE REQUEST SIDE RENDER THE SAME BYTES', () => {
   // The section is now written twice — into the prefix at publish, and (for pre-D-058
@@ -455,7 +449,7 @@ test('DONE-TEST: CANNED LINES ALONE DO NOT MAKE A TENANT "PROVISIONED"', () => {
   // would be unconditional and `hasTenantData` would be true for a tenant with no knowledge
   // base at all. Tenant #0 is exactly that tenant, and its next publish would have put it
   // back to answering as a beauty salon.
-  const sections = renderTenantSections({ ...EMPTY, canned: CANNED_ROWS }, APPROVED);
+  const sections = renderTenantSections(DAY_ONE_KB, APPROVED);
   assert.deepEqual(sections.map((s) => s.key), ['canned_responses'], 'the marker must not be emitted');
   const r = renderStablePrefix([...sections]);
   assert.equal(r.ok && hasTenantData(r.rendered.promptStable), false);

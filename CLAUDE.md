@@ -314,6 +314,42 @@ part it managed.** Undetermined is a result. The same read also swallowed keys a
 share one walker (`scripts/verify/querysites.ts`); if you touch it, keep the rule that a
 truncated object returns `null`.
 
+**A guard whose trigger is "this collection is empty" dies the day anything unconditionally
+adds to that collection** (2026-09-07, founder, after D-058's addendum). `hasTenantData` was
+true exactly when `renderTenantSections` returned `[]`; moving the canned lines into the
+prefix gave every tenant a section, and the guard against a bot inventing a business type
+became unreachable — for every tenant, not just the one being changed. Nothing failed. The
+guard still ran, still looked right, and could no longer fire.
+
+Note the shape, because it is what makes it invisible: **the fix and the failure are in
+unrelated subjects.** The change was about prompt caching. The thing it broke was the
+mitigation for the worst thing this platform has done. No test connected them, because no
+test described a tenant with canned lines and nothing else — which is every tenant on day
+one. `src/lib/prompt/tenantKb.fixtures.ts` names that state now (`DAY_ONE_KB`); assert
+against it rather than against a bare KB, which is a state no tenant that can reply is in.
+
+The audit that followed found **one other live instance and one already lived through**.
+Live: `reception/load.ts` refuses a tenant with no `canned_responses` rows as
+`not_provisioned` — a platform-default canned set, exactly the sort of thing "client #3 fills
+in a config" invites, would silently retire it. That guard and `hasTenantData` now key on the
+same table in opposite directions (no rows means not ready; rows alone do not mean ready), so
+do not "harmonise" them. Already lived through: `allowed_numbers` was `[]` for every tenant,
+and "a bot with no approved prices cannot emit a price" was true only because it could emit
+no numeral at all — Stage 4's knowledge base ended that, and the guarantee had to be re-founded
+on the digits-only reduction. **The guard did not break; the reason it was true did, and
+nothing pointed at the reason.** Everything else keyed on emptiness in `src/` is either input
+validation or fails closed.
+
+**A hash agreement that depends on two languages' whitespace definitions matching is a coin
+flip nobody documented** (2026-09-07). The D-058 republish rebuilt the canned section in SQL
+with `btrim()`, which strips only U+0020; `cannedSectionBody` trims with JavaScript's
+`.trim()`, which strips every Unicode whitespace character. A canned body with a trailing tab
+would have hashed one way at publish and the other at request, and **every reply would have
+503'd with `canned_stale`** — a total outage produced by a guard working exactly as designed,
+on a difference nobody would go looking for. Measured clean for the current rows, so it was
+luck rather than construction. The general answer is `scripts/publish/tenant.ts`: publish
+through the same code the request path reads, so there is no second trim to agree with.
+
 **A column added in an unpushed migration is red in production and green in CI, every
 time** (2026-09-07, D-058). The reply path gained `.select('… canned_hash')`; the migration
 adding that column had not been pushed. CI applies every migration in `supabase/migrations/`

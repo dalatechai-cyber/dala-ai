@@ -31,9 +31,9 @@
  * poor joke.
  */
 import { execFileSync } from 'node:child_process';
-import { chainsFromSource, topLevelSplit } from './querysites.ts';
+import { CHECKED_ROOTS, chainsFromSource, topLevelSplit } from './querysites.ts';
 
-const SRC = 'src';
+const SRC = CHECKED_ROOTS.join(' + ');
 const db = process.argv[2] ?? 'dala_verify';
 
 type Site = { file: string; line: number; table: string; columns: string[] };
@@ -60,7 +60,7 @@ function parseSelect(list: string, table: string, file: string, line: number): v
   if (own.length > 0) sites.push({ file, line, table, columns: own });
 }
 
-for (const c of chainsFromSource(SRC)) {
+for (const c of chainsFromSource(CHECKED_ROOTS)) {
   if (c.select !== null) parseSelect(c.select, c.table, c.file, c.line);
   else if (c.selectUnparseable) unchecked.push(`${c.file}:${c.line} .select() argument is not a literal`);
 
@@ -94,7 +94,7 @@ for (const s of sites) {
 }
 
 const checkedColumns = sites.reduce((n, s) => n + s.columns.length, 0);
-console.log(`  checked ${checkedColumns} column references across ${sites.length} query sites in ${SRC}/`);
+console.log(`  checked ${checkedColumns} column references across ${sites.length} query sites in ${SRC}`);
 if (unchecked.length > 0) {
   console.log(`  ${unchecked.length} reference(s) NOT statically resolvable (listed, never skipped silently):`);
   for (const u of unchecked) console.log(`    - ${u}`);

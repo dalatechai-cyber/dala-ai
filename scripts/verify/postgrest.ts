@@ -46,7 +46,7 @@
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
-import { chainsFromSource } from './querysites.ts';
+import { CHECKED_ROOTS, chainsFromSource } from './querysites.ts';
 import http from 'node:http';
 import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';   // guard-ok: scripts/, not src/
@@ -136,7 +136,7 @@ export function selectsFromSource(root = process.cwd()): SelectUse[] {
   // The chain walker is shared with `query-columns.ts` (`querysites.ts`). It used to be a
   // regex here demanding `.select()` IMMEDIATELY after `.from()`, which silently missed
   // every chain with a filter in between — and missed writes entirely.
-  return chainsFromSource(path.join(root, SRC))
+  return chainsFromSource(CHECKED_ROOTS.map((r) => path.join(root, r)))
     .filter((c) => c.select !== null)
     .map((c) => parseSelect(path.relative(root, c.file), c.table, c.select ?? ''));
 }
@@ -156,7 +156,7 @@ export type WriteUse = { file: string; line: number; table: string; verb: string
 export function writesFromSource(root = process.cwd()): { uses: WriteUse[]; unresolved: string[] } {
   const uses: WriteUse[] = [];
   const unresolved: string[] = [];
-  for (const c of chainsFromSource(path.join(root, SRC))) {
+  for (const c of chainsFromSource(CHECKED_ROOTS.map((r) => path.join(root, r)))) {
     const file = path.relative(root, c.file);
     for (const w of c.writes) {
       if (w.keys === null) { unresolved.push(`${file}:${c.line} .${w.verb}() keys are not statically resolvable`); continue; }
@@ -345,7 +345,7 @@ async function main(): Promise<void> {
 
   process.stdout.write(
     `  ${rpcs.length} RPC name(s), ${tables.length} table(s), ${selects.length} select list(s) `
-    + `and ${writes.uses.length} write payload(s) from src/, against `
+    + `and ${writes.uses.length} write payload(s) from ${CHECKED_ROOTS.join(' + ')}, against `
     + `${exposed.rpcs.size} exposed function(s) and ${exposed.tables.size} exposed relation(s)\n`,
   );
   if (problems.length > 0) {

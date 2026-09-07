@@ -3358,3 +3358,76 @@ than `btrim`. The real answer is that a publish should go through `compileAndPub
 uses the same `.trim()` as the request path; this route exists only because that needs a
 service-role key this environment does not have.
 
+
+## D-059 — publishing goes through the code the reply path reads
+
+**2026-09-07, founder-requested**, after the D-058 republish exposed how much of a publish
+was a second implementation: *"I'd rather publish through the code path the request path uses
+than maintain a second implementation in SQL."*
+
+### What was wrong with the old route
+
+`compileAndPublish` needs a service-role key, and no environment that had one could run it —
+so every publish since D-051 was hand-written SQL that rebuilt the compiler's output in
+another language. Each one was checked hard: hashes compared against the TypeScript renderer,
+splices verified by their exact inverse, invariants re-asserted inside the transaction. And it
+still carried a live trap. `btrim()` strips only U+0020; `String.prototype.trim()` strips every
+Unicode whitespace character. A canned body with a trailing tab would have hashed one way at
+publish and the other at request, and every reply would have 503'd with `canned_stale`. It was
+clean by luck, not by construction.
+
+That is this repository's whole catalogue in one line: two orderings (D-026), two calendars
+(D-053), two parsers (D-057), two sources of one canned line (D-058). A second implementation
+of a thing the request path reads is the failure mode, not the mitigation.
+
+### The command
+
+`scripts/publish/tenant.ts`, the same shape as `scripts/kek/seal.ts` — an owner runs it from
+their own shell with the key in the environment.
+
+    NEXT_PUBLIC_SUPABASE_URL=… SUPABASE_SECRET_PUBLISH=… \
+      node scripts/publish/tenant.ts --slug matrix-eco-salon            # dry run
+    … node scripts/publish/tenant.ts --slug matrix-eco-salon --publish  # apply
+
+Four properties it has on purpose:
+
+1. **Dry run by default.** The compiled prefix is the prompt-cache key and the text a customer
+   is answered from, so what would change has to be readable before anything moves. `--publish`
+   is the only way to write.
+2. **`allowed_numbers` is printed as a DIFF, not a list.** A number appearing there is a number
+   the bot may from now on say out loud, and a list of twelve tokens does not make that visible.
+3. **D-033 is stated, not left to be noticed.** The output says when the data marker is absent
+   (this tenant takes the handoff line and never reaches the model) and, louder, when it appears
+   for the first time (this tenant stops taking it). That transition is a change of product and
+   should never be something a reader has to infer from a hash.
+4. **It reads back through `loadLiveSnapshot`.** The evidence that a publish happened is the
+   reply path being able to see it — not an insert returning without error. D-029's lesson,
+   applied to publishing.
+
+The draft revision is created inside the run, after every read, so a compile that refuses
+cannot leave one behind.
+
+### The key is its own name
+
+`SUPABASE_SECRET_PUBLISH`, not a reuse of the worker's, for the reason at the top of
+`supabase/clients.ts`: these keys carry BYPASSRLS, so a leak is every tenant's data at once,
+and the only thing bounding the blast radius is revoking exactly the surface that leaked. "The
+laptop I ran a publish from" is a different surface from "the queue worker". It is documented
+in `.env.example` and deliberately absent from `preflight.ts`'s required set — no deployed code
+path reads it, and a deploy must not fail for the want of a key nothing serving a request needs.
+
+### And its queries are checked
+
+`scripts/publish/` joins `src/` in `CHECKED_ROOTS`, so `query-columns.ts` and `postgrest.ts`
+walk it too: 354 column references across 120 sites now, up from 343 across 115. It is the only
+thing outside `src/` that speaks PostgREST to the real project, and a select naming a column the
+database does not have would otherwise fail at an operator's shell in the middle of a publish.
+The set stays narrow — `scripts/verify/` talks to a scratch cluster over psql and is not
+PostgREST at all — and a test pins both halves.
+
+### What this does not do
+
+It does not remove the founder from the loop, and is not meant to. Publishing stays an owner
+action taken deliberately with a key that lives in one person's shell. What changes is that the
+action now runs the same renderer, the same ordering, the same trim and the same hash as the
+code that answers a customer.
