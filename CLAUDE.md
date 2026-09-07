@@ -372,6 +372,24 @@ each table independently — the last failure of this kind next door was partial
   `prompt/drafts/sh3_booking.mn.txt` is the unsigned revision; `metrics/turnsToIntent.ts`
   is the measurement, and **`not_delivered` is not a low score** — read D-042 before
   aggregating it.
+- **The price guarantee now rests on the digits-only reduction, not on an empty list**
+  (2026-09-07). `allowed_numbers` was `[]` for every tenant, and "a bot with no approved
+  prices cannot emit a price" was true for the trivial reason that it could emit no numeral
+  at all. Matrix's Stage 4 knowledge base ended that: it compiles to ten tokens —
+  `1, 20, 3, 3-5, 30, 4-5, 50, 70, 7741-7777, 9` — the percentages, session counts and the
+  phone number out of the documents. Prices are still refused, and the reason is now a
+  specific rule rather than an empty set: **comparison is on the digits-only reduction and
+  is deliberately not a substring test.** `20` does not license `20,000`, `30` does not
+  license `30,000`, and `7741-7777` does not license a bare `7741` — half a phone number is
+  as wrong as an invented one. Every price shape probed is refused. But the guarantee is
+  one rule deep now, so **read `extractNumerals` and `allowedNumbersFrom` before touching
+  either**, and do not repeat the sentence "prices cannot be quietly wrong" without saying
+  which mechanism makes it true.
+- **The purge cadence is HOURLY and it is not in this repository** (2026-09-07, founder).
+  `vercel.json` carries no `crons` block; the schedule lives in the QStash console. A
+  session reading the repo cannot learn it, and a session that assumes nightly will
+  mis-state the retention floors by up to a day — one already did. Ask; do not infer. The
+  1-day floor on unrouted events is therefore ~1 hour of slack rather than ~24.
 - **No revenue path exists.** The platform can spend and cannot collect.
 - **Single-owner risk is ACCEPTED, not open** (D-017). KEK escrow and second admins are
   deliberately deferred; provider recovery emails and codes are the mitigation. **Do not

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  kindsReferencedBy, matchRules, matcherFires, MIN_STEM_CHARS,
+  kindsReferencedBy, kindsRequiredByRules, matchRules, matcherFires, MIN_STEM_CHARS,
   parseMatcher, renderCannedSection, type GateRule,
 } from './match.ts';
 
@@ -257,4 +257,33 @@ test('the count is of rules that FIRED, not of rules that exist', () => {
 test('a confirmed rule that fires is not counted', () => {
   const r = matchRules('Хүүхдийн үс', [CHILDREN]);
   assert.deepEqual(r.ok && r.unconfirmedTopics, []);
+});
+
+test('kindsRequiredByRules collects the kinds a tenant\'s own rules point at', () => {
+  const rule = (topicKey: string, responseKind: string): GateRule => ({
+    gate: 'Ш1', topicKey, matcher: { mode: 'contains_stem', stems: ['хүүхэд'] },
+    quotePrice: false, deterministicShortcircuit: false, responseKind,
+    provenance: 'tenant_confirmed',
+  });
+
+  // Deduped and sorted, so the required list is stable whatever order the rows arrive in.
+  assert.deepEqual(
+    kindsRequiredByRules([
+      rule('photo_consultation', 'refusal_out_of_scope'),
+      rule('children_services', 'refusal_topic'),
+      rule('children_prices', 'refusal_topic'),
+    ]),
+    ['refusal_out_of_scope', 'refusal_topic'],
+  );
+
+  // An UNCONFIRMED rule still fires (D-020), so it still needs a sentence to fire into.
+  assert.deepEqual(
+    kindsRequiredByRules([{ ...rule('x', 'refusal_topic'), provenance: 'inferred' }]),
+    ['refusal_topic'],
+  );
+
+  // A row with no response_kind cannot require one — that is a malformed row, and turning
+  // it into a required kind named '' would refuse every reply with an empty kind list.
+  assert.deepEqual(kindsRequiredByRules([rule('x', '')]), []);
+  assert.deepEqual(kindsRequiredByRules([]), []);
 });

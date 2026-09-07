@@ -248,3 +248,38 @@ export function kindsReferencedBy(blockBodies: readonly string[]): string[] {
   out.delete('');
   return [...out].sort();
 }
+
+/**
+ * Every canned kind the TENANT'S OWN refusal rules point at.
+ *
+ * `kindsReferencedBy` reads the compiled prefix, so it finds the kinds the signed
+ * platform blocks name — nine, today. It cannot find the kinds a tenant's rows name,
+ * and that is a real hole rather than a theoretical one:
+ *
+ *   * `disclosure_rules` and `out_of_scope_topics` each carry a `response_kind`, and the
+ *     gate text tells the model to copy the matching line out of the pinned-line section
+ *     «нэг ч үсэг өөрчлөхгүйгээр» — letter for letter.
+ *   * A rule's `topic_key` renders into Ш1's list as `- children_services: …`, in plain
+ *     text with no straight double quotes, so `kindsReferencedBy` never sees it. Neither
+ *     does it see `response_kind`, which is not rendered at all.
+ *
+ * So before this function existed, a tenant could carry a rule whose line was missing and
+ * NOTHING refused: the gate fired, the model was told to reproduce a sentence that was not
+ * in its context, and it improvised on precisely the topic the business asked never to be
+ * discussed. Measured on the live project 2026-09-07 — Matrix's `photo_consultation` row
+ * points at `refusal_out_of_scope` and no such row exists for that tenant.
+ *
+ * Unioning this into `renderCannedSection`'s required set makes that state refuse instead,
+ * with the same `canned_response_missing` code and the same operator-visible 503 the
+ * platform kinds already get. Over-refusing costs a retry; under-refusing costs the thing
+ * the rule existed to prevent — the same trade `matchRules` makes one function up.
+ *
+ * An UNCONFIRMED rule (D-020) is included deliberately. It still fires, so it still needs
+ * a sentence to fire into; withholding the requirement would leave the improvisation case
+ * open for exactly the rows nobody has checked.
+ */
+export function kindsRequiredByRules(rules: readonly GateRule[]): string[] {
+  const out = new Set<string>();
+  for (const r of rules) if (r.responseKind !== '') out.add(r.responseKind);
+  return [...out].sort();
+}

@@ -2596,3 +2596,96 @@ D-044's `purge_after`: a field that looks authoritative and is not.
 Mutation-tested both ways: reverting to `now` fails all three checks, and capturing the
 clock once at build time — indistinguishable from the bug in any test that sends only once
 — fails the second.
+
+## D-050 — a tenant's own rules name canned kinds, and nothing required them
+
+**2026-09-07.** Found by reading the live project while drafting Matrix's children's-services
+rule, which is the third time in this repository that reading the database has found
+something no test could.
+
+### The hole
+
+`renderCannedSection` refuses when a required kind has no row, and the required list comes
+from `kindsReferencedBy(promptStable)` — a scan of the compiled prefix for `"lower_snake"`
+in straight double quotes. That finds the nine kinds the signed platform blocks name, and it
+is the right mechanism for them: a block added to L0 starts refusing for unprovisioned
+tenants without anyone updating a constant.
+
+It cannot find the kinds a **tenant's own rows** name, and both refusal tables carry one:
+
+```
+disclosure_rules.response_kind   -> canned_response_kinds(kind)
+out_of_scope_topics.response_kind -> canned_response_kinds(kind)
+```
+
+A rule's `topic_key` renders into Ш1's list as `- children_services: …`, plain text with no
+straight quotes, so the scan never sees it. `response_kind` is not rendered at all. So a
+tenant could carry a rule whose sentence did not exist, and the failure was silent in the
+worst available way: the gate fires, the gate text tells the model to reproduce the matching
+line «нэг ч үсэг өөрчлөхгүйгээр», the line is absent from its context, and the model
+improvises — on precisely the topic the business asked never to be discussed. No 503, no
+flag, nothing red.
+
+### It was not hypothetical
+
+`scripts/provision/matrix-stage4-kb.sql` — written the previous night, by me — inserted an
+`out_of_scope_topics` row for `photo_consultation` pointing at `refusal_out_of_scope`, and
+Matrix has no `refusal_out_of_scope` row. It was live in the project for a day. It has not
+misled a customer only because Matrix is `shadow_routing` and generates nothing.
+
+That is the same failure shape as D-029's third bug: a reference that resolves in the schema
+(the foreign key to `canned_response_kinds` is satisfied — the KIND exists) while the thing
+the reference is *for* (a row for THIS tenant) does not. A satisfied constraint is not a
+provisioned tenant.
+
+### The fix
+
+`kindsRequiredByRules(rules)` returns the response kinds a tenant's rules point at, and
+`handleReception` unions it into the required set. A missing line now refuses with the
+existing `canned_response_missing`, before the model is called, costing nothing.
+
+Three choices inside it, each deliberate:
+
+- **Unconfirmed rules count.** D-020's flag records that a rule fired without confirmation;
+  it does not stop it firing. A rule that fires needs a sentence to fire into, so excluding
+  unconfirmed rows would leave the improvisation case open for exactly the rows nobody has
+  checked.
+- **A row with an empty `response_kind` requires nothing.** Adding `''` to the required set
+  would refuse every reply while naming no kind — a refusal an operator cannot act on.
+- **The requirement is structural, not conditional on the matcher firing.** Checked once per
+  request against the tenant's whole rule set, like the platform kinds, because "this
+  message happened not to trip it" is not a reason to ship a tenant with a hole in it.
+
+### What it costs, and who pays it now
+
+Matrix cannot publish until `refusal_out_of_scope` exists — which is the point. Tenant #0 is
+unaffected: it has zero rules, measured, so its required set is unchanged.
+
+Mutation-tested three ways: removing the union, gutting the function, and restricting it to
+`tenant_confirmed` rows each fail a test that named the property. A fourth check earned its
+keep by NOT being coverage — the "unreviewed line" test passes with the union removed,
+because `renderCannedSection`'s unreviewed check runs over every row it is handed rather
+than only the required ones. Its comment now says so, because a test that looks like
+coverage and is not is how the `WORKER_PUBLIC_URL` contract stayed wrong on both halves.
+
+### The table that rule belongs in
+
+Related, and settled here so the next one is not guessed at. Children's services is
+`disclosure_rules` — "we know and will not say" — not `out_of_scope_topics`, which 0001
+reserves for "we cannot know". Matrix cuts children's hair and «Чёлк тайралт» is a line in
+their price list; they have decided the bot does not quote it. Three things follow:
+`quote_price` exists only on `disclosure_rules` and false there means no numeral at all;
+`approved_by` records who chose to withhold, and only that table has it; and
+`canned_response_kinds.refusal_topic` is described in the database as "bound to a
+disclosure_rule". `GATE_BY_RESPONSE_KIND` maps `refusal_topic` to Ш1 — an invented kind
+would have fallen through to `DEFAULT_GATE` = Ш8 and answered the handoff line instead.
+
+### And Ш1 was already the children's rule
+
+Worth recording because it changed the size of the job from "write a gate" to "write a row".
+`prompt/platform/sh1_refusal_topics.mn.txt` is signed, native-speaker reviewed, and carries
+the ancestor's own wrong-example verbatim — «Хүүхдийн чёлк тайралт хэд вэ?» answered «Чёлк
+тайралт 33,000₮» — plus the half of the ancestor's rule I had reported as missing: «Том хүн
+үү, хүүхэд үү» гэж БҮҮ асуу. `handle.test.ts`'s fixture has carried the matching rule, with
+the stems `хүүхэд` and `хүүхд`, since the file was written. The port needed the tenant row
+and nothing else.
