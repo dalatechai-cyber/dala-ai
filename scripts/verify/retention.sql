@@ -6,7 +6,18 @@
 -- before anybody noticed. Every check below therefore asserts on ROWS, not on the return
 -- value — the return value is the thing under test.
 --
--- Runs as the migration owner. `rls.sql` covers who may call it; this covers what it does.
+-- P1-P12 run as the migration owner and cover WHAT THE FUNCTION DOES. P13-P14 run as
+-- `service_role` through `public.purge_expired` and cover WHETHER THE PRODUCTION CALLER CAN
+-- MAKE IT BITE — which is a different question, and the one this file did not ask until
+-- 2026-09-07.
+--
+-- The gap was not hypothetical. `webhook_events` carries `relforcerowsecurity`, which strips
+-- the table owner of its usual RLS exemption; the function survives that only because it is
+-- SECURITY DEFINER owned by a role holding BYPASSRLS. Every part of that sentence is a thing
+-- that could change in a migration, and until P13 existed, changing any of it would have
+-- produced a purge that runs, returns 200, writes an audit row saying zero, and quietly keeps
+-- customer payloads for ever. Zeros from a blocked run and zeros from an empty queue are the
+-- same bytes.
 
 \set ON_ERROR_STOP on
 begin;
@@ -133,6 +144,57 @@ begin
   select count(*) into n from kb_change_proposals where state = 'open' and decided_at is null;
   insert into r values ('P12', case when n = 1 then 'PASS' else 'FAIL' end,
     'an OPEN proposal has a null decided_at rather than reading as decided at creation');
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- P13-P14: the PRODUCTION CALLER, not the owner
+-- ---------------------------------------------------------------------------
+
+-- P14 first, because it is P13's premise. In T0's spirit: if RLS stops being forced, P13
+-- would go green for the wrong reason — it would be testing a table that no longer needs
+-- the bypass it exists to prove.
+do $$
+declare forced boolean; bypass boolean; definer boolean;
+begin
+  select c.relforcerowsecurity into forced from pg_class c where c.relname = 'webhook_events';
+  select p.prosecdef into definer from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where p.proname = 'purge_expired' and n.nspname = 'ops';
+  select r.rolbypassrls into bypass from pg_roles r
+   where r.rolname = pg_get_userbyid((select proowner from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+    where p.proname = 'purge_expired' and n.nspname = 'ops'));
+  -- SECURITY DEFINER is named here because it is what makes the OWNER's BYPASSRLS the
+  -- relevant one. Drop it and the owner's attribute stops mattering — the caller's does,
+  -- and the caller is whatever role the worker happens to connect as. P13 is what actually
+  -- catches that; this row is the premise, so a reader can see which property moved.
+  insert into r values ('P14', case when forced and bypass and definer then 'PASS' else 'FAIL' end,
+    format('webhook_events forces RLS (%s), ops.purge_expired is SECURITY DEFINER (%s), and its '
+           'owner holds BYPASSRLS (%s) — the three that let a purge see every tenant''s rows',
+           forced, definer, bypass));
+end $$;
+
+-- A row that IS due: 9 days old, so past the fixture tenant's 3-day payload retention.
+insert into webhook_events (provider, dedup_key, source, routing, tenant_id, channel_id,
+                            entry_id, state, raw_payload, received_at)
+values ('facebook_page', 'k_caller', 'meta', 'routed', 'aa000000-0000-4000-8000-000000000001',
+        'aa000000-0000-4000-8000-0000000000c1', '900000000000001', 'processed',
+        '{"text":"due, and the caller must be able to reach it"}'::jsonb, now() - interval '9 days');
+
+-- Through the name PostgREST resolves, as the role the worker connects with. `supabase/
+-- clients.ts` builds every client with no `db: { schema }`, so the runtime asks for
+-- `public.purge_expired` as `service_role` — this line is that request, spelled out.
+set local role service_role;
+select public.purge_expired(50000);
+reset role;
+
+do $$
+declare n int;
+begin
+  select count(*) into n from webhook_events
+   where dedup_key = 'k_caller' and raw_payload is null and raw_purged_at is not null;
+  insert into r values ('P13', case when n = 1 then 'PASS' else 'FAIL' end,
+    'CALLED AS service_role THROUGH public.purge_expired, A DUE PAYLOAD IS ACTUALLY NULLED '
+    '— the check that separates "nothing was due" from "the caller could not touch anything"');
 end $$;
 
 select check_name, status, detail from r order by
