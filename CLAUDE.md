@@ -309,6 +309,21 @@ part it managed.** Undetermined is a result. The same read also swallowed keys a
 share one walker (`scripts/verify/querysites.ts`); if you touch it, keep the rule that a
 truncated object returns `null`.
 
+**A column added in an unpushed migration is red in production and green in CI, every
+time** (2026-09-07, D-058). The reply path gained `.select('… canned_hash')`; the migration
+adding that column had not been pushed. CI applies every migration in `supabase/migrations/`
+before it runs, so the column is always present there — the whole suite, the transport check
+included, was structurally incapable of seeing it. Against the project PostgREST answers the
+select with a 400 and `loadLiveSnapshot` refuses, so **every reply for every tenant would
+have 503'd** from the deploy until the push.
+
+This is not D-029's third bug (a name resolved against the wrong schema, which CI can and
+now does catch). It is the asymmetry underneath rule 4 stated forwards: a migration file in
+the repo is not a migration applied to the database, and CI is built out of the repo. So
+**before merging anything that reads or writes a column a pending migration adds, read the
+ledger** — `supabase_migrations.schema_migrations` — and merge only after the push. Green
+CI is evidence about the repo, not about the project.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

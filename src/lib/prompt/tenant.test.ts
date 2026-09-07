@@ -423,6 +423,56 @@ test('the canned section is sorted by kind, whatever order the rows arrive in', 
   assert.equal(bodyOf(forward, 'canned_responses').split('\n')[1]?.startsWith('"handoff"'), true);
 });
 
+test('DONE-TEST: THE CANNED SECTION IS THE LAST L2 AND PRECEDES EVERY L3', () => {
+  // The position is not cosmetic. Publishing splices this section into a prefix that
+  // already exists, so "immediately before the first L3" has to be a property of the
+  // compiler rather than an observation about one tenant's current sections. If the
+  // ordinal ever moves, a spliced prefix stops matching what a full recompile would
+  // produce — and the two would differ only in byte order, which nothing else checks.
+  const full = renderTenantSections({
+    ...EMPTY,
+    canned: CANNED_ROWS,
+    refusalTopics: [{ key: 'children_services', question: 'Хүүхэд үү?' }],
+    deposits: ['захиалга: 50%'],
+    documents: [{ title: 'Танилцуулга', body: 'Бид ажилладаг.' }],
+    contacts: [{ kind: 'phone', value: '7741-7777' }],
+  } as TenantKb, APPROVED);
+  const keys = full.map((s) => s.key);
+  const canned = keys.indexOf('canned_responses');
+  assert.notEqual(canned, -1);
+  for (const [i, s] of full.entries()) {
+    if (s.key === 'canned_responses') continue;
+    const before = s.layer === 'L2';
+    assert.equal(i < canned, before, `${s.key} (${s.layer}) is on the wrong side of the canned section`);
+  }
+  assert.equal(full[canned + 1]?.layer, 'L3', 'the section after the canned one must be the first L3');
+});
+
+test('DONE-TEST: CANNED LINES ALONE DO NOT MAKE A TENANT "PROVISIONED"', () => {
+  // D-033's guard is the marker, and moving the canned lines into the prefix nearly killed
+  // it. Every tenant has canned responses from the day it is provisioned — the gate blocks
+  // name «БЭЛЭН ХАРИУЛТ» in all ten of Ш0..Ш9 — so if they counted as data, the marker
+  // would be unconditional and `hasTenantData` would be true for a tenant with no knowledge
+  // base at all. Tenant #0 is exactly that tenant, and its next publish would have put it
+  // back to answering as a beauty salon.
+  const sections = renderTenantSections({ ...EMPTY, canned: CANNED_ROWS }, APPROVED);
+  assert.deepEqual(sections.map((s) => s.key), ['canned_responses'], 'the marker must not be emitted');
+  const r = renderStablePrefix([...sections]);
+  assert.equal(r.ok && hasTenantData(r.rendered.promptStable), false);
+});
+
+test('one real row alongside them brings the marker back', () => {
+  // The other half: the filter must not make the marker unreachable. A single document is
+  // a knowledge base, and the marker is what tells the model the text below it is data.
+  const sections = renderTenantSections(
+    { ...EMPTY, canned: CANNED_ROWS, documents: [{ title: 'Танилцуулга', body: 'Бид ажилладаг.' }] },
+    APPROVED,
+  );
+  assert.equal(sections[0]?.key, 'tenant_data_marker');
+  const r = renderStablePrefix([...sections]);
+  assert.equal(r.ok && hasTenantData(r.rendered.promptStable), true);
+});
+
 test('a tenant with no canned rows renders no canned section at all', () => {
   // `section()` drops an empty one, and that is why `cannedHashOf` hashes the ROWS rather
   // than the section as it landed: hashing the landed section would give '' at publish and

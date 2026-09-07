@@ -3268,3 +3268,32 @@ says so.
 republishing afterwards** — the prefix gains a section, so `content_hash` changes for both.
 Until that republish they stay on the null-hash path, which is the pre-D-058 behaviour and
 costs exactly what it costs today.
+
+### D-058 addendum — the canned lines nearly disarmed D-033
+
+Found on 2026-09-07 while preparing the republish, before either tenant was republished.
+
+`renderTenantSections` returns `[]` for a tenant with no rows, which is what makes
+`hasTenantData` false and what makes `handleReception` take the handoff line before the
+provider call (D-033). Moving the canned lines into the prefix gave every tenant a rendered
+section, so `sections.length === 0` stopped being reachable: the data marker became
+unconditional and the guard became dead code.
+
+**Canned responses are refusal boilerplate, not a knowledge base.** Every one of Ш0 to Ш9
+ends "write the such-and-such line from «БЭЛЭН ХАРИУЛТ»", so a tenant has them from the day
+it is provisioned — which is precisely the state D-033's guard exists for. Counting them as
+data would have disarmed it for client #3 on day one, not just for tenant #0.
+
+Measured rather than reasoned: tenant #0 today is nine canned rows and nothing else, and its
+live prefix is the twelve gate blocks with no marker. Its next publish would have emitted the
+marker, flipped `hasTenantData` to true, and put it back to answering a customer as a beauty
+salon — D-033 restored by a change about prompt caching, and visible only on republish.
+
+The fix is one filter: the marker is decided on the non-canned sections. The canned section
+still renders, because it is machinery the gate points at by name and a tenant that ever does
+reach the model should have the sentences it is told to reproduce.
+
+Two things are worth carrying forward from how this was found. It was not found by a test —
+it was found by reading tenant #0's live prefix and noticing it had exactly one section
+header. And the guard it broke was the mitigation for the worst thing this platform has
+done, weakened by a change whose subject was cost.
