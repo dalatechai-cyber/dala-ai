@@ -345,7 +345,7 @@ async function main(): Promise<void> {
 
   process.stdout.write(
     `  ${rpcs.length} RPC name(s), ${tables.length} table(s), ${selects.length} select list(s) `
-    + `and ${writes.uses.length} write payload(s) from src/, against `
+    + `and ${writes.uses.length} write payload(s) from ${CHECKED_ROOTS.join(' + ')}, against `
     + `${exposed.rpcs.size} exposed function(s) and ${exposed.tables.size} exposed relation(s)\n`,
   );
   if (problems.length > 0) {
