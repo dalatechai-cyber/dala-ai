@@ -336,6 +336,43 @@ test('a kind the PREFIX names with no row retries — the wiring, not just the c
   assert.equal(r.kind === 'retry' && r.detail.includes('refusal_health'), true);
 });
 
+test('a kind only the TENANT\'S RULES name with no row retries — the hole nothing saw', async () => {
+  // The prefix names nothing here, so `kindsReferencedBy` returns []. The requirement can
+  // only come from the rule itself. This is the live shape found on the project on
+  // 2026-09-07: Matrix's `photo_consultation` row points at `refusal_out_of_scope` and no
+  // such row exists, and before this check the gate fired, the model was told to reproduce
+  // a sentence that was not in its context, and it improvised — with nothing going red.
+  const { deps: d, calls } = deps({});
+  const photo: GateRule = {
+    gate: 'Ш8', topicKey: 'photo_consultation',
+    matcher: { mode: 'contains_stem', stems: ['зураг'] },
+    quotePrice: false, deterministicShortcircuit: false, responseKind: 'refusal_out_of_scope',
+    provenance: 'tenant_confirmed',
+  };
+  const r = await handleReception(d, { ...base, promptStable: STABLE, rules: [CHILDREN, photo] });
+  assert.equal(r.kind, 'retry', JSON.stringify(r));
+  assert.equal(r.kind === 'retry' && r.detail.startsWith('canned_response_missing:'), true, JSON.stringify(r));
+  assert.equal(r.kind === 'retry' && r.detail.includes('refusal_out_of_scope'), true);
+  // And it costs nothing: the refusal is structural, decided before the provider call.
+  assert.equal(calls.some((c) => c === 'model'), false, calls.join(','));
+});
+
+test('a rule whose line exists but is UNREVIEWED retries too', async () => {
+  // Worth pinning, and worth being exact about WHERE it comes from: this property does not
+  // come from the union above. `renderCannedSection`'s unreviewed check runs over every row
+  // it is handed, not only the required ones, so it would hold with the union removed —
+  // measured, by mutation. The test earns its place as a statement that a rule cannot be
+  // the route by which an unsigned Mongolian sentence reaches a customer; it is NOT
+  // coverage of `kindsRequiredByRules`, and reading it as such is the mistake this comment
+  // exists to prevent.
+  const { deps: d } = deps({});
+  const unreviewed = CANNED.map((c) => (c.kind === 'refusal_topic' ? { ...c, reviewedAt: null } : c));
+  const r = await handleReception(d, { ...base, canned: unreviewed });
+  assert.equal(r.kind, 'retry', JSON.stringify(r));
+  assert.equal(r.kind === 'retry' && r.detail.startsWith('canned_response_unreviewed:'), true, JSON.stringify(r));
+  assert.equal(r.kind === 'retry' && r.detail.includes('refusal_topic'), true);
+});
+
 test('the model is never called when a named kind is missing — the refusal is free', async () => {
   const { deps: d, calls } = deps({});
   await handleReception(d, {

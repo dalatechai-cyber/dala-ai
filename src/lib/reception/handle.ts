@@ -26,7 +26,7 @@
 import type { CallOutcome, ReceptionRequest, TerminalReason } from '../model/reception.ts';
 import { isStale } from '../model/reception.ts';
 import type { Usage } from '../spend/settle.ts';
-import { kindsReferencedBy, matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
+import { kindsRequiredByRules, kindsReferencedBy, matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
 import { matchDeterministic, type DeterministicRule, type HistoryState } from '../gate/deterministic.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
@@ -168,7 +168,15 @@ export async function handleReception(
   // from the catalog. A block added to L0 that names a new kind therefore starts
   // refusing for tenants that have not provisioned it, without anyone remembering to
   // update a constant.
-  const section = renderCannedSection(input.cannedLabel, input.canned, kindsReferencedBy([input.promptStable]));
+  // Two sources, unioned: the kinds the PREFIX names, and the kinds the TENANT'S OWN
+  // rules point at. The second is not redundant — a `response_kind` is never rendered into
+  // the prefix, so a rule whose line is missing used to fire into nothing at all and the
+  // model improvised on the one topic the business asked never to be discussed. See
+  // `kindsRequiredByRules`.
+  const required = [
+    ...new Set([...kindsReferencedBy([input.promptStable]), ...kindsRequiredByRules(input.rules)]),
+  ].sort();
+  const section = renderCannedSection(input.cannedLabel, input.canned, required);
   if (!section.ok) {
     await deps.release();
     // `retry`, not `dropped`, for both codes: the fault is a row an operator can add, and

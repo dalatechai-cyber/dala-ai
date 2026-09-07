@@ -167,6 +167,16 @@ export function renderStablePrefix(sections: readonly PromptSection[]): RenderRe
  * refuses every numeral. That is the correct direction: a bot with no approved prices
  * must not emit a price.
  *
+ * **But do not read "empty" as the guarantee.** It stopped being empty the moment a real
+ * knowledge base landed: Matrix's Stage 4 documents compile to ten tokens — percentages,
+ * session counts and a phone number — with no `service_variants` and therefore no prices
+ * (measured 2026-09-07). What refuses a price now is not the emptiness of this list but
+ * `extractNumerals`' DIGITS-ONLY REDUCTION, and the fact that the guard compares reduced
+ * forms rather than testing for a substring: `20` does not license `20,000`, and
+ * `7741-7777` does not license a bare `7741`. That is one rule deep, so anyone loosening
+ * the comparison — a `startsWith`, a normalisation that drops separators on one side only —
+ * removes the whole protection while every test that only checks `[]` stays green.
+ *
  * **Deliberately NOT included: numerals from the customer's own message.** A customer who
  * writes «Үс засалт 5000₮ юу?» has put a number in front of the model, and echoing it back
  * as confirmation invents a price the salon never set — the customer merely suggested it.
