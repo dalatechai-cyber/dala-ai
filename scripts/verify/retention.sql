@@ -57,6 +57,21 @@ values
    'aa000000-0000-4000-8000-0000000000c1', '900000000000001', 'processed',
    '{"text":"ancient"}'::jsonb, now() - interval '40 days');
 
+-- A conversation and two messages: one past the fixture tenant's 90-day default, one
+-- inside it. `messages.tenant_id` is NOT NULL, so unlike webhook_events there is no
+-- ownerless case here and no floor.
+insert into contacts (id, tenant_id, channel_id, external_id)
+values ('aa000000-0000-4000-8000-0000000000e1', 'aa000000-0000-4000-8000-000000000001',
+        'aa000000-0000-4000-8000-0000000000c1', 'PSID-RETENTION');
+insert into conversations (id, tenant_id, contact_id, channel_id)
+values ('aa000000-0000-4000-8000-0000000000f1', 'aa000000-0000-4000-8000-000000000001',
+        'aa000000-0000-4000-8000-0000000000e1', 'aa000000-0000-4000-8000-0000000000c1');
+insert into messages (id, tenant_id, conversation_id, direction, body, at)
+values ('aa000000-0000-4000-8000-000000000a01', 'aa000000-0000-4000-8000-000000000001',
+        'aa000000-0000-4000-8000-0000000000f1', 'inbound', 'past retention', now() - interval '120 days'),
+       ('aa000000-0000-4000-8000-000000000a02', 'aa000000-0000-4000-8000-000000000001',
+        'aa000000-0000-4000-8000-0000000000f1', 'inbound', 'inside retention', now() - interval '10 days');
+
 -- --------------------------------------------------------------------------
 do $$
 declare v jsonb; n int; b bool;
@@ -89,9 +104,11 @@ begin
   -- P5 -- counts are real, not hopeful ---------------------------------------
   insert into r values ('P5',
     case when (v->>'payloads_purged')::int = 2 and (v->>'rows_deleted')::int = 1
+          and (v->>'bodies_redacted')::int = 1
          then 'PASS' else 'FAIL' end,
-    format('reported payloads_purged=%s rows_deleted=%s, expected 2 and 1',
-           v->>'payloads_purged', v->>'rows_deleted'));
+    format('reported payloads_purged=%s rows_deleted=%s bodies_redacted=%s, expected 2, 1 and 1 '
+           '— three disjoint counts, no row in two of them',
+           v->>'payloads_purged', v->>'rows_deleted', v->>'bodies_redacted'));
 
   -- P6 -- every run leaves evidence, including a no-op one --------------------
   v := ops.purge_expired();
@@ -144,6 +161,35 @@ begin
   select count(*) into n from kb_change_proposals where state = 'open' and decided_at is null;
   insert into r values ('P12', case when n = 1 then 'PASS' else 'FAIL' end,
     'an OPEN proposal has a null decided_at rather than reading as decided at creation');
+end $$;
+
+do $$
+declare n int;
+begin
+  -- P15 ------------------------------------------------------------------
+  select count(*) into n from messages
+   where id = 'aa000000-0000-4000-8000-000000000a01'
+     and body is null and body_redacted_at is not null;
+  insert into r values ('P15', case when n = 1 then 'PASS' else 'FAIL' end,
+    'a message past the tenant retention is redacted, and THE ROW SURVIVES with its '
+    'revision_id/prompt_hash link intact');
+
+  -- P16 ------------------------------------------------------------------
+  select count(*) into n from messages
+   where id = 'aa000000-0000-4000-8000-000000000a02'
+     and body is not null and body_redacted_at is null;
+  insert into r values ('P16', case when n = 1 then 'PASS' else 'FAIL' end,
+    'a message inside the tenant retention is untouched');
+
+  -- P17 -- the pairing is the database's job, not the function's memory ----
+  -- `redacted_or_present` refuses a nulled body with no marker. Asserting the constraint
+  -- exists is what stops a future rewrite of the purge from half-redacting a row and
+  -- leaving `readHistory` unable to tell a purged message from an empty one.
+  select count(*) into n from pg_constraint
+   where conrelid = 'public.messages'::regclass and conname = 'redacted_or_present';
+  insert into r values ('P17', case when n = 1 then 'PASS' else 'FAIL' end,
+    'redacted_or_present still exists — the CHECK is what makes a half-done redaction '
+    'impossible to commit');
 end $$;
 
 -- ---------------------------------------------------------------------------

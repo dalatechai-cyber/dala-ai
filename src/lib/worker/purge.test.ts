@@ -49,7 +49,7 @@ function effects(rpc: RpcAnswer, verified = true): {
   };
 }
 
-const ok = { payloads_purged: 4, rows_deleted: 2, ceiling_hit: false, max_rows: 50000 };
+const ok = { payloads_purged: 4, rows_deleted: 2, bodies_redacted: 3, ceiling_hit: false, max_rows: 50000 };
 const run = (fx: PurgeEffects) => runPurgeJob(fx, { rawBody: '{}', signature: 'sig' });
 
 // ---------------------------------------------------------------------------
@@ -129,7 +129,7 @@ test('DONE-TEST: HITTING THE CEILING ALERTS, because a backlog is silent by natu
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0]!['severity'], 'warn');
   assert.equal(alerts[0]!['kind'], 'retention.purge_backlog');
-  assert.match(String(alerts[0]!['body']), /living past their retention/);
+  assert.match(String(alerts[0]!['body']), /living past its retention/);
 });
 
 test('the backlog alert is keyed by DAY, not by run', async () => {
@@ -157,4 +157,16 @@ test('missing counts read as 0 rather than NaN', async () => {
   assert.equal(res.status, 200);
   assert.equal(res.body['payloads_purged'], 0);
   assert.equal(res.body['rows_deleted'], 0);
+  assert.equal(res.body['bodies_redacted'], 0);
+});
+
+test('DONE-TEST: THE THREE COUNTS ARE REPORTED SEPARATELY, never summed', async () => {
+  // They measure three different things — a payload nulled, a whole row deleted, a message
+  // body redacted — and `0021`'s statement order keeps them disjoint so no row lands in
+  // two. A single total would hide which of the three stopped working.
+  const { fx } = effects({ data: ok });
+  const res = await run(fx);
+  assert.equal(res.body['payloads_purged'], 4);
+  assert.equal(res.body['rows_deleted'], 2);
+  assert.equal(res.body['bodies_redacted'], 3);
 });
