@@ -32,7 +32,20 @@
  * `canned_response_unreviewed`, naming them. Loud beats tidy on this path.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { createHash } from 'node:crypto';
 import { renderStablePrefix, type PromptLayer, type PromptSection, type Rendered, type RenderRefusal } from './render.ts';
+import { cannedSectionBody } from '../gate/match.ts';
+import { SECTION_LABELS } from './tenant.ts';
+
+/**
+ * The identity of a tenant's canned lines, as the model will see them.
+ *
+ * Computed from the same `cannedSectionBody` the request path uses, so a difference means
+ * the ROWS differ — not that two renderers disagree about a trailing space. D-058.
+ */
+export function cannedHashOf(rows: readonly { kind: string; body: string }[]): string {
+  return createHash('sha256').update(cannedSectionBody(SECTION_LABELS.canned, rows), 'utf8').digest('hex');
+}
 import { publishRevision, type PublishOutcome } from './publish.ts';
 import { renderTenantSections, type PriceKind, type ServiceVariant, type TenantKb } from './tenant.ts';
 import { isTenantConfirmed, unconfirmedNames } from '../provenance.ts';
@@ -247,15 +260,19 @@ export async function loadTenantKb(
   const t = input.tenantId;
   const [
     tenant, disclosure, outOfScope, disambig, axes, deposits,
-    documents, staff, services, variants, faqs, contacts, booking, hours,
+    documents, canned, staff, services, variants, faqs, contacts, booking, hours,
   ] = await Promise.all([
-    db.from('tenants').select('currency_symbol, currency_symbol_before').eq('id', t).maybeSingle(),
+    db.from('tenants').select('currency_symbol, currency_symbol_before, default_locale').eq('id', t).maybeSingle(),
     db.from('disclosure_rules').select('topic_key, decision_question, provenance').eq('tenant_id', t).order('topic_key'),
     db.from('out_of_scope_topics').select('topic_key, decision_question, provenance').eq('tenant_id', t).order('topic_key'),
     db.from('disambiguation_pairs').select('trigger_term, question').eq('tenant_id', t).order('trigger_term'),
     db.from('price_axes').select('axis, verbatim_question').eq('tenant_id', t).order('ordinal').order('axis'),
     db.from('deposit_rules').select('applies_to, rule_text').eq('tenant_id', t).order('ordinal').order('applies_to'),
     db.from('knowledge_documents').select('title, body').eq('tenant_id', t).order('title'),
+    // Every locale, filtered below against the tenant's own. The locale is read in this
+    // same batch, so it is not available to put in the query — and one extra column beats
+    // a second round trip in a function whose header explains why it loads atomically.
+    db.from('canned_responses').select('kind, body, locale').eq('tenant_id', t).order('kind'),
     db.from('staff_members').select('name, short_name, group_name, tier').eq('tenant_id', t).eq('active', true).order('group_name').order('name'),
     db.from('services').select('id, name').eq('tenant_id', t).eq('active', true).order('name'),
     db.from('service_variants').select('service_id, variant_key, price_kind, price_min, price_max, refusal_topic').eq('tenant_id', t).order('variant_key'),
@@ -268,7 +285,7 @@ export async function loadTenantKb(
   for (const [name, res] of [
     ['tenants', tenant], ['disclosure_rules', disclosure], ['out_of_scope_topics', outOfScope],
     ['disambiguation_pairs', disambig], ['price_axes', axes], ['deposit_rules', deposits],
-    ['knowledge_documents', documents], ['staff_members', staff], ['services', services],
+    ['knowledge_documents', documents], ['canned_responses', canned], ['staff_members', staff], ['services', services],
     ['service_variants', variants], ['faqs', faqs], ['contact_points', contacts],
     ['tenant_booking', booking], ['business_hours', hours],
   ] as const) {
@@ -332,6 +349,14 @@ export async function loadTenantKb(
         .map((r) => `${str(r['applies_to'])}: ${str(r['rule_text'])}`),
       documents: ordered(rows(documents.data), (r) => str(r['title']), (r) => str(r['body']))
         .map((r) => ({ title: str(r['title']), body: str(r['body']) })),
+      // The tenant's own locale, filtered here rather than in SQL. `reception/load.ts`
+      // filters the same set with `.eq('locale', …)` at request time; the two must select
+      // the same rows or the published section and the live one differ by construction,
+      // which is what `canned_hash` would then report as staleness for ever.
+      canned: ordered(
+        rows(canned.data).filter((r) => str(r['locale']) === str(tRow['default_locale'])),
+        (r) => str(r['kind']),
+      ).map((r) => ({ kind: str(r['kind']), body: str(r['body']) })),
       staff: ordered(rows(staff.data), (r) => str(r['group_name']), (r) => str(r['name']), (r) => str(r['tier']))
         .map((r) => ({
           name: str(r['name']), shortName: orNull(r['short_name']),
@@ -360,7 +385,7 @@ export async function loadTenantKb(
 }
 
 export type CompileOutcome =
-  | { ok: true; rendered: Rendered; sectionCount: number; unconfirmed: KbProvenance }
+  | { ok: true; rendered: Rendered; sectionCount: number; unconfirmed: KbProvenance; cannedHash: string }
   | { ok: false; code: 'unavailable'; detail: string }
   /** The renderer refused. Every case names the sections responsible. */
   | { ok: false; code: 'refused'; refusal: RenderRefusal }
@@ -418,7 +443,18 @@ export async function compileStablePrefix(
 
   const result = renderStablePrefix(sections);
   return result.ok
-    ? { ok: true, rendered: result.rendered, sectionCount: sections.length, unconfirmed: kb.unconfirmed }
+    ? {
+        ok: true,
+        rendered: result.rendered,
+        sectionCount: sections.length,
+        unconfirmed: kb.unconfirmed,
+        // Over the ROWS as rendered, not over the section as it landed in the prefix.
+        // A tenant with no canned rows produces no section at all — `section()` drops an
+        // empty one — so hashing the section would give `''` here and a real hash at
+        // request time, and every reply would report as stale. Hashing the same function's
+        // output on both sides makes the empty case agree with itself.
+        cannedHash: cannedHashOf(kb.kb.canned),
+      }
     : { ok: false, code: 'refused', refusal: result.refusal };
 }
 
@@ -487,6 +523,7 @@ export async function compileAndPublish(
     snapshots: input.channels.map((channel) => ({
       channel,
       rendered: compiled.rendered,
+      cannedHash: compiled.cannedHash,
       compiledBy: input.compiledBy ?? null,
     })),
     now: input.now,

@@ -18,10 +18,17 @@ function stubDb(opts: {
   snapshotRow?: unknown; tenantRow?: unknown; tenantError?: unknown;
 } = {}) {
   const ops: string[] = [];
+  const inserted: Record<string, unknown>[] = [];
   const from = (name: string) => {
     const chain: Record<string, unknown> = {};
     for (const m of ['select', 'eq', 'neq', 'order', 'limit']) chain[m] = () => chain;
-    chain['insert'] = () => { ops.push(`insert:${name}`); return chain; };
+    // The snapshot insert takes an ARRAY — one row per channel — so flatten rather than
+    // pushing the argument, or a payload check reads `undefined` and passes vacuously.
+    chain['insert'] = (row: Record<string, unknown> | Record<string, unknown>[]) => {
+      ops.push(`insert:${name}`);
+      inserted.push(...(Array.isArray(row) ? row : [row]));
+      return chain;
+    };
     chain['update'] = () => { ops.push(`update:${name}`); return chain; };
     // `??` would swallow an EXPLICIT null, which is precisely the case several of these
     // tests set up — "the row is absent" is a different fact from "the caller said
@@ -42,7 +49,7 @@ function stubDb(opts: {
     };
     return chain;
   };
-  return { ops, db: { from } as never };
+  return { ops, inserted, db: { from } as never };
 }
 
 const base = {
@@ -139,6 +146,38 @@ test('the live snapshot is read through the pointer', async () => {
   assert.equal(r.ok, true);
   assert.equal(r.ok && r.snapshot.revisionId, 'rev-1');
   assert.deepEqual(r.ok && r.snapshot.allowedNumbers, ['33,000']);
+});
+
+test('DONE-TEST: THE CANNED HASH IS WRITTEN ONTO THE SNAPSHOT THAT CARRIES THE SECTION', async () => {
+  // D-058. The prefix now contains the tenant's canned lines, so the snapshot has to carry
+  // their identity — otherwise a request has no way to tell whether the rows it reads are
+  // the rows the model was given, and the divergence is silent by construction.
+  const { inserted } = stubDb();
+  const s = stubDb();
+  await publishRevision(s.db, {
+    ...base,
+    snapshots: [{ channel: 'facebook_page', rendered: RENDERED, cannedHash: 'deadbeef' }],
+  });
+  assert.equal(s.inserted.find((r) => 'content_hash' in r)?.['canned_hash'], 'deadbeef');
+  assert.equal(inserted.length, 0);
+});
+
+test('a snapshot published without one writes NULL, not an empty string', async () => {
+  // Null is the marker for "this prefix predates D-058" and the reply path branches on it.
+  // '' would be a claim that the prefix contains a section whose body hashes to nothing.
+  const s = stubDb();
+  await publishRevision(s.db, base);
+  assert.equal(s.inserted.find((r) => 'content_hash' in r)?.['canned_hash'], null);
+});
+
+test('a snapshot row with no canned_hash loads as null, and one with a hash loads as the hash', async () => {
+  const older = await loadLiveSnapshot(stubDb().db, { tenantId: 't-1', channel: 'facebook_page' });
+  assert.equal(older.ok && older.snapshot.cannedHash, null);
+
+  const newer = await loadLiveSnapshot(stubDb({
+    snapshotRow: { content_hash: 'abc123', prompt_stable: 'p', allowed_numbers: [], canned_hash: 'f00d' },
+  }).db, { tenantId: 't-1', channel: 'facebook_page' });
+  assert.equal(newer.ok && newer.snapshot.cannedHash, 'f00d');
 });
 
 test('a tenant with no live revision REFUSES — there are no defaults to fall back to', async () => {

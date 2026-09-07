@@ -34,7 +34,13 @@ export type PublishOutcome =
   | { ok: true; revisionId: string }
   | { ok: false; code: 'publish_failed' | 'no_snapshot' | 'not_draft'; detail: string };
 
-export type SnapshotInput = { channel: string; rendered: Rendered; compiledBy?: string | null };
+export type SnapshotInput = {
+  channel: string;
+  rendered: Rendered;
+  /** D-058. The identity of the canned lines this prefix carries; null predates the column. */
+  cannedHash?: string | null;
+  compiledBy?: string | null;
+};
 
 /**
  * Publish a draft revision: insert its snapshots, mark it published, move the pointer,
@@ -76,6 +82,7 @@ export async function publishRevision(
       prompt_volatile: '',              // L4 is per-request and is never snapshotted.
       prompt_chars: s.rendered.promptChars,
       allowed_numbers: s.rendered.allowedNumbers,
+      canned_hash: s.cannedHash ?? null,
       compiled_at: input.now.toISOString(),
       compiled_by: s.compiledBy ?? null,
     })),
@@ -152,6 +159,8 @@ export type LiveSnapshot = {
   contentHash: string;
   promptStable: string;
   allowedNumbers: string[];
+  /** D-058. null means the snapshot predates the canned section moving into the prefix. */
+  cannedHash: string | null;
 };
 
 export type LoadOutcome =
@@ -186,7 +195,7 @@ export async function loadLiveSnapshot(
 
   const { data, error } = await db
     .from('config_snapshots')
-    .select('content_hash, prompt_stable, allowed_numbers')
+    .select('content_hash, prompt_stable, allowed_numbers, canned_hash')
     .eq('tenant_id', input.tenantId)
     .eq('revision_id', revisionId)
     .eq('channel', input.channel)
@@ -204,6 +213,12 @@ export async function loadLiveSnapshot(
       contentHash: String(row['content_hash']),
       promptStable: String(row['prompt_stable']),
       allowedNumbers: Array.isArray(allowed) ? allowed.map(String) : [],
+      // NULL is not "unknown", it is a FORMAT marker: this snapshot was published before
+      // the canned lines moved into the prefix (D-058), so its prefix does not contain
+      // them and the caller must still append them to the volatile tail. Treating it as a
+      // skipped check would be wrong in the other direction — the section would go missing
+      // entirely and the model would be told to reproduce sentences it cannot see.
+      cannedHash: typeof row['canned_hash'] === 'string' ? row['canned_hash'] : null,
     },
   };
 }

@@ -53,6 +53,7 @@
  */
 import type { PromptSection } from './render.ts';
 import { nfc } from '../mn/text.ts';
+import { cannedSectionBody } from '../gate/match.ts';
 
 /**
  * Every section heading this file can emit.
@@ -75,6 +76,13 @@ export const SECTION_LABELS = {
   faqs: 'ТҮГЭЭМЭЛ АСУУЛТ',
   contacts: 'ХОЛБОО БАРИХ',
   hours: 'БАЙГУУЛЛАГЫН АЖЛЫН ЦАГ',
+  /**
+   * The lines the model must reproduce letter for letter. Was a literal in
+   * `app/api/workers/reception/route.ts` while the section lived in the volatile tail; it
+   * is a compiled section now (D-058) and the heading is part of the cache key, so it
+   * belongs with the others rather than at a call site.
+   */
+  canned: 'БЭЛЭН ХАРИУЛТ',
 } as const;
 
 /**
@@ -134,6 +142,15 @@ export type TenantKb = {
   clarify: readonly { term: string; question: string }[];
   deposits: readonly string[];
   documents: readonly { title: string; body: string }[];
+  /**
+   * `canned_responses` for the tenant's default locale, rendered into the CACHED prefix
+   * rather than appended to the volatile tail on every request (D-058).
+   *
+   * The rows are still read at request time — the deterministic short-circuit answers from
+   * them — so the missing/unreviewed guard did not move: nulling `reviewed_at` still stops
+   * the sentence on the next reply, not at the next publish.
+   */
+  canned: readonly { kind: string; body: string }[];
   /**
    * `shortName` is what customers commonly call this person, when that differs from
    * `name`. It is an attribute of the person and NOT a resolver: a name matching neither
@@ -264,6 +281,13 @@ export function renderTenantSections(kb: TenantKb, approvedAt: string): PromptSe
 
   out.push(section('L2', 'deposit_rules', 3, SECTION_LABELS.deposits,
     kb.deposits.map((d) => `- ${d}`), approvedAt));
+
+  // The canned lines, in the cached prefix. `cannedSectionBody` renders the whole section
+  // including its own heading, and `section()` adds one too — so the body is passed as the
+  // lines and the label is stripped back off. Rendering it through the same function the
+  // request path uses is what makes the hash comparison meaningful.
+  out.push(section('L2', 'canned_responses', 4, SECTION_LABELS.canned,
+    cannedSectionBody(SECTION_LABELS.canned, kb.canned).split('\n').slice(1), approvedAt));
 
   // ---- L3: the knowledge base. Facts. ------------------------------------
   out.push(section('L3', 'kb_documents', 0, SECTION_LABELS.documents,

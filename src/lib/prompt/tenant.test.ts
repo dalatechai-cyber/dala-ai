@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { clockTime, formatMoney, hasTenantData, renderTenantSections, SECTION_LABELS, type TenantKb } from './tenant.ts';
+import { cannedSectionBody, renderCannedSection } from '../gate/match.ts';
 import { renderStablePrefix, type PromptSection } from './render.ts';
 import { extractNumerals, numeralsNotAllowed } from '../mn/extract.ts';
 
@@ -9,7 +10,7 @@ const APPROVED = '2026-09-04T00:00:00Z';
 
 const EMPTY: TenantKb = {
   currencySymbol: '₮', currencySymbolBefore: false,
-  refusalTopics: [], clarify: [], deposits: [], documents: [],
+  refusalTopics: [], clarify: [], deposits: [], documents: [], canned: [],
   staff: [], services: [], faqs: [], contacts: [], bookingUrl: null, hours: [],
 };
 
@@ -389,6 +390,45 @@ const HOURS: TenantKb['hours'] = [
   { weekday: 5, opens: '10:00:00', closes: '20:00:00', closed: false },
   { weekday: 6, opens: '10:00:00', closes: '20:00:00', closed: false },
 ];
+
+// ---------------------------------------------------------------------------
+// The canned lines, in the cached prefix (D-058).
+// ---------------------------------------------------------------------------
+
+const CANNED_ROWS = [
+  { kind: 'handoff', body: 'Манай ажилтан тантай холбогдоно.' },
+  { kind: 'refusal_health', body: 'Эмнэлгийн зөвлөгөө өгөх боломжгүй.' },
+];
+
+test('DONE-TEST: THE PUBLISH SIDE AND THE REQUEST SIDE RENDER THE SAME BYTES', () => {
+  // The section is now written twice — into the prefix at publish, and (for pre-D-058
+  // snapshots) into the volatile tail at request. One trailing space between the two and
+  // every reply on a republished tenant 503s with `canned_stale`, for no real reason, and
+  // the fix would look like "the guard is broken" rather than "the renderers drifted".
+  // They call the same function; this is the test that keeps it that way.
+  const section = renderTenantSections({ ...EMPTY, canned: CANNED_ROWS }, APPROVED)
+    .find((x) => x.key === 'canned_responses');
+  assert.equal(section?.body, cannedSectionBody(SECTION_LABELS.canned, CANNED_ROWS));
+  const live = renderCannedSection(SECTION_LABELS.canned,
+    CANNED_ROWS.map((r) => ({ ...r, reviewedAt: '2026-09-04T00:00:00Z' })), []);
+  assert.equal(live.ok && live.body, section?.body);
+});
+
+test('the canned section is sorted by kind, whatever order the rows arrive in', () => {
+  // The database promises no order, and an L2 that moves between publishes moves the
+  // cache key with it — the whole prefix re-paid at the write rate for nothing.
+  const forward = renderTenantSections({ ...EMPTY, canned: CANNED_ROWS }, APPROVED);
+  const reversed = renderTenantSections({ ...EMPTY, canned: [...CANNED_ROWS].reverse() }, APPROVED);
+  assert.equal(bodyOf(forward, 'canned_responses'), bodyOf(reversed, 'canned_responses'));
+  assert.equal(bodyOf(forward, 'canned_responses').split('\n')[1]?.startsWith('"handoff"'), true);
+});
+
+test('a tenant with no canned rows renders no canned section at all', () => {
+  // `section()` drops an empty one, and that is why `cannedHashOf` hashes the ROWS rather
+  // than the section as it landed: hashing the landed section would give '' at publish and
+  // a real hash at request, and every reply would report as stale for ever.
+  assert.equal(renderTenantSections(EMPTY, APPROVED).some((x) => x.key === 'canned_responses'), false);
+});
 
 const hoursBody = (kb: TenantKb): string | undefined =>
   renderTenantSections(kb, APPROVED).find((s) => s.key === 'business_hours')?.body;

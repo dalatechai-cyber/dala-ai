@@ -545,6 +545,41 @@ insert into _v select 'V32', 'tenants.timezone is NOT NULL — the spend day key
           and is_nullable = 'YES')
   ) q;
 
+-- V33 — the snapshot can say which canned lines its prefix contains. (D-058, 0024.)
+--
+-- Since the canned section moved into `prompt_stable`, the same sentence has two sources:
+-- this snapshot, which the model reads, and `canned_responses`, which the deterministic
+-- short-circuit answers from. `canned_hash` is what lets a request notice they have
+-- diverged and refuse, instead of answering one customer from each.
+--
+-- The column MUST STAY NULLABLE, and that is the interesting half of this check. Null is
+-- the marker for a prefix compiled before the move, and the reply path answers it by
+-- appending the section to the volatile tail as it always did. A NOT NULL here would be a
+-- claim that every published prefix contains the section — false for every row written
+-- before 0024, and unfixable, because `config_snapshots` is append-only by a trigger that
+-- binds `service_role` too. There is no UPDATE that could make the claim true.
+insert into _v select 'V33', 'config_snapshots.canned_hash exists and is nullable — null means the prefix predates D-058',
+  coalesce(string_agg(problem, '; '), 'correct'), count(*) = 0
+  from (
+    select 'config_snapshots.canned_hash is missing — a stale canned line could not be detected' as problem
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='config_snapshots' and column_name='canned_hash')
+    union all
+    select 'config_snapshots.canned_hash is NOT NULL — pre-D-058 snapshots cannot state a hash they do not have'
+     where exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='config_snapshots' and column_name='canned_hash'
+          and is_nullable = 'NO')
+    union all
+    -- Append-only is what makes the null honest rather than a gap somebody will "fix" with
+    -- an UPDATE. Asserted here so the two facts stay tied together.
+    select 'config_snapshots is no longer append-only — a backfilled canned_hash would misdescribe an old prefix'
+     where not exists (
+       select 1 from pg_trigger where tgrelid='public.config_snapshots'::regclass
+         and not tgisinternal and tgenabled = 'A')
+  ) q;
+
 -- V24 — the channel can say when it started expecting traffic. (0012.)
 --
 -- `went_live_at` is what the silence watchdog measures from when a channel has NEVER

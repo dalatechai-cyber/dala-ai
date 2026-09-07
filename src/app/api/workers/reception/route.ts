@@ -23,6 +23,7 @@ import { loadTenantSecret } from '@/lib/secrets/tenantSecret';
 import { sendCommentReply } from '@/lib/comments/send';
 import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
+import { SECTION_LABELS } from '@/lib/prompt/tenant';
 import { raiseAlert } from '@/lib/alerts/alert';
 import { runReceptionJob, type WorkerEffects } from '@/lib/worker/reception';
 
@@ -77,7 +78,8 @@ function effects(now: Date): WorkerEffects {
           historyState: { known: true, empty: a.historyEmpty },
           canned: a.ctx.canned,
           tenantGuard: a.ctx.tenantGuard,
-          cannedLabel: 'БЭЛЭН ХАРИУЛТ',
+          cannedLabel: SECTION_LABELS.canned,
+          cannedHash: a.ctx.cannedHash,
         },
       ),
 
