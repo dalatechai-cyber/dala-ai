@@ -178,10 +178,22 @@ function walk(dir: string, out: string[]): string[] {
   return out;
 }
 
+/**
+ * The roots whose PostgREST calls are checked.
+ *
+ * `scripts/publish/` is here and the rest of `scripts/` is not, deliberately. That command
+ * talks to the REAL project with real column names, so a select naming a column the database
+ * does not have fails at an operator's shell mid-publish — the same failure the runtime's
+ * checks exist to prevent, in the one other place that reaches production data. The verify
+ * and localvalidate scripts talk to a scratch cluster over psql and are not PostgREST at all.
+ */
+export const CHECKED_ROOTS = ['src', 'scripts/publish'] as const;
+
 /** Every `.from('table')…` chain in the tree, with whatever of it resolves statically. */
-export function chainsFromSource(root = 'src'): ChainUse[] {
+export function chainsFromSource(root: string | readonly string[] = CHECKED_ROOTS): ChainUse[] {
+  const roots = typeof root === 'string' ? [root] : root;
   const chains: ChainUse[] = [];
-  for (const file of walk(root, [])) {
+  for (const file of roots.flatMap((r) => (fs.existsSync(r) ? walk(r, []) : []))) {
     const text = fs.readFileSync(file, 'utf8');
     const re = /\.from\('([a-z_0-9]+)'\)/g;
     let m: RegExpExecArray | null;

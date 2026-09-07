@@ -69,6 +69,28 @@ export function supabasePrivacy(): SupabaseClient {
   return privacyClient;
 }
 
+/**
+ * For `scripts/publish/tenant.ts`, the operator command that compiles and publishes a
+ * tenant's configuration.
+ *
+ * **No deployed surface uses this key and none should.** Publishing is an operator action
+ * an owner takes from their own shell, not something a request can trigger — so the key is
+ * exported for one command and is absent from the Vercel environment entirely. It is listed
+ * in `.env.example` because the guard requires every name `src/` reads to be documented,
+ * and it is deliberately NOT in `scripts/preflight.ts`'s required set: a deploy must not
+ * fail for the want of a key no deployed code path reads.
+ *
+ * It is its own name rather than a reuse of the worker's for the reason at the top of this
+ * file — a leaked key is every tenant's data, and the only thing bounding the blast radius
+ * is being able to revoke exactly the surface that leaked. "The laptop I ran a publish from"
+ * is a different surface from "the queue worker".
+ */
+export function supabasePublish(): SupabaseClient {
+  // Not memoised: the command runs once and exits, and a module-scope client here would
+  // outlive nothing. The others are memoised because a warm lambda reuses them.
+  return serviceClient(required('SUPABASE_SECRET_PUBLISH'));
+}
+
 /** Test seam: drop memoised clients so a test can change the environment. */
 export function __resetClientsForTests(): void {
   webhookClient = undefined;

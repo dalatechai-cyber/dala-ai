@@ -2,6 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
 import { cannedHashOf } from '../prompt/sections.ts';
+import { renderStablePrefix } from '../prompt/render.ts';
+import { renderTenantSections } from '../prompt/tenant.ts';
+import { DAY_ONE_KB } from '../prompt/tenantKb.fixtures.ts';
 import { handleReception, type ReceptionDeps, type ReceptionInput } from './handle.ts';
 import type { CallOutcome } from '../model/reception.ts';
 import type { GateRule } from '../gate/match.ts';
@@ -178,6 +181,34 @@ test('an unreviewed row is caught BEFORE the staleness check, and by its own cod
 // ---------------------------------------------------------------------------
 // Three refusals that cost nothing, all before the call.
 // ---------------------------------------------------------------------------
+
+test('DONE-TEST: A DAY-ONE TENANT TAKES THE HANDOFF, THROUGH THE REAL COMPILER', async () => {
+  // The regression D-058 shipped and this file did not catch. Every fixture here is either
+  // a bare string or a fully provisioned prefix; the state in between — canned lines and no
+  // knowledge, which is every tenant on its first day — was described by nothing, so the
+  // change that made it look provisioned passed the whole suite.
+  //
+  // This compiles `DAY_ONE_KB` through `renderTenantSections` and `renderStablePrefix`
+  // rather than hand-writing a prefix, so it fails if the RENDERER starts emitting the data
+  // marker for a tenant that has only boilerplate — which is exactly how it broke.
+  // DAY_ONE_KB's SHAPE — canned lines and nothing else — carrying this file's own canned
+  // rows, so the gate's required kinds are still satisfied and the only thing under test is
+  // the day-one shape rather than which sentences it holds.
+  const kb = { ...DAY_ONE_KB, canned: base.canned.map((c) => ({ kind: c.kind, body: c.body })) };
+  const rendered = renderStablePrefix([
+    { layer: 'L0', key: 'gate', ordinal: 0, body: 'ЖАГСААЛТ', reviewedAt: REVIEWED, origin: 'platform' },
+    ...renderTenantSections(kb, REVIEWED),
+  ]);
+  assert.equal(rendered.ok, true);
+  const promptStable = rendered.ok ? rendered.rendered.promptStable : '';
+  assert.equal(promptStable.includes(SECTION_LABELS.canned), true, 'the canned lines belong in the prefix');
+
+  const { deps: d, calls } = deps();
+  const r = await handleReception(d, { ...base, promptStable, cannedHash: cannedHashOf(kb.canned) });
+  assert.equal(r.kind === 'drafted' && r.refusal, 'no_tenant_data');
+  assert.deepEqual(calls, ['release', 'flag:no_tenant_data', 'draft:canned']);
+  assert.equal(calls.includes('callModel'), false, 'the provider must not be reached');
+});
 
 test('a stale event is dropped without a call, and the hold goes back', async () => {
   const { deps: d, calls } = deps();
