@@ -2553,3 +2553,46 @@ than only asserting the behaviour: the behaviour is downstream of the constraint
 
 A redaction that ignores `tenants.message_retention_days` and uses a fixed floor fails
 **P16**, which holds a 10-day-old message against a 90-day retention.
+
+---
+
+## D-049 — `sent_at` is an instant, and it was recording an attempt
+
+**2026-09-07, found by reading the live project while answering a different question.**
+
+`buildDeliverDeps` takes one `now: Date`, captured when the QStash job starts, and
+`markSent` wrote it as `outbound_messages.sent_at`. Between that instant and the actual
+Graph call sit the history read, the model call, the outbound guard and the claim — so
+`sent_at` named a moment before the reply text existed.
+
+**Measured on both real sends this platform has made**, against the draft row's own
+`created_at`:
+
+| send | `sent_at` | `created_at` (draft inserted) | skew |
+|---|---|---|---|
+| event 8 | 00:31:59.812 | 00:32:10.974 | **11.2s early** |
+| the 19:12 send | 19:12:45.674 | 19:13:01.686 | **16.0s early** |
+
+`created_at` is the draft insert, which happens only once the model has produced the body.
+A `sent_at` earlier than that is not approximately right; it is describing a different
+event.
+
+### The fix, and why it is a parameter rather than an inline `new Date()`
+
+`clock?: () => Date`, defaulting to the real clock, read **at the moment of use**. Inline
+`new Date()` inside `markSent` would be equally correct and untestable, and this repository
+injects clocks everywhere for that reason. `now` stays for the things that genuinely
+describe the attempt rather than an instant inside it — `recordSecretOk`'s `last_ok_at` is
+about this delivery attempt, and moving it would be the same mistake in reverse.
+
+### Why fix it when nothing reads it
+
+Nothing does, today, which is the argument for fixing it now rather than the argument
+against. The mirror phase wants reply latency, and every such number would have been 11–16
+seconds short with nothing in the data to reveal it — a column that is wrong in a
+consistent direction is worse than one that is obviously broken. It is the same shape as
+D-044's `purge_after`: a field that looks authoritative and is not.
+
+Mutation-tested both ways: reverting to `now` fails all three checks, and capturing the
+clock once at build time — indistinguishable from the bug in any test that sends only once
+— fails the second.

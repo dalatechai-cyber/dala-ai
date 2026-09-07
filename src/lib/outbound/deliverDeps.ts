@@ -25,11 +25,27 @@ export type DeliverDepsInput = {
   channelId: string;
   outboundId: string;
   attempts: number;
+  /**
+   * The job's clock, for things that legitimately describe the job — `recordSecretOk`'s
+   * `last_ok_at`, which is about this attempt, not about a moment inside it.
+   */
   now: Date;
+  /**
+   * Read at the moment of use, NOT once at job start. `sent_at` is the one field here that
+   * names an instant rather than an attempt, and the two are far apart: measured on both
+   * real sends, the job clock precedes the draft row's own `created_at` by 11.2s and 16.0s,
+   * because the model call happens in between. So `sent_at` claimed the reply was sent
+   * before its text existed.
+   *
+   * Injected rather than called inline so a test can still pin it. Defaults to the real
+   * clock, which is what the route wants and what a caller forgetting it should get.
+   */
+  clock?: () => Date;
 };
 
 export function buildDeliverDeps(input: DeliverDepsInput): DeliverDeps {
   const { db, tenantId, channelId, outboundId, now } = input;
+  const clock = input.clock ?? (() => new Date());
   const ref: SecretRef = { tenantId, channelId, kind: 'page_token' };
   const scope = { id: outboundId, tenantId };
 
@@ -39,8 +55,10 @@ export function buildDeliverDeps(input: DeliverDepsInput): DeliverDeps {
     // The real `fetch`, and the token passed in by the caller rather than fetched here.
     send: (i) => sendMessage(i),
 
+    // `clock()`, not `now`: this runs AFTER the Graph call returned, and that is the
+    // instant `sent_at` claims to record.
     markSent: (providerMessageId) =>
-      markSent(db, { ...scope, providerMessageId, unitCost: MESSENGER_SEND_UNIT_COST, now }),
+      markSent(db, { ...scope, providerMessageId, unitCost: MESSENGER_SEND_UNIT_COST, now: clock() }),
 
     markFailed: (reason) => markFailed(db, { ...scope, attempts: input.attempts, reason }),
 
