@@ -362,7 +362,9 @@ test('TWO PEOPLE MAY SHARE A SHORT NAME, and the roster shows both in full', () 
   // asserts is that the roster still carries the information the ask needs: both full
   // names, visible, rather than one row winning and the other disappearing.
   //
-  // Оюунсүрэн is the real case — Matrix Eco Salon has nine staff and «Оюунаа» is the one
+  // Оюунсүрэн is a real case. Matrix has six ACTIVE stylists and five of them have a short
+  // name (D-047, 2026-09-07); the roster this comment first cited said one, and was stale.
+  // «Оюунаа» is still the one
   // short form among them. THE SECOND ROW IS INVENTED for this test: there is no
   // Оюунгэрэл on that roster, and nothing here should be read as saying there is. It is
   // named because a session mis-transcribed exactly this name once, and a plausible
