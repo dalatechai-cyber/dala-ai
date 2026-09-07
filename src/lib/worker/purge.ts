@@ -41,6 +41,8 @@ import { raiseAlert } from '../alerts/alert.ts';
 export type PurgeCounts = {
   payloads_purged: number;
   rows_deleted: number;
+  /** `messages.body` nulled past the tenant's own `message_retention_days` (`0021`). */
+  bodies_redacted: number;
   ceiling_hit: boolean;
   max_rows: number;
 };
@@ -89,6 +91,7 @@ export async function runPurgeJob(
   const counts: PurgeCounts = {
     payloads_purged: int(raw['payloads_purged']),
     rows_deleted: int(raw['rows_deleted']),
+    bodies_redacted: int(raw['bodies_redacted']),
     ceiling_hit: raw['ceiling_hit'] === true,
     max_rows: int(raw['max_rows']),
   };
@@ -105,8 +108,9 @@ export async function runPurgeJob(
       dedupKey: `purge_backlog:${dayKey}`,
       body:
         `The retention purge hit its per-run ceiling of ${counts.max_rows} rows `
-        + `(nulled ${counts.payloads_purged} payloads, deleted ${counts.rows_deleted} rows). `
-        + 'There is a backlog, so raw customer payloads are living past their retention.',
+        + `(nulled ${counts.payloads_purged} payloads, deleted ${counts.rows_deleted} rows, `
+        + `redacted ${counts.bodies_redacted} message bodies). `
+        + 'There is a backlog, so customer text is living past its retention.',
     });
   }
 

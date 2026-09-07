@@ -397,6 +397,8 @@ have hit a login wall.
 |---|---|---|
 | ~~5d~~ | ~~`supabase db push` for `0015`~~ | **Pushed and verified 2026-09-06.** Both wrappers exist in `public`, `reserve_spend` returns boolean, `settle_spend` returns void, ACLs are `postgres` and `service_role` only |
 | ~~5e~~ | ~~`supabase db push` for `0016`–`0018`~~ | **All applied.** The ledger reads eighteen rows, `0001`–`0018` (read back 2026-09-06). Nothing in `supabase/migrations/` is now unpushed |
+| 5f | **`supabase db push` for `0021`** | The messages half of retention (D-048). Nothing reads it until pushed; a no-op on today's data since nothing is 90 days old |
+| 5g | **Matrix's nine `canned_responses`** | **The one thing blocking generation.** Drafted and sent for review 2026-09-07, not inserted. `renderCannedSection` refuses on a missing OR unreviewed kind, so all nine need `reviewed_at` set together — and without `handoff` every refusal returns `retry` and the job loops for ever |
 | 8c | **One QStash schedule → `/api/workers/purge`**, nightly | The retention job (D-045). Needs `0020` pushed first. Same signing keys as 8b, so no new credential: a QStash schedule POSTing to `{WORKER_PUBLIC_URL}/api/workers/purge`. It reaches no provider and spends nothing, so `NOTHING SPENDS ON A SCHEDULE` is not engaged. Until it exists, `raw_payload` holds Matrix's customers' verbatim messages indefinitely |
 | ~~8b~~ | ~~One QStash schedule → `/api/workers/health`~~ | **Created and FIRING 2026-09-06, hourly.** Both alerts stamped 03:00:07/03:00:12 UTC and delivered; event `id 1` retired as `expired_unqueued`; `channel_health` upserted every run since (17:00:00 UTC at last read). One alert real, one a false alarm now fixed as a class (D-032) |
 

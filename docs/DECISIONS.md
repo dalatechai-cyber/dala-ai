@@ -2508,3 +2508,48 @@ no row makes `renderCannedSection` refuse and every reply 503. Tenant text there
 **Generation still cannot start.** Matrix has zero `canned_responses`, and the platform gate
 blocks name kinds the tenant must provision — including `handoff`, without which any refusal
 retries for ever. That is Stage 3, it is customer-visible Mongolian, and it is the founder's.
+
+---
+
+## D-048 — the messages half of retention, and why its row survives for a different reason
+
+**2026-09-07. `0021`, extending `ops.purge_expired`. Written and validated; NOT applied —
+the founder pushes it.**
+
+`0020` closed `webhook_events` and left `messages.body`, because the instruction named the
+`webhook_events` rows specifically. That was reported as a follow-up rather than quietly
+widened; this is the follow-up. It matters now because the data changed, not the design:
+Matrix's Page is provisioned and routing, so their customers' text lands in `messages` too.
+
+**Everything it needed already existed, and was designed for.** `messages.body_redacted_at`
+shipped in `0001`; `redacted_or_present` — `CHECK (body IS NOT NULL OR body_redacted_at IS
+NOT NULL)` — refuses a nulled body that does not say it was redacted; and `readHistory`
+already skips a redacted row, its own comment reading *"a retention purge must not put a
+blank turn in front of the model"*. Only the purge was missing.
+
+### The row survives, but not for `webhook_events`' reason
+
+D-045's floor is **idempotency**: a `webhook_events` row carries the dedup key that stops a
+Meta redelivery being answered twice, so deleting it re-opens double-answering a customer.
+A `messages` row carries no such guarantee. It survives because `revision_id`, `prompt_hash`
+and `answered_by` are how a reply is traced back to the config that produced it, and
+deleting would silently change historical counts — the "plausible answer" failure in a
+different costume. Same mechanism, two different arguments, and conflating them would make
+the next person think the 30-day figure and the 90-day figure are the same kind of number.
+
+### Three counts, kept disjoint
+
+`0021` preserves `0020`'s statement order (delete, then null payloads, then redact bodies)
+and adds `bodies_redacted` beside the other two rather than summing. A single total would
+hide which of the three stopped working — and D-045 already paid for the lesson that
+overlapping counts overstate a run.
+
+### Mutation-tested two ways, and one was caught by the database
+
+A redaction that clears `body` without setting `body_redacted_at` **cannot commit** —
+`redacted_or_present` refuses it. The pairing is structurally enforced rather than
+remembered by the function, which is why P17 asserts the constraint still exists rather
+than only asserting the behaviour: the behaviour is downstream of the constraint.
+
+A redaction that ignores `tenants.message_retention_days` and uses a fixed floor fails
+**P16**, which holds a 10-day-old message against a 90-day retention.
