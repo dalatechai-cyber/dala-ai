@@ -120,8 +120,13 @@ verified:
 **The send WORKS. It ran end to end on 2026-09-06 at 19:12:45 UTC** — draft → claim →
 decrypt → `POST /{page-id}/messages` → mark, with a real `provider_message_id`. Every
 earlier statement here that it had never sent anything is superseded. Tenant #0 is
-provisioned: nine founder-approved `canned_responses`, config revision `26814470-…`
-published (`content_hash 8b35d072…`, 9,265 chars, `allowed_numbers []`), the channel
+provisioned: nine founder-approved `canned_responses`, and **republished at seq 2 on
+2026-09-07 for D-058** — `content_hash f207a19c…`, 10,337 chars, `allowed_numbers []`, the
+canned section now in the cached prefix rather than the volatile tail. Its prefix carries
+exactly two headings, the gate preamble and «БЭЛЭН ХАРИУЛТ», and **no data marker**: canned
+lines are boilerplate, not a knowledge base, so `hasTenantData` is still false and the
+handoff line still comes before the provider call. Seq 1 (`8b35d072…`, 9,265 chars) is
+superseded and is the prefix D-033 was measured on. The channel is
 `active / live / active` with a sealed `page_token`. `tenants.status` stays `provisioning`
 because `active_requires_probe_run` wants a `probe_passed_at` that only a probe run sets,
 and the probe route is not built — **nothing on the reply path reads `tenants.status`**, so
@@ -415,7 +420,8 @@ each table independently — the last failure of this kind next door was partial
   (2026-09-07). `allowed_numbers` was `[]` for every tenant, and "a bot with no approved
   prices cannot emit a price" was true for the trivial reason that it could emit no numeral
   at all. Matrix's Stage 4 knowledge base ended that. As published on 2026-09-07 (revision
-  seq 2, `content_hash f68b8f53…`, 12,239 chars) it compiles to **twelve** tokens —
+  seq 3, `content_hash 52426e45…`, 13,745 chars — seq 2 was `f68b8f53…` at 12,239 chars
+  before D-058 moved the canned lines into the prefix) it compiles to **twelve** tokens —
   `1, 10:00, 11:00, 19:00, 20:00, 3, 3-5, 30, 4-5, 50, 70, 7741-7777` — the percentages,
   session counts, opening hours and phone number. It briefly read fourteen: `9` and `20`
   came from a promotion end date that has since been removed (D-055), and the four clock
