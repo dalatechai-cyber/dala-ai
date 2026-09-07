@@ -120,8 +120,13 @@ verified:
 **The send WORKS. It ran end to end on 2026-09-06 at 19:12:45 UTC** — draft → claim →
 decrypt → `POST /{page-id}/messages` → mark, with a real `provider_message_id`. Every
 earlier statement here that it had never sent anything is superseded. Tenant #0 is
-provisioned: nine founder-approved `canned_responses`, config revision `26814470-…`
-published (`content_hash 8b35d072…`, 9,265 chars, `allowed_numbers []`), the channel
+provisioned: nine founder-approved `canned_responses`, and **republished at seq 2 on
+2026-09-07 for D-058** — `content_hash f207a19c…`, 10,337 chars, `allowed_numbers []`, the
+canned section now in the cached prefix rather than the volatile tail. Its prefix carries
+exactly two headings, the gate preamble and «БЭЛЭН ХАРИУЛТ», and **no data marker**: canned
+lines are boilerplate, not a knowledge base, so `hasTenantData` is still false and the
+handoff line still comes before the provider call. Seq 1 (`8b35d072…`, 9,265 chars) is
+superseded and is the prefix D-033 was measured on. The channel is
 `active / live / active` with a sealed `page_token`. `tenants.status` stays `provisioning`
 because `active_requires_probe_run` wants a `probe_passed_at` that only a probe run sets,
 and the probe route is not built — **nothing on the reply path reads `tenants.status`**, so
@@ -309,6 +314,21 @@ part it managed.** Undetermined is a result. The same read also swallowed keys a
 share one walker (`scripts/verify/querysites.ts`); if you touch it, keep the rule that a
 truncated object returns `null`.
 
+**A column added in an unpushed migration is red in production and green in CI, every
+time** (2026-09-07, D-058). The reply path gained `.select('… canned_hash')`; the migration
+adding that column had not been pushed. CI applies every migration in `supabase/migrations/`
+before it runs, so the column is always present there — the whole suite, the transport check
+included, was structurally incapable of seeing it. Against the project PostgREST answers the
+select with a 400 and `loadLiveSnapshot` refuses, so **every reply for every tenant would
+have 503'd** from the deploy until the push.
+
+This is not D-029's third bug (a name resolved against the wrong schema, which CI can and
+now does catch). It is the asymmetry underneath rule 4 stated forwards: a migration file in
+the repo is not a migration applied to the database, and CI is built out of the repo. So
+**before merging anything that reads or writes a column a pending migration adds, read the
+ledger** — `supabase_migrations.schema_migrations` — and merge only after the push. Green
+CI is evidence about the repo, not about the project.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale
@@ -400,7 +420,8 @@ each table independently — the last failure of this kind next door was partial
   (2026-09-07). `allowed_numbers` was `[]` for every tenant, and "a bot with no approved
   prices cannot emit a price" was true for the trivial reason that it could emit no numeral
   at all. Matrix's Stage 4 knowledge base ended that. As published on 2026-09-07 (revision
-  seq 2, `content_hash f68b8f53…`, 12,239 chars) it compiles to **twelve** tokens —
+  seq 3, `content_hash 52426e45…`, 13,745 chars — seq 2 was `f68b8f53…` at 12,239 chars
+  before D-058 moved the canned lines into the prefix) it compiles to **twelve** tokens —
   `1, 10:00, 11:00, 19:00, 20:00, 3, 3-5, 30, 4-5, 50, 70, 7741-7777` — the percentages,
   session counts, opening hours and phone number. It briefly read fourteen: `9` and `20`
   came from a promotion end date that has since been removed (D-055), and the four clock

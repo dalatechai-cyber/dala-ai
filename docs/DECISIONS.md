@@ -3268,3 +3268,93 @@ says so.
 republishing afterwards** — the prefix gains a section, so `content_hash` changes for both.
 Until that republish they stay on the null-hash path, which is the pre-D-058 behaviour and
 costs exactly what it costs today.
+
+### D-058 addendum — the canned lines nearly disarmed D-033
+
+Found on 2026-09-07 while preparing the republish, before either tenant was republished.
+
+`renderTenantSections` returns `[]` for a tenant with no rows, which is what makes
+`hasTenantData` false and what makes `handleReception` take the handoff line before the
+provider call (D-033). Moving the canned lines into the prefix gave every tenant a rendered
+section, so `sections.length === 0` stopped being reachable: the data marker became
+unconditional and the guard became dead code.
+
+**Canned responses are refusal boilerplate, not a knowledge base.** Every one of Ш0 to Ш9
+ends "write the such-and-such line from «БЭЛЭН ХАРИУЛТ»", so a tenant has them from the day
+it is provisioned — which is precisely the state D-033's guard exists for. Counting them as
+data would have disarmed it for client #3 on day one, not just for tenant #0.
+
+Measured rather than reasoned: tenant #0 today is nine canned rows and nothing else, and its
+live prefix is the twelve gate blocks with no marker. Its next publish would have emitted the
+marker, flipped `hasTenantData` to true, and put it back to answering a customer as a beauty
+salon — D-033 restored by a change about prompt caching, and visible only on republish.
+
+The fix is one filter: the marker is decided on the non-canned sections. The canned section
+still renders, because it is machinery the gate points at by name and a tenant that ever does
+reach the model should have the sentences it is told to reproduce.
+
+Two things are worth carrying forward from how this was found. It was not found by a test —
+it was found by reading tenant #0's live prefix and noticing it had exactly one section
+header. And the guard it broke was the mitigation for the worst thing this platform has
+done, weakened by a change whose subject was cost.
+
+### D-058 — the republish, as performed
+
+Both tenants were republished on 2026-09-07, after `0024` was pushed and after the addendum
+above was fixed.
+
+| | tenant #0 `dalatech` | Matrix `matrix-eco-salon` |
+|---|---|---|
+| revision | seq 1 → **seq 2** | seq 2 → **seq 3** |
+| `prompt_chars` | 9,265 → **10,337** | 12,239 → **13,745** |
+| `content_hash` | `8b35d072…` → **`f207a19c…`** | `f68b8f53…` → **`52426e45…`** |
+| `canned_hash` | null → **`682604d3…`** | null → **`eb27de84…`** |
+| canned rows | 9, 1,070 chars | 11, 1,504 chars |
+| `allowed_numbers` | `[]`, unchanged | twelve tokens, unchanged |
+| data marker | absent, and must stay absent | present, and must stay present |
+
+Both character counts are the old prefix plus a blank-line separator plus the canned block,
+to the character. `allowed_numbers` is unchanged for both because tenant #0's canned lines
+carry no numeral at all and Matrix's carry only `7741-7777`, which the founder had already
+approved — checked with the real `extractNumerals`, not by eye.
+
+**How it was done, and why not with the compiler.** `compileAndPublish` needs a service-role
+key this environment does not have and must never ask for. The alternative used before (D-051)
+is to derive the new prefix ON the project from the stored one, so the 12,239 Mongolian
+characters that are not changing are never retyped. The canned block was rebuilt in SQL from
+`canned_responses` — `string_agg(… order by kind collate "C")`, C so the sort is by code point
+and agrees with JavaScript (D-026) — and spliced in at one place.
+
+Four things made that safe, and they are the reusable part:
+
+1. **The block's bytes were checked against the compiler.** The SQL-built section and
+   `cannedSectionBody` in TypeScript produce the same sha256 — two implementations, same
+   bytes. The transcription used to check this was wrong on the first attempt (one dropped
+   space, 1,503 chars against 1,504) and the hash caught it immediately.
+2. **The splice was checked by its exact inverse.** `replace(new, block, '') = old` fails if
+   anything else moved.
+3. **The position is a property of the compiler, not of one tenant.** The canned section is
+   L2/4, so it sorts after every other L2 and before every L3; `tenant.test.ts` pins that,
+   because a spliced prefix and a recompiled one must agree byte for byte.
+4. **The invariants were asserted after the write, inside the same transaction.** Stored
+   prefix re-hashes to `content_hash`; the canned section is in the prefix and named by
+   `canned_hash`, or in neither; the live revision has a snapshot on the tenant's own
+   channel; and the data marker is absent for tenant #0 and present for Matrix.
+
+Afterwards: one published revision per tenant, both live, no leftover drafts, every older
+revision superseded with its `published_at` intact.
+
+**One trap in this route, checked and recorded rather than left latent.** `cannedSectionBody`
+trims each row with JavaScript's `String.prototype.trim()`, which strips every Unicode
+whitespace character; the SQL used `btrim()`, which strips only U+0020. A canned body with a
+trailing tab or newline would therefore hash one way at publish and the other way at request,
+and **every reply would 503 with `canned_stale`** — a total outage produced by a guard working
+exactly as designed, on a difference nobody would look for.
+
+Measured before relying on it: no canned row on either tenant carries leading or trailing
+whitespace of any kind, so the two trims cannot disagree today. The next hand-written publish
+must either re-check that, or trim with `regexp_replace(body, '^\s+|\s+$', '', 'g')` rather
+than `btrim`. The real answer is that a publish should go through `compileAndPublish`, which
+uses the same `.trim()` as the request path; this route exists only because that needs a
+service-role key this environment does not have.
+

@@ -356,7 +356,31 @@ export function renderTenantSections(kb: TenantKb, approvedAt: string): PromptSe
     ], approvedAt));
 
   const sections = out.filter((s): s is PromptSection => s !== null);
-  if (sections.length === 0) return [];
+
+  /**
+   * THE CANNED LINES DO NOT COUNT AS TENANT DATA, and this is load-bearing (D-058).
+   *
+   * D-033's guard is `hasTenantData`, which reads the marker below: a tenant with no rows
+   * of its own gets the gate and nothing else, and `handleReception` takes the handoff line
+   * before the provider call rather than letting a salon-flavoured gate invent a business.
+   *
+   * Moving the canned lines into the prefix nearly disarmed that. Canned responses are
+   * REFUSAL BOILERPLATE the gate itself references by name — every one of Ш0 to Ш9 ends
+   * "write the such-and-such line from «БЭЛЭН ХАРИУЛТ»" — so every tenant has them from
+   * the day it is provisioned, including one with no knowledge base at all. Counting them
+   * as data makes the marker unconditional and the guard dead for exactly the tenant it
+   * was written for.
+   *
+   * Measured, not reasoned: tenant #0 today is nine canned rows and nothing else, and its
+   * live prefix is the twelve gate blocks with no marker. Without this filter its next
+   * publish emits the marker, `hasTenantData` flips true, and it answers as a beauty salon
+   * again — D-033 restored by a change about prompt caching, visible only on republish.
+   *
+   * The section still renders. It is machinery the gate points at, and a tenant that ever
+   * does reach the model should have the sentences it is told to reproduce.
+   */
+  const knowledge = sections.filter((s) => s.key !== 'canned_responses');
+  if (knowledge.length === 0) return sections;
 
   // The marker goes first, and ONLY when there is something behind it.
   //

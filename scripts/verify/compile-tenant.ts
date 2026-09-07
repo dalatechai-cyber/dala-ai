@@ -35,6 +35,9 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { compileStablePrefix } from '../../src/lib/prompt/sections.ts';
+import { SECTION_LABELS } from '../../src/lib/prompt/tenant.ts';
+
+const CANNED_HEADING = SECTION_LABELS.canned;
 
 const DB = process.env['PGDATABASE'] ?? 'dala_validate';
 const SLUG = process.argv[2] ?? 'matrix-eco-salon';
@@ -140,6 +143,7 @@ console.log(`sections      ${out.sectionCount}`);
 console.log(`prompt chars  ${rendered.promptChars}`);
 console.log(`content_hash  ${rendered.contentHash}`);
 console.log(`allowed_numbers  [${rendered.allowedNumbers.join(', ')}]`);
+console.log(`canned_hash   ${out.cannedHash}`);
 console.log(`order         ${rendered.order.join(' → ')}`);
 if (out.unconfirmed.faqsExcluded.length > 0) console.log(`EXCLUDED faqs ${out.unconfirmed.faqsExcluded.join(', ')}`);
 if (out.unconfirmed.refusalTopicsUnconfirmed.length > 0) console.log(`UNCONFIRMED topics ${out.unconfirmed.refusalTopicsUnconfirmed.join(', ')}`);
@@ -189,11 +193,16 @@ from tenants t where t.slug = ${q(SLUG)}
 -- 1. THE INSERT. Immutable, one row per channel.
 insert into config_snapshots
   (tenant_id, revision_id, channel, content_hash, prompt_stable, prompt_volatile,
-   prompt_chars, allowed_numbers, compiled_at, compiled_by)
+   prompt_chars, allowed_numbers, canned_hash, compiled_at, compiled_by)
 select r.tenant_id, r.id, tc.provider, ${q(rendered.contentHash)}, ${q(rendered.promptStable)}, '',
        -- compiled_by is a uuid FK to platform_admins, not a label. That table is empty,
        -- so it is null, which is the value publishRevision passes when nobody is named.
-       ${rendered.promptChars}, array[${nums}]::text[], now(), null
+       -- D-058. NOT NULL HERE, and the distinction is the whole mechanism: null means "this
+       -- prefix predates the canned section moving into it", and the reply path answers a
+       -- null by appending the section to the volatile tail. Emitting a prefix that DOES
+       -- contain the section while recording null would send those lines twice on every
+       -- reply — more expensive than before the change, and silently so.
+       ${rendered.promptChars}, array[${nums}]::text[], ${q(out.cannedHash)}, now(), null
 from config_revisions r
 join tenants t on t.id = r.tenant_id
 -- THE CHANNEL IS THE TENANT'S OWN, never a literal. Written 'messenger' by hand once, and
@@ -238,6 +247,14 @@ begin
       join config_snapshots s on s.revision_id = t.live_revision_id and s.channel = tc.provider
      where t.slug = ${q(SLUG)} and s.content_hash = ${q(rendered.contentHash)}) then
     raise exception 'publish: the live revision has no snapshot on the tenant''s own channel';
+  end if;
+  -- The canned section is either IN the prefix and named by canned_hash, or in neither.
+  -- One without the other is the duplicate-send bug above, or a guard that cannot fire.
+  if exists (
+    select 1 from config_snapshots s join tenants t on t.id = s.tenant_id
+     where t.slug = ${q(SLUG)} and s.revision_id = t.live_revision_id
+       and (s.prompt_stable like '%' || ${q(`=== ${CANNED_HEADING} ===`)} || '%') <> (s.canned_hash is not null)) then
+    raise exception 'publish: the canned section and canned_hash disagree about each other';
   end if;
 end $$;
 
