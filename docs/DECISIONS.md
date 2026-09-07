@@ -2396,8 +2396,15 @@ wrong thing and passed; the second caught it.
 `scripts/provision/matrix-stage4-kb.sql`, applied to the project.**
 
 Nine `staff_members`, eight `services`, seven `knowledge_documents`, one `contact_points`,
-one `out_of_scope_topics`. `hasTenantData` is now **true** for Matrix, so the D-033 guard
-that takes the handoff line before the provider call no longer fires for them.
+one `out_of_scope_topics`.
+
+**Precisely what that does and does not mean.** Rendering these exact rows through
+`renderTenantSections` produces five sections and `hasTenantData` returns **true** — so the
+D-033 guard that takes the handoff line before the provider call will not fire for Matrix
+once their config is compiled. It has **not** been compiled: `config_revisions` for this
+tenant is zero rows and `live_revision_id` is null, so at runtime nothing reads any of this
+yet. Rows existing is not the work being done — the distinction this repository has now paid
+for three times (D-028, D-029, D-044) — and the compile is a later step, after Stage 3.
 
 ### Four corrections, each overturning something this repository had written down
 
