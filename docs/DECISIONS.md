@@ -2959,3 +2959,56 @@ eight-hour window where the two diverge.
 
 Unreachable — the column is NOT NULL — in exactly the way a default is unreachable right up
 until a `select` changes. It now refuses with `tenant_timezone_missing`.
+
+---
+
+## D-054 — the FX rate is a Mongolian day, so it is looked up on one
+
+**2026-09-07, approved by the founder** ("fix it with PLATFORM_TIMEZONE as its own change"),
+kept separate from D-053 because it moves what a settle **records**.
+
+`settle.ts`'s `currentFx` asked for the newest rate with
+`effective_from <= now.toISOString().slice(0, 10)`. `fx_rates.effective_from` is a bare
+`date` with no zone and the rate it carries is ₮ per $ — a Mongolian fact about a Mongolian
+day. Asked for by the UTC date, a rate published for a given date was **eight hours late**:
+from 00:00 to 08:00 in Ulaanbaatar the UTC date is still yesterday, so the previous rate was
+snapshotted onto every ledger row written in that window.
+
+The **platform's** calendar, not the tenant's, unlike the counters D-053 moved. A USD→MNT
+rate is one fact about one currency pair on one day; a tenant does not have a version of it,
+and two tenants settling in the same second must snapshot the same number.
+
+### What it changes for existing rows: nothing, twice over
+
+Measured on the project before applying:
+
+- **`fx_rates` holds exactly one row** — `USD, effective_from 2026-01-01, 3500.0000,
+  source planning_assumption`. Every date in 2026 selects it, so both conventions return
+  3500 and always have.
+- **Both `spend_ledger` rows are inside the divergence window**, which is the part worth
+  saying plainly rather than glossing: ids 4 and 5 were settled at `18:57:16Z` and
+  `19:13:00Z` on 2026-09-06 — 02:57 and 03:13 on the **7th** in Ulaanbaatar. The old rule
+  asked for `2026-09-06` and the new one asks for `2026-09-07`. They are unaffected because
+  the rate table has one row from January, **not** because the two dates agree. `cost_mnt`
+  stays ₮56.34 and ₮55.50, `fx_mnt_per_usd` stays 3500.
+- **And they could not have changed anyway.** `spend_ledger` is append-only by statement
+  triggers created `ENABLE ALWAYS`, so they bind `service_role` too. Nothing here restates
+  history; this only changes what a future settle writes.
+
+The exposure begins the moment a **second** `fx_rates` row exists. Until then the fix is
+free, which is the argument for doing it now rather than the day the first real rate lands.
+
+### Not a ceiling
+
+Every ceiling is in nanoUSD and never reads this figure. `fx_mnt_per_usd` and `cost_mnt` are
+the columns D-004's margin is checked against after the fact — which is exactly why being
+eight hours stale mattered: a wrong ₮ figure is invisible in operation and only shows up as
+a margin that will not reconcile.
+
+### `settle.ts` had no test file until now
+
+It computes what the ledger records and nothing tested it directly. `settle.test.ts` records
+the query FILTERS rather than only the rows returned, because the thing under test is a query
+parameter — a stub that only answers rows passes under either convention. Four tests: the FX
+date, the ₮ snapshot, the refusal when no rate exists, and that the settle addresses the same
+counters the reservation charged.

@@ -13,6 +13,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fromDb, toDb, type NanoUsd } from '../money.ts';
 import { dayTargets, type Reservation, type Surface } from './reserve.ts';
+import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
+import { tenantClock } from '../time/clock.ts';
 
 /** Exactly the `usage` block Anthropic returns. Nothing estimated. */
 export type Usage = {
@@ -69,12 +71,29 @@ export async function priceCall(
   }
 }
 
+/**
+ * Today's ₮/$ rate, on the PLATFORM's calendar.
+ *
+ * `fx_rates.effective_from` is a bare `date` with no zone, and the rate it carries is a
+ * Mongolian one — so the day it starts is a day in Ulaanbaatar, not in UTC. Asking for it
+ * by `now.toISOString().slice(0, 10)` made a rate published for a given date arrive
+ * **eight hours late**: from 00:00 to 08:00 local, the UTC date is still yesterday, so the
+ * previous rate was snapshotted onto the ledger.
+ *
+ * The platform's calendar rather than the tenant's, unlike the counters in `periods.ts`: a
+ * USD→MNT rate is one fact about one currency pair on one day, not something a tenant has
+ * a version of. Two tenants settling the same second must snapshot the same number.
+ *
+ * This moves what a settle RECORDS, never what it may spend — the ceilings are nanoUSD and
+ * never see this figure. It is `fx_mnt_per_usd` and `cost_mnt`, the columns D-004's margin
+ * is checked against after the fact, which is exactly why being eight hours stale mattered.
+ */
 async function currentFx(db: SupabaseClient, now: Date): Promise<number | null> {
   const { data, error } = await db
     .from('fx_rates')
     .select('mnt_per_unit')
     .eq('currency', 'USD')
-    .lte('effective_from', now.toISOString().slice(0, 10))
+    .lte('effective_from', tenantClock(now, PLATFORM_TIMEZONE).date)
     .order('effective_from', { ascending: false })
     .limit(1)
     .maybeSingle();
