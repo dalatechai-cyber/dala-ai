@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileAndPublish, compileStablePrefix, loadPromptSections } from './sections.ts';
+import { cannedHashOf, compileAndPublish, compileStablePrefix, loadPromptSections } from './sections.ts';
 import { renderStablePrefix, type PromptSection } from './render.ts';
 
 const TENANT = '11111111-0000-4000-8000-000000000001';
@@ -465,6 +465,62 @@ test('DONE-TEST: the chain closes — signed blocks become a published snapshot'
   const order = writes.map((w) => `${w.table}.${w.op}`);
   assert.equal(order[0], 'config_snapshots.insert');
   assert.equal(order[order.length - 1], 'tenants.update');
+});
+
+test('DONE-TEST: THE CANNED LINES ARE IN THE PREFIX, AND THE SNAPSHOT SAYS WHICH ONES', async () => {
+  // D-058, end to end: the rows are read, rendered into `prompt_stable`, and their identity
+  // recorded on the snapshot. The hash is the half that makes the move safe — without it a
+  // tenant edit after publish leaves the model and the deterministic short-circuit quoting
+  // two different sentences with nothing able to notice.
+  const rows = [
+    { kind: 'handoff', body: 'Манай ажилтан тантай холбогдоно.', locale: 'mn' },
+    { kind: 'refusal_health', body: 'Эмнэлгийн зөвлөгөө өгөх боломжгүй.', locale: 'mn' },
+    // Another locale's copy of the same kind. `reception/load.ts` filters these out in SQL;
+    // if this side kept them the two would render different sections for ever and every
+    // reply would 503 — the failure mode of a guard whose two inputs are gathered
+    // differently, which is why the locale filter is asserted here rather than assumed.
+    { kind: 'handoff', body: 'Our staff will contact you.', locale: 'en' },
+  ];
+  const { db, writes } = chainDb({
+    prompt_blocks: { data: [block({ block_key: '00_gate_preamble', ordinal: 0, body: 'ЖАГСААЛТ' })], error: null },
+    tenants: { data: { currency_symbol: '₮', currency_symbol_before: false, default_locale: 'mn' }, error: null },
+    canned_responses: { data: rows, error: null },
+  });
+
+  const out = await compileAndPublish(db, {
+    tenantId: TENANT, revisionId: 'rev-1', channels: ['messenger'],
+    now: new Date('2026-09-04T12:00:00Z'),
+  });
+  assert.equal(out.ok, true);
+
+  const snap = writes.find((w) => w.table === 'config_snapshots')?.patch[0];
+  const prefix = String(snap?.['prompt_stable']);
+  assert.equal(prefix.includes('=== БЭЛЭН ХАРИУЛТ ==='), true, 'the section is not in the cached prefix');
+  assert.equal(prefix.includes('"handoff": Манай ажилтан тантай холбогдоно.'), true);
+  assert.equal(prefix.includes('Our staff will contact you.'), false, 'another locale leaked into the prefix');
+
+  // The recorded hash is over the tenant's own locale rows only, and it is what a request
+  // recomputes. Comparing against the function rather than a literal keeps this a statement
+  // about agreement rather than about a particular digest.
+  assert.equal(snap?.['canned_hash'], cannedHashOf([
+    { kind: 'handoff', body: 'Манай ажилтан тантай холбогдоно.' },
+    { kind: 'refusal_health', body: 'Эмнэлгийн зөвлөгөө өгөх боломжгүй.' },
+  ]));
+});
+
+test('a tenant with no canned rows publishes a null hash, and agrees with itself', async () => {
+  // The empty case is the one that would 503 every reply if the hash were taken over the
+  // section as it landed: `section()` drops an empty section, so the prefix would say ''
+  // and the request would say sha256('=== БЭЛЭН ХАРИУЛТ ===\n').
+  const { db, writes } = chainDb({
+    prompt_blocks: { data: [block({ block_key: '00_gate_preamble', ordinal: 0, body: 'ЖАГСААЛТ' })], error: null },
+  });
+  await compileAndPublish(db, {
+    tenantId: TENANT, revisionId: 'rev-1', channels: ['messenger'],
+    now: new Date('2026-09-04T12:00:00Z'),
+  });
+  const snap = writes.find((w) => w.table === 'config_snapshots')?.patch[0];
+  assert.equal(snap?.['canned_hash'], cannedHashOf([]));
 });
 
 test('a compile that refuses never reaches the publisher', async () => {

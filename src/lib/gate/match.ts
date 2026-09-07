@@ -229,11 +229,32 @@ export function renderCannedSection(
   const unreviewed = rows.filter((r) => r.reviewedAt === null).map((r) => r.kind);
   if (unreviewed.length > 0) return { ok: false, code: 'canned_response_unreviewed', kinds: unreviewed.sort() };
 
-  // Sorted by kind so the section is byte-stable for a given set of rows — the database
-  // makes no ordering promise, and an unstable L2 moves the cache key on every deploy.
+  return { ok: true, body: cannedSectionBody(label, rows), kinds: cannedKinds(rows) };
+}
+
+/** The rows, sorted by kind — the order the section is rendered in, on both sides. */
+function cannedKinds(rows: readonly CannedRow[]): string[] {
+  return [...rows].map((r) => r.kind).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+/**
+ * The canned section's TEXT, with no checking of any kind.
+ *
+ * Split out because the same bytes are now produced in two places: at publish time, where
+ * the section is rendered into the compiled prefix (D-058), and at request time, where it
+ * is hashed and compared against the published copy. Two renderers would drift, and the
+ * whole point of the comparison is that a difference means the rows changed — not that the
+ * two code paths disagree about a trailing space.
+ *
+ * Sorted by kind so the section is byte-stable for a given set of rows — the database makes
+ * no ordering promise, and an unstable L2 moves the cache key on every deploy. In JavaScript
+ * by code point, never by the database's collation (D-026); a canned `kind` is ASCII
+ * lower_snake, so the two agree today, and relying on that would be relying on an accident.
+ */
+export function cannedSectionBody(label: string, rows: readonly { kind: string; body: string }[]): string {
   const ordered = [...rows].sort((a, b) => (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
   const lines = ordered.map((r) => `"${r.kind}": ${r.body.trim()}`);
-  return { ok: true, body: `=== ${label} ===\n${lines.join('\n')}`, kinds: ordered.map((r) => r.kind) };
+  return `=== ${label} ===\n${lines.join('\n')}`;
 }
 
 /**

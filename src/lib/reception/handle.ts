@@ -27,6 +27,7 @@ import type { CallOutcome, ReceptionRequest, TerminalReason } from '../model/rec
 import { isStale } from '../model/reception.ts';
 import type { Usage } from '../spend/settle.ts';
 import { kindsRequiredByRules, kindsReferencedBy, matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
+import { cannedHashOf } from '../prompt/sections.ts';
 import { matchDeterministic, type DeterministicRule, type HistoryState } from '../gate/deterministic.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
@@ -85,6 +86,16 @@ export type ReceptionInput = {
   tenantGuard: TenantGuardView;
   /** Label for the pinned-line section the gate's blocks point into. */
   cannedLabel: string;
+  /**
+   * The canned-line identity recorded on the published snapshot (D-058).
+   *
+   * A string means the prefix ALREADY CARRIES the canned section, so it must not be
+   * appended again — and the live rows must still render to this hash, or the model would
+   * be quoting one version while the deterministic short-circuit answers from another.
+   * `null` means the snapshot predates the move and the section still belongs in the
+   * volatile tail. Not a skipped check: a format marker with two correct branches.
+   */
+  cannedHash: string | null;
 };
 
 export type ReceptionOutcome =
@@ -185,6 +196,24 @@ export async function handleReception(
     return { kind: 'retry', detail: `${section.code}: ${section.kinds.join(', ')}` };
   }
 
+  // THE ROWS AND THE PREFIX MUST BE THE SAME TEXT (D-058).
+  //
+  // Since the canned lines moved into the compiled prefix, the same sentence has two
+  // sources: the published snapshot, which is what the model reads, and the live rows,
+  // which is what the deterministic short-circuit answers from. Edit a row without
+  // republishing and one customer gets the new line from the gate while the next gets the
+  // old one from the model — D-039's shape, two sources of one fact, and nothing in the
+  // data would say which was which.
+  //
+  // So a divergence is a 503. QStash holds the message, the operator republishes, the
+  // reply goes out. That is strictly better than answering from either copy: choosing the
+  // rows means the model is told to reproduce a sentence its prefix does not contain, and
+  // choosing the prefix means an edit an operator has already made is silently ignored.
+  if (input.cannedHash !== null && cannedHashOf(input.canned) !== input.cannedHash) {
+    await deps.release();
+    return { kind: 'retry', detail: 'canned_stale: the canned lines have changed since this configuration was published' };
+  }
+
   // 4. §6.8's pre-model layer: a greeting or an address question answered from a row, in
   //    ~200ms instead of ~3s, for ₮0. §6.3.8 prices what this absorbs at ₮26,300 per
   //    tenant-month, which is the largest single saving in the design.
@@ -273,7 +302,12 @@ export async function handleReception(
   const result = await deps.callModel({
     modelId: input.modelId,
     promptStable: input.promptStable,
-    promptVolatile: `${input.promptVolatile}\n${section.body}`.trim(),
+    // The canned section is in the CACHED prefix now (D-058) unless this snapshot predates
+    // the move, in which case it is still appended here. ~1,000 tokens per reply that used
+    // to be paid at full input rate for text that only changes at publish.
+    promptVolatile: input.cannedHash === null
+      ? `${input.promptVolatile}\n${section.body}`.trim()
+      : input.promptVolatile,
     cacheMode: input.cacheMode,
     history: input.history,
     customerMessage: input.customerMessage,

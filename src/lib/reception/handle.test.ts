@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
+import { cannedHashOf } from '../prompt/sections.ts';
 import { handleReception, type ReceptionDeps, type ReceptionInput } from './handle.ts';
 import type { CallOutcome } from '../model/reception.ts';
 import type { GateRule } from '../gate/match.ts';
@@ -88,6 +89,9 @@ const base: ReceptionInput = {
   canned: CANNED,
   tenantGuard: GUARD_VIEW,
   cannedLabel: 'БЭЛЭН ХАРИУЛТ',
+  // The pre-D-058 format: the prefix does not carry the canned section, so the volatile
+  // tail still must. Tests for the published-in-the-prefix format set it explicitly.
+  cannedHash: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -108,13 +112,67 @@ test('the reservation is marked called BEFORE the provider is reached', async ()
   assert.equal(calls.indexOf('markCalled') < calls.indexOf('callModel'), true);
 });
 
-test('the canned section rides in the VOLATILE tail, never the cached prefix', async () => {
-  // Tenant sentences change when a tenant edits them; the cached prefix must not.
+test('a snapshot from before D-058 still gets the canned section in the volatile tail', async () => {
+  // `cannedHash: null` is a FORMAT marker, not "unknown". A prefix compiled before the
+  // section moved does not contain it, so it must still be appended — otherwise the
+  // rollout has a window in which every tenant loses its canned lines entirely, between
+  // the deploy and the republish.
   let seen = '';
   const { deps: d } = deps({ callModel: async (req) => { seen = req.promptVolatile; return OK_REPLY; } });
-  await handleReception(d, base);
+  await handleReception(d, { ...base, cannedHash: null });
   assert.equal(seen.includes('=== БЭЛЭН ХАРИУЛТ ==='), true);
   assert.equal(seen.includes('"handoff"'), true);
+});
+
+test('DONE-TEST: WITH THE SECTION IN THE PREFIX IT IS NOT ALSO IN THE TAIL', async () => {
+  // The whole point of D-058: ~1,000 tokens of tenant sentences billed at full input rate
+  // on every reply, for text that changes only at publish. Sending it twice would cost
+  // MORE than before the change while looking like it worked.
+  let seen = '';
+  const { deps: d } = deps({ callModel: async (req) => { seen = req.promptVolatile; return OK_REPLY; } });
+  const r = await handleReception(d, { ...base, cannedHash: cannedHashOf(CANNED) });
+  assert.equal(r.kind, 'drafted');
+  assert.equal(seen.includes('=== БЭЛЭН ХАРИУЛТ ==='), false);
+  assert.equal(seen, 'VOLATILE');
+});
+
+test('DONE-TEST: AN EDITED CANNED LINE REFUSES RATHER THAN ANSWERING FROM EITHER COPY', async () => {
+  // The mitigation that ships with the change, not after it. Once the sentence is in the
+  // published prefix, an operator editing the row without republishing gives the model one
+  // version and the deterministic short-circuit another — D-039's shape, two sources of one
+  // fact, and no way to tell from the data which a customer was answered from.
+  const { deps: d, calls } = deps();
+  const edited = CANNED.map((c) => (c.kind === 'handoff' ? { ...c, body: 'бид тантай холбогдоно' } : c));
+  const r = await handleReception(d, { ...base, canned: edited, cannedHash: cannedHashOf(CANNED) });
+  assert.equal(r.kind, 'retry');
+  assert.equal(r.kind === 'retry' && r.detail.startsWith('canned_stale'), true);
+  // 503 with the hold released: QStash still has the customer's message, so republishing
+  // and letting the retry through answers it. Dropping would lose a real question to fix a
+  // problem that outlives the request.
+  assert.deepEqual(calls, ['release']);
+});
+
+test('the staleness check is on the rows as rendered, not on their order in the array', async () => {
+  // `cannedHashOf` sorts by kind, exactly as the section body does. If it hashed the array
+  // as given, the loader returning the same rows in a different order — one `.order()`
+  // clause away — would 503 every reply with nothing actually wrong.
+  const { deps: d } = deps();
+  const r = await handleReception(d, {
+    ...base, canned: [...CANNED].reverse(), cannedHash: cannedHashOf(CANNED),
+  });
+  assert.equal(r.kind, 'drafted');
+});
+
+test('an unreviewed row is caught BEFORE the staleness check, and by its own code', async () => {
+  // Ordering matters for the operator reading the log: nulling `reviewed_at` must report
+  // the unreviewed line, not `canned_stale`, or the fix looks like "republish" when it is
+  // "get this sentence reviewed".
+  const { deps: d } = deps();
+  const rows = [...CANNED, { kind: 'refusal_health', body: 'x', reviewedAt: null }];
+  const r = await handleReception(d, { ...base, canned: rows, cannedHash: cannedHashOf(CANNED) });
+  assert.equal(r.kind, 'retry');
+  assert.equal(r.kind === 'retry' && r.detail.includes('refusal_health'), true);
+  assert.equal(r.kind === 'retry' && r.detail.includes('canned_stale'), false);
 });
 
 // ---------------------------------------------------------------------------

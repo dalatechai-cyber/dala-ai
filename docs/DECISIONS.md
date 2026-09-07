@@ -3178,3 +3178,93 @@ list. **Undetermined is a result. A partial answer dressed as a whole one is not
 | not statically resolvable | 6 | **1** (one genuine spread) |
 | select lists seen by the transport check | 65 | **76** |
 | write payloads seen by the transport check | 0 | **36**, 145 columns |
+
+## D-058 — the canned lines move into the cached prefix, and the snapshot says which ones
+
+**2026-09-07, founder-approved and explicitly scoped**: *"build it, with `canned_hash` in the
+same PR. The mitigation shipping alongside rather than after is the whole point — two sources
+of one fact is the shape we've now been bitten by three times, and a 503 with `canned_stale`
+is the right failure."*
+
+### What moved
+
+A tenant's `canned_responses` — Matrix's are ten reviewed Mongolian sentences — were appended
+to `promptVolatile` on every request, *after* the cache boundary. That is roughly a thousand
+tokens billed at full input rate on every single reply, for text that changes only when an
+operator edits a row. They are now rendered into the compiled prefix as an L2 section at
+ordinal 4, so they are paid for once per publish and read from cache thereafter.
+
+The prices are in `model_prices`: Sonnet 5 input is 2,000 nanoUSD/token and a cache read is
+200 — a tenth. The saving is not the headline number, though. It is that the canned lines are
+the *last* per-request text of any size; what remains in the volatile tail is the customer's
+message and the conversation, which is what a volatile tail is supposed to be.
+
+### What it costs, and why the mitigation is in the same commit
+
+Once the sentence is in the published prefix it has **two sources**: the snapshot, which is
+what the model reads, and the `canned_responses` rows, which is what the deterministic
+short-circuit answers from. Edit a row without republishing and one customer is answered from
+the new text by the gate while the next is answered from the old text by the model — with
+nothing in the data saying which happened to whom.
+
+That is the third time this exact shape has cost something here. D-029: a `messages` row read
+as "answered". D-039: a dedup key that could not tell two customers apart. D-053: two day-key
+conventions, one platform cap. Every one of them was a second copy of a fact that nobody had
+written down as a second copy.
+
+So `config_snapshots.canned_hash` records the identity of the rows the prefix was compiled
+from (`0024`), and `handleReception` recomputes it from the live rows on every request. A
+mismatch returns **503 `canned_stale`**, which releases the spend hold and leaves the
+customer's message in QStash; an operator republishes and the retry answers it. That is
+strictly better than either alternative: answering from the rows tells the model to reproduce
+a sentence its prefix does not contain, and answering from the prefix silently ignores an
+edit the operator has already made.
+
+**At request time, not at publish time**, on the founder's call: nulling `reviewed_at` has to
+stop the sentence *now*, not at the next publish. The existing `renderCannedSection`
+missing/unreviewed guard stays exactly where it is and runs *first*, so an unreviewed row
+still reports as `canned_response_unreviewed` rather than as staleness — the operator's fix
+for those two is different, and the log has to say which one it is.
+
+### NULL is a format marker, not a skipped check
+
+A snapshot published before `0024` has a prefix that does not contain the section. Null
+therefore means "this prefix predates D-058", and the reply path answers it by appending the
+section to the volatile tail exactly as it always did. There is no state in which the check is
+skipped, which matters: a skip nobody can see is the failure this repository keeps finding,
+and it would have been the easy reading of a nullable column.
+
+That is what makes the rollout safe with no coordination. Deploy and every existing snapshot
+keeps working unchanged; republish a tenant and that tenant moves to the cached form and gains
+the guard. No backfill, no window, no flag day. A backfill is also *impossible* and should
+stay so — `config_snapshots` is append-only by an `ENABLE ALWAYS` trigger that binds
+`service_role` too, so a hash could only be written onto an old row by claiming its prefix
+contains text that it does not. `catalog.sql` V33 asserts the column exists, that it is
+nullable, and that the table is still append-only, so those two facts cannot drift apart.
+
+### The two renderers are one function
+
+`cannedSectionBody` is called by both the publish path and the request path. Two renderers
+would drift — and here a drift of one trailing space would 503 every reply on every
+republished tenant, with the symptom pointing at the guard rather than at the renderers. Same
+argument as D-057's one walker and D-026's one ordering.
+
+The hash is taken over the **rows as rendered**, not over the section as it landed in the
+prefix. A tenant with no canned rows produces no section at all (`section()` drops an empty
+one), so hashing the landed section would give `''` at publish and a real digest at request,
+and every reply would report as stale for ever. Hashing the same function's output on both
+sides makes the empty case agree with itself.
+
+The two sides must also *select* the same rows. `sections.ts` reads every locale and filters
+in JavaScript against `tenants.default_locale`; `reception/load.ts` filters in SQL with
+`.eq('locale', …)` against the same setting. Different mechanisms, same set — asserted by a
+test that puts an English row beside the Mongolian ones and checks it reaches neither the
+prefix nor the hash. If those two ever diverge the guard fires permanently and correctly, and
+says so.
+
+### What the founder has to do
+
+`0024` needs pushing through the CLI (D-012), and **both tenants need recompiling and
+republishing afterwards** — the prefix gains a section, so `content_hash` changes for both.
+Until that republish they stay on the null-hash path, which is the pre-D-058 behaviour and
+costs exactly what it costs today.

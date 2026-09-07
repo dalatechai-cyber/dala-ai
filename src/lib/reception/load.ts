@@ -27,6 +27,8 @@ export type ReceptionContext = {
   /** Closures that could be active today, for L4's verbatim notice. */
   closures: Closure[];
   allowedNumbers: string[];
+  /** D-058. null means this snapshot predates the canned section moving into the prefix. */
+  cannedHash: string | null;
   revisionId: string;
   rules: GateRule[];
   deterministic: DeterministicRule[];
@@ -232,6 +234,7 @@ export async function loadReceptionContext(
       hours,
       closures,
       allowedNumbers: snapshot.snapshot.allowedNumbers,
+      cannedHash: snapshot.snapshot.cannedHash,
       revisionId: snapshot.snapshot.revisionId,
       rules,
       canned: cannedRows,
