@@ -2033,3 +2033,88 @@ comes out truthful at the end rather than merely different.
 Not built. Steps 1 and 4 are credentials and step 2 is a live Meta config change on an app
 serving a real customer's Page.
 
+## D-042 — turns to intent, and the booking link that was hostage to a price
+
+**2026-09-07.** The founder ran a booking conversation through Matrix's restored live bot.
+A customer who writes «цаг авмаар байна» is asked their gender, then the stylist tier, then
+given a price, and only then the booking link. **Four replies to deliver one link**, on a
+Page where 721 people had already gone unanswered.
+
+### It is not a model failure, it is two rules composing
+
+Each rule is defensible alone. `systemPromptBuilder.js` rule 3: a **price** question needs
+the tier or gender clarified, because the price genuinely differs. The booking rule: state
+the **relevant** deposit, then the booking line. "Relevant" is computable only once the tier
+is known — so the instruction to include a deposit is what forces the interrogation, and the
+link waits behind a number the customer never asked for.
+
+The salon's own example dialogue teaches the same shape: price, then deposit, then the
+booking CTA, after a stylist has been named.
+
+### We inherited it before going live
+
+The signed Ш3's correct action is «(1) шаардлагатай бол урьдчилгаа төлбөрийн дүнг мэдлэгийн
+сангаас хэл; (2) …"booking_line"…» — deposit first, *if necessary*, and a model settles
+whether it is necessary by asking. Same construction, same outcome, on a channel that has
+not answered a customer yet. Found by reading our own block against the ancestor's rather
+than by running it, which is the cheaper of the two ways.
+
+`prompt/drafts/sh3_booking.mn.txt` is the revision: the booking line goes in the FIRST
+reply, clarifying questions before it become a forbidden action rather than an optional
+step, and the deposit is answered normally when the customer asks (Ш2). Unsigned — it is
+customer-visible Mongolian and it replaces a signed block.
+
+### The deposit question, and what is actually known
+
+The deposit differs by tier (20,000₮ Мастер / 10,000₮ 1-р зэрэг), so "does the site handle
+it?" is the right question to ask before deciding the bot need not.
+
+**The salon's own FAQ answers it:** «Манай вэбсайтаар онлайнаар цаг захиалах боломжтой. Цаг
+захиалахдаа QPay-ээр урьдчилгаа төлбөрөө төлнө.» The site takes the deposit at booking
+time; to charge the right one it must know the tier; so it already collects the choice the
+bot spends three replies establishing.
+
+**That is an inference from their copy, not a read of their site.** `matrixecosalon.org` is
+blocked by this environment's egress proxy (`CONNECT tunnel failed, 403`, re-confirmed
+2026-09-07). One look at the booking flow settles it, and **no claim about what the site
+does may reach customer-facing text before that** — which is why the draft asserts only
+that the deposit is not needed *in order to send the link*, a statement true whatever the
+site turns out to do.
+
+### The metric
+
+`src/lib/metrics/turnsToIntent.ts`. From the first inbound message expressing the intent,
+the number of replies up to and including the one carrying the booking URL. The ancestor's
+transcript is a fixture and scores **4**; a reply that leads with the link scores **1**.
+
+Coverage cannot see this: both conversations were answered. What separates them is the
+customer's patience, and the count is the measurable part of it.
+
+**Three outcomes, kept apart on purpose.** `delivered` carries a count. `not_delivered` —
+the customer asked and never got the link — carries `null`, so the worst possible behaviour
+cannot be averaged into a good headline; `summarise` reports it beside the median and never
+inside it. `no_intent` leaves the conversation out of the denominator entirely, because
+counting it would turn the metric into a measure of how many customers happen to want a
+booking. The `not_delivered` property is a DONE-TEST because it is the way this file would
+lie.
+
+**It decides nothing.** `gate/match.ts` carries the arbitration's rule that matchers run
+inbound only to select rendered gate text, never as an unanchored pattern that suppresses a
+reply. This reads stored messages after the fact; a wrong match costs an inaccurate number
+in a report, never a refused customer. Intent matching goes through `mn/match.ts`'s folded,
+segmented stems; the URL check is a substring over **our own** outbound text, which is the
+one place the repository already permits one.
+
+**The stems are a parameter, not a constant.** What counts as "asking to book" is Mongolian
+that changes the number, so hard-coding a list would put per-tenant language in code and
+customer-adjacent Mongolian outside the review mechanism. `MIN_STEM_CHARS` is enforced
+rather than assumed: «цаг» is three characters and fires on «цагийн хуваарь», the
+opening-hours question Ш3's own closing line warns is not a booking request.
+
+### Measuring the incumbent needs the corpus problem solved first
+
+Turns-to-intent is computable for Dala AI's drafts from the first day of the mirror. For
+the ancestor it needs either `message_echoes` (D-039's note on the corpus) or hand-run
+conversations like the one that produced the 4. Until then the baseline is a single
+measured transcript, and should be quoted as that.
+
