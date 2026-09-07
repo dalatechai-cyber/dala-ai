@@ -8,7 +8,7 @@ const STALE = '2026-09-04T02:00:00Z';                // four open hours ago
 
 const CHANNEL = {
   id: 'ch-1', tenant_id: 't-1', external_id: '100000000000001',
-  last_webhook_at: null, went_live_at: '2026-08-01T00:00:00Z',
+  last_webhook_at: null, expects_traffic_since: '2026-08-01T00:00:00Z',
 };
 
 const HOURS = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: '10:00', closes: '20:00', closed: false }));
@@ -32,6 +32,7 @@ function stub(over: Record<string, { data?: unknown; error?: unknown }> = {}) {
     chain['select'] = () => chain;
     chain['eq'] = (col: string, val: unknown) => (rec.filters.push(`${col}=${String(val)}`), chain);
     chain['gte'] = (col: string, val: unknown) => (rec.filters.push(`${col}>=${String(val)}`), chain);
+    chain['in'] = (col: string, vals: readonly unknown[]) => (rec.filters.push(`${col} in ${vals.join(',')}`), chain);
     chain['order'] = () => chain;
     chain['limit'] = () => chain;
     for (const op of ['insert', 'update', 'upsert'] as const) {
@@ -144,10 +145,34 @@ test('an unreadable channel list refuses the whole run rather than reporting zer
   assert.equal(r.ok, false);
 });
 
-test('only LIVE channels are watched', async () => {
+test('every channel that EXPECTS traffic is watched, not only the ones that answer', async () => {
+  // This asserted `delivery_mode=live` and was right about the code and wrong about the
+  // world: Matrix mirrored real customer traffic in `shadow` for a fortnight with nothing
+  // looking at it, so a broken subscription would have shown up as an empty table and a
+  // mirror reporting a good number from no data.
+  //
+  // A positive allow-list, asserted as one: a delivery_mode added later must be unwatched
+  // until somebody decides otherwise, never watched by accident.
   const { db, reads } = stub();
   await runSilenceWatch(db, { now: NOW });
-  assert.ok(reads.find((c) => c.table === 'tenant_channels')?.filters.includes('delivery_mode=live'));
+  const filters = reads.find((c) => c.table === 'tenant_channels')?.filters ?? [];
+  assert.deepEqual(filters, ['delivery_mode in shadow_routing,shadow,live']);
+  assert.equal(filters.some((f) => f === 'delivery_mode=live'), false, 'no longer live-only');
+});
+
+test('the alert dedup key is the TENANT\'S day, not UTC\'s', async () => {
+  // 2026-09-04T18:30:00Z is 02:30 on the 5th in Ulaanbaatar. Keyed on UTC the alert would
+  // carry `2026-09-04`; keyed on the tenant's calendar it carries `2026-09-05`. The
+  // difference is why a channel silent across a morning used to raise two alerts for one
+  // trading day — the UTC day rolls at 08:00 local, an hour before a salon opens.
+  const lateUtc = new Date('2026-09-04T18:30:00Z');
+  const { db, writes } = stub({
+    webhook_events: { data: [{ received_at: '2026-08-20T00:00:00Z' }], error: null },
+  });
+  await runSilenceWatch(db, { now: lateUtc });
+  const alert = writes.find((w) => w.table === 'alerts');
+  assert.ok(alert, 'a silent channel alerts');
+  assert.equal(String(alert?.patch['dedup_key']).endsWith(':2026-09-05'), true, String(alert?.patch['dedup_key']));
 });
 
 test('DONE-TEST: the cached last_webhook_at survives retention purging the events', async () => {
