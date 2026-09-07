@@ -60,9 +60,36 @@ test('a space joins a thousands group but never a date and a time', () => {
   assert.deepEqual(extractNumerals('2026-09-04 15:00').map((n) => n.raw), ['2026-09-04', '15:00']);
 });
 
-test('times and hyphenated numbers survive as single tokens', () => {
-  assert.deepEqual(extractNumerals('10:00-20:00').map((n) => n.digits), ['10002000']);
+test('a hyphenated number stays one token; a hyphenated TIME RANGE is two', () => {
+  // The dash join is right for a phone number, whose halves are individually meaningless,
+  // and wrong for a time range, whose halves are two facts the tenant approved separately.
+  // This test used to assert `10:00-20:00` reduced to `10002000` — describing the defect
+  // rather than a requirement. That digit string cannot appear in any allow-list, so a bot
+  // stating its own opening hours was refused as `outbound_price`.
+  assert.deepEqual(extractNumerals('7741-7777').map((n) => n.digits), ['77417777']);
+  assert.deepEqual(extractNumerals('10:00-20:00').map((n) => n.raw), ['10:00', '20:00']);
+  assert.deepEqual(extractNumerals('10:00–20:00').map((n) => n.raw), ['10:00', '20:00'], 'en dash too');
   assert.deepEqual(extractNumerals('маргааш 15:00 цагт').map((n) => n.raw), ['15:00']);
+
+  // Splitting is conservative: EVERY dash-separated part must be a clock time. A price
+  // range has no colons and is untouched; a half-formed time stays fused and is therefore
+  // refused, which is the safe direction.
+  assert.deepEqual(extractNumerals('33,000-55,000').map((n) => n.digits), ['3300055000']);
+  assert.deepEqual(extractNumerals('2026-09-04').map((n) => n.raw), ['2026-09-04']);
+  assert.deepEqual(extractNumerals('10:00-20').map((n) => n.raw), ['10:00-20']);
+  assert.deepEqual(extractNumerals('10-20:00').map((n) => n.raw), ['10-20:00']);
+});
+
+test('splitting a clock range can only ever refuse MORE, never less', () => {
+  // The property that makes the change safe to have made at all. Each half must now be in
+  // the allow-list on its own, where before one fused token had to be — so no allow-list
+  // that refused a reply before can permit it now.
+  assert.deepEqual(numeralsNotAllowed('10:00-20:00', ['10:00', '20:00']), []);
+  // The fused token alone no longer licenses the range, because the range is not one
+  // number any more.
+  assert.deepEqual(numeralsNotAllowed('10:00-20:00', ['10:00-20:00']).sort(), ['10:00', '20:00']);
+  // Half an approved range is refused, exactly as half a phone number is.
+  assert.deepEqual(numeralsNotAllowed('10:00-20:00', ['10:00']), ['20:00']);
 });
 
 test('a reply with no numerals at all passes trivially', () => {

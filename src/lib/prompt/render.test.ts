@@ -106,7 +106,10 @@ test('DONE-TEST: allowed_numbers is every numeral in the TENANT sections, and on
     { ...L0, body: 'Ш2. БУРУУ ЖИШЭЭ: «ойролцоогоор 20,000₮ орчим байх аа»' },
     { ...L3, body: 'Чёлк тайралт 33,000₮ · Угаалт 22,000₮ · 10:00-20:00 · Утас 7741-7777' },
   ]);
-  assert.deepEqual(r.ok && r.rendered.allowedNumbers, ['10:00-20:00', '22,000', '33,000', '7741-7777']);
+  // `10:00-20:00` compiles as TWO numerals since the clock-range split — the tenant stated
+  // two times, not one ten-digit number. The phone number beside it is still one token,
+  // which is the same rule cutting the other way.
+  assert.deepEqual(r.ok && r.rendered.allowedNumbers, ['10:00', '20:00', '22,000', '33,000', '7741-7777']);
   assert.ok(
     !(r.ok && r.rendered.allowedNumbers.includes('20,000')),
     "the gate's own counter-example price must never be allow-listed",

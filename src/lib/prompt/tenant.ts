@@ -40,6 +40,16 @@
  * Putting the symbol immediately after each number breaks the join from both sides:
  * «33,000₮ - 55,000₮» is two tokens, and a model that writes «33,000₮-55,000₮» also
  * produces two. Whichever way the model phrases it, the guard agrees with the list.
+ *
+ * **Correction, measured 2026-09-07:** this used to say the spaces and the symbol were
+ * each insufficient alone. That is wrong about the spaces, and the regex says why —
+ * `NUMERAL` joins across `-` only when a digit follows it IMMEDIATELY, so
+ * «33,000 - 55,000» is already two tokens with no symbol at all. The symbol earns its
+ * place because it is how the gate's own examples read and because it survives a model
+ * that closes the gap; the SPACES are what actually split the token. That distinction is
+ * what lets `АЖЛЫН ЦАГ` below render «10:00 - 20:00» as two numerals with no symbol to
+ * hang one on, and getting it wrong in the safe-sounding direction would have meant
+ * inventing a separator for a problem that does not exist.
  */
 import type { PromptSection } from './render.ts';
 import { nfc } from '../mn/text.ts';
@@ -64,7 +74,32 @@ export const SECTION_LABELS = {
   documents: 'ТАНИЛЦУУЛГА',
   faqs: 'ТҮГЭЭМЭЛ АСУУЛТ',
   contacts: 'ХОЛБОО БАРИХ',
+  hours: 'БАЙГУУЛЛАГЫН АЖЛЫН ЦАГ',
 } as const;
+
+/**
+ * Weekday names, and the order the week is printed in.
+ *
+ * `business_hours.weekday` is 0 = Sunday because that is Postgres `dow`, and `volatile.ts`
+ * reads it that way. A Mongolian week starts on Monday, so the ROW numbering and the
+ * DISPLAY order are different facts and are written as different things: this array is the
+ * display order, and each entry carries the `dow` it selects. Sorting by `weekday` would
+ * put Sunday first, which is not wrong so much as not what anyone reads.
+ *
+ * Fixed, so the order does not depend on a locale or a collation (D-026).
+ */
+export const WEEKDAYS: readonly { dow: number; label: string }[] = [
+  { dow: 1, label: 'Даваа' },
+  { dow: 2, label: 'Мягмар' },
+  { dow: 3, label: 'Лхагва' },
+  { dow: 4, label: 'Пүрэв' },
+  { dow: 5, label: 'Баасан' },
+  { dow: 6, label: 'Бямба' },
+  { dow: 0, label: 'Ням' },
+];
+
+/** What a day with `closed = true` says. No digits, so nothing reaches the guard. */
+export const CLOSED_LABEL = 'амарна';
 
 /** The parenthetical that names a price's KIND. No digits, so none reaches the guard. */
 export const PRICE_LABELS = {
@@ -115,7 +150,26 @@ export type TenantKb = {
   faqs: readonly { question: string; answer: string }[];
   contacts: readonly { kind: string; value: string }[];
   bookingUrl: string | null;
+  /**
+   * `business_hours`, one row per weekday, exactly as the table holds it.
+   *
+   * These rows already existed and already fed `volatile.ts`, which renders only «ОДОО:
+   * НЭЭЛТТЭЙ / ХААЛТТАЙ» — whether the salon is open at this instant. The SCHEDULE was in
+   * front of nobody: a customer asking «Хэдэн цагт ажилладаг вэ?» — which their incumbent
+   * answers from its FAQ — got the handoff line, because the facts were not in the model's
+   * context at all. Measured on the live project 2026-09-07.
+   */
+  hours: readonly { weekday: number; opens: string | null; closes: string | null; closed: boolean }[];
 };
+
+/** `HH:MM` from a PostgREST `time`, which arrives as `10:00:00`. Null when unusable. */
+export function clockTime(raw: string | null): string | null {
+  if (raw === null) return null;
+  const t = raw.trim();
+  // ascii-safe: a `time` column serialises as ASCII digits and colons, never user text.
+  const m = /^(\d{2}):(\d{2})/.exec(t);
+  return m === null ? null : `${m[1]}:${m[2]}`;
+}
 
 /**
  * `numeric(12,2)` as PostgREST serialises it — a string like `"33000.00"` — with the
@@ -237,7 +291,41 @@ export function renderTenantSections(kb: TenantKb, approvedAt: string): PromptSe
   out.push(section('L3', 'faqs', 3, SECTION_LABELS.faqs,
     kb.faqs.map((f) => `- ${f.question}\n  ${f.answer}`), approvedAt));
 
-  out.push(section('L3', 'contacts', 4, SECTION_LABELS.contacts,
+  // The schedule the rows already held and nothing rendered.
+  //
+  // THE HEADING NAMES THE ORGANISATION ON PURPOSE. Ш4 refuses «тодорхой ажилтны ажлын
+  // цаг, ирц, сул цаг» — a SPECIFIC EMPLOYEE's hours, attendance and free slots — and its
+  // wrong-example is a person at 14:00. A heading of plain «АЖЛЫН ЦАГ» sits one word away
+  // from that check's own subject, and the failure mode is the D-042 shape: two reasonable
+  // rules composing into a refusal, so «Хэдэн цагт ажилладаг вэ?» gets the staff-schedule
+  // line while the answer is three lines below it. «БАЙГУУЛЛАГЫН» is the same word
+  // `01_data_marker` uses for the tenant region, so the distinction reads as the platform's
+  // own vocabulary rather than a coinage — and it is vertical-neutral, which «САЛОНЫ»
+  // would not have been for tenant #2's garage.
+  //
+  // Two properties this format is chosen for, both measured rather than assumed:
+  //
+  //   * «10:00 - 20:00» is TWO numerals, `10:00` and `20:00`, so both reach
+  //     `allowed_numbers` and the guard stops refusing the salon's own opening hours as
+  //     `outbound_price`. Written «10:00-20:00» it would be ONE numeral whose digits are
+  //     `10002000` — a token no reply can ever match, which is the price-range trap in the
+  //     module note reappearing with no currency symbol available to break it.
+  //   * A day is printed only when this file can state it. `closed = true` says so; a row
+  //     with no times is OMITTED rather than guessed at, which is the same "we do not know
+  //     is not closed" rule `isOpenAt` already applies per request. A day with no row at
+  //     all was never in the list to begin with.
+  out.push(section('L3', 'business_hours', 4, SECTION_LABELS.hours,
+    WEEKDAYS.flatMap(({ dow, label }) => {
+      const row = kb.hours.find((h) => h.weekday === dow);
+      if (row === undefined) return [];
+      if (row.closed) return [`- ${label}: ${CLOSED_LABEL}`];
+      const opens = clockTime(row.opens);
+      const closes = clockTime(row.closes);
+      if (opens === null || closes === null) return [];
+      return [`- ${label}: ${opens} - ${closes}`];
+    }), approvedAt));
+
+  out.push(section('L3', 'contacts', 5, SECTION_LABELS.contacts,
     [
       ...kb.contacts.map((c) => `- ${c.kind}: ${c.value}`),
       ...(kb.bookingUrl === null ? [] : [`- booking: ${kb.bookingUrl}`]),

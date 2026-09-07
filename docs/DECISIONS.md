@@ -2689,3 +2689,119 @@ the ancestor's own wrong-example verbatim — «Хүүхдийн чёлк тай
 үү, хүүхэд үү» гэж БҮҮ асуу. `handle.test.ts`'s fixture has carried the matching rule, with
 the stems `хүүхэд` and `хүүхд`, since the file was written. The port needed the tenant row
 and nothing else.
+
+### The sweep D-050 asked for, and what it did NOT find
+
+The founder's follow-up was the right question: "worth checking whether anything else names
+a kind or a target that nothing requires." Swept 2026-09-07, over every column the loader
+reads and every identifier `renderTenantSections` prints into the model's context, because
+the risk surface is exactly the names the gate tells the model to look up.
+
+**The two `response_kind` columns were the only instances of D-050's shape.** Everything
+else that names a cross-row target is either a definition site (a `topic_key`, a
+`trigger_term`, an `axis` — nothing to resolve) or is enforced by the database.
+
+The near-miss is worth recording because it nearly became a false finding.
+`service_variants.refusal_topic` reads, in the CREATE TABLE, as
+
+```sql
+  refusal_topic text,                          -- FK added in §8; required when price_kind='none'
+```
+
+— a comment describing two constraints that are not on that line. Both are real and both
+are 850 lines further down: a composite FK to `disclosure_rules (tenant_id, topic_key)` and
+`check (price_kind <> 'none' or refusal_topic is not null)`. Reading the table definition
+alone produces the confident wrong answer, which is the same reading failure the
+`WORKER_PUBLIC_URL` note already names — a rule and the code it describes have to be read
+together, and here they were 850 lines apart.
+
+**Two softer instances, both with a backstop, neither fixed:**
+
+- `staff_members.tier` → `service_variants.variant_key`. Ш4's «АНХААР» clause sends the
+  model from a named stylist to their tier to that tier's price, and nothing requires a
+  tier to correspond to any variant. Unlike D-050 this degrades safely: Ш2's rule 2б
+  refuses a name that is not in the price list, so the outcome is
+  `refusal_price_unlisted`, not an invention. Latent either way — no tenant has a variant.
+- `deposit_rules.applies_to` is free text and can name a service the price list does not
+  carry. Same backstop, same latency.
+
+**And two columns that are read by nothing at all**, which is the `purge_after` shape
+(D-044) rather than this one: `staff_members.affects_price` and
+`staff_members.customer_selectable`. The second is worse than merely unread, because
+`matrix-stage4-kb.sql` — mine — *writes* it, from `active`, which makes it look like a
+provisioning decision somebody made. It is inert. Either give them a reader or say so in a
+`comment on column`; do not leave a written column that decides nothing.
+
+The one known-unenforced name is unchanged and already documented: `tenant_channels.app_slug`
+against `META_APP_SECRETS`, where §3.3's cross-check cannot currently fail (D-041).
+
+## D-051 — Matrix's configuration is published, and publishing found two bugs
+
+**2026-09-07.** Stage 5. The compile is `content_hash 4d0b4243…`, 12,313 characters, 18
+sections, `allowed_numbers` fourteen tokens. It is live on the project: revision seq 1,
+`published`, `tenants.live_revision_id` pointing at it, and the stored prefix re-hashes to
+the compiled hash.
+
+### Getting there needed a compiler with no caller
+
+`compileStablePrefix` had no production caller — only tests. So "does this tenant's
+configuration compile, and what comes out?" could only be answered by publishing, which is
+the wrong moment to ask and needs a credential this environment does not have.
+`scripts/verify/compile-tenant.ts` answers it offline: a narrow psql-backed adapter for the
+handful of client calls the compile makes, then the REAL `loadPromptSections`,
+`loadTenantKb`, `renderTenantSections` and `renderStablePrefix` over real rows.
+
+Every shape the adapter does not understand THROWS. An adapter that returned `[]` for a
+query it could not translate would look like a tenant with no rows — a state the compiler
+is built to tolerate — so the run would pass while testing nothing. That is D-020's failure
+with a different subject.
+
+It reaches the database over psql, not PostgREST, because this environment has neither a
+PostgREST binary (the release is not reachable through the egress proxy) nor a container
+runtime. **That gap is real and it is exactly what `scripts/verify/postgrest.ts` covers.**
+Read a pass here as "the compiler works over these rows", never as "the transport works".
+
+### Bug one: every tenant's SECOND publish failed, halfway
+
+`publishRevision` step 3 supersedes the outgoing revision with a bare
+`set status = 'superseded'`, leaving `published_at` set, and `published_has_a_time`
+demanded `(status = 'published') = (published_at is not null)`. So the UPDATE was refused
+for any revision that had ever been live — after steps 1 and 2 had already committed. Two
+rows claiming `published`, the pointer on the old one, and `publish.ts`'s own comment
+calling that "a state nothing else in the schema can disambiguate".
+
+`0022` widens the CHECK to `(status = 'draft') = (published_at is null)`, which still
+refuses a published row with no time and additionally refuses a draft that claims one.
+Nulling `published_at` instead would satisfy the old rule and destroy the only record of
+when a configuration was live — `rollbackTo` moves the pointer without re-publishing, so
+nothing would write it back. `isolation.sql` T12 runs the whole second-publish sequence and
+T13 pins the half of the old rule that was right; T12 fails against the pre-`0022`
+constraint, measured both ways.
+
+`publish.test.ts` stubs the client and accepts any update, and no tenant had published
+twice, so a green suite and a healthy production agreed with each other and with nothing.
+
+### Bug two: I published onto a channel no code asks for
+
+The generated publish wrote `channel = 'messenger'`. `worker/reception.ts` asks
+`loadLiveSnapshot` for `'facebook_page'`. The snapshot existed, the revision was published,
+the pointer was correct, every hash matched — and every reply would have returned
+`no_snapshot`.
+
+It is D-050's shape again, one table further along, and I walked into it while writing the
+fix for D-050. The lesson that generalises: **a literal that names a target belongs to the
+row that defines the target.** The channel now comes from `tenant_channels.provider`, so
+the publish cannot name a channel the tenant does not have.
+
+`config_snapshots` is append-only by TRIGGER — `DELETE`, `UPDATE` and `TRUNCATE` all
+denied, which is stronger than the code comment ("no update path") suggests. So the bad row
+could not be corrected, only out-appended: the live revision now carries a second snapshot
+on `facebook_page`, which is a legal state because snapshots are per-channel and plural by
+design. **The `messenger` row is permanent.** It is an orphan nobody reads, and it stays in
+the project as a record that this happened.
+
+### What publishing did NOT change
+
+Matrix is `delivery_mode = 'shadow_routing'`, which is `{deliver: false, generate: false}`.
+A published configuration generates nothing and sends nothing. The revision is the thing
+that would be used the moment the founder flips the mode, and until then it is inert.

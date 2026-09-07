@@ -67,6 +67,38 @@ export function digitsOf(s: string): string {
  */
 const NUMERAL = /\p{Nd}+(?:(?:[.,:–—-]\p{Nd}+)|(?:[   ]\p{Nd}{3}(?!\p{Nd})))*/gu;
 
+/** `10:00`, `9:30` — a clock time, which is the one thing a dash RANGES rather than joins. */
+// ascii-safe: matched against a token already reduced to digits and separators.
+const CLOCK = /^\p{Nd}{1,2}:\p{Nd}{2}$/u;
+
+/**
+ * A dash between two clock times is a RANGE, and the two times are separate numerals.
+ *
+ * The unconditional dash join is right for `7741-7777`, where the halves are individually
+ * meaningless, and wrong for `10:00-20:00`, where they are two facts the tenant approved
+ * separately. Fused, that token reduces to `10002000` — a digit string no allow-list can
+ * ever hold, so a bot stating its own opening hours was refused as `outbound_price`.
+ *
+ * Prices escape the same trap only by accident: «33,000₮-55,000₮» splits because the
+ * currency symbol sits between the digits and the dash. Times carry no symbol, so the
+ * workaround is unavailable and the tokeniser has to be right instead.
+ *
+ * Conservative by construction: a token is split ONLY when every dash-separated part is
+ * itself a clock time. `7741-7777`, `33,000-55,000` and `2026-09-04` have no colons and
+ * are untouched; `10:00-20` is not two clocks and stays fused, which refuses it — the safe
+ * direction for a malformed thing nobody should be emitting.
+ *
+ * Splitting can only ever REFUSE more: each part must now be in the allow-list on its own,
+ * where before one fused token had to be. And because `allowedNumbersFrom` compiles the
+ * list through this same function, the list and the check split identically.
+ */
+function splitClockRange(raw: string): string[] {
+  const parts = raw.split(/[-–—]/u);
+  if (parts.length < 2) return [raw];
+  return parts.every((p) => CLOCK.test(p)) ? parts : [raw];
+}
+
+
 export type Numeral = { raw: string; digits: string };
 
 /** Every numeral in the text, as it appears and reduced to digits. */
@@ -77,7 +109,7 @@ export function extractNumerals(text: string): Numeral[] {
   let m: RegExpExecArray | null;
   while ((m = NUMERAL.exec(s)) !== null) {
     const raw = m[0];
-    out.push({ raw, digits: digitsOf(raw) });
+    for (const part of splitClockRange(raw)) out.push({ raw: part, digits: digitsOf(part) });
     NUMERAL.lastIndex = m.index + raw.length;
   }
   return out;
