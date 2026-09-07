@@ -169,7 +169,8 @@ other nouns by shape, and a deny-list over user text is the input-filter fallacy
 own header rejects. This is a known gap, written down rather than implied.
 
 **What is data, and what is not.** `staff_members.short_name` (`0019`) holds what customers
-call a person when it differs from their name — «Оюунаа» for one Matrix stylist. It is one
+call a person when it differs from their name. Matrix has FIVE (Zaya, Otgoo, Muugii,
+Оюунаа, Бадмаа), corrected 2026-09-07 — the earlier «only one» was a stale roster. It is one
 nullable column on the person and deliberately NOT a `staff_aliases` table: an alias table
 answers only the names somebody thought to type into it, and the case that actually happens
 is the one it cannot hold.

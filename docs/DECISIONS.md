@@ -1739,6 +1739,13 @@ nicknames the knowledge-base form asked for, **there is one**: «Оюунаа».
 staff have none. The founder's instruction was to *design the behaviour rather than treat
 it as a lookup table — the useful case is a customer who half-remembers a name.*
 
+> **SUPERSEDED 2026-09-07 on the facts, VINDICATED on the design (D-047).** That roster was
+> stale. Five of Matrix's six active stylists have a short name — Zaya, Otgoo, Muugii,
+> Оюунаа, Бадмаа — and three of the nine have left or stopped working. The count was wrong
+> by five; the conclusion below was not. An alias table sized to one nickname would have
+> been rebuilt for five, and the case it still could not hold — a customer who
+> half-remembers a name — is now five times more likely to arrive.
+
 ### The build that was refused
 
 `staff_aliases (tenant_id, alias, staff_id)`, mirroring `service_aliases`. It is the
@@ -2380,3 +2387,83 @@ caught by an earlier whole-cluster guard, so nothing exercised the per-term coun
 IS the privacy property. The added test uses two separate messages from one customer, since
 within-message repetition is already collapsed. The first attempt at that test mutated the
 wrong thing and passed; the second caught it.
+
+---
+
+## D-047 — Matrix's Stage 4 knowledge base, and four things it corrects
+
+**2026-09-07. Facts from Matrix, relayed by the founder and marked tenant-confirmed.
+`scripts/provision/matrix-stage4-kb.sql`, applied to the project.**
+
+Nine `staff_members`, eight `services`, seven `knowledge_documents`, one `contact_points`,
+one `out_of_scope_topics`. `hasTenantData` is now **true** for Matrix, so the D-033 guard
+that takes the handoff line before the provider call no longer fires for them.
+
+### Four corrections, each overturning something this repository had written down
+
+**1. The roster was stale, and the count was wrong by five.** D-038 recorded «of the seven
+nicknames asked for, there is one: Оюунаа; the other eight have none». In fact five of the
+six active stylists have a short name — Батзаяа/Zaya, Отгонжаргал/Otgoo, Г. Мөнхзаяа/Muugii,
+Оюунсүрэн/Оюунаа, Бадамцэцэг/Бадмаа — and Уянга goes by her own name. Corrected in D-038,
+`docs/schema.md`, `prompt/drafts/README.md` and `tenant.test.ts`.
+
+D-038's *design* survives the correction and is strengthened by it: an alias table sized to
+one nickname would have been rebuilt for five, and the case it could never hold — a customer
+who half-remembers a name — is now five times likelier. `0019`'s note on why `short_name` is
+deliberately not unique reads better at five than it did at one.
+
+**2. Three of the nine no longer work there, and they are all three of the male stylists.**
+Тэргэл is not working; Ананд and Мухлай have left. They are kept as `active=false` rather
+than deleted, because a customer asking for Ананд by name is asking about a real person who
+has left, and a deleted row cannot be told from a name nobody there has ever had. The
+renderer selects `active=true`, so only the six appear in the roster.
+
+**3. The durations answer was wrong.** The earlier «only office colour and perm run over an
+hour, so `duration_minutes` stays null on the rest» is superseded: эмчилгээний хими is 1h30
+and афро хими is 4–5 hours. A single number goes in `duration_minutes`, a range in
+`turnaround_text`, which is what that column exists for.
+
+**4. «CICA эмчилгээний хими» does not exist**, and it was a misreading of their price list.
+There is эмчилгээний хими (plant-based, mild) and there is CICA (a separate restorative
+treatment, three sessions per course, 3–5 days apart). Had the price list been transcribed
+as read, the platform would have offered a service the salon does not sell — the D-020
+failure with a different costume, caught by asking rather than by any check in this codebase.
+
+### What was deliberately NOT written, and why each is a blank rather than an omission
+
+- **Prices.** None were given. `allowed_numbers` is built from `service_variants`, and the
+  outbound guard refuses any numeral not in it, so an inferred price is the one thing here
+  that cannot be quietly wrong. Eight services exist with no variants; the price-list section
+  renders empty.
+- **`faqs`.** They gave facts, not question/answer pairs. Composing the pairs would put my
+  phrasing behind their provenance. The same facts are in `knowledge_documents`, which the
+  model reads as context rather than reproduces as a line.
+- **`disambiguation_pairs`.** «цаг» belongs here — it is the founder's own example and the
+  reason `metrics/clarify.ts` exists — but the QUESTION is customer-visible Mongolian and
+  therefore the business's to write (D-046). The row waits for their sentence.
+- **`deposit_rules`, `price_axes`, `tenant_booking`.** The 20,000₮/10,000₮ tier deposits and
+  the booking URL are evidenced from the ANCESTOR'S production behaviour, not from an answer
+  Matrix gave. Evidence from a live bot is not the business confirming a fact, and
+  `tenant_booking` has no provenance column in which to record the difference.
+- **`staff_members.tier`.** The ancestor prices by Мастер / 1-р зэрэг, but which of the six
+  is which was not given.
+- **`service_aliases`.** Inventing these is the original D-020 sin. Not repeated.
+
+### The Mongolian in the documents is mine, and that is stated rather than buried
+
+The facts are Matrix's; the sentences around them are my composition. `knowledge_documents`
+is prompt context (L3), not a line sent to a customer, so it is outside the review gate that
+covers `prompt/platform/*.mn.txt` — which is precisely why it is worth saying out loud that
+a native-speaker read belongs before Stage 5 rather than after it.
+
+### One trap the file had to avoid
+
+`kindsReferencedBy` scans the whole compiled prefix for `"lower_snake"` tokens in straight
+double quotes and treats each as a canned kind the tenant must have provisioned; a kind with
+no row makes `renderCannedSection` refuse and every reply 503. Tenant text therefore uses
+«…» throughout. Verified by rendering the real rows and asserting the tenant sections demand
+**no** canned kinds.
+
+**Generation still cannot start.** Matrix has zero `canned_responses`, and the platform gate
+blocks name kinds the tenant must provision — including `handoff`, without which any refusal
+retries for ever. That is Stage 3, it is customer-visible Mongolian, and it is the founder's.
