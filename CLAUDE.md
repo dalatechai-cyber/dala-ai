@@ -294,6 +294,21 @@ so the suite was green on both halves. Both are fixed. The lesson is the one thi
 keeps relearning: a rule and the code it describes have to be read *together*, because each
 one alone reads as correct.
 
+**A parser that returns what it found rather than refusing is the same failure one layer
+in** (2026-09-07, D-057). `query-columns.ts` bounded a call chain at the first `;` — and a
+semicolon inside a *comment* (`"…bill to themselves; quality is…"`) cut the window through
+the middle of `spend_ledger`'s insert. `parseObjectKeys` then returned the two keys it had
+found instead of `null`, so the site reported as **checked** with thirteen of its fifteen
+columns never examined, and a mutation renaming `cost_nanousd` passed both column checks.
+Nothing was red; the number in the summary line went *up*.
+
+That is the shape of an assertion that cannot fail, arriving from inside the tool that was
+supposed to catch them: **when a parser cannot complete, it must say so, not answer with the
+part it managed.** Undetermined is a result. The same read also swallowed keys after any
+`//` inside a string — `'https://graph.facebook.com'` — for the same reason. Both checks now
+share one walker (`scripts/verify/querysites.ts`); if you touch it, keep the rule that a
+truncated object returns `null`.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

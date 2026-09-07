@@ -70,10 +70,21 @@ begin
   -- every request pays full price. Turning caching on for a tenant whose prefix is too
   -- short is a silent no-op, which is the worst shape a setting can have.
   --
-  -- The comparison is in CHARACTERS against the token minimum on purpose. A chars-per-token
-  -- ratio is an estimate, and asserting on an estimate is how a check becomes decoration;
-  -- but no tokenizer emits MORE than one token per character, so `prompt_chars` is a hard
-  -- lower bound on the token count. If the characters clear the minimum, the tokens do.
+  -- The comparison is in CHARACTERS against a token minimum, and the reasoning first given
+  -- for that was BACKWARDS (corrected 2026-09-07). No tokenizer emits more than one token
+  -- per character, so tokens <= chars: `prompt_chars` is an UPPER bound on the token count,
+  -- not a lower one. "If the characters clear the minimum, the tokens do" does not follow —
+  -- 2,000 characters can be 800 tokens.
+  --
+  -- So this check is one-sided and worth keeping as exactly that: chars < min PROVES the
+  -- prefix is too short to cache, while chars >= min proves nothing on its own. It catches
+  -- the obviously-short prefix and cannot catch one near the boundary.
+  --
+  -- No live risk at either tenant — Mongolian Cyrillic runs about 1.47 chars/token, so
+  -- 12,239 characters is roughly 8,300 tokens and 9,265 is roughly 6,300, both far above
+  -- 1,024. The measurement that actually confirms caching engaged is
+  -- `spend_ledger.cache_read_tokens` being non-zero on the first replies, and a sustained
+  -- zero is the signal to read, not this assertion.
   select min_cacheable_tokens into v_min
     from model_prices where model_id = 'claude-sonnet-5'
      and effective_from <= now() order by effective_from desc limit 1;
