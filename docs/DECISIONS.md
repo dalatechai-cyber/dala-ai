@@ -3012,3 +3012,79 @@ the query FILTERS rather than only the rows returned, because the thing under te
 parameter — a stub that only answers rows passes under either convention. Four tests: the FX
 date, the ₮ snapshot, the refusal when no rate exists, and that the settle addresses the same
 counters the reservation charged.
+
+---
+
+## D-055 — a tenant fact with a date in it goes stale silently, and nothing here can notice
+
+**2026-09-07, founder, on reading Matrix's seven knowledge documents.** One sentence was
+removed and the prefix republished; the class it belongs to is **reported and deliberately
+not built**.
+
+### What was removed
+
+Document 5, «Урамшуулал ба баримт», said:
+
+> Одоогоор эмчилгээний химийн урамшуулал 9 сарын 20 хүртэл үргэлжилж байна.
+
+True until 20 September, false on the 21st, and nothing in this system can tell the
+difference. Removed rather than rewritten: «Урамшууллыг зараар зарлана» already covers
+promotions and is true indefinitely. Trimming only the digits would leave «Одоогоор …
+үргэлжилж байна», which has the same defect one word further in — `одоогоор` is a claim
+about *now*, made by a prefix compiled weeks ago.
+
+`scripts/provision/matrix-stage4c-promo-date.sql` applies it, asserting the resulting body
+by md5 against the reviewed text. Republished as revision seq 2: **12,239 chars,
+`content_hash f68b8f53…`**, and `allowed_numbers` drops from fourteen tokens to twelve —
+`9` and `20` appeared nowhere else. `20:00` survives; it is the closing time from
+`business_hours`, and the comparison is the digits-only reduction (`20` against `2000`),
+deliberately not a substring test.
+
+The publish derived the new prefix **on the project**, by `replace()` over the outgoing
+snapshot, rather than sending 12,239 characters of Mongolian through a tool call. That is
+safe for one reason and it is worth naming: the real compiler was run locally over the
+edited rows and produced `f68b8f53…` independently, and the transaction asserts
+`sha256(prompt_stable) = content_hash`. Two derivations agreeing byte for byte is what
+makes the shortcut a shortcut rather than a hand-edited artefact.
+
+### The class
+
+**Any tenant fact carrying a date goes stale with no signal.** Not only
+`knowledge_documents`: `faqs.answer`, `canned_responses.body`, `deposit_rules.rule_text`
+and a service name can all say «9 сарын 20» or «энэ сар». There is no expiry column, no
+review date, no trigger, and — the part that matters — **the prefix is frozen at publish
+time by design**, because `content_hash` is the prompt-cache key. A fact that expires does
+not expire in the prompt; it is still there, word for word, until somebody republishes.
+
+### What making a knowledge document expire would actually take
+
+Five pieces, and the obvious one is the least important:
+
+1. **`valid_until date null` on `knowledge_documents`.** Null means no expiry, which is the
+   normal case. The compile drops a document whose `valid_until` is past — evaluated on
+   `tenantClock(now, tenants.timezone)` (D-053), never `current_date`, which is the
+   server's day.
+2. **Dropping it silently is the same failure one layer along.** A document that vanishes
+   from the prompt with nothing said about it is exactly what D-020's `unconfirmedNames`
+   reporting exists to prevent. An expired document has to be named in the compile's
+   report, next to the unconfirmed FAQs.
+3. **A compile-time filter alone expires nothing.** The snapshot published on the 1st still
+   carries the sentence on the 21st. So expiry needs a **scheduled recompile** — a job that
+   recompiles each tenant and republishes only when `content_hash` changes, costing one
+   cache write per actual change and nothing otherwise. Evaluating it in the volatile tail
+   instead would move the documents out of the cached prefix, which trades ~$5/month per
+   tenant for a date; the wrong side of the trade.
+4. **A warning before the cliff, not at it.** `valid_until` within N days should raise an
+   `alerts` row — dedup keyed per tenant per document per tenant-calendar day — so the
+   founder can ask the salon for the new date instead of discovering the fact disappeared.
+5. **The half that would actually have caught this row: a detector, not a field.** Nobody
+   would have filled in `valid_until` for document 5 — the expiry was in the prose. What
+   catches it is a guard, in the shape of `check-mn-review.mjs`: refuse to publish a tenant
+   text matching a date pattern (`\d+ сарын \d+`, ISO dates, «хүртэл», «одоогоор», «энэ
+   сар») unless `valid_until` is set. It must match date *shapes*, not digits, or it fires
+   on «3-5 хоногийн зайтай» and «7741-7777» and gets switched off within a week. And it
+   belongs on every tenant-text table at once, or it is D-050's shape again: a rule that
+   covers one table while the same defect lives in the next one.
+
+Not built. It is a schema change, a scheduled job and a build guard, and the immediate risk
+is gone.
