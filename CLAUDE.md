@@ -340,6 +340,13 @@ on the digits-only reduction. **The guard did not break; the reason it was true 
 nothing pointed at the reason.** Everything else keyed on emptiness in `src/` is either input
 validation or fails closed.
 
+**Anything run by hand needs `npm install` first, and a missing package fails before
+anything real does** (2026-09-07, founder). `scripts/publish/tenant.ts` died on a
+module-not-found before it reached a single line of its own logic, which reads as "the
+command is broken" rather than "the tree has no dependencies". Every script here imports from
+`src/`, so `node scripts/…` on a fresh checkout fails the same way regardless of what the
+script does. Install first; the failure you then see is the real one.
+
 **A hash agreement that depends on two languages' whitespace definitions matching is a coin
 flip nobody documented** (2026-09-07). The D-058 republish rebuilt the canned section in SQL
 with `btrim()`, which strips only U+0020; `cannedSectionBody` trims with JavaScript's
@@ -349,6 +356,16 @@ would have hashed one way at publish and the other at request, and **every reply
 on a difference nobody would go looking for. Measured clean for the current rows, so it was
 luck rather than construction. The general answer is `scripts/publish/tenant.ts`: publish
 through the same code the request path reads, so there is no second trim to agree with.
+
+**That route is now the only one**, and the SQL one is retired. The founder ran the command's
+dry run against Matrix on 2026-09-07 and it reported the compiled prefix byte-identical to the
+live snapshot — `content_hash 52426e45…`, `canned_hash eb27de84…`, 19 sections, 13,745 chars,
+`allowed_numbers` unchanged — so the real compiler and the hand-written republish agree
+exactly. Note when that agreement was established: **after the fact, not at the time.** The
+SQL publish went out on internal checks alone and was confirmed only when a compiler run
+became possible. It happened to be right. **A publish that does not go through
+`compileAndPublish` is not trusted until something independent reproduces its `content_hash`,
+and that check belongs before the write, not after it.**
 
 **A column added in an unpushed migration is red in production and green in CI, every
 time** (2026-09-07, D-058). The reply path gained `.select('… canned_hash')`; the migration

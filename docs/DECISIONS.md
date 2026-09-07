@@ -3425,6 +3425,26 @@ database does not have would otherwise fail at an operator's shell in the middle
 The set stays narrow — `scripts/verify/` talks to a scratch cluster over psql and is not
 PostgREST at all — and a test pins both halves.
 
+### Confirmed against the project, and when
+
+The founder ran the dry run against Matrix on 2026-09-07. It reported the compiled prefix
+**byte-identical to the live snapshot** — `content_hash 52426e45…`, `canned_hash eb27de84…`,
+19 sections, 13,745 chars, `allowed_numbers` unchanged — and exited without writing. So the
+real compiler and the hand-written SQL republish of the same evening agree exactly, and the
+command works end to end.
+
+**The timing is the lesson, not the agreement.** That cross-check was possible only after the
+command existed; the SQL publish went out on its own internal checks — hashes compared against
+the TypeScript renderer, splices inverted, invariants re-asserted in the transaction — and was
+confirmed hours later by a compiler run that could as easily have disagreed. It happened to be
+right. **A publish that does not go through `compileAndPublish` is not trusted until something
+independent reproduces its `content_hash`, and that reproduction belongs before the write.**
+With this command there is nothing left to reproduce, which is the point.
+
+One practical note from that first run: it failed on a missing package before reaching any of
+its own logic, because the tree had no `node_modules`. Every script here imports from `src/`,
+so `npm install` comes first or the failure you read is not the failure you have.
+
 ### What this does not do
 
 It does not remove the founder from the loop, and is not meant to. Publishing stays an owner
