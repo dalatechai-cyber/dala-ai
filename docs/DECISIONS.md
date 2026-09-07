@@ -2318,6 +2318,40 @@ The wrapper in `public` is not ceremony. Every client in `supabase/clients.ts` i
 no `db: { schema }`, so a function reachable only in `ops` is unreachable from the runtime —
 D-029's third bug, which refused every reply for every tenant for a day.
 
+### Addendum, 2026-09-07: the suite proved the logic, not the caller
+
+The founder asked whether a purge returning 200 with zeros was working or lying. It was
+working — nothing was old enough, and `audit_log` proved the run happened — but the question
+exposed a real gap and the twelve checks would not have closed it.
+
+`retention.sql` called `ops.purge_expired` **as the migration owner**. Its own header said so:
+*"Runs as the migration owner. `rls.sql` covers who may call it; this covers what it does."*
+That scoping is the hole. Production calls `public.purge_expired` as `service_role`, and
+`webhook_events` carries `relforcerowsecurity` — which strips the table owner of its usual RLS
+exemption. The function survives that only because it is SECURITY DEFINER owned by a role
+holding BYPASSRLS. Three properties, each changeable in a migration, none asserted.
+
+**P13** now calls through `public.purge_expired` as `service_role` with a due row and asserts
+the row actually changed. **P14** pins the three premises from the catalog. Mutation-tested
+four ways: revoking the caller's EXECUTE and dropping the `public` wrapper both abort the
+suite; dropping SECURITY DEFINER fails P14; and the full silent-no-op — SECURITY INVOKER plus
+a caller that cannot see past FORCE RLS, with `audit_log` deliberately made writable so the
+run still looks healthy — fails **P13**, which is precisely the class it exists to catch.
+
+**A property worth knowing, found by that last mutation.** When the caller is blocked from
+`webhook_events` it is normally blocked from `audit_log` too, and the function's own audit
+insert then raises rather than returning zeros. The audit row is a canary: a
+privilege-blocked purge fails loudly instead of reporting an empty queue. That was not
+designed — it falls out of writing the audit row inside the same function — but it is worth
+keeping, and it is why the M4 mutation had to grant `audit_log` writability to reproduce the
+silent case at all.
+
+**A testing-hygiene note.** `alter role service_role nobypassrls` is CLUSTER-level, and `0001`
+creates roles `if not exists` without resetting attributes — so a mutation on one scratch
+database leaked into every other one. `isolation.sql`'s T0 caught it immediately, which is
+what T0 is for. Restore cluster-level role attributes explicitly; recreating the database does
+not.
+
 ---
 
 ## D-046 — the clarifying-question signal, and a fragment rule that refuses
