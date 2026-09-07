@@ -2257,3 +2257,126 @@ a purge silently falling behind is how a retention promise becomes false.
 Matrix's Page is subscribed, so `raw_payload` now holds a third party's customers' verbatim
 messages, and the data-deletion callback still cannot join an app-scoped id to a page-scoped
 one (Step 18).
+
+---
+
+## D-045 — retention is enforced by a job, and the floor on it is idempotency
+
+**2026-09-07, on the founder's instruction to close D-044. `0020` + `worker/purge.ts` +
+`scripts/verify/retention.sql`. Written and validated; NOT applied — the founder pushes it.**
+
+D-044 found the gap; this closes it. `webhook_events.raw_purged_at` and
+`tenants.retention_days_raw_events` exist, `ops.purge_expired` exists with a `public`
+wrapper, and `/api/workers/purge` runs it on a QStash schedule.
+
+### Three things worth carrying forward
+
+**`purge_after` is still written by nothing, and that is now a decision rather than an
+omission.** Stamping `received_at + interval` at claim time freezes the policy in force on
+the day the row arrived: lowering a tenant's retention would not shorten the life of a
+single row already stored. Retention is computed from `received_at` at purge time instead,
+and the column is reserved as a per-row override — a legal hold, not the mechanism. The
+migration says so in a `comment on column`, so the next reader finds the reason where the
+question occurs to them.
+
+**The floor on how long a row lives is idempotency, not privacy.** `unique (provider,
+dedup_key)` is the only thing stopping a Meta redelivery being answered twice, and it lives
+IN THE ROW. Delete the row and a redelivery is a new event and a second reply to a real
+customer. That is the whole reason §2 nulls the payload at 7 days rather than deleting at 7
+days: the PII goes, the key stays. The 30-day row delete clears Meta's redelivery window
+(hours, §3.15 item 4) by orders of magnitude, and is deliberately not configurable.
+
+**An unrouted event gets the 1-day floor, not the 7-day default.** It belongs to no tenant,
+so no tenant's policy can justify keeping it — and it is the row most likely to hold a third
+party's PII we were never entitled to store. Matrix's Page produced two of them before Stage 1.
+
+### The order of the two operations is load-bearing, and a test found it
+
+The first version nulled payloads and then deleted rows. A 40-day-old row was therefore
+counted in `payloads_purged` AND in `rows_deleted` — one row, two numbers, an audit trail
+that overstates what a run did. P5 in `retention.sql` failed on the count, not on the rows,
+which is exactly why that check asserts on the numbers. Deleting first makes the counts
+disjoint; and if the delete hits its ceiling, the rows it did not reach still get their
+payload nulled, so a bounded job falls behind in the safe direction.
+
+### A purge that could not run must never look like a purge of nothing
+
+`worker/purge.ts` returns 503 on an RPC error **and on a null answer**. `{purged: 0}` with a
+200 is byte-identical to a database with nothing due, and that ambiguity is how a broken
+purge stays green for months — the D-044 failure repeating one layer up. Hitting the
+per-run ceiling is a `warn` alert keyed by day, not a failure: the run succeeded, and
+retrying immediately would do another 50,000 and alert again.
+
+The wrapper in `public` is not ceremony. Every client in `supabase/clients.ts` is built with
+no `db: { schema }`, so a function reachable only in `ops` is unreachable from the runtime —
+D-029's third bug, which refused every reply for every tenant for a day.
+
+---
+
+## D-046 — the clarifying-question signal, and a fragment rule that refuses
+
+**2026-09-07. `metrics/clarify.ts`, `redact/fragment.ts`. Built ahead of the rest of the gap
+report, which waits for Stage 5.**
+
+The fortnightly gap report clusters conversations where we refused, sent the handoff line, or
+asked a clarifying question. The first two are recorded — `quality_flags` carries a coded row,
+a handoff also shows as `messages.answered_by = 'canned'`. **The third was invisible**:
+`disambiguation_pairs` is read only by `prompt/sections.ts`, which renders it into the prompt
+as text. No matcher, no gate, no flag. The model decides to clarify and the reply is
+`answered_by = 'model'`, byte-identical to a real answer.
+
+Three sources, precedence in this order, with `via` recording which decided: `configured`
+(the reply matches one of the tenant's own clarify questions — certain, free, and circular,
+since it can only find what is already configured), `classifier` (injected, so this module
+never calls a provider and cannot spend), `structural` (inference from `turnsToIntent`).
+
+**Option (c) was refused by the founder and the reason is worth keeping:** nothing changes
+customer-visible behaviour to improve a report. No marker the model emits, no clarify gate.
+
+### I was wrong about the structural rule, and the test said so
+
+The design note claimed `turnsToIntent` catches the «цаг» case exactly. It does not.
+«цаг» matches no booking stem — it is three characters and ambiguous, which is the whole
+point of it — so the intent lands on the customer's SECOND message and the conversation
+scores `turns: 1`. Correct by the metric's own definition, and blind to the clarification,
+which happened *before* the intent existed. Counting "replies after the intent" found nothing
+in the founder's own example.
+
+The rule is therefore **before the link, not after the intent**: every reply preceding the
+one that delivered the link. A link the bot volunteered unprompted is excluded by its
+CONTENT rather than its position — it carries the URL, so it answered. `carriesBookingUrl`
+is exported from `turnsToIntent.ts` and imported here rather than re-implemented, so the
+metric and the report cannot drift apart about the same reply. A second test then caught
+that `delivering` must be the first link-carrying reply AFTER the intent, or a bot that
+greets with the link collapses the window to nothing.
+
+### `unknown` is not a clarification
+
+A classifier that cannot tell must not inflate the count, or the report measures the
+classifier's confidence rather than what customers hit — and improves as the classifier gets
+*less* certain. `unknown` falls through to the structural evidence rather than discarding it;
+`answering` overrides structural, because a model that has read the text knows more than an
+inference from position.
+
+### The fragment rule is structural, not a filter
+
+The founder's instruction: shortest distinguishing fragment, never a whole conversation,
+never a PSID, never a phone number or a name a customer typed; and if a cluster cannot be
+understood from a fragment, say so and point at `kb_change_proposals`.
+
+Detecting names in Mongolian is the input-filter fallacy `guard/outbound.ts` already rejects.
+So the fragment is never taken from one customer's message — it is the shortest term shared
+by at least two **distinct customers**. A term two different people typed is structurally not
+either person's name or number; the privacy property falls out of the definition. Two
+backstops on top: any run of 4+ digits disqualifies a term (a PSID is ~16, a Mongolian mobile
+is 8), and a 40-code-point cap, because a longer "fragment" is a sentence somebody typed.
+
+`safeFragment` returns a refusal as a first-class result. A redactor that always produces
+something will, on the day it cannot find a safe fragment, produce an unsafe one.
+
+**Mutation testing found the hole that mattered.** Replacing the per-term customer SET with
+an occurrence count passed all fifteen tests: the "one customer repeating a word" case is
+caught by an earlier whole-cluster guard, so nothing exercised the per-term counting — which
+IS the privacy property. The added test uses two separate messages from one customer, since
+within-message repetition is already collapsed. The first attempt at that test mutated the
+wrong thing and passed; the second caught it.

@@ -82,6 +82,18 @@ function urlForms(bookingUrl: string): string[] {
   return [bare, `${bare}/`];
 }
 
+/**
+ * Does this reply carry the booking link?
+ *
+ * Exported so `clarify.ts` asks the same question the same way. Two definitions of "this
+ * reply delivered the link" drifting apart would make the metric and the gap report that
+ * cites it disagree about the same conversation.
+ */
+export function carriesBookingUrl(replyText: string, bookingUrl: string): boolean {
+  const body = nfc(replyText).toLowerCase();       // ascii-safe: our own text, per the header
+  return urlForms(bookingUrl).some((f) => body.includes(f));
+}
+
 function assertSpec(spec: IntentSpec): void {
   if (nfc(spec.bookingUrl).trim() === '') {
     // An empty needle is found in every reply, so every conversation would score 1 and
