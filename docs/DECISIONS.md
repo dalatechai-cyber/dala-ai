@@ -2185,3 +2185,75 @@ takes no app parameter**. The app is implied by the token, so a `DALA_AI`-issued
 cannot reach `dalatech`'s subscription — and, in the other direction, a `dalatech`-issued
 one silently rewrites the incumbent's field list on a live Page. That is why the token's
 `app_id` is the abort check and not a formality.
+
+---
+
+## D-044 — `purge_after` is inert, and half its design never shipped
+
+**2026-09-07, found while provisioning Matrix's Stage 1. Not a decision yet — a measured
+gap and the constraint that bounds it. The retention number itself is the founder's, because
+it is a promise to a third party's customers rather than a technical parameter.**
+
+### The design already exists
+
+`02-schema-rls.md` § Retention decided this long before Matrix:
+
+| Data | Default | Configurable | Mechanism |
+|---|---|---|---|
+| `webhook_events.raw_payload` | **7 days** | `retention_days_raw_events`, 1–30 | NULL it, set `raw_purged_at`. **Row survives for idempotency.** |
+| `webhook_events` row | 30 days | no | Delete |
+| `messages.body` | 90 days | `retention_days_messages`, 30–730 | NULL it, set `body_redacted_at` |
+
+### What actually shipped, measured against the project
+
+- **`tenants.retention_days_raw_events` does not exist.** What shipped is
+  `tenants.message_retention_days` (default 90, check 7–730) — the *messages* knob under a
+  different name from §2's. The raw-events knob has no column at all.
+- **`webhook_events.raw_purged_at` does not exist.** So a nulled payload would be
+  indistinguishable from an event that never carried one.
+- **`messages.body_redacted_at` does exist.** The messages half of §2 shipped; the
+  `webhook_events` half did not.
+
+So `purge_after` is one timestamp carrying the only meaning still expressible — *delete this
+row after this* — and the 7-day payload-nulling has nowhere to record itself.
+
+### Nothing enforces any of it
+
+§2 specifies one nightly job, `ops.purge_expired(p_max_rows int default 50000)`. Read off
+`pg_proc` on the live project, `ops` contains exactly `deny_mutation`, `deny_truncate`,
+`stamp_went_live`, `stamp_went_live_on_insert`. **There is no purge function and no
+schedule**, and `purge_after` is written by no code path. The column is inert in both
+directions: nothing sets it, and nothing would act on it if it were set.
+
+### The constraint is two-sided, and the lower bound is the interesting one
+
+**Below**, idempotency binds it. `unique (provider, dedup_key)` is the only thing stopping a
+Meta redelivery being answered twice, and that guarantee lives **in the row**. Delete the row
+and the key goes with it, so a redelivery afterwards is a new event and a second reply to a
+customer. `purge_after` must therefore outlive Meta's redelivery window — which is
+[UNVERIFIED] (§3.15 item 4; `developers.facebook.com` is blocked) but observed in hours, and
+§3.1's two-floor design exists so nothing depends on pinning it. **This is exactly why §2
+nulls the payload at 7 days instead of deleting the row at 7 days: the PII goes and the
+idempotency stays.** It is the argument against the obvious shortcut.
+
+**Above**, the privacy promise binds it, and that is a commitment rather than a measurement.
+
+### Do NOT start writing `purge_after` before something deletes on it
+
+The column exists, so it could be filled at claim time tonight with no migration. That would
+be the wrong move: a populated `purge_after` that nothing acts on is a column that *looks*
+enforced, which is this repository's most-repeated failure — a row existing read as the work
+having been done (D-028, D-029). Write it in the same change that deletes on it, never before.
+
+### What closing it costs
+
+One migration (`raw_purged_at`, and either a `retention_days_raw_events` knob or the decision
+to hard-code 7), plus `ops.purge_expired` and a schedule. The job is safe to schedule by the
+health worker's argument: it reaches no provider and spends nothing, so `NOTHING SPENDS ON A
+SCHEDULE` is not engaged. It must be bounded per run and alert on hitting its ceiling, because
+a purge silently falling behind is how a retention promise becomes false.
+
+**This became urgent on 2026-09-07**, not because the design changed but because the data did:
+Matrix's Page is subscribed, so `raw_payload` now holds a third party's customers' verbatim
+messages, and the data-deletion callback still cannot join an app-scoped id to a page-scoped
+one (Step 18).
