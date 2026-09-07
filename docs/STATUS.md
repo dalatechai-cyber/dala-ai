@@ -414,7 +414,7 @@ and that is now the only thing between a message arriving and a message being an
 | 12 | **The tenant's config rows** | **Done for the nine that gate a reply.** `canned_responses` carries all nine kinds the compiled prompt names — founder-approved wording, `reviewed_at` set, `locale mn-MN`. Everything else (`services`, `faqs`, `business_hours`, `contact_points`, `deterministic_replies`) is still empty, which is a *product* limit rather than a blocker: with no facts, `allowed_numbers` is empty and every numeric answer is refused into the handoff line, by design |
 | 13 | Publish a config revision → `tenants.live_revision_id` | **Done.** Revision `26814470-50c6-4cb9-b613-826bf536480b`, seq 1, published; snapshot `facebook_page`, 9,265 chars, `content_hash 8b35d072…`, `allowed_numbers []`. Compiled two ways that had to agree — the repo's `renderStablePrefix` over the signed files, and `string_agg(normalize(body, NFC), …)` over `prompt_blocks` — because `compileAndPublish` needs a service key this environment does not have |
 | 15 | Subscribe the app to the Page, and **verify the app-level subscription too** | A page-level subscribe returns `{"success": true}` even when the app has never enabled that field, and no events are ever delivered. The 2026-09-06 delivery proves the subscription works for `messages` on this Page |
-| 16 | `delivery_mode` | **Tenant #0 is `live`** (`status active / delivery_mode live / token_status active`, `name_confirmed_at` set). Setting `token_status = 'active'` is an ASSERTION: the sealed token has never been opened, `last_ok_at` is null. **Matrix is different** — its 14-day mirror runs on `shadow`, which drafts and does not send. **Not `live`** |
+| 16 | Subscribe `DALA_AI` to **Matrix's** Page alongside `dalatech`, then `delivery_mode` | **The mirror is a second subscription — measured (D-043), no forwarding hop.** §3.13.1 is the exact call and the four-read pre-flight; the abort check is `debug_token`'s `app_id`, because `subscribed_apps` takes no app parameter and a `dalatech`-issued token would rewrite the incumbent's field list on a live Page. Never through the console's Add Page picker: it writes the complete Page set and took Matrix offline for ten minutes on 2026-09-06. **Tenant #0 is `live`** (`status active / delivery_mode live / token_status active`, `name_confirmed_at` set). Setting `token_status = 'active'` is an ASSERTION: the sealed token has never been opened, `last_ok_at` is null. **Matrix is different** — its 14-day mirror runs on `shadow`, which drafts and does not send. **Not `live`** |
 | 17 | After Matrix's mirror: unsubscribe the ancestor app first, confirm from each app's own token, then `delivery_mode = 'live'` and `token_status = 'active'` | `live_requires_active_token` refuses the two halves separately, so the flip is one statement setting both |
 
 ### From the Meta app — the second app changed the answers here
@@ -460,13 +460,13 @@ Step 16 is the one worth not rushing. During the mirror both this system and
 `Matrix-Chatbot` are answering the same Page, and `shadow` is what stops the salon's
 customers getting two replies — the code enforces it, but only if the row says `shadow`.
 
-By what route both systems see the traffic is an open question. **[UNVERIFIED, the citation was wrong, and the first correction was wrong too.]** This
-document said "§3.10.5 establishes that Meta delivers the identical event to *every*
-subscribed app". §3.10.5 is *Back off the tenant, not the worker* and is about rate-limit
-backoff. The correction then said there was only one Meta app, so no second subscriber was
-possible — also wrong, and instructively so: `tenant_channels.app_slug` for tenant #0 reads
-`dalatech` while that Page actually lives on a second app (D-041), so the database said one
-app and the console said two.
+By what route both systems see the traffic **is now measured** (D-043, 2026-09-07). Getting
+there took two wrong answers, both worth keeping. This document said "§3.10.5 establishes
+that Meta delivers the identical event to *every* subscribed app". §3.10.5 is *Back off the
+tenant, not the worker* and is about rate-limit backoff. The correction then said there was
+only one Meta app, so no second subscriber was possible — also wrong, and instructively so:
+`tenant_channels.app_slug` for tenant #0 reads `dalatech` while that Page actually lives on
+a second app (D-041), so the database said one app and the console said two.
 
 The facts, read from the App Dashboard on 2026-09-06:
 
@@ -475,17 +475,24 @@ The facts, read from the App Dashboard on 2026-09-06:
 | `dalatech` | 1380702870025418 | Matrix's Page 1520409424715591; the ancestor's callback at `matrix-chatbot-seven.vercel.app/api/messenger` |
 | `DALA_AI` | 1562862634970492 | tenant #0's Page 863503883522801; this platform's callback |
 
-So **a second subscription is available** — Matrix's Page can be subscribed to `DALA_AI`
-alongside `dalatech`, which is the answer to D-023's open question. What remains unverified
-is whether both apps then receive `entry.messaging`. §3.7 holds that a non-primary receiver
-gets `entry.standby` instead, and `worker/reception.ts` refuses those terminally and
-alerts — so if §3.7 is right, a second subscription produces a mirror that generates
-nothing and pages the founder every day.
+**The measurement.** The founder subscribed tenant #0's Page `863503883522801` to **both**
+apps simultaneously and sent one real message. It arrived at `DALA_AI` in
+**`entry.messaging`** — `has_messaging: true`, `has_standby: false` — and was answered end
+to end: `webhook_events` id 8, `dedup_key` `863503883522801:0:mfc9ea15…:dalatech`, reply
+`state='sent'` with a real `provider_message_id`. **Meta delivered the real event to both
+apps and demoted neither.**
 
-**What would settle it**, and §3.15 already asks for exactly this: subscribe Matrix's Page
-to `DALA_AI`, send one real message, and read which array it arrives in. That is a live
-test on a live Page, so it is the founder's to run. `webhook_events.source` (D-039) is
-there for the other outcome, where the incumbent forwarding is the only route.
+So the original claim was right and only its citation was wrong, and **the mirror is a
+second subscription rather than a forwarding hop**: subscribe `DALA_AI` to Matrix's Page
+alongside `dalatech` and both systems receive the identical event. Nothing needs to relay.
+`webhook_events.source` (D-039) stays for the day forwarding is wanted anyway.
+
+**Two things the measurement does not settle.** It was taken on tenant #0's Page, so it
+proves that being a second subscribed app is not itself a Handover demotion — not that
+Matrix's Page lacks a configured primary receiver. If theirs has one, `DALA_AI` lands in
+`standby` there and the mirror generates nothing and alerts daily; that is discoverable
+with one message and is not an outage. And §3.7's standby branch stays exactly as it is:
+the Page Inbox case is a different mechanism and was not tested by this.
 
 
 ---

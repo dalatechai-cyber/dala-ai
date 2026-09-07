@@ -264,6 +264,14 @@ test('DONE-TEST: a standby entry is refused, marked and ALERTED — never proces
   // routed for the right tenant, so before this branch the entry read as "no customer
   // wrote in": 200, marked processed, every health signal green, and the only symptom the
   // salon phoning the founder.
+  //
+  // THIS BRANCH IS NOT THE TWO-APP CASE, and the 2026-09-07 measurement must not be read
+  // as retiring it. That measurement (D-043) subscribed tenant #0's Page to both Meta apps
+  // and the message still arrived in `entry.messaging` for both — being a second
+  // subscriber is not a Handover demotion. A Page whose PRIMARY RECEIVER is the Page
+  // Inbox app is a different setting and still produces standby, which is what this test
+  // covers and why deleting it on the strength of that measurement would restore the
+  // silent failure exactly.
   const { fx, logs, ops, standbyAlerts, generated } = stubEffects({
     tables: {
       webhook_events: {

@@ -25,10 +25,17 @@ generated a working Page access token for Matrix and read the inbox with it.
 **There are TWO Meta apps** (console, 2026-09-06): `dalatech` (`1380702870025418`) holds
 Matrix's Page `1520409424715591` and the ancestor's callback; `DALA_AI`
 (`1562862634970492`) holds tenant #0's Page `863503883522801` and this platform's. So
-D-023's open question resolves to **a second subscription is available**. Whether both apps
-then receive `entry.messaging` rather than one getting `entry.standby` is **[UNVERIFIED]**,
-and the "Meta delivers to every subscribed app" fan-out was cited to §3.10.5, a section
-about rate-limit backoff. `channel/delivery.ts` carries the correction.
+D-023's open question resolves to **a second subscription is available**.
+
+**And on 2026-09-07 the founder measured what that produces** (D-043). Tenant #0's Page was
+subscribed to **both** apps at once and one real message arrived at `DALA_AI` in
+**`entry.messaging`**, not `entry.standby` — `has_messaging: true`, `has_standby: false`,
+no Handover demotion, answered end to end as `webhook_events` id 8. So the "Meta delivers
+to every subscribed app" fan-out is **true**; what was wrong was only its citation to
+§3.10.5, a section about rate-limit backoff. **The mirror is a second subscription, not a
+forwarding hop.** It does *not* follow that standby is dead: the test was on tenant #0's
+Page, and a Page whose primary receiver is the Page Inbox app is a different mechanism that
+still yields standby. `channel/delivery.ts` carries both halves.
 
 **A session got this wrong on 2026-09-06 and wrote "one app" here**, having read STATUS.md's
 mirror paragraph without reading its own "the second app changed the answers here" section
