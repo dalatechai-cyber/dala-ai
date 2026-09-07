@@ -3086,5 +3086,20 @@ Five pieces, and the obvious one is the least important:
    belongs on every tenant-text table at once, or it is D-050's shape again: a rule that
    covers one table while the same defect lives in the next one.
 
-Not built. It is a schema change, a scheduled job and a build guard, and the immediate risk
-is gone.
+### Parked, on a named trigger
+
+**Not built, and parked by the founder the same evening: revisited when there is a third
+tenant.** The immediate risk is gone — the sentence is out of the prompt — and at two
+tenants, both hand-provisioned by one person who reads every document, the cost of the
+machinery exceeds what it buys.
+
+Two things to carry to whoever picks it up, so the parked design is not rebuilt from the
+wrong end:
+
+- **Piece 5 is the valuable half**, and it is the founder's judgement as much as mine. A
+  detector on date *shapes* is what would have caught this row; `valid_until` is the piece
+  that reads like the answer and is worth least, because the failure was never a column
+  left empty — it was a fact nobody knew had an expiry.
+- **A third tenant is the trigger for a reason.** At three, documents stop being provisioned
+  by the person who read them, and «энэ сар» starts arriving in a batch from somebody who
+  will not be the one to notice it aged.
