@@ -3343,3 +3343,18 @@ Four things made that safe, and they are the reusable part:
 
 Afterwards: one published revision per tenant, both live, no leftover drafts, every older
 revision superseded with its `published_at` intact.
+
+**One trap in this route, checked and recorded rather than left latent.** `cannedSectionBody`
+trims each row with JavaScript's `String.prototype.trim()`, which strips every Unicode
+whitespace character; the SQL used `btrim()`, which strips only U+0020. A canned body with a
+trailing tab or newline would therefore hash one way at publish and the other way at request,
+and **every reply would 503 with `canned_stale`** — a total outage produced by a guard working
+exactly as designed, on a difference nobody would look for.
+
+Measured before relying on it: no canned row on either tenant carries leading or trailing
+whitespace of any kind, so the two trims cannot disagree today. The next hand-written publish
+must either re-check that, or trim with `regexp_replace(body, '^\s+|\s+$', '', 'g')` rather
+than `btrim`. The real answer is that a publish should go through `compileAndPublish`, which
+uses the same `.trim()` as the request path; this route exists only because that needs a
+service-role key this environment does not have.
+
