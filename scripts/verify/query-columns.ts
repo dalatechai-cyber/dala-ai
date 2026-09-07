@@ -21,7 +21,9 @@
  *
  * ## What it cannot parse, it REPORTS
  *
- * The parser is deliberately simple: it reads literal `.select('…')` strings and literal
+ * The parser lives in `querysites.ts` and is shared with `postgrest.ts`, which asks the
+ * same facts of a real PostgREST rather than of the applied schema. It reads literal
+ * `.select('…')` strings and literal
  * `.insert({…})` / `.update({…})` / `.upsert({…})` key sets. A dynamically built select, a
  * spread, or a computed key cannot be resolved statically — and those are listed as
  * UNCHECKED with their file and line rather than skipped. A skip nobody can see is the
@@ -29,8 +31,7 @@
  * poor joke.
  */
 import { execFileSync } from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
+import { chainsFromSource, topLevelSplit } from './querysites.ts';
 
 const SRC = 'src';
 const db = process.argv[2] ?? 'dala_verify';
@@ -39,29 +40,6 @@ type Site = { file: string; line: number; table: string; columns: string[] };
 
 const sites: Site[] = [];
 const unchecked: string[] = [];
-
-/**
- * Split on commas that are not nested.
- *
- * Tracks braces and brackets as well as parentheses: an insert whose value is itself an
- * object — `detail: cond ? { a } : { a, b }` — is extremely common here, and a splitter
- * that only counted parens gave up on it and reported the whole site as unresolvable.
- * Under-reading is not as bad as a silent skip, but it is still a check that quietly
- * covers less than it appears to.
- */
-function topLevelSplit(s: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let cur = '';
-  for (const ch of s) {
-    if (ch === '(' || ch === '{' || ch === '[') depth += 1;
-    if (ch === ')' || ch === '}' || ch === ']') depth -= 1;
-    if (ch === ',' && depth === 0) { out.push(cur); cur = ''; continue; }
-    cur += ch;
-  }
-  if (cur.trim() !== '') out.push(cur);
-  return out.map((x) => x.trim()).filter((x) => x !== '');
-}
 
 /** `a, b, other!inner(c, d)` → columns on this table, plus embedded (table, columns). */
 function parseSelect(list: string, table: string, file: string, line: number): void {
@@ -82,64 +60,15 @@ function parseSelect(list: string, table: string, file: string, line: number): v
   if (own.length > 0) sites.push({ file, line, table, columns: own });
 }
 
-/** Literal object keys from `{ a: 1, 'b': 2 }`. Returns null when it cannot be trusted. */
-function parseObjectKeys(src: string): string[] | null {
-  let depth = 0;
-  let body = '';
-  let started = false;
-  for (const ch of src) {
-    if (ch === '{') { depth += 1; started = true; if (depth === 1) continue; }
-    if (ch === '}') { depth -= 1; if (depth === 0) break; }
-    if (started) body += ch;
-  }
-  if (!started) return null;
-  if (body.includes('...')) return null;                // a spread hides its keys
-  // Strip line comments BEFORE flattening newlines. Otherwise a trailing `// …` comment
-  // swallows the key on the following line once the newline becomes a space, and the whole
-  // site reports as unresolvable — which is honest but covers less than it looks like.
-  const flat = body.split('\n').map((l) => l.replace(/\/\/.*$/, '')).join(' ');
-  const keys: string[] = [];
-  for (const part of topLevelSplit(flat)) {
-    const m = part.match(/^'?([a-z_][a-z_0-9]*)'?\s*:/i);
-    if (m === null) return null;
-    keys.push(m[1] ?? '');
-  }
-  return keys;
-}
+for (const c of chainsFromSource(SRC)) {
+  if (c.select !== null) parseSelect(c.select, c.table, c.file, c.line);
+  else if (c.selectUnparseable) unchecked.push(`${c.file}:${c.line} .select() argument is not a literal`);
 
-function walk(dir: string): void {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) { walk(full); continue; }
-    if (!entry.name.endsWith('.ts') || entry.name.endsWith('.test.ts')) continue;
-
-    const text = fs.readFileSync(full, 'utf8');
-    const re = /\.from\('([a-z_0-9]+)'\)/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text)) !== null) {
-      const table = m[1] ?? '';
-      const line = text.slice(0, m.index).split('\n').length;
-      const rest = text.slice(m.index + m[0].length);
-      // Bound the chain: the next statement or the next .from() ends it, whichever first.
-      const stops = [rest.indexOf(';'), rest.indexOf('.from(')].filter((x) => x >= 0);
-      const window = rest.slice(0, stops.length > 0 ? Math.min(...stops) : rest.length);
-
-      const sel = window.match(/\.select\(\s*(['"`])([^'"`]*)\1/);
-      if (sel !== null) parseSelect(sel[2] ?? '', table, full, line);
-      else if (/\.select\(/.test(window)) unchecked.push(`${full}:${line} .select() argument is not a literal`);
-
-      for (const verb of ['insert', 'update', 'upsert'] as const) {
-        const at = window.indexOf(`.${verb}(`);
-        if (at < 0) continue;
-        const keys = parseObjectKeys(window.slice(at));
-        if (keys === null) { unchecked.push(`${full}:${line} .${verb}() keys are not statically resolvable`); continue; }
-        if (keys.length > 0) sites.push({ file: full, line, table, columns: keys });
-      }
-    }
+  for (const w of c.writes) {
+    if (w.keys === null) { unchecked.push(`${c.file}:${c.line} .${w.verb}() keys are not statically resolvable`); continue; }
+    if (w.keys.length > 0) sites.push({ file: c.file, line: c.line, table: c.table, columns: w.keys });
   }
 }
-
-walk(SRC);
 
 // ---- the schema, from the database rather than from a doc -------------------
 const raw = execFileSync('psql', ['-d', db, '-tAc',

@@ -46,6 +46,7 @@
  */
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { createHmac } from 'node:crypto';
+import { chainsFromSource } from './querysites.ts';
 import http from 'node:http';
 import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';   // guard-ok: scripts/, not src/
@@ -132,16 +133,52 @@ export function parseSelect(file: string, table: string, list: string): SelectUs
 }
 
 export function selectsFromSource(root = process.cwd()): SelectUse[] {
-  const uses: SelectUse[] = [];
-  for (const file of walk(path.join(root, SRC))) {
-    const text = readFileSync(file, 'utf8');
-    // ascii-safe: PostgREST identifiers and select lists, ASCII by construction. The
-    // `\s*` between the calls is what lets a chain wrap across lines.
-    for (const m of text.matchAll(/\.from\(\s*'([a-z0-9_]+)'\s*\)\s*\.select\(\s*'([^']*)'/g)) {
-      uses.push(parseSelect(path.relative(root, file), String(m[1]), String(m[2])));
+  // The chain walker is shared with `query-columns.ts` (`querysites.ts`). It used to be a
+  // regex here demanding `.select()` IMMEDIATELY after `.from()`, which silently missed
+  // every chain with a filter in between — and missed writes entirely.
+  return chainsFromSource(path.join(root, SRC))
+    .filter((c) => c.select !== null)
+    .map((c) => parseSelect(path.relative(root, c.file), c.table, c.select ?? ''));
+}
+
+/**
+ * Every literal `.insert()` / `.update()` / `.upsert()` key set, as columns on its table.
+ *
+ * The transport check saw no writes at all until 2026-09-07, and a write is where this
+ * class of bug bites hardest: a select naming a column that does not exist returns an
+ * error the caller can report, while an insert naming one is rejected by PostgREST at the
+ * moment a customer is waiting. `worker/reception.ts` carries a hand-written test pinning
+ * one insert's `tenant_id` — "a write that every stub accepts and PostgREST rejects" — and
+ * that is one site, checked by hand, out of dozens.
+ */
+export type WriteUse = { file: string; line: number; table: string; verb: string; columns: string[] };
+
+export function writesFromSource(root = process.cwd()): { uses: WriteUse[]; unresolved: string[] } {
+  const uses: WriteUse[] = [];
+  const unresolved: string[] = [];
+  for (const c of chainsFromSource(path.join(root, SRC))) {
+    const file = path.relative(root, c.file);
+    for (const w of c.writes) {
+      if (w.keys === null) { unresolved.push(`${file}:${c.line} .${w.verb}() keys are not statically resolvable`); continue; }
+      if (w.keys.length > 0) uses.push({ file, line: c.line, table: c.table, verb: w.verb, columns: w.keys });
     }
   }
-  return uses;
+  return { uses, unresolved };
+}
+
+export function writeProblems(uses: readonly WriteUse[], known: Map<string, Set<string>>): string[] {
+  const problems: string[] = [];
+  for (const u of uses) {
+    const cols = known.get(u.table);
+    // A table absent from `definitions` is already named by the reachability check.
+    if (cols === undefined) continue;
+    for (const c of u.columns) {
+      if (!cols.has(c)) {
+        problems.push(`${u.file}:${u.line}: ${u.table}.${c} does not exist on the public profile (.${u.verb}())`);
+      }
+    }
+  }
+  return problems;
 }
 
 /** `definitions` in PostgREST's Swagger 2.0 document: one entry per exposed relation. */
@@ -259,7 +296,18 @@ async function main(): Promise<void> {
   const selects = selectsFromSource();
   const problems: string[] = [];
 
-  problems.push(...selectProblems(selects, columnsFrom(openApi)));
+  const columns = columnsFrom(openApi);
+  problems.push(...selectProblems(selects, columns));
+
+  const writes = writesFromSource();
+  problems.push(...writeProblems(writes.uses, columns));
+  if (writes.unresolved.length > 0) {
+    // Reported, never skipped silently — the same posture `query-columns.ts` takes. A
+    // payload built from a variable or a spread cannot be read statically, and a check
+    // that quietly covers less than it appears to is the thing both files exist to end.
+    process.stdout.write(`  ${writes.unresolved.length} write payload(s) NOT statically resolvable:\n`);
+    for (const u of writes.unresolved) process.stdout.write(`    - ${u}\n`);
+  }
 
   for (const name of rpcs) {
     if (!exposed.rpcs.has(name)) {
@@ -296,15 +344,15 @@ async function main(): Promise<void> {
   }
 
   process.stdout.write(
-    `  ${rpcs.length} RPC name(s), ${tables.length} table(s) and ${selects.length} select list(s) `
-    + `from src/, against ${exposed.rpcs.size} exposed function(s) and `
-    + `${exposed.tables.size} exposed relation(s)\n`,
+    `  ${rpcs.length} RPC name(s), ${tables.length} table(s), ${selects.length} select list(s) `
+    + `and ${writes.uses.length} write payload(s) from src/, against `
+    + `${exposed.rpcs.size} exposed function(s) and ${exposed.tables.size} exposed relation(s)\n`,
   );
   if (problems.length > 0) {
     process.stderr.write(`POSTGREST REACHABILITY FAILED:\n  - ${problems.join('\n  - ')}\n`);
     process.exit(1);
   }
-  process.stdout.write('POSTGREST OK (every name and column the runtime selects is exposed on the default profile)\n');
+  process.stdout.write('POSTGREST OK (every name and column the runtime selects OR WRITES is exposed on the default profile)\n');
 }
 
 if (process.argv[1] !== undefined && process.argv[1].endsWith('postgrest.ts')) {
