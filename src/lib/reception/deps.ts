@@ -60,7 +60,10 @@ export function buildDeps(input: DepsInput): ReceptionDeps {
         reservation, usage, modelId,
         // The tenant's mode decides the write multiplier, and picking the wrong one
         // halves or doubles the miss cost — most of the cost on a cold conversation.
-        cacheTtl: '1h',
+        // This was the literal '1h' for every tenant until 2026-09-07: correct for Matrix
+        // by coincidence, and 1.6x over for a 5m tenant, in the column D-004's margin is
+        // checked against. It is the same value `checkCacheHealth` is already given.
+        cacheTtl: input.cacheMode,
         conversationId,
         now,
       });

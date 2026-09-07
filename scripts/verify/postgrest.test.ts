@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   columnsFrom, exposedFrom, namesFromSource, parseSelect, selectProblems, selectsFromSource,
+  writeProblems, writesFromSource,
 } from './postgrest.ts';
 
 test('the names come from the source, never from a list', () => {
@@ -111,4 +112,56 @@ test('the select lists come from the source too, chained across lines', () => {
   assert.deepEqual(resolve.embeds.map((e) => e.table), ['tenant_channels']);
   const staff = uses.find((u) => u.table === 'staff_members');
   assert.ok(staff?.columns.includes('short_name'), `staff select: ${JSON.stringify(staff)}`);
+});
+
+// ---------------------------------------------------------------------------
+// Writes. The half this file could not see until 2026-09-07.
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: THE WRITE PAYLOADS ARE READ OUT OF THE SOURCE TOO', () => {
+  // A select naming a column that does not exist returns an error the caller can report.
+  // An INSERT naming one is rejected by PostgREST with a customer waiting — and this check,
+  // the only one that speaks the real transport, saw no writes at all. `worker/reception.ts`
+  // carries a hand-written test pinning one insert's `tenant_id`; this is that test
+  // generalised to every write in `src/`.
+  const { uses } = writesFromSource();
+  assert.ok(uses.length >= 20, `expected the runtime's writes, found ${uses.length}`);
+  assert.ok(uses.some((u) => u.table === 'spend_ledger' && u.verb === 'insert'),
+    'the ledger insert is the one whose columns a customer waits on');
+  assert.ok(uses.some((u) => u.verb === 'update'), 'updates are checked, not only inserts');
+  // Nothing invented: every column is a plain identifier.
+  for (const u of uses) for (const c of u.columns) assert.match(c, /^[a-z][a-z0-9_]*$/); // ascii-safe: SQL identifiers
+});
+
+test('a write naming a column the profile does not expose is a problem', () => {
+  const known = new Map([['spend_ledger', new Set(['tenant_id', 'cost_nanousd'])]]);
+  const problems = writeProblems(
+    [{ file: 'x.ts', line: 12, table: 'spend_ledger', verb: 'insert', columns: ['tenant_id', 'cost_nanusd'] }],
+    known);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0] ?? '', /spend_ledger\.cost_nanusd does not exist/);
+  assert.match(problems[0] ?? '', /insert/, 'the verb is named, so the site is findable');
+});
+
+test('a table the profile does not expose at all is left to the reachability check', () => {
+  // Reporting every column of a missing table would bury the one line that matters.
+  assert.deepEqual(
+    writeProblems([{ file: 'x.ts', line: 1, table: 'nope', verb: 'insert', columns: ['a', 'b'] }], new Map()),
+    []);
+});
+
+test('DONE-TEST: A PAYLOAD IT CANNOT READ IS REPORTED, NEVER COUNTED AS CLEAN', () => {
+  // Six writes in `src/` build their payload from a variable or a spread. A checker that
+  // dropped them would report a bigger number and cover less — which is the failure mode
+  // this file was written to remove, reintroduced one layer up.
+  const { unresolved } = writesFromSource();
+  assert.ok(unresolved.length > 0, 'the spread-built payloads are still there');
+  for (const u of unresolved) assert.match(u, /not statically resolvable/);
+});
+
+test('the select walker finds chains with a filter between .from() and .select()', () => {
+  // It was `/\.from\('t'\)\s*\.select\(/` — adjacency only — so every chain that put an
+  // `.eq()` first was invisible. Both checks now share one walker (`querysites.ts`).
+  const selects = selectsFromSource();
+  assert.ok(selects.length >= 70, `expected the non-adjacent chains too, found ${selects.length}`);
 });

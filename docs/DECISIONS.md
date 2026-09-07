@@ -3103,3 +3103,78 @@ wrong end:
 - **A third tenant is the trigger for a reason.** At three, documents stop being provisioned
   by the person who read them, and «энэ сар» starts arriving in a batch from somebody who
   will not be the one to notice it aged.
+
+---
+
+## D-056 — the ledger prices a cache write at the tenant's rate, not at a literal
+
+**2026-09-07, founder-requested.** `deps.ts` passed `cacheTtl: '1h'` to `settle` for every
+tenant. It happened to be right for Matrix and wrong for anyone on `5m`, whose writes were
+billed at **1.6× their rate** — 4000 nanoUSD/token instead of 2500 — in `cost_nanousd`, the
+column D-004's margin is checked against. Nothing else in the system would have disagreed.
+
+`buildDeps` already receives `cacheMode`; it now passes it. The value was two lines away
+from the literal that replaced it.
+
+### `off` is a third mode, and it is not a rate
+
+`priceCall` took `'5m' | '1h'`, so `off` had no representation and the caller had to invent
+one. It now takes `CacheMode` and refuses when a tenant with caching off comes back with
+cache-write tokens: no `cache_control` was sent, so a write means the provider and our
+configuration disagree about the request that was made, and no rate honestly describes it.
+That is `priceCall`'s posture everywhere else — "a spend we cannot price is a spend we
+cannot cap".
+
+### `deps.ts` had no test file
+
+The hardcode lived between two well-tested modules and was invisible to both: `settle` has
+tests, `reception` has tests, and the join had none. `deps.test.ts` asserts the mode reaches
+`cost_nanousd` — 10,000 write tokens land at 29,000,000 nanoUSD on `5m` and 44,000,000 on
+`1h`, so the literal cannot come back unnoticed.
+
+---
+
+## D-057 — the transport check could not see writes, and both column checks were under-reading
+
+**2026-09-07, founder-requested**: extend the PostgREST check to `.insert()` and `.update()`
+column lists. Doing it found two silent under-reads that had nothing to do with writes.
+
+### The gap as stated
+
+`postgrest.ts` — the only check that speaks the real transport, the layer D-029's third bug
+lived in — matched `/\.from\('t'\)\s*\.select\(/`: select lists only, and only when the
+select was *adjacent* to the `from`. `query-columns.ts` walked a bounded chain window and
+read writes too. Two parsers, two answers, and the transport saw **no writes at all** —
+while `worker/reception.ts` carries a hand-written test pinning one insert's `tenant_id`
+with the note that omitting it "is a write that every stub accepts and PostgREST rejects".
+One site, checked by hand, out of dozens.
+
+They now share one walker (`querysites.ts`). Two implementations of the same reading drifting
+apart is this repository's recurring shape — D-026's two orderings, D-053's two calendars.
+
+### Three things the extension exposed, each a check that looked healthier than it was
+
+1. **A shorthand property poisoned a whole payload.** `parseObjectKeys` required `key:`, so
+   the bare `surface,` in `spend_ledger`'s insert made all fifteen of its keys unresolvable.
+   It sat in the "not statically resolvable" list looking like an honest limitation.
+2. **A semicolon inside a comment cut the chain window.** The window was `indexOf(';')`, and
+   that same insert carries "…bill to themselves; quality is Dalatech's own process…". The
+   window ended after two keys — and `parseObjectKeys` returned those two rather than
+   refusing, so the site reported as **checked**. A mutation renaming `cost_nanousd` to
+   `cost_nanusd` passed both files. That is the failure mode both were written to remove,
+   reintroduced inside the parser.
+3. **Comment stripping was not string-aware.** `replace(/\/\/.*$/, '')` reads the `//` in
+   `'https://graph.facebook.com'` as a comment and drops every key after it on that line.
+
+Fixed: shorthand keys are keys; the window skips comments and string literals and stops at a
+real statement end; an object whose brace never closes returns `null` rather than a partial
+list. **Undetermined is a result. A partial answer dressed as a whole one is not.**
+
+### What it now covers
+
+| | before | after |
+|---|---|---|
+| column references checked against the applied schema | 303 | **337** |
+| not statically resolvable | 6 | **1** (one genuine spread) |
+| select lists seen by the transport check | 65 | **76** |
+| write payloads seen by the transport check | 0 | **36**, 145 columns |

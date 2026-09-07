@@ -11,6 +11,9 @@
  * whole point of D-004's formula is that the margin is checkable after the fact.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+
+/** `tenants.prompt_cache_mode`. `off` is a mode, not a missing one. */
+export type CacheMode = 'off' | '5m' | '1h';
 import { fromDb, toDb, type NanoUsd } from '../money.ts';
 import { dayTargets, type Reservation, type Surface } from './reserve.ts';
 import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
@@ -36,7 +39,7 @@ export async function priceCall(
   db: SupabaseClient,
   modelId: string,
   usage: Usage,
-  cacheTtl: '5m' | '1h',
+  cacheTtl: CacheMode,
   now: Date,
 ): Promise<{ ok: true; priced: Priced } | { ok: false; detail: string }> {
   const { data, error } = await db
@@ -52,18 +55,35 @@ export async function priceCall(
   if (data === null) return { ok: false, detail: `no price for ${modelId}: refusing to guess` };
 
   const p = data as Record<string, unknown>;
+  const written = BigInt(usage.cache_creation_input_tokens ?? 0);
   try {
     // The 1h write multiplier is 2x and the 5m is 1.25x. Picking the wrong one halves or
-    // doubles the miss cost, which is most of the cost on a cold conversation.
-    const writeRate = fromDb(
-      cacheTtl === '1h' ? p['cache_write_1h_nanousd_per_token'] : p['cache_write_5m_nanousd_per_token'],
-      'cache_write_nanousd_per_token');
+    // doubles the miss cost, which is most of the cost on a cold conversation — and until
+    // 2026-09-07 `deps.ts` passed a hardcoded '1h' for every tenant, so a 5m tenant's
+    // writes were billed at twice their rate in the one place the margin is checked.
+    //
+    // `off` is the third mode and it is not a rate. A tenant with caching off sends no
+    // `cache_control`, so the API cannot return a write — and if it does, that is the
+    // provider and our configuration disagreeing about what we asked for. Pricing it at a
+    // rate we did not choose would put a number in the ledger that describes a request
+    // nobody made, so it refuses, which is `priceCall`'s posture everywhere else.
+    let writeRate: NanoUsd = 0n;
+    if (cacheTtl === 'off') {
+      if (written > 0n) {
+        return { ok: false, detail:
+          `${written} cache-write tokens with prompt_cache_mode 'off': refusing to price a write we did not ask for` };
+      }
+    } else {
+      writeRate = fromDb(
+        cacheTtl === '1h' ? p['cache_write_1h_nanousd_per_token'] : p['cache_write_5m_nanousd_per_token'],
+        'cache_write_nanousd_per_token');
+    }
 
     const cost =
       BigInt(usage.input_tokens) * fromDb(p['input_nanousd_per_token'], 'input') +
       BigInt(usage.output_tokens) * fromDb(p['output_nanousd_per_token'], 'output') +
       BigInt(usage.cache_read_input_tokens ?? 0) * fromDb(p['cache_read_nanousd_per_token'], 'cache_read') +
-      BigInt(usage.cache_creation_input_tokens ?? 0) * writeRate;
+      written * writeRate;
 
     return { ok: true, priced: { cost, modelId } };
   } catch (err) {
@@ -117,7 +137,8 @@ export async function settle(
     reservation: Reservation;
     usage: Usage;
     modelId: string;
-    cacheTtl: '5m' | '1h';
+    /** The TENANT'S `prompt_cache_mode`, not a constant. See `priceCall`. */
+    cacheTtl: CacheMode;
     conversationId?: string | null;
     requestId?: string | null;
     now: Date;
