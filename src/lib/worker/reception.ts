@@ -34,7 +34,8 @@ import { canDeliver } from '../channel/delivery.ts';
 import { extractInboundMessages } from '../meta/extract.ts';
 import { ensureContact, ensurePerson, openConversation, readHistory, recordInbound } from '../inbound/persist.ts';
 import { loadReceptionContext } from '../reception/load.ts';
-import { renderVolatile, tenantClock } from '../reception/volatile.ts';
+import { renderVolatile } from '../reception/volatile.ts';
+import { tenantClock } from '../time/clock.ts';
 import { RECEPTION_HISTORY_TURNS } from '../model/reception.ts';
 import { withTenantRole } from '../guard/withTenantRole.ts';
 import { claim, findReplyFor, replyDedupKey } from '../outbound/claim.ts';
@@ -164,6 +165,42 @@ export async function runReceptionJob(
   const rawPayload = (event as Record<string, unknown>)['raw_payload'];
   const { messages, skipped, standby } = extractInboundMessages(rawPayload);
 
+  // --- Tenant settings, read once for the whole entry. ----------------------
+  //
+  // Above the standby branch, not below it, because the standby alert's dedup key is a
+  // date on the TENANT'S calendar and there is nowhere else to get one. That makes an
+  // unreadable `tenants` row a 503 for a standby entry too, which is the right way round:
+  // every other refusal in this function treats a read it cannot complete as undetermined,
+  // and a redelivery costs nothing while a mis-keyed alert either fires twice a day or
+  // goes quiet for one.
+  const { data: tenantRow, error: tenantErr } = await db
+    .from('tenants')
+    .select('default_locale, prompt_cache_mode, timezone, max_reply_age_minutes')
+    .eq('id', tenantId)
+    .maybeSingle();
+  if (tenantErr || tenantRow === null) {
+    fx.log('error', 'tenant_unreadable', { tenantId, detail: tenantErr?.message });
+    return unavailable('worker.tenant_unreadable');
+  }
+  const t = tenantRow as Record<string, unknown>;
+  const settings = {
+    defaultLocale: String(t['default_locale'] ?? 'mn-MN'),
+    promptCacheMode: String(t['prompt_cache_mode'] ?? 'off') as 'off' | '5m' | '1h',
+  };
+  // No `?? 'Asia/Ulaanbaatar'`. The column is NOT NULL, so a default here is unreachable
+  // today and a silent wrong calendar the day it is not — and this value now decides which
+  // day a reply is charged to. A missing zone is undetermined, and undetermined refuses.
+  const rawTimezone = t['timezone'];
+  if (typeof rawTimezone !== 'string' || rawTimezone === '') {
+    fx.log('error', 'tenant_timezone_missing', { tenantId });
+    return unavailable('worker.tenant_timezone_missing');
+  }
+  const timezone = rawTimezone;
+  const replyAgeLimit = replyAgeLimitMinutes(t['max_reply_age_minutes']);
+  // "Today" is a question about the tenant's clock, so the date the closure query filters
+  // on is computed here rather than in SQL's `current_date`, which is the server's.
+  const localDate = tenantClock(now, timezone).date;
+
   // --- Secondary receiver (§3.7). Never a drop. -----------------------------
   //
   // Meta put these messages in `entry.standby` rather than `entry.messaging`, which means
@@ -182,30 +219,9 @@ export async function runReceptionJob(
     // standby on EVERY message, so a bare channel key would fire on all of them; a key with
     // no period at all would go quiet for good the first time somebody "fixed" it and it
     // came back.
-    await fx.alertStandby({ tenantId, channelId, dayKey: now.toISOString().slice(0, 10), events: standby });
+    await fx.alertStandby({ tenantId, channelId, dayKey: localDate, events: standby });
     return ok({ refused: 'standby_not_primary' });
   }
-
-  // --- Tenant settings and the compiled context, read once for the whole entry.
-  const { data: tenantRow, error: tenantErr } = await db
-    .from('tenants')
-    .select('default_locale, prompt_cache_mode, timezone, max_reply_age_minutes')
-    .eq('id', tenantId)
-    .maybeSingle();
-  if (tenantErr || tenantRow === null) {
-    fx.log('error', 'tenant_unreadable', { tenantId, detail: tenantErr?.message });
-    return unavailable('worker.tenant_unreadable');
-  }
-  const t = tenantRow as Record<string, unknown>;
-  const settings = {
-    defaultLocale: String(t['default_locale'] ?? 'mn-MN'),
-    promptCacheMode: String(t['prompt_cache_mode'] ?? 'off') as 'off' | '5m' | '1h',
-  };
-  const timezone = String(t['timezone'] ?? 'Asia/Ulaanbaatar');
-  const replyAgeLimit = replyAgeLimitMinutes(t['max_reply_age_minutes']);
-  // "Today" is a question about the tenant's clock, so the date the closure query filters
-  // on is computed here rather than in SQL's `current_date`, which is the server's.
-  const localDate = tenantClock(now, timezone).date;
 
   // --- The channel: where a reply would go, and whether it may go at all. ---
   const { data: channelRow, error: channelErr } = await db
@@ -405,7 +421,7 @@ export async function runReceptionJob(
     // The chokepoint. Nothing downstream may re-implement any part of this.
     const guard = await withTenantRole(db, {
       tenantId, role: 'reception', surface: 'reception', channel: 'facebook_page',
-      estimate: RECEPTION_REPLY_ESTIMATE, conversationId, webhookEventId: eventId, now,
+      estimate: RECEPTION_REPLY_ESTIMATE, conversationId, webhookEventId: eventId, now, timezone,
     });
 
     if (!guard.ok) {

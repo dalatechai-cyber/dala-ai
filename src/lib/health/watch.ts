@@ -34,7 +34,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { raiseAlert } from '../alerts/alert.ts';
 import { diagnoseChannel, type ChannelDiagnosis } from './channel.ts';
-import { tenantClock } from '../reception/volatile.ts';
+import { tenantClock } from '../time/clock.ts';
 import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import { MAX_LOOKBACK_DAYS } from './silence.ts';
 

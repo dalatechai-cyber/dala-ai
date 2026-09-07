@@ -43,6 +43,22 @@ export const SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY = 1.5;
 export const PLATFORM_HARD_CAP_USD_PER_DAY = 10.0;
 
 /**
+ * The calendar the PLATFORM's own day rolls on.
+ *
+ * A ceiling is a number and a period, and the period is half the ceiling: a day boundary
+ * that can move is a cap that can be spent twice. Tenant counters follow
+ * `tenants.timezone` — a row, as everything that distinguishes one customer from another
+ * must be — but the platform counter belongs to no tenant, so it needs a calendar of its
+ * own. Taking it from whichever tenant happened to spend first would open one platform
+ * row per zone per day and turn `PLATFORM_HARD_CAP_USD_PER_DAY` into a cap per zone.
+ *
+ * Dalatech operates from Ulaanbaatar, so that is the answer; it lives here rather than in
+ * a row for the same reason the caps do. Moving it moves a boundary the spend ledger is
+ * keyed on: name the approver in the commit message.
+ */
+export const PLATFORM_TIMEZONE = 'Asia/Ulaanbaatar';
+
+/**
  * Analytics and Quality are BUDGETED AT ZERO and must stay there.
  *
  * Next door, a generator with no dollar ceiling at all — no budget, no ledger, and an

@@ -74,7 +74,10 @@ export function buildDeps(input: DepsInput): ReceptionDeps {
      * failure must never refuse a reply the customer is owed.
      */
     observe: async ({ requestedModel, servedModel, terminalReason }) => {
-      const period = dayKey(now);
+      // The tenant's calendar, off the reservation this reply already holds. Reading it
+      // there rather than from a second source is what stops an alert about a day's spend
+      // from naming a different day than the counter it is about.
+      const period = dayKey(now, reservation.timezone);
 
       if (terminalReason === 'model_not_found') {
         await alertModelRetired(db, { modelId: requestedModel, detail: 'the API returned 404 for this model id' });

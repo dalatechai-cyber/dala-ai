@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeClosure, isOpenAt, renderVolatile, tenantClock, type BusinessHours } from './volatile.ts';
+import { activeClosure, isOpenAt, renderVolatile, type BusinessHours } from './volatile.ts';
+import { tenantClock } from '../time/clock.ts';
 
 const UB = 'Asia/Ulaanbaatar';   // UTC+8, no DST
 

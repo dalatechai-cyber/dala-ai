@@ -60,7 +60,8 @@
  * incident. `unknown` keeps its original meaning: the question *should* have been
  * answerable and was not. The two are recorded alike and alerted differently.
  */
-import { activeClosure, isOpenAt, tenantClock, type BusinessHours, type Closure } from '../reception/volatile.ts';
+import { activeClosure, isOpenAt, type BusinessHours, type Closure } from '../reception/volatile.ts';
+import { tenantClock } from '../time/clock.ts';
 
 /**
  * How finely the walk samples the schedule. Five minutes is well below any real opening

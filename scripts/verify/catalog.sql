@@ -521,6 +521,30 @@ insert into _v select 'V31', 'tenant_channels.expects_traffic_since exists and i
                 and ops.mode_expects_traffic('live') and not ops.mode_expects_traffic('off'))
   ) q;
 
+-- V32 — the column a tenant's DAILY CEILING is keyed on cannot be absent. (D-053.)
+--
+-- `dayKey(now, tenants.timezone)` decides which day's counter a reply is charged to. A
+-- null or empty zone there is not a cosmetic gap: it is a reply charged to a day nobody
+-- can name, or — before the code refused it — to whatever the fallback said, silently.
+--
+-- The worker refuses on a missing zone, which makes this check the reason that refusal is
+-- unreachable rather than a second opinion about it. If the NOT NULL ever comes off, the
+-- refusal starts firing in production and this says so first.
+insert into _v select 'V32', 'tenants.timezone is NOT NULL — the spend day key is derived from it',
+  coalesce(string_agg(problem, '; '), 'correct'), count(*) = 0
+  from (
+    select 'tenants.timezone is missing' as problem
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='tenants' and column_name='timezone')
+    union all
+    select 'tenants.timezone is nullable — a tenant with no calendar would reach the ledger'
+     where exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='tenants' and column_name='timezone'
+          and is_nullable = 'YES')
+  ) q;
+
 -- V24 — the channel can say when it started expecting traffic. (0012.)
 --
 -- `went_live_at` is what the silence watchdog measures from when a channel has NEVER

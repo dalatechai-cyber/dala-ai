@@ -2872,7 +2872,8 @@ about, arriving from a third direction. Fixed by threading the tenant's timezone
 `record()` and keying on `tenantClock(now, timezone).date`.
 
 The other two are left, reported rather than changed: they are alert dedup keys in files this
-change does not touch, and the same fix applies to both.
+change does not touch, and the same fix applies to both. **Both closed by D-053** the same
+evening, along with the per-tenant boundary below.
 
 **And the purge FLOORS are not affected at all**, which is worth stating because it was named
 as a suspect. `ops.purge_expired` computes `now() - make_interval(days => …)` — an absolute
@@ -2885,4 +2886,76 @@ column. Every tenant's spend ceiling therefore rolls over on Ulaanbaatar's calen
 their own. Latent today — both tenants are `Asia/Ulaanbaatar` — and it is the platform's
 founding test failing in miniature: something that distinguishes one customer from another
 is a constant rather than a row. Fixing it moves a boundary the spend ledger is keyed on, so
-it is money and it is the founder's.
+it is money and it is the founder's. **Approved and built the same evening — D-053.**
+
+---
+
+## D-053 — every tenant's day is their own, and the platform's is not any tenant's
+
+**2026-09-07, approved by the founder** ("It's money, and I'm approving it. Every tenant's
+ceiling should roll on their own calendar"), closing D-052's "reported and not built".
+
+`dayKey()` added a hardcoded `8 * 60` minutes while `tenants.timezone` has been a per-tenant
+column since `0001`. It now takes a zone, and so does `monthKey`. Both go through
+`tenantClock`, which moves to `src/lib/time/clock.ts` — the one place local time is
+computed, because a second implementation of "what day is it there" is exactly how two
+conventions eight hours apart appeared in the first place.
+
+### What it changes for the two tenants today: nothing, and that is measured
+
+Both `tenants.timezone` values read `Asia/Ulaanbaatar` (the column is NOT NULL). Every
+`spend_counters` row on the project — four, `2026-09-06` and `2026-09-07`, two tenant-scoped
+and two platform — keeps the key it has. `periods.test.ts` asserts the equivalence rather
+than assuming it: the new rule and the old fixed offset agree for **every hour across 400
+days** for `Asia/Ulaanbaatar`, because Mongolia has had no daylight saving since 2017. No
+counter moves, no row is orphaned, no ceiling resets.
+
+### `Intl`, not an offset
+
+The old arithmetic is right for Mongolia and silently an hour out for half the year in any
+zone that shifts — including Mongolia's own 2015–2016 experiment. An hour is the entire
+distance between one day's ceiling and the next at midnight. The IANA zone knows; a constant
+cannot. An unrecognised zone **throws**, and nothing catches it: on the money path
+`withTenantRole` turns that into a 503, and a redelivery costs nothing. A fallback to UTC
+would put a tenant's ceiling on the wrong calendar and say so nowhere.
+
+### The trap this had to avoid, and it fails OPEN
+
+`dayTargets` addresses two counters per reservation: the tenant's and the platform's.
+Threading the tenant's zone into **both** is the obvious change and it is wrong. Two tenants
+in different zones would then open two platform rows for one platform day, and
+`PLATFORM_HARD_CAP_USD_PER_DAY` — the single number between a platform-wide bug and the
+Anthropic invoice — silently becomes one cap per zone. Nothing reports a number that looks
+wrong; the ledger balances; the caps just stop being one cap.
+
+So the platform keys on `PLATFORM_TIMEZONE`, a compiled constant in `config/platform.ts`
+alongside the caps themselves, for the reason the caps live there: a day boundary that can
+move in a dashboard is a ceiling that can be spent twice. Only tenant-scoped counters follow
+the tenant.
+
+### The zone rides on the reservation
+
+`Reservation` carries `timezone`. `reserve`, `release` and `settle` must address the same
+counters or the ledger drifts, and a counter's identity **includes its period key** — so the
+calendar is part of the address, not a detail of the caller. A `release` that recomputed the
+day would credit one row and leave another permanently short, invisible until a ceiling
+refused a reply nobody had spent.
+
+### The two remaining UTC keys, now closed
+
+`worker/purge.ts` and `worker/reception.ts` both keyed an alert on `toISOString().slice(0, 10)`.
+The purge sweeps every tenant's rows in one run, so its "once a day" is one **platform** day;
+the standby alert is about one tenant's channel, so it is the **tenant's**. That put the
+tenant read above the standby branch in the worker — an unreadable `tenants` row is now a 503
+for a standby entry too, which is the right way round: every other refusal there treats a read
+it cannot complete as undetermined.
+
+Both of those tests could not have failed before. Each pinned an instant whose UTC date and
+Ulaanbaatar date happen to agree (12:00Z and 03:00Z), so they asserted the convention they
+were written under and would have passed under either. Both now use an instant in the
+eight-hour window where the two diverge.
+
+### Also read `String(t['timezone'] ?? 'Asia/Ulaanbaatar')` and removed it
+
+Unreachable — the column is NOT NULL — in exactly the way a default is unreachable right up
+until a `select` changes. It now refuses with `tenant_timezone_missing`.
