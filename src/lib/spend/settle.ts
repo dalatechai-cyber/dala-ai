@@ -139,7 +139,7 @@ export async function settle(
   // reply's estimate, and no later run repairs it. `app.settle_spend_all` rolls back and
   // the caller retries.
   const { error } = await db.rpc('settle_spend_all', {
-    p_targets: dayTargets(input.reservation.tenantId, input.now),
+    p_targets: dayTargets(input.reservation.tenantId, input.now, input.reservation.timezone),
     p_surface: surface,
     p_reserved_nanousd: toDb(input.reservation.estimate),
     p_actual_nanousd: toDb(cost),

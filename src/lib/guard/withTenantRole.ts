@@ -49,6 +49,13 @@ export type GuardInput = {
   conversationId?: string | null;
   webhookEventId?: number | null;
   now: Date;
+  /**
+   * `tenants.timezone`. The budget step is the only one that keys on a calendar, and the
+   * calendar is the tenant's: a ceiling that rolls at 08:00 local is not a daily ceiling.
+   * Required rather than defaulted — a default here is a silent wrong answer for every
+   * tenant whose caller forgot, and this is the money path.
+   */
+  timezone: string;
 };
 
 const unavailable = (detail: string): GuardResult => ({
@@ -121,6 +128,7 @@ export async function withTenantRole(db: SupabaseClient, input: GuardInput): Pro
       conversationId: input.conversationId ?? null,
       webhookEventId: input.webhookEventId ?? null,
       now: input.now,
+      timezone: input.timezone,
     });
   } catch (err) {
     // A throw here is still a refusal. It is never a reason to continue.

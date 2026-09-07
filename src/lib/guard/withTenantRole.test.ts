@@ -36,11 +36,16 @@ function stubDb(opts: {
       res({ error: name === 'spend_counters' ? (opts.counterError ?? null) : null });
     return chain;
   };
+  const rpcArgs: Record<string, unknown>[] = [];
   return {
     calls,
+    rpcArgs,
     db: {
       from: (name: string) => table(name),
-      rpc: async () => ({ data: opts.rpcGranted ?? true, error: opts.rpcError ?? null }),
+      rpc: async (_fn: string, args: Record<string, unknown>) => {
+        rpcArgs.push(args);
+        return { data: opts.rpcGranted ?? true, error: opts.rpcError ?? null };
+      },
     } as never,
   };
 }
@@ -49,6 +54,7 @@ const ENTITLED = { state: 'active', roles: { status: 'available' } };
 const base = {
   tenantId: 't-1', role: 'reception' as const, surface: 'reception' as const,
   channel: 'facebook_page', estimate: 5_000_000n, now: new Date('2026-09-02T10:00:00Z'),
+  timezone: 'Asia/Ulaanbaatar',
 };
 
 test('the happy path reserves', async () => {
@@ -120,6 +126,25 @@ test('STEP 3 consent: NO record is not withdrawal — inbound consent is implied
 });
 
 // ---- Step 4: budget --------------------------------------------------------
+test('DONE-TEST: STEP 4 RESERVES ON THE TENANT\'S CALENDAR', async () => {
+  // The chokepoint is where a caller's zone becomes a counter's period key, and a wrong
+  // one here is invisible: the reservation succeeds, the ledger balances, and the money
+  // is simply charged to a day the tenant is not in. 2026-09-02T20:00Z is the 3rd in
+  // Ulaanbaatar and still the 2nd in New York.
+  const late = new Date('2026-09-02T20:00:00Z');
+  const ub = stubDb({ roleRow: ENTITLED });
+  await withTenantRole(ub.db, { ...base, now: late });
+  const ny = stubDb({ roleRow: ENTITLED });
+  await withTenantRole(ny.db, { ...base, now: late, timezone: 'America/New_York' });
+
+  const dayOf = (a: Record<string, unknown>[]): string =>
+    ((a[0]?.['p_targets'] as { scope: string; period_key: string }[])
+      .find((t) => t.scope === 'tenant')?.period_key) ?? '';
+
+  assert.equal(dayOf(ub.rpcArgs), '2026-09-03');
+  assert.equal(dayOf(ny.rpcArgs), '2026-09-02');
+});
+
 test('STEP 4 budget: an unreadable tenant_budgets is 503, NOT the compiled cap', async () => {
   const { db } = stubDb({ roleRow: ENTITLED, budgetError: { message: 'down' } });
   const res = await withTenantRole(db, base);

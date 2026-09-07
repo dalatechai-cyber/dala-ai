@@ -8,7 +8,7 @@ const NOW = new Date('2026-09-07T03:00:00Z');
 
 type RpcAnswer = { data?: unknown; error?: unknown };
 
-function effects(rpc: RpcAnswer, verified = true): {
+function effects(rpc: RpcAnswer, verified = true, now: Date = NOW): {
   fx: PurgeEffects; calls: { name: string; args: unknown }[]; alerts: Record<string, unknown>[];
 } {
   const calls: { name: string; args: unknown }[] = [];
@@ -44,7 +44,7 @@ function effects(rpc: RpcAnswer, verified = true): {
     from: (table: string) => chainFor(table),
   };
   return {
-    fx: { db: db as never, now: NOW, verifySignature: async () => verified },
+    fx: { db: db as never, now, verifySignature: async () => verified },
     calls, alerts,
   };
 }
@@ -139,6 +139,21 @@ test('the backlog alert is keyed by DAY, not by run', async () => {
   const { fx, alerts } = effects({ data: { ...ok, ceiling_hit: true } });
   await run(fx);
   assert.equal(alerts[0]!['dedup_key'], 'purge_backlog:2026-09-07');
+});
+
+test('DONE-TEST: THAT DAY IS THE PLATFORM\'S, NOT UTC\'S', async () => {
+  // NOW is 03:00 UTC, which is 11:00 the same date in Ulaanbaatar, so the assertion above
+  // held under either convention and proved nothing. At 17:00 UTC they diverge — it is
+  // 01:00 the next morning here — and the UTC day rolls at 08:00 local, mid-morning, which
+  // is precisely when somebody would be reading the alert channel.
+  //
+  // The platform's calendar rather than a tenant's because one purge run sweeps every
+  // tenant's rows: "once a day" is one platform day.
+  const late = new Date('2026-09-07T17:00:00Z');
+  const { fx, alerts } = effects({ data: { ...ok, ceiling_hit: true } }, true, late);
+  await run(fx);
+  assert.equal(alerts[0]!['dedup_key'], 'purge_backlog:2026-09-08');
+  assert.notEqual(alerts[0]!['dedup_key'], `purge_backlog:${late.toISOString().slice(0, 10)}`);
 });
 
 test('a non-boolean ceiling_hit is not truthy by accident', async () => {

@@ -20,6 +20,7 @@
  * weekday in UTC would answer about Sunday for eight hours of every day.
  */
 import { nfc } from '../mn/text.ts';
+import { tenantClock } from '../time/clock.ts';
 
 /** `business_hours`, one row per weekday. `weekday` is 0 = Sunday, as Postgres `dow` is. */
 export type BusinessHours = {
@@ -39,25 +40,6 @@ export type VolatileInput = {
   hours: readonly BusinessHours[];
   closures: readonly Closure[];
 };
-
-/** `YYYY-MM-DD` and `HH:MM` on the tenant's clock, plus the local weekday. */
-export function tenantClock(now: Date, timezone: string): { date: string; time: string; weekday: number } {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', hour12: false, weekday: 'short',
-  }).formatToParts(now);
-
-  const get = (t: string): string => parts.find((p) => p.type === t)?.value ?? '';
-  const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  // `hour` can come back as "24" for midnight under hour12:false in some ICU versions.
-  const hour = get('hour') === '24' ? '00' : get('hour');
-
-  return {
-    date: `${get('year')}-${get('month')}-${get('day')}`,
-    time: `${hour}:${get('minute')}`,
-    weekday: Math.max(0, weekdays.indexOf(get('weekday'))),
-  };
-}
 
 /**
  * Is the tenant open at this local time?

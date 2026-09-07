@@ -36,6 +36,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { raiseAlert } from '../alerts/alert.ts';
+import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
+import { tenantClock } from '../time/clock.ts';
 
 /** What `ops.purge_expired` returns. Mirrored here so a shape change fails typecheck. */
 export type PurgeCounts = {
@@ -100,7 +102,11 @@ export async function runPurgeJob(
     // Per day, not per run: a backlog persists across runs by definition, and an hourly
     // repetition of the same true statement is how the channel gets ignored (the reasoning
     // `alerts/alert.ts` gives for putting the period in the key).
-    const dayKey = effects.now.toISOString().slice(0, 10);
+    // The PLATFORM's calendar, not any tenant's: the purge sweeps every tenant's rows in
+    // one run, so "once a day" here is one platform day. UTC was a third convention, and
+    // the UTC day rolls at 08:00 in Ulaanbaatar — mid-morning, which is when somebody
+    // would be reading the alert.
+    const dayKey = tenantClock(effects.now, PLATFORM_TIMEZONE).date;
     await raiseAlert(effects.db, {
       tenantId: null,
       severity: 'warn',

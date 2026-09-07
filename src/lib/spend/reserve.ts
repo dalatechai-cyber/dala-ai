@@ -22,7 +22,7 @@
  * money, and here it is another tenant's money.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { CAPS } from '../../config/platform.ts';
+import { CAPS, PLATFORM_TIMEZONE } from '../../config/platform.ts';
 import { fromDb, toDb, type NanoUsd } from '../money.ts';
 import { dayKey, monthKey } from './periods.ts';
 
@@ -33,6 +33,16 @@ export type Reservation = {
   tenantId: string;
   surface: Surface;
   estimate: NanoUsd;
+  /**
+   * The tenant's IANA zone, carried on the reservation rather than looked up again.
+   *
+   * `reserve`, `release` and `settle` must address the same counters or the ledger
+   * drifts, and the counter's identity includes its period key — so the calendar is part
+   * of the address, not a detail of the caller. Carrying it here means a release cannot
+   * refund a different day's row than the one the hold was taken from, which a second
+   * lookup (or a caller passing its own idea of the zone) makes possible.
+   */
+  timezone: string;
 };
 
 export type ReserveOutcome =
@@ -126,11 +136,12 @@ export type SpendTarget = {
  * therefore a change HERE and nowhere else: append the month entries and every operation
  * covers them, because the all-or-nothing property is per call, not per period.
  */
-export function dayTargets(tenantId: string, now: Date): SpendTarget[] {
-  const period_key = dayKey(now);
+export function dayTargets(tenantId: string, now: Date, timezone: string): SpendTarget[] {
   return [
-    { scope: 'tenant', scope_key: tenantId, period_kind: 'day', period_key },
-    { scope: 'platform', scope_key: 'platform', period_kind: 'day', period_key },
+    { scope: 'tenant', scope_key: tenantId, period_kind: 'day', period_key: dayKey(now, timezone) },
+    // NOT `timezone`. The platform's day is the platform's, or two tenants in different
+    // zones open two platform rows for one platform day and the platform cap doubles.
+    { scope: 'platform', scope_key: 'platform', period_kind: 'day', period_key: dayKey(now, PLATFORM_TIMEZONE) },
   ];
 }
 
@@ -146,6 +157,8 @@ export async function reserve(
     conversationId?: string | null;
     webhookEventId?: number | null;
     now: Date;
+    /** `tenants.timezone`. The day this reservation counts against is the tenant's. */
+    timezone: string;
   },
 ): Promise<ReserveOutcome> {
   if (input.estimate < 0n) return { outcome: 'unavailable', detail: 'negative estimate' };
@@ -158,12 +171,15 @@ export async function reserve(
   // on any read succeeding.
   if (ceiling.ceiling === 0n) return { outcome: 'refused', reason: 'ceiling_reached' };
 
-  const dKey = dayKey(input.now);
-  const seeded = await ensureCounter(db, 'tenant', input.tenantId, input.surface, 'day', dKey, ceiling.ceiling);
+  const tenantDay = dayKey(input.now, input.timezone);
+  const seeded = await ensureCounter(db, 'tenant', input.tenantId, input.surface, 'day', tenantDay, ceiling.ceiling);
   if (!seeded.ok) return { outcome: 'unavailable', detail: seeded.detail };
 
+  // The platform's own day, for the reason `dayTargets` gives: a shared cap cannot have a
+  // per-tenant period or it is not shared.
+  const platformDay = dayKey(input.now, PLATFORM_TIMEZONE);
   const platformSeeded = await ensureCounter(
-    db, 'platform', 'platform', input.surface, 'day', dKey, CAPS.platformPerDay);
+    db, 'platform', 'platform', input.surface, 'day', platformDay, CAPS.platformPerDay);
   if (!platformSeeded.ok) return { outcome: 'unavailable', detail: platformSeeded.detail };
 
   // The reservation row first, so there is evidence even if the counter update fails.
@@ -192,7 +208,7 @@ export async function reserve(
   // It used to be a loop, tenant then platform, and it leaked: the tenant counter was
   // incremented, the platform one refused, and `release()` set a state without touching a
   // counter. The tenant's day was charged for a reply that never happened, until midnight.
-  const targets = dayTargets(input.tenantId, input.now);
+  const targets = dayTargets(input.tenantId, input.now, input.timezone);
   const { error } = await db.rpc('reserve_spend_all', {
     p_targets: targets,
     p_surface: input.surface,
@@ -201,7 +217,10 @@ export async function reserve(
   if (error) {
     // 23514 is the ceiling refusing — the one case that degrades rather than retries.
     // Every other code means we could not determine, and a 503 costs a redelivery.
-    await release(db, { id: reservationId, tenantId: input.tenantId, surface: input.surface, estimate: input.estimate }, input.now);
+    await release(db, {
+      id: reservationId, tenantId: input.tenantId, surface: input.surface,
+      estimate: input.estimate, timezone: input.timezone,
+    }, input.now);
     return error.code === CEILING_REACHED
       ? { outcome: 'refused', reason: 'ceiling_reached' }
       : { outcome: 'unavailable', detail: `reserve_spend_all failed: ${error.message}` };
@@ -209,7 +228,10 @@ export async function reserve(
 
   return {
     outcome: 'reserved',
-    reservation: { id: reservationId, tenantId: input.tenantId, surface: input.surface, estimate: input.estimate },
+    reservation: {
+      id: reservationId, tenantId: input.tenantId, surface: input.surface,
+      estimate: input.estimate, timezone: input.timezone,
+    },
   };
 }
 
@@ -244,7 +266,7 @@ export async function release(
   // have been reached, and the money with it) is never refunded by a late release.
   await db.rpc('release_spend', {
     p_reservation_id: reservation.id,
-    p_targets: dayTargets(reservation.tenantId, now),
+    p_targets: dayTargets(reservation.tenantId, now, reservation.timezone),
     p_surface: reservation.surface,
     p_amount_nanousd: toDb(reservation.estimate),
   });

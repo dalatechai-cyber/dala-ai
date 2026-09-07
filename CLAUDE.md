@@ -61,9 +61,13 @@ on the critical path to a first real message.
 **The Supabase project EXISTS as of 2026-09-05** — ref `tlggenaatnopnxzbkbuf`, PostgreSQL
 17.6, ap-southeast-1. Migrations `0001`–`0015` are applied through the CLI with a real
 **fifteen**-row ledger (D-012, read back 2026-09-06), and `catalog.sql` returned 25/25
-against it when the file carried twenty-five checks. It carries twenty-nine now: V26 and V27
-pass there since `0014` and `0015` landed, and **V25 still fails and is meant to** (see the
-second bullet below). **The ledger reads eighteen rows, `0001`–`0018`, read back 2026-09-06 21:0x UTC.** That was
+against it when the file carried twenty-five checks. It carries **thirty-three** now (V0–V32):
+V26 and V27 pass there since `0014` and `0015` landed, and **V25 still fails and is meant
+to** (see the second bullet below). **The ledger reads twenty-three rows, `0001`–`0023`,
+read back 2026-09-07 18:0x UTC** — `0023_channel_expects_traffic` was pushed by the founder
+that evening, and `tenant_channels.expects_traffic_since` is present with the backfill
+applied: tenant #0 carries its `went_live_at`, Matrix (which has none) carries the push
+instant. The eighteen-row reading below is superseded and kept only for its lesson. That was
 every migration in the repo when it was read. **`0019_staff_short_name` was pushed the same
 evening and the ledger reads nineteen** — verified by the founder against the ledger, with
 `staff_members.short_name` present (D-038). A session asserted "the project is one behind"
@@ -314,8 +318,13 @@ somebody wrote rather than a filename that happened to match.
 
 **Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
 are the schema; the eight section files carry a banner saying their DDL is superseded.
-Applied to a scratch PostgreSQL 16.13 and verified by execution: `catalog.sql` 30/30,
-`isolation.sql` 14/14, `rls.sql` 8/8, `spend.sql` 10/10. **Also applied to the real project** (PG17.6,
+Applied to a scratch PostgreSQL 16.13 and verified by execution, re-counted 2026-09-07
+from a run out of an empty cluster: `catalog.sql` **33/33** (V0–V32), `isolation.sql`
+**16/16** (T0–T14, with T4 split into T4a/T4b, so 18 PASS lines), `rls.sql` **8/8**
+(R1–R8), `spend.sql` **10/10** (S1–S10), `retention.sql` **17/17** (P1–P17). **Count the
+checks, not the PASS lines** — several PRs on 2026-09-07 published rls 9, spend 11,
+retention 18 and catalog 33 when the file then carried 32, each one exactly one too high
+because each suite's own `SUITE PASSED` summary NOTICE was counted as a check. **Also applied to the real project** (PG17.6,
 2026-09-05, via the CLI; `0013`–`0014` pushed 2026-09-06): `catalog.sql` was 25/25 there
 against the twenty-five checks it then carried, and of the two written since, **V26 now
 passes** and **V25 still fails** — `supabase_admin`'s default ACL, re-measured 2026-09-06,

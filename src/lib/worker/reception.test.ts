@@ -308,8 +308,41 @@ test('the standby alert is keyed per channel per DAY', async () => {
     tables: { webhook_events: { data: { raw_payload: { id: 'P', standby: [{ sender: { id: 'X' } }] } } } },
   });
   await run(fx);
-  assert.equal(standbyAlerts[0]?.dayKey, NOW.toISOString().slice(0, 10));
+  assert.equal(standbyAlerts[0]?.dayKey, '2026-09-04');
   assert.ok(standbyAlerts[0]?.channelId);
+});
+
+test('DONE-TEST: THE STANDBY KEY IS THE TENANT\'S DAY, NOT UTC\'S', async () => {
+  // This test asserted `NOW.toISOString().slice(0, 10)` and could not fail: NOW is 12:00
+  // UTC, which is 20:00 the same date in Ulaanbaatar, so both conventions agreed. At 18:00
+  // UTC they do not — it is 02:00 the next morning locally — and that eight-hour window is
+  // where a once-a-day alert fires twice for one trading day.
+  const late = new Date('2026-09-04T18:00:00Z');
+  const { fx, standbyAlerts } = stubEffects({
+    now: late,
+    tables: { webhook_events: { data: { raw_payload: { id: 'P', standby: [{ sender: { id: 'X' } }] } } } },
+  });
+  await run(fx);
+  assert.equal(standbyAlerts[0]?.dayKey, '2026-09-05', 'the tenant is already on the 5th');
+  assert.notEqual(standbyAlerts[0]?.dayKey, late.toISOString().slice(0, 10));
+});
+
+test('DONE-TEST: A TENANT WITH NO TIMEZONE IS 503, NEVER A DEFAULTED CALENDAR', async () => {
+  // The column is NOT NULL, so this is unreachable today. It is asserted because the
+  // tempting `?? 'Asia/Ulaanbaatar'` is unreachable in exactly the same way, right up
+  // until a select changes — and then it silently charges every tenant's reply to
+  // somebody else's day. Undetermined refuses; a redelivery costs nothing.
+  const { fx, logs } = stubEffects({
+    tables: {
+      tenants: [
+        { data: { default_locale: 'mn-MN', prompt_cache_mode: '1h', max_reply_age_minutes: 30 }, error: null },
+        { data: { live_revision_id: 'rev-1' }, error: null },
+      ],
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+  assert.ok(logs.some((l) => l.event === 'tenant_timezone_missing'), JSON.stringify(logs.map((l) => l.event)));
 });
 
 // ---------------------------------------------------------------------------
