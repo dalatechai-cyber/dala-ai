@@ -13,16 +13,28 @@
  * defect it exists to detect: something is wrong and nothing says so. So a failed read
  * produces an `unknown` verdict with the error in it, which is recorded and visible.
  *
- * ## Only `live` channels
+ * ## Every channel that EXPECTS traffic, not only the ones that answer
  *
- * A channel in `shadow` is mirroring, not answering; its silence is a question about the
- * mirror's quality rather than an outage, and `went_live_at` is not stamped until the
- * cutover anyway. Watching them would produce a stream of `unknown` verdicts that teach an
- * operator to skim past the ones that matter.
+ * This used to select `delivery_mode = 'live'`, reasoning that a channel in `shadow` is
+ * mirroring rather than answering, so its silence is a question about the mirror's quality
+ * rather than an outage — and that `went_live_at` is not stamped until the cutover anyway.
+ *
+ * **The second half was true and made the first half wrong.** Matrix ran fourteen days of
+ * `shadow` against real customer traffic; if that subscription broke, the only symptom is
+ * an empty table, and the channel was not being looked at. A mirror measuring nothing does
+ * not report a bad number — it reports a good one, from no data.
+ *
+ * So the filter is now every mode that expects webhooks: `shadow_routing`, `shadow`,
+ * `live`. `shadow_routing` is included for the strongest reason of the three — its entire
+ * purpose is proving that routing works, so silence is precisely the fault it exists to
+ * surface. The stream of `unknown` verdicts the old note feared does not appear, because a
+ * tenant parked there before its Page is subscribed lands on `not_provisioned`, which is
+ * recorded and never paged.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { raiseAlert } from '../alerts/alert.ts';
 import { diagnoseChannel, type ChannelDiagnosis } from './channel.ts';
+import { tenantClock } from '../reception/volatile.ts';
 import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import { MAX_LOOKBACK_DAYS } from './silence.ts';
 
@@ -75,8 +87,11 @@ export async function runSilenceWatch(
 
   const { data: channelData, error: channelErr } = await db
     .from('tenant_channels')
-    .select('id, tenant_id, external_id, last_webhook_at, went_live_at')
-    .eq('delivery_mode', 'live')
+    .select('id, tenant_id, external_id, last_webhook_at, expects_traffic_since')
+    // `in`, not `neq('off')`: a positive allow-list, so a delivery_mode added later is
+    // unwatched until somebody decides otherwise rather than watched by accident. Same
+    // direction `canDeliver` fails in, for the same reason.
+    .in('delivery_mode', ['shadow_routing', 'shadow', 'live'])
     .order('id');
   if (channelErr) return { ok: false, detail: `tenant_channels unreadable: ${channelErr.message}` };
 
@@ -86,9 +101,10 @@ export async function runSilenceWatch(
     const channelId = str(raw['id']);
     const tenantId = str(raw['tenant_id']);
     const externalId = str(raw['external_id']);
+    let tenantTimezone = 'Asia/Ulaanbaatar';
     const verdict = async (diagnosis: ChannelDiagnosis): Promise<void> => {
       verdicts.push({ channelId, tenantId, externalId, diagnosis });
-      await record(db, { tenantId, channelId, externalId, diagnosis, now: input.now });
+      await record(db, { tenantId, channelId, externalId, diagnosis, now: input.now, timezone: tenantTimezone });
     };
 
     const [tenant, hoursRes, closuresRes, webhookRes, conversationRes] = await Promise.all([
@@ -127,6 +143,10 @@ export async function runSilenceWatch(
       await verdict({ state: 'unknown', reason: 'no such tenant' });
       continue;
     }
+    // Assigned the moment it is known. `verdict()` is also reachable from the two failure
+    // paths above, which run before this read has been interpreted — those keep the default,
+    // which is the only honest answer when the tenant row could not be read.
+    tenantTimezone = str((tenant.data as Record<string, unknown>)['timezone']) || 'Asia/Ulaanbaatar';
 
     const hours: BusinessHours[] = rows(hoursRes.data).map((r) => ({
       weekday: Number(r['weekday']),
@@ -150,8 +170,10 @@ export async function runSilenceWatch(
       channelId, tenantId, externalId,
       lastWebhookAt,
       lastInboundMessageAt: date(rows(conversationRes.data)[0]?.['last_message_at']),
-      wentLiveAt: date(raw['went_live_at']),
-      timezone: str((tenant.data as Record<string, unknown>)['timezone']) || 'Asia/Ulaanbaatar',
+      // `expects_traffic_since`, not `went_live_at` (0023). A shadow channel has no go-live
+      // time by definition, and measuring from a null is what made it invisible.
+      wentLiveAt: date(raw['expects_traffic_since']),
+      timezone: tenantTimezone,
       hours, closures, thresholdOpenMinutes: threshold, now: input.now,
     });
 
@@ -208,7 +230,7 @@ function lookbackDate(now: Date): string {
  */
 async function record(
   db: SupabaseClient,
-  input: { tenantId: string; channelId: string; externalId: string; diagnosis: ChannelDiagnosis; now: Date },
+  input: { tenantId: string; channelId: string; externalId: string; diagnosis: ChannelDiagnosis; now: Date; timezone: string },
 ): Promise<void> {
   const healthy = input.diagnosis.state === 'healthy';
   // A provisioning gap is not an outage: recorded below, never alerted.
@@ -231,7 +253,14 @@ async function record(
   // run — the same reasoning `alerts/alert.ts` gives for putting the period in the key. The
   // state is in the key too, so a channel that degrades from `no_messages` to `no_webhooks`
   // says so immediately instead of being suppressed as a duplicate of a different fault.
-  const dayKey = input.now.toISOString().slice(0, 10);
+  //
+  // THE DAY IS THE TENANT'S, not UTC's. This was `now.toISOString().slice(0, 10)`, which
+  // rolls at 00:00 UTC — 08:00 in Ulaanbaatar, an hour before a salon opens. A channel
+  // silent across a morning therefore raised TWO alerts for one trading day, one on either
+  // side of that boundary, which is the "trains the operator to skim past the key" failure
+  // this module was written to avoid, arriving from a third direction. `spend/periods.ts`
+  // already made this argument for the spend ceilings; the alert keys had not heard it.
+  const dayKey = tenantClock(input.now, input.timezone).date;
   await raiseAlert(db, {
     tenantId: input.tenantId,
     severity: input.diagnosis.state === 'unknown' ? 'warn' : 'critical',

@@ -480,6 +480,47 @@ insert into _v select 'V23', 'provenance is present, undefaulted, NOT NULL and c
           where conrelid = ('public.' || t)::regclass and conname = t || '_provenance_known')
   ) q;
 
+-- V31 — and it can say when it started EXPECTING traffic, in any mode. (0023.)
+--
+-- `went_live_at` answers "when did this start answering customers"; this answers "when did
+-- this start expecting webhooks", and they are different questions. A channel in `shadow`
+-- has no go-live time by definition, so measuring silence from `went_live_at` made every
+-- mirroring channel unmeasurable — and unmeasurable means unalerted, on the one channel
+-- watching a third party's real customers.
+--
+-- Same two triggers as V24 and for the same reason: the INSERT one is not redundant, and
+-- Matrix is the proof — Stage 1 created its row directly at `shadow_routing`, so an
+-- UPDATE-only trigger would never have fired for it at all.
+insert into _v select 'V31', 'tenant_channels.expects_traffic_since exists and is stamped on insert and on update',
+  coalesce(string_agg(problem, '; '), 'correct'), count(*) = 0
+  from (
+    select 'the expects_traffic_since column is missing' as problem
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='tenant_channels' and column_name='expects_traffic_since')
+    union all
+    select 'ops.mode_expects_traffic() is missing — the mode set would be duplicated per caller'
+     where not exists (
+       select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname='ops' and p.proname='mode_expects_traffic')
+    union all
+    select 'the UPDATE trigger is missing — a cutover into shadow would not stamp'
+     where not exists (
+       select 1 from pg_trigger where tgrelid='public.tenant_channels'::regclass
+         and tgname='tenant_channels_stamp_expects_traffic' and not tgisinternal)
+    union all
+    select 'the INSERT trigger is missing — a channel created at shadow_routing would never stamp'
+     where not exists (
+       select 1 from pg_trigger where tgrelid='public.tenant_channels'::regclass
+         and tgname='tenant_channels_stamp_expects_traffic_insert' and not tgisinternal)
+    union all
+    -- The set itself, asserted rather than assumed. `off` being in it would put every
+    -- decommissioned channel back under the watchdog.
+    select 'ops.mode_expects_traffic disagrees with the documented set'
+     where not (ops.mode_expects_traffic('shadow_routing') and ops.mode_expects_traffic('shadow')
+                and ops.mode_expects_traffic('live') and not ops.mode_expects_traffic('off'))
+  ) q;
+
 -- V24 — the channel can say when it started expecting traffic. (0012.)
 --
 -- `went_live_at` is what the silence watchdog measures from when a channel has NEVER

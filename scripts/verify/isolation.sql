@@ -386,6 +386,55 @@ begin
   end;
 end $$;
 
+-- T14: expects_traffic_since is stamped by BOTH paths, and never cleared.
+--
+-- The column is only useful if it cannot be forgotten. `0012` learned that for
+-- `went_live_at` and shipped two triggers; this asserts the same for the mode set that
+-- includes `shadow_routing`, which is the path Matrix actually took — its row was INSERTED
+-- in that mode, so an UPDATE-only trigger would never have fired.
+do $$
+declare
+  v_t   uuid := '33333333-3333-4333-8333-333333333331';
+  v_c1  uuid := '44444444-4444-4444-8444-444444444441';
+  v_c2  uuid := '44444444-4444-4444-8444-444444444442';
+  v_a   timestamptz;
+  v_b   timestamptz;
+begin
+  insert into tenants (id, slug, display_name, vertical, default_locale, timezone)
+  values (v_t, 't14-expects', 'T14', 'salon', 'mn-MN', 'Asia/Ulaanbaatar');
+
+  -- (a) INSERTED straight into a traffic-expecting mode: stamped on the way in.
+  insert into tenant_channels (id, tenant_id, provider, external_id, auth_flavour, app_slug, status, delivery_mode, token_status)
+  values (v_c1, v_t, 'facebook_page', 't14-a', 'facebook_login', 'dalatech', 'pending', 'shadow_routing', 'unprovisioned');
+  select expects_traffic_since into v_a from tenant_channels where id = v_c1;
+  if v_a is null then
+    raise exception 'T14 FAILED: a channel inserted at shadow_routing was not stamped';
+  end if;
+
+  -- (b) INSERTED at `off`, then moved: not stamped until it expects traffic.
+  insert into tenant_channels (id, tenant_id, provider, external_id, auth_flavour, app_slug, status, delivery_mode, token_status)
+  values (v_c2, v_t, 'facebook_page', 't14-b', 'facebook_login', 'dalatech', 'pending', 'off', 'unprovisioned');
+  if (select expects_traffic_since from tenant_channels where id = v_c2) is not null then
+    raise exception 'T14 FAILED: a channel at off was stamped — every decommissioned channel would be watched';
+  end if;
+
+  update tenant_channels set delivery_mode = 'shadow' where id = v_c2;
+  select expects_traffic_since into v_b from tenant_channels where id = v_c2;
+  if v_b is null then
+    raise exception 'T14 FAILED: the transition into shadow did not stamp';
+  end if;
+
+  -- Never cleared, and never moved by a later transition. The question is "has this ever
+  -- been expected to work", not "how long has this attempt been running".
+  update tenant_channels set delivery_mode = 'off' where id = v_c2;
+  update tenant_channels set delivery_mode = 'shadow_routing' where id = v_c2;
+  if (select expects_traffic_since from tenant_channels where id = v_c2) is distinct from v_b then
+    raise exception 'T14 FAILED: a later transition moved the timestamp';
+  end if;
+
+  raise notice 'T14 PASS: stamped on insert and on transition, never cleared, never re-stamped';
+end $$;
+
 do $$ begin raise notice 'ISOLATION SUITE PASSED'; end $$;
 
 rollback;

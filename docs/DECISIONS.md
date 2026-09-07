@@ -2805,3 +2805,84 @@ the project as a record that this happened.
 Matrix is `delivery_mode = 'shadow_routing'`, which is `{deliver: false, generate: false}`.
 A published configuration generates nothing and sends nothing. The revision is the thing
 that would be used the moment the founder flips the mode, and until then it is inert.
+
+## D-052 — the watchdog watched the wrong set, and a timezone audit that found a real one
+
+**2026-09-07.** Matrix ran in `shadow` against a third party's real customer traffic with
+nothing watching whether that traffic was still arriving. The founder's question was the
+right one: the `not_provisioned` verdict is correct for a channel being set up and wrong for
+one that has been deliberately pointed at live traffic, and the difference between those two
+states was not recorded anywhere.
+
+### Two independent things hid it, and either alone was enough
+
+`watch.ts` selected `delivery_mode = 'live'`, so a shadow channel was never examined. And
+had it been, `assessSilence` computes `since = lastInboundAt ?? liveSince`; a shadow channel
+has no `went_live_at` by definition, so `since` was null and the verdict was
+`not_configured` → `not_provisioned`, which is recorded and deliberately never paged.
+
+Note what that verdict is NOT about: Matrix's `business_hours` are complete. The failure was
+a missing **clock to measure from**, not a missing schedule.
+
+### The distinguishing fact was already named, in a comment
+
+`0012` opens with "when did this channel start expecting traffic?" and then stamps only the
+transition into `live`. The comment describes the concept; the trigger implements one case.
+That is the third instance of this shape in a week — `WORKER_PUBLIC_URL`'s check, `deps.ts`'s
+hardcoded `cacheTtl`, and now this — and the common thread is that each reads as correct
+alone. Only the pair reads as wrong.
+
+`0023` adds `expects_traffic_since`, stamped on the first transition into any mode that
+expects webhooks. A second column rather than a widened `went_live_at`, by `0012`'s own
+argument for not reusing `created_at` or `name_confirmed_at`.
+
+**`shadow_routing` is in the set, on the founder's call, and their reason is better than the
+one I gave for leaving it out.** I argued from how the modes had been used — parked versus
+deliberate — which is an argument about habit. Theirs is about purpose: proving that routing
+works is the entire point of `shadow_routing`, so silence is precisely the fault it exists to
+surface. The objection I had (a tenant parked there before its Page is subscribed) was
+already answered by machinery that existed: `not_provisioned` is recorded and does not page.
+
+The backfill is `coalesce(went_live_at, now())`. `created_at` was the honest-looking choice
+and would have paged on the watchdog's first run, because for Matrix it precedes ~600 open
+minutes of parked, unprovisioned time. An alarm that fires the moment it is installed is the
+failure this module was written to avoid.
+
+### The audit: two day-key conventions, eight hours apart
+
+The founder asked where else local-time arithmetic is done, after I twice produced a wrong
+statement about Ulaanbaatar's clock. Both errors were mine and neither was in the code, but
+the question was worth asking and it found something.
+
+**`spend/periods.ts` keys the day on Ulaanbaatar** — deliberately, with a paragraph
+explaining that a ceiling rolling over at 08:00 local blends two days' spend. **Four other
+sites key it on UTC**, inline, as `now.toISOString().slice(0, 10)`:
+
+| site | boundary |
+|---|---|
+| `spend/reserve.ts` — the daily ceiling | Ulaanbaatar |
+| `health/watch.ts` — silence alert dedup | UTC → **fixed here** |
+| `worker/purge.ts` — purge-backlog alert dedup | UTC |
+| `worker/reception.ts` — standby alert dedup | UTC |
+
+For the watchdog this had teeth: the UTC day rolls at 08:00 in Ulaanbaatar, an hour before a
+salon opens, so a channel silent across a morning raised **two alerts for one trading day**.
+That is the "trains the operator to skim past the key" failure the module's own header warns
+about, arriving from a third direction. Fixed by threading the tenant's timezone into
+`record()` and keying on `tenantClock(now, timezone).date`.
+
+The other two are left, reported rather than changed: they are alert dedup keys in files this
+change does not touch, and the same fix applies to both.
+
+**And the purge FLOORS are not affected at all**, which is worth stating because it was named
+as a suspect. `ops.purge_expired` computes `now() - make_interval(days => …)` — an absolute
+duration, no calendar and no local midnight. Only its alert dedup key carries a UTC day.
+
+### The deeper one, reported and not built
+
+`dayKey()` hardcodes `UB_OFFSET_MINUTES = 8 * 60` while `tenants.timezone` is a per-tenant
+column. Every tenant's spend ceiling therefore rolls over on Ulaanbaatar's calendar, whatever
+their own. Latent today — both tenants are `Asia/Ulaanbaatar` — and it is the platform's
+founding test failing in miniature: something that distinguishes one customer from another
+is a constant rather than a row. Fixing it moves a boundary the spend ledger is keyed on, so
+it is money and it is the founder's.
