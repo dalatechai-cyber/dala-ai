@@ -34,15 +34,15 @@ test('the mirror is its own reason, so a log line can tell the two apart', () =>
 });
 
 test('DONE-TEST: the mirror phase does not double-reply Matrix customers', () => {
-  // During Track 4's mirror both systems see the traffic — by whatever route. There are
-  // two Meta apps, so a second subscription is available; whether both then receive
-  // `entry.messaging` rather than one getting `entry.standby` is [UNVERIFIED]. See
-  // `delivery.ts`, which has been wrong about this twice. What is certain is that if both
-  // are receiving and both send, the salon answers twice. And during Track 4's
-  // 14-day mirror both Dala AI and the incumbent Matrix-Chatbot are subscribed to that
-  // Page. A `shadow` channel that delivered would send a second reply from the same salon
-  // to every customer for two weeks — turning the phase whose entire purpose is zero risk
-  // into the riskiest thing in the plan.
+  // During Track 4's mirror both systems see the traffic, and since 2026-09-07 the route
+  // is measured rather than assumed: tenant #0's Page was subscribed to BOTH Meta apps and
+  // one real message arrived at DALA_AI in `entry.messaging`, not `entry.standby` (D-043).
+  // So the mirror is a second subscription and both systems receive the identical event —
+  // which makes the double-reply this test forbids the DEFAULT outcome, not an edge case.
+  // `delivery.ts` carries the measurement and what it does not settle. A `shadow` channel
+  // that delivered would send a second reply from the same salon to every customer for two
+  // weeks, turning the phase whose entire purpose is zero risk into the riskiest thing in
+  // the plan.
   const verdict = canDeliver('shadow');
   assert.equal(verdict.deliver, false);
   assert.match(verdict.deliver === false ? verdict.detail : '', /deliberately not sent/);

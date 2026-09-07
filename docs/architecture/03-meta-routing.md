@@ -843,7 +843,7 @@ Rotating a verify token: add the new value alongside the old (the map value may 
 
 The draft treated this as a scheduling question in an open-questions list. It is a design problem with two distinct catastrophic shapes, and the critique is right that neither is caught by anything else in this section.
 
-**`POST /{page-id}/subscribed_apps` is additive.** A Page can have several apps subscribed simultaneously, and Meta delivers the identical event to every one of them. Matrix Eco Salon is live *today* on the Matrix-Chatbot deployment, subscribed with `subscribed_fields=messages,messaging_postbacks` (`MESSENGER_SETUP.md:65-72`, verified). On the day Dala AI subscribes to that Page:
+**`POST /{page-id}/subscribed_apps` is additive, and both subscribers get the real event — MEASURED 2026-09-07 (D-043).** A Page can have several apps subscribed simultaneously, and Meta delivers the identical event to every one of them. This was asserted here from a wrong citation to §3.10.5 (rate-limit backoff) and has since been measured directly: tenant #0's Page subscribed to both `dalatech` and `DALA_AI`, one real message, delivered to `DALA_AI` in `entry.messaging` with `has_standby: false`. **A second subscriber is not a Handover demotion.** What the measurement does not cover is a Page that has a primary receiver configured — see §3.7, whose branch stands. Matrix Eco Salon is live *today* on the Matrix-Chatbot deployment, subscribed with `subscribed_fields=messages,messaging_postbacks` (`MESSENGER_SETUP.md:65-72`, verified). On the day Dala AI subscribes to that Page:
 
 - **Shape 1 — double reply.** Every customer message produces two Anthropic calls and two replies from two systems. Dala AI's entire idempotency apparatus is internal to Dala AI and cannot see the old deployment's send: the dedupe layers are all in the wrong process. Worse, with echoes subscribed the old system's outbound reply arrives at the new system as a normal echo and nothing looks anomalous.
 - **Shape 2 — dark Page.** Unsubscribe the old app first, and if the new app does not yet hold **Advanced Access on `pages_messaging`**, webhooks arrive and every Send fails. Matrix goes dark with a healthy `last_webhook_at`, a healthy token probe, and no `190`.
@@ -854,6 +854,104 @@ The draft treated this as a scheduling question in an open-questions list. It is
 2. `GET /{page-id}/subscribed_apps` queried with **each** app's token independently — the old app must be absent from the list, verified from a token that would still see it if it were present.
 3. Only then may the Dala AI channel leave `probing` for `active` (§3.2.5 step 6), which itself requires a real message routed and a reply delivered.
 4. `channel_dual_subscribed` is a **founder page** in §3.14, raised whenever step 2's check finds more than our own app.
+
+### 3.13.1 Adding the mirror subscription without touching the incumbent's
+
+The runbook above *removes* the old app. The mirror phase does not: it adds `DALA_AI`
+alongside `dalatech` and leaves the incumbent exactly as it is for fourteen days. Since
+D-043 measured that both subscribers receive the real event, this is the whole mechanism —
+there is no forwarding hop to build.
+
+**Do it by API, not through the App Dashboard.** On 2026-09-06 the console's *Add Page*
+flow took Matrix's live bot offline for ten minutes. The picker is not an "add" control: it
+writes the **complete set** of Pages granted to that app, so a Page that is not re-selected
+is revoked, its subscription dies, and the ancestor stops receiving webhooks with no error
+anywhere. It is the same trap as `subscribed_fields` — **a replacement presented as an
+addition** — and the two are the only writes in this section that behave that way.
+
+The grant step cannot be avoided entirely: `DALA_AI` must be granted access to Matrix's
+Page by a Page admin, and that grant happens in Meta's login UI. What changes is *which*
+app's Page set is at risk. Granting Matrix's Page to `DALA_AI` rewrites **`DALA_AI`'s**
+list, which today holds only tenant #0's Page. So the worst case of a mis-clicked picker
+there is that **our own test Page goes dark, not Matrix's**. Select both.
+
+**The write.** One call, and the fields are the tenant's, not a copy of the incumbent's:
+
+```bash
+curl -X POST \
+  -F 'subscribed_fields=messages' \
+  -F 'access_token=<Matrix Page token ISSUED BY DALA_AI>' \
+  'https://graph.facebook.com/v25.0/1520409424715591/subscribed_apps'
+# => {"success": true}
+```
+
+**There is no app parameter.** The app is implied by which app issued the token, and that
+is the entire safety model: a token pasted from the wrong place aims the write at the wrong
+app's subscription and Meta reports success. `messages` alone is what
+`tenant_channels.subscribed_fields` holds for tenant #0 and all the mirror needs; the
+ancestor's own list is `messages,messaging_postbacks`, and it is irrelevant here because
+this call cannot see it.
+
+**Pre-flight — four reads, in this order, before the POST.**
+
+1. **Which app issued this token.** The one check that matters.
+   ```bash
+   curl -G 'https://graph.facebook.com/v25.0/debug_token' \
+     --data-urlencode 'input_token=<the token you are about to use>' \
+     --data-urlencode 'access_token=1562862634970492|<DALA_AI app secret>'
+   ```
+   `data.app_id` must read **`1562862634970492`**. If it reads `1380702870025418`, the
+   token is `dalatech`'s and the POST would **rewrite the incumbent's field list on their
+   live Page**. Abort. Nothing later in this list protects against that; this is the check
+   that does. (`data.profile_id` should name the Page too — **[UNVERIFIED field name]**;
+   `app_id` is the one to decide on.)
+2. **Which Page this token is for**, read independently of step 1:
+   ```bash
+   curl 'https://graph.facebook.com/v25.0/me?access_token=<the token>'
+   # => {"id":"1520409424715591","name":"…"}
+   ```
+   The id must be the Page id you are about to put in the POST URL. This matters because a
+   **User** token also authorises the call and would let the URL alone decide which Page's
+   list is written.
+3. **The app-level subscription exists for `messages` on `DALA_AI`** (§3.10.6): a
+   page-level subscribe returns `{"success": true}` even when the app has never enabled the
+   field on the `page` object, and no events are ever delivered.
+   ```bash
+   curl 'https://graph.facebook.com/v25.0/1562862634970492/subscriptions?access_token=1562862634970492|<DALA_AI app secret>'
+   ```
+   Tenant #0 receives `messages` today, so this should already pass; run it anyway, because
+   the failure it catches is silent.
+4. **The incumbent's list, from the incumbent's own token**, kept as the before-picture:
+   ```bash
+   curl 'https://graph.facebook.com/v25.0/1520409424715591/subscribed_apps?access_token=<Matrix Page token issued by DALATECH>'
+   ```
+   Run it again after the POST. If it changed, stop and restore. Reading it from
+   `dalatech`'s own credential is the point — a token that would still see the subscription
+   if it were there.
+
+**Learn how to read step 4's response on tenant #0's Page first.** Whether
+`GET /{page-id}/subscribed_apps` enumerates *all* subscribed apps or only the caller's is
+**[UNVERIFIED]**, and tenant #0's Page is currently subscribed to both apps, so one read
+there answers it at zero risk and tells you what "unchanged" looks like before it matters.
+
+**Rollback** is the same asymmetry: `DELETE /{page-id}/subscribed_apps` with the
+**`DALA_AI`** Page token removes `DALA_AI`'s subscription and cannot reach `dalatech`'s.
+
+**What can still go wrong, and what it costs.** If Matrix's Page has a primary receiver
+configured, `DALA_AI` lands in `entry.standby`, `worker/reception.ts` refuses it terminally
+and alerts once a day (§3.7). That is a mirror that generates nothing — not an outage, and
+not something that can reach a customer, because the channel is `shadow` and
+`channel/delivery.ts` refuses the send on a positive allow-list. One message tells you.
+
+**Echoes, if the comparison corpus is wanted later**, are a change to `DALA_AI`'s own
+subscription row — `subscribed_fields=messages,message_echoes` on the call above, plus
+`message_echoes` enabled at app level per step 3. It does not modify the incumbent's
+subscription and does not require the ancestor to be reconfigured, so it is a smaller
+decision than "a subscription change on their live Page" makes it sound. The ancestor's own
+setup doc says not to subscribe echoes (`MESSENGER_SETUP.md:55-72`); that instruction is
+about `dalatech`'s subscription and does not bind ours.
+
+---
 
 **Seriously consider reusing Matrix-Chatbot's existing Meta app as `dala-legacy`.** The `META_APP_SECRETS` map and the `meta_app_slug` column already support it; this converts "restart a ~20-day App Review with tenant #1 offline" into "add a second secret to a JSON env var". The section builds the multi-app machinery and the draft never used it for the one case that needs it.
 
@@ -922,7 +1020,7 @@ Add a **daily heartbeat** — a message that arrives when nothing is wrong. The 
 
 Ordered by how much of the design depends on it. **A search summary is not a migration applied to the database.**
 
-1. **The Handover Protocol delivery semantics** — that a secondary receiver's messages arrive in `entry[].standby`, and what `messaging_handovers` carries. §3.7 is built on it and it is the highest-impact silent failure in the section.
+1. **The Handover Protocol delivery semantics** — that a secondary receiver's messages arrive in `entry[].standby`, and what `messaging_handovers` carries. §3.7 is built on it and it is the highest-impact silent failure in the section. **Half-answered 2026-09-07 (D-043):** two apps subscribed to the same Page both receive `entry.messaging`, so *being the second subscriber* does not demote you. Still open: what a Page with the Page Inbox app set as primary receiver actually delivers, which is the case §3.7 describes and the one the branch exists for.
 2. **The Instagram messaging webhook payload — what `entry[].id` is under each auth flavour.** Tenant routing depends on it and my sources disagree with production code. Mitigated by the probe (§3.2.5), which is why the probe is mandatory.
 3. **Whether an Instagram-Login user token really carries a hard 60-day life and the `ig_refresh_token` refresh path**, and whether a Page token derived from a **System User** token inherits never-expiry. Together these determine whether a refresh job exists and for which flavours.
 4. **Meta's webhook retry schedule and the exact unsubscription threshold.** No longer a blocker — §3.1 H7's two floors remove the dependency — but it prices the `webhook.durability_lost` alert.

@@ -2118,3 +2118,70 @@ the ancestor it needs either `message_echoes` (D-039's note on the corpus) or ha
 conversations like the one that produced the 4. Until then the baseline is a single
 measured transcript, and should be quoted as that.
 
+
+---
+
+## D-043 — both subscribed apps get the real event, measured; the mirror is a subscription
+
+**2026-09-07. Measured by the founder on tenant #0's live Page. Supersedes the
+[UNVERIFIED] note in five places and half-answers §3.15 item 1.**
+
+Tenant #0's Page `863503883522801` was subscribed to **both** Meta apps at once —
+`dalatech` (1380702870025418) and `DALA_AI` (1562862634970492) — and one real message was
+sent to it. It arrived at `DALA_AI` in **`entry.messaging`**: `has_messaging: true`,
+`has_standby: false`. The platform answered it end to end.
+
+The row, read back from the project:
+
+```
+webhook_events id 8 | source meta | routing routed | state processed
+  dedup_key  863503883522801:0:mfc9ea15ae6cb46235d0cddc65528fefa:dalatech
+  received_at 2026-09-07 00:31:58.579+00
+outbound_messages a3bb2139 | kind reply | state sent | attempts 0
+  dedup_key  in:m_LRylh-6w7AtAym1kBpobATwKi4kY2s8bDtgXmv_Ix8uFeMYqjJEcT4BOOGUw7F4Ql
+  provider_message_id m_1Qjn6HEwJIy_… | drafted 00:32:10.974+00
+```
+
+**Meta delivered the real event to both apps and demoted neither.**
+
+### What it settles
+
+- The "Meta delivers the identical event to every subscribed app" claim in §3.13 is
+  **true**. Only its citation was wrong — it was attributed to §3.10.5, which is *Back off
+  the tenant, not the worker* and is about rate-limit backoff. Three sessions repeated the
+  citation; nobody opened the section. The fix was to measure it, not to hunt for a better
+  section number.
+- **The mirror is a second subscription, not a forwarding hop.** Track 4 needs no relay
+  from the ancestor to this platform: subscribe `DALA_AI` to Matrix's Page alongside
+  `dalatech`, and both systems receive the identical event. §3.13.1 is the call.
+- `webhook_events.source` (D-039) stays. It cost one column, it distinguishes `meta` from
+  `mirror` for free, and the day forwarding is wanted is not a day to be adding a column.
+
+### What it does NOT settle, and reading it as settled would restore a silent failure
+
+The measurement was taken on **tenant #0's Page**, and it proves one thing: *being a second
+subscribed app is not itself a Handover demotion*. It says nothing about a Page whose
+**primary receiver is the Page Inbox app**, which is a different setting and the case §3.7
+actually describes. `worker/reception.ts`'s terminal refusal of `entry.standby` and its
+once-per-channel-per-day alert stay exactly as they are, and `reception.test.ts` carries
+that sentence beside the test so the next reader does not delete the branch on the strength
+of this row.
+
+If Matrix's own Page turns out to have a primary receiver, `DALA_AI` lands in `standby`
+there, the mirror generates nothing and alerts daily. That is discoverable with one message
+and is not an outage.
+
+### The console's *Add Page* picker is a replacement, and it took Matrix offline
+
+Getting this measurement cost ten minutes of Matrix's live bot on 2026-09-06. The App
+Dashboard's Add Page flow writes the **complete set** of Pages granted to an app, so a Page
+not re-selected is revoked and its subscription dies silently. It is the same shape as
+`subscribed_fields` — a replacement presented as an addition — and those two are the only
+writes in §3 that behave that way. Hence §3.13.1: do the subscription by API with a token
+whose issuing app has been verified through `debug_token`, never through the picker.
+
+The asymmetry that makes the API route safe is that **`POST /{page-id}/subscribed_apps`
+takes no app parameter**. The app is implied by the token, so a `DALA_AI`-issued token
+cannot reach `dalatech`'s subscription — and, in the other direction, a `dalatech`-issued
+one silently rewrites the incumbent's field list on a live Page. That is why the token's
+`app_id` is the abort check and not a formality.

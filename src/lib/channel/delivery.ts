@@ -12,14 +12,14 @@
  * webhooks, persists, generates, and **does not send**, because `Matrix-Chatbot` is still
  * the thing answering that Page.
  *
- * **How the events reach both systems is an open question, and this file has now been
- * wrong about it twice.** It first asserted "Meta delivers the same event to every
- * subscribed app (§3.10.5)" — §3.10.5 is *Back off the tenant, not the worker*, about
- * rate-limit backoff, and establishes nothing of the kind. The correction then said there
- * was only ONE Meta app, so there could be no second subscriber. **That was also wrong**,
- * and for an instructive reason: `tenant_channels.app_slug` for tenant #0 reads `dalatech`
- * and names the wrong Meta app (D-041), so the database said one app while the console
- * said two.
+ * **How the events reach both systems was an open question, and this file was wrong about
+ * it twice before it was measured.** It first asserted "Meta delivers the same event to
+ * every subscribed app (§3.10.5)" — §3.10.5 is *Back off the tenant, not the worker*,
+ * about rate-limit backoff, and establishes nothing of the kind. The correction then said
+ * there was only ONE Meta app, so there could be no second subscriber. **That was also
+ * wrong**, and for an instructive reason: `tenant_channels.app_slug` for tenant #0 reads
+ * `dalatech` and names the wrong Meta app (D-041), so the database said one app while the
+ * console said two.
  *
  * The facts, read from the console on 2026-09-06:
  *
@@ -28,17 +28,35 @@
  * | `dalatech` | 1380702870025418 | Matrix's Page 1520409424715591; the ancestor's callback |
  * | `DALA_AI`  | 1562862634970492 | tenant #0's Page 863503883522801; this app's callback |
  *
- * So a **second subscription is available** — Matrix's Page can be subscribed to `DALA_AI`
- * as well, which is what D-023's open question was asking. What is still **[UNVERIFIED]**
- * is whether both apps then receive `entry.messaging`. §3.7 says a non-primary receiver
- * gets `entry.standby` instead, and `worker/reception.ts` refuses those terminally and
- * alerts — so if the Handover Protocol works the way §3.7 describes, a second subscription
- * yields a mirror that generates nothing and pages the founder daily.
+ * ## MEASURED 2026-09-07: both subscribed apps receive `entry.messaging` (D-043)
  *
- * That is now directly testable, and §3.15 already lists it as needing exactly this:
- * subscribe the second app, send one real message, and read which array it lands in.
- * `webhook_events.source` (D-039) distinguishes a forwarded delivery from a direct one if
- * the answer turns out to be that forwarding is the only route.
+ * The founder subscribed tenant #0's Page `863503883522801` to **both** apps at once and
+ * sent one real message. It arrived at `DALA_AI` in **`entry.messaging`**, not
+ * `entry.standby` — `has_messaging: true`, `has_standby: false` — and the platform
+ * answered it end to end (`webhook_events` id 8, `dedup_key`
+ * `863503883522801:0:mfc9ea15…:dalatech`, reply sent with a real `provider_message_id`).
+ * **No Handover demotion happened.** So the fan-out claim is true after all; what was
+ * false was the citation, and the fix was to measure it rather than find a better section
+ * number.
+ *
+ * **The mirror is therefore a second subscription, not a forwarding hop.** Nothing needs
+ * to relay Matrix's traffic to this platform: subscribe `DALA_AI` to their Page alongside
+ * `dalatech` and both systems receive the identical event. `webhook_events.source` (D-039)
+ * stays, because it distinguishes `meta` from `mirror` for free and the day forwarding is
+ * needed is not a day to be adding a column.
+ *
+ * ## What the measurement does NOT settle, and must not be read as settling
+ *
+ * It was taken on **tenant #0's Page**, not Matrix's. It proves that *being a second
+ * subscribed app is not itself a Handover demotion*. It says nothing about whether
+ * Matrix's own Page has the Handover Protocol configured with a primary receiver — if it
+ * does, `DALA_AI` lands in `standby` there regardless. §3.7's branch and
+ * `worker/reception.ts`'s terminal refusal stay exactly as they are: they cover the Page
+ * Inbox case, which is a different mechanism from two apps on one Page and was never
+ * tested by this.
+ *
+ * The consequence of being wrong about Matrix's Page is a mirror that generates nothing
+ * and alerts once a day. It is not an outage, and it is discoverable with one message.
  *
  * None of it changes what `shadow` is FOR.
  *
