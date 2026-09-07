@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { formatMoney, hasTenantData, renderTenantSections, SECTION_LABELS, type TenantKb } from './tenant.ts';
+import { clockTime, formatMoney, hasTenantData, renderTenantSections, SECTION_LABELS, type TenantKb } from './tenant.ts';
 import { renderStablePrefix, type PromptSection } from './render.ts';
 import { extractNumerals, numeralsNotAllowed } from '../mn/extract.ts';
 
@@ -10,7 +10,7 @@ const APPROVED = '2026-09-04T00:00:00Z';
 const EMPTY: TenantKb = {
   currencySymbol: '₮', currencySymbolBefore: false,
   refusalTopics: [], clarify: [], deposits: [], documents: [],
-  staff: [], services: [], faqs: [], contacts: [], bookingUrl: null,
+  staff: [], services: [], faqs: [], contacts: [], bookingUrl: null, hours: [],
 };
 
 /** A Matrix-shaped knowledge base, small enough to read in a failure message. */
@@ -373,4 +373,136 @@ test('TWO PEOPLE MAY SHARE A SHORT NAME, and the roster shows both in full', () 
     { name: 'Оюунсүрэн', shortName: 'Оюунаа', groupName: null, tier: null },
     { name: 'Оюунгэрэл', shortName: 'Оюунаа', groupName: null, tier: null },
   ]), ['- Оюунсүрэн (Оюунаа)', '- Оюунгэрэл (Оюунаа)']);
+});
+
+// ---------------------------------------------------------------------------
+// АЖЛЫН ЦАГ — the schedule the rows always held and nothing rendered.
+// ---------------------------------------------------------------------------
+
+/** Matrix's real week, as `business_hours` holds it on the project. */
+const HOURS: TenantKb['hours'] = [
+  { weekday: 0, opens: '11:00:00', closes: '19:00:00', closed: false },
+  { weekday: 1, opens: '10:00:00', closes: '20:00:00', closed: false },
+  { weekday: 2, opens: '10:00:00', closes: '20:00:00', closed: false },
+  { weekday: 3, opens: '10:00:00', closes: '20:00:00', closed: false },
+  { weekday: 4, opens: '10:00:00', closes: '20:00:00', closed: false },
+  { weekday: 5, opens: '10:00:00', closes: '20:00:00', closed: false },
+  { weekday: 6, opens: '10:00:00', closes: '20:00:00', closed: false },
+];
+
+const hoursBody = (kb: TenantKb): string | undefined =>
+  renderTenantSections(kb, APPROVED).find((s) => s.key === 'business_hours')?.body;
+
+test('the week renders Monday-first, with seconds dropped', () => {
+  const body = hoursBody({ ...EMPTY, hours: HOURS });
+  assert.equal(body?.split('\n')[0], `=== ${SECTION_LABELS.hours} ===`);
+  assert.deepEqual(body?.split('\n').slice(1), [
+    '- Даваа: 10:00 - 20:00',
+    '- Мягмар: 10:00 - 20:00',
+    '- Лхагва: 10:00 - 20:00',
+    '- Пүрэв: 10:00 - 20:00',
+    '- Баасан: 10:00 - 20:00',
+    '- Бямба: 10:00 - 20:00',
+    // Sunday is `dow` 0 and prints LAST. Sorting by weekday would put it first.
+    '- Ням: 11:00 - 19:00',
+  ]);
+});
+
+test('DONE-TEST: the hours reach allowed_numbers as TWO numerals, so the guard stops refusing them', () => {
+  // This is the whole point of the section. Before it, `business_hours` fed only
+  // `volatile.ts`'s open/closed flag, so «Хэдэн цагт ажилладаг вэ?» could not be answered:
+  // the facts were absent from the model's context AND the digits were absent from
+  // `allowed_numbers`, so a correct guess would have been refused as `outbound_price`.
+  const rendered = renderStablePrefix([
+    { layer: 'L0', key: 'gate', ordinal: 0, body: 'Ш2.', reviewedAt: APPROVED, origin: 'platform' },
+    ...renderTenantSections({ ...EMPTY, hours: HOURS }, APPROVED),
+  ]);
+  assert.equal(rendered.ok, true);
+  if (!rendered.ok) return;
+  const allowed = rendered.rendered.allowedNumbers;
+  assert.deepEqual(allowed, ['10:00', '11:00', '19:00', '20:00']);
+
+  for (const reply of [
+    'Бид Даваа - Бямба гарагт 10:00 - 20:00 цагт ажиллана.',
+    'Ням гарагт 11:00 цагаас 19:00 цаг хүртэл.',
+    // The model closing the gap must not change the answer.
+    'Ажлын цаг: 10:00-20:00.',
+  ]) {
+    assert.deepEqual(numeralsNotAllowed(reply, allowed), [], reply);
+  }
+
+  // And an hour the salon never gave is still refused.
+  assert.deepEqual(numeralsNotAllowed('Бид 22:00 цаг хүртэл ажиллана.', allowed), ['22:00']);
+});
+
+test('the widening the hours cause is exactly four digit strings, and no more', () => {
+  // `allowed_numbers` compares DIGITS-ONLY reductions, so a clock time licenses anything
+  // that reduces to the same digits — `10:00` licenses `1,000`. That is a real widening and
+  // it is pinned here rather than discovered later: if a future format change adds a fifth
+  // reduction, this test names it.
+  const rendered = renderStablePrefix([
+    { layer: 'L0', key: 'gate', ordinal: 0, body: 'Ш2.', reviewedAt: APPROVED, origin: 'platform' },
+    ...renderTenantSections({ ...EMPTY, hours: HOURS }, APPROVED),
+  ]);
+  assert.equal(rendered.ok, true);
+  if (!rendered.ok) return;
+  const digits = rendered.rendered.allowedNumbers.map((n) => extractNumerals(n)[0]?.digits);
+  assert.deepEqual(digits, ['1000', '1100', '1900', '2000']);
+
+  // What that costs, stated: a four-figure price now passes. Salon prices are five figures,
+  // so nothing Matrix charges is licensed — but «1,000₮» is, and that is the trade.
+  const allowed = rendered.rendered.allowedNumbers;
+  assert.deepEqual(numeralsNotAllowed('Үнэ 1,000₮.', allowed), []);
+  assert.deepEqual(numeralsNotAllowed('Үнэ 20,000₮.', allowed), ['20,000']);
+});
+
+test('a closed day says so; a day we cannot state is omitted rather than guessed', () => {
+  const body = hoursBody({
+    ...EMPTY,
+    hours: [
+      { weekday: 1, opens: '10:00:00', closes: '20:00:00', closed: false },
+      // Closed: a fact, and printed.
+      { weekday: 2, opens: null, closes: null, closed: true },
+      // Neither closed nor timed. `isOpenAt` treats this as "we do not know", and so does
+      // this: printing it would have to invent either a time or a closure.
+      { weekday: 3, opens: null, closes: null, closed: false },
+      // Thursday has no row at all — the same "we do not know", one step earlier.
+    ],
+  });
+  assert.deepEqual(body?.split('\n').slice(1), [
+    '- Даваа: 10:00 - 20:00',
+    '- Мягмар: амарна',
+  ]);
+  // «амарна» carries no digits, so a closed day cannot widen the guard.
+  assert.deepEqual(extractNumerals('амарна'), []);
+});
+
+test('a tenant whose every day is unstatable renders no heading at all', () => {
+  // An empty heading invites the model to read "the list is absent" as "the salon is never
+  // open" — the same reasoning `section()` already applies to every other list.
+  assert.equal(hoursBody({ ...EMPTY, hours: [{ weekday: 1, opens: null, closes: null, closed: false }] }), undefined);
+  assert.equal(hoursBody(EMPTY), undefined);
+});
+
+test('clockTime drops seconds and refuses anything it cannot read', () => {
+  assert.equal(clockTime('10:00:00'), '10:00');
+  assert.equal(clockTime('09:30:00+08'), '09:30');
+  assert.equal(clockTime(null), null);
+  // Not a time. Returning a guess here would put an invented hour in front of a customer.
+  assert.equal(clockTime(''), null);
+  assert.equal(clockTime('morning'), null);
+  assert.equal(clockTime('1:00'), null);
+});
+
+test('the hours heading cannot be read as Ш4\'s subject', () => {
+  // Ш4 refuses a SPECIFIC EMPLOYEE's «ажлын цаг, ирц, сул цаг». The organisation's own
+  // opening hours are a different question with a different answer, and the heading has to
+  // say so — otherwise the model has a refusal rule and a fact list whose names overlap,
+  // which is how D-042's four-replies-for-one-link was built.
+  assert.equal(SECTION_LABELS.hours.startsWith('БАЙГУУЛЛАГЫН'), true, SECTION_LABELS.hours);
+  // The same word the data marker uses for the tenant region, so the distinction is the
+  // platform's existing vocabulary rather than one invented here.
+  assert.equal(SECTION_LABELS.dataMarker.includes('БАЙГУУЛЛАГЫН'), true);
+  // And it is not the bare phrase Ш4 owns.
+  assert.notEqual(SECTION_LABELS.hours, 'АЖЛЫН ЦАГ');
 });

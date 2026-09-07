@@ -247,7 +247,7 @@ export async function loadTenantKb(
   const t = input.tenantId;
   const [
     tenant, disclosure, outOfScope, disambig, axes, deposits,
-    documents, staff, services, variants, faqs, contacts, booking,
+    documents, staff, services, variants, faqs, contacts, booking, hours,
   ] = await Promise.all([
     db.from('tenants').select('currency_symbol, currency_symbol_before').eq('id', t).maybeSingle(),
     db.from('disclosure_rules').select('topic_key, decision_question, provenance').eq('tenant_id', t).order('topic_key'),
@@ -262,6 +262,7 @@ export async function loadTenantKb(
     db.from('faqs').select('question, answer, provenance').eq('tenant_id', t).order('ordinal').order('question'),
     db.from('contact_points').select('kind, value').eq('tenant_id', t).order('kind'),
     db.from('tenant_booking').select('booking_url').eq('tenant_id', t).maybeSingle(),
+    db.from('business_hours').select('weekday, opens, closes, closed').eq('tenant_id', t).order('weekday'),
   ]);
 
   for (const [name, res] of [
@@ -269,7 +270,7 @@ export async function loadTenantKb(
     ['disambiguation_pairs', disambig], ['price_axes', axes], ['deposit_rules', deposits],
     ['knowledge_documents', documents], ['staff_members', staff], ['services', services],
     ['service_variants', variants], ['faqs', faqs], ['contact_points', contacts],
-    ['tenant_booking', booking],
+    ['tenant_booking', booking], ['business_hours', hours],
   ] as const) {
     if (res.error) return { ok: false, detail: `${name} unreadable: ${res.error.message}` };
   }
@@ -345,6 +346,15 @@ export async function loadTenantKb(
       contacts: ordered(rows(contacts.data), (r) => str(r['kind']), (r) => str(r['value']))
         .map((r) => ({ kind: str(r['kind']), value: str(r['value']) })),
       bookingUrl: booking.data === null ? null : orNull((booking.data as Record<string, unknown>)['booking_url']),
+      // Not `ordered` by weekday: `renderTenantSections` prints the week Monday-first from
+      // its own fixed table, so the row order here decides nothing and sorting it would
+      // imply otherwise.
+      hours: rows(hours.data).map((r) => ({
+        weekday: num(r['weekday']),
+        opens: orNull(r['opens']),
+        closes: orNull(r['closes']),
+        closed: r['closed'] === true,
+      })),
     },
   };
 }

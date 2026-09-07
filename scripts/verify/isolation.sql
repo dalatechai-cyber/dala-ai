@@ -325,6 +325,67 @@ begin
   end if;
 end $$;
 
+-- T12: A SECOND PUBLISH SURVIVES ITS OWN SUPERSEDE STEP.
+--
+-- `publishRevision` supersedes the outgoing revision with a bare
+-- `update … set status = 'superseded'`, leaving `published_at` in place. Against the
+-- original `published_has_a_time` — `(status = 'published') = (published_at is not null)`
+-- — that UPDATE was refused for every revision that had ever been live, so every tenant's
+-- SECOND publish failed at step 3, after the snapshot insert and the CAS had already
+-- committed: two rows claiming 'published' and the pointer still on the old one.
+--
+-- Nothing caught it for two reasons worth keeping in view. `publish.test.ts` runs against
+-- a stubbed client that accepts any update — the D-029 shape, a green suite that could not
+-- have said anything. And no tenant had published twice, so production agreed with the
+-- tests. This check is here rather than in `catalog.sql` because the constraint's SHAPE was
+-- never the question: it read as correct. Only running the transition finds it.
+do $$
+declare
+  v_t   uuid := '11111111-1111-4111-8111-111111111111';
+  v_r1  uuid := '22222222-2222-4222-8222-222222222221';
+  v_r2  uuid := '22222222-2222-4222-8222-222222222222';
+begin
+  insert into tenants (id, slug, display_name, vertical, default_locale, timezone)
+  values (v_t, 't12-publish', 'T12', 'salon', 'mn-MN', 'Asia/Ulaanbaatar');
+
+  insert into config_revisions (id, tenant_id, seq, status, published_at)
+  values (v_r1, v_t, 1, 'published', now());
+  insert into config_revisions (id, tenant_id, seq, status)
+  values (v_r2, v_t, 2, 'draft');
+
+  -- publishRevision step 2: the CAS onto the new revision.
+  update config_revisions set status = 'published', published_at = now()
+   where tenant_id = v_t and id = v_r2 and status = 'draft';
+
+  -- publishRevision step 3: supersede the outgoing one. THIS is the statement that failed.
+  update config_revisions set status = 'superseded'
+   where tenant_id = v_t and status = 'published' and id <> v_r2;
+
+  if (select status from config_revisions where id = v_r1) <> 'superseded' then
+    raise exception 'T12 FAILED: the outgoing revision was not superseded';
+  end if;
+  if (select published_at from config_revisions where id = v_r1) is null then
+    raise exception 'T12 FAILED: superseding erased the time the revision went live';
+  end if;
+  if (select count(*) from config_revisions where tenant_id = v_t and status = 'published') <> 1 then
+    raise exception 'T12 FAILED: % rows claim published', (select count(*) from config_revisions where tenant_id = v_t and status = 'published');
+  end if;
+  raise notice 'T12 PASS: a second publish supersedes the first, and the first keeps its published_at';
+end $$;
+
+-- T13: and the half of the old rule that was right is still enforced — a draft may not
+-- claim a publication time. Widening a CHECK is only safe if you say what it still refuses.
+do $$
+begin
+  begin
+    update config_revisions set status = 'draft'
+     where tenant_id = '11111111-1111-4111-8111-111111111111' and status = 'superseded';
+    raise exception 'T13 FAILED: a draft was allowed to carry a published_at';
+  exception when check_violation then
+    raise notice 'T13 PASS: a draft carrying a published_at is still refused';
+  end;
+end $$;
+
 do $$ begin raise notice 'ISOLATION SUITE PASSED'; end $$;
 
 rollback;
