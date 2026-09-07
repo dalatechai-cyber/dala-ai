@@ -384,9 +384,13 @@ each table independently — the last failure of this kind next door was partial
 - **The price guarantee now rests on the digits-only reduction, not on an empty list**
   (2026-09-07). `allowed_numbers` was `[]` for every tenant, and "a bot with no approved
   prices cannot emit a price" was true for the trivial reason that it could emit no numeral
-  at all. Matrix's Stage 4 knowledge base ended that: it compiles to ten tokens —
-  `1, 20, 3, 3-5, 30, 4-5, 50, 70, 7741-7777, 9` — the percentages, session counts and the
-  phone number out of the documents. Prices are still refused, and the reason is now a
+  at all. Matrix's Stage 4 knowledge base ended that. As published on 2026-09-07 (revision
+  seq 2, `content_hash f68b8f53…`, 12,239 chars) it compiles to **twelve** tokens —
+  `1, 10:00, 11:00, 19:00, 20:00, 3, 3-5, 30, 4-5, 50, 70, 7741-7777` — the percentages,
+  session counts, opening hours and phone number. It briefly read fourteen: `9` and `20`
+  came from a promotion end date that has since been removed (D-055), and the four clock
+  times arrived with the `business_hours` section. **Read the count off the live snapshot,
+  never off this sentence.** Prices are still refused, and the reason is now a
   specific rule rather than an empty set: **comparison is on the digits-only reduction and
   is deliberately not a substring test.** `20` does not license `20,000`, `30` does not
   license `30,000`, and `7741-7777` does not license a bare `7741` — half a phone number is
