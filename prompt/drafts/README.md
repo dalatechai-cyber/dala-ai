@@ -173,3 +173,43 @@ call a person when it differs from their name — «Оюунаа» for one Matri
 nullable column on the person and deliberately NOT a `staff_aliases` table: an alias table
 answers only the names somebody thought to type into it, and the case that actually happens
 is the one it cannot hold.
+
+## Ш3 revised — the booking link stops being hostage to a price (D-042)
+
+`sh3_booking.mn.txt`. A **replacement** for the signed block of that name, not a new check,
+so on promotion it overwrites rather than joins.
+
+**The measurement.** The founder ran a booking conversation through Matrix's live bot on
+2026-09-07: «цаг авмаар байна» → asked gender → asked stylist tier → quoted a price → sent
+the link. **Four replies for one link**, on a Page where 721 people had already gone
+unanswered.
+
+**Why it happens, and why it is not a model failure.** Two individually reasonable rules
+compose into it. The ancestor's rule 3 says a *price* question needs the tier or the gender
+clarified, because the price genuinely differs. Its booking rule says to state the
+**relevant** deposit and then the booking line. "Relevant" is only computable once the tier
+is known, so the instruction to include a deposit is precisely what forces the
+interrogation. The link is held hostage to a number nobody asked for.
+
+**We inherited it.** The signed Ш3's correct action reads «(1) шаардлагатай бол урьдчилгаа
+төлбөрийн дүнг мэдлэгийн сангаас хэл; (2) …"booking_line"…» — deposit first, "if
+necessary", and a model establishes whether it is necessary by asking. Same shape, same
+result, on a channel that has not gone live yet.
+
+**The change.** The booking line goes in the FIRST reply with no clarifying question before
+it, stating the deposit becomes a forbidden action rather than an optional first step, and
+the deposit is answered normally when the customer asks for it (Ш2). A second wrong example
+carries the four-turn transcript, because D-011's finding is that hardening works by naming
+the wrong answer.
+
+**What is deliberately NOT asserted in the text.** The draft says only that *the deposit is
+not needed in order to send the link* — which is true whatever the booking site does. It
+does not tell the customer the site collects their stylist choice. That is an inference
+from the salon's own FAQ («Цаг захиалахдаа QPay-ээр урьдчилгаа төлбөрөө төлнө» — the site
+takes the deposit, so it must know which deposit), and `matrixecosalon.org` is blocked by
+this environment's egress proxy, so no session here can confirm it. One look at the booking
+flow settles it, and only then should any claim about the site reach customer text.
+
+**Measured, not asserted.** `src/lib/metrics/turnsToIntent.ts` counts this. The ancestor's
+transcript is a test fixture there and scores 4; a reply that leads with the link scores 1.
+

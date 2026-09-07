@@ -356,6 +356,15 @@ each table independently — the last failure of this kind next door was partial
   count distinct PSIDs instead** (the log line carries them). The band stays at 400: the
   busiest measured day sustained is ~477 conversations, outside it. Six days carries no
   seasonal shape; the mirror phase's 14 days still sets the final number.
+- **The booking link is hostage to a price, in the ancestor and in our own Ш3** (D-042,
+  measured 2026-09-07). A customer who writes «цаг авмаар байна» is asked gender, then
+  stylist tier, then given a price, and only then the link: **four replies for one link**.
+  Two reasonable rules compose into it — a price question needs the tier clarified, and the
+  booking rule says to state the *relevant* deposit first — so the link waits behind a
+  number nobody asked for. Ш3 has the same construction and has not gone live yet.
+  `prompt/drafts/sh3_booking.mn.txt` is the unsigned revision; `metrics/turnsToIntent.ts`
+  is the measurement, and **`not_delivered` is not a low score** — read D-042 before
+  aggregating it.
 - **No revenue path exists.** The platform can spend and cannot collect.
 - **Single-owner risk is ACCEPTED, not open** (D-017). KEK escrow and second admins are
   deliberately deferred; provider recovery emails and codes are the mitigation. **Do not
