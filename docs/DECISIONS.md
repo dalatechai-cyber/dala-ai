@@ -3451,3 +3451,65 @@ It does not remove the founder from the loop, and is not meant to. Publishing st
 action taken deliberately with a key that lives in one person's shell. What changes is that the
 action now runs the same renderer, the same ordering, the same trim and the same hash as the
 code that answers a customer.
+
+## D-060 — the watchdog's healthy verdict claimed receipts it had never had
+
+**2026-09-08, found by the 03:00 UTC Matrix check-in** — the routine the founder scheduled
+to read the first routed event. There was no first routed event to read; this is what the
+check-in found instead.
+
+### What it said, and what was true
+
+At 03:00:02 UTC, 1.0h into Matrix's first watched trading day, `channel_health` recorded:
+
+    matrix-eco-salon   healthy   "webhooks and messages both within 3.0h of open time"
+
+Matrix's `last_webhook_at` is **null**. It has zero `webhook_events`, zero `messages`, zero
+conversations. It has never received a webhook in its life, and the row said both streams
+were inside the window.
+
+**The decision was right and the sentence was false.** `assessSilence` measures open minutes
+since `lastInboundAt ?? liveSince`; with both webhook clocks empty it measured from
+`expects_traffic_since` and found 1.0h of open time, under the 180-minute threshold. Not
+alerting after one hour is correct — alerting would be noise on every channel's first
+morning. The `ok` verdict then reached a `reason` string that describes the *other* case.
+
+### Why that specific lie is expensive
+
+`SilenceVerdict`'s own comment names both states in one line — *"Traffic is arriving, or the
+business simply has not been open long enough to tell"* — and then the type carried no way to
+tell them apart, because `everReceived` was on `silent` and not on `ok`.
+
+The second state is the **pre-failure state of the bug this whole module exists for**. The
+`silent` branch has exactly the right words for it — *"this channel has NEVER received a
+webhook … the app-level field subscription probably never worked"* — and that branch is
+unreachable until the threshold is crossed. For the first three open hours, the window in
+which an operator is actually watching a cutover, the watchdog says the subscription is fine.
+
+That is the D-020 shape once more: a source answering plausibly instead of admitting it
+cannot see. And it is the emptiness-guard shape from D-058's addendum inverted — there a
+guard could not fire; here it fires correctly and reports the wrong reason.
+
+### The fix
+
+`everReceived` is carried on `ok` too, and `diagnoseChannel` splits the healthy branch:
+
+* both streams really seen inside the threshold → `webhooks and messages both within 3.0h of
+  open time`, unchanged.
+* nothing ever received → `state: 'healthy'`, **`everReceived: false`**, and
+  `nothing received yet, and only 1.0h of open time so far — under the 3.0h threshold, so
+  too early to tell`.
+
+Still `healthy`, so still no alert: the change is to what a reader is told, not to when the
+watchdog pages. Three tests pin it, including the half-received case (webhooks seen, no
+message ever), which is where the standby trap begins and which is below the threshold for
+its first three open hours.
+
+### What the same check-in established about the subscription
+
+Two real deliveries from Matrix's Page (`entry_id 1520409424715591`) reached our callback at
+01:12 UTC on 2026-09-07, recorded `routing: unrouted` — correctly, because the Matrix
+`tenant_channels` row was not created until 01:23:40, eleven minutes later. **So Meta does
+deliver Matrix's Page traffic to this platform.** The subscription works; those two were
+early, not misrouted. Their raw payloads have since been purged under the 1-day floor for
+unrouted events, which is the retention policy behaving as designed.

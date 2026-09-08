@@ -26,6 +26,45 @@ test('both streams flowing is healthy', () => {
   assert.equal(diagnoseChannel(obs()).state, 'healthy');
 });
 
+test('DONE-TEST: A CHANNEL THAT HAS NEVER RECEIVED IS NOT REPORTED AS RECEIVING', () => {
+  // Measured on Matrix at 03:00 UTC 2026-09-08, 1.0h into its first watched trading day:
+  // `last_webhook_at` null, zero events ever, and the verdict read
+  //   healthy — "webhooks and messages both within 3.0h of open time"
+  // which asserts receipts that do not exist. The DECISION was right: 1.0h is not evidence
+  // of anything and alerting would be noise. The SENTENCE was false, and the sentence is
+  // what a human reads at 05:00 before deciding the subscription is fine.
+  //
+  // This is the pre-failure state of the exact bug this module was written for. `silent`'s
+  // `everReceived: false` branch names it perfectly and is unreachable until the threshold
+  // is crossed; until then the operator must still be able to tell the two apart.
+  const d = diagnoseChannel(obs({
+    lastWebhookAt: null,
+    lastInboundMessageAt: null,
+    // Stamped one open hour ago, so the walk is under the 180-minute threshold.
+    wentLiveAt: new Date('2026-09-04T05:00:00Z'),
+  }));
+  assert.equal(d.state, 'healthy', 'one open hour is not yet a fault — this must not alert');
+  assert.equal(d.state === 'healthy' && d.everReceived, false, 'and it must say nothing has arrived');
+  assert.match(d.reason, /nothing received yet/);
+  assert.doesNotMatch(d.reason, /within/, 'must not claim a receipt inside the window');
+});
+
+test('and a channel that IS receiving still reads as receiving', () => {
+  // The other half: the fix must not make every healthy channel look unproven.
+  const d = diagnoseChannel(obs());
+  assert.equal(d.state, 'healthy');
+  assert.equal(d.state === 'healthy' && d.everReceived, undefined);
+  assert.match(d.reason, /webhooks and messages both within/);
+});
+
+test('webhooks seen but no message ever, inside the threshold, still reads as unproven', () => {
+  // Half-received is not received. The standby trap starts here, and it is below the
+  // threshold for its first three open hours — exactly when an operator is watching.
+  const d = diagnoseChannel(obs({ lastInboundMessageAt: null, wentLiveAt: new Date('2026-09-04T05:00:00Z') }));
+  assert.equal(d.state, 'healthy');
+  assert.equal(d.state === 'healthy' && d.everReceived, false);
+});
+
 test('DONE-TEST: THE STANDBY TRAP — webhooks fresh, messages stale, and it says so', () => {
   // §3.7: with the Page Inbox app as primary receiver, Meta delivers into entry[].standby.
   // The webhook is well-formed, correctly signed, correctly routed — and dropped. Reception

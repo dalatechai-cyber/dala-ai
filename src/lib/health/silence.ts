@@ -96,8 +96,17 @@ export type SilenceVerdict =
   /**
    * Traffic is arriving, or the business simply has not been open long enough to tell.
    * `openMinutes` is EXACT here: the walk reached the last inbound event.
+   *
+   * **`everReceived` separates those two, and it has to.** The sentence above names two
+   * states that look identical in this verdict and are not remotely the same thing: one is
+   * a healthy channel on a quiet morning, the other is a channel that has NEVER received
+   * anything and has simply not been silent for long enough to prove it. The second is the
+   * pre-failure state of the subscription bug this whole module exists for — `silent`'s
+   * `everReceived: false` branch is written for it, and is unreachable until the threshold
+   * is crossed. Until then the operator needs to be told which one they are looking at,
+   * because "healthy" plus a sentence about recent webhooks reads as proof of receipt.
    */
-  | { verdict: 'ok'; openMinutes: number }
+  | { verdict: 'ok'; openMinutes: number; everReceived: boolean }
   /**
    * Nothing has arrived across more open time than the tenant's threshold allows.
    *
@@ -188,7 +197,7 @@ export function assessSilence(input: SilenceInput): SilenceVerdict {
   }
 
   // Clock skew, or an event stamped in the future. Not silence, and not worth an alarm.
-  if (since.getTime() >= input.now.getTime()) return { verdict: 'ok', openMinutes: 0 };
+  if (since.getTime() >= input.now.getTime()) return { verdict: 'ok', openMinutes: 0, everReceived };
 
   const walked = openMinutesSince(input, since);
   if ('notConfigured' in walked) return { verdict: 'not_configured', detail: walked.notConfigured };
@@ -213,5 +222,5 @@ export function assessSilence(input: SilenceInput): SilenceVerdict {
     };
   }
 
-  return { verdict: 'ok', openMinutes: walked.minutes };
+  return { verdict: 'ok', openMinutes: walked.minutes, everReceived };
 }
