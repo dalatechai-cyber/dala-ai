@@ -61,7 +61,12 @@ export type ChannelObservation = {
 };
 
 export type ChannelDiagnosis =
-  | { state: 'healthy'; reason: string }
+  /**
+   * Nothing to act on. `everReceived: false` means nothing has EVER arrived and the channel
+   * has simply not been open long enough for that to be a finding — quiet, not proven well.
+   * Absent means both streams have really been seen inside the threshold.
+   */
+  | { state: 'healthy'; reason: string; everReceived?: false }
   /** Nothing is arriving at all: the token, or the subscription. */
   | { state: 'no_webhooks'; reason: string; everReceived: boolean }
   /** Events arrive and none becomes a message: standby, or the persist path. */
@@ -138,5 +143,27 @@ export function diagnoseChannel(o: ChannelObservation): ChannelDiagnosis {
     };
   }
 
-  return { state: 'healthy', reason: `webhooks and messages both within ${hours(o.thresholdOpenMinutes)} of open time` };
+  // NOT ONE SENTENCE FOR TWO STATES.
+  //
+  // `ok` means "arriving" OR "nothing yet, and not open long enough to complain" — its own
+  // type comment says so. Reported as one string, the second reads as the first: an
+  // operator seeing "healthy — webhooks and messages both within 3.0h of open time" on a
+  // channel that has never received a webhook in its life concludes the subscription works.
+  //
+  // Measured on Matrix at 03:00 UTC 2026-09-08, 1.0h into its first watched trading day:
+  // `last_webhook_at` null, zero events, and this line said webhooks were within 3.0h. The
+  // DECISION was right — 1.0h is not yet evidence of anything, and alerting would be noise.
+  // The sentence was false, and the sentence is what a human reads.
+  const seen = webhooks.verdict === 'ok' && webhooks.everReceived
+    && messages.verdict === 'ok' && messages.everReceived;
+  return seen
+    ? { state: 'healthy', reason: `webhooks and messages both within ${hours(o.thresholdOpenMinutes)} of open time` }
+    : {
+        state: 'healthy',
+        everReceived: false,
+        // Says the quiet part: nothing has arrived, and this is not yet a finding. Naming
+        // the clock lets a reader see how long is left before silence becomes a verdict.
+        reason: `nothing received yet, and only ${hours(webhooks.verdict === 'ok' ? webhooks.openMinutes : 0)} `
+          + `of open time so far — under the ${hours(o.thresholdOpenMinutes)} threshold, so too early to tell`,
+      };
 }
