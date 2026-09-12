@@ -13,9 +13,14 @@ const HOURS = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: '10:00',
 type Answer = { data?: unknown; error?: unknown };
 
 /**
- * `webhook_events` is now read twice in one run — once by the silence watch, once by the
- * stranded sweep — so an override may be a LIST, consumed in order. A single value answers
- * every call, as before.
+ * `webhook_events` is read THREE times in one run — the silence watch asks twice (routed
+ * events for this channel, then deliveries it could not attribute, by Page id) and the
+ * stranded sweep once — so an override may be a LIST, consumed in order. A single value
+ * answers every call, as before.
+ *
+ * The count matters: when the watch gained its second read, this list silently shifted by
+ * one and handed the stranded sweep the row meant for the watch. The sweep then reported
+ * nothing and the test failed on a count, which is the cheapest possible way to find out.
  */
 function effects(over: Record<string, Answer | Answer[]> = {}, verified = true): HealthEffects {
   const queue: Record<string, Answer[]> = {};
@@ -89,7 +94,11 @@ test('DONE-TEST: the stranded sweep runs beside the watch, and its count is repo
   // never queued. A run that only answers the first one reports green through it.
   const r = await runHealthJob(effects({
     webhook_events: [
+      // 1. the watch's routed read
       { data: [{ received_at: FRESH }], error: null },
+      // 2. the watch's unattributed read, by Page id — nothing, so the diagnosis is unchanged
+      { data: [], error: null },
+      // 3. the stranded sweep
       { data: [{ id: 1, provider: 'facebook_page', dedup_key: '1001:0:9:dalatech', tenant_id: 't-1', channel_id: 'ch-1', state: 'failed', received_at: STALE }], error: null },
       { data: null, error: null },
     ],

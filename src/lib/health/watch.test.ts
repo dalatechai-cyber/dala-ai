@@ -33,6 +33,7 @@ function stub(over: Record<string, { data?: unknown; error?: unknown }> = {}) {
     chain['eq'] = (col: string, val: unknown) => (rec.filters.push(`${col}=${String(val)}`), chain);
     chain['gte'] = (col: string, val: unknown) => (rec.filters.push(`${col}>=${String(val)}`), chain);
     chain['in'] = (col: string, vals: readonly unknown[]) => (rec.filters.push(`${col} in ${vals.join(',')}`), chain);
+    chain['is'] = (col: string, val: unknown) => (rec.filters.push(`${col} is ${String(val)}`), chain);
     chain['order'] = () => chain;
     chain['limit'] = () => chain;
     for (const op of ['insert', 'update', 'upsert'] as const) {
@@ -216,4 +217,22 @@ test('an unparseable timestamp is not a time', async () => {
 test('the threshold is a platform constant, not a per-tenant knob', () => {
   // A per-tenant threshold invites tuning a real alert into silence one channel at a time.
   assert.equal(DEFAULT_THRESHOLD_OPEN_MINUTES, 180);
+});
+
+test('DONE-TEST: THE WATCH ASKS FOR DELIVERIES IT COULD NOT ATTRIBUTE, BY PAGE ID', () => {
+  // The routed query filters on tenant_id AND channel_id, so an unrouted row — both null —
+  // is invisible to it by construction. Matrix spent five days being told its subscription
+  // never worked while two deliveries naming its own Page sat in the same table.
+  //
+  // Asserted on the FILTERS rather than on a verdict, because the filters are the thing
+  // that was wrong: a query that forgets `.is('tenant_id', null)` would match routed rows
+  // and quietly report every channel as delivering.
+  const { db, reads } = stub();
+  return runSilenceWatch(db, { now: NOW }).then(() => {
+    const unrouted = reads.filter((r) => r.table === 'webhook_events'
+      && r.filters.some((f) => f === 'tenant_id is null'));
+    assert.equal(unrouted.length, 1, 'exactly one query for unattributed deliveries');
+    assert.ok(unrouted[0]?.filters.includes('entry_id=100000000000001'),
+      `must look the Page up by entry_id: ${JSON.stringify(unrouted[0]?.filters)}`);
+  });
 });
