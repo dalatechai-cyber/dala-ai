@@ -107,7 +107,7 @@ export async function runSilenceWatch(
       await record(db, { tenantId, channelId, externalId, diagnosis, now: input.now, timezone: tenantTimezone });
     };
 
-    const [tenant, hoursRes, closuresRes, webhookRes, conversationRes] = await Promise.all([
+    const [tenant, hoursRes, closuresRes, webhookRes, conversationRes, unroutedRes] = await Promise.all([
       db.from('tenants').select('timezone').eq('id', tenantId).maybeSingle(),
       db.from('business_hours').select('weekday, opens, closes, closed').eq('tenant_id', tenantId).order('weekday'),
       // Only closures that could overlap the lookback window. An ancient one cannot change
@@ -129,11 +129,25 @@ export async function runSilenceWatch(
         .eq('channel_id', channelId)
         .order('last_message_at', { ascending: false })
         .limit(1),
+      // DELIVERIES WE COULD NOT ATTRIBUTE, by Page id.
+      //
+      // The query above filters on tenant_id and channel_id; an unrouted row has both null,
+      // so it is invisible there by construction. Those rows still carry `entry_id`, which
+      // is the Page id, and one naming this Page proves Meta is delivering for it whatever
+      // happened next. Without this the never-received branch tells an operator to fix a
+      // subscription that works — which is what it told the founder five days running.
+      db.from('webhook_events')
+        .select('received_at')
+        .eq('entry_id', externalId)
+        .is('tenant_id', null)
+        .order('received_at', { ascending: false })
+        .limit(1),
     ]);
 
     const failed = ([
       ['tenants', tenant], ['business_hours', hoursRes], ['tenant_closures', closuresRes],
       ['webhook_events', webhookRes], ['conversations', conversationRes],
+      ['webhook_events (unattributed)', unroutedRes],
     ] as const).find(([, res]) => res.error);
     if (failed !== undefined) {
       await verdict({ state: 'unknown', reason: `${failed[0]} unreadable: ${failed[1].error?.message ?? ''}` });
@@ -170,6 +184,7 @@ export async function runSilenceWatch(
       channelId, tenantId, externalId,
       lastWebhookAt,
       lastInboundMessageAt: date(rows(conversationRes.data)[0]?.['last_message_at']),
+      unattributedWebhookAt: date(rows(unroutedRes.data)[0]?.['received_at']),
       // `expects_traffic_since`, not `went_live_at` (0023). A shadow channel has no go-live
       // time by definition, and measuring from a null is what made it invisible.
       wentLiveAt: date(raw['expects_traffic_since']),

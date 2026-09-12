@@ -53,6 +53,18 @@ export type ChannelObservation = {
   lastInboundMessageAt: Date | null;
   /** When this channel started expecting traffic. */
   wentLiveAt: Date | null;
+  /**
+   * The newest delivery that named THIS PAGE and could not be attributed to a channel.
+   *
+   * `webhook_events` rows with `routing: 'unrouted'` carry `tenant_id` and `channel_id`
+   * null, so the routed query that feeds `lastWebhookAt` cannot see them — by construction,
+   * not by oversight. They still carry `entry_id`, which IS the Page id, and an event
+   * naming this Page is proof that Meta is delivering for it whatever we then did with it.
+   *
+   * Without this the never-received branch below names the wrong screen: it tells an
+   * operator to go and fix an app-level field subscription that is demonstrably working.
+   */
+  unattributedWebhookAt: Date | null;
   timezone: string;
   hours: readonly BusinessHours[];
   closures: readonly Closure[];
@@ -122,7 +134,20 @@ export function diagnoseChannel(o: ChannelObservation): ChannelDiagnosis {
       everReceived: webhooks.everReceived,
       reason: webhooks.everReceived
         ? `no webhook of any kind for ${describe(webhooks)} — the token or the subscription`
-        : `this channel has NEVER received a webhook (${describe(webhooks)}) — the app-level field subscription probably never worked`,
+        // NOT "the subscription never worked" when we have a delivery that named this Page.
+        //
+        // Measured on Matrix, 2026-09-12: five consecutive days of this alert saying the
+        // app-level field subscription probably never worked, while `webhook_events` held
+        // two deliveries with `entry_id 1520409424715591` — Matrix's own Page — from
+        // 01:12 UTC on 2026-09-07. They were `unrouted`, correctly, because the channel row
+        // did not exist until 01:23. Meta WAS delivering. The remedy the alert named would
+        // have sent the founder to re-subscribe a working subscription, and the real fault
+        // — that nothing since has been attributed to this channel — went unnamed.
+        : o.unattributedWebhookAt !== null
+          ? `no webhook has ever been attributed to this channel, but a delivery naming Page `
+            + `${o.externalId} arrived at ${o.unattributedWebhookAt.toISOString()} and could not be `
+            + `routed — Meta IS delivering, so this is channel identity, not the subscription`
+          : `this channel has NEVER received a webhook (${describe(webhooks)}) — the app-level field subscription probably never worked`,
     };
   }
 

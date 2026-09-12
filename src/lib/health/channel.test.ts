@@ -14,7 +14,7 @@ const STALE = new Date('2026-09-04T02:00:00Z');      // four open hours ago
 function obs(over: Partial<ChannelObservation> = {}): ChannelObservation {
   return {
     channelId: 'ch-1', tenantId: 't-1', externalId: '100000000000001',
-    lastWebhookAt: FRESH, lastInboundMessageAt: FRESH,
+    lastWebhookAt: FRESH, lastInboundMessageAt: FRESH, unattributedWebhookAt: null,
     wentLiveAt: new Date('2026-08-01T00:00:00Z'),
     timezone: 'Asia/Ulaanbaatar', hours: DAILY, closures: [],
     thresholdOpenMinutes: 180, now: NOW,
@@ -95,6 +95,42 @@ test('DONE-TEST: a channel that never received anything names the FIELD SUBSCRIP
   assert.equal(d.state === 'no_webhooks' && d.everReceived, false);
   assert.match(d.reason, /NEVER received/);
   assert.match(d.reason, /field subscription/);
+});
+
+test('DONE-TEST: A DELIVERY WE COULD NOT ROUTE IS STILL PROOF META IS DELIVERING', () => {
+  // Measured on Matrix, 2026-09-12. Five consecutive days of a critical alert reading
+  //   "this channel has NEVER received a webhook — the app-level field subscription
+  //    probably never worked"
+  // while webhook_events held two deliveries with entry_id 1520409424715591 — Matrix's own
+  // Page — from 01:12 UTC on 2026-09-07. They were `unrouted`, correctly, because the
+  // channel row did not exist until 01:23.
+  //
+  // The watchdog could not see them: its event query filters on tenant_id and channel_id,
+  // and an unrouted row has both null. So the alert named the wrong screen for five days,
+  // and would have sent an operator to re-subscribe a Page that was already delivering.
+  const d = diagnoseChannel(obs({
+    lastWebhookAt: null,
+    lastInboundMessageAt: null,
+    unattributedWebhookAt: new Date('2026-09-04T01:00:00Z'),
+    wentLiveAt: new Date('2026-09-01T00:00:00Z'),
+  }));
+  assert.equal(d.state, 'no_webhooks');
+  assert.match(d.reason, /Meta IS delivering/);
+  assert.match(d.reason, /channel identity/);
+  assert.match(d.reason, /100000000000001/, 'the Page id an operator would search for');
+  assert.doesNotMatch(d.reason, /subscription probably never worked/);
+});
+
+test('with no such delivery it still names the subscription, which is the right guess', () => {
+  // The other half: a channel with nothing at all anywhere really has no evidence that
+  // Meta ever delivered for it, and the field subscription is the first thing to check.
+  const d = diagnoseChannel(obs({
+    lastWebhookAt: null, lastInboundMessageAt: null, unattributedWebhookAt: null,
+    wentLiveAt: new Date('2026-09-01T00:00:00Z'),
+  }));
+  assert.equal(d.state, 'no_webhooks');
+  assert.match(d.reason, /NEVER received a webhook/);
+  assert.match(d.reason, /subscription probably never worked/);
 });
 
 test('ONE FAULT, ONE NAME: no webhooks does not also report no messages', () => {

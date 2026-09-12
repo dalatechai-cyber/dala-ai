@@ -3513,3 +3513,68 @@ Two real deliveries from Matrix's Page (`entry_id 1520409424715591`) reached our
 deliver Matrix's Page traffic to this platform.** The subscription works; those two were
 early, not misrouted. Their raw payloads have since been purged under the 1-day floor for
 unrouted events, which is the retention policy behaving as designed.
+
+## D-061 — the watchdog could not see the deliveries that disproved its own diagnosis
+
+**2026-09-12.** Matrix has been alerting `channel.no_webhooks` at critical severity once a
+day since 2026-09-08 06:00 UTC — five consecutive days, all delivered — with this body:
+
+    Page 1520409424715591: this channel has NEVER received a webhook (at least 3.1h of
+    open time with nothing, since 2026-09-07T18:02:54.404Z) — the app-level field
+    subscription probably never worked
+
+The alert firing at all is D-060's branch working exactly as designed: five trading days of
+open time with nothing, from a channel pointed at live traffic. That part is right, and the
+silence is real.
+
+**The remedy it names is wrong, and the evidence against it was in the same table.**
+`webhook_events` holds two rows with `entry_id 1520409424715591` — Matrix's own Page — from
+01:12 UTC on 2026-09-07, `routing: 'unrouted'`. They were unrouted correctly: the Matrix
+`tenant_channels` row was not created until 01:23:40, eleven minutes later. Meta was
+delivering for that Page. The field subscription worked.
+
+### Why it could not see them
+
+`watch.ts` reads the channel's webhook history as
+
+    .eq('tenant_id', tenantId).eq('channel_id', channelId)
+
+and an unrouted row carries **both of those as null**. So the query cannot return an
+unrouted event — by construction, not by oversight. `last_webhook_at` is derived from the
+same read, so it stays null too, and `everReceived` is false all the way down to a sentence
+about a subscription that is fine.
+
+An operator following that sentence goes to the App Dashboard and re-subscribes a Page that
+is already subscribed. The real fault — deliveries arriving for this Page that nothing
+attributes to this channel — is never named, and it is the one that has a fix.
+
+This is the repository's recurring shape at its sharpest: not a check that fails to fire,
+but one that fires correctly and points at the wrong screen. D-029's third bug was a name
+resolved against the wrong schema; D-057's parser answered with the part it managed; this
+one answers confidently from a query that is structurally blind to the disproving case.
+
+### The fix
+
+The watch asks a second question — newest `webhook_events` row with `entry_id` = this
+channel's `external_id` and `tenant_id is null` — and passes it to `diagnoseChannel` as
+`unattributedWebhookAt`. When it is non-null the never-received branch says instead:
+
+    no webhook has ever been attributed to this channel, but a delivery naming Page
+    1520409424715591 arrived at 2026-09-07T01:12:34.724Z and could not be routed —
+    Meta IS delivering, so this is channel identity, not the subscription
+
+Still `no_webhooks`, still critical, still alerting: the silence is real either way. What
+changes is the screen the operator opens.
+
+Both halves are tested, including that a channel with no such delivery keeps the original
+sentence, because the subscription genuinely is the first thing to check then. The query
+shape is pinned on its FILTERS rather than on a verdict — one that forgot
+`.is('tenant_id', null)` would match routed rows and report every channel as delivering.
+
+### A second-order note worth keeping
+
+Adding the read made `webhook_events` the third query of a run that a test stub answered
+positionally, so the stranded sweep silently received the row meant for the watch and
+reported nothing. The test caught it on a count. The stub's own docstring said "read twice
+in one run" and was two minutes out of date — the same comment-and-code drift this
+repository keeps finding, this time in the test harness.
