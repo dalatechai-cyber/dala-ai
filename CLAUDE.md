@@ -462,6 +462,25 @@ unsigned GET returns 405 with `x-matched-path: /api/workers/digest`); the first 
 can work is 2026-09-15 01:00 UTC. The QStash console is not readable from here, so if 09:00
 Ulaanbaatar passes with no digest, check the schedule rather than the code.
 
+**The first `on_change` episode fired at 08:00:08 UTC on 2026-09-14 and was exactly right in
+mechanism and wrong in inference** (D-063 addendum). The row carries `repeat_policy
+= 'on_change'`, `resolved_at` null, a dedup key with NO date, and `notified_at` — the whole
+chain. But the condition was an ordinary quiet afternoon. **The ancestor is a control this
+platform did not have to build**: it serves the same Page through a different Meta app, and
+its Vercel logs show our traffic tracking it in BOTH directions — we received in the window it
+received in, and neither of us since. So Matrix's live customers are not unanswered by its
+production bot; it is getting what we are, which is nothing.
+
+What that falsifies is the threshold's own justification.
+`DEFAULT_THRESHOLD_OPEN_MINUTES = 180` argues from D-016's 60.5 replies/day that three open
+hours should carry ~18 replies. Measured from the ancestor's worker invocations — one per
+message — the last three rolling days are **37, 30, 9**. At 0.9–3.7/hour a three-hour run of
+zero is an ordinary gap, so the daily noise D-063 removed from the KEY can walk back in
+through the THRESHOLD. Not changed: it is the sensitivity of the instrument that caught an
+eleven-day outage, and loosening it lengthens time-to-detect on the next one. **Re-derive
+D-016's 60.5 before anybody picks a new number** — it is the premise every version of this
+alert rests on, and the Page is not delivering at that rate.
+
 **A column that is read and never written is worse than one that is absent** (2026-09-14,
 D-064). `sweepStrandedEvents` filters `.is('replied_at', null)` and nothing had ever written
 `replied_at`, so the filter could not exclude a single row — it was harmless purely because

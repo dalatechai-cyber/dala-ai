@@ -4326,3 +4326,59 @@ STEM works. It takes one line to test and I tested it only after the ancestor su
 **Read the original finding as evidence about the mirror, which is what the mirror is for.**
 Two of the first three real messages were in a script every one of this tenant's stems is
 blind to, and nothing in fourteen days of tests would have said so.
+
+### Addendum, 2026-09-14 08:00 UTC: the mechanism worked, and the threshold's premise did not
+
+The first `on_change` episode fired at **08:00:08.989 UTC** and is exactly the row D-063
+specifies: `repeat_policy = 'on_change'`, `resolved_at` null, `dedup_key`
+`channel_silence:1fb6d543…:no_webhooks` — **no date** — and `notified_at` 08:00:09.636, so
+raise → Telegram → `markNotified` all fired. Every older row has `notified_at` null and a
+dated key (`…:no_webhooks:2026-09-14`). The split is live and behaves as designed.
+
+The condition it reported is where it gets interesting. Matrix's last webhook was 04:06:10;
+at 08:00 that was 3.1h of open time with nothing.
+
+**It is not a delivery fault, and the ancestor is what proves it.** `Matrix-Chatbot` serves the
+same Page through a different Meta app, so it is a control this platform did not have to
+build. Measured from its Vercel runtime logs:
+
+| window (UTC) | `/api/messenger` | `/api/messenger-worker` |
+|---|---|---|
+| 72h → 48h ago | 39 | 37 |
+| 48h → 24h ago | 30 | 30 |
+| 24h → 8h ago | 6 | 5 |
+| 8h → 4h ago | 5 | (our 4 arrived here) |
+| 4h ago → now | **0** | **0** |
+
+Our traffic tracks the ancestor's **in both directions**: we received in the window it
+received in, and neither of us has received since. There is no evidence of a problem with our
+subscription, and Matrix's live customers are not sitting unanswered by its production bot —
+it is getting exactly what we are, which is nothing.
+
+**What the numbers do falsify is the threshold's own justification.**
+`DEFAULT_THRESHOLD_OPEN_MINUTES = 180` carries this reasoning in its docstring:
+
+> For Matrix, whose measured traffic is 60.5 replies/day across a ten-hour day (D-016), three
+> open hours would normally carry around eighteen replies — so zero is a strong signal rather
+> than a slow afternoon.
+
+Take the worker invocations as the unit — one per message to process — and the last three
+rolling days are **37, 30, 9**, not ~60. Over a ten-hour day that is 0.9–3.7 messages an hour,
+so three open hours carry roughly three to eleven messages, and a run of zero is an ordinary
+gap rather than a strong signal. Today's critical is therefore a **true reading of "nothing
+arrived" and a false inference that something is wrong** — and at that arrival rate it has a
+real chance of recurring on any quiet afternoon.
+
+Note what that does to D-063's own purpose: the daily repeat was retired from the KEY, and the
+same noise can walk back in through the THRESHOLD. One `on_change` episode per genuine quiet
+spell is far better than six criticals about one dead channel, so this is not urgent — but a
+critical the reader learns to dismiss is the thing being defended against, whichever mechanism
+produces it.
+
+**Deliberately not changed.** The constant is the sensitivity of the one instrument that
+caught an eleven-day outage, and its docstring already argues — correctly — that a per-tenant
+knob "invites tuning a real alert into silence one channel at a time". Loosening it lengthens
+the time-to-detect on the next real outage. That trade is the founder's, and it now has a
+measurement under it rather than an assumption: **D-016's 60.5 replies/day is the number to
+re-derive before anybody picks a new threshold**, because it is the premise every version of
+this alert has rested on and the Page is not delivering at that rate today.
