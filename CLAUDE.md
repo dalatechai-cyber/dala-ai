@@ -444,6 +444,24 @@ demo requests into the same chat — outside this repository, nothing here route
 noisy health alarm is not merely ignorable, it is burying the only messages with a person on
 the other end. Weigh a new `route: 'now'` alert against that.
 
+**A backfill default decides which rows the new rule can ever reach** (2026-09-14, D-063
+addendum). Matrix's channel recovered at 06:00:04 UTC on the 14th — `channel_health` reads
+`healthy` after eleven days dead — and Telegram said nothing, because the ten rows recording
+that outage predate `0025` and its default stamped them `repeat_policy = 'daily'`. Under the
+split that makes them events, `resolveOpenAlerts` only closes `on_change` episodes, so there
+was no episode to close for the one condition the split was built around. Going forward the
+mechanism works; the gap is historical. **A migration adding a discriminator column with a
+default is retroactively deciding the semantics of every row already there — and those rows
+are exactly the ones that motivated the change.** The rows were NOT retyped to manufacture
+the missing notice: that is a write to `alerts`, and retyping all ten would have sent ten
+recovery messages. It was reported by hand instead.
+
+**And the first digest could not fire**: the route reached `main` at 06:18 UTC and the QStash
+schedule is 01:00 UTC, so at its first appointment it did not exist. It is deployed now (an
+unsigned GET returns 405 with `x-matched-path: /api/workers/digest`); the first firing that
+can work is 2026-09-15 01:00 UTC. The QStash console is not readable from here, so if 09:00
+Ulaanbaatar passes with no digest, check the schedule rather than the code.
+
 **A column that is read and never written is worse than one that is absent** (2026-09-14,
 D-064). `sweepStrandedEvents` filters `.is('replied_at', null)` and nothing had ever written
 `replied_at`, so the filter could not exclude a single row — it was harmless purely because
@@ -487,6 +505,20 @@ because a drift quietly fixed is a drift nobody knows is happening. **Only revie
 pinned lines** — measuring against an unreviewed row and then serving it would defeat the
 review gate with the mechanism built to enforce it. And the safety lives in the LENGTH GUARD,
 not the similarity threshold: replacing a real answer with a refusal is worse than the drift.
+
+**`quality_flags` says what the model wrote; the draft says what the platform served**
+(2026-09-14, corrected twice in one day). Both corrections were the same mistake: reading the
+served draft as evidence about the model. The price question that got the generic handoff was
+attributed to Ш2/Ш8 being unordered — but its `quality_flags` row shows the model never
+reached for a price line at all. It wrote D-066's gate-label leak ending in
+`refusal_public_channel`, the guard refused it, and `handle.ts:436` serves `handoff()`
+**regardless of what the customer asked**. Ш2/Ш8 explains the NEXT turn, not that one. Two
+turns, two causes, one conversation. Read the flag before explaining the draft.
+
+That unconditional fallback is itself an open question for the founder rather than a defect
+with an obvious repair: a price question refused by the guard could fall back to
+`refusal_price_unlisted` using the gate layer's own classification, but picking a specific
+refusal for a question that was not about price is worse than the generic one.
 
 **Ш2 and Ш8 both cover "a price I do not have", and nothing orders them** (2026-09-14,
 D-065). Ш1 says in as many words that it dominates Ш2; no block says Ш2 dominates Ш8, so the

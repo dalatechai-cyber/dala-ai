@@ -3871,6 +3871,44 @@ stops competing with six criticals a week.
 
 ---
 
+
+### Addendum, measured the same day: a backfill default decides which rows the new rule can ever reach
+
+Matrix's channel recovered at **06:00:04 UTC on 2026-09-14** — `channel_health` reads
+`healthy`, "webhooks and messages both within 3.0h of open time", after eleven days dead.
+Telegram said nothing, and could not have.
+
+The ten `channel.no_webhooks` rows recording that outage predate `0025`, so the migration's
+`repeat_policy` default stamped them **`daily`**. Under the split this file just introduced
+that makes them *events*, and `resolveOpenAlerts` filters on `repeat_policy = 'on_change'`.
+There is no open episode to close, so no `channel.recovered` was raised — for the one
+condition the whole split was built around.
+
+Nothing here is broken. Going forward `watch.ts` writes `on_change` and the recovery notice
+works; the digest and the escalation correctly ignore the ten rows rather than re-escalating
+eleven days of noise, which is the outcome we wanted. The gap is one-time and historical.
+
+The lesson is not one-time. **A migration that adds a discriminator column with a default is
+deciding, retroactively, which semantics apply to every row already in the table — and the
+rows already in the table are exactly the ones that motivated the change.** `'daily'` was the
+conservative default, correct in general because you cannot know what an arbitrary old row
+meant. Nobody asked what the *live* ones meant, and there were only eleven rows to look at.
+
+What was NOT done, deliberately: the rows were not retyped to `on_change` to manufacture the
+missing notice. That is a write to `alerts` — adjacent to the one instrument the founder said
+not to touch — and retyping all ten would send ten recovery messages, which is the daily
+repeat wearing the fix's clothes one more time. The recovery is reported by hand instead,
+once, which is what a person would have done anyway.
+
+Related, and the same shape at the outermost layer: **the first digest could not fire.**
+The route reached `main` at 06:18 UTC on 2026-09-14 and the QStash schedule is 01:00 UTC, so
+at its first appointment `/api/workers/digest` did not exist. Vercel's runtime logs carry no
+request to that path in the twelve hours around it. The route is deployed and reachable now
+(an unsigned GET returns 405 with `x-matched-path: /api/workers/digest`, i.e. POST-only as
+built), so the first firing that can work is 2026-09-15 01:00 UTC. If 09:00 Ulaanbaatar comes
+and no digest arrives, the schedule is what to check — not the code — and that console is not
+readable from here.
+
 ## D-064 — three columns the schema carried since `0001`, written by nothing
 
 **2026-09-14, found by reading Matrix's first real mirror drafts.** No migration: every
@@ -4052,6 +4090,43 @@ draft. Loaded by nothing; `check-mn-review.mjs` keeps it that way.
 **Note what the two halves have in common.** Both are instructions the model is asked to
 follow with nothing checking that it did. One of them could be closed in code and was; the
 other can only be closed by better wording, which is why the wording has to be good.
+
+#### Corrected 2026-09-14, reading the turns separately: Ш2/Ш8 is not why THAT one got the handoff
+
+The paragraphs above answer the founder's question with one mechanism. Read turn by turn,
+the two turns of that conversation failed for two different reasons, and the price question
+— the turn the founder was actually looking at — is the one Ш2/Ш8 does **not** explain.
+
+**Turn 2, 03:57:43, «будаг хэдээр хийх вэ»** — the price question. The model did not reach
+for Ш2, Ш8, or any price line. Its `quality_flags` row preserves what it actually wrote: the
+«Ш0 (сувагтай холбоотой шалгалт)…» leak of D-066, ending in `refusal_public_channel` — it
+decided a Messenger DM was a public channel. The outbound guard refused that on the `0`, and
+the refusal path at `handle.ts:436` calls `handoff()`. **So the customer got the generic
+handoff because the guard's fallback is unconditional**, not because two gates were
+unordered. `refusal_price_unlisted` was never in play.
+
+**Turn 3, 04:05:15, «buten»** — the follow-up, still inside the price conversation. Here the
+model chose `handoff` itself, unrefused (no flag on that turn), and dropped «би» doing it.
+That one is Ш2/Ш8 exactly as described above.
+
+The distinction matters because the two have different fixes and only one of them is parked.
+The gate wording is a reading-evening question. The fallback is code, and it names a real
+design question: **when the outbound guard refuses, the platform serves `handoff` regardless
+of what the customer asked**, discarding everything the gate layer already worked out. A
+price question refused by the guard could fall back to `refusal_price_unlisted` — the line is
+reviewed, it exists, and the classification would come from the gate match rather than from a
+fresh guess at the moment the model's output has just been judged untrustworthy.
+
+**Not built.** It changes which approved sentence a customer sees, on the surface that faces
+Matrix's live customers, and it is a policy decision rather than a defect with an obvious
+repair — picking a specific refusal for a question that was not about price is worse than the
+generic one. Raised here for the founder.
+
+And note the shape of the correction itself, because it is last night's twice over: the first
+account read "the customer got handoff" plus "Ш2 and Ш8 are unordered" as cause and effect,
+when the evidence for what the model actually typed was sitting in a different table. The
+rule that keeps earning its place — **`quality_flags` says what the model wrote; the draft
+says what the platform served; they are not the same row and not the same question.**
 
 ---
 
