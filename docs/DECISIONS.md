@@ -3578,3 +3578,161 @@ positionally, so the stranded sweep silently received the row meant for the watc
 reported nothing. The test caught it on a count. The stub's own docstring said "read twice
 in one run" and was two minutes out of date — the same comment-and-code drift this
 repository keeps finding, this time in the test harness.
+
+---
+
+## D-062 — both channels stopped in the same hour, and the one screen that would have said why had never been read
+
+**2026-09-14, after the founder acted on eleven days of the silence watchdog.** Diagnosis
+only; the remedy is a Graph read the founder must run, and it is at the bottom.
+
+### What stopped, and when
+
+Every delivery this platform has ever received is in one table, and it is seven rows:
+
+| id | received_at (UTC) | Page | routing | HMAC matched |
+|---|---|---|---|---|
+| 1 | 2026-09-06 01:17:28 | 863503883522801 (tenant #0) | routed | `dalatech` |
+| 4 | 2026-09-06 02:29:06 | 863503883522801 | routed | `dalatech` |
+| 6 | 2026-09-06 18:56:59 | 863503883522801 | routed | `dalatech` |
+| 7 | 2026-09-06 19:12:44 | 863503883522801 | routed | `dalatech` |
+| 8 | 2026-09-07 00:31:58 | 863503883522801 | routed | `dalatech` |
+| 9 | 2026-09-07 01:12:10 | 1520409424715591 (Matrix) | unrouted | `dalatech` |
+| 10 | 2026-09-07 01:12:34 | 1520409424715591 | unrouted | `dalatech` |
+
+Nothing since. Not one row, not one request, for either Page.
+
+**The last column is the finding.** `matchedAppSlug` is the slug whose *secret verified the
+HMAC*, not the slug in the URL — `verifyMetaSignature` tries every configured secret and
+reports which one matched. All seven matched the same one. Both Pages were delivering
+through a **single** Meta app, and both stopped within forty-one minutes of each other.
+One app, two Pages, one instant. That is one cause at the app level, not two coincidences.
+
+### What it is not
+
+Three things were suspected and each is now ruled out by measurement rather than by
+argument.
+
+**Not the endpoint.** `GET https://api.dalatech.online/api/webhooks/meta/dalatech` answered
+`403 {"error":"webhook.verify_failed"}` on 2026-09-14 at 02:18 UTC, with
+`x-matched-path: /api/webhooks/meta/[app]`. That is our own route refusing a probe with no
+verify token — the endpoint is up, public, and correct.
+
+**Not Vercel Authentication.** The project protects `all_except_custom_domains`, which made
+this the leading hypothesis: every `*.vercel.app` host is behind a login wall and a
+redirect to `vercel.com/sso-api` would produce exactly what we see — no invocation, no
+error, no log line. The probe above falsifies it for the host that matters. STATUS.md §
+"Done — the whole environment" already recorded that `api.dalatech.online` was added on
+2026-09-05 *because* of that trap, and deliveries then ran for two more days. The
+protection is real; it is not in front of this URL.
+
+**Not Meta, and not Matrix's Page.** The ancestor's Vercel project logged **seven**
+`/api/messenger` hits in the 24 hours to 2026-09-14 02:00 UTC. Matrix's Page is receiving
+webhooks right now, on the app whose callback is the ancestor. Meta is delivering; it is
+not delivering *here*.
+
+**And the absence is real, not an artefact of where we looked.** The 02:18 probe appeared in
+Vercel's runtime logs 40 seconds later, as `GET /api/webhooks/meta/dalatech 403`. So that
+path does produce log lines, including for requests the route itself rejects — and the
+grouped 24-hour counts (`/api/workers/purge` 24, `/api/workers/health` 24, the webhook path
+0) mean zero requests arrived, not zero requests were recorded. QStash reaches this
+deployment hourly on the same host. Meta reaches it never.
+
+### What is left, and why it cannot be settled from here
+
+The fault is on that Meta app: either its **app-level webhook subscription** (the callback
+URL, or the `messages` field on the `page` object) or its **Page grants**. Both produce
+precisely this signature — every Page at once, no error anywhere, no request.
+
+`developers.facebook.com` is blocked by this environment's egress proxy, so no session can
+open the App Dashboard. **Everything past this point is inference and is labelled as such.**
+
+The most probable single cause, and the repository already names the mechanism: **a
+replacement presented as an addition.** D-043 records the App Dashboard's *Add Page* picker
+writing the **complete set** of Pages granted to an app, so a Page not re-selected is
+revoked and its subscription dies silently — it cost Matrix's live bot ten minutes on
+2026-09-06. §3.13.1 records the same shape for the webhook field list. Those two are the
+only writes in §3 that behave that way, and *both* of them fail exactly like this. The last
+delivery is stamped minutes after Matrix's Page was granted to the app, which is itself a
+picker write against that app's Page set.
+
+That is a hypothesis with a motive and a timestamp, not a conclusion. It is not the only
+one: the callback URL could have been edited, or Meta could have disabled the subscription
+after the 500s of 2026-09-06 (D-028). All three are read by the same call.
+
+### Why eleven days
+
+Two blind spots, both ours.
+
+**Nothing has ever read the app-level subscription.** §3.10.5 step 2 —
+`GET /{app-id}/subscriptions` with an app access token — was designed, argued for at length
+against exactly this failure, and never built. It is the only check that can see it:
+`POST /{page-id}/subscribed_apps` returns `{"success": true}` when the app has never
+enabled the field on the object, and the page-level read then agrees with the tenant config
+and reports healthy. The one instrument that could have answered this in September was a
+paragraph in a design document.
+
+**And the watchdog, which did notice, pointed away from it.** D-061 taught the
+never-received branch to read an `unrouted` delivery naming this Page as proof Meta is
+delivering. It did not ask *when*. Matrix's two unattributed deliveries are stamped 01:12 on
+2026-09-07; the channel's `expects_traffic_since` is 18:02 the same day. So for eleven days
+the alert read a row from **before the window opened** as present-tense evidence and said:
+
+    Meta IS delivering, so this is channel identity, not the subscription
+
+— while the truth was that the app had stopped delivering anything at all. `webhook_events`
+is append-only, so that row is permanent: the sentence would have read the same on day
+fifty. D-061 fixed a verdict that could not see a disproving row by making it visible; it
+then trusted the row without bounding it. **The bound is now the verdict's own window** — a
+delivery is evidence about this silence when it falls inside the silence, and history
+otherwise. History is still printed, because a Page Meta demonstrably knew about once is a
+different starting point from one that has never appeared; it just no longer chooses the
+remedy.
+
+This is D-060's shape a third time. Each fix split one sentence that was covering two
+states, and each time the split left a *new* pair collapsed one branch over.
+
+### A third thing, which is data rather than code
+
+**Tenant #0 is not being watched at all.** Its verdict every run is `not_provisioned` — "no
+usable business_hours row for 2026-09-14" — so `diagnoseChannel` returns before it can
+measure anything. That is the deliberate design (a provisioning gap is not an outage) doing
+exactly what it was built to do, and the consequence is that the only `live` channel on the
+platform went silent for eleven days and the watchdog never said a word about it. Matrix's
+silence is what the founder saw; tenant #0's was invisible. **Entering tenant #0's
+`business_hours` rows turns the watchdog on for it**, and that is a form to fill in, not a
+code change.
+
+### The fix that shipped
+
+`scripts/diagnose/meta-subscription.ts`, read-only, same shape as the seal and publish
+commands — the secret comes from `META_APP_SECRETS` in the environment and never from an
+argument, and the app **id** is a flag because it is public:
+
+```
+META_APP_SECRETS='{"dalatech":"…"}' \
+  node scripts/diagnose/meta-subscription.ts \
+    --app-id 1562862634970492 --app-id 1380702870025418
+```
+
+It prints, per app: the callback URL Meta currently holds, `active`, and the field list —
+so a revoked field, an edited callback and a disabled subscription are all visible in one
+read. It issues GETs and nothing else; neither of the two dangerous writes is reachable
+from it.
+
+**It settles D-041 as a by-product.** An app access token is literally
+`{app-id}|{app-secret}`, so a secret authenticates only against the app it belongs to.
+Running our one slug against both candidate ids is Meta answering which real app
+`META_APP_SECRETS["dalatech"]` names — from Meta, rather than from a document that has been
+wrong about this before.
+
+It does **not** read the page-level half, which needs a Page token, and it says so in its
+own output rather than leaving a green run to be misread. A Page can be granted to an app
+and still deliver nothing if the app-level field is off; an app-level field can be on and
+deliver nothing if the Page grant was revoked. Both halves, every time.
+
+### What was deliberately not touched
+
+The alert. The founder's instruction was explicit — *it was the only thing that noticed* —
+and nothing here changes when it fires, what it dedups on, or its threshold. What changed
+is one sentence it prints, from a claim that was false to one that is true.

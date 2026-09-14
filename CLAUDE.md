@@ -382,6 +382,38 @@ the repo is not a migration applied to the database, and CI is built out of the 
 ledger** — `supabase_migrations.schema_migrations` — and merge only after the push. Green
 CI is evidence about the repo, not about the project.
 
+**A row in an append-only table, read as a live signal, never ages out** (2026-09-14,
+D-062). D-061 taught the watchdog to read an `unrouted` delivery naming a Page as proof Meta
+is delivering. It did not ask *when*. Matrix's two unattributed deliveries are stamped 01:12
+UTC on 2026-09-07 and its `expects_traffic_since` is 18:02 the same day, so for eleven days
+the alert read a row from **before the window opened** as present-tense evidence and sent the
+reader to the wrong screen — and, because `webhook_events` is append-only, it would have read
+the same on day fifty. Evidence about a window has to fall inside that window; the bound is
+now the verdict's own `since` rather than a lookback constant of its own. Note that this is
+the third turn of one screw: D-060 split a verdict covering two states, D-061 made a
+disproving row visible, and each fix left a new pair collapsed one branch over. When you
+split a verdict, ask what the new branch is now collapsing.
+
+**Both channels went silent in the same hour, which is one cause and not two** (2026-09-14,
+D-062). Every delivery this platform has ever received — seven rows — verified against the
+same entry in `META_APP_SECRETS`, so both Pages were arriving through one Meta app; they
+stopped forty-one minutes apart and nothing has arrived since. One app, two Pages, one
+instant. Read `matchedAppSlug` as what it is: the slug whose **secret verified the HMAC**,
+not the slug in the URL. It is the only field in the table that says which Meta app a
+delivery came from, and it is what turns "two dead channels" into one question.
+
+**Nothing in this platform reads the far side of a Meta subscription, and an absence has no
+log line anywhere** (2026-09-14, D-062). §3.10.5 step 2 —
+`GET /{app-id}/subscriptions` — was designed against exactly this failure and never built,
+so for eleven days no instrument could say whether the app-level subscription still existed.
+`POST /{page-id}/subscribed_apps` returns `{"success": true}` when the app has never enabled
+the field on the object, and the page-level read then agrees with the tenant config and
+reports healthy. `scripts/diagnose/meta-subscription.ts` is the read; it is GET-only,
+deliberately, because the two Graph writes nearby are both **replacements presented as
+additions** (D-043) and either one produces this outage. Run it before concluding anything
+about a silent channel, and read its closing paragraph: it covers the app-level half only,
+and a Page grant revoked behind a healthy app-level field looks identical from here.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

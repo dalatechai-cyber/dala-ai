@@ -120,6 +120,48 @@ function describe(v: SilenceVerdict): string {
   return v.detail;
 }
 
+/**
+ * Nothing has ever been attributed to this channel. Which screen does the operator open?
+ *
+ * An `unrouted` delivery naming this Page proves Meta was delivering **at the instant it
+ * arrived** — and that is the whole of what it proves. Whether it says anything about the
+ * silence being measured depends entirely on when it landed relative to the window, and the
+ * first version of this branch did not ask.
+ *
+ * It cost eleven days. Matrix's two unattributed deliveries are stamped 01:12 UTC on
+ * 2026-09-07; the channel's `expects_traffic_since` is 18:02 the same day. Every run since
+ * has read a row from before the window opened as present-tense evidence and answered
+ * "Meta IS delivering, so this is channel identity, not the subscription" — while the true
+ * state was that the app had stopped receiving anything at all, for this Page and for
+ * tenant #0's, within the same hour. The alert pointed away from the only screen that would
+ * have shown it.
+ *
+ * So the bound is the verdict's own window rather than a lookback constant of its own: a
+ * delivery is evidence about this silence when it falls inside the silence, and history
+ * otherwise. History is still worth printing — it names a Page that Meta demonstrably knew
+ * about once, which is a different starting point from a Page that has never appeared — but
+ * it must not choose the remedy.
+ *
+ * This is D-060's shape one branch over: a verdict that reads two states as one. The first
+ * fix split "arriving" from "not open long enough to tell"; this one splits "delivering
+ * now" from "delivered once, before any of this".
+ */
+function neverReceived(o: ChannelObservation, since: Date, walked: string): string {
+  const seen = o.unattributedWebhookAt;
+  if (seen !== null && seen.getTime() >= since.getTime()) {
+    return `no webhook has ever been attributed to this channel, but a delivery naming Page `
+      + `${o.externalId} arrived at ${seen.toISOString()} and could not be routed — Meta IS `
+      + `delivering, so this is channel identity, not the subscription`;
+  }
+  const history = seen === null
+    ? ''
+    : ` The newest delivery naming Page ${o.externalId} is ${seen.toISOString()}, BEFORE this `
+      + `channel began expecting traffic at ${since.toISOString()}, so it is not evidence about `
+      + `this window.`;
+  return `this channel has NEVER received a webhook (${walked}) — the app-level field `
+    + `subscription probably never worked.${history}`;
+}
+
 export function diagnoseChannel(o: ChannelObservation): ChannelDiagnosis {
   const webhooks = assessSilence(inputFor(o, o.lastWebhookAt));
 
@@ -134,20 +176,7 @@ export function diagnoseChannel(o: ChannelObservation): ChannelDiagnosis {
       everReceived: webhooks.everReceived,
       reason: webhooks.everReceived
         ? `no webhook of any kind for ${describe(webhooks)} — the token or the subscription`
-        // NOT "the subscription never worked" when we have a delivery that named this Page.
-        //
-        // Measured on Matrix, 2026-09-12: five consecutive days of this alert saying the
-        // app-level field subscription probably never worked, while `webhook_events` held
-        // two deliveries with `entry_id 1520409424715591` — Matrix's own Page — from
-        // 01:12 UTC on 2026-09-07. They were `unrouted`, correctly, because the channel row
-        // did not exist until 01:23. Meta WAS delivering. The remedy the alert named would
-        // have sent the founder to re-subscribe a working subscription, and the real fault
-        // — that nothing since has been attributed to this channel — went unnamed.
-        : o.unattributedWebhookAt !== null
-          ? `no webhook has ever been attributed to this channel, but a delivery naming Page `
-            + `${o.externalId} arrived at ${o.unattributedWebhookAt.toISOString()} and could not be `
-            + `routed — Meta IS delivering, so this is channel identity, not the subscription`
-          : `this channel has NEVER received a webhook (${describe(webhooks)}) — the app-level field subscription probably never worked`,
+        : neverReceived(o, webhooks.since, describe(webhooks)),
     };
   }
 

@@ -121,6 +121,38 @@ test('DONE-TEST: A DELIVERY WE COULD NOT ROUTE IS STILL PROOF META IS DELIVERING
   assert.doesNotMatch(d.reason, /subscription probably never worked/);
 });
 
+test('DONE-TEST: A DELIVERY FROM BEFORE THE WINDOW IS HISTORY, NOT EVIDENCE', () => {
+  // Measured on Matrix, 2026-09-14, eleven days after the channel went quiet.
+  //
+  // The fix above made the unrouted delivery visible. It did not ask WHEN. Matrix's two
+  // unattributed deliveries are stamped 01:12 UTC on 2026-09-07; its `expects_traffic_since`
+  // is 18:02 the same day, sixteen hours later. Every run since has read a row from before
+  // the window opened as present-tense proof and answered
+  //   "Meta IS delivering, so this is channel identity, not the subscription"
+  // while the truth was that the Meta app had stopped delivering anything at all — this Page
+  // and tenant #0's, within the same hour, and nothing since.
+  //
+  // The alert pointed away from the one screen that would have shown it. A permanent row in
+  // an append-only table was being read as a live signal, so the misdirection was not going
+  // to age out either: it would have said the same thing on day fifty.
+  const d = diagnoseChannel(obs({
+    lastWebhookAt: null,
+    lastInboundMessageAt: null,
+    unattributedWebhookAt: new Date('2026-09-01T01:12:34Z'),
+    // The window opens AFTER that delivery, which is Matrix's real ordering.
+    wentLiveAt: new Date('2026-09-01T18:02:54Z'),
+  }));
+  assert.equal(d.state, 'no_webhooks');
+  assert.equal(d.state === 'no_webhooks' && d.everReceived, false);
+  assert.match(d.reason, /NEVER received a webhook/);
+  assert.match(d.reason, /field subscription/, 'the remedy must be the app-level subscription');
+  assert.doesNotMatch(d.reason, /Meta IS delivering/, 'a row from before the window proves nothing about it');
+  // The history is still printed — a Page Meta demonstrably knew about once is a different
+  // starting point from one that has never appeared — it just does not choose the remedy.
+  assert.match(d.reason, /2026-09-01T01:12:34/);
+  assert.match(d.reason, /BEFORE this channel began expecting traffic/);
+});
+
 test('with no such delivery it still names the subscription, which is the right guess', () => {
   // The other half: a channel with nothing at all anywhere really has no evidence that
   // Meta ever delivered for it, and the field subscription is the first thing to check.
