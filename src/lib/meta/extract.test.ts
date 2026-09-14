@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { extractInboundMessages } from './extract.ts';
 
 const entry = (messaging: unknown[]) => ({ id: '1234', time: 1, messaging });
+/** The reasons alone. A skip now carries the event index, mid and attachment kinds too. */
+const reasons = (r: { skipped: readonly { reason: string }[] }) => r.skipped.map((s) => s.reason);
 const textEvent = {
   sender: { id: 'psid-1' }, recipient: { id: '1234' }, timestamp: 1788480000000,
   message: { mid: 'mid.1', text: 'Үнэ хэд вэ?' },
@@ -21,7 +23,7 @@ test('OUR OWN ECHO IS SKIPPED — answering it is a loop that bills', () => {
   // thing that can go wrong in this file.
   const r = extractInboundMessages(entry([{ ...textEvent, message: { ...textEvent.message, is_echo: true } }]));
   assert.deepEqual(r.messages, []);
-  assert.deepEqual(r.skipped, ['echo']);
+  assert.deepEqual(reasons(r), ['echo']);
 });
 
 test('delivery and read receipts are status events, not customer turns', () => {
@@ -30,12 +32,12 @@ test('delivery and read receipts are status events, not customer turns', () => {
     { sender: { id: 'p' }, read: { watermark: 1 } },
   ]));
   assert.deepEqual(r.messages, []);
-  assert.deepEqual(r.skipped, ['status_event', 'status_event']);
+  assert.deepEqual(reasons(r), ['status_event', 'status_event']);
 });
 
 test('a postback is a different product surface and V1 does not ship one', () => {
   const r = extractInboundMessages(entry([{ sender: { id: 'p' }, postback: { payload: 'X' } }]));
-  assert.deepEqual(r.skipped, ['postback']);
+  assert.deepEqual(reasons(r), ['postback']);
 });
 
 test('an attachment with no text is reported, never answered blind', () => {
@@ -43,7 +45,7 @@ test('an attachment with no text is reported, never answered blind', () => {
     { ...textEvent, message: { mid: 'mid.2', attachments: [{ type: 'image' }] } },
   ]));
   assert.deepEqual(r.messages, []);
-  assert.deepEqual(r.skipped, ['no_text']);
+  assert.deepEqual(reasons(r), ['no_text']);
 });
 
 test('EVERY skip is reported — "we chose not to answer" differs from "it vanished"', () => {
@@ -54,7 +56,7 @@ test('EVERY skip is reported — "we chose not to answer" differs from "it vanis
     'not an object',
   ]));
   assert.equal(r.messages.length, 1);
-  assert.deepEqual(r.skipped, ['echo', 'status_event', 'malformed']);
+  assert.deepEqual(reasons(r), ['echo', 'status_event', 'malformed']);
 });
 
 test('ONE ENTRY MAY CARRY SEVERAL MESSAGES, and all of them are returned', () => {
@@ -69,7 +71,7 @@ test('ONE ENTRY MAY CARRY SEVERAL MESSAGES, and all of them are returned', () =>
 
 test('a message with no sender is malformed, not a message from nobody', () => {
   const r = extractInboundMessages(entry([{ timestamp: 1, message: { mid: 'm', text: 'x' } }]));
-  assert.deepEqual(r.skipped, ['malformed']);
+  assert.deepEqual(reasons(r), ['malformed']);
 });
 
 test('a missing timestamp yields an invalid date, for the caller to substitute', () => {
@@ -108,7 +110,7 @@ test('DONE-TEST: entry.standby is COUNTED, not silently dropped', () => {
   });
   assert.equal(r.standby, 2);
   assert.deepEqual(r.messages, [], 'we may not answer as a secondary receiver');
-  assert.deepEqual(r.skipped, [], 'and it is not a per-message skip — it is a channel fault');
+  assert.deepEqual(reasons(r), [], 'and it is not a per-message skip — it is a channel fault');
 });
 
 test('a normal entry reports standby 0, so the signal means something', () => {
@@ -129,4 +131,79 @@ test('an entry carrying BOTH is counted and still extracted', () => {
   const r = extractInboundMessages({ ...entry([textEvent]), standby: [{ sender: { id: 'X' } }] });
   assert.equal(r.standby, 1);
   assert.equal(r.messages.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// What was dropped, not just that something was (D-070)
+// ---------------------------------------------------------------------------
+
+/** Meta's real shape for a thumbs-up, from `webhook_events` id 14 on 2026-09-14. */
+const thumbsUp = {
+  sender: { id: 'psid-1' }, recipient: { id: '1234' }, timestamp: 1789358769657,
+  message: {
+    mid: 'm_thumb',
+    attachments: [
+      { type: 'image', payload: { url: 'https://scontent.xx.fbcdn.net/x', sticker_id: 369239263222822 } },
+      { type: 'sticker', payload: { url: 'https://scontent.xx.fbcdn.net/x', sticker_id: 369239263222822 } },
+    ],
+  },
+};
+
+test('DONE-TEST: ONE STICKER IS ONE STICKER, NOT AN IMAGE AND A STICKER', () => {
+  // Meta sends a thumbs-up as TWO attachments with the SAME sticker_id, the first declared
+  // as an image. Counting the array says the customer sent two things; reading only `type`
+  // says one of them was a photograph. Both are wrong, and the second is the one that
+  // cost — on 2026-09-14 all three of Matrix's dropped attachments read as `image` from
+  // the type alone, and every one was this sticker.
+  const r = extractInboundMessages(entry([thumbsUp]));
+  assert.deepEqual(reasons(r), ['no_text']);
+  assert.deepEqual(r.skipped[0]?.attachments, ['sticker']);
+  assert.deepEqual(r.skipped[0]?.stickerIds, ['369239263222822']);
+});
+
+test('DONE-TEST: A REAL PHOTOGRAPH IS NOT A STICKER, AND THE RECORD SAYS SO', () => {
+  // The whole point of the kind. A photo of the colour a customer wants is the most
+  // valuable message a salon receives; a thumbs-up is filler. If these two produce the
+  // same record, the instrumentation has not been built.
+  const photo = { ...thumbsUp, message: { mid: 'm_photo', attachments: [{ type: 'image', payload: { url: 'https://x/y' } }] } };
+  const r = extractInboundMessages(entry([photo]));
+  assert.deepEqual(r.skipped[0]?.attachments, ['image']);
+  assert.deepEqual(r.skipped[0]?.stickerIds, []);
+  assert.notDeepEqual(
+    extractInboundMessages(entry([thumbsUp])).skipped[0]?.attachments,
+    r.skipped[0]?.attachments,
+  );
+});
+
+test('a skip carries the event index and Meta’s mid, so a retry can recognise it', () => {
+  // `(event_id, idx)` is the identity `inbound/dropped.ts` dedupes on. The mid is absent on
+  // a malformed event, which is exactly why the index is the key rather than the mid.
+  const r = extractInboundMessages(entry(['not an object', thumbsUp]));
+  assert.equal(r.skipped[0]?.idx, 0);
+  assert.equal(r.skipped[0]?.externalId, null);
+  assert.equal(r.skipped[1]?.idx, 1);
+  assert.equal(r.skipped[1]?.externalId, 'm_thumb');
+});
+
+test('a skip carries the sender, so a dropped event can be tied to its conversation', () => {
+  const r = extractInboundMessages(entry([thumbsUp]));
+  assert.equal(r.skipped[0]?.senderId, 'psid-1');
+});
+
+test('an unrecognised attachment type is recorded as itself, never dropped to nothing', () => {
+  // A kind nobody recognises is a better record than an empty list, which reads as "no
+  // attachment" — the state this whole mechanism exists to stop being invisible.
+  const r = extractInboundMessages(entry([
+    { ...thumbsUp, message: { mid: 'm', attachments: [{ payload: {} }, { type: 'video', payload: {} }] } },
+  ]));
+  assert.deepEqual(r.skipped[0]?.attachments, ['unknown', 'video']);
+});
+
+test('kinds are deduplicated: three photos in one message are still "image"', () => {
+  const r = extractInboundMessages(entry([
+    { ...thumbsUp, message: { mid: 'm', attachments: [
+      { type: 'image', payload: {} }, { type: 'image', payload: {} }, { type: 'file', payload: {} },
+    ] } },
+  ]));
+  assert.deepEqual(r.skipped[0]?.attachments, ['image', 'file']);
 });

@@ -33,6 +33,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { canDeliver } from '../channel/delivery.ts';
 import { extractInboundMessages } from '../meta/extract.ts';
 import { ensureContact, ensurePerson, openConversation, readHistory, recordInbound, traceAnswer } from '../inbound/persist.ts';
+import { recordDroppedInbound, skipSummary } from '../inbound/dropped.ts';
 import { loadReceptionContext } from '../reception/load.ts';
 import { renderVolatile } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
@@ -246,6 +247,27 @@ export async function runReceptionJob(
   const override = c['graph_version_override'];
   const graphVersion = typeof override === 'string' && override !== '' ? override : fx.graphVersionDefault();
 
+  // --- What we saw and will not answer. Recorded BEFORE anything that can return. -----
+  //
+  // Above the comment job and above the `messages.length === 0` branch on purpose: an
+  // entry can carry an answerable message AND a dropped one, and hanging this off the
+  // "nothing to answer" branch would record only the entries where nothing else happened.
+  // That is the shape of the bug being fixed here, so it is not rebuilt one line down.
+  //
+  // Not fatal, ever: this is evidence, and a customer's reply must not wait on it. But a
+  // failure is LOGGED as a failure rather than folded into silence, because silence is
+  // what made three dropped events invisible for a day.
+  if (skipped.length > 0) {
+    const recorded = await recordDroppedInbound(db, {
+      tenantId, channelId, eventId, skipped, now,
+    });
+    if (recorded.failed > 0 || recorded.detail !== undefined) {
+      fx.log('error', 'dropped_inbound_unrecorded', {
+        eventId, ...recorded, ...skipSummary(skipped),
+      });
+    }
+  }
+
   // --- The public surface. A `feed` entry has no `messaging`, so this is where a
   // comments-only event is handled; a `messages` entry yields no comments and skips it.
   let commentResult: CommentJobResult | null = null;
@@ -279,9 +301,9 @@ export async function runReceptionJob(
     // Nothing answerable in the DM sense — an echo, a receipt, a sticker, or a `feed`
     // entry that carried only comments. Seen and declined is a different fact from
     // vanished, so the reason is recorded and the event is processed.
-    fx.log('info', 'nothing_to_answer', { eventId, skipped });
+    fx.log('info', 'nothing_to_answer', { eventId, ...skipSummary(skipped) });
     await markEventState(db, eventId, 'processed');
-    return ok({ eventId, skipped, ...(commentResult === null ? {} : { comments: commentResult }) });
+    return ok({ eventId, skipped: skipSummary(skipped), ...(commentResult === null ? {} : { comments: commentResult }) });
   }
 
   const loaded = await loadReceptionContext(db, { tenantId, channel: 'facebook_page', settings, localDate });
@@ -551,7 +573,7 @@ export async function runReceptionJob(
   // column stopped being written-by-nothing.
   await markEventState(db, eventId, 'processed', drafted.length > 0 ? now : undefined);
   return ok({
-    eventId, drafted: drafted.length, sent: sent.length, stale: stale.length, skipped,
+    eventId, drafted: drafted.length, sent: sent.length, stale: stale.length, skipped: skipSummary(skipped),
     notGenerated: notGenerated.length,
     ...(commentResult === null ? {} : { comments: commentResult }),
   });
