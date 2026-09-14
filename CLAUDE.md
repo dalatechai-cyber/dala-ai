@@ -572,11 +572,22 @@ rule the founder approved by hand does not fire for «huuhdiin».** The outbound
 unaffected — its numeral, URL, phrasing, script-share and gate-label checks are properties of
 the reply — so a price still cannot be invented; what is lost is the topic layer above them.
 
-Not fixed, and not for want of effort: Mongolian romanisation is ambiguous («ү» → u/ue/v,
-«ө» → o/oe, «х» → h/kh) with no convention customers follow, and folding Latin into Cyrillic
-would make refusals fire on ordinary English words — a refusal that fires wrongly replaces a
-real answer with a handoff, which is worse than one that does not fire. It wants a decision
-about which romanisations to accept before it wants code.
+**The fix is ROWS, not code**, and the ancestor is what showed it: `Matrix-Chatbot`'s one
+customer-text matcher reads `/^(сайн|байна|уу|hi|hello|hey)/i` — it LISTS the Latin forms
+rather than transliterating. `containsStem` is already script-agnostic (a Unicode token-prefix
+match), so a tenant storing `huuhd` beside `хүүхд` is covered today with no code change:
+`containsStem('huuhdiin us zasuulna','huuhd')` is true, `'manai huuhduud'` matches by prefix,
+mixed script does not, and the token rule still holds. No transliteration engine to design, no
+romanisation standard to adopt — "client #3 fills in a config, not writes code" applying as
+intended. What is left for the founder is a DATA question: which Latin spellings Matrix's
+customers actually use, answerable from the corpus. Stems are not customer-visible strings, so
+they are not gated on the reading evening.
+
+**And note the error that first framing was**: a claim about what a fix would require, made
+without checking whether the existing mechanism already did it. Reading `fold()` proved Latin
+text matches no CYRILLIC stem — true — and that went straight to "therefore transliteration",
+never asking whether a LATIN stem works. One line to test, tested only after the ancestor
+suggested it.
 
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides

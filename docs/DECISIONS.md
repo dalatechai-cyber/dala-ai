@@ -4281,19 +4281,48 @@ What is unaffected: the outbound guard's numeral, URL, forbidden-phrasing, scrip
 gate-label checks are properties of the REPLY, so they hold whatever script the customer
 wrote in. A price still cannot be invented. What is lost is the topic layer above them.
 
-### Not fixed here, and the reason is not effort
+### Corrected within the hour: this needs ROWS, not code
 
-A transliteration layer sits underneath every refusal on the surface that faces Matrix's live
-customers, and Mongolian romanisation is ambiguous rather than merely unimplemented — «ү» is
-written u, ue or v; «ө» o or oe; «х» h or kh; and there is no convention a salon's customers
-follow. Folding Latin into Cyrillic before matching would therefore also make refusals fire
-on ordinary **English** words that happen to romanise onto a stem, and a refusal that fires
-when it should not is worse than one that does not fire: it replaces a real answer with a
-handoff.
+The first version of this decision said a transliteration layer was required, that Mongolian
+romanisation is ambiguous — «ү» is u, ue or v; «ө» o or oe; «х» h or kh — and that the
+founder therefore had a design question to settle before any code. The ambiguity is real. The
+conclusion was wrong, and the thing that corrected it was the ancestor.
 
-So this is raised rather than built. It is the founder's call, and it wants a decision about
-which romanisations to accept before it wants code.
+`Matrix-Chatbot` has exactly one place that matches customer text, and it reads
+`/^(сайн|байна|уу|hi|hello|hey)/i` — it **lists the Latin forms** beside the Cyrillic rather
+than transliterating. Testing that idea against our own matcher:
 
-**Read it as evidence about the mirror, which is what the mirror is for.** Two of the first
-three real messages were in a script this platform's entire matching layer cannot see, and
-nothing in fourteen days of tests would have said so.
+```
+true   Latin stem vs Latin text        "huuhdiin us zasuulna"  ~ huuhd
+true   Latin, mixed case               "Huuhdiin Us Zasuulna"  ~ huuhd
+true   Latin stem, inflected tail      "manai huuhduud"        ~ huuhd
+true   the real message from the mirror "buten budalt hiilgene" ~ buten
+false  mixed script                    "hүүхдийн"              ~ huuhd
+false  the token-prefix rule holds     "minii huuhed"          ~ huuhd
+```
+
+**`containsStem` is already script-agnostic.** It is a Unicode token-prefix match and does not
+care which script the stem is in; `fold()`'s `toLocaleLowerCase('mn-MN')` handles ASCII case
+correctly. A tenant that stores `huuhd` alongside `хүүхд` is covered **today, with no code
+change at all** — and it degrades the way the Cyrillic stems already do, matching inflections
+by prefix and declining to match across scripts.
+
+So there is no transliteration engine to design and no romanisation standard to adopt. This is
+the platform's own test applying exactly as intended: *onboarding client #3 must be filling in
+a config, not writing code.* A Latin spelling is another element of `stems`.
+
+What remains for the founder is a **data** question, not a design one: which Latin spellings do
+Matrix's customers actually use? That is answerable from the corpus rather than from a
+standard — and it is precisely the thing fourteen days of real messages produce. The rows are
+tenant configuration and the stems are not customer-visible strings, so they are not gated on
+the reading evening; they are gated on knowing the answer.
+
+Note the shape of the error, because it is the day's third of one family: **a claim about what
+a fix would require, made without checking whether the existing mechanism already did it.**
+Reading `fold()` proved Latin text matches no Cyrillic stem — true — and I carried that
+straight to "therefore transliteration", never asking the adjacent question of whether a Latin
+STEM works. It takes one line to test and I tested it only after the ancestor suggested it.
+
+**Read the original finding as evidence about the mirror, which is what the mirror is for.**
+Two of the first three real messages were in a script every one of this tenant's stems is
+blind to, and nothing in fourteen days of tests would have said so.

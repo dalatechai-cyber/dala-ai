@@ -224,3 +224,28 @@ test('D-067 GAP: Mongolian written in LATIN letters matches no Cyrillic stem', (
   assert.equal(wholeMessageMatches('сайн байна уу', ['сайн байна уу']), true);
   assert.equal(wholeMessageMatches('sain baina uu', ['сайн байна уу']), false);
 });
+
+test('D-067 THE FIX: the matcher is script-agnostic, so a LATIN stem needs no code', () => {
+  // The half that makes the gap above a provisioning question rather than an architectural
+  // one. `containsStem` is a Unicode token-prefix match and does not care which script the
+  // stem is written in, so a tenant that stores `huuhd` beside `хүүхд` is covered today.
+  //
+  // The ancestor is what pointed at this: Matrix-Chatbot's one customer-text matcher is
+  // /^(сайн|байна|уу|hi|hello|hey)/i — it LISTS the Latin forms rather than transliterating.
+  assert.equal(containsStem('huuhdiin us zasuulna', 'huuhd'), true);
+  assert.equal(containsStem('Huuhdiin Us Zasuulna', 'huuhd'), true, 'ASCII case folds');
+  assert.equal(containsStem('manai huuhduud', 'huuhd'), true, 'prefix catches inflections, as in Cyrillic');
+  assert.equal(containsStem('buten budalt hiilgene', 'buten'), true, 'the real mirror message');
+
+  // And it degrades the way the Cyrillic side already does, rather than over-matching.
+  assert.equal(containsStem('hүүхдийн', 'huuhd'), false, 'mixed script is not a hit');
+  assert.equal(containsStem('minii huuhed', 'huuhd'), false, 'the token-PREFIX rule still holds');
+  assert.equal(containsStem('хүүхдийн үс', 'huuhd'), false, 'a Latin stem does not reach Cyrillic text');
+
+  // Listing both spellings is all a whole_message rule needs, too.
+  const both = ['сайн байна уу', 'sain baina uu', 'hello'];
+  assert.equal(wholeMessageMatches('Сайн байна уу?', both), true);
+  assert.equal(wholeMessageMatches('sain baina uu', both), true);
+  assert.equal(wholeMessageMatches('Hello', both), true);
+  assert.equal(wholeMessageMatches('hola', both), false);
+});
