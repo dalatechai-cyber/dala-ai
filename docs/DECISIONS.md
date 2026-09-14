@@ -5002,3 +5002,81 @@ full bundle misses 60%, and by 0.8 points. What is unresolved is the ceiling: $2
 correct for a standalone sale and 25% above what D-004's floor rule permits. That is a
 pricing call, not an engineering one, and it is the founder's. The row stands at $28.57
 because he set it; this is the note saying which rule it departs from.
+
+---
+
+## D-073 — the public surface could not be rehearsed, and the corpus it will produce is half a corpus
+
+**2026-09-15, founder:** *"I'm not going live on a public surface without the corpus that
+caught D-066 and D-068 on the private one."*
+
+### What was wrong
+
+`canDeliver` has answered two questions since it was written — `shadow` is
+`{ generate: true, deliver: false }`, meaning *decide the reply, write it down, withhold
+it*, and `off` is false for both. `worker/reception.ts` reads both halves and that is
+exactly what produced Matrix's fourteen mirror days.
+
+`runCommentJob` read only `deliver`, and returned **before** `draftOnce`. So a mirroring
+channel produced refusal counters and no rows at all.
+
+Note which surface that left unrehearsed. The DM mirror found D-066's gate-label leak,
+D-068's thrown-away booking reply and D-069's label promising an address over a telephone
+number — **three defects no test produced**, on the surface where a mistake is private,
+one customer sees it, and it can be followed up. The comment surface, where a mistake is
+public, permanent, screenshot-able and under the tenant's own post, had no rehearsal mode
+whatsoever. The capability existed one function call away and was being thrown out by a
+boolean.
+
+### The fix, and where the withhold sits
+
+`!generate` refuses early as before. `!deliver` now sits **after** `draftOnce` and after the
+two in-entry counters that carry the thread rule and the per-post cap, so a shadow run
+exercises those rules rather than stubbing them: what the corpus shows is what going live
+would actually have done, which is the only version worth reading. The row stays `draft` and
+therefore claimable, exactly as a withheld DM does.
+
+### And the part that is NOT solved by this change
+
+**The comment's own text is never persisted anywhere.** `extractComments` returns it,
+`decideCommentReply` deliberately never receives it — that is the feature's whole safety
+argument — and no layer in between writes it down. There is no `messages` row for a comment
+and no equivalent table.
+
+So the only place a customer's comment exists in words is `webhook_events.raw_payload`, and
+`ops.purge_expired` nulls that past the tenant's `retention_days_raw_events`, which is **7**
+for both tenants, deleting the row entirely at 30 days. The purge runs hourly.
+
+**A fourteen-day comment mirror therefore records what we would have SAID for ever, and what
+they SAID for seven days.** The draft rows carry the reply body, the post id and the thread
+id permanently; the questions that produced them age out halfway through the window.
+
+That asymmetry is fine for validating the machinery — the thread rule, the per-post cap, the
+loop filters, the volume of the `feed` firehose are all visible in rows and counters. It is
+not fine for the decision the mirror is being run to inform. **Option B — gate on intent,
+reply with the fixed line — is a judgement about which comments deserve an answer, and that
+judgement can only be made against the comments themselves.**
+
+Three ways out, none taken here:
+
+1. **Raise `retention_days_raw_events`.** One row, immediate, and it caps at 30 by its own
+   constraint — so even the maximum only just covers a fourteen-day window plus reading time.
+   It is a retention decision about a third party's customers' content and it is the
+   founder's.
+2. **Persist the comment text beside the decision.** The honest fix and a schema change,
+   which means a migration, which the founder pushes. It also means deciding what a comment
+   is in this data model, which is a real design question and not a column.
+3. **Accept seven days as the sample.** Plausible: comment volume is entirely unmeasured —
+   zero `feed` entries have ever reached this platform — so seven days may be more than
+   enough, and may equally be nothing at all. That is not knowable in advance, which is an
+   argument for (1) as cheap insurance rather than for (3) as a plan.
+
+### What still gates the mirror starting
+
+The split makes shadow possible; it does not make it happen. In order: App Review for
+`pages_read_user_content` + `pages_manage_engagement`, the Page subscribed to `feed`,
+`comment_policy` set to `public_only`, and **a reviewed `comment_public_reply` row** — Matrix
+has eleven canned kinds and that is not one of them, so until the founder writes it every
+comment refuses `no_reviewed_line` and the mirror drafts nothing. `delivery_mode` stays
+`shadow` throughout, which is now a meaningful state on this path rather than an alias for
+off.

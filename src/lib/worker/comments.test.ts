@@ -203,11 +203,56 @@ test('a thread already answered on a previous delivery is not answered again', a
   assert.equal(r.refused['thread_already_answered'], 1);
 });
 
-test('DONE-TEST: a shadow channel generates nothing public', async () => {
-  const { posted, result } = run({}, { deliveryMode: 'shadow' });
+test('DONE-TEST: A SHADOW CHANNEL DRAFTS AND POSTS NOTHING', async () => {
+  // The split this test exists for. `canDeliver('shadow')` answers
+  // `{ generate: true, deliver: false }`, and this function used to read only the second
+  // half and return before drafting — so a mirroring channel produced counters and no rows.
+  // The fourteen days of withheld DM drafts that found D-066's gate-label leak, D-068's
+  // discarded booking reply and D-069's «Хаяг» label had no equivalent on the one surface
+  // where a mistake is public, permanent and screenshot-able.
+  const { posted, ops, result } = run({}, { deliveryMode: 'shadow' });
   const r = await result;
-  assert.equal(posted.length, 0);
+
+  assert.equal(posted.length, 0, 'nothing reaches the wall');
+  assert.equal(r.replied, 0);
+  assert.equal(r.drafted, 1, 'and a row exists to read');
   assert.equal(r.refused['not_delivering'], 1);
+
+  const insert = ops.find((o) => o.table === 'outbound_messages' && o.op === 'insert');
+  assert.equal(insert?.patch?.['kind'], 'comment_reply');
+  assert.equal(insert?.patch?.['body'], LINE, 'the tenant line, decided exactly as it would be live');
+  // Never claimed: a claim is the step that puts bytes on the wire, and the row has to
+  // stay CLAIMABLE so the day the channel goes live it is sendable rather than lost.
+  assert.equal(ops.some((o) => o.table === 'outbound_messages' && o.op === 'update'), false);
+});
+
+test('DONE-TEST: AN OFF CHANNEL DRAFTS NOTHING EITHER — generate is the other half', async () => {
+  // The distinction the split turns on. `shadow` withholds a decision that was made;
+  // `off`, `halted` and an unrecognised mode make no decision at all, because generating
+  // for a channel that cannot receive it is what `delivery.generate` is false about.
+  for (const mode of ['off', 'halted', 'nonsense_mode']) {
+    const { posted, ops, result } = run({}, { deliveryMode: mode });
+    const r = await result;
+    assert.equal(posted.length, 0, mode);
+    assert.equal(r.drafted, 0, mode);
+    assert.equal(r.refused['not_generating'], 1, mode);
+    assert.equal(r.refused['not_delivering'], undefined, mode);
+    assert.equal(ops.some((o) => o.table === 'outbound_messages' && o.op === 'insert'), false, mode);
+  }
+});
+
+test('a shadow run still exercises the per-post cap rather than stubbing it', async () => {
+  // What the corpus shows has to be what going live would actually have done, or reading it
+  // teaches the wrong thing. The cap is counted from our own rows, drafts included, so a
+  // post already at its allowance drafts nothing further even while mirroring.
+  const { ops, result } = run(
+    { outbound: { posts: { data: [{ comment_post_id: `${PAGE}_p1` }], error: null } } },
+    { deliveryMode: 'shadow' },
+  );
+  const r = await result;
+  assert.equal(r.drafted, 0);
+  assert.equal(r.refused['post_cap_reached'], 1);
+  assert.equal(ops.some((o) => o.table === 'outbound_messages' && o.op === 'insert'), false);
 });
 
 test('no reviewed line means nothing is posted', async () => {
