@@ -632,6 +632,34 @@ to a customer who had written «Эмэгтэй сортой будаг хийл�
 told to write a private message. The guard cannot fix that — it cannot know which canned line
 fits. Ш0's wording can, and it is signed platform Mongolian for the reading evening.
 
+**The disclosure guard refuses a reply for quoting an approved line** (2026-09-14 14:23:43,
+D-068). A customer wrote «tsag avii» — *let me book* — and the model answered well: it
+declined what it cannot do, said why, and handed over the booking URL, its second sentence
+the reviewed `booking_line` reproduced correctly. `outbound_disclosure` refused it and the
+customer got the generic handoff.
+
+Exactly one run of that reply is in the prefix and not exempt:
+`" та манай вэбсайтаар (https://www.matrixecosalon.org/) онлай"` — **and the leading space is
+the whole bug.** `shingles()` trims, so shingling a canned body in isolation never produces a
+run beginning one character before it; the compiled prefix holds that line IN CONTEXT, with a
+preceding character that folds to a space. Any window straddling the line's opening boundary
+is therefore in the corpus and absent from the exemption. Generally: **quoting an approved
+line inside a longer sentence trips the guard, and only a reply that is exactly a canned line
+alone is reliably safe** — which is the opposite of what the guard is for, and it lands
+hardest on booking, the intent D-042 already shows this platform delivers worst.
+
+It is `disclosesPrompt`'s own stated principle applied to one side only: it shingles the
+canned lines rather than deleting them from the CORPUS, precisely because deleting splices
+unrelated text and manufactures runs — and the same boundary problem on the REPLY side was
+not addressed. The fix is to mask the canned occurrences in the folded reply, cut it into the
+segments between them, and shingle each segment independently. **Not built: it loosens a
+disclosure guard on the surface facing Matrix's live customers.**
+
+And note how it was found. The draft is the handoff line with `answered_by = 'canned'`, which
+read alone looks like D-067 — a Latin message firing no gate. `quality_flags` says the model
+answered well and the guard refused it. Third time in two days: **read the flag before
+explaining the draft.**
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

@@ -4501,3 +4501,77 @@ conversation, and a less urgent one.
 
 This is the mirror doing its job. No test would have produced it, because no test types half a
 sentence and then the rest.
+
+---
+
+## D-068 — the disclosure guard refuses a reply for quoting an approved line
+
+**2026-09-14 14:23:43 UTC, live turn, found by reading the corpus.** A customer opened a
+new conversation with **«tsag avii»** — «цаг авъя», *let me book an appointment*, the single
+most commercially valuable thing anyone types at a salon. The model answered:
+
+> «Уучлаарай, би цаг захиалж өгөх боломжгүй байна — захиалгын системд хандах эрх надад алга.
+> Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа
+> төлбөрөө QPay-ээр төлөх боломжтой.»
+
+That is a good reply. It declines what it cannot do, says why, and hands over the booking
+URL — and its second sentence is the reviewed `booking_line` row, reproduced correctly.
+
+`outbound_disclosure` refused it, and the customer got the generic handoff instead.
+
+### The exact run, and why the exemption missed it
+
+Reconstructed against the live snapshot and the eleven canned rows, exactly one run of the
+reply is in the prefix and not in the exemption set:
+
+```
+" та манай вэбсайтаар (https://www.matrixecosalon.org/) онлай"
+```
+
+**The leading space is the whole bug.** `shingles()` ends with `.trim()`, so shingling a
+canned body in isolation produces runs beginning at its first character and never one
+character earlier. The compiled prefix contains that same line **in context**, preceded by
+whatever renders before it — which folds to a space. So a window straddling the line's
+opening boundary exists in the corpus and is absent from the exemption.
+
+The consequence is general, not particular to this reply: **quoting an approved line as part
+of a longer sentence trips the guard.** Only a reply that is *exactly* a canned line, alone,
+is reliably safe — and composing around the line is precisely what a helpful answer does.
+
+### It is the docstring's own principle, applied to one side only
+
+`disclosesPrompt`'s comment already states the right rule, and states it well:
+
+> …the exemption is computed by shingling the canned responses too, rather than by deleting
+> them from the corpus, because deleting them would splice unrelated text together and
+> manufacture runs that were never in the prompt at all.
+
+That reasoning is correct and it was applied to the CORPUS. The same boundary problem exists
+on the REPLY side and was not: a run of the reply that begins just before a canned line is
+neither "inside the canned line" nor "the model disclosing the prompt". It is an artefact of
+where the window happens to fall.
+
+### The proposed fix, not built
+
+Mask the canned-line occurrences **in the folded reply**, cut the reply into the segments
+between them, and shingle each segment independently — never splicing the segments together,
+for exactly the reason the docstring gives. A run can then no longer straddle a boundary,
+because the boundary is where a segment ends.
+
+**Deliberately not built.** This LOOSENS a disclosure guard on the surface that faces
+Matrix's live customers, and the founder's standing rule keeps that class of change with
+them. Nothing here is urgent — the platform is in shadow and every affected reply became a
+`draft`, so no customer has seen either the good reply or the refusal.
+
+But note what it costs while it stands: the guard is currently biased **against the replies
+that use the approved lines properly**, which is the opposite of what it is for. And it
+lands hardest on booking, which D-042 already shows is the intent this platform is worst at
+delivering.
+
+### On reading the flag rather than the draft
+
+This turn's draft is the handoff line and `answered_by` is `canned`. Read from the draft
+alone it looks like D-067 — a Latin-script message firing no gate, so the model fell back.
+`quality_flags` says otherwise: the model answered well and the GUARD refused it. Same
+lesson as the price question, third time in two days. **Read the flag before explaining the
+draft.**
