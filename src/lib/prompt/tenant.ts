@@ -106,6 +106,49 @@ export const WEEKDAYS: readonly { dow: number; label: string }[] = [
   { dow: 0, label: 'Ням' },
 ];
 
+/**
+ * What each `contact_points.kind` is CALLED, in Mongolian.
+ *
+ * ## The labels were English keys, and the model translated them itself
+ *
+ * This section rendered `- phone: 7741-7777` — the column value verbatim. Matrix has one
+ * contact point, a phone, and on 2026-09-14 a real customer opened with «Хаяг» (*address*).
+ * The model correctly refused to invent a street, and then LABELLED what it did give:
+ * «Хаяг, холбоо барих:» and «📍 Байршил, холбогдох утас: 7741-7777». A label promising an
+ * address over a telephone number is worse than declining (D-069).
+ *
+ * It had nothing else to copy. The heading is Mongolian and every line beneath it was an
+ * English identifier, so the one thing the model could not do was reuse the platform's own
+ * word for the thing — it had to pick one, and it picked the customer's.
+ *
+ * So «Хаяг» is bound to `address` and to nothing else. A tenant with no address row cannot
+ * have that word appear in its prefix at all, which is a structural answer rather than an
+ * instruction the model may or may not follow — D-065's lesson, one layer up.
+ *
+ * ## PENDING THE FOUNDER'S APPROVAL
+ *
+ * The founder is the native speaker and these are his call. Nothing here reaches a customer
+ * until the tenant is republished through `scripts/publish/tenant.ts`, which needs a key
+ * this repository's sessions do not hold — so the wording is reviewable in the diff before
+ * it can possibly be read by anybody.
+ *
+ * An unknown kind falls back to the key itself rather than being dropped: a contact point
+ * the tenant entered must not vanish from the prompt because nobody added a translation.
+ */
+export const CONTACT_KIND_LABELS: Readonly<Record<string, string>> = {
+  phone: 'Утас',
+  email: 'И-мэйл',
+  /** The ONLY place this word is used. See above. */
+  address: 'Хаяг',
+  maps_url: 'Байршлын холбоос',
+  facebook: 'Фэйсбүүк',
+  instagram: 'Инстаграм',
+  website: 'Вэбсайт',
+};
+
+/** `tenant_booking.booking_url`, which is rendered into the same section. */
+export const BOOKING_LABEL = 'Цаг захиалгын холбоос';
+
 /** What a day with `closed = true` says. No digits, so nothing reaches the guard. */
 export const CLOSED_LABEL = 'амарна';
 
@@ -351,8 +394,8 @@ export function renderTenantSections(kb: TenantKb, approvedAt: string): PromptSe
 
   out.push(section('L3', 'contacts', 5, SECTION_LABELS.contacts,
     [
-      ...kb.contacts.map((c) => `- ${c.kind}: ${c.value}`),
-      ...(kb.bookingUrl === null ? [] : [`- booking: ${kb.bookingUrl}`]),
+      ...kb.contacts.map((c) => `- ${CONTACT_KIND_LABELS[c.kind] ?? c.kind}: ${c.value}`),
+      ...(kb.bookingUrl === null ? [] : [`- ${BOOKING_LABEL}: ${kb.bookingUrl}`]),
     ], approvedAt));
 
   const sections = out.filter((s): s is PromptSection => s !== null);
