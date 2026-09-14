@@ -444,6 +444,58 @@ demo requests into the same chat — outside this repository, nothing here route
 noisy health alarm is not merely ignorable, it is burying the only messages with a person on
 the other end. Weigh a new `route: 'now'` alert against that.
 
+**A column that is read and never written is worse than one that is absent** (2026-09-14,
+D-064). `sweepStrandedEvents` filters `.is('replied_at', null)` and nothing had ever written
+`replied_at`, so the filter could not exclude a single row — it was harmless purely because
+the `state` filter beside it carried the whole load, and it would have become load-bearing
+the moment somebody widened that list trusting it. An absent column fails loudly at the
+first read; a dead one reads as a safety check for as long as nobody tests it. Three more
+were in the same state: `messages.answered_by`, `revision_id` and `prompt_hash`, with a
+literal `void answeredBy;` in `reception/deps.ts` discarding the value one line after it
+crossed the seam. **When you find a column, ask who writes it before you trust what it
+means.**
+
+The cost was not theoretical: Matrix's mirror had started drafting against real customers
+days before a republish, and without `revision_id` two drafts either side of a config change
+are indistinguishable — so the fourteen days could not have answered *did that edit help*,
+which is the whole point of running them. A trace column is worth nothing the day it is
+added and everything the day the config moves.
+
+`answered_by` now carries **three** values and not two. `0001`'s CHECK has allowed
+`model | deterministic | canned | human` all along, and a `deterministic_replies` hit was
+being recorded as `canned`. Different tables, different review gates, and the deterministic
+path spends nothing at all — so a single value for both cannot answer the first question
+anybody asks of the corpus.
+
+**An instruction to the model is a request until something checks it** (2026-09-14, D-065).
+Four gate blocks say «нэг ч үсэг өөрчлөхгүйгээр» — copy this line without changing a single
+letter — and nothing had ever asked whether the model did. Matrix's third mirror draft
+dropped «би» from the handoff line. The draft nine minutes earlier is byte-exact and is NOT
+a counter-example: its `quality_flags` row shows the outbound guard refused the model's text
+and `handoff()` served the row, so the platform typed that one. **On the only occasion the
+model typed a pinned line itself, it got it wrong** — and note how that correction arrived,
+from a flag nobody had read yet rather than from the reasoning. **A near-copy is an
+unreviewed sentence carrying an approved one's meaning**, and `reviewed_at` cannot see it,
+because the gate is on the row and not on what comes back.
+
+`src/lib/gate/pinned.ts` closes it, and the way it closes it is the part to keep: it does not
+EDIT the reply — that is still forbidden — it discards the model's text whole and serves the
+row's own bytes, exactly as the two short-circuits already do. The model keeps the job it is
+good at, choosing which line applies, and loses the one it was measurably unreliable at.
+A paraphrase is counted as well as corrected (`quality_flags` code `canned_paraphrased`),
+because a drift quietly fixed is a drift nobody knows is happening. **Only reviewed rows are
+pinned lines** — measuring against an unreviewed row and then serving it would defeat the
+review gate with the mechanism built to enforce it. And the safety lives in the LENGTH GUARD,
+not the similarity threshold: replacing a real answer with a refusal is worse than the drift.
+
+**Ш2 and Ш8 both cover "a price I do not have", and nothing orders them** (2026-09-14,
+D-065). Ш1 says in as many words that it dominates Ш2; no block says Ш2 dominates Ш8, so the
+model picks — and on Matrix it picks wrong reliably rather than occasionally, because
+`services` has **no price column at all** and no «ҮНИЙН ЖАГСААЛТ» section is rendered. Ш2's
+branches read as conditions on a list that is not there; Ш8 visibly applies. The customer
+loses the more useful sentence. The fix is a signed gate block and belongs to the reading
+evening: `prompt/drafts/sh2_price_precedence.mn.txt` is the unsigned revision.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

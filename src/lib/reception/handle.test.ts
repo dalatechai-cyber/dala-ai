@@ -47,11 +47,17 @@ const OK_REPLY: CallOutcome = {
 
 function deps(over: Partial<ReceptionDeps> & { result?: CallOutcome } = {}) {
   const calls: string[] = [];
-  const flags: { code: string; attempted?: string }[] = [];
+  const flags: { code: string; detail?: string; attempted?: string }[] = [];
   const observed: { requestedModel: string; servedModel: string; terminalReason?: string }[] = [];
+  /** What was actually drafted, so a test can assert the TEXT and not only its provenance. */
+  const drafts: { body: string; answeredBy: string }[] = [];
   const d: ReceptionDeps = {
     callModel: async () => { calls.push('callModel'); return over.result ?? OK_REPLY; },
-    draft: async ({ answeredBy }) => { calls.push(`draft:${answeredBy}`); return { ok: true, id: 'om-1' }; },
+    draft: async ({ body, answeredBy }) => {
+      calls.push(`draft:${answeredBy}`);
+      drafts.push({ body, answeredBy });
+      return { ok: true, id: 'om-1' };
+    },
     markCalled: async () => { calls.push('markCalled'); return true; },
     settle: async () => { calls.push('settle'); return { ok: true }; },
     release: async () => { calls.push('release'); },
@@ -59,7 +65,7 @@ function deps(over: Partial<ReceptionDeps> & { result?: CallOutcome } = {}) {
     observe: async (o) => { calls.push('observe'); observed.push(o); },
     ...over,
   };
-  return { deps: d, calls, flags, observed };
+  return { deps: d, calls, flags, observed, drafts };
 }
 
 /**
@@ -245,6 +251,8 @@ test('an enabled short-circuit answers from a row with NO model call', async () 
   const opted: GateRule = { ...CHILDREN, deterministicShortcircuit: true };
   const { deps: d, calls } = deps();
   const r = await handleReception(d, { ...base, customerMessage: 'Хүүхдийн үс хэд вэ?', rules: [opted] });
+  // A gate short-circuit answers from a `canned_responses` row, so `canned` is right here —
+  // it is the DETERMINISTIC_REPLIES path that is its own provenance.
   assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
   assert.deepEqual(calls, ['release', 'draft:canned']);
 });
@@ -298,7 +306,10 @@ test('THE ROW-BACKED ANSWERS STILL WORK — the check runs after both short-circ
   const g = await handleReception(greet.deps, {
     ...base, promptStable: GATE_ONLY, customerMessage: 'Сайн байна уу', deterministic: [GREET],
   });
-  assert.equal(g.kind === 'drafted' && g.answeredBy, 'canned');
+  // `deterministic`, not `canned`: a deterministic_replies row and a canned_responses line
+  // are different tables with different review gates, and this path spends nothing at all.
+  // `0001`'s CHECK has allowed both values since the schema was written.
+  assert.equal(g.kind === 'drafted' && g.answeredBy, 'deterministic');
   assert.equal(g.kind === 'drafted' && g.refusal, undefined, 'a deterministic hit is an answer, not a refusal');
 
   const opted: GateRule = { ...CHILDREN, deterministicShortcircuit: true };
@@ -502,8 +513,32 @@ test('a greeting is answered from a row with NO model call, and the hold goes ba
   // in the design, and it was unreachable until the matcher columns existed.
   const { deps: d, calls } = deps();
   const r = await handleReception(d, { ...base, customerMessage: 'Сайн байна уу', deterministic: [GREET] });
-  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
-  assert.deepEqual(calls, ['release', 'draft:canned']);
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.deepEqual(calls, ['release', 'draft:deterministic']);
+});
+
+test('DONE-TEST: THE THREE PROVENANCES ARE THREE, not two', async () => {
+  // `messages.answered_by` has allowed model | deterministic | canned | human since `0001`
+  // and nothing had ever written any of them — `deps.ts` carried a literal `void answeredBy`.
+  // Recording the deterministic short-circuit as `canned` would have kept two of the three
+  // indistinguishable on the day the column finally started being written, and the first
+  // question anybody asks of the mirror's corpus is how often a row answered without the
+  // model. Asserted on all three paths together so a future edit cannot quietly merge them.
+  const det = deps();
+  const d1 = await handleReception(det.deps, {
+    ...base, customerMessage: 'Сайн байна уу', deterministic: [GREET],
+  });
+  assert.equal(d1.kind === 'drafted' && d1.answeredBy, 'deterministic');
+
+  // A tenant with no rendered sections takes the handoff line before the provider call
+  // (D-033), which is a canned_responses row.
+  const han = deps();
+  const d2 = await handleReception(han.deps, { ...base, promptStable: GATE_ONLY });
+  assert.equal(d2.kind === 'drafted' && d2.answeredBy, 'canned');
+
+  const mod = deps();
+  const d3 = await handleReception(mod.deps, { ...base, customerMessage: 'юу байна' });
+  assert.equal(d3.kind === 'drafted' && d3.answeredBy, 'model');
 });
 
 test('IT RUNS AFTER THE REVIEW GATE — an unreviewed line does not ship just because no model chose it', async () => {
@@ -634,4 +669,57 @@ test('DONE-TEST: a withheld deterministic reply falls to the MODEL, and is flagg
   assert.equal(calls.includes('callModel'), true);
   assert.equal(calls.includes('flag:deterministic_reply_unconfirmed'), true);
   assert.equal(calls.includes('draft:canned'), false, 'the guessed sentence was never drafted');
+});
+
+// ---------------------------------------------------------------------------
+// Pinned lines: reproduced, or paraphrased (D-065)
+// ---------------------------------------------------------------------------
+
+/** The handoff row, with «би» removed — Matrix's measured drift, 2026-09-14. */
+const PARAPHRASED: CallOutcome = {
+  ...OK_REPLY,
+  text: 'Уучлаарай, энэ асуултад хариулж чадахгүй байна.',
+};
+
+test('DONE-TEST: A PARAPHRASED PINNED LINE IS REPLACED BY THE ROW, AND COUNTED', async () => {
+  // Four gate blocks tell the model to copy an approved sentence «нэг ч үсэг өөрчлөхгүйгээр»
+  // and nothing had ever checked that it did. Matrix's third mirror draft dropped one word.
+  // The draft nine minutes earlier is byte-exact and is not a counter-example — the guard
+  // refused the model's text there and `handoff()` served the row, so the platform typed it.
+  // A near-copy is an unreviewed sentence with an approved one's meaning, and `reviewed_at`
+  // cannot see it because the gate is on the row, not on what came back.
+  const { deps: d, drafts, flags } = deps({ result: PARAPHRASED });
+  const r = await handleReception(d, { ...base, customerMessage: 'будаг хэдээр хийх вэ' });
+
+  assert.equal(r.kind, 'drafted');
+  // Served from the row, byte for byte — NOT the model's text repaired, which would be the
+  // editing this module and `handleReception` both refuse.
+  assert.equal(drafts[0]?.body, CANNED[0]?.body);
+  assert.equal(drafts[0]?.answeredBy, 'canned', 'a canned line answered, whoever typed it');
+
+  // Corrected AND counted. A paraphrase quietly fixed is a paraphrase nobody knows is
+  // happening, and the rate is the only evidence about whether the gate wording works.
+  assert.ok(flags.some((f) => f.code === 'canned_paraphrased'), JSON.stringify(flags));
+  assert.match(String(flags.find((f) => f.code === 'canned_paraphrased')?.detail), /handoff/);
+});
+
+test('an EXACT reproduction is recorded as canned, and raises no flag', async () => {
+  // The other half. The text is already right, so there is nothing to correct — but calling
+  // it a model answer would misstate the corpus the mirror exists to produce.
+  const exact: CallOutcome = { ...OK_REPLY, text: CANNED[0]?.body ?? '' };
+  const { deps: d, drafts, flags } = deps({ result: exact });
+  const r = await handleReception(d, { ...base, customerMessage: 'будаг хэдээр хийх вэ' });
+
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
+  assert.equal(drafts[0]?.body, CANNED[0]?.body);
+  assert.equal(flags.some((f) => f.code === 'canned_paraphrased'), false, 'obeying is not a finding');
+});
+
+test('a genuine answer still goes through the guard untouched', async () => {
+  // The regression this must not cause. `OK_REPLY` quotes an allowed price and resembles no
+  // canned line; replacing it with a refusal would be far worse than the drift being fixed.
+  const { deps: d, drafts } = deps();
+  const r = await handleReception(d, { ...base });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model');
+  assert.equal(drafts[0]?.body, OK_REPLY.kind === 'ok' ? OK_REPLY.text : '');
 });

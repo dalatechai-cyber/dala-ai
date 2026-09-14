@@ -32,7 +32,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { canDeliver } from '../channel/delivery.ts';
 import { extractInboundMessages } from '../meta/extract.ts';
-import { ensureContact, ensurePerson, openConversation, readHistory, recordInbound } from '../inbound/persist.ts';
+import { ensureContact, ensurePerson, openConversation, readHistory, recordInbound, traceAnswer } from '../inbound/persist.ts';
 import { loadReceptionContext } from '../reception/load.ts';
 import { renderVolatile } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
@@ -465,6 +465,24 @@ export async function runReceptionJob(
       continue;
     }
     drafted.push(outcome.outboundId);
+
+    // WHAT ANSWERED THIS CUSTOMER, on the customer's own row. Best-effort by construction:
+    // the reply already exists, so a trace that cannot be written is evidence lost, and
+    // refusing over it — or 503-ing into a retry that would re-drive an already-drafted
+    // event — would be worse. Same posture as `flagQuality`, for the same reason.
+    const traced = await traceAnswer(db, {
+      tenantId,
+      messageId: stored.value.messageId,
+      answeredBy: outcome.answeredBy,
+      revisionId: ctx.revisionId,
+      promptHash: ctx.contentHash,
+    });
+    if (!traced.ok) {
+      fx.log('error', 'trace_failed', {
+        tenantId, conversationId, messageId: stored.value.messageId, detail: traced.detail ?? '',
+      });
+    }
+
     if (outcome.refusal !== undefined) {
       fx.log('warn', 'answered_with_handoff', { code: outcome.refusal, conversationId });
     }
@@ -526,7 +544,12 @@ export async function runReceptionJob(
   }
 
   // Every message in the entry is accounted for.
-  await markEventState(db, eventId, 'processed');
+  //
+  // `replied_at` only when something was actually drafted. An entry whose every message was
+  // skipped, or whose channel cannot generate, is `processed` and has produced no answer —
+  // and those two facts must not be spelled the same way, which is the whole reason this
+  // column stopped being written-by-nothing.
+  await markEventState(db, eventId, 'processed', drafted.length > 0 ? now : undefined);
   return ok({
     eventId, drafted: drafted.length, sent: sent.length, stale: stale.length, skipped,
     notGenerated: notGenerated.length,

@@ -173,6 +173,13 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
     // is not hypothetical — it is exactly how `pending_enqueue` went unswept (D-040).
     .select('id, provider, dedup_key, tenant_id, channel_id, state, received_at')
     .in('state', [...UNQUEUED_STATES, ...QUEUED_STATES])
+    // `replied_at` was READ here and written by nothing until 2026-09-14, so this filter
+    // could not exclude a single row: every row in the table satisfied it. Harmless only
+    // because the state list above carried the entire load — and it would have become
+    // load-bearing the moment somebody widened that list trusting this. An assertion that
+    // cannot fail, sitting inside the sweep built to break a silence, which is the shape
+    // D-057 is named for. `markEventState` stamps it now when an entry produced a reply,
+    // so the two filters are independent again and this one means what it says.
     .is('replied_at', null)
     // An UNROUTED event is claimed for diagnosis and deliberately never queued — a Page we
     // do not serve. Without this every one of them would look stranded forever, and the

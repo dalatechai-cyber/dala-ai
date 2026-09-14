@@ -419,6 +419,81 @@ test('a message with no usable timestamp is treated as now, not as 1970', async 
 // The happy path, and what it passes down
 // ---------------------------------------------------------------------------
 
+test('DONE-TEST: WHAT ANSWERED THIS CUSTOMER IS WRITTEN ON THE CUSTOMER\'S ROW', async () => {
+  // `messages.answered_by`, `revision_id` and `prompt_hash` have existed since `0001` and
+  // were written by NOTHING until 2026-09-14: `reception/deps.ts` carried a literal
+  // `void answeredBy;`, and the revision and content hash never left `ReceptionContext`.
+  //
+  // Found while reading Matrix's first real mirror drafts. The cost was immediate rather
+  // than theoretical — a republish was days away, and two drafts either side of a config
+  // change would have been indistinguishable in the table, so the fourteen days could not
+  // have answered "did that edit help", which is the whole question the mirror exists for.
+  const { fx, ops } = stubEffects();
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+
+  const trace = ops.find((o) => o.table === 'messages' && o.op === 'update');
+  assert.ok(trace, `no trace written: ${JSON.stringify(ops.map((o) => `${o.table}:${o.op}`))}`);
+  assert.equal(trace?.patch?.['answered_by'], 'model');
+  // The snapshot's own content_hash, not a recomputation: it names the exact compiled
+  // prefix the model read, and it is the prompt-cache key.
+  assert.equal(trace?.patch?.['prompt_hash'], 'h1');
+  assert.ok(String(trace?.patch?.['revision_id'] ?? '') !== '', 'the revision that answered');
+});
+
+test('a trace that cannot be written LOGS and still answers the customer', async () => {
+  // Best-effort by construction. The reply already exists when this runs, so a failure here
+  // is evidence lost; refusing over it, or 503-ing into a retry that would re-drive an
+  // already-drafted event, would cost the customer their answer instead. Same posture as
+  // `flagQuality`, and the log line is what makes the loss visible.
+  const { fx, logs } = stubEffects({
+    tables: {
+      // `messages` is touched three times in one run, and the order is the test: the
+      // inbound insert, the history read, then the trace update. A two-entry queue made the
+      // HISTORY read fail and the job 503'd before it ever reached the trace — which is the
+      // positional-stub trap this file's own docstring warns about, earned again.
+      messages: [
+        { data: { id: 'msg-1' }, error: null },
+        { data: [], error: null },
+        { data: null, error: { message: 'connection reset' } },
+      ],
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200, 'the reply stands');
+  assert.equal(r.body['drafted'], 1);
+  assert.ok(logs.some((l) => l.event === 'trace_failed'), JSON.stringify(reasons(logs)));
+});
+
+test('DONE-TEST: replied_at IS WRITTEN, so the sweeper\'s filter means something', async () => {
+  // `sweepStrandedEvents` filters `.is(\'replied_at\', null)` and the column was written by
+  // nothing, so that filter could not exclude a single row. It was harmless only because the
+  // `state` filter beside it carried the whole load — and it would have become load-bearing
+  // the moment somebody trusted it while widening that list. An assertion that cannot fail,
+  // sitting inside the sweep built to break a silence.
+  const { fx, ops } = stubEffects();
+  await run(fx);
+  const processed = ops.filter((o) => o.table === 'webhook_events' && o.op === 'update')
+    .find((o) => o.patch?.['state'] === 'processed');
+  assert.ok(processed, 'the event is processed');
+  assert.equal(processed?.patch?.['replied_at'], NOW.toISOString());
+});
+
+test('and an entry that answered NOBODY is processed WITHOUT replied_at', async () => {
+  // The other half, and the reason this is not just `now` unconditionally: an echo, a read
+  // receipt, or a channel that cannot generate produces no answer. "Seen and declined" and
+  // "answered" must not be spelled the same way, which is the defect this column had.
+  const { fx, ops } = stubEffects({
+    tables: { webhook_events: { data: { raw_payload: { id: '100000000000001', messaging: [] } }, error: null } },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  const processed = ops.filter((o) => o.table === 'webhook_events' && o.op === 'update')
+    .find((o) => o.patch?.['state'] === 'processed');
+  assert.ok(processed);
+  assert.equal(processed?.patch?.['replied_at'], undefined, 'nothing was answered');
+});
+
 test('a fresh message is drafted and delivered on the tenant\'s own channel', async () => {
   const { fx, generated, delivered } = stubEffects();
   const r = await run(fx);

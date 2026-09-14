@@ -3868,3 +3868,187 @@ it. **Merge only after the founder has pushed `0025` and the ledger has been rea
 The demo-request path, which is `dalatech-online`'s and reaches Telegram directly. Nothing
 in this repository produces or routes it; the only thing that changes for it is that it
 stops competing with six criticals a week.
+
+---
+
+## D-064 — three columns the schema carried since `0001`, written by nothing
+
+**2026-09-14, found by reading Matrix's first real mirror drafts.** No migration: every
+column here has existed since the initial schema. What was missing was a writer.
+
+### What was not being recorded
+
+| Column | Read by | Written by |
+|---|---|---|
+| `messages.answered_by` | `metrics/clarify.ts`, in its own docstring | nothing |
+| `messages.revision_id` | nothing yet; it is the trace | nothing |
+| `messages.prompt_hash` | nothing yet; it is the trace | nothing |
+| `webhook_events.replied_at` | `sweepStrandedEvents`, as a filter | nothing |
+
+`reception/deps.ts` carried a literal **`void answeredBy;`** — the value was computed by
+`handleReception`, passed across the seam, and discarded one line later. `revisionId` and
+`contentHash` never left `loadLiveSnapshot` at all: the context had `revisionId` and the
+snapshot's `contentHash` was dropped on the floor.
+
+### Why it mattered on the day it was found, rather than eventually
+
+Matrix's mirror had just started drafting against real customers, and a republish was days
+away — the retail-products rule the founder was confirming with the salon. **Two drafts
+either side of a config change would have been indistinguishable in the table**, so the
+fourteen days could not have answered *did that edit help*, which is the entire question
+the mirror exists to answer. A trace column is worth nothing the day it is added and
+everything the day the config moves.
+
+### `replied_at` was worse than absent: it was an assertion that could not fail
+
+`sweepStrandedEvents` filters `.is('replied_at', null)`. With nothing writing the column,
+every row in the table satisfied that predicate, so the filter excluded nothing. It was
+harmless **only** because the `state` filter beside it (`received`, `failed`,
+`pending_enqueue` — never `processed`) carried the whole load. It would have become
+load-bearing the instant somebody widened that state list while trusting the line below it.
+
+That is D-057's shape exactly — an assertion that cannot fail, arriving from inside the
+mechanism built to catch exactly this class — and it was sitting in the sweep whose entire
+purpose is to break a silence. `markEventState` takes an optional `repliedAt` now, and the
+worker passes `now` only when the entry actually produced a draft.
+
+**A DRAFT counts, and that is deliberate.** In `shadow` the reply is generated and
+withheld, and the question this column answers is "did this delivery produce an answer",
+not "did Meta accept it". The second question is `outbound_messages.sent_at` and already
+has a column.
+
+### The third provenance
+
+`0001`'s CHECK has allowed `model | deterministic | canned | human` since the schema was
+written, and `handleReception` collapsed the first three into two: a `deterministic_replies`
+hit was recorded as `canned`. They are different tables, reviewed differently, and cost
+different amounts — the deterministic path spends **nothing**, and §6.3.8 prices what it
+absorbs at ₮26,300 per tenant-month. The first question anybody asks of the mirror's corpus
+is how often a row answered without the model, and one value for both cannot answer it. So
+the deterministic short-circuit is `deterministic`; a gate short-circuit and the handoff
+stay `canned`, because those genuinely are `canned_responses` rows.
+
+### Best-effort, and it must stay that way
+
+`traceAnswer` runs after the reply exists. A trace that cannot be written is evidence lost,
+which is bad; refusing the customer's answer over it would be worse, and a 503 would retry
+an event whose reply is already drafted. So it returns its failure, the worker logs
+`trace_failed`, and the reply stands — the same posture `flagQuality` takes, for the same
+reason. The test for that failure path is where this PR earned the positional-stub trap
+again: `messages` is touched three times in one run (insert, history read, trace update),
+and a two-entry queue made the *history* read fail so the job 503'd before reaching the
+trace at all. The file's own docstring warns about exactly that.
+
+---
+
+## D-065 — the gate asked the model to copy a line and nothing ever checked that it had
+
+**2026-09-14, measured on the third draft Matrix's mirror ever produced.** Founder's
+framing: *make it enforceable rather than requested — every customer-visible string rests
+on this.*
+
+### The measurement
+
+Four gate blocks end with the same instruction — «БЭЛЭН ХАРИУЛТ» хэсгээс … **нэг ч үсэг
+өөрчлөхгүйгээр яг хэвээр нь бич**, reproduce it without changing a single letter. Within
+nine minutes of webhooks coming back:
+
+```
+canned `handoff`   Уучлаарай, би энэ асуултад хариулж чадахгүй байна. …    129 chars
+draft, 03:58:01    Уучлаарай, би энэ асуултад хариулж чадахгүй байна. …    byte-exact
+draft, 04:05:30    Уучлаарай, ___ энэ асуултад хариулж чадахгүй байна. …   128 chars
+```
+
+One word, «би», gone.
+
+### A correction to this entry's own first reading, and where it came from
+
+The first version of this said: same row, same instruction, two consecutive calls, one
+obeyed and one did not. **That was wrong**, and the thing that says so is a `quality_flags`
+row nobody had read yet.
+
+Draft 03:58:01 was never the model obeying. Its turn carries an `outbound_price` flag — the
+guard refused the model's text and `handoff()` then served the row. It is byte-exact because
+**the platform typed it**, not the model.
+
+So the record is worse than the first account, not better: **on the only occasion the model
+typed a pinned line itself, it got it wrong.** One sample is one sample, and the case for
+enforcing this never rested on a rate — an unenforced instruction looks the same at any
+rate: mostly fine, exceptions invisible.
+
+Worth keeping the shape of the mistake too. The first reading inferred *the model typed it*
+from *a `spend_ledger` row lands a second before the draft*, which is true and does not
+imply it: a model call happens on that turn either way, and what the guard did with the
+answer is recorded somewhere else entirely. Two tables, one question, and only one of them
+was consulted. The damage in this instance is small — the line is a refusal either
+way. The mechanism it defeats is not. Every customer-visible sentence here rests on one
+arrangement: a founder approves wording, `reviewed_at` records it, the prefix carries it,
+the model is asked to copy it. A near-copy is **an unreviewed sentence with an approved
+one's meaning**, and the review gate cannot see it, because the gate is on the row and not
+on what comes back.
+
+### The fix serves the row, and does not edit the reply
+
+`src/lib/gate/pinned.ts` compares the model's text against the tenant's **reviewed** canned
+rows. On a match — exact or near — `handleReception` discards the model's text whole and
+drafts the row's own bytes, `answeredBy: 'canned'`.
+
+It is not editing. `handleReception` already holds that line — *an edited reply is an
+unreviewed reply* — and patching a paraphrase back toward the original would be exactly
+that, plus a second implementation of a sentence that already exists in a row. Throwing the
+text away and answering from the row is what both short-circuits above it already do. **The
+model keeps the job it is good at — deciding which line applies — and loses the one it was
+measurably unreliable at, which is typing it out again.**
+
+An exact copy is substituted too, and that is not a no-op: it normalises whitespace back to
+the row's bytes, and it corrects the provenance. A reply that IS the handoff line was
+answered by a canned line whoever assembled the characters, and calling it `model` would
+misstate the corpus the mirror exists to produce.
+
+A paraphrase is **counted as well as corrected** — `quality_flags` code `canned_paraphrased`,
+carrying the similarity, the kind, and the attempted text. A drift quietly fixed is a drift
+nobody knows is happening, and the rate is the only evidence about whether the gate wording
+works at all.
+
+### Where the safety actually comes from
+
+Not the threshold. `NEAR_COPY_MIN_SIMILARITY` is 0.90 of the longer string in code points,
+and the measured case sits at 0.992 — an enormous margin, on purpose. The dangerous
+direction is the other one: replacing a genuine answer with a refusal is worse than the
+drift being caught. So a **length guard** carries most of it — a reply less than 0.8 the
+length of a line is never read as a copy of it, whatever the ratio says — and every one of
+Matrix's refusals ends with the same phone-number sentence, so substring overlap alone would
+have condemned any reply that closed politely.
+
+Three details that are rule 6 and not taste: NFC before comparing (decomposed «Ё» is not
+composed «Ё», and skipping it reports a perfect copy as a paraphrase); Levenshtein over
+**code points**, because `.length` counts UTF-16 units and one emoji would silently shift
+every ratio in the file; and no case folding, because a shouted variant is not the approved
+sentence.
+
+**Only reviewed rows are pinned lines.** Measuring against an unreviewed row and then
+serving it would ship Mongolian nobody signed off on, on the strength of the model having
+roughly typed it — the review gate defeated by the mechanism built to enforce it.
+
+### The second half of the same class, which is a prompt change and therefore parked
+
+The founder also asked why a price question got `handoff` rather than
+`refusal_price_unlisted`. The answer is the same shape one level up: **Ш2 and Ш8 both cover
+"a price I do not have", and nothing orders them.** Ш1 states in as many words that it
+dominates Ш2; no block says Ш2 dominates Ш8. So the model picks, and on Matrix it picks
+wrong reliably rather than occasionally, because **`services` has no price column at all** —
+the table is `name, category, unit, duration_minutes, turnaround_text, active`, no
+«ҮНИЙН ЖАГСААЛТ» section is rendered, and Ш2's branches both read as conditions on a list
+that is not there while Ш8 visibly applies.
+
+The customer loses the more useful sentence: `handoff` says *I cannot answer this*;
+`refusal_price_unlisted` says *this is about price and I do not have it*.
+
+That fix is a gate block, which is signed platform Mongolian and belongs to the reading
+evening. `prompt/drafts/sh2_price_precedence.mn.txt` is the unsigned revision — a precedence
+line, 2б widened to name the absent-section case, and a wrong-example built from the real
+draft. Loaded by nothing; `check-mn-review.mjs` keeps it that way.
+
+**Note what the two halves have in common.** Both are instructions the model is asked to
+follow with nothing checking that it did. One of them could be closed in code and was; the
+other can only be closed by better wording, which is why the wording has to be good.

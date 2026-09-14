@@ -214,3 +214,30 @@ flow settles it, and only then should any claim about the site reach customer te
 **Measured, not asserted.** `src/lib/metrics/turnsToIntent.ts` counts this. The ancestor's
 transcript is a test fixture there and scores 4; a reply that leads with the link scores 1.
 
+
+## `sh2_price_precedence.mn.txt` — unsigned, 2026-09-14
+
+Ш2 and Ш8 both cover *a price I do not have*, and nothing orders them. Ш1 says in as many
+words that it dominates Ш2; no block says Ш2 dominates Ш8.
+
+Measured on Matrix's second mirror draft. The customer asked «будаг хэдээр хийх вэ» — a
+price question — and the model answered with the `handoff` line, which is Ш8's remedy,
+rather than `refusal_price_unlisted`, which is Ш2's. Both readings are defensible from the
+blocks as signed: it *is* a price question (Ш2, branch 2б), and the answer *is* absent from
+the knowledge base (Ш8).
+
+What makes Matrix take the wrong branch reliably rather than occasionally: **`services` has
+no price column at all.** The table is `name, category, unit, duration_minutes,
+turnaround_text, active`, so no «ҮНИЙН ЖАГСААЛТ» section is rendered for this tenant, and
+Ш2's 2а/2б both read as conditions on a list that is not there. Ш8, whose test is "is the
+answer fully in the knowledge base", visibly applies.
+
+The customer loses the more useful sentence. `handoff` says *I can't answer this*;
+`refusal_price_unlisted` says *this is about price and I don't have it*, which tells them
+what to ask the salon for.
+
+This draft changes three things and nothing else: a precedence line saying a price question
+is settled in Ш2 and never falls through to Ш8, 2б widened to name the absent-section case
+explicitly, and a second wrong-example built from the real draft. It is **unsigned and
+loaded by nothing** — `check-mn-review.mjs` is what keeps it that way until the reading
+evening.

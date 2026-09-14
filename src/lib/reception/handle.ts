@@ -29,6 +29,7 @@ import type { Usage } from '../spend/settle.ts';
 import { kindsRequiredByRules, kindsReferencedBy, matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
 import { cannedHashOf } from '../prompt/sections.ts';
 import { matchDeterministic, type DeterministicRule, type HistoryState } from '../gate/deterministic.ts';
+import { checkPinnedLines } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
 import { capToSingleMessage } from '../mn/text.ts';
@@ -36,10 +37,26 @@ import { capToSingleMessage } from '../mn/text.ts';
 /** One Messenger send, in characters. */
 export const MAX_REPLY_CHARS = 1900;
 
+/**
+ * What produced this reply, as `messages.answered_by` records it.
+ *
+ * `0001`'s CHECK has allowed all four values since the schema was written; three are
+ * reachable from here and `human` belongs to a surface that does not exist yet.
+ *
+ *  - `deterministic` — a `deterministic_replies` row matched before any model call. Costs
+ *    nothing and is the largest single saving in the design (§6.3.8).
+ *  - `canned`        — a `canned_responses` line: a gate short-circuit, or the handoff.
+ *  - `model`         — the model wrote it, and the outbound guard let it through.
+ *
+ * They are kept apart because the first question anyone asks of the mirror's corpus is how
+ * often a row answered without the model, and a single `canned` for both cannot answer it.
+ */
+export type AnsweredBy = 'model' | 'canned' | 'deterministic';
+
 export type ReceptionDeps = {
   callModel: (req: ReceptionRequest) => Promise<CallOutcome>;
   /** Store the reply exactly once per dedup key. Returns the row id. */
-  draft: (input: { body: string; answeredBy: 'model' | 'canned' }) => Promise<{ ok: true; id: string } | { ok: false; detail: string }>;
+  draft: (input: { body: string; answeredBy: AnsweredBy }) => Promise<{ ok: true; id: string } | { ok: false; detail: string }>;
   /** Mark the reservation called, immediately before the provider call. */
   markCalled: () => Promise<boolean>;
   /** Record what was actually spent, with the real usage block. */
@@ -100,7 +117,7 @@ export type ReceptionInput = {
 
 export type ReceptionOutcome =
   /** A reply row exists and is ready for the send path. */
-  | { kind: 'drafted'; outboundId: string; answeredBy: 'model' | 'canned'; refusal?: string }
+  | { kind: 'drafted'; outboundId: string; answeredBy: AnsweredBy; refusal?: string }
   /** Could not determine something. The caller must 503 so QStash retries. */
   | { kind: 'retry'; detail: string }
   /** Determinate and unanswerable. ACK and stop; retrying cannot change it. */
@@ -234,9 +251,15 @@ export async function handleReception(
   }
   if (shortcut.hit !== null) {
     await deps.release();   // nothing was spent, so the hold goes straight back
-    const drafted = await deps.draft({ body: shortcut.hit.body, answeredBy: 'canned' });
+    // `deterministic`, not `canned`. `0001`'s CHECK has carried both values since the
+    // schema was written and nothing had ever used the distinction: a `deterministic_replies`
+    // row and a `canned_responses` line are different tables, reviewed differently, and cost
+    // a different amount to serve (this path spends nothing at all). Recording both as
+    // `canned` would make the mirror's corpus unable to answer the first question anybody
+    // asks of it — how often did a row answer without the model.
+    const drafted = await deps.draft({ body: shortcut.hit.body, answeredBy: 'deterministic' });
     return drafted.ok
-      ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned' }
+      ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'deterministic' }
       : { kind: 'retry', detail: drafted.detail };
   }
 
@@ -346,6 +369,53 @@ export async function handleReception(
     // `max_tokens` in particular may leave a truncated Mongolian half-sentence, and
     // `refusal` arrives as HTTP 200 with a plausible-looking body.
     return handoff(deps, input, { code: `model_${result.reason}`, detail: result.detail });
+  }
+
+  // ---- Was this a pinned line, reproduced or paraphrased? ----------------
+  //
+  // Four gate blocks tell the model to copy an approved sentence «нэг ч үсэг өөрчлөхгүйгээр»
+  // — without changing a single letter — and until 2026-09-14 that was a request with no
+  // check behind it. Matrix's third mirror draft dropped «би» from the handoff line. The
+  // draft nine minutes earlier is byte-exact and is NOT a counter-example: its
+  // `quality_flags` row shows the guard refused the model's text and `handoff()` served the
+  // row, so the platform typed it. On the only occasion the model typed a pinned line
+  // itself, it got it wrong. A near-copy is an UNREVIEWED sentence carrying an approved
+  // one's meaning, and `reviewed_at` cannot see it because the gate is on the row, not on
+  // what came back.
+  //
+  // This runs BEFORE the outbound guard on purpose. The model's text is discarded either
+  // way, so guarding it would be guarding something nobody will send; and the row that
+  // replaces it is reviewed Mongolian that the guard's own allow-list was built around —
+  // literally, and it is worth spelling out because it is what makes skipping the guard
+  // sound rather than convenient. `allowedNumbersFrom` runs over the sections whose
+  // `origin` is `tenant`, `renderTenantSections` gives every section that origin, and since
+  // D-058 the canned lines ARE one of those sections. So every numeral in every canned row
+  // is in `allowed_numbers` by construction and a reviewed row cannot fail the numeral
+  // guard. The exception is a snapshot published BEFORE D-058, where the canned section
+  // still lives in the volatile tail and its numerals never reach the allow-list — that
+  // tenant's rows are served unguarded here, exactly as the two short-circuits above
+  // already serve them, so this changes nothing about that case either way.
+  //
+  // Nothing here EDITS a reply — `handleReception` holds that line and this keeps it. The
+  // model's text is thrown away whole and the tenant's own row is served in its place,
+  // exactly as the two short-circuits above do. The model keeps the job it is good at,
+  // choosing which line applies, and loses the one it was measurably unreliable at.
+  const pinned = checkPinnedLines(result.text, input.canned);
+  if (pinned.kind !== 'clean') {
+    if (pinned.kind === 'paraphrase') {
+      // Corrected AND counted. A paraphrase that is quietly fixed is a paraphrase nobody
+      // knows is happening, and the rate is the only evidence about whether the gate
+      // wording works at all.
+      await deps.flag({
+        code: 'canned_paraphrased',
+        detail: `the reply is ${pinned.similarity.toFixed(3)} of "${pinned.canonicalKind}" and is not it; `
+          + `served the row instead. Attempted: ${result.text}`,
+      });
+    }
+    const drafted = await deps.draft({ body: pinned.canonical, answeredBy: 'canned' });
+    return drafted.ok
+      ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned' }
+      : { kind: 'retry', detail: drafted.detail };
   }
 
   // ---- The guard, then the draft ------------------------------------------
