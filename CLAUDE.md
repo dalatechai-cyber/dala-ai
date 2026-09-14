@@ -506,6 +506,20 @@ pinned lines** — measuring against an unreviewed row and then serving it would
 review gate with the mechanism built to enforce it. And the safety lives in the LENGTH GUARD,
 not the similarity threshold: replacing a real answer with a refusal is worse than the drift.
 
+**`quality_flags` says what the model wrote; the draft says what the platform served**
+(2026-09-14, corrected twice in one day). Both corrections were the same mistake: reading the
+served draft as evidence about the model. The price question that got the generic handoff was
+attributed to Ш2/Ш8 being unordered — but its `quality_flags` row shows the model never
+reached for a price line at all. It wrote D-066's gate-label leak ending in
+`refusal_public_channel`, the guard refused it, and `handle.ts:436` serves `handoff()`
+**regardless of what the customer asked**. Ш2/Ш8 explains the NEXT turn, not that one. Two
+turns, two causes, one conversation. Read the flag before explaining the draft.
+
+That unconditional fallback is itself an open question for the founder rather than a defect
+with an obvious repair: a price question refused by the guard could fall back to
+`refusal_price_unlisted` using the gate layer's own classification, but picking a specific
+refusal for a question that was not about price is worse than the generic one.
+
 **Ш2 and Ш8 both cover "a price I do not have", and nothing orders them** (2026-09-14,
 D-065). Ш1 says in as many words that it dominates Ш2; no block says Ш2 dominates Ш8, so the
 model picks — and on Matrix it picks wrong reliably rather than occasionally, because
