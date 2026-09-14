@@ -116,15 +116,102 @@ function refuse(code: OutboundRefusal, detail: string, gate?: GateKey): GuardRes
 }
 
 /**
- * Shingle a corpus into overlapping runs of `n` characters, folded and
- * whitespace-collapsed so that indentation in the prompt cannot be used to evade.
+ * The single normalisation every side of the run detector uses: folded, whitespace
+ * collapsed and trimmed, so indentation in the prompt cannot be used to evade.
+ *
+ * Extracted because the reply is now cut into segments before being shingled, and the cut
+ * has to happen on the SAME normalised text the corpus was built from. Two spellings of
+ * "folded" here is how the halves would drift apart.
  */
-function shingles(text: string, n: number): Set<string> {
-  const flat = fold(text).replace(/\s+/gu, ' ').trim();
+function foldFlat(text: string): string {
+  return fold(text).replace(/\s+/gu, ' ').trim();
+}
+
+/** Overlapping runs of `n` characters over text that is ALREADY folded and flattened. */
+function shinglesOfFlat(flat: string, n: number): Set<string> {
   const chars = Array.from(flat);
   const out = new Set<string>();
   for (let i = 0; i + n <= chars.length; i += 1) out.add(chars.slice(i, i + n).join(''));
   return out;
+}
+
+/** Shingle a corpus into overlapping runs of `n` characters. */
+function shingles(text: string, n: number): Set<string> {
+  return shinglesOfFlat(foldFlat(text), n);
+}
+
+/**
+ * Code-point `indexOf`. Never UTF-16 offsets.
+ *
+ * `String.prototype.indexOf` counts UTF-16 units while `shingles` counts code points, and
+ * the two agree right up until an emoji appears — which they do, in five of the mirror's
+ * first ten drafts. Mixing the two index spaces would cut a segment half a surrogate pair
+ * out of position and quietly change what the guard examines.
+ */
+function indexOfCodePoints(hay: readonly string[], needle: readonly string[], from: number): number {
+  if (needle.length === 0) return -1;
+  for (let i = from; i + needle.length <= hay.length; i += 1) {
+    let hit = true;
+    for (let j = 0; j < needle.length; j += 1) {
+      if (hay[i + j] !== needle[j]) { hit = false; break; }
+    }
+    if (hit) return i;
+  }
+  return -1;
+}
+
+/**
+ * Cut the folded reply at every occurrence of a folded canned line, and return what is
+ * left BETWEEN them — never joined back together.
+ *
+ * ## Why segments rather than deletion (D-068)
+ *
+ * `disclosesPrompt`'s own docstring already states the rule for the corpus side: the
+ * canned lines are shingled rather than DELETED from the prompt, because deleting them
+ * splices unrelated text together and manufactures runs that were never there. That
+ * reasoning is right, and it was applied to one side only.
+ *
+ * The same boundary problem lives on the reply side. The prompt holds an approved line IN
+ * CONTEXT, preceded by whatever renders before it — which folds to a space. Shingling that
+ * line in isolation can never produce a window beginning one character earlier, so any
+ * window straddling the line's opening boundary is in the corpus and absent from the
+ * exemption. Measured live on 2026-09-14: the offending run was
+ * `" та манай вэбсайтаар (https://www.matrixecosalon.org/) онлай"`, and **the leading space
+ * was the whole bug**. The reply was a good one, and the customer got the generic handoff.
+ *
+ * So the occurrences are cut out and each remaining piece is shingled on its own. A run
+ * can no longer straddle a boundary, because the boundary is where a segment ends — and
+ * the pieces are never concatenated, for exactly the reason the corpus side is not.
+ *
+ * Overlapping and repeated occurrences are all collected and then merged, so a line quoted
+ * twice, or two canned lines that share a tail, cut correctly rather than by whichever was
+ * found first.
+ */
+export function segmentsAroundCanned(replyFlat: string, cannedFlat: readonly string[]): string[] {
+  const hay = Array.from(replyFlat);
+  const ranges: [number, number][] = [];
+  for (const canned of cannedFlat) {
+    const needle = Array.from(canned);
+    if (needle.length === 0) continue;
+    // `from = at + 1`, not `at + needle.length`: overlapping occurrences are all recorded,
+    // and the merge below is what resolves them.
+    for (let at = indexOfCodePoints(hay, needle, 0); at !== -1; at = indexOfCodePoints(hay, needle, at + 1)) {
+      ranges.push([at, at + needle.length]);
+    }
+  }
+  if (ranges.length === 0) return [replyFlat];
+
+  // Numeric, so no locale is involved (D-026).
+  ranges.sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]));
+
+  const segments: string[] = [];
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    if (start > cursor) segments.push(hay.slice(cursor, start).join(''));
+    if (end > cursor) cursor = end;
+  }
+  if (cursor < hay.length) segments.push(hay.slice(cursor).join(''));
+  return segments;
 }
 
 /**
@@ -138,6 +225,39 @@ function shingles(text: string, n: number): Set<string> {
  * the canned responses too, rather than by deleting them from the corpus, because
  * deleting them would splice unrelated text together and manufacture runs that were
  * never in the prompt at all.
+ *
+ * ## Two halves, because the boundary problem exists on both sides (D-068)
+ *
+ * The paragraph above was applied to the CORPUS and not to the REPLY, and that asymmetry
+ * had a live cost. The prompt holds each approved line in context, preceded by something
+ * that folds to a space; shingling the line in isolation can never produce a window
+ * beginning one character earlier; so a window straddling the line's opening boundary is
+ * in the corpus and missing from the exemption. On 2026-09-14 a customer wrote «tsag avii»
+ * and got a good reply — a refusal of what the bot cannot do, the reason, and the reviewed
+ * `booking_line` reproduced correctly — and this function threw it away over
+ * `" та манай вэбсайтаар (https://www.matrixecosalon.org/) онлай"`. A leading space.
+ *
+ * Only a reply that was EXACTLY a canned line, alone, was reliably safe, which is the
+ * opposite of what the guard is for: composing around an approved line is what a helpful
+ * answer does, and it landed hardest on booking, the intent D-042 already shows this
+ * platform delivers worst.
+ *
+ * So the reply is cut at its canned occurrences and each segment is shingled on its own
+ * (`segmentsAroundCanned`), and the shingle exemption is KEPT as well. They cover
+ * different things and removing either would give something back: the segments handle an
+ * exact quotation in context, and the exemption still handles a near-copy that the cut
+ * cannot find — D-065's paraphrase, which `gate/pinned.ts` corrects but which reaches this
+ * function first.
+ *
+ * ## What this deliberately loosens
+ *
+ * A disclosure now has to be `runLength` characters long WITHIN one segment. Text on
+ * either side of a quoted approved line is no longer joined across it — which is the fix —
+ * and in exchange a reply that interleaved a full canned line between every fifty-nine
+ * characters of prompt would evade the run detector. That is a real hole and a very narrow
+ * one: the model is not an adversary here, it is being helpful, and the alternative is the
+ * measured behaviour of discarding correct answers to the most commercially valuable
+ * question a salon receives. Items 0, 1, 2 and 7 are unaffected and still run.
  */
 export function disclosesPrompt(
   reply: string,
@@ -147,10 +267,15 @@ export function disclosesPrompt(
 ): boolean {
   const corpus = shingles(promptCorpus, runLength);
   if (corpus.size === 0) return false;
+
   const exempt = new Set<string>();
   for (const canned of cannedResponses) for (const s of shingles(canned, runLength)) exempt.add(s);
-  for (const s of shingles(reply, runLength)) {
-    if (corpus.has(s) && !exempt.has(s)) return true;
+
+  const cannedFlat = cannedResponses.map(foldFlat).filter((c) => c !== '');
+  for (const segment of segmentsAroundCanned(foldFlat(reply), cannedFlat)) {
+    for (const s of shinglesOfFlat(segment, runLength)) {
+      if (corpus.has(s) && !exempt.has(s)) return true;
+    }
   }
   return false;
 }
