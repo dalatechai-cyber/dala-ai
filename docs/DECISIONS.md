@@ -4461,3 +4461,32 @@ That is not an argument for a transliteration engine — transliteration would n
 deterministic greeting rule, if one is ever written, needs a different kind of matcher from a
 topic stem, and that the corpus is the only place to learn which abbreviations actually occur.
 Recorded so the next reader does not inherit the more confident sentence without this one.
+
+### And the corpus's first product defect: one sentence, split, answered twice
+
+Two of the first ten turns arrived as same-conversation bursts — «Хаяг» then «Цаг авах»
+eleven seconds later, and «Холбогдох утас бна» then «Уу» **two** seconds later.
+
+The second pair is one sentence. «Холбогдох утас бна» + «уу» is «Холбогдох утас байна уу?» —
+*is there a contact number?* — typed in two goes, the way people text. The platform treated
+each fragment as a complete question, spent a full model call on each, and produced two
+replies of about four hundred characters that say nearly the same thing. In the mirror that
+is two `draft` rows. Live it is two long messages landing on one customer two seconds apart,
+the second answering half a sentence.
+
+It is worth being precise about what is and is not established. That the fragments compose
+into one question is a reading of Mongolian, not a measurement. What IS measured: two turns
+under fifteen seconds apart in the same conversation, two separate model calls, two near
+duplicate long replies. And the earlier pair shows the related cost — the reply to «Цаг авах»
+(*book an appointment*) opens by declining to give a location, which was the PREVIOUS
+message's subject.
+
+No fix is proposed here, and deliberately. Debouncing a conversation changes when a customer
+is answered on the surface that faces Matrix's live customers, and the sensible window is a
+product judgement — long enough to catch a split sentence, short enough that a person waiting
+does not think the bot is dead. That is the founder's call. Noting also that the ancestor took
+eleven deliveries to nine worker invocations in the same day, which *may* mean it collapses
+some; it is a hint worth checking against its code, not a fact established here.
+
+This is the mirror doing its job. No test would have produced it, because no test types half a
+sentence and then the rest.
