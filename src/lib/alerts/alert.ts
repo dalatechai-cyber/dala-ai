@@ -14,11 +14,44 @@
  * The `alerts` row is therefore both the dedup marker and the audit trail. Insert-first,
  * send-after: if the send fails, the row still records that the condition occurred, and
  * `delivered` stays false so it is visible rather than lost.
+ *
+ * ## Two axes: where it goes, and whether it may speak again (0025)
+ *
+ * The dedup-in-Postgres above solved "five hundred messages for one condition". It did not
+ * solve "one message a day, for eleven days, about a condition that has not changed" — and
+ * measured on 2026-09-14, that was ten of the eleven rows this table held. The founder's
+ * words for it are the ones that matter: *it trains me to ignore Telegram.* The same chat
+ * carries `dalatech-online`'s demo-request notifications, so a health alarm nobody reads is
+ * not merely useless; it is burying the messages with a customer on the other end.
+ *
+ * `route` says how the FIRST notification is delivered. `repeat_policy` says whether the
+ * condition may raise another row at all. Both defaulted, both reproducing today's
+ * behaviour, so a call site that has not been touched is unchanged.
+ *
+ * The distinction that makes the rest coherent:
+ *
+ *   * **`on_change` rows are EPISODES.** They open, they hold, they resolve. While one is
+ *     open the condition is silent — that is the whole point — and `resolved_at` is what
+ *     "open" means. The daily digest lists exactly these, so a condition that alerts once
+ *     and then goes quiet cannot be forgotten.
+ *   * **`once` and `daily` rows are EVENTS.** A stranded message, a recovery, an erasure
+ *     request: it happened, it was sent, it is over. `resolved_at` is meaningless for them
+ *     and stays null, and neither the digest nor the re-escalation sweep looks at them.
+ *
+ * Without that split, "resolved_at is null" would mean "every alert ever raised" and the
+ * digest would grow without bound — which is the daily-repeat failure again, wearing the
+ * fix's clothes.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { required } from '../env.ts';
 
 export type Severity = 'info' | 'warn' | 'critical';
+
+/** Where the FIRST notification goes. `digest` records it and says nothing until 09:00. */
+export type AlertRoute = 'now' | 'digest';
+
+/** Whether this condition may raise another row. See the module docstring. */
+export type RepeatPolicy = 'once' | 'on_change' | 'daily';
 
 export type AlertInput = {
   tenantId: string | null;
@@ -26,16 +59,26 @@ export type AlertInput = {
   /** Stable machine name, e.g. 'spend.ceiling_reached'. */
   kind: string;
   /**
-   * What makes this alert THE SAME alert. Include the period, so a ceiling reached
-   * again tomorrow is a new alert rather than silently suppressed forever.
+   * What makes this alert THE SAME alert.
+   *
+   * Under `daily` the caller puts the period in it, so a ceiling reached again tomorrow is
+   * a new alert rather than suppressed forever. Under `on_change` it must carry NO period —
+   * a date in the key is precisely what makes a standing condition repeat, and the whole
+   * change is to stop that.
    */
   dedupKey: string;
   body: string;
+  /** Default `now`: an un-updated call site keeps sending immediately, as it does today. */
+  route?: AlertRoute;
+  /** Default `daily`: an un-updated call site keeps its current suppression, as today. */
+  repeat?: RepeatPolicy;
 };
 
 export type AlertOutcome =
   | { outcome: 'sent' }
   | { outcome: 'suppressed_duplicate' }
+  /** Recorded deliberately without sending — the digest is where a human will meet it. */
+  | { outcome: 'recorded_for_digest' }
   | { outcome: 'recorded_undelivered'; detail: string }
   | { outcome: 'failed'; detail: string };
 
@@ -53,6 +96,8 @@ async function claim(db: SupabaseClient, input: AlertInput): Promise<{ id: numbe
       dedup_key: input.dedupKey,
       body: input.body,
       delivered: false,
+      route: input.route ?? 'now',
+      repeat_policy: input.repeat ?? 'daily',
     })
     .select('id')
     .maybeSingle();
@@ -61,26 +106,82 @@ async function claim(db: SupabaseClient, input: AlertInput): Promise<{ id: numbe
   return data === null ? 'error' : { id: Number((data as Record<string, unknown>)['id']) };
 }
 
-/** Whether an alert with this dedup key already exists. Used where no unique index exists. */
-async function alreadyRaised(db: SupabaseClient, dedupKey: string): Promise<boolean | 'error'> {
-  const { data, error } = await db
-    .from('alerts')
-    .select('id')
-    .eq('dedup_key', dedupKey)
+/**
+ * Has this condition already been raised, under this policy?
+ *
+ * `once` and `daily` ask the original question — does a row with this key exist — and the
+ * period, if there is to be one, is in the key. `on_change` asks whether the EPISODE is
+ * still open, so a condition that cleared and came back speaks again while one that has
+ * simply not changed stays quiet.
+ *
+ * Note what `on_change` does NOT do: it does not decide the condition has ended because
+ * time passed. Only a detector that observed recovery sets `resolved_at`. A policy that
+ * expired an episode on a timer would be the daily repeat again with a longer period.
+ */
+async function alreadyRaised(
+  db: SupabaseClient,
+  dedupKey: string,
+  repeat: RepeatPolicy,
+): Promise<boolean | 'error'> {
+  const base = db.from('alerts').select('id').eq('dedup_key', dedupKey);
+  const { data, error } = await (repeat === 'on_change' ? base.is('resolved_at', null) : base)
     .limit(1)
     .maybeSingle();
   if (error) return 'error';
   return data !== null;
 }
 
+/** The mark a severity wears in Telegram. One place, so a digest line matches an alert. */
+export function severityMark(severity: Severity): string {
+  return severity === 'critical' ? '🔴' : severity === 'warn' ? '🟠' : 'ℹ️';
+}
+
+export type TelegramOutcome = { ok: true; messageId: string } | { ok: false; detail: string };
+
+/**
+ * One Telegram send. Extracted so the digest and the re-escalation sweep reach Telegram
+ * through the same code an alert does.
+ */
+export async function sendTelegram(text: string): Promise<TelegramOutcome> {
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${required('TELEGRAM_BOT_TOKEN')}/sendMessage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: required('TELEGRAM_ALERT_CHAT_ID'),
+        text,
+        disable_web_page_preview: true,
+      }),
+      cache: 'no-store',
+    });
+    // A 2xx from a messaging provider means "accepted", never "delivered" — and a non-2xx
+    // here means not even that.
+    if (!res.ok) return { ok: false, detail: `telegram ${res.status}` };
+    const payload = (await res.json()) as { result?: { message_id?: number } };
+    return { ok: true, messageId: String(payload.result?.message_id ?? '') };
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function raiseAlert(db: SupabaseClient, input: AlertInput): Promise<AlertOutcome> {
-  const seen = await alreadyRaised(db, input.dedupKey);
+  const repeat = input.repeat ?? 'daily';
+  const route = input.route ?? 'now';
+
+  const seen = await alreadyRaised(db, input.dedupKey, repeat);
   if (seen === 'error') return { outcome: 'failed', detail: 'alerts table unreadable' };
   if (seen) return { outcome: 'suppressed_duplicate' };
 
   const claimed = await claim(db, input);
+  // The hourly unique index from `0001` is the other half of this: it refuses a second
+  // insert for the same kind and key within one clock hour, so an episode that resolves and
+  // reopens inside the hour — flapping — is suppressed rather than paging twice.
   if (claimed === null) return { outcome: 'suppressed_duplicate' };
   if (claimed === 'error') return { outcome: 'failed', detail: 'alerts insert failed' };
+
+  // Recorded on purpose and not sent. NOT a failure, and it must not read as one: the row
+  // IS the deliverable here, and 09:00 is when a human meets it.
+  if (route === 'digest') return { outcome: 'recorded_for_digest' };
 
   // ALERTS_ENABLED=false is the documented dev/CI escape. It suppresses the SEND, never
   // the row — so a test still proves the condition was detected exactly once.
@@ -88,31 +189,119 @@ export async function raiseAlert(db: SupabaseClient, input: AlertInput): Promise
     return { outcome: 'recorded_undelivered', detail: 'ALERTS_ENABLED=false' };
   }
 
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${required('TELEGRAM_BOT_TOKEN')}/sendMessage`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: required('TELEGRAM_ALERT_CHAT_ID'),
-        text: `${input.severity === 'critical' ? '🔴' : input.severity === 'warn' ? '🟠' : 'ℹ️'} ${input.body}`,
-        disable_web_page_preview: true,
-      }),
-      cache: 'no-store',
-    });
-    if (!res.ok) {
-      // A 2xx from a messaging provider means "accepted", never "delivered" — and a
-      // non-2xx here means not even that. The row stays, undelivered and visible.
-      return { outcome: 'recorded_undelivered', detail: `telegram ${res.status}` };
-    }
-    const payload = (await res.json()) as { result?: { message_id?: number } };
-    await db
-      .from('alerts')
-      .update({ delivered: true, provider_message_id: String(payload.result?.message_id ?? '') })
-      .eq('id', claimed.id);
-    return { outcome: 'sent' };
-  } catch (err) {
-    return { outcome: 'recorded_undelivered', detail: err instanceof Error ? err.message : String(err) };
-  }
+  const sent = await sendTelegram(`${severityMark(input.severity)} ${input.body}`);
+  // The row stays, undelivered and visible.
+  if (!sent.ok) return { outcome: 'recorded_undelivered', detail: sent.detail };
+
+  await db
+    .from('alerts')
+    .update({
+      delivered: true,
+      provider_message_id: sent.messageId,
+      // A human has now been told about THIS row. The three-day sweep measures from here.
+      notified_at: new Date().toISOString(),
+    })
+    .eq('id', claimed.id);
+  return { outcome: 'sent' };
+}
+
+/** One open episode, as the digest and the recovery path read it. */
+export type OpenAlert = {
+  id: number;
+  tenantId: string | null;
+  severity: Severity;
+  kind: string;
+  dedupKey: string;
+  body: string;
+  at: Date;
+  notifiedAt: Date | null;
+};
+
+const OPEN_COLUMNS = 'id, tenant_id, severity, kind, dedup_key, body, at, notified_at';
+
+function toOpenAlert(r: Record<string, unknown>): OpenAlert {
+  const raw = r['notified_at'];
+  const notified = typeof raw === 'string' && raw !== '' ? new Date(raw) : null;
+  return {
+    id: Number(r['id']),
+    tenantId: r['tenant_id'] === null || r['tenant_id'] === undefined ? null : String(r['tenant_id']),
+    severity: String(r['severity']) as Severity,
+    kind: String(r['kind']),
+    dedupKey: String(r['dedup_key']),
+    body: String(r['body']),
+    at: new Date(String(r['at'])),
+    notifiedAt: notified !== null && !Number.isNaN(notified.getTime()) ? notified : null,
+  };
+}
+
+/**
+ * Every open `on_change` episode, oldest first — the digest's whole input.
+ *
+ * `repeat_policy` is in the filter and is not an afterthought: a `once` or `daily` row's
+ * `resolved_at` is null because nothing ever resolves an EVENT, so without it this would
+ * return the entire history of the table and the digest would grow for ever. That is the
+ * daily-repeat failure again, wearing the fix's clothes.
+ */
+export async function openEpisodes(
+  db: SupabaseClient,
+): Promise<{ ok: true; open: OpenAlert[] } | { ok: false; detail: string }> {
+  const { data, error } = await db
+    .from('alerts')
+    .select(OPEN_COLUMNS)
+    .is('resolved_at', null)
+    .eq('repeat_policy', 'on_change')
+    .order('at', { ascending: true });
+  if (error) return { ok: false, detail: `alerts unreadable: ${error.message}` };
+  return { ok: true, open: (Array.isArray(data) ? data : []).map((r) => toOpenAlert(r as Record<string, unknown>)) };
+}
+
+/**
+ * Close every open episode whose key starts with `keyPrefix`, except `exceptKey`.
+ *
+ * The prefix is what makes a DEGRADE clean. A channel's key is
+ * `channel_silence:{channel}:{state}`, so a channel moving from `no_messages` to
+ * `no_webhooks` opens a second episode; without closing the first, the digest would list one
+ * channel twice for ever, one entry describing a fault it no longer has. `exceptKey` is how
+ * the caller keeps the episode it has just raised.
+ *
+ * Returns what it closed, so the caller can say so. Resolving silently is the same defect
+ * pointing the other way: a condition an operator was paged about, cleared without a word,
+ * and no way to tell that from an alarm that stopped working.
+ */
+export async function resolveOpenAlerts(
+  db: SupabaseClient,
+  input: { keyPrefix: string; exceptKey?: string; now: Date },
+): Promise<{ ok: true; resolved: OpenAlert[] } | { ok: false; detail: string }> {
+  const { data, error } = await db
+    .from('alerts')
+    .select(OPEN_COLUMNS)
+    .like('dedup_key', `${input.keyPrefix}%`)
+    .is('resolved_at', null)
+    .eq('repeat_policy', 'on_change');
+  if (error) return { ok: false, detail: `alerts unreadable: ${error.message}` };
+
+  const open = (Array.isArray(data) ? data : [])
+    .map((r) => toOpenAlert(r as Record<string, unknown>))
+    .filter((a) => a.dedupKey !== input.exceptKey);
+  if (open.length === 0) return { ok: true, resolved: [] };
+
+  const { error: updateErr } = await db
+    .from('alerts')
+    .update({ resolved_at: input.now.toISOString() })
+    .in('id', open.map((a) => a.id));
+  if (updateErr) return { ok: false, detail: `alerts not resolvable: ${updateErr.message}` };
+  return { ok: true, resolved: open };
+}
+
+/** Move `notified_at` on rows a human has just been paged about again. */
+export async function markNotified(
+  db: SupabaseClient,
+  ids: readonly number[],
+  now: Date,
+): Promise<{ ok: boolean; detail?: string }> {
+  if (ids.length === 0) return { ok: true };
+  const { error } = await db.from('alerts').update({ notified_at: now.toISOString() }).in('id', [...ids]);
+  return error ? { ok: false, detail: error.message } : { ok: true };
 }
 
 /**

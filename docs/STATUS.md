@@ -391,6 +391,24 @@ custom domain, so every URL it had answered `302 → vercel.com/sso-api` — Met
 handshake, QStash's call to the worker, and the public data-deletion status page would all
 have hit a login wall.
 
+### Alerting: routed, and quiet about a condition that has not changed
+
+**Built 2026-09-14 (D-063), waiting on `0025`.** `alerts` gains `route` (`now` | `digest`),
+`repeat_policy` (`once` | `on_change` | `daily`), `resolved_at` and `notified_at`. The
+silence watchdog moves to `now` + `on_change`: the first fire pages immediately, every run
+after it is silent until the state changes, and recovery raises `channel.recovered`. A new
+worker `/api/workers/digest` sends one summary a day and re-escalates an open `critical`
+nobody has been paged about for three days.
+
+| Waits on | Why it cannot be skipped |
+|---|---|
+| **The founder pushing `0025`** | `raiseAlert` writes `route` and `repeat_policy` on every insert. Against a project without the columns PostgREST answers 400 and **every alert in the platform is lost silently** — nothing checks `raiseAlert`'s return. CI applies every migration in the repo, so the suite is structurally incapable of seeing it (D-058's trap). Read `supabase_migrations.schema_migrations` before merging |
+| **A QStash schedule for `/api/workers/digest`** | 01:00 UTC = 09:00 Ulaanbaatar, before the salon opens. The cadence lives in the QStash console, not in this repository — `vercel.json` carries no `crons` block, exactly as with the hourly purge. Until it is scheduled the digest never runs, and an `on_change` condition that has gone quiet has nothing keeping it visible |
+
+Demo-request notifications are **not** in this repository: `dalatech-online`'s
+`api/demo-request.js` posts them to the same Telegram chat directly. Nothing here produces
+or routes them; what changes for them is that they stop competing with six criticals a week.
+
 ### The one step that is still just a step
 
 | # | Supply | Without it |

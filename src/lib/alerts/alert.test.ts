@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { raiseAlert, spendDedupKey } from './alert.ts';
+import { openEpisodes, raiseAlert, resolveOpenAlerts, spendDedupKey } from './alert.ts';
 
 /** In-memory alerts table with the dedup semantics the real one has. */
 function stubDb() {
@@ -98,4 +98,177 @@ test('a suppressed send still records the row — detection is never lost', asyn
   assert.equal(res.outcome, 'recorded_undelivered');
   assert.equal(rows.length, 1);
   assert.equal(rows[0]?.delivered, false);
+});
+
+// --------------------------------------------------------------------------
+// 0025: route and repeat_policy.
+// --------------------------------------------------------------------------
+
+type Row = {
+  id: number; dedup_key: string; kind: string; severity: string; body: string;
+  route: string; repeat_policy: string; resolved_at: string | null;
+  notified_at: string | null; at: string; tenant_id: string | null; delivered: boolean;
+};
+
+/**
+ * An alerts table that models the columns `on_change` actually turns on.
+ *
+ * Deliberately a second stub rather than an extension of the one above: that one exists to
+ * prove the 500-messages property and reads better for being about nothing else.
+ */
+function episodeDb() {
+  const rows: Row[] = [];
+  let nextId = 1;
+  const db = {
+    from: () => {
+      const chain: Record<string, unknown> = {};
+      let key: string | null = null;
+      let prefix: string | null = null;
+      let openOnly = false;
+      let repeat: string | null = null;
+      let ids: number[] | null = null;
+      let inserted: { id: number } | null = null;
+      let patch: Record<string, unknown> | null = null;
+
+      const matches = (r: Row): boolean =>
+        (key === null || r.dedup_key === key)
+        && (prefix === null || r.dedup_key.startsWith(prefix))
+        && (!openOnly || r.resolved_at === null)
+        && (repeat === null || r.repeat_policy === repeat)
+        && (ids === null || ids.includes(r.id));
+
+      chain['select'] = () => chain;
+      chain['order'] = () => chain;
+      chain['limit'] = () => chain;
+      chain['eq'] = (col: string, val: string) => {
+        if (col === 'dedup_key') key = val;
+        if (col === 'repeat_policy') repeat = val;
+        if (col === 'id') ids = [Number(val)];
+        return chain;
+      };
+      chain['is'] = (col: string, val: unknown) => {
+        if (col === 'resolved_at' && val === null) openOnly = true;
+        return chain;
+      };
+      chain['like'] = (_col: string, val: string) => { prefix = val.replace(/%$/, ''); return chain; };
+      chain['in'] = (_col: string, vals: readonly unknown[]) => { ids = vals.map(Number); return chain; };
+      chain['insert'] = (row: Record<string, unknown>) => {
+        const created: Row = {
+          id: nextId++, dedup_key: String(row['dedup_key']), kind: String(row['kind']),
+          severity: String(row['severity']), body: String(row['body']),
+          route: String(row['route']), repeat_policy: String(row['repeat_policy']),
+          resolved_at: null, notified_at: null, at: new Date().toISOString(),
+          tenant_id: row['tenant_id'] === null ? null : String(row['tenant_id']), delivered: false,
+        };
+        rows.push(created);
+        inserted = { id: created.id };
+        return chain;
+      };
+      chain['update'] = (p: Record<string, unknown>) => { patch = p; return chain; };
+      chain['maybeSingle'] = async () => {
+        if (inserted !== null) return { data: inserted, error: null };
+        const found = rows.find(matches);
+        return { data: found ? { id: found.id } : null, error: null };
+      };
+      chain['then'] = (res: (v: unknown) => unknown) => {
+        if (patch !== null) {
+          for (const r of rows.filter(matches)) {
+            if ('resolved_at' in patch) r.resolved_at = String(patch['resolved_at']);
+            if ('notified_at' in patch) r.notified_at = String(patch['notified_at']);
+            if ('delivered' in patch) r.delivered = patch['delivered'] === true;
+          }
+          return res({ data: null, error: null });
+        }
+        return res({ data: rows.filter(matches), error: null });
+      };
+      return chain;
+    },
+  } as never;
+  return { db, rows };
+}
+
+const EPISODE = {
+  tenantId: 't-1' as string | null,
+  severity: 'critical' as const,
+  kind: 'channel.no_webhooks',
+  dedupKey: 'channel_silence:ch-1:no_webhooks',
+  body: 'Page 1: nothing has arrived',
+  route: 'now' as const,
+  repeat: 'on_change' as const,
+};
+
+test('DONE-TEST: AN ON_CHANGE EPISODE SPEAKS ONCE AND THEN HOLDS ITS TONGUE', async () => {
+  // The measured failure, at the layer that decides it. On 2026-09-14 one unchanged
+  // condition had produced a critical Telegram every morning for six days — ten of the
+  // eleven rows the table then held — because the dedup key carried the date. Eleven runs
+  // of an unchanged condition must now produce exactly one row.
+  process.env['ALERTS_ENABLED'] = 'false';
+  const { db, rows } = episodeDb();
+  const outcomes: string[] = [];
+  for (let i = 0; i < 11; i += 1) outcomes.push((await raiseAlert(db, EPISODE)).outcome);
+
+  assert.equal(rows.length, 1, 'one episode, one row');
+  assert.equal(outcomes[0], 'recorded_undelivered');
+  assert.ok(outcomes.slice(1).every((o) => o === 'suppressed_duplicate'), JSON.stringify(outcomes));
+});
+
+test('DONE-TEST: and it speaks AGAIN once the episode is resolved', async () => {
+  // The other half, and the reason `on_change` is not just `once`. A channel that dies,
+  // recovers and dies again is two outages. Suppressing the second for ever would be the
+  // silence D-062 is about, built deliberately.
+  process.env['ALERTS_ENABLED'] = 'false';
+  const { db, rows } = episodeDb();
+  await raiseAlert(db, EPISODE);
+
+  const closed = await resolveOpenAlerts(db, { keyPrefix: 'channel_silence:ch-1:', now: new Date('2026-09-14T00:00:00Z') });
+  assert.equal(closed.ok && closed.resolved.length, 1);
+  assert.equal(rows[0]?.resolved_at, '2026-09-14T00:00:00.000Z');
+
+  assert.equal((await raiseAlert(db, EPISODE)).outcome, 'recorded_undelivered');
+  assert.equal(rows.length, 2, 'a second outage is a second episode');
+});
+
+test('resolveOpenAlerts keeps the episode the caller just raised', async () => {
+  // A degrade closes the OTHER states and keeps this one; without exceptKey it would close
+  // the alert it is in the middle of raising.
+  process.env['ALERTS_ENABLED'] = 'false';
+  const { db, rows } = episodeDb();
+  await raiseAlert(db, { ...EPISODE, dedupKey: 'channel_silence:ch-1:no_messages', kind: 'channel.no_messages' });
+  await raiseAlert(db, EPISODE);
+
+  const closed = await resolveOpenAlerts(db, {
+    keyPrefix: 'channel_silence:ch-1:',
+    exceptKey: EPISODE.dedupKey,
+    now: new Date('2026-09-14T00:00:00Z'),
+  });
+  assert.ok(closed.ok);
+  assert.deepEqual(closed.ok ? closed.resolved.map((a) => a.kind) : [], ['channel.no_messages'],
+    'exactly the superseded one');
+  assert.equal(rows.find((r) => r.dedup_key === EPISODE.dedupKey)?.resolved_at, null, 'the current one stays open');
+});
+
+test('a once row is an EVENT and is never an open episode', async () => {
+  // `resolved_at` is null on it for ever, because nothing resolves an event. If the digest
+  // did not filter on repeat_policy it would list the entire history of the table, which is
+  // the daily repeat again wearing the fix's clothes.
+  process.env['ALERTS_ENABLED'] = 'false';
+  const { db } = episodeDb();
+  await raiseAlert(db, {
+    tenantId: null, severity: 'info', kind: 'channel.recovered',
+    dedupKey: 'channel_recovered:42', body: 'recovered', route: 'now', repeat: 'once',
+  });
+  const open = await openEpisodes(db);
+  assert.equal(open.ok && open.open.length, 0);
+});
+
+test('DONE-TEST: a digest route records the row and sends NOTHING', async () => {
+  // And says so as its own outcome. Reporting it as `recorded_undelivered` would put a
+  // deliberate choice in the same bucket as a Telegram failure.
+  delete process.env['ALERTS_ENABLED'];
+  const { db, rows } = episodeDb();
+  const res = await raiseAlert(db, { ...EPISODE, route: 'digest' });
+  assert.equal(res.outcome, 'recorded_for_digest');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.notified_at, null, 'nobody has been told, so the 3-day clock runs from `at`');
+  process.env['ALERTS_ENABLED'] = 'false';
 });

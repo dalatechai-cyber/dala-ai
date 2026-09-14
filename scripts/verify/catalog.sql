@@ -580,6 +580,53 @@ insert into _v select 'V33', 'config_snapshots.canned_hash exists and is nullabl
          and not tgisinternal and tgenabled = 'A')
   ) q;
 
+-- V34 — an alert can say where it goes and whether it may speak again. (D-063, 0025.)
+--
+-- The measurement this exists for: on 2026-09-14 `alerts` held eleven rows and ten were one
+-- condition, critical, once a morning for six days, because the dedup key carried the local
+-- date. The columns below are what replaced the date, so their ABSENCE is not cosmetic —
+-- `raiseAlert` writes `route` and `repeat_policy` on every insert, and against a database
+-- without them PostgREST answers the insert with a 400 and every alert in the platform is
+-- lost silently. That is the D-058 deploy-order trap exactly, and this check is what makes
+-- it visible here rather than in production.
+--
+-- The DEFAULTS are asserted, not just the columns. They are the whole reason the rollout
+-- needs no coordination: 'now' and 'daily' reproduce what every existing call site already
+-- did, so a row written by code that has not been redeployed behaves as it always has.
+--
+-- `resolved_at` and `notified_at` must stay NULLABLE. Null on `resolved_at` is what "this
+-- episode is still open" MEANS — it is the digest's whole input and what `on_change`
+-- suppresses against — and null on `notified_at` means nobody has been paged about the row
+-- yet, which the three-day sweep reads through `coalesce(notified_at, at)`. A NOT NULL on
+-- either would be a claim the data cannot make.
+insert into _v select 'V34', 'alerts carries route/repeat_policy with today''s behaviour as the default, and resolved_at/notified_at stay nullable',
+  coalesce(string_agg(problem, '; '), 'correct'), count(*) = 0
+  from (
+    select format('alerts.%s is missing — raiseAlert writes it, so every alert would 400', c) as problem
+      from unnest(array['route','repeat_policy','resolved_at','notified_at']) as c
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='alerts' and column_name=c)
+    union all
+    select format('alerts.%s is nullable or has the wrong default — an un-redeployed caller would change behaviour', c)
+      from (values ('route','''now''::text'), ('repeat_policy','''daily''::text')) as d(c, want)
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='alerts' and column_name=d.c
+          and is_nullable = 'NO' and column_default = d.want)
+    union all
+    select format('alerts.%s is NOT NULL — null is what "still open" and "never paged" mean', c)
+      from unnest(array['resolved_at','notified_at']) as c
+     where exists (
+       select 1 from information_schema.columns
+        where table_schema='public' and table_name='alerts' and column_name=c
+          and is_nullable = 'NO')
+    union all
+    select format('the %s CHECK is missing — an unknown value would be accepted and then never matched', n)
+      from unnest(array['alerts_route_known','alerts_repeat_policy_known']) as n
+     where not exists (select 1 from pg_constraint where conname = n)
+  ) q;
+
 -- V24 — the channel can say when it started expecting traffic. (0012.)
 --
 -- `went_live_at` is what the silence watchdog measures from when a channel has NEVER

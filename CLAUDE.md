@@ -61,7 +61,7 @@ on the critical path to a first real message.
 **The Supabase project EXISTS as of 2026-09-05** — ref `tlggenaatnopnxzbkbuf`, PostgreSQL
 17.6, ap-southeast-1. Migrations `0001`–`0015` are applied through the CLI with a real
 **fifteen**-row ledger (D-012, read back 2026-09-06), and `catalog.sql` returned 25/25
-against it when the file carried twenty-five checks. It carries **thirty-four** now (V0–V33):
+against it when the file carried twenty-five checks. It carries **thirty-five** now (V0–V34):
 V26 and V27 pass there since `0014` and `0015` landed, and **V25 still fails and is meant
 to** (see the second bullet below). **The ledger reads twenty-three rows, `0001`–`0023`,
 read back 2026-09-07 18:0x UTC** — `0023_channel_expects_traffic` was pushed by the founder
@@ -414,6 +414,36 @@ additions** (D-043) and either one produces this outage. Run it before concludin
 about a silent channel, and read its closing paragraph: it covers the app-level half only,
 and a Page grant revoked behind a healthy app-level field looks identical from here.
 
+**A period in a dedup key is right for a ceiling and wrong for a condition** (2026-09-14,
+D-063). `channel_silence:{channel}:{state}:{localDate}` was copied from `spendDedupKey`,
+where a period genuinely belongs — a ceiling reached again tomorrow is a new ceiling. A dead
+channel is not a new dead channel every morning. Measured: eleven rows in `alerts`, ten of
+them one condition, critical, once a day for six days. The date had even been *corrected*
+once, from UTC to the tenant's clock, which was right about the boundary and wrong about
+there being a boundary — the key was tuned twice without anybody asking which kind of fact it
+described. **Ask whether the thing recurs or persists before you put a period in a key.**
+
+`route` and `repeat_policy` are the split now (`0025`). The distinction that makes the rest
+work: an `on_change` row is an **episode** (it opens, holds, resolves — `resolved_at` is what
+"open" means); a `once` or `daily` row is an **event** that happened and is over, whose
+`resolved_at` stays null for ever. The digest and the three-day escalation both filter on
+`repeat_policy`, not merely on `resolved_at is null` — without that, "open" means every alert
+ever raised and the digest grows without bound, which is the daily repeat wearing the fix's
+clothes.
+
+**A quiet alarm and a dead alarm must not look the same, including the one you just built to
+be quiet** (2026-09-14, D-063). The digest sends on a clean day too, and its clean line
+carries when the silence watchdog last ran — read from `channel_health.observed_at`, which is
+upserted on every run including healthy ones precisely so its absence is a statement. Silence
+meaning both "nothing is wrong" and "the job stopped" is D-060 and D-062 rebuilt one layer up,
+inside the safety net. One line a day is not what trained anybody to ignore Telegram; six
+criticals about one unchanged condition were.
+
+**Telegram is shared with the customers.** `dalatech-online`'s `api/demo-request.js` posts
+demo requests into the same chat — outside this repository, nothing here routes it. So a
+noisy health alarm is not merely ignorable, it is burying the only messages with a person on
+the other end. Weigh a new `route: 'now'` alert against that.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale
@@ -439,7 +469,7 @@ somebody wrote rather than a filename that happened to match.
 **Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
 are the schema; the eight section files carry a banner saying their DDL is superseded.
 Applied to a scratch PostgreSQL 16.13 and verified by execution, re-counted 2026-09-07
-from a run out of an empty cluster: `catalog.sql` **34/34** (V0–V33), `isolation.sql`
+from a run out of an empty cluster: `catalog.sql` **35/35** (V0–V34), `isolation.sql`
 **16/16** (T0–T14, with T4 split into T4a/T4b, so 18 PASS lines), `rls.sql` **8/8**
 (R1–R8), `spend.sql` **10/10** (S1–S10), `retention.sql` **17/17** (P1–P17). **Count the
 checks, not the PASS lines** — several PRs on 2026-09-07 published rls 9, spend 11,

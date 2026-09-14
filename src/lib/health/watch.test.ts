@@ -13,12 +13,31 @@ const CHANNEL = {
 
 const HOURS = [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens: '10:00', closes: '20:00', closed: false }));
 
-/** A db that answers per table and records every write. */
-function stub(over: Record<string, { data?: unknown; error?: unknown }> = {}) {
+type Answer = { data?: unknown; error?: unknown };
+
+/**
+ * A db that answers per table and records every write.
+ *
+ * An override may be a LIST, consumed in order, because `alerts` is read and written
+ * several times in one run: `resolveOpenAlerts` selects then updates, and `raiseAlert` then
+ * asks whether the key is already raised before inserting. A single value would answer all
+ * four with the same row and make the suppression check see the episode it had just closed.
+ */
+function stub(over: Record<string, Answer | Answer[]> = {}) {
   const writes: { table: string; op: string; patch: Record<string, unknown> }[] = [];
   const reads: { table: string; filters: string[] }[] = [];
-  const answer = (table: string): { data?: unknown; error?: unknown } => {
-    if (over[table] !== undefined) return over[table];
+  const queues = new Map<string, Answer[]>();
+  const answer = (table: string): Answer => {
+    const o = over[table];
+    if (Array.isArray(o)) {
+      if (!queues.has(table)) queues.set(table, [...o]);
+      // Running out is a test-setup bug, so it fails loudly rather than falling through to
+      // a default that would quietly change what the run saw.
+      const next = queues.get(table)?.shift();
+      if (next === undefined) throw new Error(`stub: ran out of queued answers for ${table}`);
+      return next;
+    }
+    if (o !== undefined) return o;
     if (table === 'tenants') return { data: { timezone: 'Asia/Ulaanbaatar' }, error: null };
     if (table === 'tenant_channels') return { data: [CHANNEL], error: null };
     if (table === 'business_hours') return { data: HOURS, error: null };
@@ -34,6 +53,7 @@ function stub(over: Record<string, { data?: unknown; error?: unknown }> = {}) {
     chain['gte'] = (col: string, val: unknown) => (rec.filters.push(`${col}>=${String(val)}`), chain);
     chain['in'] = (col: string, vals: readonly unknown[]) => (rec.filters.push(`${col} in ${vals.join(',')}`), chain);
     chain['is'] = (col: string, val: unknown) => (rec.filters.push(`${col} is ${String(val)}`), chain);
+    chain['like'] = (col: string, val: unknown) => (rec.filters.push(`${col} like ${String(val)}`), chain);
     chain['order'] = () => chain;
     chain['limit'] = () => chain;
     for (const op of ['insert', 'update', 'upsert'] as const) {
@@ -74,7 +94,7 @@ test('DONE-TEST: HEALTHY IS WRITTEN TOO — "checked and fine" must differ from 
   assert.equal(health?.patch['observed_at'], NOW.toISOString());
 });
 
-test('DONE-TEST: a silent channel alerts, once per state per day', async () => {
+test('DONE-TEST: a silent channel alerts once per EPISODE, not once per day', async () => {
   const { db, writes } = stub({
     webhook_events: { data: [{ received_at: STALE }], error: null },
     conversations: { data: [{ last_message_at: STALE }], error: null },
@@ -85,7 +105,10 @@ test('DONE-TEST: a silent channel alerts, once per state per day', async () => {
   const alert = writes.find((w) => w.table === 'alerts');
   assert.equal(alert?.patch['severity'], 'critical');
   assert.equal(alert?.patch['kind'], 'channel.no_webhooks');
-  assert.match(String(alert?.patch['dedup_key']), /channel_silence:ch-1:no_webhooks:2026-09-04$/);
+  // The first fire is genuinely news and pages immediately; `on_change` is what stops the
+  // second, third and seventh.
+  assert.equal(alert?.patch['route'], 'now');
+  assert.equal(alert?.patch['repeat_policy'], 'on_change');
   // The Page id, so the notification itself is actionable.
   assert.match(String(alert?.patch['body']), /100000000000001/);
 });
@@ -161,19 +184,114 @@ test('every channel that EXPECTS traffic is watched, not only the ones that answ
   assert.equal(filters.some((f) => f === 'delivery_mode=live'), false, 'no longer live-only');
 });
 
-test('the alert dedup key is the TENANT\'S day, not UTC\'s', async () => {
-  // 2026-09-04T18:30:00Z is 02:30 on the 5th in Ulaanbaatar. Keyed on UTC the alert would
-  // carry `2026-09-04`; keyed on the tenant's calendar it carries `2026-09-05`. The
-  // difference is why a channel silent across a morning used to raise two alerts for one
-  // trading day — the UTC day rolls at 08:00 local, an hour before a salon opens.
+test('DONE-TEST: NO DATE IN THE KEY — that is what made it repeat', async () => {
+  // This test used to assert the opposite, and was right about the bug it was written for.
+  // The key was `channel_silence:{channel}:{state}:{localDate}` and the day had been moved
+  // from UTC to the tenant's clock because a channel silent across a Ulaanbaatar morning
+  // raised TWO alerts for one trading day — the UTC day rolls at 08:00 local, an hour
+  // before a salon opens. That fix was right about the boundary and wrong about there being
+  // a boundary at all.
+  //
+  // Measured 2026-09-14: one unchanged condition had produced a critical Telegram every
+  // morning for six days, ten of the eleven rows the table then held, in the chat that also
+  // carries the demo-request notifications. The date is the mechanism that did it, so the
+  // date is gone and the policy is `on_change`.
+  //
+  // 2026-09-04T18:30:00Z is 02:30 on the 5th in Ulaanbaatar, the exact instant the old test
+  // used to prove the day had rolled. Now nothing about the key may move with it.
   const lateUtc = new Date('2026-09-04T18:30:00Z');
   const { db, writes } = stub({
     webhook_events: { data: [{ received_at: '2026-08-20T00:00:00Z' }], error: null },
   });
   await runSilenceWatch(db, { now: lateUtc });
-  const alert = writes.find((w) => w.table === 'alerts');
-  assert.ok(alert, 'a silent channel alerts');
-  assert.equal(String(alert?.patch['dedup_key']).endsWith(':2026-09-05'), true, String(alert?.patch['dedup_key']));
+  const key = String(writes.find((w) => w.table === 'alerts')?.patch['dedup_key']);
+  assert.equal(key, 'channel_silence:ch-1:no_webhooks', key);
+  assert.doesNotMatch(key, /\d{4}-\d{2}-\d{2}/, 'a date in the key IS the daily repeat');
+});
+
+test('DONE-TEST: A RECOVERY IS SAID OUT LOUD, not just recorded', async () => {
+  // Closing an episode silently would mean an operator paged about a dead channel is never
+  // told it came back — and cannot tell that from an alarm that quietly stopped working,
+  // which is D-062's whole subject arriving inside the fix for it.
+  const { db, writes } = stub({
+    webhook_events: { data: [{ received_at: FRESH }], error: null },
+    conversations: { data: [{ last_message_at: FRESH }], error: null },
+    // In call order: the open-episode select, the resolve update, raiseAlert's
+    // already-raised check (nothing), then its insert.
+    alerts: [
+      { data: [{
+        id: 42, tenant_id: 't-1', severity: 'critical', kind: 'channel.no_webhooks',
+        dedup_key: 'channel_silence:ch-1:no_webhooks', body: 'Page 100000000000001: dead',
+        at: '2026-09-01T00:00:00Z', notified_at: '2026-09-01T00:00:00Z',
+      }], error: null },
+      { data: null, error: null },
+      { data: null, error: null },
+      { data: { id: 99 }, error: null },
+    ],
+  });
+  const r = await runSilenceWatch(db, { now: NOW });
+  assert.equal(r.ok && r.verdicts[0]?.diagnosis.state, 'healthy');
+
+  const resolved = writes.find((w) => w.table === 'alerts' && w.op === 'update');
+  assert.equal(resolved?.patch['resolved_at'], NOW.toISOString(), 'the episode is closed');
+
+  const recovery = writes.find((w) => w.table === 'alerts' && w.op === 'insert');
+  assert.equal(recovery?.patch['kind'], 'channel.recovered');
+  assert.equal(recovery?.patch['severity'], 'info');
+  // Keyed on the episode it closes, so it is unrepeatable by construction — and `once`, so
+  // it can never become a standing item in the digest. A recovery is an event.
+  assert.equal(recovery?.patch['dedup_key'], 'channel_recovered:42');
+  assert.equal(recovery?.patch['repeat_policy'], 'once');
+});
+
+test('DONE-TEST: A PROVISIONING GAP DOES NOT CLOSE AN OPEN EPISODE', async () => {
+  // Losing the ability to measure a channel is no evidence the channel is well. If this
+  // resolved, deleting a `business_hours` row would silence a real outage — the watchdog
+  // acquiring the defect it exists to detect, by way of a data entry mistake.
+  const { db, writes } = stub({
+    business_hours: { data: [], error: null },
+    alerts: { data: [{
+      id: 7, tenant_id: 't-1', severity: 'critical', kind: 'channel.no_webhooks',
+      dedup_key: 'channel_silence:ch-1:no_webhooks', body: 'Page 100000000000001: dead',
+      at: '2026-09-01T00:00:00Z', notified_at: null,
+    }], error: null },
+  });
+  const r = await runSilenceWatch(db, { now: NOW });
+  assert.equal(r.ok && r.verdicts[0]?.diagnosis.state, 'not_provisioned');
+  assert.equal(writes.some((w) => w.table === 'alerts'), false,
+    'a gap neither alerts nor resolves');
+});
+
+test('a degrade supersedes the episode it replaces, so the digest cannot list one channel twice', async () => {
+  // `no_messages` and `no_webhooks` are two episodes for one channel. Without superseding,
+  // both stay open for ever and the 09:00 digest lists the channel twice — one entry naming
+  // a fault it no longer has, which is worse than not listing it at all.
+  const { db, writes, reads } = stub({
+    webhook_events: { data: [{ received_at: STALE }], error: null },
+    conversations: { data: [{ last_message_at: STALE }], error: null },
+    alerts: [
+      { data: [{
+        id: 11, tenant_id: 't-1', severity: 'critical', kind: 'channel.no_messages',
+        dedup_key: 'channel_silence:ch-1:no_messages', body: 'Page 100000000000001: standby',
+        at: '2026-09-02T00:00:00Z', notified_at: '2026-09-02T00:00:00Z',
+      }], error: null },
+      { data: null, error: null },
+      { data: null, error: null },
+      { data: { id: 12 }, error: null },
+    ],
+  });
+  await runSilenceWatch(db, { now: NOW });
+
+  // Read by PREFIX — the state is in the key, so an exact match could never find the
+  // episode being replaced.
+  const byPrefix = reads.find((r) => r.table === 'alerts'
+    && r.filters.some((f) => f === 'dedup_key like channel_silence:ch-1:%'));
+  assert.ok(byPrefix, `must look for the channel's other episodes: ${JSON.stringify(reads)}`);
+
+  assert.equal(writes.find((w) => w.table === 'alerts' && w.op === 'update')?.patch['resolved_at'],
+    NOW.toISOString(), 'the superseded episode is closed');
+  assert.equal(writes.find((w) => w.table === 'alerts' && w.op === 'insert')?.patch['dedup_key'],
+    'channel_silence:ch-1:no_webhooks', 'and the new state is raised');
 });
 
 test('DONE-TEST: the cached last_webhook_at survives retention purging the events', async () => {
