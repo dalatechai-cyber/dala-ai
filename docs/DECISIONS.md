@@ -3959,12 +3959,28 @@ draft, 03:58:01    Уучлаарай, би энэ асуултад хариул
 draft, 04:05:30    Уучлаарай, ___ энэ асуултад хариулж чадахгүй байна. …   128 chars
 ```
 
-One word, «би», gone. Same instruction, same tenant, same row, two consecutive calls; both
-model-generated (a `spend_ledger` row lands about a second before each). One obeyed and one
-did not.
+One word, «би», gone.
 
-**That is what an unenforced instruction looks like from the outside: mostly fine, and the
-exceptions invisible.** The damage in this instance is small — the line is a refusal either
+### A correction to this entry's own first reading, and where it came from
+
+The first version of this said: same row, same instruction, two consecutive calls, one
+obeyed and one did not. **That was wrong**, and the thing that says so is a `quality_flags`
+row nobody had read yet.
+
+Draft 03:58:01 was never the model obeying. Its turn carries an `outbound_price` flag — the
+guard refused the model's text and `handoff()` then served the row. It is byte-exact because
+**the platform typed it**, not the model.
+
+So the record is worse than the first account, not better: **on the only occasion the model
+typed a pinned line itself, it got it wrong.** One sample is one sample, and the case for
+enforcing this never rested on a rate — an unenforced instruction looks the same at any
+rate: mostly fine, exceptions invisible.
+
+Worth keeping the shape of the mistake too. The first reading inferred *the model typed it*
+from *a `spend_ledger` row lands a second before the draft*, which is true and does not
+imply it: a model call happens on that turn either way, and what the guard did with the
+answer is recorded somewhere else entirely. Two tables, one question, and only one of them
+was consulted. The damage in this instance is small — the line is a refusal either
 way. The mechanism it defeats is not. Every customer-visible sentence here rests on one
 arrangement: a founder approves wording, `reviewed_at` records it, the prefix carries it,
 the model is asked to copy it. A near-copy is **an unreviewed sentence with an approved

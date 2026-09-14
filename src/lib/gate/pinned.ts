@@ -11,12 +11,19 @@
  * 2026-09-14, Matrix, within nine minutes of the webhook coming back:
  *
  *     canned `handoff`  Уучлаарай, би энэ асуултад хариулж чадахгүй байна. …   129 chars
- *     draft 2           Уучлаарай, би энэ асуултад хариулж чадахгүй байна. …   byte-exact
  *     draft 3           Уучлаарай, ___ энэ асуултад хариулж чадахгүй байна. …  128 chars
  *
- * One word, «би», dropped. Same instruction, same tenant, same canned row, two consecutive
- * calls — one obeyed and one did not. That is what an unenforced instruction looks like
- * from the outside: mostly fine, and the exceptions are invisible.
+ * One word, «би», dropped.
+ *
+ * The first reading of this compared it against draft 2, which IS byte-exact, and called it
+ * one obeyed and one not. That was wrong, and the `quality_flags` row says so: draft 2 was
+ * refused by the outbound guard (`outbound_price`) and `handoff()` then served the row.
+ * It is byte-exact because the PLATFORM typed it, not the model.
+ *
+ * So the record is worse than the first account, not better: **on the only occasion the
+ * model typed a pinned line itself, it got it wrong.** One sample is one sample — but the
+ * argument for enforcing this never rested on the rate, and an unenforced instruction looks
+ * the same at any rate: mostly fine, exceptions invisible.
  *
  * The damage in THAT instance was small; the line is a refusal either way. The mechanism it
  * defeats is not small. Every customer-visible sentence on this platform rests on the same

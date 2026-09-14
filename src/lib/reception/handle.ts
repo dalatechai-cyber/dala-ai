@@ -375,15 +375,26 @@ export async function handleReception(
   //
   // Four gate blocks tell the model to copy an approved sentence «нэг ч үсэг өөрчлөхгүйгээр»
   // — without changing a single letter — and until 2026-09-14 that was a request with no
-  // check behind it. Matrix's third mirror draft dropped «би» from the handoff line while
-  // the one nine minutes earlier was byte-exact: same instruction, same row, two consecutive
-  // calls, one obeyed. A near-copy is an UNREVIEWED sentence carrying an approved one's
-  // meaning, and `reviewed_at` cannot see it because the gate is on the row, not on what
-  // came back.
+  // check behind it. Matrix's third mirror draft dropped «би» from the handoff line. The
+  // draft nine minutes earlier is byte-exact and is NOT a counter-example: its
+  // `quality_flags` row shows the guard refused the model's text and `handoff()` served the
+  // row, so the platform typed it. On the only occasion the model typed a pinned line
+  // itself, it got it wrong. A near-copy is an UNREVIEWED sentence carrying an approved
+  // one's meaning, and `reviewed_at` cannot see it because the gate is on the row, not on
+  // what came back.
   //
   // This runs BEFORE the outbound guard on purpose. The model's text is discarded either
   // way, so guarding it would be guarding something nobody will send; and the row that
-  // replaces it is reviewed Mongolian that the guard's own allow-list was built around.
+  // replaces it is reviewed Mongolian that the guard's own allow-list was built around —
+  // literally, and it is worth spelling out because it is what makes skipping the guard
+  // sound rather than convenient. `allowedNumbersFrom` runs over the sections whose
+  // `origin` is `tenant`, `renderTenantSections` gives every section that origin, and since
+  // D-058 the canned lines ARE one of those sections. So every numeral in every canned row
+  // is in `allowed_numbers` by construction and a reviewed row cannot fail the numeral
+  // guard. The exception is a snapshot published BEFORE D-058, where the canned section
+  // still lives in the volatile tail and its numerals never reach the allow-list — that
+  // tenant's rows are served unguarded here, exactly as the two short-circuits above
+  // already serve them, so this changes nothing about that case either way.
   //
   // Nothing here EDITS a reply — `handleReception` holds that line and this keeps it. The
   // model's text is thrown away whole and the tenant's own row is served in its place,

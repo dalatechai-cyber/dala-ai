@@ -470,10 +470,13 @@ anybody asks of the corpus.
 **An instruction to the model is a request until something checks it** (2026-09-14, D-065).
 Four gate blocks say «нэг ч үсэг өөрчлөхгүйгээр» — copy this line without changing a single
 letter — and nothing had ever asked whether the model did. Matrix's third mirror draft
-dropped «би» from the handoff line while the draft nine minutes earlier was byte-exact: same
-row, same instruction, two consecutive calls. **A near-copy is an unreviewed sentence
-carrying an approved one's meaning**, and `reviewed_at` cannot see it, because the gate is on
-the row and not on what comes back.
+dropped «би» from the handoff line. The draft nine minutes earlier is byte-exact and is NOT
+a counter-example: its `quality_flags` row shows the outbound guard refused the model's text
+and `handoff()` served the row, so the platform typed that one. **On the only occasion the
+model typed a pinned line itself, it got it wrong** — and note how that correction arrived,
+from a flag nobody had read yet rather than from the reasoning. **A near-copy is an
+unreviewed sentence carrying an approved one's meaning**, and `reviewed_at` cannot see it,
+because the gate is on the row and not on what comes back.
 
 `src/lib/gate/pinned.ts` closes it, and the way it closes it is the part to keep: it does not
 EDIT the reply — that is still forbidden — it discards the model's text whole and serves the

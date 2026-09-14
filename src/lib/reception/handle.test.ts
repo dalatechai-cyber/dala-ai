@@ -683,10 +683,11 @@ const PARAPHRASED: CallOutcome = {
 
 test('DONE-TEST: A PARAPHRASED PINNED LINE IS REPLACED BY THE ROW, AND COUNTED', async () => {
   // Four gate blocks tell the model to copy an approved sentence «нэг ч үсэг өөрчлөхгүйгээр»
-  // and nothing had ever checked that it did. Matrix's third mirror draft dropped one word
-  // while the draft nine minutes earlier was byte-exact — same row, same instruction, two
-  // consecutive calls. A near-copy is an unreviewed sentence with an approved one's meaning,
-  // and `reviewed_at` cannot see it because the gate is on the row, not on what came back.
+  // and nothing had ever checked that it did. Matrix's third mirror draft dropped one word.
+  // The draft nine minutes earlier is byte-exact and is not a counter-example — the guard
+  // refused the model's text there and `handoff()` served the row, so the platform typed it.
+  // A near-copy is an unreviewed sentence with an approved one's meaning, and `reviewed_at`
+  // cannot see it because the gate is on the row, not on what came back.
   const { deps: d, drafts, flags } = deps({ result: PARAPHRASED });
   const r = await handleReception(d, { ...base, customerMessage: 'будаг хэдээр хийх вэ' });
 

@@ -18,12 +18,15 @@ const CANNED: CannedRow[] = [
 
 test('DONE-TEST: THE MEASURED PARAPHRASE — one word dropped from a pinned line', () => {
   // Matrix, 2026-09-14, the third draft the mirror ever produced, nine minutes after the
-  // webhook came back. «би» is gone; 128 characters against the row's 129. The draft nine
-  // minutes earlier was byte-exact — same instruction, same row, two consecutive calls.
+  // webhook came back. «би» is gone; 128 characters against the row's 129.
   //
-  // That is what an unenforced instruction looks like from the outside: mostly fine, and
-  // the exceptions invisible. Every customer-visible sentence on this platform rests on the
-  // same arrangement, and `reviewed_at` cannot see this because the gate is on the row.
+  // The draft nine minutes earlier is byte-exact and is not a counter-example: its
+  // `quality_flags` row shows the outbound guard refused the model's text and `handoff()`
+  // served the row. The platform typed that one. On the ONLY occasion the model typed a
+  // pinned line itself, it got it wrong.
+  //
+  // Every customer-visible sentence on this platform rests on the same arrangement, and
+  // `reviewed_at` cannot see this, because the gate is on the row and not on what came back.
   const drift = 'Уучлаарай, энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та 7741-7777 дугаараар холбогдоно уу.';
   const v = checkPinnedLines(drift, CANNED);
   assert.equal(v.kind, 'paraphrase');
