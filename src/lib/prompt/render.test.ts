@@ -142,3 +142,18 @@ test('the volatile tail is a separate string that never reaches the hash', () =>
   const withRows = renderStablePrefix([L0, L1, L2, L3]);
   assert.equal(withRows.ok && withRows.rendered.promptStable.includes(tail), false);
 });
+
+test('DONE-TEST: A LINK CONTRIBUTES NO APPROVED NUMERALS (D-074)', () => {
+  // Matrix's location went into the prefix on 2026-09-15 and `allowed_numbers` grew from
+  // twelve tokens to thirteen. The thirteenth was `9`, and it came from the slug of
+  // `https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9`. Nobody approved a `9`; a URL did.
+  const section = '- Утас: 7741-7777\n- Байршлын холбоос: https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9';
+  assert.deepEqual(allowedNumbersFrom(section), ['7741-7777']);
+});
+
+test('the numerals around a link are still compiled', () => {
+  assert.deepEqual(
+    allowedNumbersFrom('10:00 - 20:00, https://x.example/7 гэсэн, 33,000'),
+    ['10:00', '20:00', '33,000'],
+  );
+});

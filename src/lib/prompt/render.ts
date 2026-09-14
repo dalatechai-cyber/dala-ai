@@ -33,7 +33,7 @@
  * but ordering.
  */
 import { createHash } from 'node:crypto';
-import { extractNumerals } from '../mn/extract.ts';
+import { extractNumerals, maskUrls } from '../mn/extract.ts';
 import { cpLength, nfc } from '../mn/text.ts';
 
 export type PromptLayer = 'L0' | 'L1' | 'L2' | 'L3';
@@ -185,7 +185,11 @@ export function renderStablePrefix(sections: readonly PromptSection[]): RenderRe
  * trade again, and it is recorded as an open question in V1.md rather than decided here.
  */
 export function allowedNumbersFrom(text: string): string[] {
-  return [...new Set(extractNumerals(text).map((n) => n.raw))].sort();
+  // Links masked first. A URL slug is not an approved numeral, and Matrix's Google Maps
+  // short link put a `9` in this list on 2026-09-15 purely by containing one — see
+  // `maskUrls`. The reply side masks identically, so the two cannot disagree about what
+  // counts as a number.
+  return [...new Set(extractNumerals(maskUrls(text)).map((n) => n.raw))].sort();
 }
 
 /**

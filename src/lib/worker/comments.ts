@@ -20,6 +20,24 @@
  * customer's question on the salon's own wall, permanently, where their other customers
  * are reading.
  *
+ * ## Generate and deliver are two questions, and this file used to ask only one
+ *
+ * `canDeliver` answers both: `shadow` is `{ generate: true, deliver: false }` — decide the
+ * reply, write it down, withhold it — and `off` is false for both. This function read only
+ * `deliver` and returned before drafting, so a mirroring channel produced refusal counters
+ * and no rows.
+ *
+ * That mattered more here than anywhere. The DM path's fourteen withheld days are where
+ * D-066's gate-label leak, D-068's discarded booking reply and D-069's «Хаяг»-over-a-phone
+ * label were found — three defects that no test produced, on the surface where a mistake is
+ * private and recoverable. The public surface, where a mistake is permanent and under the
+ * salon's own post, was the one that could not be rehearsed at all.
+ *
+ * The withhold now sits AFTER `draftOnce` and after the two in-entry counters, so a shadow
+ * run exercises the thread rule and the per-post cap rather than stubbing them: what the
+ * corpus shows is what going live would have done. The row stays `draft` and therefore
+ * claimable, which is the same disposition `worker/reception.ts` gives a withheld DM.
+ *
  * ## Why the reply text is read here and not in the reception context
  *
  * `loadReceptionContext` compiles a prompt snapshot, gate rules, deterministic replies and
@@ -72,8 +90,19 @@ export type CommentJobInput = {
 export type CommentJobResult = {
   /** Public replies actually posted. */
   replied: number;
+  /**
+   * Replies decided and written as `draft`, then withheld because the channel is mirroring.
+   *
+   * Separate from `replied` because the difference is the entire safety of the mirror: a
+   * number here means rows exist on a wall nobody can see, and a number in `replied` means
+   * rows exist on a wall the salon's customers are reading.
+   */
+  drafted: number;
   /** Comments seen and deliberately not answered, by reason. */
-  refused: Partial<Record<CommentRefusal | 'not_delivering' | 'send_failed' | 'indeterminate', number>>;
+  refused: Partial<Record<
+    CommentRefusal | 'not_generating' | 'not_delivering' | 'send_failed' | 'indeterminate',
+    number
+  >>;
   /** Extractor skips — the `feed` firehose, counted so its volume is visible. */
   skipped: string[];
   /** True when something transient failed and the caller must 503. */
@@ -187,19 +216,27 @@ function count(into: CommentJobResult['refused'], key: keyof CommentJobResult['r
 }
 
 export async function runCommentJob(fx: CommentEffects, input: CommentJobInput): Promise<CommentJobResult> {
-  const result: CommentJobResult = { replied: 0, refused: {}, skipped: [], retry: false };
+  const result: CommentJobResult = { replied: 0, drafted: 0, refused: {}, skipped: [], retry: false };
 
   const { comments, skipped } = extractComments(input.rawPayload, input.pageExternalId);
   result.skipped = skipped;
   if (comments.length === 0) return result;
 
-  // The same gate the DM path uses, and it matters more here. During Track 4's mirror the
-  // channel is `shadow`; a public reply then is not a duplicate in a private thread, it is
-  // a second salon voice under the salon's own post.
+  // The same gate the DM path uses, SPLIT the same way — and the split is the whole point.
+  //
+  // `canDeliver('shadow')` answers `{ generate: true, deliver: false }`, and this function
+  // used to read only the second half and return before drafting anything. So a shadowing
+  // channel produced counters and no rows: the fourteen days of withheld drafts that found
+  // D-066's gate-label leak, D-068's thrown-away booking reply and D-069's «Хаяг» label had
+  // no equivalent here at all. The one surface where a mistake is public was the one surface
+  // that could not be rehearsed.
+  //
+  // `off`, `halted` and an unrecognised mode still stop here: nothing is generated for a
+  // channel that cannot receive it, which is what `generate` means.
   const delivery = canDeliver(input.deliveryMode);
-  if (!delivery.deliver) {
-    fx.log('info', 'comments_not_delivering', { tenantId: input.tenantId, detail: delivery.detail });
-    for (const _ of comments) count(result.refused, 'not_delivering');
+  if (!delivery.generate) {
+    fx.log('info', 'comments_not_generating', { tenantId: input.tenantId, detail: delivery.detail });
+    for (const _ of comments) count(result.refused, 'not_generating');
     return result;
   }
 
@@ -293,6 +330,24 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     }
     answeredNow.add(decision.threadId);
     if (drafted.created) postCounts.set(decision.postId, (postCounts.get(decision.postId) ?? 0) + 1);
+
+    // Decided and written down, and deliberately not posted. The row stays `draft`, so the
+    // day the channel goes live it is claimable rather than lost — the same disposition
+    // `worker/reception.ts` gives a withheld DM, and the reason the mirror is worth running:
+    // a draft nobody sent is still a decision somebody can read.
+    //
+    // AFTER `draftOnce` and after the two in-entry counters above, so a shadow run exercises
+    // the thread rule and the per-post cap rather than stubbing them. What the corpus shows
+    // is then what going live would actually have done, which is the only version of it
+    // worth reading.
+    if (!delivery.deliver) {
+      fx.log('info', 'comments_not_delivering', {
+        tenantId: input.tenantId, threadId: decision.threadId, detail: delivery.detail,
+      });
+      count(result.refused, 'not_delivering');
+      result.drafted += 1;
+      continue;
+    }
 
     // Straight to the claim whether or not WE wrote the row, which is what the DM path in
     // `worker/reception.ts` does and for the same reason. A short-circuit on

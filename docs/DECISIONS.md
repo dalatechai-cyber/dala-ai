@@ -5002,3 +5002,244 @@ full bundle misses 60%, and by 0.8 points. What is unresolved is the ceiling: $2
 correct for a standalone sale and 25% above what D-004's floor rule permits. That is a
 pricing call, not an engineering one, and it is the founder's. The row stands at $28.57
 because he set it; this is the note saying which rule it departs from.
+
+---
+
+## D-073 — the public surface could not be rehearsed, and the corpus it will produce is half a corpus
+
+**2026-09-15, founder:** *"I'm not going live on a public surface without the corpus that
+caught D-066 and D-068 on the private one."*
+
+### What was wrong
+
+`canDeliver` has answered two questions since it was written — `shadow` is
+`{ generate: true, deliver: false }`, meaning *decide the reply, write it down, withhold
+it*, and `off` is false for both. `worker/reception.ts` reads both halves and that is
+exactly what produced Matrix's fourteen mirror days.
+
+`runCommentJob` read only `deliver`, and returned **before** `draftOnce`. So a mirroring
+channel produced refusal counters and no rows at all.
+
+Note which surface that left unrehearsed. The DM mirror found D-066's gate-label leak,
+D-068's thrown-away booking reply and D-069's label promising an address over a telephone
+number — **three defects no test produced**, on the surface where a mistake is private,
+one customer sees it, and it can be followed up. The comment surface, where a mistake is
+public, permanent, screenshot-able and under the tenant's own post, had no rehearsal mode
+whatsoever. The capability existed one function call away and was being thrown out by a
+boolean.
+
+### The fix, and where the withhold sits
+
+`!generate` refuses early as before. `!deliver` now sits **after** `draftOnce` and after the
+two in-entry counters that carry the thread rule and the per-post cap, so a shadow run
+exercises those rules rather than stubbing them: what the corpus shows is what going live
+would actually have done, which is the only version worth reading. The row stays `draft` and
+therefore claimable, exactly as a withheld DM does.
+
+### And the part that is NOT solved by this change
+
+**The comment's own text is never persisted anywhere.** `extractComments` returns it,
+`decideCommentReply` deliberately never receives it — that is the feature's whole safety
+argument — and no layer in between writes it down. There is no `messages` row for a comment
+and no equivalent table.
+
+So the only place a customer's comment exists in words is `webhook_events.raw_payload`, and
+`ops.purge_expired` nulls that past the tenant's `retention_days_raw_events`, which is **7**
+for both tenants, deleting the row entirely at 30 days. The purge runs hourly.
+
+**A fourteen-day comment mirror therefore records what we would have SAID for ever, and what
+they SAID for seven days.** The draft rows carry the reply body, the post id and the thread
+id permanently; the questions that produced them age out halfway through the window.
+
+That asymmetry is fine for validating the machinery — the thread rule, the per-post cap, the
+loop filters, the volume of the `feed` firehose are all visible in rows and counters. It is
+not fine for the decision the mirror is being run to inform. **Option B — gate on intent,
+reply with the fixed line — is a judgement about which comments deserve an answer, and that
+judgement can only be made against the comments themselves.**
+
+Three ways out, none taken here:
+
+1. **Raise `retention_days_raw_events`.** One row, immediate, and it caps at 30 by its own
+   constraint — so even the maximum only just covers a fourteen-day window plus reading time.
+   It is a retention decision about a third party's customers' content and it is the
+   founder's.
+2. **Persist the comment text beside the decision.** The honest fix and a schema change,
+   which means a migration, which the founder pushes. It also means deciding what a comment
+   is in this data model, which is a real design question and not a column.
+3. **Accept seven days as the sample.** Plausible: comment volume is entirely unmeasured —
+   zero `feed` entries have ever reached this platform — so seven days may be more than
+   enough, and may equally be nothing at all. That is not knowable in advance, which is an
+   argument for (1) as cheap insurance rather than for (3) as a plan.
+
+### What still gates the mirror starting
+
+The split makes shadow possible; it does not make it happen. In order: App Review for
+`pages_read_user_content` + `pages_manage_engagement`, the Page subscribed to `feed`,
+`comment_policy` set to `public_only`, and **a reviewed `comment_public_reply` row** — Matrix
+has eleven canned kinds and that is not one of them, so until the founder writes it every
+comment refuses `no_reviewed_line` and the mirror drafts nothing. `delivery_mode` stays
+`shadow` throughout, which is now a meaningful state on this path rather than an alias for
+off.
+
+---
+
+## D-074 — a URL slug became an approved price, and two bugs hid each other
+
+**2026-09-15, found on a routine check-in after the founder republished Matrix.**
+
+Revision seq 4 went live at 19:46 UTC carrying the Maps link. `allowed_numbers` grew from
+**twelve tokens to thirteen**, and the thirteenth is **`9`**.
+
+It came from the slug of `https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9`. `allowedNumbersFrom`
+extracted numerals from the whole rendered section text, links included, so a URL widened
+the list of numbers the model is permitted to say. Nobody approved a `9`.
+
+### The half that makes it interesting
+
+A reply QUOTING that link carries the same `9`. So check 2 of the outbound guard saw a
+numeral in the reply — and passed it, **because the allow-list had been widened by the very
+same slug**. Two defects, exactly cancelling.
+
+That is worth stating as a rule, because it is how both would have survived a review: **a
+bug that only manifests when its twin is fixed is invisible to any test of either.** Remove
+the allow-list leak alone and every reply quoting the salon's own location starts being
+refused as an invented price — which is D-068's shape a third time, and D-071's second:
+a reply punished for using the tenant's own approved data. I would have caused it.
+
+### And one half was already broken, with nothing to cancel it
+
+Check **2b** is handed an EMPTY allow-list on a refused topic, deliberately — on a topic Ш1
+forbids quoting a price for, no provenance rescues a numeral. So no accidental widening
+could ever have helped it: quoting the location in a reply about children's services was
+refused as `outbound_refused_topic_price`. A map link read as a price. That one was live
+from the moment the link entered the prefix, and `quality_flags` would have filed it under
+price, sending a reader to the allow-list for a defect that has nothing to do with numerals
+— exactly the misattribution D-066 is named for.
+
+### The rule, stated once and applied to every side
+
+**A URL is validated as a URL, and its characters are never content.** `urlsNotAllowed`
+permits the tenant's declared links and refuses all others, whole; nothing downstream reads
+their digits. `maskUrls` implements it and is applied in three places — the compiler's
+`allowedNumbersFrom`, the guard's reply check (covering both 2 and 2b), and the customer-echo
+set, because a customer who pastes a link has not approved the digits in its slug either.
+
+Masking to a SPACE rather than to the empty string: splicing the text either side of a link
+together would manufacture a numeral that was never written, which is the mistake
+`disclosesPrompt` documents about its own corpus. Same trap, third file.
+
+### What this does not change
+
+The price guarantee's footing is untouched. It still rests on `extractNumerals`' digits-only
+reduction and on the comparison being an exact match rather than a substring test — `20` does
+not license `20,000`, `7741-7777` does not license a bare `7741`. This removes a numeral that
+was never a tenant fact; it loosens nothing. The one behaviour it restores is a reply's right
+to quote a link the tenant declared.
+
+### It is not live until the next publish
+
+`allowed_numbers` is compiled, so seq 4 still carries the `9` and will until Matrix is
+republished. That republish is also owed for a separate reason — see below — so one run
+clears both.
+
+### The republish that produced this also missed the labels, and the instruction was wrong
+
+Seq 4 carries the Maps link and **not** the Mongolian contact labels: the prefix still reads
+`- phone: 7741-7777`, and `- Утас:` and `- Байршлын холбоос:` are absent. +54 characters is
+exactly a `- maps_url: <url>` line with the English key.
+
+The cause is that `scripts/publish/tenant.ts` **runs on the founder's own machine and imports
+from his checkout**. The instruction given was "deploy the code, then republish", which is
+right about the runtime guard — `urlsNotAllowed` must be serving the widened allow-list
+before the prefix can carry a link it would refuse — and silently wrong about the compiler,
+which is local. A publish renders with whatever `src/` the operator has, not with what
+Vercel is serving.
+
+**So the correct order has three steps, not two: deploy, `git pull`, publish.** Recorded
+here because the two-step version reads as complete and is the kind of instruction that gets
+followed exactly.
+
+---
+
+## D-075 — prices leave the model's reach, and the matcher measures what that costs
+
+**2026-09-15, founder's call after D-074's service-binding gap.**
+
+D-074 left a question rather than a fix: `allowed_numbers` is a SET, so the guard checks
+that a numeral is on the tenant's list and never that it belongs to the service under
+discussion. «Омбре 33,000₮» — a 500,000–640,000 service at a haircut's price — passes every
+check. A real price against the wrong service is more plausible to a customer than an
+invented one, and therefore worse.
+
+**Decided: prices never enter `allowed_numbers`, and never enter the prefix.** The model
+keeps the job it is good at — recognising which service a customer is asking about — and the
+platform serves the price line from the row, exactly as `gate/pinned.ts` discards the
+model's text and serves a reviewed row's own bytes (D-065). The guard is unchanged and
+still refuses every price numeral, so the two stop competing: a wrong price becomes
+inexpressible rather than checked.
+
+This is not an invention. `0001` says it above `service_variants`, and has since the schema
+was written: *`none` means there is no price and the compiler emits the service name plus a
+bound refusal and NO NUMBER ANYWHERE — a price that is not in the prompt cannot be quoted,
+which is stronger than any rule forbidding it.* The mechanism was designed, written down,
+and never built.
+
+Rejected: teaching the guard the pairing. It needs a migration (`allowed_numbers` is
+`text[]`), a matcher that does not exist, and it **fails hardest where the list collides** —
+for «Сор» the relational check degrades to the union of both services' tokens, which is the
+flat allow-list again. Paying for structure and getting no protection on the two cases that
+motivated it.
+
+### Step 1, built: the matcher
+
+`src/lib/services/match.ts`, plus `scripts/seed/matrix-service-aliases.sql`. No prices, no
+Mongolian, no rendering — it returns a service id and a verdict.
+
+The rule is **every token must occur, most specific wins**. Matching on ANY token makes
+«Сор» and «Оффис колор /Сор/» permanently indistinguishable, because the first name's only
+token is a subset of the second's. Requiring all tokens separates them, and
+most-specific-wins is `0018`'s selection applied to names instead of prompt blocks.
+Ambiguity is a VERDICT, never a tie broken silently: a confident wrong service is the exact
+failure the mechanism exists to prevent.
+
+### What it measured
+
+**«Сор» cannot be separated in the direction that matters, and no row repairs it.**
+Mechanically the rule works — «сортой будаг» reaches only «Сор», «оффис колор сор» reaches
+«Оффис колор /Сор/». But the separation only ever fires on the word «оффис», which is the
+case that was never ambiguous. A customer naming only «сор» is unresolvable, and that is
+the **one instance in the corpus**: «Эмэгтэй сортой будаг хийлгэх гэсийн», 2026-09-14
+08:48:29. Right answer 120,000–190,000 or 380,000–460,000, 3.2× apart, and nothing in the
+message decides it. **The repair is a rename, upstream, by the salon.**
+
+**The three CICA names DO separate, at two tokens or more.** «cica эмчилгээ» → «CICA
+эмчилгээ»; «CICA нөхөн сэргээх эмчилгээ» → itself; «хими эмэгтэй cica» → «Хими эмэгтэй /
+CICA». Bare «cica» reaches none of the three, which is the safe answer. The caveat is not
+the matcher's: one of the three is the row the salon may say does not exist, and the
+matcher will route to it confidently.
+
+**A one-token match on a short stem is not evidence.** `mn/match.ts` accepts over-matching
+by design, and «Сор» is a three-character one-token name. Measured: «сорри» — a customer
+apologising — reaches the service, as do «соронз», «сорил» and «сорох». So the caller needs
+a specificity floor; at two tokens the corpus's one Сор instance correctly becomes *ask*
+rather than a 3.2× underquote. That floor belongs above the matcher, which reports the
+token count for exactly this reason.
+
+**A collision nobody had asked about.** `subsetCollisions` found a third:
+«Тэжээл» (44,000–88,000) is a subset of «CMC тэжээл» (132,000). Same shape as «Сор», same
+lack of repair, and it was not in the two the founder flagged — which is the argument for
+the check existing rather than the pair being handled by hand.
+
+**And a canonical name whose qualifier customers do not say.** «Оффис колор /Сор/» requires
+«сор» as a token, so the natural «оффис колор» reaches NOTHING until an alias says so. That
+is what alias rows are for, and it is the strongest argument in the file for having them.
+
+### Why the seed is not applied
+
+The `services` table's eight rows and the confirmed price list **disagree about the names**,
+and an alias points at a `service_id`. Four match exactly (Афро хими, Омбре, Сор, Шулуун
+хими); «Office өнгө» is «Оффис колор /Сор/» on the list; «CMC тос» is «CMC тэжээл»; «CICA
+эмчилгээ» is neither CICA entry; and «Эмчилгээний хими» is on the list nowhere and is
+nearest to the name the salon said does not exist. A rename or a delete moves the id the
+alias would point at, so section 2 of the seed is held — for that reason, and not because
+the spellings are in doubt.

@@ -35,7 +35,7 @@
  */
 import { ALWAYS_ON_GATES } from '../../config/platform.ts';
 import { matchesStemSequence } from '../mn/match.ts';
-import { containsPercentage, extractNumerals, numeralsNotAllowed, urlsNotAllowed } from '../mn/extract.ts';
+import { containsPercentage, extractNumerals, maskUrls, numeralsNotAllowed, urlsNotAllowed } from '../mn/extract.ts';
 import { cpLength, fold, nfc, scriptShare } from '../mn/text.ts';
 
 /** A boundary-gate key, `Ш0`–`Ш9`. Platform scaffold, so the ids are stable. */
@@ -384,7 +384,10 @@ export function outboundGuard(
   //    What this does NOT relax: a numeral in neither set is still refused, so the model
   //    cannot invent a price, a phone number or an opening hour. And 2b below is
   //    deliberately not given the echo set — see there.
-  const echoed = extractNumerals(ctx.customerText).map((n) => n.raw);
+  // Masked on this side too: a customer who pastes a link has not thereby approved the
+  // digits in its slug, and the echo set must be produced by the same rule the reply is
+  // measured against or the two silently disagree about what a numeral is.
+  const echoed = extractNumerals(maskUrls(ctx.customerText)).map((n) => n.raw);
   const badNumbers = numeralsNotAllowed(text, [...tenant.allowedNumbers, ...echoed]);
   if (badNumbers.length > 0) {
     return refuse('outbound_price', `numeral neither compiled nor stated by the customer: ${badNumbers.join(', ')}`);

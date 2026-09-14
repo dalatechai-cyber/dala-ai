@@ -771,6 +771,64 @@ ceiling was set to **$28.57**, which is 60% of LIST, where D-004's floor rule gi
 A bundled Reception at a $28.57 ceiling runs at 50% margin. The founder set it knowing the
 list figure; the departure from the floor rule is flagged, not resolved.
 
+**A URL slug became an approved price, and its twin bug hid it** (2026-09-15, D-074).
+Matrix's Maps link `…/fHaBVwc9mFZJxYAJ9` contains a `9`; `allowedNumbersFrom` read numerals
+out of the whole rendered section, links included, so `allowed_numbers` went from twelve
+tokens to thirteen and the model gained permission to say `9`. A reply quoting that link
+carries the same `9` — and passed check 2 **only because the allow-list had been widened by
+the very same slug**. Two defects exactly cancelling, which is the part to carry: **a bug
+that only manifests when its twin is fixed is invisible to any test of either.** Fixing the
+allow-list alone would have started refusing replies that quote the salon's own location —
+D-068's shape a third time.
+
+Check **2b** had no twin to save it: it is handed an EMPTY allow-list on a refused topic, so
+quoting the location on a children's-services question was refused as
+`outbound_refused_topic_price` from the moment the link entered the prefix — and filed under
+price, sending a reader to the allow-list for a defect about neither.
+
+The rule now: **a URL is validated as a URL and its characters are never content.**
+`maskUrls` is applied in the compiler's `allowedNumbersFrom`, in the guard's reply check
+(covering 2 and 2b) and in the customer-echo set. Masking to a SPACE, never to nothing:
+splicing the sides together manufactures a numeral nobody wrote — `disclosesPrompt`'s own
+lesson, third file. The digits-only reduction is untouched; this removes a numeral that was
+never a tenant fact.
+
+**`scripts/publish/tenant.ts` runs on the operator's machine and renders with THEIR
+checkout.** The instruction "deploy, then republish" is right about the runtime guard and
+silently wrong about the compiler: Matrix's seq 4 carries the Maps link and not the Mongolian
+labels, because the publish ran against pre-merge local code. **Deploy, `git pull`, publish
+— three steps.**
+
+**Prices never enter `allowed_numbers` and never enter the prefix** (2026-09-15, D-075,
+founder's call). `allowed_numbers` is a SET, so the guard checks that a numeral is on the
+tenant's list and never that it belongs to the service being discussed: «Омбре 33,000₮» — a
+500,000–640,000 service at a haircut's price — passes every check, and a real price against
+the wrong service is more plausible than an invented one. The model recognises WHICH service;
+the platform serves the price from the row, as `gate/pinned.ts` serves a reviewed row's bytes.
+`0001` said this above `service_variants` all along — *a price that is not in the prompt
+cannot be quoted, which is stronger than any rule forbidding it* — and it was never built.
+
+`src/lib/services/match.ts` is step 1, and `service_aliases` finally has a reader after
+existing since `0001` with zero rows. The rule is **every token must occur, most specific
+wins**: matching on ANY token leaves «Сор» and «Оффис колор /Сор/» permanently
+indistinguishable, since the first name's only token is a subset of the second's. Ambiguity
+is a VERDICT, never a tie broken silently.
+
+What it measured, and the answers are not symmetrical. **«Сор» cannot be separated in the
+direction that matters** — the rule only ever fires on «оффис», which was never the
+ambiguous case, and the corpus's one instance («Эмэгтэй сортой будаг хийлгэх гэсийн») is
+unresolvable between prices 3.2× apart. **The repair is a rename by the salon, not a row.**
+**The three CICA names DO separate at two tokens or more**, and bare «cica» safely reaches
+none. **A one-token match on a short stem is not evidence**: «сорри» — a customer
+apologising — reaches «Сор», so a specificity floor belongs above the matcher, which
+reports the token count for that purpose. `subsetCollisions` then found a third pair nobody
+had asked about, «Тэжээл» ⊂ «CMC тэжээл», 44,000–88,000 against 132,000.
+
+**The `services` rows and the confirmed price list disagree about the names**, which is why
+the alias seed is held rather than applied: an alias points at a `service_id`, and four of
+the eight rows are renamed or absent on the list — «Эмчилгээний хими» is nearest to the name
+the salon said does not exist. Settle the names before seeding rows that point at them.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

@@ -500,6 +500,14 @@ a callback path, not Meta's name for an app — worth knowing before reading eit
 
 ### The comments track — parallel, and nothing else waits on it
 
+**The mirror is possible as of 2026-09-15** (D-073): `runCommentJob` read only
+`delivery.deliver` and returned before drafting, so a shadow channel produced counters and
+no rows — the one surface where a mistake is public was the one that could not be rehearsed.
+It drafts and withholds now, like the DM path. **Caveat worth reading before relying on it:**
+a comment's own text is persisted nowhere but `webhook_events.raw_payload`, nulled at
+`retention_days_raw_events` = **7 days**. The mirror records what we would have said for
+ever and what they said for a week.
+
 | # | Supply | Note |
 |---|---|---|
 | 10 | **App Review for `pages_read_user_content` + `pages_manage_engagement`** | Those two only. Meta makes the second *depend* on the first, so a submission naming only `pages_manage_engagement` is incomplete. Business Verification is implied done — Advanced Access cannot exist without it — which is the multi-week half already behind you |
