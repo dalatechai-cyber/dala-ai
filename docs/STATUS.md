@@ -353,6 +353,18 @@ the sweep have now read real rows once, on one channel, with one live tenant.
   an unconfirmed deterministic reply is withheld and the model answers instead, and an
   unconfirmed refusal still fires and is counted into `quality_flags`.
 
+- **`deterministic_replies` has ZERO rows, for both tenants, and always has** (measured
+  against the project 2026-09-14). The loader, the two match modes, `requires_empty_history`,
+  the provenance check and the short-circuit in `handleReception` are all built and are
+  exercised only by tests: **the path has never answered a real message.** So every greeting
+  goes to Sonnet. Measured on Matrix's first real «hello» — **$0.039978**, the most expensive
+  of that morning's three turns because it wrote the 9,738-token cache — and it came back as
+  Mongolian nobody had reviewed, three of its four sentences absent from the published prefix.
+  A greeting is the most predictable message a salon receives and it is the one this platform
+  spends the most on and reviews the least. The fix is one row per tenant and the row's
+  wording is a customer-visible Mongolian string, so it waits for the founder rather than for
+  code.
+
 ---
 
 ## 5. The ordered list — what you supply to get one real message
