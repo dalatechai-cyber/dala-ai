@@ -195,3 +195,57 @@ test('findStem reports both UTF-16 and code-point offsets, and they differ acros
   assert.equal(hit?.start, 3, 'UTF-16: the emoji is two units, plus a space');
   assert.equal(hit?.startCp, 2, 'code points: the emoji is one character, plus a space');
 });
+
+// ---------------------------------------------------------------------------
+// D-067. This block asserts a GAP, not a guarantee.
+// ---------------------------------------------------------------------------
+
+test('D-067 GAP: Mongolian written in LATIN letters matches no Cyrillic stem', () => {
+  // IF YOU ARE HERE BECAUSE THIS FAILED: you have closed D-067 by teaching something to
+  // transliterate. That is the intended direction — delete this block and read the
+  // decision, which sets out what has to be decided first (which romanisations to accept,
+  // and how not to fire refusals on ordinary English words).
+  //
+  // Until then this is the honest record of what the matching layer can see. Two of the
+  // mirror's first three real customer messages were Latin script, so it is not a corner.
+  assert.equal(containsStem('бүтэн будалт хийлгэнэ', 'бүтэн'), true, 'Cyrillic: fires');
+  assert.equal(containsStem('buten budalt hiilgene', 'бүтэн'), false, 'the SAME words in Latin: silent');
+
+  // The one that matters. Matrix does not do children's hair; the founder approved the
+  // out_of_scope row by hand. It does not fire for the Latin spelling, so no refusal is in
+  // play and the model answers the question.
+  assert.equal(containsStem('хүүхдийн үс засуулна', 'хүүхд'), true);
+  assert.equal(containsStem('huuhdiin us zasuulna', 'хүүхд'), false, "the children's rule is silent in Latin");
+
+  // Not a case-folding problem — folding works. It is a script problem.
+  assert.equal(containsStem('Хүүхдийн', 'хүүхд'), true, 'folding is fine');
+
+  // whole_message is the same, so a deterministic reply keyed on a greeting misses too.
+  assert.equal(wholeMessageMatches('сайн байна уу', ['сайн байна уу']), true);
+  assert.equal(wholeMessageMatches('sain baina uu', ['сайн байна уу']), false);
+});
+
+test('D-067 THE FIX: the matcher is script-agnostic, so a LATIN stem needs no code', () => {
+  // The half that makes the gap above a provisioning question rather than an architectural
+  // one. `containsStem` is a Unicode token-prefix match and does not care which script the
+  // stem is written in, so a tenant that stores `huuhd` beside `хүүхд` is covered today.
+  //
+  // The ancestor is what pointed at this: Matrix-Chatbot's one customer-text matcher is
+  // /^(сайн|байна|уу|hi|hello|hey)/i — it LISTS the Latin forms rather than transliterating.
+  assert.equal(containsStem('huuhdiin us zasuulna', 'huuhd'), true);
+  assert.equal(containsStem('Huuhdiin Us Zasuulna', 'huuhd'), true, 'ASCII case folds');
+  assert.equal(containsStem('manai huuhduud', 'huuhd'), true, 'prefix catches inflections, as in Cyrillic');
+  assert.equal(containsStem('buten budalt hiilgene', 'buten'), true, 'the real mirror message');
+
+  // And it degrades the way the Cyrillic side already does, rather than over-matching.
+  assert.equal(containsStem('hүүхдийн', 'huuhd'), false, 'mixed script is not a hit');
+  assert.equal(containsStem('minii huuhed', 'huuhd'), false, 'the token-PREFIX rule still holds');
+  assert.equal(containsStem('хүүхдийн үс', 'huuhd'), false, 'a Latin stem does not reach Cyrillic text');
+
+  // Listing both spellings is all a whole_message rule needs, too.
+  const both = ['сайн байна уу', 'sain baina uu', 'hello'];
+  assert.equal(wholeMessageMatches('Сайн байна уу?', both), true);
+  assert.equal(wholeMessageMatches('sain baina uu', both), true);
+  assert.equal(wholeMessageMatches('Hello', both), true);
+  assert.equal(wholeMessageMatches('hola', both), false);
+});

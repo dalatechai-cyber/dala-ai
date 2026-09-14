@@ -1,9 +1,9 @@
 -- The mirror's corpus: what customers asked, and what Ара drafted.
 --
--- Read-only. Four SELECTs — a per-turn transcript, a provenance summary, the quality
--- flags, and a sentence-by-sentence read of whose words each draft is — meant to be run
--- against the project with psql, or one at a time through whatever read-only client is to
--- hand.
+-- Read-only. Six SELECTs — a per-turn transcript, a provenance summary, the quality flags,
+-- a sentence-by-sentence read of whose words each draft is, and two on the SCRIPT the
+-- customer wrote in — meant to be run against the project with psql, or one at a time
+-- through whatever read-only client is to hand.
 --
 -- ## Why this is a file rather than a query somebody retypes
 --
@@ -152,6 +152,67 @@ select
 from prefixed p, lateral regexp_split_to_table(p.body, '[.!?]') as s
 where trim(s) <> ''
 order by p.created_at, origin, sentence;
+
+
+-- 5. WHICH SCRIPT DID THE CUSTOMER WRITE IN? (D-067)
+--
+--    Two queries, and together they answer the one question D-067 leaves with the founder:
+--    WHICH LATIN SPELLINGS DO THIS TENANT'S CUSTOMERS ACTUALLY USE? That is a data question
+--    with a data answer, and the corpus is the only place the answer exists.
+--
+--    Why it matters: a Cyrillic stem cannot match Latin text, so for a Latin-script message
+--    no disclosure rule and no out-of-scope topic fires and the model answers unrefused —
+--    including the children's-services rule the founder approved by hand. The fix needs no
+--    code (`containsStem` is a Unicode token-prefix match and does not care which script a
+--    stem is in), so a tenant that stores `huuhd` beside `хүүхд` is covered. These queries
+--    say which spellings are worth storing.
+--
+--    On the first reading, 2026-09-14: two of three inbound messages were Latin — 66.7%.
+--    Three messages is not a rate. Re-read it as the corpus grows; that number is the whole
+--    argument for doing anything about this at all.
+--
+--    NOTE on `[A-Za-z]`, which CLAUDE.md rule 6 would normally forbid: rule 6 is about
+--    matchers over user text that DRIVE BEHAVIOUR, where an ASCII class silently mis-handles
+--    Cyrillic. Here detecting Latin is the entire purpose and nothing downstream acts on it —
+--    it is a report for a person to read. Do not copy this class into `src/`.
+
+-- 5a. The proportion.
+with scripted as (
+  select case
+    when m.body ~ '[А-Яа-яЁёӨөҮү]' and m.body ~ '[A-Za-z]' then 'mixed'
+    when m.body ~ '[А-Яа-яЁёӨөҮү]'                          then 'cyrillic'
+    when m.body ~ '[A-Za-z]'                                then 'latin'
+    else 'neither' end as script
+  from messages m
+  join tenants t on t.id = m.tenant_id
+  where t.slug = :'tenant' and m.direction = 'inbound'
+    and m.at >= now() - (:'hours' || ' hours')::interval
+)
+select
+  script,
+  count(*)                                                  as messages,
+  round(100.0 * count(*) / nullif(sum(count(*)) over (), 0), 1) as pct
+from scripted
+group by script
+order by messages desc;
+
+-- 5b. The messages themselves — the candidate spellings, in the customer's own words.
+--     Read this to decide what goes in `stems`. A Latin message that a gate SHOULD have
+--     refused is the highest-value row in the whole corpus.
+select
+  to_char(m.at, 'MM-DD HH24:MI')      as at,
+  case
+    when m.body ~ '[А-Яа-яЁёӨөҮү]' and m.body ~ '[A-Za-z]' then 'MIXED'
+    when m.body ~ '[A-Za-z]'                                then 'LATIN'
+    else 'cyrillic' end               as script,
+  coalesce(m.answered_by, '(unanswered)') as answered_by,
+  m.body                              as customer
+from messages m
+join tenants t on t.id = m.tenant_id
+where t.slug = :'tenant' and m.direction = 'inbound'
+  and m.at >= now() - (:'hours' || ' hours')::interval
+  and m.body ~ '[A-Za-z]'
+order by m.at;
 
 
 -- Run it:

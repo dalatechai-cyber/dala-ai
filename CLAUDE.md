@@ -561,6 +561,34 @@ posts the bytes of one reviewed `canned_responses` row and refuses when there is
 there is no model output there to guard. It stops being correct the day anything generates a
 comment reply, where a leak would land on the salon's public wall.
 
+**A customer writing Mongolian in LATIN letters fires no gate at all** (2026-09-14, D-067).
+Two of the mirror's first three real messages were Latin script. `fold()` is
+`nfc(s).toLocaleLowerCase('mn-MN')` and nothing transliterates, so a Cyrillic stem cannot
+match Latin text — proven by execution: `containsStem('huuhdiin us zasuulna', 'хүүхд')` is
+**false** while the Cyrillic form is true. Both `matchRules` and `matchDeterministic` go
+through it, so for such a message no disclosure rule and no out-of-scope topic fires,
+`refusedTopicBlocksPrice` is false, and the model answers unrefused. **The children's-services
+rule the founder approved by hand does not fire for «huuhdiin».** The outbound guard is
+unaffected — its numeral, URL, phrasing, script-share and gate-label checks are properties of
+the reply — so a price still cannot be invented; what is lost is the topic layer above them.
+
+**The fix is ROWS, not code**, and the ancestor is what showed it: `Matrix-Chatbot`'s one
+customer-text matcher reads `/^(сайн|байна|уу|hi|hello|hey)/i` — it LISTS the Latin forms
+rather than transliterating. `containsStem` is already script-agnostic (a Unicode token-prefix
+match), so a tenant storing `huuhd` beside `хүүхд` is covered today with no code change:
+`containsStem('huuhdiin us zasuulna','huuhd')` is true, `'manai huuhduud'` matches by prefix,
+mixed script does not, and the token rule still holds. No transliteration engine to design, no
+romanisation standard to adopt — "client #3 fills in a config, not writes code" applying as
+intended. What is left for the founder is a DATA question: which Latin spellings Matrix's
+customers actually use, answerable from the corpus. Stems are not customer-visible strings, so
+they are not gated on the reading evening.
+
+**And note the error that first framing was**: a claim about what a fix would require, made
+without checking whether the existing mechanism already did it. Reading `fold()` proved Latin
+text matches no CYRILLIC stem — true — and that went straight to "therefore transliteration",
+never asking whether a LATIN stem works. One line to test, tested only after the ancestor
+suggested it.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale
