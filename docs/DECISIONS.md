@@ -5158,3 +5158,88 @@ Vercel is serving.
 **So the correct order has three steps, not two: deploy, `git pull`, publish.** Recorded
 here because the two-step version reads as complete and is the kind of instruction that gets
 followed exactly.
+
+---
+
+## D-075 — prices leave the model's reach, and the matcher measures what that costs
+
+**2026-09-15, founder's call after D-074's service-binding gap.**
+
+D-074 left a question rather than a fix: `allowed_numbers` is a SET, so the guard checks
+that a numeral is on the tenant's list and never that it belongs to the service under
+discussion. «Омбре 33,000₮» — a 500,000–640,000 service at a haircut's price — passes every
+check. A real price against the wrong service is more plausible to a customer than an
+invented one, and therefore worse.
+
+**Decided: prices never enter `allowed_numbers`, and never enter the prefix.** The model
+keeps the job it is good at — recognising which service a customer is asking about — and the
+platform serves the price line from the row, exactly as `gate/pinned.ts` discards the
+model's text and serves a reviewed row's own bytes (D-065). The guard is unchanged and
+still refuses every price numeral, so the two stop competing: a wrong price becomes
+inexpressible rather than checked.
+
+This is not an invention. `0001` says it above `service_variants`, and has since the schema
+was written: *`none` means there is no price and the compiler emits the service name plus a
+bound refusal and NO NUMBER ANYWHERE — a price that is not in the prompt cannot be quoted,
+which is stronger than any rule forbidding it.* The mechanism was designed, written down,
+and never built.
+
+Rejected: teaching the guard the pairing. It needs a migration (`allowed_numbers` is
+`text[]`), a matcher that does not exist, and it **fails hardest where the list collides** —
+for «Сор» the relational check degrades to the union of both services' tokens, which is the
+flat allow-list again. Paying for structure and getting no protection on the two cases that
+motivated it.
+
+### Step 1, built: the matcher
+
+`src/lib/services/match.ts`, plus `scripts/seed/matrix-service-aliases.sql`. No prices, no
+Mongolian, no rendering — it returns a service id and a verdict.
+
+The rule is **every token must occur, most specific wins**. Matching on ANY token makes
+«Сор» and «Оффис колор /Сор/» permanently indistinguishable, because the first name's only
+token is a subset of the second's. Requiring all tokens separates them, and
+most-specific-wins is `0018`'s selection applied to names instead of prompt blocks.
+Ambiguity is a VERDICT, never a tie broken silently: a confident wrong service is the exact
+failure the mechanism exists to prevent.
+
+### What it measured
+
+**«Сор» cannot be separated in the direction that matters, and no row repairs it.**
+Mechanically the rule works — «сортой будаг» reaches only «Сор», «оффис колор сор» reaches
+«Оффис колор /Сор/». But the separation only ever fires on the word «оффис», which is the
+case that was never ambiguous. A customer naming only «сор» is unresolvable, and that is
+the **one instance in the corpus**: «Эмэгтэй сортой будаг хийлгэх гэсийн», 2026-09-14
+08:48:29. Right answer 120,000–190,000 or 380,000–460,000, 3.2× apart, and nothing in the
+message decides it. **The repair is a rename, upstream, by the salon.**
+
+**The three CICA names DO separate, at two tokens or more.** «cica эмчилгээ» → «CICA
+эмчилгээ»; «CICA нөхөн сэргээх эмчилгээ» → itself; «хими эмэгтэй cica» → «Хими эмэгтэй /
+CICA». Bare «cica» reaches none of the three, which is the safe answer. The caveat is not
+the matcher's: one of the three is the row the salon may say does not exist, and the
+matcher will route to it confidently.
+
+**A one-token match on a short stem is not evidence.** `mn/match.ts` accepts over-matching
+by design, and «Сор» is a three-character one-token name. Measured: «сорри» — a customer
+apologising — reaches the service, as do «соронз», «сорил» and «сорох». So the caller needs
+a specificity floor; at two tokens the corpus's one Сор instance correctly becomes *ask*
+rather than a 3.2× underquote. That floor belongs above the matcher, which reports the
+token count for exactly this reason.
+
+**A collision nobody had asked about.** `subsetCollisions` found a third:
+«Тэжээл» (44,000–88,000) is a subset of «CMC тэжээл» (132,000). Same shape as «Сор», same
+lack of repair, and it was not in the two the founder flagged — which is the argument for
+the check existing rather than the pair being handled by hand.
+
+**And a canonical name whose qualifier customers do not say.** «Оффис колор /Сор/» requires
+«сор» as a token, so the natural «оффис колор» reaches NOTHING until an alias says so. That
+is what alias rows are for, and it is the strongest argument in the file for having them.
+
+### Why the seed is not applied
+
+The `services` table's eight rows and the confirmed price list **disagree about the names**,
+and an alias points at a `service_id`. Four match exactly (Афро хими, Омбре, Сор, Шулуун
+хими); «Office өнгө» is «Оффис колор /Сор/» on the list; «CMC тос» is «CMC тэжээл»; «CICA
+эмчилгээ» is neither CICA entry; and «Эмчилгээний хими» is on the list nowhere and is
+nearest to the name the salon said does not exist. A rename or a delete moves the id the
+alias would point at, so section 2 of the seed is held — for that reason, and not because
+the spellings are in doubt.
