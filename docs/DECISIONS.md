@@ -3736,3 +3736,135 @@ deliver nothing if the Page grant was revoked. Both halves, every time.
 The alert. The founder's instruction was explicit — *it was the only thing that noticed* —
 and nothing here changes when it fires, what it dedups on, or its threshold. What changed
 is one sentence it prints, from a claim that was false to one that is true.
+
+---
+
+## D-063 — an alert says where it goes and whether it may speak again
+
+**2026-09-14, on the founder's instruction after the eleven days of D-062.** The words that
+set the requirement: *I'm getting the same health alert every day and it's training me to
+ignore Telegram.*
+
+### The measurement
+
+`alerts` held eleven rows. Ten of them were one condition.
+
+| kind | severity | fired | span | delivered |
+|---|---|---|---|---|
+| `channel.no_webhooks` | critical | 7 | 2026-09-08 → 2026-09-13 | 6 |
+| `channel.unknown` | warn | 1 | 2026-09-06 | 1 |
+| `secret.undecryptable` | critical | 1 | 2026-09-06 | 1 |
+| `webhook.stranded_event` | critical | 1 | 2026-09-06 | 1 |
+
+So this was never "alerting is chatty". It was **one dedup-key shape**:
+`channel_silence:{channel}:{state}:{localDate}`, where the date made tomorrow a new alert
+about yesterday's unchanged fact. Everything else in the table had fired once and stopped.
+
+The cost is not just annoyance, and the founder named that too: the same Telegram chat
+carries `dalatech-online`'s demo-request notifications — `api/demo-request.js`, outside this
+repository, nothing here to build. A health alarm nobody reads is burying the only messages
+with a customer on the other end.
+
+### The shape of the mistake, because it is one this repo has made before in both directions
+
+The dated key was itself a fix. `spend/periods.ts` had argued that a period belongs in a
+dedup key, so a ceiling reached again tomorrow is a new ceiling rather than suppressed for
+ever — which is right, for a ceiling. The watchdog copied it. Then the day was moved from
+UTC to the tenant's clock, because a channel silent across a Ulaanbaatar morning raised two
+alerts for one trading day (the UTC day rolls at 08:00 local, an hour before a salon opens).
+
+**That correction was right about the boundary and wrong about there being a boundary.** A
+ceiling and a dead channel are different kinds of fact: one recurs, the other persists. The
+key had been tuned twice without anybody asking which kind it was describing.
+
+### Two axes, because they were one
+
+`route` — how the FIRST notification is delivered. `now` sends Telegram immediately, which
+is what every alert does today; `digest` records the row and says nothing until 09:00.
+
+`repeat_policy` — whether the condition may raise another row at all.
+
+- `once` — one alert ever for this key.
+- `on_change` — one alert per **unresolved episode**. A condition that holds is silent; one
+  that clears and returns speaks again, because the first episode is resolved.
+- `daily` — today's behaviour, kept for the cases where each day genuinely is a new fact.
+  The caller puts the period in the key, as `spendDedupKey` does.
+
+Both default to today's values (`now`, `daily`), so a call site nobody has touched is
+unchanged. The watchdog is the only caller that moves, to `now` + `on_change`.
+
+### The distinction that makes the rest coherent: episodes and events
+
+`on_change` rows are **episodes** — they open, hold, and resolve, and `resolved_at` is what
+"open" means. `once` and `daily` rows are **events**: a stranded message, a recovery, an
+erasure request. It happened, it was sent, it is over, and nothing will ever resolve it.
+
+That is why both the digest and the re-escalation sweep filter on `repeat_policy` and not
+merely on `resolved_at is null`. Without it, "open" would mean "every alert ever raised" and
+the digest would grow without bound — **the daily repeat again, wearing the fix's clothes.**
+
+### The digest, and why it sends on a clean day
+
+One message a day at 09:00 Ulaanbaatar, before the salon opens, listing what is currently
+open and how long it has been. It is a summary, never an alarm, and it always arrives at the
+same moment, so it cannot be mistaken for a new event.
+
+**It sends even when nothing is open**, and that is deliberate. A digest that stays silent on
+a clean day makes silence mean two things — "nothing is wrong" and "the digest stopped
+running" — which is exactly the conflation D-060 and D-062 were about, rebuilt one layer up
+inside the mechanism meant to be the safety net. So the clean line carries proof of life:
+when the silence watchdog last actually ran, read from `channel_health.observed_at`, which is
+upserted on every run including healthy ones precisely so its absence is a statement. If the
+watchdog has stopped, the clean digest is what says so.
+
+One line a day is not what trained anybody to ignore Telegram. Six criticals about one
+unchanged condition were.
+
+### Re-escalation, three days, on the founder's call
+
+`on_change` creates the opposite failure of the daily repeat: a condition alerts once, goes
+quiet, and three weeks later nobody can tell it from one that never happened. An open
+`critical` nobody has been paged about for three days therefore gets its **own** `now`
+message, outside the digest — buried in a summary it would read as more of the same.
+
+`notified_at` is what makes that an UPDATE rather than a second row with a dated key, which
+would undo the whole change. `coalesce(notified_at, at)` is "when was a human last told",
+null-safe for a digest-routed row nobody has been paged about — reading null as "recently
+told" would mean a digest-routed critical never escalates at all. It is deliberately NOT
+`delivered`, which answers whether one Telegram call succeeded; conflating "accepted for
+delivery" with "delivered" is a scar from next door.
+
+Warns never escalate. A standing warn belongs in the digest and nowhere else, or the
+escalation becomes the new daily repeat.
+
+### Recovery is said out loud
+
+Closing an episode silently would mean an operator paged about a dead channel is never told
+it came back — and cannot tell that from an alarm that quietly stopped working, which is
+D-062's whole subject arriving inside the fix for it. So the watchdog raises
+`channel.recovered` (`info`, `once`, keyed on the episode id it closes, so it is
+unrepeatable by construction rather than by a period).
+
+Two cases that look like recovery and are not:
+
+- **A provisioning gap does not resolve an episode.** Losing the ability to measure a
+  channel is no evidence the channel is well. If `not_provisioned` resolved, deleting a
+  `business_hours` row would silence a real outage — the watchdog acquiring the defect it
+  exists to detect, by way of a data-entry mistake.
+- **A degrade supersedes rather than accumulates.** The state is in the key, so a channel
+  moving `no_messages` → `no_webhooks` opens a second episode; the first is closed by prefix
+  so the digest cannot list one channel twice with one entry naming a fault it no longer has.
+
+### Deploy order, and it is the D-058 trap exactly
+
+`raiseAlert` writes `route` and `repeat_policy` on **every** insert. Against a project
+without `0025`, PostgREST answers that insert with a 400 and **every alert in the platform is
+lost, silently** — the alerting path has no caller that checks its return. CI applies every
+migration in the repo before running, so the whole suite is structurally incapable of seeing
+it. **Merge only after the founder has pushed `0025` and the ledger has been read.**
+
+### What this does not touch
+
+The demo-request path, which is `dalatech-online`'s and reaches Telegram directly. Nothing
+in this repository produces or routes it; the only thing that changes for it is that it
+stops competing with six criticals a week.

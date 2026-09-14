@@ -32,9 +32,8 @@
  * recorded and never paged.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { raiseAlert } from '../alerts/alert.ts';
+import { raiseAlert, resolveOpenAlerts } from '../alerts/alert.ts';
 import { diagnoseChannel, type ChannelDiagnosis } from './channel.ts';
-import { tenantClock } from '../time/clock.ts';
 import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import { MAX_LOOKBACK_DAYS } from './silence.ts';
 
@@ -104,7 +103,7 @@ export async function runSilenceWatch(
     let tenantTimezone = 'Asia/Ulaanbaatar';
     const verdict = async (diagnosis: ChannelDiagnosis): Promise<void> => {
       verdicts.push({ channelId, tenantId, externalId, diagnosis });
-      await record(db, { tenantId, channelId, externalId, diagnosis, now: input.now, timezone: tenantTimezone });
+      await record(db, { tenantId, channelId, externalId, diagnosis, now: input.now });
     };
 
     const [tenant, hoursRes, closuresRes, webhookRes, conversationRes, unroutedRes] = await Promise.all([
@@ -245,7 +244,7 @@ function lookbackDate(now: Date): string {
  */
 async function record(
   db: SupabaseClient,
-  input: { tenantId: string; channelId: string; externalId: string; diagnosis: ChannelDiagnosis; now: Date; timezone: string },
+  input: { tenantId: string; channelId: string; externalId: string; diagnosis: ChannelDiagnosis; now: Date },
 ): Promise<void> {
   const healthy = input.diagnosis.state === 'healthy';
   // A provisioning gap is not an outage: recorded below, never alerted.
@@ -262,25 +261,73 @@ async function record(
   }, { onConflict: 'tenant_id,channel_id' });
   if (error) console.error('[health] channel_health write failed', { channelId: input.channelId, detail: error.message });
 
+  // THE DATE IS GONE FROM THE KEY, and that is the change (0025).
+  //
+  // It used to be `channel_silence:{channel}:{state}:{localDate}`, and the day was moved
+  // from UTC to the tenant's clock because a channel silent across a Ulaanbaatar morning
+  // raised two alerts for one trading day. That fix was right about the boundary and wrong
+  // about there being a boundary at all: measured 2026-09-14, one unchanged condition had
+  // produced a critical Telegram every morning for six days, which is ten of the eleven
+  // rows the table then held. A daily alert about yesterday's unchanged fact is the same
+  // "trains the operator to skim past it" failure the dated key was introduced to avoid,
+  // arriving from a fourth direction — and it lands in the chat that also carries
+  // `dalatech-online`'s demo-request notifications, so it was burying messages with a
+  // customer on the other end.
+  //
+  // `on_change` is the policy now: one alert per EPISODE. The state stays in the key, so a
+  // channel degrading from `no_messages` to `no_webhooks` still says so immediately rather
+  // than being suppressed as a duplicate of a different fault.
+  const prefix = `channel_silence:${input.channelId}:`;
+  const stateKey = `${prefix}${input.diagnosis.state}`;
+
+  if (healthy) {
+    // RECOVERY IS AN EVENT AND HAS TO BE SAID. Closing the episode silently would mean an
+    // operator who was paged about a dead channel is never told it came back — and cannot
+    // tell that from an alarm that quietly stopped working, which is D-062's whole subject.
+    const closed = await resolveOpenAlerts(db, { keyPrefix: prefix, now: input.now });
+    if (!closed.ok) {
+      console.error('[health] could not resolve open alerts', { channelId: input.channelId, detail: closed.detail });
+      return;
+    }
+    for (const episode of closed.resolved) {
+      await raiseAlert(db, {
+        tenantId: input.tenantId,
+        severity: 'info',
+        kind: 'channel.recovered',
+        // Keyed on the episode it closes, so it is unrepeatable by construction rather than
+        // by a period. `once`, because a recovery is an event: it happened and it is over,
+        // and it must never become a standing item in the digest.
+        dedupKey: `channel_recovered:${episode.id}`,
+        body: `Page ${input.externalId}: recovered — ${episode.kind} is clear.`,
+        route: 'now',
+        repeat: 'once',
+      });
+    }
+    return;
+  }
+
+  // A provisioning gap is not an outage — and it is not a recovery either. An open episode
+  // stays open: losing the ability to measure a channel is no evidence the channel is well,
+  // and closing it here would let deleting a `business_hours` row silence a real fault.
   if (!fault) return;
 
-  // The day key means a condition that persists re-alerts once tomorrow rather than every
-  // run — the same reasoning `alerts/alert.ts` gives for putting the period in the key. The
-  // state is in the key too, so a channel that degrades from `no_messages` to `no_webhooks`
-  // says so immediately instead of being suppressed as a duplicate of a different fault.
-  //
-  // THE DAY IS THE TENANT'S, not UTC's. This was `now.toISOString().slice(0, 10)`, which
-  // rolls at 00:00 UTC — 08:00 in Ulaanbaatar, an hour before a salon opens. A channel
-  // silent across a morning therefore raised TWO alerts for one trading day, one on either
-  // side of that boundary, which is the "trains the operator to skim past the key" failure
-  // this module was written to avoid, arriving from a third direction. `spend/periods.ts`
-  // already made this argument for the spend ceilings; the alert keys had not heard it.
-  const dayKey = tenantClock(input.now, input.timezone).date;
+  // A degrade closes the episode it replaces, so one channel cannot appear twice in the
+  // digest with one of the entries naming a fault it no longer has.
+  const superseded = await resolveOpenAlerts(db, { keyPrefix: prefix, exceptKey: stateKey, now: input.now });
+  if (!superseded.ok) {
+    console.error('[health] could not supersede open alerts', { channelId: input.channelId, detail: superseded.detail });
+  }
+
   await raiseAlert(db, {
     tenantId: input.tenantId,
     severity: input.diagnosis.state === 'unknown' ? 'warn' : 'critical',
     kind: `channel.${input.diagnosis.state}`,
-    dedupKey: `channel_silence:${input.channelId}:${input.diagnosis.state}:${dayKey}`,
+    dedupKey: stateKey,
     body: `Page ${input.externalId}: ${input.diagnosis.reason}`,
+    // The first fire is genuinely news and pages immediately. Every run after it is silent
+    // until the state changes; the 09:00 digest is what keeps it from being forgotten, and
+    // three days unresolved re-escalates it on its own.
+    route: 'now',
+    repeat: 'on_change',
   });
 }

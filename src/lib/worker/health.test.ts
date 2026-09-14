@@ -39,7 +39,7 @@ function effects(over: Record<string, Answer | Answer[]> = {}, verified = true):
   };
   const from = (table: string) => {
     const chain: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'neq', 'gte', 'in', 'is', 'lt', 'order', 'limit', 'insert', 'update', 'upsert']) chain[m] = () => chain;
+    for (const m of ['select', 'eq', 'neq', 'gte', 'in', 'is', 'like', 'lt', 'order', 'limit', 'insert', 'update', 'upsert']) chain[m] = () => chain;
     chain['maybeSingle'] = async () => answer(table);
     chain['then'] = (res: (v: unknown) => unknown) => res(answer(table));
     return chain;
