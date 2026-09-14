@@ -561,6 +561,23 @@ posts the bytes of one reviewed `canned_responses` row and refuses when there is
 there is no model output there to guard. It stops being correct the day anything generates a
 comment reply, where a leak would land on the salon's public wall.
 
+**A customer writing Mongolian in LATIN letters fires no gate at all** (2026-09-14, D-067).
+Two of the mirror's first three real messages were Latin script. `fold()` is
+`nfc(s).toLocaleLowerCase('mn-MN')` and nothing transliterates, so a Cyrillic stem cannot
+match Latin text — proven by execution: `containsStem('huuhdiin us zasuulna', 'хүүхд')` is
+**false** while the Cyrillic form is true. Both `matchRules` and `matchDeterministic` go
+through it, so for such a message no disclosure rule and no out-of-scope topic fires,
+`refusedTopicBlocksPrice` is false, and the model answers unrefused. **The children's-services
+rule the founder approved by hand does not fire for «huuhdiin».** The outbound guard is
+unaffected — its numeral, URL, phrasing, script-share and gate-label checks are properties of
+the reply — so a price still cannot be invented; what is lost is the topic layer above them.
+
+Not fixed, and not for want of effort: Mongolian romanisation is ambiguous («ү» → u/ue/v,
+«ө» → o/oe, «х» → h/kh) with no convention customers follow, and folding Latin into Cyrillic
+would make refusals fire on ordinary English words — a refusal that fires wrongly replaces a
+real answer with a handoff, which is worse than one that does not fire. It wants a decision
+about which romanisations to accept before it wants code.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

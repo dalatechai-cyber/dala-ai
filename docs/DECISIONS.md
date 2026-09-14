@@ -4238,3 +4238,62 @@ model output on that surface to guard.
 Recorded because the absence is load-bearing rather than accidental: **the day anything
 generates a comment reply, that surface needs item 0 and everything under it.** The reason
 the guard is not there is the reason there is nothing to guard.
+
+---
+
+## D-067 — a customer writing Mongolian in Latin letters fires no gate at all
+
+**2026-09-14, from the mirror's first three real messages.**
+
+Two of the three were Latin script. One was `hello`. The other was **`buten`**, sent
+immediately after «будаг хэдээр хийх вэ» — almost certainly «бүтэн», *full* (as against a
+partial colour), answering the implicit question about which dye service. That reading is an
+inference about a customer's intent and is written here as one; what follows does not depend
+on it, only on the message being Latin.
+
+### Proven by execution, not by reading
+
+`fold()` is `nfc(s).toLocaleLowerCase('mn-MN')` and nothing anywhere transliterates. Stems are
+stored as Cyrillic, so against Latin text `containsStem` cannot match:
+
+```
+true   Cyrillic message, Cyrillic stem      "бүтэн будалт хийлгэнэ"  ~ бүтэн
+false  SAME words in Latin, same stem       "buten budalt hiilgene"  ~ бүтэн
+true   children's rule, Cyrillic            "хүүхдийн үс засуулна"   ~ хүүхд
+false  children's rule, Latin               "huuhdiin us zasuulna"   ~ хүүхд
+true   case folding still works             "Хүүхдийн"               ~ хүүхд
+```
+
+`wholeMessageMatches` behaves the same way: «сайн байна уу» matches, `sain baina uu` does not.
+
+### Why this is a safety finding and not a matching nicety
+
+`matchRules` and `matchDeterministic` both go through these two functions. So for a
+Latin-script message **no disclosure rule and no out-of-scope topic fires**, `firedGates` is
+empty, `refusedTopicBlocksPrice` is false, and the model answers with no refusal in play.
+
+The concrete case is the one the founder approved by hand: Matrix does not do children's
+hair, the `out_of_scope_topics` row exists for it, and it **does not fire for «huuhdiin»**.
+A gate that silently does not fire is worse than one that is missing, which is the same
+sentence D-064 uses about a column that is read and never written.
+
+What is unaffected: the outbound guard's numeral, URL, forbidden-phrasing, script-share and
+gate-label checks are properties of the REPLY, so they hold whatever script the customer
+wrote in. A price still cannot be invented. What is lost is the topic layer above them.
+
+### Not fixed here, and the reason is not effort
+
+A transliteration layer sits underneath every refusal on the surface that faces Matrix's live
+customers, and Mongolian romanisation is ambiguous rather than merely unimplemented — «ү» is
+written u, ue or v; «ө» o or oe; «х» h or kh; and there is no convention a salon's customers
+follow. Folding Latin into Cyrillic before matching would therefore also make refusals fire
+on ordinary **English** words that happen to romanise onto a stem, and a refusal that fires
+when it should not is worse than one that does not fire: it replaces a real answer with a
+handoff.
+
+So this is raised rather than built. It is the founder's call, and it wants a decision about
+which romanisations to accept before it wants code.
+
+**Read it as evidence about the mirror, which is what the mirror is for.** Two of the first
+three real messages were in a script this platform's entire matching layer cannot see, and
+nothing in fourteen days of tests would have said so.
