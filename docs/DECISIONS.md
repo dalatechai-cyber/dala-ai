@@ -4382,3 +4382,122 @@ the time-to-detect on the next real outage. That trade is the founder's, and it 
 measurement under it rather than an assumption: **D-016's 60.5 replies/day is the number to
 re-derive before anybody picks a new threshold**, because it is the premise every version of
 this alert has rested on and the Page is not delivering at that rate today.
+
+---
+
+## D-066 addendum — the widened matcher caught a real leak five hours after it merged
+
+**2026-09-14 08:50:20 UTC.** `outbound_gate_label` fired in production, on a live customer
+turn, against this attempted reply:
+
+> «Ш0-г шалгахад энэ нь нийтэд харагдах сувагт (facebook_page) бичсэн мессеж тул үнэ,
+> захиалга, ажилтны талаар нийтэд дэлгэрэнгүй хариулах боломжгүй.»
+
+The guard refused it and the customer got the reviewed handoff line instead. Three of the
+same defects as the 03:57 instance: the gate label narrated to a customer, the internal
+identifier `facebook_page`, and `refusal_public_channel` reached for on a Messenger DM.
+
+**The part worth keeping is which version of the matcher caught it.** #85 shipped in two
+commits: the first anchored on the label's punctuation, `Ш\d{1,2}\s*[.:)(]`; the second,
+after an adversarial re-read before merge, widened the bound to a Unicode standalone token,
+`(?<![\p{L}\p{N}])Ш\d{1,2}(?![\p{L}\p{N}])`. Run both against the real text:
+
+```
+shipped matcher  : "Ш0"
+first version    : null
+```
+
+and against the 03:57 leak, which motivated the check in the first place:
+
+```
+shipped matcher  : "Ш0"
+first version    : "Ш0 ("
+```
+
+**The first version would have missed this one.** What defeats it is «Ш0-г» — the label
+carrying the Mongolian accusative suffix, so what follows the digit is a hyphen rather than
+one of `.:)(`. That is the same language feature that makes `\b` wrong here: Mongolian
+agglutinates onto the token, and a matcher written around English punctuation habits does not
+see it. The widening was reasoned from the language, five hours before the language produced
+the case.
+
+Two things follow. **An adversarial re-read of your own check before merging is not
+ceremony** — it bought a real interception here, on a customer-visible reply, the same day.
+And the leak has now happened **twice in the corpus's first thirteen turns**, which makes it a
+rate rather than an anecdote: Ш0's wording is the fix, and it belongs to the reading evening.
+
+### Still unfixed, and now measured: `refusal_public_channel` on a DM
+
+Three of the ten drafts reached for the public-channel refusal on a Messenger **direct
+message** — at 03:57, 08:48 and 08:50. The 08:48 one was served to the customer, who had
+written «Эмэгтэй сортой будаг хийлгэх гэсийн» (*I'd like to get women's colour done*) in a
+private DM and was told «Хувийн мессеж бичвэл хариулна» — *write a private message and I will
+answer*. They were writing one.
+
+That is not a guard problem; the guard cannot tell which canned line is appropriate. It is
+Ш0's text, which describes the channel check in terms that let the model conclude a DM is
+public. It is signed platform Mongolian and belongs to the reading evening, and it now has
+three instances and a customer-visible consequence attached to it.
+
+---
+
+## D-067 addendum — «Sn bnu?» is an abbreviation, not a romanisation, and the row space is wider than claimed
+
+**2026-09-14 09:28:58 UTC.** A customer opened with **«Sn bnu?»** — «Сайн байна уу?»
+compressed to initials and a clipped verb, SMS-style.
+
+This qualifies what D-067 says. For **content stems** the row answer holds exactly as written:
+«huuhd» beside «хүүхд» catches `huuhdiin`, `huuhduud` and the rest by token prefix, because
+the customer is typing the word out. The children's-services safety case — the one that
+matters — is covered by rows.
+
+For **greetings it is weaker, and «Sn bnu?» is the proof**: listing `sain baina uu` does not
+catch `sn bnu`, and the abbreviation space is not enumerable the way a word's romanisations
+are (`sn bnu`, `snbnu`, `sain uu`, `sn bn uu`, …). So "the fix is rows, not code" is right
+about the topic layer and optimistic about the greeting layer.
+
+That is not an argument for a transliteration engine — transliteration would not catch
+`sn bnu` either, since there are no vowels to transliterate. It is an argument that a
+deterministic greeting rule, if one is ever written, needs a different kind of matcher from a
+topic stem, and that the corpus is the only place to learn which abbreviations actually occur.
+Recorded so the next reader does not inherit the more confident sentence without this one.
+
+### And the corpus's first product defect: one sentence, split, answered twice
+
+Two of the first ten turns arrived as same-conversation bursts — «Хаяг» then «Цаг авах»
+eleven seconds later, and «Холбогдох утас бна» then «Уу» **two** seconds later.
+
+The second pair is one sentence. «Холбогдох утас бна» + «уу» is «Холбогдох утас байна уу?» —
+*is there a contact number?* — typed in two goes, the way people text. The platform treated
+each fragment as a complete question, spent a full model call on each, and produced two
+replies of about four hundred characters that say nearly the same thing. In the mirror that
+is two `draft` rows. Live it is two long messages landing on one customer two seconds apart,
+the second answering half a sentence.
+
+It is worth being precise about what is and is not established. That the fragments compose
+into one question is a reading of Mongolian, not a measurement. What IS measured: two turns
+under fifteen seconds apart in the same conversation, two separate model calls, two near
+duplicate long replies. And the earlier pair shows the related cost — the reply to «Цаг авах»
+(*book an appointment*) opens by declining to give a location, which was the PREVIOUS
+message's subject.
+
+No fix is proposed here, and deliberately. Debouncing a conversation changes when a customer
+is answered on the surface that faces Matrix's live customers, and the sensible window is a
+product judgement — long enough to catch a split sentence, short enough that a person waiting
+does not think the bot is dead. That is the founder's call.
+
+**And the hint that the ancestor might already collapse them is dead — checked, not left
+hanging.** It took eleven deliveries to nine worker invocations the same day, which looked
+like collapsing. It is not: `Matrix-Chatbot` has no debounce anywhere — no timer, no buffer,
+no batching — and what produces the gap is a FILTER, `api/messenger.js` skipping `is_echo`,
+`ev.delivery`, `ev.read` and non-text events before it processes `entry.messaging` one event
+at a time.
+
+That inverts what the finding means for urgency. The ancestor answers each text event
+separately too, so **the double reply is the status quo for Matrix's real customers today**,
+not a regression this platform would introduce. It is an opportunity to be better than the
+system being replaced rather than a defect blocking the cutover — which is a different
+conversation, and a less urgent one.
+
+This is the mirror doing its job. No test would have produced it, because no test types half a
+sentence and then the rest.
