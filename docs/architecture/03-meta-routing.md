@@ -785,6 +785,14 @@ An hourly cron (capped, no model) that for each `active` channel:
 1. `GET /{page-id}/subscribed_apps` and compares the returned fields to `tenant_channels.subscribed_fields`. On mismatch or absence: re-`POST`, record `last_subscription_ok_at`, alert.
 2. **`GET /{app-id}/subscriptions` with an app access token (`{app-id}|{app-secret}`), once per app per run** — and refuses to activate a channel, or alerts on an active one, when any entry in `subscribed_fields` is missing from the app-level list for that object.
 
+**Step 2 is BUILT as of 2026-09-14, as a command rather than as part of the reconciler:**
+`node scripts/diagnose/meta-subscription.ts --app-id <id>` with `META_APP_SECRETS` in the
+shell. Read-only, GET-only, and it prints the callback URL, `active` and the field list
+Meta currently holds for each app. It was written because that read had never been made
+and both channels had then been silent for eleven days with nothing able to say why
+(D-062). The reconciler half — running it on a schedule, against a channel's own
+`subscribed_fields` — is still unbuilt and needs the app id in the environment.
+
 Step 2 is a correction the critique is right about. Webhook delivery requires **two** independent subscriptions: the app must be subscribed to the field on the object, *and* to the specific asset. `POST /{page-id}/subscribed_apps?subscribed_fields=feed` returns `{"success": true}` even when the app has never enabled `feed` on the `page` object, and no `feed` events are ever delivered. The draft's reconciler compared the page-level list to the tenant config, found them identical, and reported healthy — a plausible success from a source that cannot see the truth, sitting inside the mechanism built to detect exactly that. It bites the first time a *new* field is requested, i.e. when comments are added for tenant #3.
 
 Also: check that **`entry.standby` is empty** for recent events on that channel (§3.7). A channel that quietly became a secondary receiver passes every other check.
