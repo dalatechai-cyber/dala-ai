@@ -496,6 +496,26 @@ branches read as conditions on a list that is not there; Ш8 visibly applies. Th
 loses the more useful sentence. The fix is a signed gate block and belongs to the reading
 evening: `prompt/drafts/sh2_price_precedence.mn.txt` is the unsigned revision.
 
+**The model narrated its own gate to a customer, and the check that caught it was luck**
+(2026-09-14, D-066). Matrix's second mirror turn opened with «Ш0 (сувагтай холбоотой
+шалгалт): …» — this platform's label for a block of its own system prompt, addressed to a
+salon customer, followed by the internal identifier `facebook_page` and a refusal meant for
+public comment threads applied to a DM.
+
+`disclosesPrompt` could not see it: it matches a contiguous 60-character run of the prompt,
+and this is a paraphrase. **That is D-065's shape one file over, twice in one day** — an
+exact-match check defeated by a near-copy. What refused the reply was the NUMERAL guard
+objecting to the `0` in «Ш0», and read back from the live snapshot that luck is thin:
+Matrix's allow-list is twelve tokens and `1` and `3` are two of them, so «Ш1 …» (forbidden
+topics) and «Ш3 …» (booking) carry digits the guard is required to permit and would have
+reached a customer.
+
+Guard item **0** now matches the SHAPE rather than the content, because the content is
+paraphrasable and the label is not. It runs before every other check, which re-attributes
+exactly the case that was filed wrong — the real instance is recorded as `outbound_price`,
+sending a reader to the allow-list for a leak that has nothing to do with numerals. **When
+an exact-match check keeps being evaded, stop widening the corpus and find the shape.**
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

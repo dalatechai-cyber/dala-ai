@@ -4052,3 +4052,81 @@ draft. Loaded by nothing; `check-mn-review.mjs` keeps it that way.
 **Note what the two halves have in common.** Both are instructions the model is asked to
 follow with nothing checking that it did. One of them could be closed in code and was; the
 other can only be closed by better wording, which is why the wording has to be good.
+
+---
+
+## D-066 — the model narrated its own gate to a customer, and the check that caught it was luck
+
+**2026-09-14, found in the mirror's second turn while reading the corpus for D-065.**
+
+### What it wrote
+
+The customer asked «будаг хэдээр хийх вэ» — how much to dye. The model's reply began:
+
+```
+Ш0 (сувагтай холбоотой шалгалт): Энэ бол facebook_page буюу нийтэд харагдах сувагтай
+тул үнийн мэдээллийг нийтэд бичих боломжгүй.
+
+Уучлаарай, энэ талаар нийтэд дэлгэрэнгүй хариулах боломжгүй. Хувийн мессеж бичвэл хариулна.
+```
+
+Three things at once, and each is worth naming separately:
+
+1. **It narrated the gate structure** — «Ш0 (channel-related check)» is this platform's own
+   label for a block of its system prompt, addressed to a salon customer.
+2. **It named an internal identifier**, `facebook_page`, which is a value in
+   `tenant_channels.provider` and means nothing to anybody outside this repository.
+3. **It called a Messenger DM a public channel** and reached for `refusal_public_channel`,
+   which exists for comment threads. A direct message is the private surface.
+
+### Neither existing check could see it, and the one that fired did so by accident
+
+`disclosesPrompt` — guard item 4 — looks for a contiguous **60-character run** of the prompt
+in the reply. This is a *paraphrase* of Ш0's substance in the model's own words, so the run
+detector cannot match it. Not an oversight: it is D-065's shape one file over, an exact-match
+check defeated by a near-copy, and it is the second time in one day that the same weakness
+has produced a finding.
+
+What actually refused the reply was the **numeral** guard, objecting to the `0` in «Ш0»
+because zero is not in Matrix's `allowed_numbers`.
+
+**That is luck, and it is measurably thin.** Read back from the live snapshot the same day,
+Matrix's allow-list is twelve tokens — `1, 10:00, 11:00, 19:00, 20:00, 3, 3-5, 30, 4-5, 50,
+70, 7741-7777` — and **`1` and `3` are two of them**. So «Ш1 …» and «Ш3 …» carry digits the
+guard is *required* to permit. Ш1 is the forbidden-topics block and Ш3 is booking: the two
+whose disclosure matters most would have passed every check in `guard/outbound.ts` and been
+drafted for a customer.
+
+### The fix matches the SHAPE, because the content is paraphrasable and the label is not
+
+Guard item **0**: a reply containing `Ш` immediately followed by one or two digits and a
+label's punctuation is refused as `outbound_gate_label`. A gate label is a closed set of
+tokens that exist only inside this platform's prompt, and no Mongolian sentence a salon
+would send contains that shape — «Шампунь» is an ordinary word in a salon and is untouched,
+because the match requires a digit immediately after the letter.
+
+It is deliberately **not** folded or whitespace-collapsed the way `shingles` is. Evasion is
+not the threat: the model is not hiding a label, it is narrating its instructions because it
+believes that is helpful, so the literal form is the form that appears.
+
+### It runs FIRST, and that is a change to an order this file pins on purpose
+
+`outboundGuard`'s docstring fixes the check order because the per-gate refusal counters are
+a production metric and a reply tripping two checks must always be attributed to the same
+one. This adds a check *before* item 1 and therefore re-attributes something.
+
+What it re-attributes is exactly the case that was wrong. The one real instance is recorded
+as `outbound_price`, which sends a reader to the allow-list looking for a numeral problem in
+a reply whose actual defect is that it disclosed the platform's structure. Only replies
+containing a gate label change code, and for those the old one was misleading.
+
+### What is NOT fixed here
+
+The second and third problems in that reply are prompt-level, not code-level. Nothing stops
+the model from writing `facebook_page` to a customer, and nothing tells it that a DM is not a
+public channel — Ш0's own text is what would have to say so, and Ш0 is signed platform
+Mongolian belonging to the reading evening. Both are recorded here so the evening has them.
+
+The guard now refuses the whole reply, so neither reaches a customer while the wording is
+unresolved. That is the right posture and it is not a fix: a refusal is a customer who did
+not get an answer.

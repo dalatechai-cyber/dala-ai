@@ -344,3 +344,58 @@ test('the echo does not reopen the percentage tripwire', () => {
   const r = outboundGuard({ ...MATRIX, concessionStems: [] }, ctx, 'Тийм ээ, 10% байна.');
   assert.equal(r.ok === false && r.code, 'outbound_percent');
 });
+
+// ---------------------------------------------------------------------------
+// Item 0 — a gate's own label in a customer-facing reply (D-066)
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: THE REAL LEAK — the model narrated its own gate to a customer', () => {
+  // Matrix, 2026-09-14, the mirror's second turn. The customer asked «будаг хэдээр хийх вэ»
+  // and the reply opened by naming the gate, the internal channel identifier, and the
+  // reasoning behind the refusal.
+  const leaked = 'Ш0 (сувагтай холбоотой шалгалт): Энэ бол facebook_page буюу нийтэд '
+    + 'харагдах сувагтай тул үнийн мэдээллийг нийтэд бичих боломжгүй.\n\n'
+    + 'Уучлаарай, энэ талаар нийтэд дэлгэрэнгүй хариулах боломжгүй.';
+  const r = outboundGuard(MATRIX, CLEAN, leaked);
+  assert.equal(r.ok, false);
+  assert.equal(r.ok === false && r.code, 'outbound_gate_label');
+  assert.match(r.ok === false ? r.detail : '', /Ш0/);
+});
+
+test('DONE-TEST: AND Ш1 AND Ш3 WOULD HAVE PASSED EVERY OTHER CHECK', () => {
+  // The reason this file needed a new check rather than a wider allow-list.
+  //
+  // What refused the real leak was the NUMERAL guard, objecting to the `0` in «Ш0». That is
+  // luck, and thin luck: Matrix's live snapshot allows twelve numerals and `1` and `3` are
+  // two of them (read back from config_snapshots 2026-09-14). So the forbidden-topics block
+  // and the booking block — the two whose disclosure matters most — carry digits the guard
+  // is required to permit.
+  //
+  // `disclosesPrompt` cannot help either: it matches a contiguous 60-character run of the
+  // prompt, and a label followed by the model's own paraphrase is not one. D-065's shape
+  // again — an exact-match check defeated by a near-copy.
+  const allowsOneAndThree: TenantGuardView = { ...MATRIX, allowedNumbers: ['1', '3', '7741-7777'] };
+  for (const label of ['Ш1', 'Ш3']) {
+    const reply = `${label}. Энэ сэдвээр хариулахыг надад зөвшөөрөөгүй тул хариулж чадахгүй.`;
+    const r = outboundGuard(allowsOneAndThree, CLEAN, reply);
+    assert.equal(r.ok, false, `${label} must not reach a customer`);
+    assert.equal(r.ok === false && r.code, 'outbound_gate_label', label);
+  }
+});
+
+test('a reply that merely starts with Ш is left alone', () => {
+  // The false positive that would matter: «Шампунь» is an ordinary word in a salon, and
+  // replacing a real answer with the handoff line is worse than the leak being caught. The
+  // match needs a DIGIT immediately after the letter, which no Mongolian word produces.
+  const r = outboundGuard(MATRIX, CLEAN, 'Шампунь, бальзам зэрэг бүтээгдэхүүний талаар манай ажилтан хэлж өгнө.');
+  assert.equal(r.ok, true, r.ok === false ? `${r.code}: ${r.detail}` : '');
+});
+
+test('the label check runs FIRST, so the leak is not filed as a price problem', () => {
+  // The one real instance was recorded as `outbound_price`, which sends a reader to the
+  // allow-list for a leak that has nothing to do with numerals. Only replies containing a
+  // gate label are re-attributed, and for those the old code was misleading.
+  const withBoth = 'Ш2. Энэ үйлчилгээний үнэ 999,999₮ байна.';
+  const r = outboundGuard(MATRIX, CLEAN, withBoth);
+  assert.equal(r.ok === false && r.code, 'outbound_gate_label');
+});

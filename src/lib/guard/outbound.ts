@@ -99,6 +99,8 @@ export type OutboundRefusal =
   | 'outbound_concession'
   | 'outbound_percent'
   | 'outbound_disclosure'
+  /** A gate's own label — «Ш0», «Ш1» — appeared in a customer-facing reply. */
+  | 'outbound_gate_label'
   | 'outbound_language'
   | 'outbound_length'
   | 'outbound_forbidden'
@@ -154,6 +156,52 @@ export function disclosesPrompt(
 }
 
 /**
+ * Item 0 — a gate's own LABEL in a customer-facing reply.
+ *
+ * Measured on Matrix, 2026-09-14, on the mirror's second turn. The customer asked
+ * «будаг хэдээр хийх вэ» and the model began its reply:
+ *
+ *     Ш0 (сувагтай холбоотой шалгалт): Энэ бол facebook_page буюу нийтэд харагдах
+ *     сувагтай тул үнийн мэдээллийг нийтэд бичих боломжгүй.
+ *
+ * It narrated the gate structure to the customer, named the internal channel identifier,
+ * and then reached for `refusal_public_channel` — on a Messenger DM, which is not a public
+ * channel at all.
+ *
+ * ## Neither existing check could see it, and one of them caught it by accident
+ *
+ * `disclosesPrompt` looks for a contiguous 60-character run of the prompt. This is a
+ * PARAPHRASE of Ш0's substance in the model's own words, so the run detector cannot match
+ * it — by construction, not by oversight. It is D-065's shape again: an exact-match check
+ * defeated by a near-copy.
+ *
+ * What actually refused the reply was the NUMERAL guard, objecting to the `0` in «Ш0»
+ * because zero is not in Matrix's `allowed_numbers`. That is luck, and it is measurably
+ * thin luck: Matrix's live snapshot allows twelve numerals and **`1` and `3` are two of
+ * them**. So «Ш1 …» and «Ш3 …» — the forbidden-topics block and the booking block, the two
+ * whose disclosure matters most — would have passed every check in this file and been
+ * drafted for a customer.
+ *
+ * ## The shape, not the content
+ *
+ * The content is paraphrasable and the label is not. A gate label is a closed set of
+ * tokens that exist only inside this platform's prompt; no Mongolian sentence a salon
+ * would send contains «Ш» immediately followed by a digit and a label's punctuation. So
+ * this matches the shape and leaves the words alone, which is why it cannot be talked
+ * around the way the run detector can.
+ *
+ * Deliberately NOT folded or whitespace-collapsed like `shingles`: evasion is not the
+ * threat here. The model is not trying to hide a label — it is narrating its instructions
+ * because it thinks that is helpful — so the literal form is the form that appears.
+ */
+const GATE_LABEL = /Ш\d{1,2}\s*[.:)(]/u;
+
+export function namesAGate(reply: string): string | null {
+  const m = GATE_LABEL.exec(nfc(reply));
+  return m === null ? null : m[0];
+}
+
+/**
  * Run the guard. Returns the FIRST refusal, in the section's order — which is fixed
  * deliberately, because the per-gate refusal counters are the production metric and a
  * reply that trips two checks must be attributed to the same one every time.
@@ -164,6 +212,19 @@ export function outboundGuard(
   reply: string,
 ): GuardResult {
   const text = nfc(reply);
+
+  // 0. A GATE'S OWN LABEL, before anything else.
+  //
+  //    This runs first and that is a deliberate change to the attribution order this
+  //    docstring pins. A reply carrying «Ш0» or «Ш1» is disclosing the platform's own
+  //    structure, and that is the finding whatever else is also wrong with it — the one
+  //    real instance was recorded as `outbound_price`, which sent a reader looking at the
+  //    allow-list for a leak that had nothing to do with numerals. Only replies containing
+  //    a gate label are re-attributed, and for those the old code was misleading.
+  const label = namesAGate(text);
+  if (label !== null) {
+    return refuse('outbound_gate_label', `the reply names a gate block: ${label.trim()}`);
+  }
 
   // 1. Every link must be one the tenant declared. An unparseable link is not one.
   const badUrls = urlsNotAllowed(text, tenant.allowedUrls);
