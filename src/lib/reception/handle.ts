@@ -29,6 +29,7 @@ import type { Usage } from '../spend/settle.ts';
 import { kindsRequiredByRules, kindsReferencedBy, matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
 import { cannedHashOf } from '../prompt/sections.ts';
 import { matchDeterministic, type DeterministicRule, type HistoryState } from '../gate/deterministic.ts';
+import { checkPinnedLines } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
 import { capToSingleMessage } from '../mn/text.ts';
@@ -368,6 +369,42 @@ export async function handleReception(
     // `max_tokens` in particular may leave a truncated Mongolian half-sentence, and
     // `refusal` arrives as HTTP 200 with a plausible-looking body.
     return handoff(deps, input, { code: `model_${result.reason}`, detail: result.detail });
+  }
+
+  // ---- Was this a pinned line, reproduced or paraphrased? ----------------
+  //
+  // Four gate blocks tell the model to copy an approved sentence «нэг ч үсэг өөрчлөхгүйгээр»
+  // — without changing a single letter — and until 2026-09-14 that was a request with no
+  // check behind it. Matrix's third mirror draft dropped «би» from the handoff line while
+  // the one nine minutes earlier was byte-exact: same instruction, same row, two consecutive
+  // calls, one obeyed. A near-copy is an UNREVIEWED sentence carrying an approved one's
+  // meaning, and `reviewed_at` cannot see it because the gate is on the row, not on what
+  // came back.
+  //
+  // This runs BEFORE the outbound guard on purpose. The model's text is discarded either
+  // way, so guarding it would be guarding something nobody will send; and the row that
+  // replaces it is reviewed Mongolian that the guard's own allow-list was built around.
+  //
+  // Nothing here EDITS a reply — `handleReception` holds that line and this keeps it. The
+  // model's text is thrown away whole and the tenant's own row is served in its place,
+  // exactly as the two short-circuits above do. The model keeps the job it is good at,
+  // choosing which line applies, and loses the one it was measurably unreliable at.
+  const pinned = checkPinnedLines(result.text, input.canned);
+  if (pinned.kind !== 'clean') {
+    if (pinned.kind === 'paraphrase') {
+      // Corrected AND counted. A paraphrase that is quietly fixed is a paraphrase nobody
+      // knows is happening, and the rate is the only evidence about whether the gate
+      // wording works at all.
+      await deps.flag({
+        code: 'canned_paraphrased',
+        detail: `the reply is ${pinned.similarity.toFixed(3)} of "${pinned.canonicalKind}" and is not it; `
+          + `served the row instead. Attempted: ${result.text}`,
+      });
+    }
+    const drafted = await deps.draft({ body: pinned.canonical, answeredBy: 'canned' });
+    return drafted.ok
+      ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned' }
+      : { kind: 'retry', detail: drafted.detail };
   }
 
   // ---- The guard, then the draft ------------------------------------------

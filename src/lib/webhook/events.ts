@@ -199,9 +199,22 @@ export async function markEventState(
    */
   repliedAt?: Date,
 ): Promise<{ ok: boolean; detail: string | null }> {
-  const { error } = await db
-    .from('webhook_events')
-    .update({ state, ...(repliedAt === undefined ? {} : { replied_at: repliedAt.toISOString() }) })
-    .eq('id', eventId);
+  // TWO LITERAL PAYLOADS, not one with a conditional spread.
+  //
+  // The spread version worked and cost something specific: `scripts/verify/postgrest.ts`
+  // parses every write payload in `src/` and asserts each column exists on the live profile,
+  // and a spread is not statically resolvable — so the site reported as UNRESOLVED and this
+  // write's columns stopped being checked by CI. The count in that summary line went from
+  // one to two, which is the number D-057 says to read as a warning rather than a total.
+  //
+  // Spelling both shapes out keeps the check able to see them. It also says plainly that
+  // omitting `replied_at` is not the same as writing null: the sweeper marks
+  // `expired_unqueued` later, and a null in that payload would erase the fact that an
+  // earlier attempt did answer.
+  const { error } = repliedAt === undefined
+    ? await db.from('webhook_events').update({ state }).eq('id', eventId)
+    : await db.from('webhook_events')
+        .update({ state, replied_at: repliedAt.toISOString() })
+        .eq('id', eventId);
   return error ? { ok: false, detail: error.message } : { ok: true, detail: null };
 }

@@ -47,11 +47,17 @@ const OK_REPLY: CallOutcome = {
 
 function deps(over: Partial<ReceptionDeps> & { result?: CallOutcome } = {}) {
   const calls: string[] = [];
-  const flags: { code: string; attempted?: string }[] = [];
+  const flags: { code: string; detail?: string; attempted?: string }[] = [];
   const observed: { requestedModel: string; servedModel: string; terminalReason?: string }[] = [];
+  /** What was actually drafted, so a test can assert the TEXT and not only its provenance. */
+  const drafts: { body: string; answeredBy: string }[] = [];
   const d: ReceptionDeps = {
     callModel: async () => { calls.push('callModel'); return over.result ?? OK_REPLY; },
-    draft: async ({ answeredBy }) => { calls.push(`draft:${answeredBy}`); return { ok: true, id: 'om-1' }; },
+    draft: async ({ body, answeredBy }) => {
+      calls.push(`draft:${answeredBy}`);
+      drafts.push({ body, answeredBy });
+      return { ok: true, id: 'om-1' };
+    },
     markCalled: async () => { calls.push('markCalled'); return true; },
     settle: async () => { calls.push('settle'); return { ok: true }; },
     release: async () => { calls.push('release'); },
@@ -59,7 +65,7 @@ function deps(over: Partial<ReceptionDeps> & { result?: CallOutcome } = {}) {
     observe: async (o) => { calls.push('observe'); observed.push(o); },
     ...over,
   };
-  return { deps: d, calls, flags, observed };
+  return { deps: d, calls, flags, observed, drafts };
 }
 
 /**
@@ -663,4 +669,56 @@ test('DONE-TEST: a withheld deterministic reply falls to the MODEL, and is flagg
   assert.equal(calls.includes('callModel'), true);
   assert.equal(calls.includes('flag:deterministic_reply_unconfirmed'), true);
   assert.equal(calls.includes('draft:canned'), false, 'the guessed sentence was never drafted');
+});
+
+// ---------------------------------------------------------------------------
+// Pinned lines: reproduced, or paraphrased (D-065)
+// ---------------------------------------------------------------------------
+
+/** The handoff row, with «би» removed — Matrix's measured drift, 2026-09-14. */
+const PARAPHRASED: CallOutcome = {
+  ...OK_REPLY,
+  text: 'Уучлаарай, энэ асуултад хариулж чадахгүй байна.',
+};
+
+test('DONE-TEST: A PARAPHRASED PINNED LINE IS REPLACED BY THE ROW, AND COUNTED', async () => {
+  // Four gate blocks tell the model to copy an approved sentence «нэг ч үсэг өөрчлөхгүйгээр»
+  // and nothing had ever checked that it did. Matrix's third mirror draft dropped one word
+  // while the draft nine minutes earlier was byte-exact — same row, same instruction, two
+  // consecutive calls. A near-copy is an unreviewed sentence with an approved one's meaning,
+  // and `reviewed_at` cannot see it because the gate is on the row, not on what came back.
+  const { deps: d, drafts, flags } = deps({ result: PARAPHRASED });
+  const r = await handleReception(d, { ...base, customerMessage: 'будаг хэдээр хийх вэ' });
+
+  assert.equal(r.kind, 'drafted');
+  // Served from the row, byte for byte — NOT the model's text repaired, which would be the
+  // editing this module and `handleReception` both refuse.
+  assert.equal(drafts[0]?.body, CANNED[0]?.body);
+  assert.equal(drafts[0]?.answeredBy, 'canned', 'a canned line answered, whoever typed it');
+
+  // Corrected AND counted. A paraphrase quietly fixed is a paraphrase nobody knows is
+  // happening, and the rate is the only evidence about whether the gate wording works.
+  assert.ok(flags.some((f) => f.code === 'canned_paraphrased'), JSON.stringify(flags));
+  assert.match(String(flags.find((f) => f.code === 'canned_paraphrased')?.detail), /handoff/);
+});
+
+test('an EXACT reproduction is recorded as canned, and raises no flag', async () => {
+  // The other half. The text is already right, so there is nothing to correct — but calling
+  // it a model answer would misstate the corpus the mirror exists to produce.
+  const exact: CallOutcome = { ...OK_REPLY, text: CANNED[0]?.body ?? '' };
+  const { deps: d, drafts, flags } = deps({ result: exact });
+  const r = await handleReception(d, { ...base, customerMessage: 'будаг хэдээр хийх вэ' });
+
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
+  assert.equal(drafts[0]?.body, CANNED[0]?.body);
+  assert.equal(flags.some((f) => f.code === 'canned_paraphrased'), false, 'obeying is not a finding');
+});
+
+test('a genuine answer still goes through the guard untouched', async () => {
+  // The regression this must not cause. `OK_REPLY` quotes an allowed price and resembles no
+  // canned line; replacing it with a refusal would be far worse than the drift being fixed.
+  const { deps: d, drafts } = deps();
+  const r = await handleReception(d, { ...base });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model');
+  assert.equal(drafts[0]?.body, OK_REPLY.kind === 'ok' ? OK_REPLY.text : '');
 });

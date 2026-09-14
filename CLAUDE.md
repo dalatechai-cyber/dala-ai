@@ -467,6 +467,32 @@ being recorded as `canned`. Different tables, different review gates, and the de
 path spends nothing at all — so a single value for both cannot answer the first question
 anybody asks of the corpus.
 
+**An instruction to the model is a request until something checks it** (2026-09-14, D-065).
+Four gate blocks say «нэг ч үсэг өөрчлөхгүйгээр» — copy this line without changing a single
+letter — and nothing had ever asked whether the model did. Matrix's third mirror draft
+dropped «би» from the handoff line while the draft nine minutes earlier was byte-exact: same
+row, same instruction, two consecutive calls. **A near-copy is an unreviewed sentence
+carrying an approved one's meaning**, and `reviewed_at` cannot see it, because the gate is on
+the row and not on what comes back.
+
+`src/lib/gate/pinned.ts` closes it, and the way it closes it is the part to keep: it does not
+EDIT the reply — that is still forbidden — it discards the model's text whole and serves the
+row's own bytes, exactly as the two short-circuits already do. The model keeps the job it is
+good at, choosing which line applies, and loses the one it was measurably unreliable at.
+A paraphrase is counted as well as corrected (`quality_flags` code `canned_paraphrased`),
+because a drift quietly fixed is a drift nobody knows is happening. **Only reviewed rows are
+pinned lines** — measuring against an unreviewed row and then serving it would defeat the
+review gate with the mechanism built to enforce it. And the safety lives in the LENGTH GUARD,
+not the similarity threshold: replacing a real answer with a refusal is worse than the drift.
+
+**Ш2 and Ш8 both cover "a price I do not have", and nothing orders them** (2026-09-14,
+D-065). Ш1 says in as many words that it dominates Ш2; no block says Ш2 dominates Ш8, so the
+model picks — and on Matrix it picks wrong reliably rather than occasionally, because
+`services` has **no price column at all** and no «ҮНИЙН ЖАГСААЛТ» section is rendered. Ш2's
+branches read as conditions on a list that is not there; Ш8 visibly applies. The customer
+loses the more useful sentence. The fix is a signed gate block and belongs to the reading
+evening: `prompt/drafts/sh2_price_precedence.mn.txt` is the unsigned revision.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

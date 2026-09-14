@@ -3938,3 +3938,101 @@ reason. The test for that failure path is where this PR earned the positional-st
 again: `messages` is touched three times in one run (insert, history read, trace update),
 and a two-entry queue made the *history* read fail so the job 503'd before reaching the
 trace at all. The file's own docstring warns about exactly that.
+
+---
+
+## D-065 — the gate asked the model to copy a line and nothing ever checked that it had
+
+**2026-09-14, measured on the third draft Matrix's mirror ever produced.** Founder's
+framing: *make it enforceable rather than requested — every customer-visible string rests
+on this.*
+
+### The measurement
+
+Four gate blocks end with the same instruction — «БЭЛЭН ХАРИУЛТ» хэсгээс … **нэг ч үсэг
+өөрчлөхгүйгээр яг хэвээр нь бич**, reproduce it without changing a single letter. Within
+nine minutes of webhooks coming back:
+
+```
+canned `handoff`   Уучлаарай, би энэ асуултад хариулж чадахгүй байна. …    129 chars
+draft, 03:58:01    Уучлаарай, би энэ асуултад хариулж чадахгүй байна. …    byte-exact
+draft, 04:05:30    Уучлаарай, ___ энэ асуултад хариулж чадахгүй байна. …   128 chars
+```
+
+One word, «би», gone. Same instruction, same tenant, same row, two consecutive calls; both
+model-generated (a `spend_ledger` row lands about a second before each). One obeyed and one
+did not.
+
+**That is what an unenforced instruction looks like from the outside: mostly fine, and the
+exceptions invisible.** The damage in this instance is small — the line is a refusal either
+way. The mechanism it defeats is not. Every customer-visible sentence here rests on one
+arrangement: a founder approves wording, `reviewed_at` records it, the prefix carries it,
+the model is asked to copy it. A near-copy is **an unreviewed sentence with an approved
+one's meaning**, and the review gate cannot see it, because the gate is on the row and not
+on what comes back.
+
+### The fix serves the row, and does not edit the reply
+
+`src/lib/gate/pinned.ts` compares the model's text against the tenant's **reviewed** canned
+rows. On a match — exact or near — `handleReception` discards the model's text whole and
+drafts the row's own bytes, `answeredBy: 'canned'`.
+
+It is not editing. `handleReception` already holds that line — *an edited reply is an
+unreviewed reply* — and patching a paraphrase back toward the original would be exactly
+that, plus a second implementation of a sentence that already exists in a row. Throwing the
+text away and answering from the row is what both short-circuits above it already do. **The
+model keeps the job it is good at — deciding which line applies — and loses the one it was
+measurably unreliable at, which is typing it out again.**
+
+An exact copy is substituted too, and that is not a no-op: it normalises whitespace back to
+the row's bytes, and it corrects the provenance. A reply that IS the handoff line was
+answered by a canned line whoever assembled the characters, and calling it `model` would
+misstate the corpus the mirror exists to produce.
+
+A paraphrase is **counted as well as corrected** — `quality_flags` code `canned_paraphrased`,
+carrying the similarity, the kind, and the attempted text. A drift quietly fixed is a drift
+nobody knows is happening, and the rate is the only evidence about whether the gate wording
+works at all.
+
+### Where the safety actually comes from
+
+Not the threshold. `NEAR_COPY_MIN_SIMILARITY` is 0.90 of the longer string in code points,
+and the measured case sits at 0.992 — an enormous margin, on purpose. The dangerous
+direction is the other one: replacing a genuine answer with a refusal is worse than the
+drift being caught. So a **length guard** carries most of it — a reply less than 0.8 the
+length of a line is never read as a copy of it, whatever the ratio says — and every one of
+Matrix's refusals ends with the same phone-number sentence, so substring overlap alone would
+have condemned any reply that closed politely.
+
+Three details that are rule 6 and not taste: NFC before comparing (decomposed «Ё» is not
+composed «Ё», and skipping it reports a perfect copy as a paraphrase); Levenshtein over
+**code points**, because `.length` counts UTF-16 units and one emoji would silently shift
+every ratio in the file; and no case folding, because a shouted variant is not the approved
+sentence.
+
+**Only reviewed rows are pinned lines.** Measuring against an unreviewed row and then
+serving it would ship Mongolian nobody signed off on, on the strength of the model having
+roughly typed it — the review gate defeated by the mechanism built to enforce it.
+
+### The second half of the same class, which is a prompt change and therefore parked
+
+The founder also asked why a price question got `handoff` rather than
+`refusal_price_unlisted`. The answer is the same shape one level up: **Ш2 and Ш8 both cover
+"a price I do not have", and nothing orders them.** Ш1 states in as many words that it
+dominates Ш2; no block says Ш2 dominates Ш8. So the model picks, and on Matrix it picks
+wrong reliably rather than occasionally, because **`services` has no price column at all** —
+the table is `name, category, unit, duration_minutes, turnaround_text, active`, no
+«ҮНИЙН ЖАГСААЛТ» section is rendered, and Ш2's branches both read as conditions on a list
+that is not there while Ш8 visibly applies.
+
+The customer loses the more useful sentence: `handoff` says *I cannot answer this*;
+`refusal_price_unlisted` says *this is about price and I do not have it*.
+
+That fix is a gate block, which is signed platform Mongolian and belongs to the reading
+evening. `prompt/drafts/sh2_price_precedence.mn.txt` is the unsigned revision — a precedence
+line, 2б widened to name the absent-section case, and a wrong-example built from the real
+draft. Loaded by nothing; `check-mn-review.mjs` keeps it that way.
+
+**Note what the two halves have in common.** Both are instructions the model is asked to
+follow with nothing checking that it did. One of them could be closed in code and was; the
+other can only be closed by better wording, which is why the wording has to be good.
