@@ -36,10 +36,26 @@ import { capToSingleMessage } from '../mn/text.ts';
 /** One Messenger send, in characters. */
 export const MAX_REPLY_CHARS = 1900;
 
+/**
+ * What produced this reply, as `messages.answered_by` records it.
+ *
+ * `0001`'s CHECK has allowed all four values since the schema was written; three are
+ * reachable from here and `human` belongs to a surface that does not exist yet.
+ *
+ *  - `deterministic` — a `deterministic_replies` row matched before any model call. Costs
+ *    nothing and is the largest single saving in the design (§6.3.8).
+ *  - `canned`        — a `canned_responses` line: a gate short-circuit, or the handoff.
+ *  - `model`         — the model wrote it, and the outbound guard let it through.
+ *
+ * They are kept apart because the first question anyone asks of the mirror's corpus is how
+ * often a row answered without the model, and a single `canned` for both cannot answer it.
+ */
+export type AnsweredBy = 'model' | 'canned' | 'deterministic';
+
 export type ReceptionDeps = {
   callModel: (req: ReceptionRequest) => Promise<CallOutcome>;
   /** Store the reply exactly once per dedup key. Returns the row id. */
-  draft: (input: { body: string; answeredBy: 'model' | 'canned' }) => Promise<{ ok: true; id: string } | { ok: false; detail: string }>;
+  draft: (input: { body: string; answeredBy: AnsweredBy }) => Promise<{ ok: true; id: string } | { ok: false; detail: string }>;
   /** Mark the reservation called, immediately before the provider call. */
   markCalled: () => Promise<boolean>;
   /** Record what was actually spent, with the real usage block. */
@@ -100,7 +116,7 @@ export type ReceptionInput = {
 
 export type ReceptionOutcome =
   /** A reply row exists and is ready for the send path. */
-  | { kind: 'drafted'; outboundId: string; answeredBy: 'model' | 'canned'; refusal?: string }
+  | { kind: 'drafted'; outboundId: string; answeredBy: AnsweredBy; refusal?: string }
   /** Could not determine something. The caller must 503 so QStash retries. */
   | { kind: 'retry'; detail: string }
   /** Determinate and unanswerable. ACK and stop; retrying cannot change it. */
@@ -234,9 +250,15 @@ export async function handleReception(
   }
   if (shortcut.hit !== null) {
     await deps.release();   // nothing was spent, so the hold goes straight back
-    const drafted = await deps.draft({ body: shortcut.hit.body, answeredBy: 'canned' });
+    // `deterministic`, not `canned`. `0001`'s CHECK has carried both values since the
+    // schema was written and nothing had ever used the distinction: a `deterministic_replies`
+    // row and a `canned_responses` line are different tables, reviewed differently, and cost
+    // a different amount to serve (this path spends nothing at all). Recording both as
+    // `canned` would make the mirror's corpus unable to answer the first question anybody
+    // asks of it — how often did a row answer without the model.
+    const drafted = await deps.draft({ body: shortcut.hit.body, answeredBy: 'deterministic' });
     return drafted.ok
-      ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned' }
+      ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'deterministic' }
       : { kind: 'retry', detail: drafted.detail };
   }
 

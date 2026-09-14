@@ -3868,3 +3868,73 @@ it. **Merge only after the founder has pushed `0025` and the ledger has been rea
 The demo-request path, which is `dalatech-online`'s and reaches Telegram directly. Nothing
 in this repository produces or routes it; the only thing that changes for it is that it
 stops competing with six criticals a week.
+
+---
+
+## D-064 — three columns the schema carried since `0001`, written by nothing
+
+**2026-09-14, found by reading Matrix's first real mirror drafts.** No migration: every
+column here has existed since the initial schema. What was missing was a writer.
+
+### What was not being recorded
+
+| Column | Read by | Written by |
+|---|---|---|
+| `messages.answered_by` | `metrics/clarify.ts`, in its own docstring | nothing |
+| `messages.revision_id` | nothing yet; it is the trace | nothing |
+| `messages.prompt_hash` | nothing yet; it is the trace | nothing |
+| `webhook_events.replied_at` | `sweepStrandedEvents`, as a filter | nothing |
+
+`reception/deps.ts` carried a literal **`void answeredBy;`** — the value was computed by
+`handleReception`, passed across the seam, and discarded one line later. `revisionId` and
+`contentHash` never left `loadLiveSnapshot` at all: the context had `revisionId` and the
+snapshot's `contentHash` was dropped on the floor.
+
+### Why it mattered on the day it was found, rather than eventually
+
+Matrix's mirror had just started drafting against real customers, and a republish was days
+away — the retail-products rule the founder was confirming with the salon. **Two drafts
+either side of a config change would have been indistinguishable in the table**, so the
+fourteen days could not have answered *did that edit help*, which is the entire question
+the mirror exists to answer. A trace column is worth nothing the day it is added and
+everything the day the config moves.
+
+### `replied_at` was worse than absent: it was an assertion that could not fail
+
+`sweepStrandedEvents` filters `.is('replied_at', null)`. With nothing writing the column,
+every row in the table satisfied that predicate, so the filter excluded nothing. It was
+harmless **only** because the `state` filter beside it (`received`, `failed`,
+`pending_enqueue` — never `processed`) carried the whole load. It would have become
+load-bearing the instant somebody widened that state list while trusting the line below it.
+
+That is D-057's shape exactly — an assertion that cannot fail, arriving from inside the
+mechanism built to catch exactly this class — and it was sitting in the sweep whose entire
+purpose is to break a silence. `markEventState` takes an optional `repliedAt` now, and the
+worker passes `now` only when the entry actually produced a draft.
+
+**A DRAFT counts, and that is deliberate.** In `shadow` the reply is generated and
+withheld, and the question this column answers is "did this delivery produce an answer",
+not "did Meta accept it". The second question is `outbound_messages.sent_at` and already
+has a column.
+
+### The third provenance
+
+`0001`'s CHECK has allowed `model | deterministic | canned | human` since the schema was
+written, and `handleReception` collapsed the first three into two: a `deterministic_replies`
+hit was recorded as `canned`. They are different tables, reviewed differently, and cost
+different amounts — the deterministic path spends **nothing**, and §6.3.8 prices what it
+absorbs at ₮26,300 per tenant-month. The first question anybody asks of the mirror's corpus
+is how often a row answered without the model, and one value for both cannot answer it. So
+the deterministic short-circuit is `deterministic`; a gate short-circuit and the handoff
+stay `canned`, because those genuinely are `canned_responses` rows.
+
+### Best-effort, and it must stay that way
+
+`traceAnswer` runs after the reply exists. A trace that cannot be written is evidence lost,
+which is bad; refusing the customer's answer over it would be worse, and a 503 would retry
+an event whose reply is already drafted. So it returns its failure, the worker logs
+`trace_failed`, and the reply stands — the same posture `flagQuality` takes, for the same
+reason. The test for that failure path is where this PR earned the positional-stub trap
+again: `messages` is touched three times in one run (insert, history read, trace update),
+and a two-entry queue made the *history* read fail so the job 503'd before reaching the
+trace at all. The file's own docstring warns about exactly that.

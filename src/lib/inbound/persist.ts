@@ -24,6 +24,7 @@ import { createHmac } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { required } from '../env.ts';
 import { nfc } from '../mn/text.ts';
+import type { AnsweredBy } from '../reception/handle.ts';
 
 /**
  * How long a quiet conversation stays the same conversation.
@@ -273,4 +274,59 @@ export async function readHistory(
     turns.push({ role: r['direction'] === 'outbound' ? 'assistant' : 'user', content: nfc(body) });
   }
   return { ok: true, value: turns.reverse() };
+}
+
+/**
+ * Record what answered this customer message, on the customer's own row.
+ *
+ * `messages.answered_by`, `revision_id` and `prompt_hash` have existed since `0001` and
+ * were written by NOTHING until 2026-09-14. `reception/deps.ts` had a literal
+ * `void answeredBy;` — the value was computed, passed across the seam, and thrown away —
+ * and the revision and prompt hash never left `ReceptionContext` at all.
+ *
+ * What that cost, concretely, on the day it was found: Matrix's mirror was drafting against
+ * real customers, and a republish was days away. Two drafts either side of a config change
+ * would have been indistinguishable in the table, so the fourteen days could not answer
+ * "did that edit help" — which is the entire question the mirror exists to answer.
+ *
+ * ## The INBOUND row, not the reply
+ *
+ * The reply lives in `outbound_messages` and is keyed on the inbound message id. These
+ * columns are on `messages` because the question is "what answered THIS customer", and the
+ * customer's message is the row a reader has in front of them — from the Quality layer,
+ * from a conversation, from a complaint. A reply that was refused into a handoff has an
+ * `outbound_messages` row too, and it should say `canned`, which it does.
+ *
+ * ## Best-effort, and it must stay that way
+ *
+ * The reply already exists when this runs. A trace that cannot be written is evidence lost,
+ * which is bad; refusing the customer's answer over it would be worse, and a retry would
+ * re-drive an event whose reply is already drafted. So this returns its failure and the
+ * caller logs it — the same posture `flagQuality` takes, for the same reason.
+ */
+export async function traceAnswer(
+  db: SupabaseClient,
+  input: {
+    tenantId: string;
+    /** The inbound `messages.id` from `recordInbound`. */
+    messageId: string;
+    answeredBy: AnsweredBy;
+    revisionId: string;
+    /** The snapshot's `content_hash`: which compiled prefix produced this answer. */
+    promptHash: string;
+  },
+): Promise<{ ok: boolean; detail?: string }> {
+  const { error } = await db
+    .from('messages')
+    .update({
+      answered_by: input.answeredBy,
+      revision_id: input.revisionId,
+      prompt_hash: input.promptHash,
+    })
+    .eq('id', input.messageId)
+    // The tenant is in the predicate as well as the id. `messages` has `unique (tenant_id,
+    // id)` and the id alone would be enough, but every write on this path is scoped to the
+    // tenant it belongs to and an exception would be the one nobody re-reads.
+    .eq('tenant_id', input.tenantId);
+  return error ? { ok: false, detail: error.message } : { ok: true };
 }

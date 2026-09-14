@@ -444,6 +444,29 @@ demo requests into the same chat — outside this repository, nothing here route
 noisy health alarm is not merely ignorable, it is burying the only messages with a person on
 the other end. Weigh a new `route: 'now'` alert against that.
 
+**A column that is read and never written is worse than one that is absent** (2026-09-14,
+D-064). `sweepStrandedEvents` filters `.is('replied_at', null)` and nothing had ever written
+`replied_at`, so the filter could not exclude a single row — it was harmless purely because
+the `state` filter beside it carried the whole load, and it would have become load-bearing
+the moment somebody widened that list trusting it. An absent column fails loudly at the
+first read; a dead one reads as a safety check for as long as nobody tests it. Three more
+were in the same state: `messages.answered_by`, `revision_id` and `prompt_hash`, with a
+literal `void answeredBy;` in `reception/deps.ts` discarding the value one line after it
+crossed the seam. **When you find a column, ask who writes it before you trust what it
+means.**
+
+The cost was not theoretical: Matrix's mirror had started drafting against real customers
+days before a republish, and without `revision_id` two drafts either side of a config change
+are indistinguishable — so the fourteen days could not have answered *did that edit help*,
+which is the whole point of running them. A trace column is worth nothing the day it is
+added and everything the day the config moves.
+
+`answered_by` now carries **three** values and not two. `0001`'s CHECK has allowed
+`model | deterministic | canned | human` all along, and a `deterministic_replies` hit was
+being recorded as `canned`. Different tables, different review gates, and the deterministic
+path spends nothing at all — so a single value for both cannot answer the first question
+anybody asks of the corpus.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

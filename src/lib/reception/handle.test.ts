@@ -245,6 +245,8 @@ test('an enabled short-circuit answers from a row with NO model call', async () 
   const opted: GateRule = { ...CHILDREN, deterministicShortcircuit: true };
   const { deps: d, calls } = deps();
   const r = await handleReception(d, { ...base, customerMessage: 'Хүүхдийн үс хэд вэ?', rules: [opted] });
+  // A gate short-circuit answers from a `canned_responses` row, so `canned` is right here —
+  // it is the DETERMINISTIC_REPLIES path that is its own provenance.
   assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
   assert.deepEqual(calls, ['release', 'draft:canned']);
 });
@@ -298,7 +300,10 @@ test('THE ROW-BACKED ANSWERS STILL WORK — the check runs after both short-circ
   const g = await handleReception(greet.deps, {
     ...base, promptStable: GATE_ONLY, customerMessage: 'Сайн байна уу', deterministic: [GREET],
   });
-  assert.equal(g.kind === 'drafted' && g.answeredBy, 'canned');
+  // `deterministic`, not `canned`: a deterministic_replies row and a canned_responses line
+  // are different tables with different review gates, and this path spends nothing at all.
+  // `0001`'s CHECK has allowed both values since the schema was written.
+  assert.equal(g.kind === 'drafted' && g.answeredBy, 'deterministic');
   assert.equal(g.kind === 'drafted' && g.refusal, undefined, 'a deterministic hit is an answer, not a refusal');
 
   const opted: GateRule = { ...CHILDREN, deterministicShortcircuit: true };
@@ -502,8 +507,32 @@ test('a greeting is answered from a row with NO model call, and the hold goes ba
   // in the design, and it was unreachable until the matcher columns existed.
   const { deps: d, calls } = deps();
   const r = await handleReception(d, { ...base, customerMessage: 'Сайн байна уу', deterministic: [GREET] });
-  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
-  assert.deepEqual(calls, ['release', 'draft:canned']);
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.deepEqual(calls, ['release', 'draft:deterministic']);
+});
+
+test('DONE-TEST: THE THREE PROVENANCES ARE THREE, not two', async () => {
+  // `messages.answered_by` has allowed model | deterministic | canned | human since `0001`
+  // and nothing had ever written any of them — `deps.ts` carried a literal `void answeredBy`.
+  // Recording the deterministic short-circuit as `canned` would have kept two of the three
+  // indistinguishable on the day the column finally started being written, and the first
+  // question anybody asks of the mirror's corpus is how often a row answered without the
+  // model. Asserted on all three paths together so a future edit cannot quietly merge them.
+  const det = deps();
+  const d1 = await handleReception(det.deps, {
+    ...base, customerMessage: 'Сайн байна уу', deterministic: [GREET],
+  });
+  assert.equal(d1.kind === 'drafted' && d1.answeredBy, 'deterministic');
+
+  // A tenant with no rendered sections takes the handoff line before the provider call
+  // (D-033), which is a canned_responses row.
+  const han = deps();
+  const d2 = await handleReception(han.deps, { ...base, promptStable: GATE_ONLY });
+  assert.equal(d2.kind === 'drafted' && d2.answeredBy, 'canned');
+
+  const mod = deps();
+  const d3 = await handleReception(mod.deps, { ...base, customerMessage: 'юу байна' });
+  assert.equal(d3.kind === 'drafted' && d3.answeredBy, 'model');
 });
 
 test('IT RUNS AFTER THE REVIEW GATE — an unreviewed line does not ship just because no model chose it', async () => {

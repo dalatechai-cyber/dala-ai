@@ -30,6 +30,12 @@ export type ReceptionContext = {
   /** D-058. null means this snapshot predates the canned section moving into the prefix. */
   cannedHash: string | null;
   revisionId: string;
+  /**
+   * The published snapshot's `content_hash` — the compiled prefix's identity, and the
+   * prompt-cache key. Carried so a reply can be traced back to the exact text that
+   * produced it: `revisionId` says which revision, this says which rendering of it.
+   */
+  contentHash: string;
   rules: GateRule[];
   deterministic: DeterministicRule[];
   canned: CannedRow[];
@@ -236,6 +242,7 @@ export async function loadReceptionContext(
       allowedNumbers: snapshot.snapshot.allowedNumbers,
       cannedHash: snapshot.snapshot.cannedHash,
       revisionId: snapshot.snapshot.revisionId,
+      contentHash: snapshot.snapshot.contentHash,
       rules,
       canned: cannedRows,
       tenantGuard,

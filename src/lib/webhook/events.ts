@@ -181,7 +181,27 @@ export async function markEventState(
   eventId: number,
   state: 'pending_enqueue' | 'processed' | 'shed' | 'failed' | 'blocked_no_token'
        | 'standby_not_primary' | 'expired_unqueued',
+  /**
+   * When this event produced a reply. Omit when it did not — an echo, a read receipt, a
+   * channel that cannot generate — because the two are different facts.
+   *
+   * `replied_at` was READ and never written until 2026-09-14. `sweepStrandedEvents`
+   * filters `.is('replied_at', null)`, which looked like a safety check and could not
+   * exclude anything, because every row in the table satisfied it. It was harmless only
+   * because the `state` filter beside it carried the whole load — and it would have become
+   * load-bearing the moment somebody trusted it while widening that list. Written now, so
+   * the filter means what it says.
+   *
+   * A DRAFT counts. In `shadow` the reply is generated and deliberately withheld, and the
+   * question this column answers is "did this delivery produce an answer", not "did Meta
+   * accept it" — `outbound_messages.sent_at` is the second question and already has a
+   * column of its own.
+   */
+  repliedAt?: Date,
 ): Promise<{ ok: boolean; detail: string | null }> {
-  const { error } = await db.from('webhook_events').update({ state }).eq('id', eventId);
+  const { error } = await db
+    .from('webhook_events')
+    .update({ state, ...(repliedAt === undefined ? {} : { replied_at: repliedAt.toISOString() }) })
+    .eq('id', eventId);
   return error ? { ok: false, detail: error.message } : { ok: true, detail: null };
 }

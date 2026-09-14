@@ -41,6 +41,12 @@ export function buildDeps(input: DepsInput): ReceptionDeps {
       // message finds the reply already written instead of generating a second one.
       // `answeredBy` is deliberately not in the key: whether the model or a canned line
       // answered must not create a second reply to one question.
+      //
+      // It is not discarded either, which it was until 2026-09-14 — a `void answeredBy`
+      // sat here and three columns the schema has carried since `0001` were written by
+      // nothing. The caller records it against the INBOUND message, alongside the revision
+      // and prompt hash that produced the answer, because that is the row a reader has when
+      // they ask what answered this customer. See `traceAnswer`.
       const r = await draftOnce(db, {
         tenantId,
         kind: 'reply',
@@ -49,7 +55,6 @@ export function buildDeps(input: DepsInput): ReceptionDeps {
         channelId: input.channelId,
         conversationId,
       });
-      void answeredBy;
       return r.ok ? { ok: true, id: r.row.id } : { ok: false, detail: r.detail };
     },
 
