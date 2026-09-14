@@ -608,6 +608,30 @@ text matches no CYRILLIC stem — true — and that went straight to "therefore 
 never asking whether a LATIN stem works. One line to test, tested only after the ancestor
 suggested it.
 
+**Then the corpus qualified it the same day**: a customer opened with **«Sn bnu?»** —
+«Сайн байна уу?» compressed to initials. For CONTENT stems the row answer holds (`huuhd`
+catches `huuhdiin`, `huuhduud`, by token prefix, because the word is typed out) and that is
+the children's-rule safety case. For GREETINGS it is weaker: listing `sain baina uu` does not
+catch `sn bnu`, and the abbreviation space is not enumerable. Transliteration would not catch
+it either — there are no vowels to transliterate. It means a deterministic greeting rule needs
+a different matcher from a topic stem, and only the corpus says which abbreviations occur.
+
+**The widened gate-label matcher caught a real leak five hours after it merged** (2026-09-14
+08:50:20, D-066 addendum). Production, live customer turn, attempted reply
+«Ш0-г шалгахад энэ нь нийтэд харагдах сувагт (facebook_page) бичсэн мессеж тул…». #85 shipped
+in two commits: the first anchored on the label's punctuation, the second widened the bound to
+a Unicode token after an adversarial re-read. Against the real text the shipped matcher
+returns `"Ш0"` and **the first version returns `null`** — «Ш0-г» carries the Mongolian
+accusative suffix, so what follows the digit is a hyphen, not `.:)(`. The same agglutination
+that makes `\b` wrong here is what defeated the narrow form. **An adversarial re-read of your
+own check before merging is not ceremony.** And the leak is now twice in the corpus's first
+thirteen turns — a rate, not an anecdote.
+
+**`refusal_public_channel` on a DM is measured too**: three of ten drafts, and one was served
+to a customer who had written «Эмэгтэй сортой будаг хийлгэх гэсийн» in a private DM and was
+told to write a private message. The guard cannot fix that — it cannot know which canned line
+fits. Ш0's wording can, and it is signed platform Mongolian for the reading evening.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale
