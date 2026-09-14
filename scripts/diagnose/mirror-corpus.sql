@@ -1,8 +1,9 @@
 -- The mirror's corpus: what customers asked, and what Ара drafted.
 --
--- Read-only. Three SELECTs — a per-turn transcript, a provenance summary, and the quality
--- flags — meant to be run against the project with psql, or one at a time through whatever
--- read-only client is to hand.
+-- Read-only. Four SELECTs — a per-turn transcript, a provenance summary, the quality
+-- flags, and a sentence-by-sentence read of whose words each draft is — meant to be run
+-- against the project with psql, or one at a time through whatever read-only client is to
+-- hand.
 --
 -- ## Why this is a file rather than a query somebody retypes
 --
@@ -85,6 +86,73 @@ where t.slug = :'tenant'
   and q.at >= now() - (:'hours' || ' hours')::interval
 group by q.flag
 order by times desc;
+
+-- 4. WHOSE SENTENCE IS IT? Every sentence of every draft, against the prefix that
+--    produced it — so "the model composed this" and "the model repeated an approved line"
+--    stop looking the same in a transcript.
+--
+--    This is the question the first corpus reading actually needed and had to answer by
+--    hand, with four ad-hoc queries, on 2026-09-14. Run against that morning's three drafts
+--    it reports in one pass what those four established:
+--
+--      the greeting      3 of 4 sentences NOVEL — there is no deterministic greeting row
+--                        for this tenant, so «hello» costs a full model call and returns
+--                        unreviewed Mongolian
+--      the handoff       3 of 3 approved — the guard refused the model and served the row
+--      the second one    «Уучлаарай, энэ асуултад хариулж чадахгүй байна» NOVEL, sitting
+--                        between two approved sentences: D-065's dropped «би», visible as a
+--                        novel sentence inside an otherwise approved reply, WITHOUT needing
+--                        the flag. An independent read on the same defect.
+--
+--    NOVEL is not a synonym for wrong. Composing an answer out of the knowledge base is the
+--    job; only pinned lines must be verbatim. What NOVEL means is "this sentence is the
+--    model's own Mongolian and nobody has read it" — which is the thing to read.
+--
+--    Pinned to the draft's OWN revision when `messages.revision_id` is set (D-064), and only
+--    falling back to whatever is published now when it is not — that is what the
+--    `compared_against` column says. Without that, the first republish would re-date every
+--    older draft against a prefix it never saw and report a screenful of false NOVELs, which
+--    is precisely the comparison D-064 exists to make possible.
+--
+--    Two limitations, stated rather than discovered later. The split is on `[.!?]`, so a URL
+--    («https://www.matrixecosalon.org/») splits into fragments and each is judged separately;
+--    read a fragment result as noise. And `like` is a substring test on the compiled prefix,
+--    so a sentence that appears there inside a DIFFERENT sentence counts as approved.
+with answered as (
+  select o.id as draft_id, o.created_at, o.body, m.revision_id
+  from messages m
+  join tenants t on t.id = m.tenant_id
+  join outbound_messages o
+    on o.conversation_id = m.conversation_id and o.kind = 'reply'
+   and o.created_at >= m.at and o.created_at < m.at + interval '5 minutes'
+  where t.slug = :'tenant' and m.direction = 'inbound'
+    and m.at >= now() - (:'hours' || ' hours')::interval
+),
+prefixed as (
+  select a.draft_id, a.created_at, a.body, a.revision_id is not null as pinned,
+    coalesce(
+      -- A revision carries one snapshot per channel; they have matched so far, and the
+      -- newest is taken rather than a channel being hardcoded here.
+      (select cs.prompt_stable from config_snapshots cs
+        where cs.revision_id = a.revision_id order by cs.compiled_at desc limit 1),
+      (select cs.prompt_stable from config_snapshots cs
+         join config_revisions r on r.id = cs.revision_id
+         join tenants t2 on t2.id = cs.tenant_id
+        where t2.slug = :'tenant' and r.status = 'published'
+        order by cs.compiled_at desc limit 1)
+    ) as prompt_stable
+  from answered a
+)
+select
+  left(p.draft_id::text, 8)                as draft,
+  to_char(p.created_at, 'MM-DD HH24:MI')   as at,
+  case when p.pinned then 'own revision' else 'published (assumed)' end as compared_against,
+  case when p.prompt_stable like '%' || trim(s) || '%' then 'approved' else 'NOVEL' end as origin,
+  trim(s)                                  as sentence
+from prefixed p, lateral regexp_split_to_table(p.body, '[.!?]') as s
+where trim(s) <> ''
+order by p.created_at, origin, sentence;
+
 
 -- Run it:
 --
