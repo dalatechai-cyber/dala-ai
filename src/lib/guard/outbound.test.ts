@@ -424,3 +424,36 @@ test('and the bound is a Unicode token, not an ASCII word boundary', () => {
     assert.notEqual(namesAGate(leak), null, leak);
   }
 });
+
+// ---------------------------------------------------------------------------
+// D-068. This block asserts a GAP, not a guarantee.
+// ---------------------------------------------------------------------------
+
+test('D-068 GAP: quoting an approved line INSIDE a sentence is refused', () => {
+  // IF YOU ARE HERE BECAUSE THIS FAILED: you have closed D-068. Delete this block, keep
+  // the contrast assertion below it, and read the decision.
+  //
+  // Measured live on 2026-09-14 at 14:23:43. A customer wrote «tsag avii» — let me book —
+  // and the model answered well: it declined what it cannot do, said why, and handed over
+  // the booking URL, its second sentence the reviewed `booking_line` reproduced correctly.
+  // The guard refused it and the customer got the generic handoff.
+  //
+  // The corpus holds the canned line IN CONTEXT, preceded by something. `shingles()` trims,
+  // so shingling that line in isolation never produces a run starting one character
+  // earlier. A window straddling the line's opening boundary is therefore in the corpus and
+  // absent from the exemption — and the leading space is the whole bug.
+  const leaky: TenantGuardView = {
+    ...MATRIX,
+    promptCorpus: `${CORPUS} ${PINNED}`,
+    cannedResponses: [PINNED],
+  };
+
+  // Exactly the canned line, alone: correctly allowed. This is the only shape that is safe.
+  assert.deepEqual(outboundGuard(leaky, CLEAN, PINNED), { ok: true }, 'the line alone passes');
+
+  // The same line, composed into a helpful answer: refused. Which is the opposite of what
+  // the guard is for — it is biased AGAINST the replies that use the approved lines right.
+  const composed = `Уучлаарай, би үүнийг хийж чадахгүй. ${PINNED}`;
+  const r = outboundGuard(leaky, CLEAN, composed);
+  assert.equal(r.ok === false && r.code, 'outbound_disclosure', 'composed around the line: refused');
+});
