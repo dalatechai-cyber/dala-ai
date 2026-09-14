@@ -660,6 +660,27 @@ read alone looks like D-067 — a Latin message firing no gate. `quality_flags` 
 answered well and the guard refused it. Third time in two days: **read the flag before
 explaining the draft.**
 
+**Matrix has no address, and «Хаяг» was the first word a real customer typed** (2026-09-14,
+D-069). `contact_points` holds one row — `phone 7741-7777` — and the published prefix has
+«Яармаг» (a branch name) and no street, district or unit number. The model correctly declined
+to invent one, then LABELLED what it gave: «Хаяг, холбоо барих:» and «📍 Байршил, холбогдох
+утас: 7741-7777». **A label that promises an address and delivers a phone is worse than
+declining.** The fix is a row and the value is the founder's, like the booking URL.
+
+**The model wrote the same greeting two ways in one day** — «салон**д** тавтай морил» at
+03:57 and «салон **руу** тавтай морил» at 09:29. *Welcome to X* takes the dative; «руу» is
+directional. Both were `answered_by = 'model'` on the same revision and `prompt_hash`, so it
+is the model's own variance, not a config change — and at most one can be right. That is the
+argument for pinning answers that recur. Other language observations (the familiar imperative
+«тавтай морил» beside the honorific «Танд»; «манай яг байршил»; emoji in five drafts and in no
+approved line) are in D-069, ranked by confidence and put to the founder rather than asserted:
+**the founder is the native speaker and these are his call.**
+
+And the one a customer would notice: at 08:45:02 the bot pointed a customer at the salon's
+details; twelve seconds later, same conversation, it opened «Уучлаарай, манай яг байршил зэрэг
+дэлгэрэнгүй мэдээллийг би энэ хэлбэрээр өгч чадахгүй байна». Neither sentence is
+ungrammatical; together they read as a bot that does not know its own mind.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale
