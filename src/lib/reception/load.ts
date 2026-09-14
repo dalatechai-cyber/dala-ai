@@ -14,6 +14,7 @@ import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
 import { MAX_REPLY_CHARS } from './handle.ts';
 import type { BusinessHours, Closure } from './volatile.ts';
+import { canonicalizeUrl } from '../mn/extract.ts';
 
 export type TenantSettings = {
   defaultLocale: string;
@@ -91,7 +92,7 @@ export async function loadReceptionContext(
       : { ok: false, code: 'not_provisioned', detail: snapshot.detail };
   }
 
-  const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes, detRes] = await Promise.all([
+  const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes, detRes, contactsRes] = await Promise.all([
     db.from('disclosure_rules')
       .select('topic_key, matcher, quote_price, response_kind, deterministic_shortcircuit, provenance')
       .eq('tenant_id', input.tenantId),
@@ -121,13 +122,17 @@ export async function loadReceptionContext(
     db.from('deterministic_replies')
       .select('intent, body, enabled, match_mode, stems, requires_empty_history, provenance')
       .eq('tenant_id', input.tenantId),
+    // Read for `allowedUrls` only. The section body itself is compiled at publish time by
+    // `prompt/sections.ts`; this is the request-path half, because the URL guard runs
+    // against what the model just wrote rather than against the snapshot.
+    db.from('contact_points').select('kind, value').eq('tenant_id', input.tenantId),
   ]);
 
   for (const [name, res] of [
     ['disclosure_rules', disclosure], ['out_of_scope_topics', outOfScope],
     ['canned_responses', canned], ['tenant_booking', booking], ['services', services],
     ['forbidden_phrasings', phrasings], ['business_hours', hoursRes], ['tenant_closures', closuresRes],
-    ['deterministic_replies', detRes],
+    ['deterministic_replies', detRes], ['contact_points', contactsRes],
   ] as const) {
     if (res.error) return { ok: false, code: 'unavailable', detail: `${name} unreadable: ${res.error.message}` };
   }
@@ -146,9 +151,33 @@ export async function loadReceptionContext(
     ...toRules(outOfScope.data, false),
   ];
 
-  const allowedUrls = (Array.isArray(booking.data) ? booking.data : [])
-    .map((raw) => String((raw as Record<string, unknown>)['booking_url'] ?? ''))
-    .filter((u) => u !== '');
+  /**
+   * Every link the tenant has declared, from BOTH tables that can hold one.
+   *
+   * It was `tenant_booking.booking_url` alone, and a URL from anywhere else was refused by
+   * `urlsNotAllowed` — so Matrix's location, which `contact_points.kind` has allowed as
+   * `maps_url` since `0001`, could be compiled into the prefix, quoted correctly by the
+   * model, and then thrown away by the guard. That is D-068's shape in a different check:
+   * a reply punished for using the tenant's own approved data.
+   *
+   * All four URL-shaped kinds, not just `maps_url`: restricting it to the one kind needed
+   * today rebuilds the same gap for `website` the first time anybody adds one. A kind that
+   * holds a handle rather than a link is inert here rather than dangerous — it canonicalises
+   * to something no extracted URL matches — but it is filtered out anyway so the allow-list
+   * contains only things that are actually links.
+   */
+  const URL_CONTACT_KINDS: ReadonlySet<string> = new Set(['maps_url', 'website', 'facebook', 'instagram']);
+  const contactUrls = (Array.isArray(contactsRes.data) ? contactsRes.data : [])
+    .filter((raw) => URL_CONTACT_KINDS.has(String((raw as Record<string, unknown>)['kind'] ?? '')))
+    .map((raw) => String((raw as Record<string, unknown>)['value'] ?? ''))
+    .filter((v) => v !== '' && canonicalizeUrl(v) !== null);
+
+  const allowedUrls = [
+    ...(Array.isArray(booking.data) ? booking.data : [])
+      .map((raw) => String((raw as Record<string, unknown>)['booking_url'] ?? ''))
+      .filter((u) => u !== ''),
+    ...contactUrls,
+  ];
 
   const serviceNames = (Array.isArray(services.data) ? services.data : [])
     .map((raw) => String((raw as Record<string, unknown>)['name'] ?? ''))
