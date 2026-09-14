@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { disclosesPrompt, outboundGuard, type OutboundContext, type TenantGuardView } from './outbound.ts';
+import { disclosesPrompt, namesAGate, outboundGuard, type OutboundContext, type TenantGuardView } from './outbound.ts';
 
 /**
  * Matrix Eco Salon as the compiler would render it. Every Mongolian string below is
@@ -398,4 +398,29 @@ test('the label check runs FIRST, so the leak is not filed as a price problem', 
   const withBoth = 'Ш2. Энэ үйлчилгээний үнэ 999,999₮ байна.';
   const r = outboundGuard(MATRIX, CLEAN, withBoth);
   assert.equal(r.ok === false && r.code, 'outbound_gate_label');
+});
+
+test('DONE-TEST: a label written as an ordinary word is caught too', () => {
+  // The first version of this matcher required the label's punctuation and would have
+  // missed «Ш1 дүрмээр» — a label narrated as prose, which is at least as likely as a
+  // heading. Found by re-reading the regex before merging rather than by a leak.
+  const r = outboundGuard(MATRIX, CLEAN, 'Ш1 дүрмээр энэ сэдвийг хөндөх боломжгүй.');
+  assert.equal(r.ok === false && r.code, 'outbound_gate_label');
+});
+
+test('and the bound is a Unicode token, not an ASCII word boundary', () => {
+  // `\b` is defined against ASCII `\w`, so it reports a boundary between `1` and Cyrillic
+  // `д` — the matcher would behave differently in Mongolian than in English, on the one
+  // platform where everything is Mongolian. CLAUDE.md rule 6.
+  //
+  // Asserted on `namesAGate` rather than through `outboundGuard`, because two of these
+  // carry a digit Matrix has not approved and the NUMERAL guard refuses them for a
+  // different and correct reason. Asserting `ok: true` here would have passed for the
+  // wrong reason on the day this check broke — the shape CLAUDE.md keeps naming.
+  for (const safe of ['Шампунь сайн байна.', 'Ш2маск нь манай бүтээгдэхүүн.', 'АШ1 гэсэн код.']) {
+    assert.equal(namesAGate(safe), null, safe);
+  }
+  for (const leak of ['Ш0 (сувагтай холбоотой шалгалт)', 'Ш1.', 'Ш1 дүрмээр', 'Ш12: ', 'мөн Ш3 гэж']) {
+    assert.notEqual(namesAGate(leak), null, leak);
+  }
 });

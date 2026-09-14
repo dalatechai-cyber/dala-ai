@@ -193,8 +193,25 @@ export function disclosesPrompt(
  * Deliberately NOT folded or whitespace-collapsed like `shingles`: evasion is not the
  * threat here. The model is not trying to hide a label — it is narrating its instructions
  * because it thinks that is helpful — so the literal form is the form that appears.
+ *
+ * ## A standalone TOKEN, and why not `\b`
+ *
+ * The first version of this required the label's punctuation — `Ш\d{1,2}\s*[.:)(]` — and
+ * matched the real leak «Ш0 (» and a heading «Ш1.». Re-read adversarially before merging, it
+ * misses «Ш1 дүрмээр…», a label written as an ordinary word, which is at least as likely a
+ * way for the model to narrate.
+ *
+ * `\b` is the obvious repair and is forbidden by CLAUDE.md rule 6, for a reason visible
+ * right here: `\b` is defined against ASCII `\w`, so between `1` and the Cyrillic `д` it
+ * reports a word boundary — the matcher would behave differently in Mongolian than in
+ * English on the one platform where everything is Mongolian.
+ *
+ * So the bound is Unicode-aware and explicit: not preceded by a letter or digit, not
+ * followed by one. «Шампунь» has no digit; «Ш2маск» has a letter after the digit and could
+ * be a tenant's product name; «АШ1» has a letter before. None of those match, and a label
+ * standing on its own always does.
  */
-const GATE_LABEL = /Ш\d{1,2}\s*[.:)(]/u;
+const GATE_LABEL = /(?<![\p{L}\p{N}])Ш\d{1,2}(?![\p{L}\p{N}])/u;
 
 export function namesAGate(reply: string): string | null {
   const m = GATE_LABEL.exec(nfc(reply));

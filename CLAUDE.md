@@ -516,6 +516,19 @@ exactly the case that was filed wrong — the real instance is recorded as `outb
 sending a reader to the allow-list for a leak that has nothing to do with numerals. **When
 an exact-match check keeps being evaded, stop widening the corpus and find the shape.**
 
+Its first form required the label's punctuation, which the real leak happened to have, and
+missed the same disclosure written as prose («Ш1 дүрмээр…»). `\b` is the reflex repair and
+rule 6 forbids it — it is defined against ASCII `\w`, so it reports a boundary between `1`
+and Cyrillic `д`, and the matcher would behave differently in Mongolian than in English on
+the one platform where everything is Mongolian. The bound is explicit instead:
+`(?<![\p{L}\p{N}])Ш\d{1,2}(?![\p{L}\p{N}])`.
+
+**`outboundGuard` is called from `reception/handle.ts` and nowhere else, and on the comment
+surface that is correct rather than a hole** — `worker/comments.ts` never generates text, it
+posts the bytes of one reviewed `canned_responses` row and refuses when there is none, so
+there is no model output there to guard. It stops being correct the day anything generates a
+comment reply, where a leak would land on the salon's public wall.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

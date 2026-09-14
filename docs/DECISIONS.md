@@ -4130,3 +4130,36 @@ Mongolian belonging to the reading evening. Both are recorded here so the evenin
 The guard now refuses the whole reply, so neither reaches a customer while the wording is
 unresolved. That is the right posture and it is not a fix: a refusal is a customer who did
 not get an answer.
+
+### The bound is a token, and `\b` is the wrong way to say so
+
+The first version of the matcher was `Ш\d{1,2}\s*[.:)(]` — it required the label's
+punctuation, which the one real leak («Ш0 (…») happened to have. Re-read adversarially
+before the PR merged, it misses «Ш1 дүрмээр…»: the same disclosure written as prose rather
+than as a heading, which is at least as likely a way for a model to narrate its own rules.
+
+`\b` is the reflex repair and rule 6 forbids it, for a reason this case shows rather than
+asserts: `\b` is defined against ASCII `\w`, so between `1` and the Cyrillic `д` it reports a
+word boundary. The matcher would behave differently in Mongolian than in English on the one
+platform where every customer-visible string is Mongolian. The bound is therefore explicit
+and Unicode-aware — `(?<![\p{L}\p{N}])Ш\d{1,2}(?![\p{L}\p{N}])` — which leaves «Шампунь»
+(no digit), «Ш2маск» (a letter after the digit, a plausible tenant product name) and «АШ1»
+(a letter before) alone.
+
+Its negative tests assert on `namesAGate` directly rather than on `outboundGuard` returning
+ok, because two of those three carry a digit Matrix has not approved and the numeral guard
+refuses them for a different and correct reason. Asserted end to end, they would have stayed
+green on the day this check broke.
+
+### The comment path has no model in it, so it cannot leak a label
+
+`outboundGuard` is called from `reception/handle.ts` and nowhere else, which reads at first
+like a hole: a gate label leaking into a **public** reply under the salon's own wall is
+strictly worse than into a DM. It is not one. `worker/comments.ts` never generates text —
+`decideCommentReply` returns the bytes of a single `canned_responses` row and refuses
+outright when that row is absent, empty or unreviewed (`eligibility.ts:169`). There is no
+model output on that surface to guard.
+
+Recorded because the absence is load-bearing rather than accidental: **the day anything
+generates a comment reply, that surface needs item 0 and everything under it.** The reason
+the guard is not there is the reason there is nothing to guard.
