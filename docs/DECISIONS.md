@@ -3871,6 +3871,44 @@ stops competing with six criticals a week.
 
 ---
 
+
+### Addendum, measured the same day: a backfill default decides which rows the new rule can ever reach
+
+Matrix's channel recovered at **06:00:04 UTC on 2026-09-14** — `channel_health` reads
+`healthy`, "webhooks and messages both within 3.0h of open time", after eleven days dead.
+Telegram said nothing, and could not have.
+
+The ten `channel.no_webhooks` rows recording that outage predate `0025`, so the migration's
+`repeat_policy` default stamped them **`daily`**. Under the split this file just introduced
+that makes them *events*, and `resolveOpenAlerts` filters on `repeat_policy = 'on_change'`.
+There is no open episode to close, so no `channel.recovered` was raised — for the one
+condition the whole split was built around.
+
+Nothing here is broken. Going forward `watch.ts` writes `on_change` and the recovery notice
+works; the digest and the escalation correctly ignore the ten rows rather than re-escalating
+eleven days of noise, which is the outcome we wanted. The gap is one-time and historical.
+
+The lesson is not one-time. **A migration that adds a discriminator column with a default is
+deciding, retroactively, which semantics apply to every row already in the table — and the
+rows already in the table are exactly the ones that motivated the change.** `'daily'` was the
+conservative default, correct in general because you cannot know what an arbitrary old row
+meant. Nobody asked what the *live* ones meant, and there were only eleven rows to look at.
+
+What was NOT done, deliberately: the rows were not retyped to `on_change` to manufacture the
+missing notice. That is a write to `alerts` — adjacent to the one instrument the founder said
+not to touch — and retyping all ten would send ten recovery messages, which is the daily
+repeat wearing the fix's clothes one more time. The recovery is reported by hand instead,
+once, which is what a person would have done anyway.
+
+Related, and the same shape at the outermost layer: **the first digest could not fire.**
+The route reached `main` at 06:18 UTC on 2026-09-14 and the QStash schedule is 01:00 UTC, so
+at its first appointment `/api/workers/digest` did not exist. Vercel's runtime logs carry no
+request to that path in the twelve hours around it. The route is deployed and reachable now
+(an unsigned GET returns 405 with `x-matched-path: /api/workers/digest`, i.e. POST-only as
+built), so the first firing that can work is 2026-09-15 01:00 UTC. If 09:00 Ulaanbaatar comes
+and no digest arrives, the schedule is what to check — not the code — and that console is not
+readable from here.
+
 ## D-064 — three columns the schema carried since `0001`, written by nothing
 
 **2026-09-14, found by reading Matrix's first real mirror drafts.** No migration: every

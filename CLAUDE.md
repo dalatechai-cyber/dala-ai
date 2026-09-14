@@ -444,6 +444,24 @@ demo requests into the same chat — outside this repository, nothing here route
 noisy health alarm is not merely ignorable, it is burying the only messages with a person on
 the other end. Weigh a new `route: 'now'` alert against that.
 
+**A backfill default decides which rows the new rule can ever reach** (2026-09-14, D-063
+addendum). Matrix's channel recovered at 06:00:04 UTC on the 14th — `channel_health` reads
+`healthy` after eleven days dead — and Telegram said nothing, because the ten rows recording
+that outage predate `0025` and its default stamped them `repeat_policy = 'daily'`. Under the
+split that makes them events, `resolveOpenAlerts` only closes `on_change` episodes, so there
+was no episode to close for the one condition the split was built around. Going forward the
+mechanism works; the gap is historical. **A migration adding a discriminator column with a
+default is retroactively deciding the semantics of every row already there — and those rows
+are exactly the ones that motivated the change.** The rows were NOT retyped to manufacture
+the missing notice: that is a write to `alerts`, and retyping all ten would have sent ten
+recovery messages. It was reported by hand instead.
+
+**And the first digest could not fire**: the route reached `main` at 06:18 UTC and the QStash
+schedule is 01:00 UTC, so at its first appointment it did not exist. It is deployed now (an
+unsigned GET returns 405 with `x-matched-path: /api/workers/digest`); the first firing that
+can work is 2026-09-15 01:00 UTC. The QStash console is not readable from here, so if 09:00
+Ulaanbaatar passes with no digest, check the schedule rather than the code.
+
 **A column that is read and never written is worse than one that is absent** (2026-09-14,
 D-064). `sweepStrandedEvents` filters `.is('replied_at', null)` and nothing had ever written
 `replied_at`, so the filter could not exclude a single row — it was harmless purely because
