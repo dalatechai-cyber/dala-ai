@@ -296,7 +296,32 @@ the sweep have now read real rows once, on one channel, with one live tenant.
 
 ## 4. Decisions waiting for you
 
-**None.** All twenty-one Mongolian blocks were signed on 2026-09-04 and are seeded by
+**Three, as of 2026-09-15.** One is a command only you can run; two are money questions
+that executing the first round of changes uncovered.
+
+**Done 2026-09-15, on your instruction:** the monthly ceiling is $28.57 (`tenant_budgets`
+id 3), `RECEPTION_REPLY_ESTIMATE` is $0.041, and the contact labels are approved. What
+remains:
+
+1. **Republish Matrix.** `contact_points` carries the `maps_url` row and the prefix will not
+   contain it until `scripts/publish/tenant.ts --slug matrix-eco-salon --publish` runs.
+   `SUPABASE_SECRET_PUBLISH` is absent from agent sessions, so only you can.
+   **Deploy the code first** — republishing ahead of the deploy hands the model a URL the
+   live `urlsNotAllowed` still refuses.
+2. **The ceiling is 60% of the LIST price, where D-004 requires the discounted FLOOR.**
+   $28.57 is 60% of ₮250,000; the full-team bundle floor (₮200,000) gives $22.86, and a
+   bundled Reception at a $28.57 ceiling runs at 50% margin. D-004 states the floor rule in
+   bold. Flagged, not resolved — a pricing call (D-072 addendum).
+3. **The ceiling you raised enforces nothing today.** `monthly_ceiling_nanousd` has no
+   reader in `src/` or in any migration, and neither does `on_exhausted`, so the degradation
+   ladder is designed and not built. What binds is the DAILY cap, and it is **compiled**:
+   the lower of `SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY` ($1.50) and the row's daily ×
+   surface fraction ($1.90), so Matrix's live reception ceiling is **$1.50/day from a
+   constant**, unaffected by its budget row. Whether $1.50 is right is money and is yours:
+   it affords roughly **37 cold conversations in a day**, against D-016's measured spread of
+   28–94 replies/day.
+
+All twenty-one Mongolian blocks were signed on 2026-09-04 and are seeded by
 `0010`; `prompt/drafts/` is empty of blocks and is now the design record.
 
 ### Settled 2026-09-04, and already built

@@ -41,6 +41,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   markNotified, openEpisodes, sendTelegram, severityMark, type OpenAlert,
 } from './alert.ts';
+import { DROPPED_FLAG } from '../inbound/dropped.ts';
 import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
 import { tenantClock } from '../time/clock.ts';
 
@@ -66,6 +67,42 @@ export type DigestPlan = {
   escalate: OpenAlert[];
 };
 
+/**
+ * Inbound events this platform saw and did not answer, over the last day.
+ *
+ * Counted by KIND rather than by number alone, because the number on its own is the thing
+ * that misled a reader on 2026-09-14: three skipped deliveries look identical whether they
+ * were thumbs-up stickers (right to drop) or photographs of the colour a customer wanted
+ * (the most valuable message a salon receives). `sticker ×3` and `image ×3` are different
+ * mornings.
+ */
+export type DroppedSummary = {
+  total: number;
+  /** Attachment kinds where there were attachments; otherwise the skip reason. */
+  byKind: Record<string, number>;
+  /** The count could not be read. Never folded into zero — see `droppedLine`. */
+  unavailable: boolean;
+};
+
+/**
+ * One clause about dropped inbound, present on every digest including clean ones.
+ *
+ * Zero says "zero" rather than saying nothing, for the same reason the heartbeat does: a
+ * counter that is silent when it finds nothing is indistinguishable from a counter that
+ * has stopped, and this one was built precisely because a silent drop went unseen.
+ */
+export function droppedLine(d: DroppedSummary): string {
+  if (d.unavailable) return 'inbound dropped (24h): UNREADABLE — quality_flags could not be counted';
+  if (d.total === 0) return 'No inbound events dropped (24h)';
+  // Count descending, then by code point. NOT `localeCompare`: this string is assembled on
+  // whatever runtime Vercel gives us, and D-026's rule is that ordering never depends on a
+  // locale. `check-deterministic-order.mjs` fails the build on the other spelling.
+  const parts = Object.entries(d.byKind)
+    .sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    .map(([kind, n]) => `${kind} ×${n}`);
+  return `${d.total} inbound dropped unanswered (24h): ${parts.join(', ')}`;
+}
+
 function ageOf(from: Date, now: Date): string {
   const minutes = Math.max(0, Math.round((now.getTime() - from.getTime()) / 60_000));
   if (minutes < 90) return `${minutes}m`;
@@ -90,7 +127,9 @@ function clip(text: string, max: number): string {
  */
 export function planDigest(
   open: readonly OpenAlert[],
-  input: { now: Date; watchdogLastRan: Date | null; channelsChecked: number },
+  input: {
+    now: Date; watchdogLastRan: Date | null; channelsChecked: number; dropped: DroppedSummary;
+  },
 ): DigestPlan {
   const date = tenantClock(input.now, PLATFORM_TIMEZONE).date;
   const ranked = [...open].sort((a, b) => {
@@ -105,11 +144,14 @@ export function planDigest(
     : `silence watchdog last ran ${ageOf(input.watchdogLastRan, input.now)} ago `
       + `(${input.channelsChecked} channel${input.channelsChecked === 1 ? '' : 's'})`;
 
+  const dropped = droppedLine(input.dropped);
+
   if (ranked.length === 0) {
-    return { summary: `Dala AI — ${date}\nNothing open. ${heartbeat}.`, escalate: [] };
+    return { summary: `Dala AI — ${date}\nNothing open. ${heartbeat}.\n${dropped}.`, escalate: [] };
   }
 
-  const header = `Dala AI — ${date}\n${ranked.length} open condition${ranked.length === 1 ? '' : 's'}. ${heartbeat}.`;
+  const header = `Dala AI — ${date}\n${ranked.length} open condition${ranked.length === 1 ? '' : 's'}. `
+    + `${heartbeat}.\n${dropped}.`;
   const lines: string[] = [];
   let used = header.length;
   let omitted = 0;
@@ -131,6 +173,49 @@ export function planDigest(
   );
 
   return { summary: `${header}${lines.join('')}${tail}`, escalate };
+}
+
+/** How far back the dropped-inbound count reaches. The digest is daily, so the window is. */
+export const DROPPED_WINDOW_HOURS = 24;
+
+/**
+ * Count the inbound events nobody answered, by kind, over the last day.
+ *
+ * ## Why an unreadable count does not 503 the digest, unlike the alerts read
+ *
+ * The alerts read is the digest's subject: a summary that cannot see `alerts` and answers
+ * 200 with "nothing open" is the mechanism claiming a clean day it never checked. This is
+ * a second fact carried alongside, and failing the whole job over it would trade a missing
+ * clause for a missing digest — including the open criticals it was about to list.
+ *
+ * So it degrades instead, and the degradation is LOUD: `unavailable` prints as UNREADABLE
+ * in the message rather than as zero. A count that reports zero when it failed to look is
+ * the exact defect this whole feature exists to remove, and rebuilding it here — inside
+ * the thing meant to make drops visible — is the mistake worth naming.
+ */
+async function countDropped(db: SupabaseClient, now: Date): Promise<DroppedSummary> {
+  const since = new Date(now.getTime() - DROPPED_WINDOW_HOURS * 60 * 60_000).toISOString();
+  const { data, error } = await db
+    .from('quality_flags')
+    .select('detail')
+    .eq('flag', DROPPED_FLAG)
+    .gte('at', since);
+  if (error) return { total: 0, byKind: {}, unavailable: true };
+
+  const rows = Array.isArray(data) ? data : [];
+  const byKind: Record<string, number> = {};
+  for (const row of rows) {
+    const detail = (row as Record<string, unknown>)['detail'];
+    const d = detail !== null && typeof detail === 'object' ? detail as Record<string, unknown> : {};
+    const attachments = d['attachments'];
+    // The kind is what a reader needs; the reason is the fallback for a skip that carried
+    // no attachment at all — a postback, or an event too malformed to parse.
+    const kinds = Array.isArray(attachments) && attachments.length > 0   // ascii-safe: an ARRAY length, not a string — no text is measured here
+      ? attachments.map(String)
+      : [String(d['reason'] ?? 'unknown')];
+    for (const k of kinds) byKind[k] = (byKind[k] ?? 0) + 1;
+  }
+  return { total: rows.length, byKind, unavailable: false };
 }
 
 export type DigestEffects = {
@@ -174,6 +259,7 @@ export async function runDigestJob(
     now: effects.now,
     watchdogLastRan: observed[0] ?? null,
     channelsChecked: observed.length,
+    dropped: await countDropped(effects.db, effects.now),
   });
 
   // ALERTS_ENABLED=false silences every path or it silences none of them — the same escape

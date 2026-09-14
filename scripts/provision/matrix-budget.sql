@@ -2,6 +2,23 @@
 --
 -- Founder-approved 2026-09-07: daily $2.00, monthly $20.00, alert at 80%,
 -- `on_exhausted = canned_reply`, and the two circuit-breakers left at tenant #0's 25/40.
+--
+-- ## SUPERSEDED IN PART, 2026-09-15 — the monthly is $28.57
+--
+-- The founder raised it (D-072 addendum) after the cost model was re-derived per
+-- CONVERSATION rather than per reply. `tenant_budgets` is append-only, so the row this
+-- script inserted stands as id 2 and the new ceiling is id 3; the verify block below reads
+-- the LATEST row and therefore asserts the new figure. The daily is unchanged.
+--
+-- Two things that block knows and this header did not, both found on 2026-09-15:
+--
+--   * `monthly_ceiling_nanousd` is read by NO code. The month is not wired (D-051), so
+--     this assertion protects a number that documents an intention rather than one that
+--     enforces anything. Keep asserting it — the day the month IS wired, a wrong value
+--     would be live immediately.
+--   * `on_exhausted` is read by no code either, so the §5.7 ladder this script's third
+--     assertion names is designed and not built. The assertion is still correct about what
+--     the row should SAY; it is not evidence that a tenant degrades rather than stops.
 -- Money movement is a founder-gated category; these numbers are theirs, not mine.
 --
 -- Applied AFTER `matrix-cache-1h.sql`, deliberately: the ceilings were sized against the
@@ -54,8 +71,9 @@ begin
   if b.daily_ceiling_nanousd <> 2000000000 then
     raise exception 'budget: daily is % nanoUSD, not the approved $2.00', b.daily_ceiling_nanousd;
   end if;
-  if b.monthly_ceiling_nanousd <> 20000000000 then
-    raise exception 'budget: monthly is % nanoUSD, not the approved $20.00', b.monthly_ceiling_nanousd;
+  -- $28.57 since 2026-09-15, raised from $20.00 by the founder. See the header.
+  if b.monthly_ceiling_nanousd <> 28570000000 then
+    raise exception 'budget: monthly is % nanoUSD, not the approved $28.57', b.monthly_ceiling_nanousd;
   end if;
   if b.on_exhausted <> 'canned_reply' then
     raise exception 'budget: on_exhausted is %, not canned_reply — a hard stop is not the §5.7 ladder', b.on_exhausted;

@@ -16,7 +16,8 @@ function episode(over: Partial<OpenAlert> = {}): OpenAlert {
   };
 }
 
-const CLEAN = { now: NOW, watchdogLastRan: RAN, channelsChecked: 2 };
+const NO_DROPS = { total: 0, byKind: {}, unavailable: false };
+const CLEAN = { now: NOW, watchdogLastRan: RAN, channelsChecked: 2, dropped: NO_DROPS };
 
 test('DONE-TEST: A CLEAN DAY STILL SENDS, AND CARRIES PROOF OF LIFE', () => {
   // A digest that stays silent when nothing is open makes silence mean two things —
@@ -32,7 +33,7 @@ test('DONE-TEST: and when the watchdog has never run, the clean day SAYS SO', ()
   // `channel_health` is upserted on every run including healthy ones, precisely so that its
   // absence is a statement. A digest reading "nothing open" over a watchdog that has never
   // executed would be the most confident wrong sentence this system could produce.
-  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0 });
+  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS });
   assert.match(plan.summary, /never recorded an observation/);
   assert.doesNotMatch(plan.summary, /last ran/);
 });
@@ -84,15 +85,21 @@ test('an over-long digest REPORTS what it left out', () => {
 
 // --- the job ---------------------------------------------------------------
 
-function jobDb(over: { alerts?: unknown; health?: unknown; alertsError?: unknown } = {}) {
+function jobDb(over: {
+  alerts?: unknown; health?: unknown; alertsError?: unknown;
+  flags?: unknown; flagsError?: unknown;
+} = {}) {
   return {
     from: (table: string) => {
       const chain: Record<string, unknown> = {};
-      for (const m of ['select', 'eq', 'is', 'like', 'in', 'order', 'limit', 'update', 'insert']) chain[m] = () => chain;
+      const methods = ['select', 'eq', 'is', 'like', 'in', 'order', 'limit', 'update', 'insert', 'gte', 'contains'];
+      for (const m of methods) chain[m] = () => chain;
       chain['then'] = (res: (v: unknown) => unknown) => res(
         table === 'alerts'
           ? { data: over.alerts ?? [], error: over.alertsError ?? null }
-          : { data: over.health ?? [{ observed_at: RAN.toISOString() }], error: null },
+          : table === 'quality_flags'
+            ? { data: over.flags ?? [], error: over.flagsError ?? null }
+            : { data: over.health ?? [{ observed_at: RAN.toISOString() }], error: null },
       );
       return chain;
     },
@@ -137,4 +144,84 @@ test('a signed run reports what it found', async () => {
   assert.equal(r.body['open'], 1);
   // ALERTS_ENABLED=false silences every path or it silences none of them.
   assert.equal(r.body['sent'], false);
+});
+
+// --- dropped inbound -------------------------------------------------------
+
+test('DONE-TEST: THE CLEAN DAY SAYS ZERO DROPPED RATHER THAN SAYING NOTHING', () => {
+  // Same argument as the heartbeat one line above it: a counter that is silent when it
+  // finds nothing cannot be told from a counter that has stopped — and this one exists
+  // because three dropped deliveries went unseen for a day.
+  const plan = planDigest([], CLEAN);
+  assert.match(plan.summary, /No inbound events dropped \(24h\)/);
+});
+
+test('DONE-TEST: AN UNREADABLE COUNT PRINTS UNREADABLE, NEVER ZERO', () => {
+  // Reporting zero when the read failed is the exact defect this feature removes, rebuilt
+  // inside the feature. It has to be loud in the message, not in a log.
+  const plan = planDigest([], { ...CLEAN, dropped: { total: 0, byKind: {}, unavailable: true } });
+  assert.match(plan.summary, /UNREADABLE/);
+  assert.doesNotMatch(plan.summary, /No inbound events dropped/);
+});
+
+test('DONE-TEST: THE LINE NAMES THE KIND, BECAUSE A STICKER AND A PHOTO ARE DIFFERENT MORNINGS', () => {
+  // The number alone is what misled a reader on 2026-09-14. Three skipped deliveries look
+  // identical whether they were thumbs-ups (right to drop) or photographs of the colour a
+  // customer wanted (the most valuable message a salon gets).
+  const sticker = planDigest([], { ...CLEAN, dropped: { total: 3, byKind: { sticker: 3 }, unavailable: false } });
+  assert.match(sticker.summary, /3 inbound dropped unanswered \(24h\): sticker ×3/);
+
+  const photos = planDigest([], { ...CLEAN, dropped: { total: 3, byKind: { image: 3 }, unavailable: false } });
+  assert.match(photos.summary, /image ×3/);
+  assert.notEqual(sticker.summary, photos.summary);
+});
+
+test('kinds are ordered by count then code point, never by locale', () => {
+  // D-026: ordering that reaches a rendered string must not depend on the runtime locale.
+  const plan = planDigest([], {
+    ...CLEAN,
+    dropped: { total: 6, byKind: { image: 1, sticker: 4, file: 1 }, unavailable: false },
+  });
+  assert.match(plan.summary, /sticker ×4, file ×1, image ×1/);
+});
+
+test('an open condition carries the dropped line too', () => {
+  const plan = planDigest([episode()], { ...CLEAN, dropped: { total: 1, byKind: { image: 1 }, unavailable: false } });
+  assert.match(plan.summary, /1 open condition/);
+  assert.match(plan.summary, /1 inbound dropped unanswered/);
+});
+
+test('DONE-TEST: a job whose quality_flags read fails still DELIVERS the digest', async () => {
+  // The alerts read is the digest's subject and 503s. This is a second fact carried
+  // alongside, and failing the whole job over it trades a missing clause for a missing
+  // digest — including the open criticals it was about to list.
+  process.env['ALERTS_ENABLED'] = 'false';
+  const r = await runDigestJob(
+    {
+      db: jobDb({ flagsError: { message: 'connection reset' } }),
+      now: NOW,
+      verifySignature: async () => true,
+    },
+    { rawBody: '{}', signature: 'sig' },
+  );
+  assert.equal(r.status, 200);
+});
+
+test('the job counts dropped events by kind out of quality_flags', async () => {
+  process.env['ALERTS_ENABLED'] = 'false';
+  const r = await runDigestJob(
+    {
+      db: jobDb({
+        flags: [
+          { detail: { reason: 'no_text', attachments: ['sticker'] } },
+          { detail: { reason: 'no_text', attachments: ['sticker'] } },
+          { detail: { reason: 'postback' } },
+        ],
+      }),
+      now: NOW,
+      verifySignature: async () => true,
+    },
+    { rawBody: '{}', signature: 'sig' },
+  );
+  assert.equal(r.status, 200);
 });

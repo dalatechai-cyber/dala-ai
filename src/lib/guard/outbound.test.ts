@@ -426,34 +426,81 @@ test('and the bound is a Unicode token, not an ASCII word boundary', () => {
 });
 
 // ---------------------------------------------------------------------------
-// D-068. This block asserts a GAP, not a guarantee.
+// D-068, CLOSED. This block asserts a guarantee; it used to assert the gap.
 // ---------------------------------------------------------------------------
 
-test('D-068 GAP: quoting an approved line INSIDE a sentence is refused', () => {
-  // IF YOU ARE HERE BECAUSE THIS FAILED: you have closed D-068. Delete this block, keep
-  // the contrast assertion below it, and read the decision.
+test('DONE-TEST: QUOTING AN APPROVED LINE INSIDE A SENTENCE IS ALLOWED', () => {
+  // Measured live on 2026-09-14 at 14:23:43. A customer wrote «tsag avii» — let me book,
+  // the most commercially valuable thing anyone types at a salon — and the model answered
+  // well: it declined what it cannot do, said why, and handed over the booking URL, its
+  // second sentence the reviewed line reproduced correctly. The guard refused it and the
+  // customer got the generic handoff.
   //
-  // Measured live on 2026-09-14 at 14:23:43. A customer wrote «tsag avii» — let me book —
-  // and the model answered well: it declined what it cannot do, said why, and handed over
-  // the booking URL, its second sentence the reviewed `booking_line` reproduced correctly.
-  // The guard refused it and the customer got the generic handoff.
-  //
-  // The corpus holds the canned line IN CONTEXT, preceded by something. `shingles()` trims,
-  // so shingling that line in isolation never produces a run starting one character
-  // earlier. A window straddling the line's opening boundary is therefore in the corpus and
-  // absent from the exemption — and the leading space is the whole bug.
+  // The corpus holds the canned line IN CONTEXT, preceded by something that folds to a
+  // space. `shingles()` trims, so shingling that line in isolation never produces a window
+  // starting one character earlier — and the leading space was the whole bug.
   const leaky: TenantGuardView = {
     ...MATRIX,
     promptCorpus: `${CORPUS} ${PINNED}`,
     cannedResponses: [PINNED],
   };
 
-  // Exactly the canned line, alone: correctly allowed. This is the only shape that is safe.
-  assert.deepEqual(outboundGuard(leaky, CLEAN, PINNED), { ok: true }, 'the line alone passes');
-
-  // The same line, composed into a helpful answer: refused. Which is the opposite of what
-  // the guard is for — it is biased AGAINST the replies that use the approved lines right.
+  assert.deepEqual(outboundGuard(leaky, CLEAN, PINNED), { ok: true }, 'the line alone');
   const composed = `Уучлаарай, би үүнийг хийж чадахгүй. ${PINNED}`;
-  const r = outboundGuard(leaky, CLEAN, composed);
-  assert.equal(r.ok === false && r.code, 'outbound_disclosure', 'composed around the line: refused');
+  assert.deepEqual(outboundGuard(leaky, CLEAN, composed), { ok: true }, 'composed around the line');
+});
+
+test('DONE-TEST: AND A REAL DISCLOSURE IS STILL REFUSED, BESIDE AN APPROVED LINE', () => {
+  // The guarantee that must survive the loosening. If quoting a canned line let the rest
+  // of the reply through, the fix would have removed the check rather than corrected it.
+  const leaky: TenantGuardView = {
+    ...MATRIX,
+    promptCorpus: `${CORPUS} ${PINNED}`,
+    cannedResponses: [PINNED],
+  };
+  const r = outboundGuard(leaky, CLEAN, `${PINNED} ${CORPUS_EXCERPT}`);
+  assert.equal(r.ok === false && r.code, 'outbound_disclosure');
+});
+
+test('the cut does not SPLICE: the two sides of a quoted line are never joined', () => {
+  // The same reasoning the corpus side has always used, stated for the reply side. Joining
+  // the segments would manufacture a run across the seam that was in neither half — which
+  // is the failure this whole function avoids by shingling the canned lines rather than
+  // deleting them.
+  const head = CORPUS_EXCERPT.slice(0, 50);
+  const tail = CORPUS_EXCERPT.slice(50);
+  const leaky: TenantGuardView = {
+    ...MATRIX, promptCorpus: `${CORPUS} ${PINNED}`, cannedResponses: [PINNED],
+  };
+  // Neither half is 60 characters, so neither segment can match; spliced they would be.
+  assert.ok(Array.from(head).length < 60 && Array.from(tail).length < 60);
+  assert.deepEqual(outboundGuard(leaky, CLEAN, `${head}${PINNED}${tail}`), { ok: true });
+});
+
+test('DONE-TEST: THE CUT IS BY CODE POINT, so an emoji cannot shift it', () => {
+  // `String.indexOf` counts UTF-16 units and `shingles` counts code points. They agree
+  // right up until an emoji appears — and emoji appeared in five of the mirror's first ten
+  // drafts. A UTF-16 offset would cut the segment out of position and silently change what
+  // the guard examines.
+  const leaky: TenantGuardView = {
+    ...MATRIX, promptCorpus: `${CORPUS} ${PINNED}`, cannedResponses: [PINNED],
+  };
+  assert.deepEqual(outboundGuard(leaky, CLEAN, `😊🔗📍 ${PINNED} дэлгэрэнгүй.`), { ok: true });
+  // And with the emoji shifting every offset, a genuine disclosure is still caught.
+  const r = outboundGuard(leaky, CLEAN, `😊🔗📍 ${PINNED} ${CORPUS_EXCERPT}`);
+  assert.equal(r.ok === false && r.code, 'outbound_disclosure');
+});
+
+test('a canned line quoted twice cuts at both occurrences', () => {
+  const leaky: TenantGuardView = {
+    ...MATRIX, promptCorpus: `${CORPUS} ${PINNED}`, cannedResponses: [PINNED],
+  };
+  assert.deepEqual(outboundGuard(leaky, CLEAN, `${PINNED} за. ${PINNED}`), { ok: true });
+});
+
+test('disclosesPrompt with no canned lines behaves exactly as before', () => {
+  // The segment path must be a no-op for a tenant that has nothing to mask, or the fix
+  // would have changed the guard for every tenant rather than for the case it is about.
+  assert.equal(disclosesPrompt(`Мэдээж. ${CORPUS_EXCERPT}`, CORPUS, []), true);
+  assert.equal(disclosesPrompt('Сайн байна уу.', CORPUS, []), false);
 });

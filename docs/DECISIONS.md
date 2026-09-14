@@ -78,6 +78,13 @@ from.
 monthly_ceiling_usd = (floor_price_mnt × (1 − target_margin)) / fx_mnt_per_usd
 ```
 
+> **₮80,000 IS NOT A PRICE, and a session misread it as one on 2026-09-15.** Reception's
+> list price is ₮250,000/month, right there in the table above. ₮80,000 ≈ $22.86 is the
+> allowable model SPEND derived from the discounted floor. The two numbers are different
+> quantities and do not contradict each other. The live question is which base a ceiling is
+> sized from: Matrix's was set to **$28.57** on 2026-09-15, which is 60% of LIST, where the
+> rule in this decision gives $22.86 from the floor. See the D-072 addendum.
+
 Analytics being add-on-only is a pricing decision with a product consequence: the
 attribution work in §7.3 never has to stand on its own commercially, so it may be honest
 about what it cannot measure without losing a sale.
@@ -4580,8 +4587,17 @@ draft.**
 
 ## D-069 — what the first real corpus says about the Mongolian, and the one fact underneath it
 
-**2026-09-14, eleven customer turns and ten drafts, the salon's full trading day.** This is
-item 5 of the overnight brief: read every draft and say what reads wrong. The judgements
+**2026-09-14, eleven customer turns and eleven drafts across five conversations, the
+salon's full trading day.** This is item 5 of the overnight brief: read every draft and say
+what reads wrong.
+
+> **Counts corrected 2026-09-15.** This section first read "eleven customer turns and ten
+> drafts", and the session's close-out said four conversations. Both were wrong. An exact
+> join on `dedup_key = 'in:' || external_id` gives **eleven drafts, 1:1 with the turns, in
+> five conversations**, with no nulls on either side; provenance is `model` 5, `canned` 3
+> and three pre-D-064 nulls, not `canned` 2. The eleventh draft is the «tsag avii» turn
+> D-068 is about — counted as a turn and missed as a draft. Nothing downstream rested on
+> either number, which is exactly why neither was checked. The judgements
 below are mine and the founder is the native speaker, so they are ranked by how confident
 this reading is and marked as questions where they are questions. **The measurements are
 not judgements and are stated separately.**
@@ -4642,3 +4658,347 @@ worse impression than either sentence alone makes.
 Both were `answered_by = 'model'` against the same revision and the same `prompt_hash`, so
 this is not a config change between turns — it is the model's own variance on adjacent
 questions, which is the argument for pinning the answers that recur.
+
+---
+
+## D-068 addendum — closed, and what the fix gives away
+
+**2026-09-15.** Built, on the founder's instruction: *"Every booking reply that quotes the
+approved URL is being thrown away."*
+
+`segmentsAroundCanned` cuts the folded reply at every occurrence of a folded canned line
+and shingles each remaining piece **on its own, never joined** — for exactly the reason the
+corpus side has always shingled the canned lines rather than deleting them. A run can no
+longer straddle a line's opening boundary, because the boundary is where a segment ends.
+
+The shingle exemption is KEPT alongside it. They cover different things: the segments catch
+an exact quotation in context, and the exemption still catches the near-copy a cut cannot
+find — D-065's paraphrase, which `gate/pinned.ts` corrects but which reaches this function
+first. Removing either would give something back.
+
+Indexing is by **code point**, not UTF-16. `String.indexOf` counts UTF-16 units and
+`shingles` counts code points; they agree exactly until an emoji appears, and emoji appeared
+in five of the mirror's first ten drafts. A UTF-16 offset would cut the segment out of
+position and silently change what the guard examines — a bug that would be invisible except
+on the replies that carry emoji, which is to say the friendly ones.
+
+**What it gives away, stated rather than buried.** A disclosure must now be 60 characters
+within ONE segment. A reply that interleaved a full canned line between every fifty-nine
+characters of prompt would evade the run detector. That is a real hole and a narrow one: the
+model is not an adversary here — it is being helpful — and the measured alternative is
+discarding correct answers to the most commercially valuable question a salon receives.
+Items 0, 1, 2 and 7 are untouched and still run before and after it.
+
+The D-068 GAP test said, in its own first line, to delete it when it failed. It failed. It
+is replaced by the guarantee plus three properties that must survive the loosening: a real
+disclosure beside an approved line is still refused, the cut does not splice, and an emoji
+cannot shift it.
+
+---
+
+## D-070 — the corpus was 79% of the traffic, and the missing fifth were thumbs-ups
+
+**2026-09-15, reading the mirror's first full trading day.** Matrix received **fourteen**
+deliveries on 2026-09-14 and the corpus holds **eleven**. The other three were attachments
+with no text. `meta/extract.ts` skipped them, and its docstring said everything skipped was
+"*reported*, not silently dropped". The report was one `console.info` in the reception
+worker. No `quality_flags` row, no `messages` row, nothing in the digest.
+
+So 21% of what real customers sent was invisible to the fourteen-day mirror whose entire
+purpose is to measure what real customers send. The only way to learn what those three had
+been was to read `webhook_events.raw_payload` by hand in SQL.
+
+### They were thumbs-ups, and that is the argument, not the refutation
+
+All three carried `sticker_id` **369239263222822** — the same Facebook thumbs-up. Dropping
+them is right. A photograph of the colour a customer wants would have been dropped
+identically, and that is the single most valuable message a salon can receive.
+
+**A mechanism whose correct behaviour and its worst behaviour are indistinguishable from
+the outside is not yet a mechanism.** Nothing in the corpus, the digest or the logs
+separated three thumbs-ups from three photographs; the distinction existed only inside a
+jsonb blob nobody was reading.
+
+### And the trap inside the payload
+
+Meta sends one sticker as **two** attachments carrying the same `sticker_id`, the first
+declared `type: "image"`:
+
+```
+[{type: image,   payload: {url, sticker_id: 369239263222822}},
+ {type: sticker, payload: {url, sticker_id: 369239263222822}}]
+```
+
+Counting the array says the customer sent two things. Reading only `type` says one of them
+was a photograph. **Both are wrong, and the second is the one that costs** — it is the
+reading that turns a thumbs-up into a lost sales enquiry in a morning report, which is
+exactly what happened before the payload was read. `attachmentKinds` keys on the
+`sticker_id` in the PAYLOAD, which is the only field that tells them apart, and the
+duplicate collapses.
+
+### What is recorded
+
+`inbound/dropped.ts` writes one `quality_flags` row per unanswered inbound event, with the
+reason, the kinds, the sticker ids and the event's position — tied to its conversation where
+one exists, found **read-only**, because a sticker must not open a `conversations` row that
+the sold band and D-016's volume model both count.
+
+Only skips where a CUSTOMER acted: `no_text`, `postback`, `malformed`. An echo is our own
+message coming back and a receipt is Meta's bookkeeping; recording those would bury the ones
+that matter. `postback` and `malformed` are in rather than out because leaving them would
+rebuild this same blind spot one branch over — D-062's "when you split a verdict, ask what
+the new branch is now collapsing".
+
+**Idempotent on `(event_id, idx)`** and not on a unique constraint, because that is a
+migration and the founder pushes migrations. A QStash retry re-parses the same payload, so
+without it the digest count — the number a person actually reads — would drift upward on its
+own. When the dedupe read itself fails the row is written anyway and says
+`dedupe: "unverified"`: dropping it rebuilds the bug, writing it silently lets a duplicate
+pass as a distinct loss, and undetermined belongs in the row rather than in a log nobody
+greps.
+
+The digest carries one clause every day, **zero included**, for the same reason its
+heartbeat does. An unreadable count prints `UNREADABLE`, never zero — reporting zero when
+the read failed is the exact defect being removed, rebuilt inside the repair. It does not
+503 the digest the way an unreadable `alerts` does: the alerts read is the digest's subject,
+this is a fact carried alongside, and failing the job would trade a missing clause for a
+missing digest including the open criticals it was about to list.
+
+The PSID reaches neither a log line nor the jsonb detail. `conversation_id` is the link, and
+it is what the data-deletion callback can find.
+
+### The correction this decision exists to make structural
+
+The first reading of these three events — written into a morning report before the payload
+was read — called them photographs and built a customer narrative on it: *sent a photo, got
+nothing, gave up, asked for a phone number instead*. Measured: a thumbs-up, forty seconds,
+then a question. **The type field was read and the payload was not**, which is `read the
+flag before explaining the draft` in a third table. The instrumentation is the answer
+precisely because the next reader should not have to be careful.
+
+---
+
+## D-071 — a tenant's own link, refused by its own guard
+
+**2026-09-15, founder:** *"Matrix's location is a Google Maps link, not an address."*
+
+`contact_points.kind` has permitted `maps_url` since `0001` and `prompt/sections.ts`
+compiles contact points into the prefix — but `allowedUrls` was built from
+`tenant_booking.booking_url` **alone**. So the location could be handed to the model,
+quoted back correctly, and then thrown away by `urlsNotAllowed`.
+
+That is D-068's shape in a different check, found the same morning: **a reply punished for
+using the tenant's own approved data.** Two guards, two tables, one failure mode — which is
+the argument for looking at the others rather than for fixing this one.
+
+All four URL-shaped kinds are included (`maps_url`, `website`, `facebook`, `instagram`), not
+only the one needed today: restricting it to `maps_url` would rebuild the same gap for
+`website` the first time anybody adds one. An unreadable `contact_points` refuses the whole
+load rather than narrowing the allow-list — a guard that tightens itself because a query
+blipped would refuse every reply quoting a tenant link, with nothing to show why. The values
+join `scriptShareExclusions` as allowed URLs already did, so Latin characters in an approved
+link do not count against the Cyrillic share and trip `outbound_language` instead.
+
+The allow-list is exact, not host-wide: **that** Maps link is permitted and any other
+`maps.app.goo.gl` link is refused. Verified by execution.
+
+### The labels were English keys, which is why the model invented «Хаяг»
+
+D-069 recorded the symptom — «Хаяг, холбоо барих:» and «📍 Байршил, холбогдох утас:
+7741-7777», a label promising an address over a telephone number — and called the fix a row.
+The row is half of it. The other half is that the section rendered `- phone: 7741-7777`:
+the heading was Mongolian and every line beneath it was an English identifier, so **the one
+thing the model could not do was reuse the platform's own word for the thing.** It had to
+pick one, and it picked the customer's.
+
+`CONTACT_KIND_LABELS` gives each kind a Mongolian label, and **«Хаяг» is bound to the
+`address` kind and to nothing else** — so a tenant with no address row cannot have the word
+in its prefix at all. That is a structural answer rather than an instruction the model may
+or may not follow, which is D-065's lesson one layer up. An unknown kind falls back to the
+key rather than being dropped: a contact point the tenant entered must not vanish from the
+prompt because nobody added a translation.
+
+**The wording waits for the founder** and the mechanism makes waiting free: nothing reaches
+a customer until a republish through `scripts/publish/tenant.ts`, which needs
+`SUPABASE_SECRET_PUBLISH` — absent from this environment, so no session here can publish it
+by accident.
+
+**Order matters on the way out.** The code must deploy before the republish. Deploy first
+and the maps link is merely allowed and not yet quotable; republish first and the model is
+handed a URL the live guard still refuses, which is D-058's asymmetry pointed the other way.
+
+---
+
+## D-072 — the unit of cost is the conversation, not the reply
+
+**2026-09-15, founder:** *"If ₮250,000/month doesn't cover 400 conversations, I need to know
+before I sell another one."*
+
+**It covers it. The ceiling does not.**
+
+### Measured, from `spend_ledger` and `model_prices`, not modelled
+
+Matrix, 2026-09-14, eleven Sonnet 5 calls, **$0.186995**. The per-call rows split in two:
+
+| | calls | total | each |
+|---|---|---|---|
+| cache **miss** — paid to write the prefix | 4 | $0.1622 | **$0.040554** |
+| cache **hit** | 7 | $0.0248 | **$0.003540** |
+
+A cold reply costs **11.5×** a warm one, and cold starts are **86.7%** of the day's money.
+The prefix is 9,738 tokens and Matrix runs `prompt_cache_mode = '1h'`, so a cold start pays
+9,738 × $4.00/MTok = **$0.038952 — 96% of a cold reply — before a single word is generated.**
+
+**Cold starts track CONVERSATIONS, not replies.** Five conversations yesterday produced four
+cold starts: conversations arrive hours apart and a conversation's own turns arrive seconds
+apart, so the cache is gone by the next customer and warm for the rest of this one. The one
+conversation that did not pay was «Sn bnu?» at 09:29, which warmed off a call 38 minutes
+earlier.
+
+### The answer
+
+₮250,000 ÷ 3,500 MNT/USD (`spend_ledger.fx_mnt_per_usd`) = **$71.43/month**. At D-015's
+400-conversation band, with `cost = C × cold + C × (T−1) × warm`:
+
+| turns/conversation | cost/month | margin | against the $20 ceiling |
+|---|---|---|---|
+| 2.2 — measured yesterday | $17.92 | **74.9%** | 90% |
+| 4.6 — D-016's 1,842 replies ÷ 400 | $21.32 | **70.2%** | **107% — BREACHED** |
+| 6.0 — D-016's unmeasured A7 | $23.30 | **67.4%** | **117% — BREACHED** |
+
+Every plausible shape clears the 60% target. **₮250,000 is safe to sell against 400
+conversations.**
+
+### What is not safe is the ceiling, and it is the founder's
+
+`tenant_budgets.monthly_ceiling_nanousd` for Matrix is **$20.00**, set when the price was
+₮80,000 ≈ $22.86. At two of the three volumes above the tenant exhausts it and degrades to
+`on_exhausted = 'canned_reply'` — the bot stops using the model part-way through the month,
+which the customer experiences as the product breaking, not as a budget working. At $71.43
+revenue a 60% margin supports a ceiling of **$28.57**.
+
+Not changed here. Ceilings are money movement.
+
+**And the reservation is 3.4× light.** `RECEPTION_REPLY_ESTIMATE` is $0.012, from D-016's
+measured $0.0090/reply; a cold reply is $0.0406. Its own docstring says an under-estimate
+"lets a burst slip past the ceiling between reserve and settle", and that is now measured
+rather than hypothetical. Settle corrects the ledger afterwards, so the accounting is right;
+what is wrong is how far a burst can run before the ceiling bites. Also money, also the
+founder's.
+
+### Two levers, one of them re-opened
+
+**`docs/prefix-trim.md` is a margin lever again.** CLAUDE.md retired it — "no longer a
+margin rescue; it matters for scaling across tenants" — on D-016's blended per-reply
+arithmetic, which has no cold-start term. On this arithmetic the prefix IS the bill: a 30%
+trim saves ~27% of it.
+
+Note why the prefix is so expensive here and not elsewhere: 13,745 characters compile to
+9,738 tokens, **1.41 characters per token**, against roughly 4 for English. Mongolian
+Cyrillic costs about 2.8× more per character to cache, so prefix discipline matters more on
+this platform than the general advice would suggest.
+
+**`1h` versus `5m` is a wash and should not be touched on one day of data.** Replaying
+yesterday's actual arrival times under a 5-minute TTL gives 6 cold starts instead of 4, but
+at $2.50/MTok instead of $4.00: **$0.173 against the actual $0.187**, 7.3% cheaper. That
+advantage is a property of one day's gap distribution and reverses as volume rises. Left
+alone.
+
+### What this does not establish
+
+The 400-conversation band itself is D-015's and rests on D-016's six days; CLAUDE.md already
+flags that **D-016's 60.5 replies/day must be re-derived** before anybody leans on it. This
+decision changes the COST model, not the volume model. `T`, turns per conversation, is a
+one-day measurement of 2.2 from five conversations — the two higher rows are there because a
+single day cannot settle it, and the conclusion holds across all three.
+
+---
+
+## D-072 addendum — two things D-072 got wrong, found while carrying out its own recommendations
+
+**2026-09-15.** The founder authorised both changes D-072 asked for. Executing them turned
+up two errors in the decision itself. Both are recorded here rather than edited away,
+because both are the same class of mistake the repository keeps cataloguing.
+
+### 1. NOTHING ENFORCES THE MONTHLY CEILING, so nothing could have degraded
+
+D-072 said two of three volumes "breach it into `on_exhausted = 'canned_reply'`". That
+cannot happen, and the repository already said so:
+
+- **`monthly_ceiling_nanousd` is read by no code anywhere.** It appears in `0001`'s DDL, in
+  its CHECK constraint, in `scripts/provision/matrix-budget.sql`'s assertion, and in prose.
+  There is no reader in `src/`, no reader in any migration, and D-051's own text says it
+  plainly: *"No month is wired… `monthly_ceiling_nanousd` remains documentation until they
+  are picked."*
+- **`on_exhausted` is read by no code either.** The degradation ladder it names is designed
+  and not built, so `canned_reply` is a string in a column, not a behaviour.
+- **What actually binds is the DAILY cap, and it is compiled, not configured.**
+  `effectiveDailyCeiling` takes the LOWER of `SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY`
+  (**$1.50**, `src/config/platform.ts`) and the tenant row's daily × `surface_fractions`
+  (**$2.00 × 0.95 = $1.90** for Matrix). So Matrix's live reception ceiling is **$1.50/day
+  from a constant in the repository**, and its `tenant_budgets` row does not currently
+  change it in either direction.
+
+**This is D-064 read from the other end.** That decision's rule was "when you find a
+column, ask who writes it before you trust what it means." D-072 checked who WRITES
+`monthly_ceiling_nanousd` — the provisioning script — and never asked who reads it, then
+built a customer-visible consequence on the answer it did not look up. **Ask both, every
+time.** A column with a writer and no reader is as inert as one with a reader and no
+writer; it is merely inert in the direction that makes a report sound more urgent.
+
+And note where the wrong claim came from: `src/config/platform.ts:33` says *"The MONTHLY
+ceiling is the real control; this daily one exists to stop a single runaway day."* That
+comment describes a design, and the design was never finished, so the daily cap has been
+carrying the entire load alone since `0001`. **A comment asserting a control that does not
+exist** — the same shape as `meta/extract.ts`'s "everything skipped is reported" in D-070,
+found the same day, in a file about money rather than a file about stickers.
+
+The ceiling row was still raised to **$28.57** as instructed (`tenant_budgets` id 3,
+2026-09-15, append-only so id 2 stands as the record of what was in force before). It
+changes no behaviour today and is correct for the day a month is wired.
+
+**The real exposure is a burst day, and it is not what D-072 described.** At $0.040554 per
+cold conversation, $1.50/day affords roughly **37 conversations in a day** before reception
+is refused. D-016 measured a spread of 28–94 replies per day in one week, so a busy day can
+reach that cap — and the failure mode is not graceful degradation, because the ladder is not
+built. Whether $1.50 is the right compiled number is a money decision and is the founder's;
+it is flagged here rather than changed.
+
+### 2. ₮80,000 IS NOT A PRICE, and D-004 does not disagree with ₮250,000
+
+D-072 and the report that preceded it said D-004 and D-015 "still derive ₮80,000" as though
+that contradicted the founder selling at ₮250,000. **It does not, and the error was a
+misreading.** Reception's list price in D-004 *is* ₮250,000/month. ₮80,000 is a different
+quantity entirely: the allowable model SPEND at a 60% margin, computed from the **discounted
+bundle floor**, and D-004 states the rule in bold —
+
+> every ceiling must be computed from the **discounted** price, not the list price.
+> Reception inside a full-team bundle is ₮200,000/month, so at a 60% margin the allowable
+> monthly model spend is **₮80,000 ≈ $22.86** — and that, not ₮250,000, is the number the
+> spend ceiling derives from.
+
+So the two documents were consistent all along and needed no reconciliation. What needs
+deciding is something else, and it is live:
+
+**$28.57 applies the 60% formula to the LIST price. D-004 requires the FLOOR price.**
+
+| base | revenue | 60% margin allows |
+|---|---:|---:|
+| list, standalone (₮250,000) | $71.43 | **$28.57** |
+| full-team bundle floor (₮200,000) | $57.14 | **$22.86** |
+
+At a $28.57 ceiling, a Reception sold inside a full-team bundle runs at **50%** margin, not
+60%. D-004's floor rule exists precisely so a ceiling is not sized against a price some
+customers will not pay. Restating D-072's cost table against both bases:
+
+| turns/conversation | cost/month | margin on list | margin on the bundle floor |
+|---|---:|---:|---:|
+| 2.2 — measured | $17.92 | 74.9% | 68.6% |
+| 4.6 — D-016 ÷ 400 | $21.32 | 70.2% | 62.7% |
+| 6.0 — D-016's A7 | $23.30 | 67.4% | **59.2%** |
+
+**The price is sound on either base** — only the highest turns-per-conversation inside a
+full bundle misses 60%, and by 0.8 points. What is unresolved is the ceiling: $28.57 is
+correct for a standalone sale and 25% above what D-004's floor rule permits. That is a
+pricing call, not an engineering one, and it is the founder's. The row stands at $28.57
+because he set it; this is the note saying which rule it departs from.

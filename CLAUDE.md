@@ -681,6 +681,96 @@ details; twelve seconds later, same conversation, it opened «Уучлаарай
 дэлгэрэнгүй мэдээллийг би энэ хэлбэрээр өгч чадахгүй байна». Neither sentence is
 ungrammatical; together they read as a bot that does not know its own mind.
 
+**A mechanism whose correct behaviour and its worst behaviour look identical from outside
+is not yet a mechanism** (2026-09-15, D-070). Matrix received fourteen deliveries on the
+14th and the corpus held eleven. Three were attachments with no text; `meta/extract.ts`
+skipped them and its own docstring said everything skipped was "*reported*". The report was
+one `console.info` — no `quality_flags` row, no `messages` row, nothing in the digest. So
+**21% of what real customers sent was invisible to the fourteen-day mirror whose entire
+purpose is to measure what real customers send.**
+
+All three were `sticker_id` 369239263222822, the same thumbs-up, and dropping a thumbs-up is
+right. That is the argument rather than the refutation: a photograph of the colour a customer
+wants — the most valuable message a salon receives — would have been dropped identically, and
+nothing anywhere separated the two. `inbound/dropped.ts` writes the row now, keyed
+idempotently on `(event_id, idx)` because a unique constraint is a migration, and the digest
+carries one clause a day including `No inbound events dropped`. An unreadable count prints
+UNREADABLE, never zero.
+
+**And Meta sends one sticker as TWO attachments, the first declared `image`** — same
+`sticker_id` in both payloads. Counting the array says two things arrived; reading `type`
+says one was a photograph. Both are wrong and the second is the one that costs: it is the
+reading that turned three thumbs-ups into three lost sales enquiries in a morning report
+before the payload was read. **The type field was read and the payload was not** — `read the
+flag before explaining the draft`, in a third table. Key on `payload.sticker_id`.
+
+**Two guards now, both punishing a reply for using the tenant's own approved data**
+(2026-09-15, D-068 addendum and D-071). `disclosesPrompt` threw away a correct booking answer
+for quoting the reviewed `booking_line` inside a longer sentence — the corpus holds that line
+IN CONTEXT and `shingles()` trims, so every window straddling its opening boundary was in the
+corpus and absent from the exemption. The reply is cut at its canned occurrences now and each
+segment shingled **on its own, never joined**, which is the rule the corpus side always had.
+Indexing is by CODE POINT: `String.indexOf` and `shingles` agree until an emoji appears, and
+emoji were in five of the first ten drafts. It gives away one thing, said plainly — a
+disclosure must now be 60 characters within one segment.
+
+`urlsNotAllowed` was the same failure in a different table: `allowedUrls` came from
+`tenant_booking.booking_url` alone, so Matrix's location — a kind `contact_points` has
+permitted since `0001` — could be compiled into the prefix, quoted correctly, and refused.
+**When you find one guard rejecting approved data, look for the others before fixing that
+one.**
+
+**The prefix renders a Mongolian heading over English column keys, and the model translates
+them itself** (2026-09-15, D-071). `- phone: 7741-7777` is why «Хаяг» appeared over a
+telephone number: the one thing the model could not do was reuse the platform's own word for
+the thing, so it picked the customer's. `CONTACT_KIND_LABELS` binds «Хаяг» to the `address`
+kind and nothing else, so a tenant with no address row cannot have the word in its prefix at
+all — a structure rather than an instruction, which is D-065 one layer up. The wording waits
+for the founder and waiting is free: `SUPABASE_SECRET_PUBLISH` is absent here, so no session
+can publish it by accident. **Deploy the code before the republish** — the other order hands
+the model a URL the live guard still refuses.
+
+**The unit of cost is the CONVERSATION, not the reply** (2026-09-15, D-072). Measured from
+`spend_ledger`: a cache-miss reply is **$0.0406** and a cache-hit reply **$0.0035**, 11.5×,
+and misses were **86.7%** of a day's money. The 9,738-token prefix at `1h` costs $0.038952 to
+re-warm — 96% of a cold reply before a word is generated — and cold starts track conversations
+because conversations arrive hours apart while a conversation's own turns arrive seconds
+apart. Five conversations, four cold starts.
+
+So ₮250,000 ≈ $71.43 covers 400 conversations at **67–75%** margin on every plausible
+turns-per-conversation (**68.6–59.2%** against the full-team bundle FLOOR, which is the base
+D-004 requires a ceiling to be sized from). `RECEPTION_REPLY_ESTIMATE` was $0.012 against a
+$0.0406 cold reply, 3.4× light, and is **$0.041 since 2026-09-15** on the founder's
+authority. Two consequences for anyone reading D-016: **its per-reply blended figure has no
+cold-start term**, and `docs/prefix-trim.md` is a margin lever again rather than only a
+scaling one — 13,745 characters compile to 9,738 tokens, **1.41 chars/token against ~4 for
+English**, so Mongolian pays about 2.8× per character to cache.
+
+**D-072's own two errors, both found a day later while executing it** (D-072 addendum), and
+both worth carrying because neither was a slip:
+
+**`monthly_ceiling_nanousd` is read by NOTHING**, so D-072's "two of three volumes breach it
+into `on_exhausted = 'canned_reply'`" describes a mechanism that does not exist —
+`on_exhausted` has no reader either, and D-051 already said *"No month is wired."* What
+binds is the DAILY cap, and it is **compiled, not configured**: `effectiveDailyCeiling` takes
+the lower of `SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY` (**$1.50**) and the tenant row's
+daily × surface fraction ($1.90 for Matrix), so a `tenant_budgets` row does not currently
+move Matrix's live ceiling at all. **That is D-064 from the other end** — its rule is "ask
+who WRITES a column", and this asked who writes and never who reads. Ask both. And
+`config/platform.ts:33` says the monthly ceiling "is the real control", which is a comment
+asserting a control that was never built, the same shape as `meta/extract.ts`'s "everything
+skipped is reported" one file-tree over. The real exposure is a **burst day**: $1.50 affords
+about 37 cold conversations, and D-016 measured 28–94 replies/day.
+
+**₮80,000 is not a price and D-004 never disagreed with ₮250,000.** ₮250,000 IS Reception's
+list price; ₮80,000 is the allowable model SPEND at 60% margin computed from the discounted
+full-team floor (₮200,000), which D-004 requires in bold: *"every ceiling must be computed
+from the discounted price, not the list price."* So there was nothing to reconcile — the
+claim that there was came from misreading a spend ceiling as a price. What IS open: the
+ceiling was set to **$28.57**, which is 60% of LIST, where D-004's floor rule gives $22.86.
+A bundled Reception at a $28.57 ceiling runs at 50% margin. The founder set it knowing the
+list figure; the departure from the floor rule is flagged, not resolved.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale
@@ -745,12 +835,20 @@ each table independently — the last failure of this kind next door was partial
   a prompt gap; hardening that names the wrong forms did not fix it. Haiku stays eligible
   for internal/structured work. **The 29% margin figure is superseded** — it assumed
   4,500 replies/month; measured traffic is 41% of that, so the real margin is **71%**
-  and Reception clears the 60% target (D-016). `docs/prefix-trim.md` is therefore no
-  longer a margin rescue; it matters for scaling across tenants.
-- **Reception is sold against a 400-conversation/month band** (D-015). The ceiling is
-  unchanged — D-004's formula gives ₮80,000 ≈ $22.86/mo. **Overage is the §5.7
-  degradation ladder, never an invoice** — billing overage is undesigned and must stay
-  that way while there is no revenue path.
+  and Reception clears the 60% target (D-016). **The sentence that followed — that
+  `docs/prefix-trim.md` is no longer a margin rescue — is withdrawn (D-072).** It rested on
+  a blended per-reply figure with no cold-start term; measured, the prefix is 86.7% of the
+  bill and trimming it is a margin lever again.
+- **Reception is sold against a 400-conversation/month band** (D-015). **₮250,000 is
+  Reception's LIST PRICE and ₮80,000 ≈ $22.86 is the allowable model SPEND** at 60% margin
+  computed from the discounted full-team floor — two different quantities, consistent with
+  each other, and a session misread them as a contradiction on 2026-09-15. D-004 requires the
+  ceiling to derive from the FLOOR, not the list. The band clears 400 conversations at
+  67–75% margin on list and 59–69% on the floor. **Matrix's ceiling was raised to $28.57 on
+  2026-09-15 by the founder — that is 60% of LIST, where the floor rule gives $22.86** (D-072
+  addendum). **Overage is the §5.7 degradation ladder, never an invoice** — billing overage is
+  undesigned and must stay that way while there is no revenue path, and note that the ladder
+  itself is designed and NOT BUILT: `on_exhausted` has no reader.
 - **Matrix's real volume is measured (D-016):** 6 days of production logs, mean 60.5
   replies/day → ~1,842/month, **41% of the assumed 4,500**. Spend $16.57/mo against a
   $22.86 ceiling (0.73×), margin **71%**. A8 = 750 conv/mo is refuted;

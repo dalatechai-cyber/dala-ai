@@ -17,9 +17,19 @@
  *  - **`postback`.** Button payloads are a different product surface with their own
  *    routing, and V1 does not ship one.
  *
- * Everything skipped is *reported*, not silently dropped: the caller marks the event
- * processed with a reason, so "we saw it and chose not to answer" is distinguishable from
- * "it vanished".
+ * ## What each skip carries, and why it is not just a reason
+ *
+ * This file used to return a bare list of reasons, and the caller wrote them to one
+ * `console.info`. That satisfied the sentence "everything skipped is reported" and nothing
+ * else: no `quality_flags` row, no `messages` row, nothing in the digest. On the mirror's
+ * first full trading day three of fourteen deliveries were skipped here, and the only way
+ * to learn what they had been was to read `webhook_events.raw_payload` by hand.
+ *
+ * That is this repository's own recurring shape — a comment asserting a safety property
+ * that no mechanism provides — sitting in the docstring above. So a skip now carries what
+ * a person would need to judge it later: which event and which index (so the record is
+ * idempotent across QStash retries), Meta's `mid`, and **what kind of thing it was**.
+ * `inbound/dropped.ts` turns that into a row.
  */
 import { nfc } from '../mn/text.ts';
 
@@ -34,10 +44,32 @@ export type InboundMessage = {
 
 export type SkipReason = 'echo' | 'no_text' | 'status_event' | 'postback' | 'malformed';
 
+/** One messaging event we chose not to answer, with enough about it to judge that later. */
+export type SkippedEvent = {
+  reason: SkipReason;
+  /**
+   * Position within `entry.messaging`. With the event id this is a stable identity for the
+   * skip — Meta's `mid` is absent on a malformed event, and a QStash retry re-parses the
+   * same payload, so the pair is what stops a retry recording the same loss twice.
+   */
+  idx: number;
+  /** Meta's `mid`, when the event carried one. */
+  externalId: string | null;
+  /**
+   * The PSID, when known. PII: it exists here so a dropped event can be tied to the
+   * conversation it belongs to. It must never reach a log line.
+   */
+  senderId: string | null;
+  /** Attachment kinds, deduplicated — see `attachmentKinds`. Empty for a text-less skip. */
+  attachments: string[];
+  /** Facebook sticker asset ids, when the attachments were stickers. Not PII. */
+  stickerIds: string[];
+};
+
 export type ExtractResult = {
   messages: InboundMessage[];
   /** One entry per messaging event we chose not to answer, with the reason. */
-  skipped: SkipReason[];
+  skipped: SkippedEvent[];
   /**
    * Messages Meta delivered into `entry.standby` — i.e. addressed to us as a **secondary
    * receiver** (§3.7). Not a skip and not a drop: it is a channel-level misconfiguration,
@@ -65,9 +97,53 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
+/**
+ * What the customer actually attached, as kinds. Never the CDN url: that is customer
+ * content, and `webhook_events.raw_payload` already holds it under its own retention.
+ *
+ * ## Meta sends one sticker as TWO attachments, and they are not two things
+ *
+ * A thumbs-up arrives as `[{type:'image', payload:{sticker_id}}, {type:'sticker',
+ * payload:{sticker_id}}]` — the same `sticker_id` twice, once declared as an image.
+ * Counting the array says the customer sent two attachments. Reading only `type` says one
+ * of them was a photograph. Both are wrong, and the second is the one that costs: a
+ * thumbs-up is filler, and a photograph of the colour someone wants is the most valuable
+ * message a salon can receive. Telling them apart is the whole reason this function
+ * exists, and the `sticker_id` in the PAYLOAD is the only field that does it — so it
+ * decides the kind, and the duplicate collapses.
+ *
+ * Measured: on 2026-09-14 all three of Matrix's skipped attachments were `sticker_id`
+ * 369239263222822, the same thumbs-up, and each one read as an `image` from the type alone.
+ */
+export function attachmentKinds(message: Record<string, unknown>): { kinds: string[]; stickerIds: string[] } {
+  const raw = message['attachments'];
+  if (!Array.isArray(raw)) return { kinds: [], stickerIds: [] };
+
+  const kinds: string[] = [];
+  const stickerIds: string[] = [];
+  for (const item of raw) {
+    const att = asRecord(item);
+    if (att === null) { if (!kinds.includes('malformed')) kinds.push('malformed'); continue; }
+    const payload = asRecord(att['payload']);
+    const stickerId = payload === null ? undefined : payload['sticker_id'];
+    if (stickerId !== undefined && stickerId !== null) {
+      const id = String(stickerId);
+      if (!stickerIds.includes(id)) stickerIds.push(id);
+      if (!kinds.includes('sticker')) kinds.push('sticker');
+      continue;
+    }
+    // `?? 'unknown'` rather than dropping it: an attachment whose type Meta has not
+    // documented yet is still a customer sending us something, and a kind nobody
+    // recognises is a better record than an empty list that reads as "no attachment".
+    const kind = typeof att['type'] === 'string' && att['type'] !== '' ? att['type'] : 'unknown';
+    if (!kinds.includes(kind)) kinds.push(kind);
+  }
+  return { kinds, stickerIds };
+}
+
 export function extractInboundMessages(entry: unknown): ExtractResult {
   const messages: InboundMessage[] = [];
-  const skipped: SkipReason[] = [];
+  const skipped: SkippedEvent[] = [];
 
   const e = asRecord(entry);
   // Counted before the `messaging` check, because the two are mutually exclusive in
@@ -78,27 +154,56 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
   const events = e === null ? null : e['messaging'];
   if (!Array.isArray(events)) return { messages, skipped, standby };
 
-  for (const raw of events) {
-    const ev = asRecord(raw);
-    if (ev === null) { skipped.push('malformed'); continue; }
+  for (const [idx, raw] of events.entries()) {
+    // Every skip is built through this, so no branch can record less than another. The
+    // fields default to "not known here" rather than to a plausible blank.
+    const skip = (
+      reason: SkipReason,
+      extra: Partial<Omit<SkippedEvent, 'reason' | 'idx'>> = {},
+    ): void => {
+      skipped.push({
+        reason, idx,
+        externalId: extra.externalId ?? null,
+        senderId: extra.senderId ?? null,
+        attachments: extra.attachments ?? [],
+        stickerIds: extra.stickerIds ?? [],
+      });
+    };
 
-    if ('delivery' in ev || 'read' in ev) { skipped.push('status_event'); continue; }
-    if ('postback' in ev) { skipped.push('postback'); continue; }
+    const ev = asRecord(raw);
+    if (ev === null) { skip('malformed'); continue; }
+
+    const senderOf = asRecord(ev['sender']);
+    const senderIdOf = senderOf === null ? '' : String(senderOf['id'] ?? '');
+
+    if ('delivery' in ev || 'read' in ev) { skip('status_event'); continue; }
+    if ('postback' in ev) {
+      skip('postback', { senderId: senderIdOf === '' ? null : senderIdOf });
+      continue;
+    }
 
     const message = asRecord(ev['message']);
-    if (message === null) { skipped.push('status_event'); continue; }
+    if (message === null) { skip('status_event'); continue; }
 
     // OUR OWN message, delivered back to us. Answering it is a loop that bills.
-    if (message['is_echo'] === true) { skipped.push('echo'); continue; }
+    if (message['is_echo'] === true) { skip('echo'); continue; }
 
-    const sender = asRecord(ev['sender']);
-    const senderId = sender === null ? '' : String(sender['id'] ?? '');
+    const senderId = senderIdOf;
     const externalId = String(message['mid'] ?? '');
     const text = typeof message['text'] === 'string' ? nfc(message['text']) : '';
+    const { kinds, stickerIds } = attachmentKinds(message);
+    const carried = {
+      externalId: externalId === '' ? null : externalId,
+      senderId: senderId === '' ? null : senderId,
+      attachments: kinds,
+      stickerIds,
+    };
 
-    if (senderId === '') { skipped.push('malformed'); continue; }
-    // An attachment with no text carries no question. Reported, never answered blind.
-    if (text.trim() === '') { skipped.push('no_text'); continue; }
+    if (senderId === '') { skip('malformed', carried); continue; }
+    // An attachment with no text carries no question. V1 answers text — but a thumbs-up
+    // and a photograph of the colour someone wants both land here, and only one of them is
+    // filler, so the KINDS go with the skip rather than the fact of it.
+    if (text.trim() === '') { skip('no_text', carried); continue; }
 
     // Meta's timestamps are milliseconds. A missing one is treated as "now" by the
     // caller rather than as 1970, which would make every such event look stale and be

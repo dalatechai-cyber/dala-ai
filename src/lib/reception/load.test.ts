@@ -160,3 +160,77 @@ test('concession stems come from the tenant\'s own Ш6 rule, so a garage differs
   }).db, input);
   assert.deepEqual(r.ok && r.context.tenantGuard.concessionStems, ['хямдр', 'урамшуул']);
 });
+
+// --- the URL allow-list draws on BOTH tables that can hold a link (D-071) --------------
+
+test('DONE-TEST: A MAPS URL IN contact_points IS ALLOWED, NOT REFUSED', async () => {
+  // It was `tenant_booking.booking_url` alone. `contact_points.kind` has allowed `maps_url`
+  // since `0001` and the compiler renders it into the prefix — so Matrix's location could
+  // be given to the model, quoted correctly, and then thrown away by `urlsNotAllowed`.
+  // That is D-068's shape in a different check: a reply punished for using approved data.
+  const r = await loadReceptionContext(stubDb({
+    contact_points: { data: [
+      { kind: 'phone', value: '7741-7777' },
+      { kind: 'maps_url', value: 'https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9' },
+    ] },
+  }).db, input);
+  assert.equal(r.ok, true);
+  const urls = r.ok ? r.context.tenantGuard.allowedUrls : [];
+  assert.deepEqual(urls, ['https://www.matrixecosalon.org/', 'https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9']);
+});
+
+test('a phone or an address is not a link and never reaches the allow-list', async () => {
+  const r = await loadReceptionContext(stubDb({
+    contact_points: { data: [
+      { kind: 'phone', value: '7741-7777' },
+      { kind: 'address', value: 'Яармаг, 12-р хороо' },
+      { kind: 'email', value: 'hi@matrixecosalon.org' },
+    ] },
+  }).db, input);
+  assert.deepEqual(r.ok ? r.context.tenantGuard.allowedUrls : [], ['https://www.matrixecosalon.org/']);
+});
+
+test('all four URL kinds, not only the one needed today', async () => {
+  // Restricting this to `maps_url` would rebuild the same gap for `website` the first time
+  // anybody adds one — the "one branch over" failure D-062 names.
+  const r = await loadReceptionContext(stubDb({
+    tenant_booking: { data: [] },
+    contact_points: { data: [
+      { kind: 'website', value: 'https://matrixecosalon.org' },
+      { kind: 'facebook', value: 'https://facebook.com/matrixecosalon' },
+      { kind: 'instagram', value: 'https://instagram.com/matrixecosalon' },
+      { kind: 'maps_url', value: 'https://maps.app.goo.gl/x' },
+    ] },
+  }).db, input);
+  assert.equal((r.ok ? r.context.tenantGuard.allowedUrls : []).length, 4);
+});
+
+test('a handle stored where a link belongs is dropped rather than allowed', async () => {
+  // `canonicalizeUrl` would turn `@matrix` into something no extracted URL matches, so it
+  // is inert rather than dangerous — but an allow-list should contain links.
+  const r = await loadReceptionContext(stubDb({
+    tenant_booking: { data: [] },
+    contact_points: { data: [{ kind: 'instagram', value: '' }, { kind: 'facebook', value: 'not a url at all' }] },
+  }).db, input);
+  assert.deepEqual(r.ok ? r.context.tenantGuard.allowedUrls : ['unset'], []);
+});
+
+test('DONE-TEST: an unreadable contact_points REFUSES rather than silently narrowing the allow-list', async () => {
+  // Treating a failed read as "no contact points" would drop the tenant's own links out of
+  // the allow-list and refuse every reply that used one — a guard tightening itself because
+  // a query blipped. Undetermined is a result.
+  const r = await loadReceptionContext(stubDb({
+    contact_points: { error: { message: 'connection reset' } },
+  }).db, input);
+  assert.equal(r.ok, false);
+  assert.equal(r.ok === false && r.code, 'unavailable');
+});
+
+test('the maps url is excluded from the Cyrillic script share, like every allowed link', async () => {
+  // Latin characters in an approved URL must not count against `primaryScript`, or quoting
+  // the location would trip `outbound_language` instead of `outbound_url`.
+  const r = await loadReceptionContext(stubDb({
+    contact_points: { data: [{ kind: 'maps_url', value: 'https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9' }] },
+  }).db, input);
+  assert.ok((r.ok ? r.context.tenantGuard.scriptShareExclusions : []).includes('https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9'));
+});

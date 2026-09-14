@@ -590,3 +590,41 @@ test('the hours heading cannot be read as Ш4\'s subject', () => {
   // And it is not the bare phrase Ш4 owns.
   assert.notEqual(SECTION_LABELS.hours, 'АЖЛЫН ЦАГ');
 });
+
+// --- contact labels: the model had nothing but English keys to copy (D-069) ------------
+
+test('DONE-TEST: THE CONTACT SECTION IS LABELLED IN MONGOLIAN, not with column keys', () => {
+  // It rendered `- phone: 7741-7777`. The heading was Mongolian and every line beneath it
+  // was an English identifier, so the one thing the model could not do was reuse the
+  // platform's own word — it had to pick one, and on 2026-09-14 it picked the customer's:
+  // «Хаяг, холбоо барих:» over a telephone number.
+  const kb = { ...MATRIX, contacts: [
+    { kind: 'phone', value: '7741-7777' },
+    { kind: 'maps_url', value: 'https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9' },
+  ] };
+  const body = bodyOf(renderTenantSections(kb, APPROVED), 'contacts');
+  assert.match(body, /- Утас: 7741-7777/);
+  assert.match(body, /- Байршлын холбоос: https:\/\/maps\.app\.goo\.gl\//);
+  assert.doesNotMatch(body, /phone|maps_url/);
+});
+
+test('DONE-TEST: «ХАЯГ» CANNOT APPEAR FOR A TENANT THAT HAS NO ADDRESS', () => {
+  // The structural half. An instruction telling the model not to promise an address it
+  // does not have is a request until something checks it (D-065); binding the word to the
+  // `address` kind means a tenant without that row cannot have it in the prefix at all.
+  const noAddress = { ...MATRIX, contacts: [{ kind: 'phone', value: '7741-7777' }] };
+  const body = bodyOf(renderTenantSections(noAddress, APPROVED), 'contacts');
+  assert.doesNotMatch(body, /Хаяг/);
+
+  const withAddress = { ...MATRIX, contacts: [{ kind: 'address', value: 'Яармаг, 12-р хороо' }] };
+  const withBody = bodyOf(renderTenantSections(withAddress, APPROVED), 'contacts');
+  assert.match(withBody, /- Хаяг: Яармаг/);
+});
+
+test('an unknown contact kind falls back to the key, never disappears', () => {
+  // A contact point the tenant entered must not vanish from the prompt because nobody
+  // added a translation for it.
+  const kb = { ...MATRIX, contacts: [{ kind: 'telegram', value: '@matrix' }] };
+  const body = bodyOf(renderTenantSections(kb, APPROVED), 'contacts');
+  assert.match(body, /- telegram: @matrix/);
+});
