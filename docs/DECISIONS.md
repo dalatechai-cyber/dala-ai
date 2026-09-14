@@ -4484,9 +4484,20 @@ message's subject.
 No fix is proposed here, and deliberately. Debouncing a conversation changes when a customer
 is answered on the surface that faces Matrix's live customers, and the sensible window is a
 product judgement — long enough to catch a split sentence, short enough that a person waiting
-does not think the bot is dead. That is the founder's call. Noting also that the ancestor took
-eleven deliveries to nine worker invocations in the same day, which *may* mean it collapses
-some; it is a hint worth checking against its code, not a fact established here.
+does not think the bot is dead. That is the founder's call.
+
+**And the hint that the ancestor might already collapse them is dead — checked, not left
+hanging.** It took eleven deliveries to nine worker invocations the same day, which looked
+like collapsing. It is not: `Matrix-Chatbot` has no debounce anywhere — no timer, no buffer,
+no batching — and what produces the gap is a FILTER, `api/messenger.js` skipping `is_echo`,
+`ev.delivery`, `ev.read` and non-text events before it processes `entry.messaging` one event
+at a time.
+
+That inverts what the finding means for urgency. The ancestor answers each text event
+separately too, so **the double reply is the status quo for Matrix's real customers today**,
+not a regression this platform would introduce. It is an opportunity to be better than the
+system being replaced rather than a defect blocking the cutover — which is a different
+conversation, and a less urgent one.
 
 This is the mirror doing its job. No test would have produced it, because no test types half a
 sentence and then the rest.
