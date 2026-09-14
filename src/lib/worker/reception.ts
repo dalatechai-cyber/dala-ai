@@ -52,10 +52,23 @@ import type { ReceptionContext } from '../reception/load.ts';
 
 /**
  * What one Reception reply is expected to cost, reserved before the call and settled
- * against the real `usage` afterwards. From D-016's measured $0.0090/reply, rounded up:
- * an under-estimate lets a burst slip past the ceiling between reserve and settle.
+ * against the real `usage` afterwards. An under-estimate lets a burst slip past the
+ * ceiling between reserve and settle, which is the whole reason a reservation exists.
+ *
+ * **$0.041, raised from $0.012 by the founder on 2026-09-15** (D-072). The old figure came
+ * from D-016's blended $0.0090/reply, which has no cold-start term in it. Measured on the
+ * live ledger: a cache-MISS reply costs **$0.040554** and a cache-HIT reply $0.003540, and
+ * a miss is what a conversation's first turn always is, because conversations arrive hours
+ * apart and the prefix cache is gone by the next one. So the reserve was 3.4× light on
+ * exactly the turn that opens every conversation.
+ *
+ * It reserves the EXPENSIVE case on purpose. Reserving the average would be right if the
+ * two cases interleaved randomly; they do not — the miss is structural and predictable, and
+ * settle corrects the ledger a moment later either way. The cost of over-reserving is that
+ * a tenant near its ceiling is refused slightly early; the cost of under-reserving is a
+ * burst spending past a ceiling that was checked and passed.
  */
-export const RECEPTION_REPLY_ESTIMATE = usdToNano(0.012);
+export const RECEPTION_REPLY_ESTIMATE = usdToNano(0.041);
 
 export type GenerateArgs = {
   tenantId: string;

@@ -125,12 +125,13 @@ export const WEEKDAYS: readonly { dow: number; label: string }[] = [
  * have that word appear in its prefix at all, which is a structural answer rather than an
  * instruction the model may or may not follow — D-065's lesson, one layer up.
  *
- * ## PENDING THE FOUNDER'S APPROVAL
+ * ## Approved by the founder, 2026-09-15
  *
- * The founder is the native speaker and these are his call. Nothing here reaches a customer
- * until the tenant is republished through `scripts/publish/tenant.ts`, which needs a key
- * this repository's sessions do not hold — so the wording is reviewable in the diff before
- * it can possibly be read by anybody.
+ * He is the native speaker and it was his call. Nothing here reached a customer before that:
+ * the labels are compiled into the prefix by `scripts/publish/tenant.ts`, which needs a key
+ * this repository's sessions do not hold, so the wording sat reviewable in a diff until he
+ * had read it. **Changing any value here is changing customer-facing Mongolian** and goes
+ * back to him.
  *
  * An unknown kind falls back to the key itself rather than being dropped: a contact point
  * the tenant entered must not vanish from the prompt because nobody added a translation.

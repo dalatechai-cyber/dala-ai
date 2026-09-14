@@ -78,6 +78,13 @@ from.
 monthly_ceiling_usd = (floor_price_mnt × (1 − target_margin)) / fx_mnt_per_usd
 ```
 
+> **₮80,000 IS NOT A PRICE, and a session misread it as one on 2026-09-15.** Reception's
+> list price is ₮250,000/month, right there in the table above. ₮80,000 ≈ $22.86 is the
+> allowable model SPEND derived from the discounted floor. The two numbers are different
+> quantities and do not contradict each other. The live question is which base a ceiling is
+> sized from: Matrix's was set to **$28.57** on 2026-09-15, which is 60% of LIST, where the
+> rule in this decision gives $22.86 from the floor. See the D-072 addendum.
+
 Analytics being add-on-only is a pricing decision with a product consequence: the
 attribution work in §7.3 never has to stand on its own commercially, so it may be honest
 about what it cannot measure without losing a sale.
@@ -4904,3 +4911,94 @@ flags that **D-016's 60.5 replies/day must be re-derived** before anybody leans 
 decision changes the COST model, not the volume model. `T`, turns per conversation, is a
 one-day measurement of 2.2 from five conversations — the two higher rows are there because a
 single day cannot settle it, and the conclusion holds across all three.
+
+---
+
+## D-072 addendum — two things D-072 got wrong, found while carrying out its own recommendations
+
+**2026-09-15.** The founder authorised both changes D-072 asked for. Executing them turned
+up two errors in the decision itself. Both are recorded here rather than edited away,
+because both are the same class of mistake the repository keeps cataloguing.
+
+### 1. NOTHING ENFORCES THE MONTHLY CEILING, so nothing could have degraded
+
+D-072 said two of three volumes "breach it into `on_exhausted = 'canned_reply'`". That
+cannot happen, and the repository already said so:
+
+- **`monthly_ceiling_nanousd` is read by no code anywhere.** It appears in `0001`'s DDL, in
+  its CHECK constraint, in `scripts/provision/matrix-budget.sql`'s assertion, and in prose.
+  There is no reader in `src/`, no reader in any migration, and D-051's own text says it
+  plainly: *"No month is wired… `monthly_ceiling_nanousd` remains documentation until they
+  are picked."*
+- **`on_exhausted` is read by no code either.** The degradation ladder it names is designed
+  and not built, so `canned_reply` is a string in a column, not a behaviour.
+- **What actually binds is the DAILY cap, and it is compiled, not configured.**
+  `effectiveDailyCeiling` takes the LOWER of `SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY`
+  (**$1.50**, `src/config/platform.ts`) and the tenant row's daily × `surface_fractions`
+  (**$2.00 × 0.95 = $1.90** for Matrix). So Matrix's live reception ceiling is **$1.50/day
+  from a constant in the repository**, and its `tenant_budgets` row does not currently
+  change it in either direction.
+
+**This is D-064 read from the other end.** That decision's rule was "when you find a
+column, ask who writes it before you trust what it means." D-072 checked who WRITES
+`monthly_ceiling_nanousd` — the provisioning script — and never asked who reads it, then
+built a customer-visible consequence on the answer it did not look up. **Ask both, every
+time.** A column with a writer and no reader is as inert as one with a reader and no
+writer; it is merely inert in the direction that makes a report sound more urgent.
+
+And note where the wrong claim came from: `src/config/platform.ts:33` says *"The MONTHLY
+ceiling is the real control; this daily one exists to stop a single runaway day."* That
+comment describes a design, and the design was never finished, so the daily cap has been
+carrying the entire load alone since `0001`. **A comment asserting a control that does not
+exist** — the same shape as `meta/extract.ts`'s "everything skipped is reported" in D-070,
+found the same day, in a file about money rather than a file about stickers.
+
+The ceiling row was still raised to **$28.57** as instructed (`tenant_budgets` id 3,
+2026-09-15, append-only so id 2 stands as the record of what was in force before). It
+changes no behaviour today and is correct for the day a month is wired.
+
+**The real exposure is a burst day, and it is not what D-072 described.** At $0.040554 per
+cold conversation, $1.50/day affords roughly **37 conversations in a day** before reception
+is refused. D-016 measured a spread of 28–94 replies per day in one week, so a busy day can
+reach that cap — and the failure mode is not graceful degradation, because the ladder is not
+built. Whether $1.50 is the right compiled number is a money decision and is the founder's;
+it is flagged here rather than changed.
+
+### 2. ₮80,000 IS NOT A PRICE, and D-004 does not disagree with ₮250,000
+
+D-072 and the report that preceded it said D-004 and D-015 "still derive ₮80,000" as though
+that contradicted the founder selling at ₮250,000. **It does not, and the error was a
+misreading.** Reception's list price in D-004 *is* ₮250,000/month. ₮80,000 is a different
+quantity entirely: the allowable model SPEND at a 60% margin, computed from the **discounted
+bundle floor**, and D-004 states the rule in bold —
+
+> every ceiling must be computed from the **discounted** price, not the list price.
+> Reception inside a full-team bundle is ₮200,000/month, so at a 60% margin the allowable
+> monthly model spend is **₮80,000 ≈ $22.86** — and that, not ₮250,000, is the number the
+> spend ceiling derives from.
+
+So the two documents were consistent all along and needed no reconciliation. What needs
+deciding is something else, and it is live:
+
+**$28.57 applies the 60% formula to the LIST price. D-004 requires the FLOOR price.**
+
+| base | revenue | 60% margin allows |
+|---|---:|---:|
+| list, standalone (₮250,000) | $71.43 | **$28.57** |
+| full-team bundle floor (₮200,000) | $57.14 | **$22.86** |
+
+At a $28.57 ceiling, a Reception sold inside a full-team bundle runs at **50%** margin, not
+60%. D-004's floor rule exists precisely so a ceiling is not sized against a price some
+customers will not pay. Restating D-072's cost table against both bases:
+
+| turns/conversation | cost/month | margin on list | margin on the bundle floor |
+|---|---:|---:|---:|
+| 2.2 — measured | $17.92 | 74.9% | 68.6% |
+| 4.6 — D-016 ÷ 400 | $21.32 | 70.2% | 62.7% |
+| 6.0 — D-016's A7 | $23.30 | 67.4% | **59.2%** |
+
+**The price is sound on either base** — only the highest turns-per-conversation inside a
+full bundle misses 60%, and by 0.8 points. What is unresolved is the ceiling: $28.57 is
+correct for a standalone sale and 25% above what D-004's floor rule permits. That is a
+pricing call, not an engineering one, and it is the founder's. The row stands at $28.57
+because he set it; this is the note saying which rule it departs from.

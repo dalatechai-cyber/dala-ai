@@ -296,27 +296,30 @@ the sweep have now read real rows once, on one channel, with one live tenant.
 
 ## 4. Decisions waiting for you
 
-**Four, as of 2026-09-15**, all from the mirror's first full trading day. Three are money
-or wording; one is a command only you can run.
+**Three, as of 2026-09-15.** One is a command only you can run; two are money questions
+that executing the first round of changes uncovered.
 
-1. **Raise Matrix's monthly ceiling, or accept mid-month degradation.**
-   `tenant_budgets.monthly_ceiling_nanousd` is **$20.00**, set when the price was ₮80,000.
-   At ₮250,000 ≈ $71.43 the 400-conversation band costs $17.92–$23.30/month depending on
-   turns per conversation (D-072), so two of three plausible volumes exhaust it and the
-   tenant degrades to `on_exhausted = 'canned_reply'` part-way through the month. A 60%
-   margin supports **$28.57**. Money movement — not changed.
-2. **`RECEPTION_REPLY_ESTIMATE` is 3.4× light.** It reserves $0.012 against a measured
-   $0.0406 cold reply. Settle corrects the ledger afterwards, so the accounting is right;
-   what is wrong is how far a burst runs before the ceiling bites. Money movement — not
-   changed.
-3. **The contact-section Mongolian labels** (D-071): `Утас`, `И-мэйл`, `Хаяг`,
-   `Байршлын холбоос`, `Фэйсбүүк`, `Инстаграм`, `Вэбсайт`, `Цаг захиалгын холбоос`.
-   Drafted in `CONTACT_KIND_LABELS` and inert until a republish.
-4. **Republish Matrix.** `contact_points` now carries the `maps_url` row, and the prefix
-   will not contain it until `scripts/publish/tenant.ts --slug matrix-eco-salon --publish`
-   runs. `SUPABASE_SECRET_PUBLISH` is absent from agent sessions, so only you can.
+**Done 2026-09-15, on your instruction:** the monthly ceiling is $28.57 (`tenant_budgets`
+id 3), `RECEPTION_REPLY_ESTIMATE` is $0.041, and the contact labels are approved. What
+remains:
+
+1. **Republish Matrix.** `contact_points` carries the `maps_url` row and the prefix will not
+   contain it until `scripts/publish/tenant.ts --slug matrix-eco-salon --publish` runs.
+   `SUPABASE_SECRET_PUBLISH` is absent from agent sessions, so only you can.
    **Deploy the code first** — republishing ahead of the deploy hands the model a URL the
    live `urlsNotAllowed` still refuses.
+2. **The ceiling is 60% of the LIST price, where D-004 requires the discounted FLOOR.**
+   $28.57 is 60% of ₮250,000; the full-team bundle floor (₮200,000) gives $22.86, and a
+   bundled Reception at a $28.57 ceiling runs at 50% margin. D-004 states the floor rule in
+   bold. Flagged, not resolved — a pricing call (D-072 addendum).
+3. **The ceiling you raised enforces nothing today.** `monthly_ceiling_nanousd` has no
+   reader in `src/` or in any migration, and neither does `on_exhausted`, so the degradation
+   ladder is designed and not built. What binds is the DAILY cap, and it is **compiled**:
+   the lower of `SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY` ($1.50) and the row's daily ×
+   surface fraction ($1.90), so Matrix's live reception ceiling is **$1.50/day from a
+   constant**, unaffected by its budget row. Whether $1.50 is right is money and is yours:
+   it affords roughly **37 cold conversations in a day**, against D-016's measured spread of
+   28–94 replies/day.
 
 All twenty-one Mongolian blocks were signed on 2026-09-04 and are seeded by
 `0010`; `prompt/drafts/` is empty of blocks and is now the design record.
