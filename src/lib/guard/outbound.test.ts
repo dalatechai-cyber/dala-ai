@@ -504,3 +504,48 @@ test('disclosesPrompt with no canned lines behaves exactly as before', () => {
   assert.equal(disclosesPrompt(`Мэдээж. ${CORPUS_EXCERPT}`, CORPUS, []), true);
   assert.equal(disclosesPrompt('Сайн байна уу.', CORPUS, []), false);
 });
+
+// ---------------------------------------------------------------------------
+// D-074 — a reply quoting the tenant's own location, end to end
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: QUOTING THE SALON LOCATION IS NOT AN INVENTED PRICE', () => {
+  // The third instance of one shape, after D-068 and D-071: a reply punished for using the
+  // tenant's own approved data. Here the allow-list carries NO `9` — as it will not once
+  // the prefix is recompiled — and the reply must still pass.
+  const maps = 'https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9';
+  // Exactly as `reception/load.ts` builds it since D-071: a contact URL joins BOTH lists,
+  // so the Latin characters in an approved link do not count against the Cyrillic share.
+  const tenant: TenantGuardView = {
+    ...MATRIX,
+    allowedUrls: [...MATRIX.allowedUrls, maps],
+    scriptShareExclusions: [...MATRIX.scriptShareExclusions, maps],
+  };
+  const reply = `Манай байршлыг эндээс харна уу: ${maps}`;
+  assert.deepEqual(outboundGuard(tenant, CLEAN, reply), { ok: true });
+});
+
+test('DONE-TEST: AND ON A REFUSED TOPIC, where no allow-list can help', () => {
+  // Check 2b is handed an EMPTY allow-list on purpose, so the accidental `9` never
+  // protected this case at all. A map link read as a price on a children's-services
+  // question is a refusal nobody could have explained from the flag.
+  const maps = 'https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9';
+  const tenant: TenantGuardView = {
+    ...MATRIX,
+    allowedUrls: [...MATRIX.allowedUrls, maps],
+    scriptShareExclusions: [...MATRIX.scriptShareExclusions, maps],
+  };
+  const onRefusedTopic: OutboundContext = { firedGates: ['Ш1'], refusedTopicBlocksPrice: true, customerText: '' };
+  assert.deepEqual(outboundGuard(tenant, onRefusedTopic, `Байршил: ${maps}`), { ok: true });
+
+  // And the guarantee it must not have cost: a real numeral on that topic is still refused.
+  const r = outboundGuard(tenant, onRefusedTopic, `Байршил: ${maps} Үнэ 33,000₮.`);
+  assert.equal(r.ok === false && r.code, 'outbound_refused_topic_price');
+});
+
+test('an UNDECLARED link is still refused, whatever its digits', () => {
+  // Masking moved the digits out of the numeral check; it did not move the link out of
+  // check 1, which is the check that actually governs links.
+  const r = outboundGuard(MATRIX, CLEAN, 'Энд үзнэ үү: https://maps.app.goo.gl/SOMEONEELSE9');
+  assert.equal(r.ok === false && r.code, 'outbound_url');
+});

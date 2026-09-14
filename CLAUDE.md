@@ -771,6 +771,34 @@ ceiling was set to **$28.57**, which is 60% of LIST, where D-004's floor rule gi
 A bundled Reception at a $28.57 ceiling runs at 50% margin. The founder set it knowing the
 list figure; the departure from the floor rule is flagged, not resolved.
 
+**A URL slug became an approved price, and its twin bug hid it** (2026-09-15, D-074).
+Matrix's Maps link `…/fHaBVwc9mFZJxYAJ9` contains a `9`; `allowedNumbersFrom` read numerals
+out of the whole rendered section, links included, so `allowed_numbers` went from twelve
+tokens to thirteen and the model gained permission to say `9`. A reply quoting that link
+carries the same `9` — and passed check 2 **only because the allow-list had been widened by
+the very same slug**. Two defects exactly cancelling, which is the part to carry: **a bug
+that only manifests when its twin is fixed is invisible to any test of either.** Fixing the
+allow-list alone would have started refusing replies that quote the salon's own location —
+D-068's shape a third time.
+
+Check **2b** had no twin to save it: it is handed an EMPTY allow-list on a refused topic, so
+quoting the location on a children's-services question was refused as
+`outbound_refused_topic_price` from the moment the link entered the prefix — and filed under
+price, sending a reader to the allow-list for a defect about neither.
+
+The rule now: **a URL is validated as a URL and its characters are never content.**
+`maskUrls` is applied in the compiler's `allowedNumbersFrom`, in the guard's reply check
+(covering 2 and 2b) and in the customer-echo set. Masking to a SPACE, never to nothing:
+splicing the sides together manufactures a numeral nobody wrote — `disclosesPrompt`'s own
+lesson, third file. The digits-only reduction is untouched; this removes a numeral that was
+never a tenant fact.
+
+**`scripts/publish/tenant.ts` runs on the operator's machine and renders with THEIR
+checkout.** The instruction "deploy, then republish" is right about the runtime guard and
+silently wrong about the compiler: Matrix's seq 4 carries the Maps link and not the Mongolian
+labels, because the publish ran against pre-merge local code. **Deploy, `git pull`, publish
+— three steps.**
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

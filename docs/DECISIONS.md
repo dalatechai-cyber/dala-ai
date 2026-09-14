@@ -5080,3 +5080,81 @@ has eleven canned kinds and that is not one of them, so until the founder writes
 comment refuses `no_reviewed_line` and the mirror drafts nothing. `delivery_mode` stays
 `shadow` throughout, which is now a meaningful state on this path rather than an alias for
 off.
+
+---
+
+## D-074 — a URL slug became an approved price, and two bugs hid each other
+
+**2026-09-15, found on a routine check-in after the founder republished Matrix.**
+
+Revision seq 4 went live at 19:46 UTC carrying the Maps link. `allowed_numbers` grew from
+**twelve tokens to thirteen**, and the thirteenth is **`9`**.
+
+It came from the slug of `https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9`. `allowedNumbersFrom`
+extracted numerals from the whole rendered section text, links included, so a URL widened
+the list of numbers the model is permitted to say. Nobody approved a `9`.
+
+### The half that makes it interesting
+
+A reply QUOTING that link carries the same `9`. So check 2 of the outbound guard saw a
+numeral in the reply — and passed it, **because the allow-list had been widened by the very
+same slug**. Two defects, exactly cancelling.
+
+That is worth stating as a rule, because it is how both would have survived a review: **a
+bug that only manifests when its twin is fixed is invisible to any test of either.** Remove
+the allow-list leak alone and every reply quoting the salon's own location starts being
+refused as an invented price — which is D-068's shape a third time, and D-071's second:
+a reply punished for using the tenant's own approved data. I would have caused it.
+
+### And one half was already broken, with nothing to cancel it
+
+Check **2b** is handed an EMPTY allow-list on a refused topic, deliberately — on a topic Ш1
+forbids quoting a price for, no provenance rescues a numeral. So no accidental widening
+could ever have helped it: quoting the location in a reply about children's services was
+refused as `outbound_refused_topic_price`. A map link read as a price. That one was live
+from the moment the link entered the prefix, and `quality_flags` would have filed it under
+price, sending a reader to the allow-list for a defect that has nothing to do with numerals
+— exactly the misattribution D-066 is named for.
+
+### The rule, stated once and applied to every side
+
+**A URL is validated as a URL, and its characters are never content.** `urlsNotAllowed`
+permits the tenant's declared links and refuses all others, whole; nothing downstream reads
+their digits. `maskUrls` implements it and is applied in three places — the compiler's
+`allowedNumbersFrom`, the guard's reply check (covering both 2 and 2b), and the customer-echo
+set, because a customer who pastes a link has not approved the digits in its slug either.
+
+Masking to a SPACE rather than to the empty string: splicing the text either side of a link
+together would manufacture a numeral that was never written, which is the mistake
+`disclosesPrompt` documents about its own corpus. Same trap, third file.
+
+### What this does not change
+
+The price guarantee's footing is untouched. It still rests on `extractNumerals`' digits-only
+reduction and on the comparison being an exact match rather than a substring test — `20` does
+not license `20,000`, `7741-7777` does not license a bare `7741`. This removes a numeral that
+was never a tenant fact; it loosens nothing. The one behaviour it restores is a reply's right
+to quote a link the tenant declared.
+
+### It is not live until the next publish
+
+`allowed_numbers` is compiled, so seq 4 still carries the `9` and will until Matrix is
+republished. That republish is also owed for a separate reason — see below — so one run
+clears both.
+
+### The republish that produced this also missed the labels, and the instruction was wrong
+
+Seq 4 carries the Maps link and **not** the Mongolian contact labels: the prefix still reads
+`- phone: 7741-7777`, and `- Утас:` and `- Байршлын холбоос:` are absent. +54 characters is
+exactly a `- maps_url: <url>` line with the English key.
+
+The cause is that `scripts/publish/tenant.ts` **runs on the founder's own machine and imports
+from his checkout**. The instruction given was "deploy the code, then republish", which is
+right about the runtime guard — `urlsNotAllowed` must be serving the widened allow-list
+before the prefix can carry a link it would refuse — and silently wrong about the compiler,
+which is local. A publish renders with whatever `src/` the operator has, not with what
+Vercel is serving.
+
+**So the correct order has three steps, not two: deploy, `git pull`, publish.** Recorded
+here because the two-step version reads as complete and is the kind of instruction that gets
+followed exactly.

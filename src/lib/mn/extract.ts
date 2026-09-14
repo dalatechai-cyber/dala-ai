@@ -130,7 +130,9 @@ export function numeralsNotAllowed(text: string, allowedNumbers: readonly string
     const d = digitsOf(a);
     if (d !== '') allowed.add(d);
   }
-  return extractNumerals(text)
+  // Links are check 1's business, whole. See `maskUrls`: the digits in a slug are not a
+  // price, and reading them as one refused replies that quoted the tenant's own location.
+  return extractNumerals(maskUrls(text))
     .filter((n) => n.digits !== '' && !allowed.has(n.digits))
     .map((n) => n.raw);
 }
@@ -152,18 +154,54 @@ const URL_TRAILING = /[.,;:!?)»】\]'"…]+$/u;
  * Links as they appear in the text. Bare `www.` forms are included because a model that
  * drops the scheme still produced a clickable link in Messenger.
  */
+// ascii-safe: URL schemes and host syntax are ASCII by RFC 3986; this does not classify
+// Mongolian text, it finds link-shaped runs in it.
+const URL_RUN = /(?:https?:\/\/|www\.)[^\s<>"'«»]+/giu;
+
 export function extractUrls(text: string): string[] {
   const s = nfc(text);
   const out: string[] = [];
-  // ascii-safe: URL schemes and host syntax are ASCII by RFC 3986; this does not
-  // classify Mongolian text, it finds link-shaped runs in it.
-  const re = /(?:https?:\/\/|www\.)[^\s<>"'«»]+/giu;
+  const re = new RegExp(URL_RUN.source, URL_RUN.flags);
   let m: RegExpExecArray | null;
   while ((m = re.exec(s)) !== null) {
     out.push(m[0].replace(URL_TRAILING, ''));
     re.lastIndex = m.index + m[0].length;
   }
   return out;
+}
+
+/**
+ * The same text with every link-shaped run replaced by a space.
+ *
+ * ## A URL is checked as a URL, and its digits are never numerals
+ *
+ * Found 2026-09-15, by two bugs cancelling. Matrix's location is a Google Maps short link,
+ * `https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9`, and it contains a `9`:
+ *
+ *  - Compiling it into a rendered section put **`9` into `allowed_numbers`**, because
+ *    `allowedNumbersFrom` extracted numerals from the whole section text including links.
+ *    The tenant never approved a `9`; a URL slug did.
+ *  - And a reply QUOTING that link carries the same `9`, so the numeral check saw one —
+ *    which passed only because the allow-list had been widened by the very same slug.
+ *
+ * Two defects that happened to agree. Remove either alone and replies quoting the salon's
+ * own location start being refused as invented prices, which is D-068's shape a third
+ * time: a reply punished for using the tenant's own approved data.
+ *
+ * Check **2b** is the half that was already broken. It is passed an EMPTY allow-list on a
+ * refused topic, so no accidental widening could save it: quoting the location in a reply
+ * about children's services was refused as `outbound_refused_topic_price` — a map link
+ * read as a price.
+ *
+ * So the rule is stated once and applied to every side: links are validated wholly by
+ * `urlsNotAllowed`, which permits the tenant's declared links and refuses all others, and
+ * nothing downstream treats their characters as content. Masking to a SPACE rather than to
+ * the empty string keeps the tokens either side of a link apart — splicing them would
+ * manufacture a numeral that was never written, which is the mistake `disclosesPrompt`
+ * documents on its own corpus.
+ */
+export function maskUrls(text: string): string {
+  return nfc(text).replace(new RegExp(URL_RUN.source, URL_RUN.flags), ' ');
 }
 
 /**

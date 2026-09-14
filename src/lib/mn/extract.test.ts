@@ -8,7 +8,8 @@ import {
   extractUrls,
   numeralsNotAllowed,
   urlsNotAllowed,
-} from './extract.ts';
+
+  maskUrls,} from './extract.ts';
 
 // Matrix Eco Salon's real price strings, from `currentClient.js`. These are the values
 // the compiler puts in `config_snapshots.allowed_numbers`.
@@ -167,4 +168,44 @@ test('an unparseable or non-http link is refused, never passed through', () => {
 test('extractUrls trims the sentence punctuation that is not part of the link', () => {
   assert.deepEqual(extractUrls('Үзнэ үү: https://a.example/x, дараа нь.'), ['https://a.example/x']);
   assert.deepEqual(extractUrls('«https://a.example/x»'), ['https://a.example/x']);
+});
+
+// --- a URL is checked as a URL; its digits are never numerals (D-074) ------------------
+
+/** Matrix's real location, and the `9` in its slug is the whole story. */
+const MAPS = 'https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9';
+
+test('DONE-TEST: A URL SLUG IS NOT A PRICE', () => {
+  // Found by two bugs cancelling. Compiling this link into a rendered section put `9` into
+  // `allowed_numbers` — a numeral no human approved — and a reply quoting the link carried
+  // the same `9`, which passed only because the allow-list had been widened by that very
+  // slug. Remove either alone and the salon's own location reads as an invented price.
+  assert.deepEqual(extractNumerals(MAPS).map((n) => n.raw), ['9', '9'], 'the slug really does carry digits');
+  assert.deepEqual(numeralsNotAllowed(`Манай байршил: ${MAPS}`, []), [], 'and none of them is a numeral');
+});
+
+test('DONE-TEST: and the check with an EMPTY allow-list is the half nothing could save', () => {
+  // Check 2b is passed no allow-list at all on a refused topic, so no accidental widening
+  // could ever have rescued it: quoting the location in a reply about children's services
+  // was refused as a price. That one was broken independently of the leak.
+  assert.deepEqual(numeralsNotAllowed(MAPS, []), []);
+});
+
+test('a real numeral beside a link is still caught', () => {
+  // The masking must not become a hiding place. Text outside the link is unaffected.
+  assert.deepEqual(numeralsNotAllowed(`Үнэ 45,000₮. Дэлгэрэнгүй: ${MAPS}`, []), ['45,000']);
+  assert.deepEqual(numeralsNotAllowed(`Үнэ 45,000₮. Дэлгэрэнгүй: ${MAPS}`, ['45,000']), []);
+});
+
+test('masking replaces a link with a SPACE, never with nothing', () => {
+  // Splicing the sides together would manufacture a numeral that was never written — the
+  // mistake `disclosesPrompt` documents on its own corpus, in a different file.
+  assert.equal(maskUrls('1https://x.example/a2'), '1 ');
+  assert.deepEqual(extractNumerals(maskUrls('1https://x.example/a2')).map((n) => n.raw), ['1']);
+});
+
+test('a bare www link is masked too, as extractUrls finds it', () => {
+  // One regex, shared, so the two cannot drift about what a link is.
+  assert.equal(maskUrls('очно уу www.matrixecosalon.org/9 гэж').trim(), 'очно уу   гэж'.trim());
+  assert.deepEqual(numeralsNotAllowed('www.matrixecosalon.org/9', []), []);
 });
