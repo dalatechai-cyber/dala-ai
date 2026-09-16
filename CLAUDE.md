@@ -859,6 +859,24 @@ was reported before it was checked per-row. **And the adaptation is counted nowh
 `checkPinnedLines` rejects on `MIN_LENGTH_RATIO = 0.8` before similarity is computed, so no
 `canned_paraphrased` flag is written when an approved line is adapted INSIDE a longer reply.
 
+**An approved line adapted inside a longer reply is drift** (2026-09-16, D-077 addendum,
+founder's call — *"the mechanism only means anything if it's exact, and «би» dropping today
+is a rewrite tomorrow"*). `MIN_LENGTH_RATIO` rejects a long reply before similarity is
+computed, so an adapted row was neither corrected nor COUNTED. `embeddedAdaptation` asks two
+EXACT questions instead of scoring: contains the row whole → an exact quotation, left alone;
+otherwise shares ≥60% of it and ≥40 characters → `canned_paraphrased`, and the row is served.
+No fuzzy matching inside the mechanism that decides whether an approved sentence was altered.
+**The cost is stated, not discovered:** serving the row discards the rest of the reply, so the
+11:26 customer loses the location link that followed. And "fix the row" has a floor — the
+model's «Шулуун химийн» named the service the customer asked about and **a static row cannot
+do that**; naming it needs a template with a slot, which does not exist here.
+
+**Matrix's image line is the first refusal row that does not end at the phone** (D-076
+addendum): «Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл
+баяртайгаар хариулна.» Approved 2026-09-16. The corpus is the reason — «Утсаа авахгүй байна»,
+then «2 өдөр залгаж байна», then a customer asking for a human rather than an AI. Every other
+refusal row still ends at 7741-7777; this one keeps the customer in the conversation instead.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

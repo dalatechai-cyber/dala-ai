@@ -178,11 +178,119 @@ export function checkPinnedLines(reply: string, canned: readonly CannedRow[]): P
     if (best === null || score > best.score) best = { row, body, score };
   }
 
-  if (best === null || best.score < NEAR_COPY_MIN_SIMILARITY) return { kind: 'clean' };
+  if (best === null || best.score < NEAR_COPY_MIN_SIMILARITY) return embeddedAdaptation(candidate, canned);
 
   // The row's own body, never `comparable()`'s output: the whitespace the founder approved
   // is part of what was approved, and this must not become a second source of the sentence.
   return best.body === candidate
     ? { kind: 'exact', canonicalKind: best.row.kind, canonical: best.row.body }
     : { kind: 'paraphrase', canonicalKind: best.row.kind, canonical: best.row.body, similarity: best.score };
+}
+
+/**
+ * The longest run of characters the two share, in code points.
+ *
+ * Exact-match machinery on purpose. The alternative — sliding a similarity score along the
+ * reply to find "roughly where the line is" — puts fuzzy matching inside the mechanism that
+ * decides whether an approved sentence was altered, and a threshold there is a thing nobody
+ * can audit from the outside. A common RUN is a fact about two strings.
+ */
+function longestCommonRun(a: readonly string[], b: readonly string[]): number {
+  if (a.length === 0 || b.length === 0) return 0;
+  let prev = new Array<number>(b.length + 1).fill(0);
+  let best = 0;
+  for (let i = 1; i <= a.length; i += 1) {
+    const row = new Array<number>(b.length + 1).fill(0);
+    for (let j = 1; j <= b.length; j += 1) {
+      if (a[i - 1] === b[j - 1]) {
+        const v = (prev[j - 1] as number) + 1;
+        row[j] = v;
+        if (v > best) best = v;
+      }
+    }
+    prev = row;
+  }
+  return best;
+}
+
+/**
+ * How much of an approved line must be reproduced before an alteration counts as drift.
+ *
+ * Proportional, because the rows differ in length: two thirds of a line is "this is that
+ * sentence, changed" whatever the sentence is, while any absolute figure would be most of
+ * a short row and a fragment of a long one.
+ */
+export const EMBEDDED_MIN_SHARE = 0.6;
+
+/**
+ * And a floor, because a proportion alone is too generous to a short row.
+ *
+ * Matrix's rows share a closing sentence — «Та 7741-7777 дугаараар холбогдоно уу.», 36
+ * characters — and a reply may legitimately end that way without having reproduced any
+ * particular row. Forty keeps the phone sentence from reading as drift on its own.
+ */
+export const EMBEDDED_MIN_RUN = 40;
+
+/**
+ * An approved line reproduced INSIDE a longer reply, and altered.
+ *
+ * ## Why the whole-reply check cannot see this
+ *
+ * `MIN_LENGTH_RATIO` rejects a candidate much longer than the row before similarity is ever
+ * computed, and that is correct for what it was written for: it stops a long, correct answer
+ * that merely quotes the phone number from being replaced by a refusal. The cost, measured
+ * on 2026-09-16 at 11:26:29, is that an approved sentence adapted inside a longer reply is
+ * neither corrected nor COUNTED — no `canned_paraphrased` row, so the drift is invisible.
+ *
+ * The model wrote «Шулуун химийн үнийн мэдээлэл надад байхгүй байна…» where
+ * `refusal_price_unlisted` says «Уучлаарай, энэ үйлчилгээний …», naming the service the
+ * customer had actually asked about. It was better than the row. It was still a sentence
+ * nobody reviewed, carrying an approved one's meaning — D-065's rule — and the founder's
+ * call (2026-09-16) is that the mechanism only means anything if it is exact: «би» dropping
+ * today is a rewrite tomorrow.
+ *
+ * ## The test, and why it is two substring questions rather than a score
+ *
+ * A row was reproduced-and-altered when the reply shares a long run with it AND does not
+ * contain it whole. Both halves are exact:
+ *
+ *  - contains it whole → an exact quotation, which is what a helpful answer does, and
+ *    `disclosesPrompt` already exempts it. Left alone.
+ *  - shares `EMBEDDED_MIN_SHARE` of it and `EMBEDDED_MIN_RUN` characters, but not whole →
+ *    drift. Counted, and the row is served in its place.
+ *
+ * Verified against both real incidents: the 2026-09-14 «tsag avii» reply quoted
+ * `booking_line` EXACTLY inside a longer sentence and is left alone; the 2026-09-16 reply
+ * adapted `refusal_price_unlisted` and is corrected.
+ *
+ * **What this costs, said plainly.** Serving the row discards the rest of the reply —
+ * `handleReception` never edits a reply and this keeps that line. In the 11:26 case the
+ * customer would lose the location link that followed. That is the price of exactness, and
+ * the answer to a row that reads worse than what the model produced is to fix the row.
+ */
+function embeddedAdaptation(candidate: string, canned: readonly CannedRow[]): PinnedVerdict {
+  const cand = [...candidate];
+  let best: { row: CannedRow; run: number } | null = null;
+
+  for (const row of canned) {
+    if (row.reviewedAt === null) continue;
+    const body = comparable(row.body);
+    if (body === '') continue;
+    // An exact quotation is not drift. `comparable` has already folded both sides.
+    if (candidate.includes(body)) continue;
+
+    const chars = [...body];
+    const run = longestCommonRun(cand, chars);
+    if (run < EMBEDDED_MIN_RUN) continue;
+    if (run / chars.length < EMBEDDED_MIN_SHARE) continue;
+    if (best === null || run > best.run) best = { row, run };
+  }
+
+  if (best === null) return { kind: 'clean' };
+  return {
+    kind: 'paraphrase',
+    canonicalKind: best.row.kind,
+    canonical: best.row.body,
+    similarity: best.run / [...comparable(best.row.body)].length,
+  };
 }

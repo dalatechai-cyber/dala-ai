@@ -5326,3 +5326,59 @@ drift is invisible. D-065's rule is that a near-copy is an unreviewed sentence c
 approved one's meaning; here the near-copy was an IMPROVEMENT. Whether an embedded
 adaptation should be corrected, counted, or allowed is the founder's call, and it wants the
 native speaker rather than a threshold.
+
+### D-077 addendum — an adapted line is drift, and the founder chose exactness
+
+**2026-09-16, founder's call.** *"A near-copy of an approved sentence isn't the approved
+sentence — the mechanism only means anything if it's exact, and «би» dropping today is a
+rewrite tomorrow. If the row's wording is worse than what the model produces, fix the row."*
+
+So the gap D-077 found is closed rather than left open. `embeddedAdaptation` asks two
+**exact** questions of each reviewed row, deliberately avoiding a similarity score inside
+the mechanism that decides whether an approved sentence was altered:
+
+  1. does the reply contain the row WHOLE? → an exact quotation, left alone;
+  2. otherwise, does it share ≥ `EMBEDDED_MIN_SHARE` (0.6) of the row and at least
+     `EMBEDDED_MIN_RUN` (40) characters? → drift: counted as `canned_paraphrased`, and the
+     row is served in its place.
+
+Proportional because the rows differ in length, with a floor because Matrix's rows share a
+36-character closing sentence — «Та 7741-7777 дугаараар холбогдоно уу.» — that a reply may
+legitimately end with without having reproduced any row.
+
+Both real incidents pin it: 2026-09-14's «tsag avii» reply quoted `booking_line` exactly
+inside a longer sentence and is left alone; 2026-09-16's adapted `refusal_price_unlisted` is
+corrected.
+
+**The cost, stated rather than discovered later.** Serving the row discards the rest of the
+reply — `handleReception` never edits a reply and this keeps that line. In the 11:26 case
+the customer loses the location link that followed the adapted sentence. That is the price
+of exactness, and it was chosen knowingly.
+
+**What it does not solve, and the founder named it:** `refusal_price_unlisted` says «энэ
+үйлчилгээний» where the model wrote «Шулуун химийн». The model's version was better because
+it named the service the customer asked about, and **a static row cannot do that.** "Fix the
+row" therefore has a floor: the row can be reworded, but naming the service needs a template
+with a slot, which is machinery this platform does not have. Recorded as the open question
+rather than quietly not done.
+
+### D-076 addendum — the approved image line, and the first refusal that does not end at the phone
+
+**2026-09-16, founder's approval:**
+
+> Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
+
+«бичвэл» over «бичиж өгвөл» (every reply has to be brief); all three prompts kept (a
+customer who does not know what to write needs the examples); «харах боломжгүй» because it
+is about the assistant and it is true.
+
+**And no phone.** This is the first refusal row that does not end at 7741-7777, and the
+reason is the corpus: on 2026-09-15 a customer wrote «Утсаа авахгүй байна» and then «2 өдөр
+залгаж байна», and on 2026-09-16 another asked for a human rather than an AI. *"The point is
+keeping them in the conversation, not sending them to a number nobody answered for two
+days."* Every other refusal row still ends there, so that remains the platform's escape
+hatch — this one deliberately does not use it.
+
+Wiring the already-reviewed `refusal_out_of_scope` was rejected for the same reason: it
+would have shipped without a reading evening, and it both fails to invite a description and
+ends at the phone.

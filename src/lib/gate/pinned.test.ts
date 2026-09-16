@@ -110,3 +110,68 @@ test('an empty reply, and a tenant with no rows, are both clean', () => {
   assert.equal(checkPinnedLines(HANDOFF, []).kind, 'clean');
   assert.equal(NEAR_COPY_MIN_SIMILARITY, 0.9);
 });
+
+// ---------------------------------------------------------------------------
+// D-077 addendum — an approved line adapted INSIDE a longer reply
+// ---------------------------------------------------------------------------
+
+const PRICE_ROW = {
+  kind: 'refusal_price_unlisted',
+  body: 'Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 7741-7777 дугаараар холбогдож лавлана уу.',
+  reviewedAt: '2026-09-07T00:00:00Z',
+};
+const BOOKING_ROW = {
+  kind: 'booking_line',
+  body: 'Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.',
+  reviewedAt: '2026-09-07T00:00:00Z',
+};
+const ROWS = [PRICE_ROW, BOOKING_ROW];
+
+test('DONE-TEST: AN ADAPTED LINE INSIDE A LONGER REPLY IS DRIFT, AND IS CORRECTED', () => {
+  // Production, 2026-09-16 11:26:29. «Шулуун химийн» in place of «энэ үйлчилгээний» —
+  // better than the row, and still a sentence nobody reviewed carrying an approved one's
+  // meaning. MIN_LENGTH_RATIO rejected it before similarity was computed, so until now it
+  // was neither corrected nor counted.
+  const reply = 'Сайн байна уу.\n\nШулуун химийн үнийн мэдээлэл надад байхгүй байна. '
+    + 'Та 7741-7777 дугаараар холбогдож лавлана уу.\n\nМанай хаяг: https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9';
+  const v = checkPinnedLines(reply, ROWS);
+  assert.equal(v.kind, 'paraphrase');
+  assert.equal(v.kind === 'paraphrase' && v.canonicalKind, 'refusal_price_unlisted');
+  assert.equal(v.kind === 'paraphrase' && v.canonical, PRICE_ROW.body);
+});
+
+test('DONE-TEST: AN EXACT QUOTATION INSIDE A LONGER REPLY IS LEFT ALONE', () => {
+  // 2026-09-14 «tsag avii». The model declined what it cannot do, said why, and reproduced
+  // `booking_line` CORRECTLY. Composing around an approved line is what a helpful answer
+  // does, and replacing this with the bare row would be the D-068 failure by another route.
+  const reply = `Уучлаарай, би цаг захиалж чадахгүй. ${BOOKING_ROW.body} Өөр асуулт байвал асуугаарай.`;
+  assert.equal(checkPinnedLines(reply, ROWS).kind, 'clean');
+});
+
+test('the shared phone sentence alone is not drift', () => {
+  // «Та 7741-7777 дугаараар холбогдоно уу.» is 36 characters and ends several rows. A reply
+  // may legitimately end that way without having reproduced any particular one — which is
+  // what EMBEDDED_MIN_RUN is for.
+  const reply = 'Манай ажилтан Танд туслах болно. Та 7741-7777 дугаараар холбогдоно уу.';
+  assert.equal(checkPinnedLines(reply, ROWS).kind, 'clean');
+});
+
+test('an unreviewed row is never the canonical answer, embedded or not', () => {
+  // Measuring against an unreviewed row and then SERVING it would defeat the review gate
+  // with the mechanism built to enforce it.
+  const unreviewed = [{ ...PRICE_ROW, reviewedAt: null }];
+  const reply = 'Сайн байна уу. Шулуун химийн үнийн мэдээлэл надад байхгүй байна. '
+    + 'Та 7741-7777 дугаараар холбогдож лавлана уу. Баярлалаа.';
+  assert.equal(checkPinnedLines(reply, unreviewed).kind, 'clean');
+});
+
+test('a reply sharing only a short fragment is left alone', () => {
+  assert.equal(checkPinnedLines('Уучлаарай, тийм мэдээлэл надад байхгүй.', ROWS).kind, 'clean');
+});
+
+test('the whole-reply exact and paraphrase verdicts are unchanged', () => {
+  assert.equal(checkPinnedLines(PRICE_ROW.body, ROWS).kind, 'exact');
+  // One letter dropped, same length class — the D-065 case the original check was built for.
+  const near = PRICE_ROW.body.replace('Уучлаарай, ', 'Уучлаарай ');
+  assert.equal(checkPinnedLines(near, ROWS).kind, 'paraphrase');
+});

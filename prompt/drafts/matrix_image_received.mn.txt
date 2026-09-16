@@ -1,34 +1,26 @@
-# UNSIGNED DRAFT — loaded by nothing. For the founder's reading evening.
+# APPROVED 2026-09-16 by the founder. Kept here as the record of what was approved and why;
+# the live sentence is the `canned_responses` row, not this file.
 #
 # Tenant: Matrix Eco Salon. Row: canned_responses (kind = 'image_received', locale mn-MN).
 # Served whole by src/lib/inbound/imageReply.ts; never model-generated.
+
+Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
+
+# The four questions, as answered:
 #
-# READ THIS FIRST: a reviewed row already mentions pictures —
-#   refusal_out_of_scope: «Зураг харж зөвлөгөө өгөх боломжгүй. Манай мэргэжилтэн Танд
-#                          туслах болно. Та 7741-7777 дугаараар холбогдоно уу.»
-# It is approved TODAY and could be wired in minutes. What it does not do is invite the
-# customer to describe what they want, and it routes to a phone a customer told us went
-# unanswered for two days. Both are the reasons for a separate line, not reasons the
-# existing one is wrong.
+#  1. «бичвэл» over «бичиж өгвөл» — shorter, and every reply has to be brief.
+#  2. Keep all three prompts (үйлчилгээ, урт, өнгө). A customer who does not know what to
+#     write needs the examples.
+#  3. «харах боломжгүй» is right — it is about the assistant, and it is true.
+#  4. NO PHONE. The point is keeping them in the conversation, not sending them to a number
+#     nobody answered for two days. This is the first refusal row that does not end at
+#     7741-7777, and it is deliberate.
 #
-# Vocabulary below is taken from already-approved rows on purpose, so the voice matches
-# and there is less to weigh: «Уучлаарай» (handoff, refusal_price_unlisted, refusal_topic),
-# «…боломжгүй» (refusal_out_of_scope, refusal_health), «баяртайгаар хариулна»
-# (refusal_health, refusal_off_topic). No emoji: no approved line has one (D-069).
-# No numerals: none is needed, and every numeral is one more thing the guard must permit.
-
-## OPTION 1 — recommended. Says what it cannot do, then asks for exactly what a salon needs.
-Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичиж өгвөл баяртайгаар хариулна.
-
-## OPTION 2 — shorter. Least to review, least to go wrong, asks for less.
-Уучлаарай, би зураг харах боломжгүй. Хүсэлтээ бичиж өгнө үү.
-
-## OPTION 3 — keeps the phone as a fallback, matching the other refusal rows.
-Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээгээ бичиж өгвөл хариулна. Эсвэл 7741-7777 дугаараар холбогдоно уу.
-
-# Open questions for the native speaker, ranked:
-#  1. «бичиж өгвөл» vs plain «бичвэл» — is the first too deferential, or right for a salon?
-#  2. Option 1 names three things (үйлчилгээ, урт, өнгө). Is that helpful or a wall?
-#  3. «зураг харах боломжгүй» (cannot view) vs «зураг харагдахгүй» (does not display) —
-#     the first is about the assistant, the second about the channel. The first is true.
-#  4. Whether to keep the phone at all here, given 2026-09-16's «2 өдөр залгаж байна».
+# Vocabulary is from already-approved rows: «Уучлаарай» (handoff, refusal_price_unlisted,
+# refusal_topic), «…боломжгүй» (refusal_out_of_scope, refusal_health), «баяртайгаар
+# хариулна» (refusal_health, refusal_off_topic). No emoji, no numerals.
+#
+# Rejected: wiring the existing reviewed `refusal_out_of_scope` — «Зураг харж зөвлөгөө өгөх
+# боломжгүй. Манай мэргэжилтэн Танд туслах болно. Та 7741-7777 дугаараар холбогдоно уу.»
+# It would have shipped without review, and it does the two things this line exists not to
+# do: it does not invite a description, and it ends at the phone.
