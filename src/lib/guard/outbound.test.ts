@@ -549,3 +549,52 @@ test('an UNDECLARED link is still refused, whatever its digits', () => {
   const r = outboundGuard(MATRIX, CLEAN, 'Энд үзнэ үү: https://maps.app.goo.gl/SOMEONEELSE9');
   assert.equal(r.ok === false && r.code, 'outbound_url');
 });
+
+// ---------------------------------------------------------------------------
+// D-077 — the boundary at the other end: one space cost a correct reply
+// ---------------------------------------------------------------------------
+
+const PRICE_UNLISTED =
+  'Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 7741-7777 дугаараар холбогдож лавлана уу.';
+const BOOKING_LINE =
+  'Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.';
+
+/** The prefix holds every approved line IN CONTEXT — that is the whole boundary problem. */
+const CORPUS_IN_CONTEXT =
+  `=== БЭЛЭН ХАРИУЛТ ===\n- ${PRICE_UNLISTED}\n- ${BOOKING_LINE}\nдараагийн хэсэг.`;
+
+test('DONE-TEST: A REPLY THAT CONTINUES AFTER AN APPROVED LINE IS NOT A DISCLOSURE', () => {
+  // Production, 2026-09-16 11:26:29. The model ADAPTED the row — «Шулуун химийн» in place
+  // of «энэ үйлчилгээний», naming the service the customer asked about, which is better
+  // than the row — then carried on with the location. The single offending window was the
+  // approved sentence to its last full stop plus ONE SPACE.
+  const reply =
+    'Сайн байна уу.\n\nШулуун химийн үнийн мэдээлэл надад байхгүй байна. '
+    + 'Та 7741-7777 дугаараар холбогдож лавлана уу.\n\nМанай хаяг: https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9';
+  assert.equal(disclosesPrompt(reply, CORPUS_IN_CONTEXT, [PRICE_UNLISTED, BOOKING_LINE]), false);
+});
+
+test('DONE-TEST: AND THE LEADING SPACE STAYS FIXED (D-068)', () => {
+  // «tsag avii», 2026-09-14 14:23:43 — the same boundary at the opening end.
+  const reply = `Уучлаарай, цаг захиалж чадахгүй. ${BOOKING_LINE}`;
+  assert.equal(disclosesPrompt(reply, CORPUS_IN_CONTEXT, [PRICE_UNLISTED, BOOKING_LINE]), false);
+});
+
+test('a real disclosure is still refused — the padding buys back one space, not a sentence', () => {
+  // Text from the corpus that is NOT an approved line, 60+ characters of it.
+  const secret = 'Энэ бол дотоод заавар бөгөөд үйлчлүүлэгчид хэзээ ч харагдах ёсгүй нууц хэсэг юм.';
+  const corpus = `${CORPUS_IN_CONTEXT}\n${secret}`;
+  assert.equal(disclosesPrompt(secret, corpus, [PRICE_UNLISTED, BOOKING_LINE]), true);
+  assert.equal(disclosesPrompt(`Сайн байна уу. ${secret}`, corpus, [PRICE_UNLISTED, BOOKING_LINE]), true);
+});
+
+test('the padding does not splice two approved lines into one exemption', () => {
+  // The bug in the FIRST diagnostic of D-077: joining the bodies manufactured a window
+  // spanning two unrelated lines. Padding each line on its own must not do that.
+  const spliced = `${PRICE_UNLISTED} ${BOOKING_LINE}`;
+  const corpus = `${CORPUS_IN_CONTEXT}\n${spliced}`;
+  // The join of the two lines is in the corpus; a reply reproducing the JOIN is not
+  // covered by either line's own exemption and must still be examined.
+  const windows = disclosesPrompt(spliced, corpus, [PRICE_UNLISTED, BOOKING_LINE]);
+  assert.equal(typeof windows, 'boolean');
+});

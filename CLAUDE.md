@@ -829,6 +829,36 @@ the alias seed is held rather than applied: an alias points at a `service_id`, a
 the eight rows are renamed or absent on the list — «Эмчилгээний хими» is nearest to the name
 the salon said does not exist. Settle the names before seeding rows that point at them.
 
+**A photograph got silence while the ancestor answered it** (2026-09-16, D-076). D-070
+predicted the case; between 2026-09-15 and 2026-09-16 it happened FOUR times —
+`inbound_dropped` rows with `attachments: ["image"]` and no `sticker_ids`. The ancestor has
+sent a fixed line for weeks, so this was a **measured regression against the bot being
+replaced**, not a missing feature. `inbound/imageReply.ts` serves one reviewed
+`canned_responses` row whole; the model is never consulted, so nothing can be inferred from
+a picture it cannot see. A skip with ANY `stickerIds` is never answered whatever its `type`
+claimed — that is what keeps a thumbs-up quiet. `0026` adds the kind; the sentence is
+founder-gated and the path refuses an unreviewed row, so it is inert until the reading
+evening. **A captioned photo is NOT covered** — it carries text, goes to the model, and the
+ancestor deliberately treats it as a photo; closing that needs the founder.
+
+**One space at the end of an approved sentence refused a better answer** (2026-09-16,
+D-077). The model adapted `refusal_price_unlisted` to name the service the customer asked
+about — better than the row — and `outbound_disclosure` discarded the reply. Measured per
+line: 23 of 104 windows were in the corpus, 22 sat inside the approved line, and the single
+offender was that line to its last full stop **plus one space**. The exemption is built per
+line so it cannot reach past the line's end; the corpus holds the line in context and does;
+`segmentsAroundCanned` was the patch and could not fire because it cuts at EXACT occurrences.
+The exemption is padded one space at each end now, and the give is statable: a disclosure
+must be sixty characters that are not an approved line bordered by whitespace.
+
+Two lessons beyond the fix. **The first diagnostic joined the canned bodies into one string
+and matched against that** — manufacturing a window across two unrelated lines and reporting
+zero offenders, which is the very splice `disclosesPrompt` refuses to perform and explains in
+its own docstring, committed inside the tool used to investigate it. That wrong conclusion
+was reported before it was checked per-row. **And the adaptation is counted nowhere:**
+`checkPinnedLines` rejects on `MIN_LENGTH_RATIO = 0.8` before similarity is computed, so no
+`canned_paraphrased` flag is written when an approved line is adapted INSIDE a longer reply.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale
