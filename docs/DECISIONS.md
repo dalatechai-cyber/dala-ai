@@ -5443,3 +5443,96 @@ A security fix there does protect every client. What does not yet exist is the *
 path from a signed customer to a provisioned tenant is nine bespoke SQL files and a founder's
 evening. The architecture is sound and the tooling around it is not finished, and those are
 different problems with different fixes.
+
+---
+
+## D-079 — The provisioning pipeline, and three things building it found
+
+**2026-09-16. Founder: "Build the pipeline as designed. Two gates, `subsetCollisions`
+before a customer hits «Сор», incompleteness as a recorded state with a readiness line in
+the digest."** Built to `docs/provisioning.md`, which now describes what exists.
+
+A filled questionnaire becomes an intake document, the document is read (refusing rather
+than guessing), validated against the checks that already existed, written as rows by an
+idempotent dry-run-by-default script, and where it stands is recorded. Two signatures are
+required and neither can be forged from inside the pipeline: the **client's**, on the facts
+(`confirmedBy`, landing on `service_variants.confirmed_at`), and the **founder's**, on the
+words (`canned_responses.reviewed_at`, which nothing here writes).
+
+### Incompleteness needed no new table, and that is the interesting part
+
+The design assumed one. `alerts` has carried the right model since `0025`: `route: 'digest'`
+puts a row in front of a human at 09:00 without a Telegram — which matters, because Telegram
+is shared with Core Language's customers — and `repeat_policy: 'on_change'` is an **episode**
+that opens, holds and resolves.
+
+D-063's question is "does this condition recur, or does it persist?" A tenant waiting on its
+price list does not become newly incomplete every morning; it is the same fact, continuing.
+So the key carries no date, the digest lists it because it is an open episode, and
+`digest.ts` was not touched at all. **The mechanism built for a dead channel fits an
+unfinished tenant exactly**, and noticing that was worth more than the table would have
+been: no migration, so nothing waits on a push, and D-058's asymmetry never arises.
+
+One ordering rule inside it is load-bearing and is not obvious. `alerts_dedup_hourly` is
+unique on `(kind, dedup_key, hour)`, so a tenant returning to a state it held earlier the
+same hour gets 23505 and `suppressed_duplicate`. Resolving the other episodes on that
+outcome would leave the tenant with **no open episode at all** — and an absent readiness
+line reads exactly like a ready tenant. So: raise first, and resolve the others only if the
+raise actually left an episode open. **Stale by up to an hour beats invisible**, because
+invisible is indistinguishable from finished.
+
+### An `ask_client` finding had to be able to hold `ready`
+
+As designed, only blockers held provisioning. So a document with an unresolved «Сор»
+collision reached `ready` — the exact failure the check exists to prevent, one layer up,
+and it would have passed its own test suite. The founder's instruction was specific:
+*before* a customer hits it.
+
+`Finding.holdsReady` is the fix, and the criterion is **consequence, not severity**: set it
+when a wrong answer could reach a customer while the question is open. A service-name
+collision qualifies — the matcher returns `ambiguous`, and D-075's whole point is that a
+real price against the wrong service is more plausible, and therefore worse, than an
+invented one. A missing Latin stem does not: a rule that fails to fire leaves the model
+answering unrefused, which the outbound guard still bounds. Writing the rule into the type
+rather than into a list of codes is deliberate — the next check gets asked the question.
+
+### The reader was accepting unknown keys, and casting rather than building
+
+Found by writing the worked example, which is the argument for shipping one. Two defects,
+one line apart:
+
+`return { ok: true, doc: raw as unknown as IntakeDocument }` handed the writer whatever else
+was in the file, unexamined, under a name asserting it had been checked. That is **D-057
+wearing a type annotation** — a validator answering with the part it managed — and TypeScript
+cannot see it, because the cast is the programmer promising it is true.
+
+And an unrecognised key was silently ignored. A client questionnaire exported with
+`never_say` instead of `neverSay` parses perfectly, yields an **empty rule list**, and the
+bot then discusses the one topic the business said it must never discuss. Nothing is red;
+the document reports as valid. It is `hasTenantData`'s shape (a guard that cannot fire) and
+`replied_at`'s (a field nobody writes), arriving at the front door instead.
+
+The document is now built field by field from what was validated, so what the writer sees is
+exactly what was checked. Unknown keys are reported and name the fields that were probably
+meant; `_`-prefixed keys are deliberate annotations and are dropped.
+
+### What it does not do, and must not learn to
+
+It does not approve Mongolian, publish, infer a missing fact, or resolve an ambiguity. The
+sheet it prints has no database handle by construction — it takes a document and returns
+text — so there is no version of it that could set `reviewed_at`. A sentence edited later is
+written back **unreviewed** and the tenant stops replying until it is signed again: an
+edited sentence is an unreviewed sentence, which is D-065 stated for the writer.
+
+Unchanged bodies are left completely alone. Writing one back would clear a signature for no
+reason — the same defect pointing the other way.
+
+### The example is an auto-service tenant on purpose
+
+`intake/example-auto.json` is in a vertical this platform has never served, and a test
+asserts no salon vocabulary appears anywhere in it. That is the cheapest ongoing proof of
+the standing rule D-078 recorded: **a client is rows, never a repo, never a branch, never a
+code path.** It also ships deliberately incomplete — a name collision and a rule pointing at
+an absent sentence — so a reader sees the validator speak rather than reading a claim about
+what it would say, with a test pinning both faults so the example's own comment cannot
+become a lie.

@@ -1,0 +1,118 @@
+{
+  "_comment": [
+    "AN EXAMPLE, NOT A TENANT. Synthetic figures, a deliberately non-salon vertical.",
+    "It exists to answer one question a reader would otherwise have to take on trust: is",
+    "this pipeline a template, or is it Matrix with the names changed? Nothing in the",
+    "document, the reader or the writer knows what a salon is.",
+    "Validate it without writing anything:",
+    "  node scripts/provision/apply.ts --file intake/example-auto.json",
+    "It is deliberately INCOMPLETE — see `_incomplete_on_purpose` at the end."
+  ],
+
+  "slug": "example-auto",
+  "business": {
+    "displayName": "Жишээ Авто Сервис",
+    "vertical": "auto_service",
+    "timezone": "Asia/Ulaanbaatar",
+    "locale": "mn-MN",
+    "currencySymbol": "₮",
+    "currencySymbolBefore": false
+  },
+
+  "confirmedBy": { "name": "Ж. Жишээ, эзэмшигч", "at": "2026-09-16" },
+
+  "hours": [
+    { "weekday": 1, "opens": "09:00", "closes": "19:00", "closed": false },
+    { "weekday": 2, "opens": "09:00", "closes": "19:00", "closed": false },
+    { "weekday": 3, "opens": "09:00", "closes": "19:00", "closed": false },
+    { "weekday": 4, "opens": "09:00", "closes": "19:00", "closed": false },
+    { "weekday": 5, "opens": "09:00", "closes": "19:00", "closed": false },
+    { "weekday": 6, "opens": "10:00", "closes": "16:00", "closed": false },
+    { "weekday": 0, "opens": null, "closes": null, "closed": true }
+  ],
+
+  "services": [
+    {
+      "name": "Тосны солилт",
+      "category": "Засвар",
+      "durationMinutes": 30,
+      "aliases": ["tosn", "oil", "тос сол"],
+      "variants": [
+        { "variantKey": "", "priceKind": "exact", "priceMin": "45000", "priceMax": null, "refusalTopic": null }
+      ]
+    },
+    {
+      "name": "Дугуй солих",
+      "category": "Засвар",
+      "durationMinutes": 45,
+      "aliases": ["dugui", "tyre", "дугуй"],
+      "variants": [
+        { "variantKey": "", "priceKind": "range", "priceMin": "20000", "priceMax": "60000", "refusalTopic": null }
+      ]
+    },
+    {
+      "name": "Хөдөлгүүрийн засвар",
+      "category": "Засвар",
+      "durationMinutes": null,
+      "aliases": ["hudulguur", "engine", "мотор"],
+      "variants": [
+        { "variantKey": "", "priceKind": "on_inspection", "priceMin": null, "priceMax": null, "refusalTopic": null }
+      ]
+    },
+    {
+      "name": "Хайрцаг",
+      "category": "Засвар",
+      "durationMinutes": null,
+      "aliases": ["hairtsag"],
+      "variants": [
+        { "variantKey": "", "priceKind": "range", "priceMin": "150000", "priceMax": "400000", "refusalTopic": null }
+      ]
+    },
+    {
+      "name": "Автомат хайрцаг",
+      "category": "Засвар",
+      "durationMinutes": null,
+      "aliases": ["avtomat"],
+      "variants": [
+        { "variantKey": "", "priceKind": "range", "priceMin": "900000", "priceMax": "1800000", "refusalTopic": null }
+      ]
+    }
+  ],
+
+  "contacts": [
+    { "kind": "phone", "value": "9911-0000" },
+    { "kind": "address", "value": "Улаанбаатар, Баянгол дүүрэг, 3-р хороо, 14 тоот" }
+  ],
+
+  "booking": { "url": null },
+
+  "sentences": {
+    "handoff": "Уучлаарай, би энэ асуултад хариулж чадахгүй байна. 9911-0000 дугаарт холбогдоно уу.",
+    "greeting": "Сайн байна уу. Жишээ Авто Сервист тавтай морил."
+  },
+
+  "neverSay": [
+    {
+      "key": "warranty",
+      "question": "Баталгаат хугацааны талаар асууж байна уу?",
+      "responseKind": "refusal_topic",
+      "stems": ["баталгаа", "batalgaa", "warranty"]
+    }
+  ],
+
+  "faqs": [],
+  "staff": [],
+
+  "_incomplete_on_purpose": [
+    "Two things are wrong with this document and both are meant to be, so that a reader",
+    "can see what the validator says rather than reading a claim that it would say it:",
+    "  1. «Хайрцаг» is a subword of «Автомат хайрцаг», at 150,000–400,000 against",
+    "     900,000–1,800,000 — the «Сор» collision in another vertical, 4.5x apart. It is",
+    "     reported as ask_client and HOLDS readiness at `knowledge`. No alias repairs it;",
+    "     the client renames one. Rename it to «Механик хайрцаг» and the document reaches",
+    "     `ready`.",
+    "  2. `refusal_topic` is named by the warranty rule and is not in `sentences`, so the",
+    "     rule points at a sentence that does not exist. That is a blocker: nothing is",
+    "     written until it is supplied."
+  ]
+}

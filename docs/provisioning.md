@@ -1,8 +1,11 @@
 # Provisioning: from a filled questionnaire to a live tenant
 
-**Design only. Nothing here is built** (2026-09-16). D-078 found the gap this closes:
-`scripts/provision/` is nine hand-written Matrix SQL files and no template, so client #3
-does not fill in a config — somebody writes nine more files.
+**Built 2026-09-16** (D-079), to this design. The sections below describe what exists;
+where the built thing departs from the design, §6 says so and why.
+
+D-078 found the gap it closes: `scripts/provision/` was nine hand-written Matrix SQL files
+and no template, so client #3 did not fill in a config — somebody wrote nine more files.
+Those nine remain, as Matrix's history. Nothing reads them.
 
 ## What Matrix cost, because that is the number to beat
 
@@ -123,27 +126,52 @@ thing is how this platform has hurt itself most. So:
 - **A readiness report names what is missing**, so nobody has to remember. One line in the
   daily digest per tenant not yet live: *waiting on address, Latin spellings, 12 prices.*
 
-### 6. What it would take
+### 6. What it took, and where it departed from the estimate
 
-**Most of the hard part is written.** Every semantic check above is an existing exported
-function with tests. This is assembly, plus a schema, plus a writer.
+| Piece | Where it lives |
+|---|---|
+| Intake reader | `src/lib/provision/intake.ts` |
+| Validator, readiness | `src/lib/provision/validate.ts` |
+| Readiness recorder | `src/lib/provision/record.ts` |
+| Review sheet | `src/lib/provision/reviewSheet.ts` |
+| Writer | `scripts/provision/apply.ts` |
+| Worked example | `intake/example-auto.json` |
+| | 31 tests |
 
-| Piece | Rough size | Depends on |
-|---|---|---|
-| Intake JSON schema + example | small | agreeing the questionnaire's fields map 1:1 to tables |
-| Validator (shape + wiring the five existing checks) | **medium — the valuable part** | nothing new |
-| `apply.ts` writer, idempotent, dry-run | medium | the schema |
-| Review document generator (every sentence, one page) | small | the schema |
-| Readiness report + digest line | small | `alerts`/digest, both built |
-| Per-vertical gate blocks, signed | **one reading evening per vertical** | the founder; `0018` is already built and inert |
+Two things are **not** in scope and were not smuggled in: sealing the Meta token stays a
+separate credentialed step (`scripts/kek/seal.ts`), and nothing here publishes on the
+client's behalf. The per-vertical gate blocks still cost **one reading evening per
+vertical** — the founder's, once per vertical, never per client. `0018` and the loader's
+selection are built and inert, waiting on a signature.
 
-Two things are **not** in scope and should not be smuggled in: sealing the Meta token stays
-a separate credentialed step (`scripts/kek/seal.ts`), and nothing here publishes on the
-client's behalf.
+**Three departures from the design, each because building it found something:**
 
-**The honest estimate:** a working pipeline for a tenant in an already-written vertical is
-days, not weeks, because the checks exist. The first tenant in a *new* vertical still costs
-a reading evening — and that cost is per vertical, once, not per client.
+1. **The readiness state needed no new table.** The design assumed one. `alerts` already
+   carries exactly the right model since `0025`: `route: 'digest'` puts a row in front of a
+   human at 09:00 without a Telegram, and `repeat_policy: 'on_change'` is an episode that
+   opens, holds and resolves. A tenant waiting on its price list does not become newly
+   incomplete every morning — that is D-063's question answered for onboarding, and the
+   answer is the mechanism D-063 built. So: no migration, nothing blocked on a push, and
+   `digest.ts` is untouched. The readiness line appears in the digest because it is an open
+   episode, not because the digest learned about provisioning.
+
+2. **An `ask_client` finding had to be able to hold `ready`.** As designed, only blockers
+   held provisioning, so a document with an unresolved «Сор» collision reached `ready` —
+   which is the exact failure the check was added to prevent, one layer up. `Finding` now
+   carries `holdsReady`, and the criterion is consequence rather than severity: set it when
+   a *wrong answer could reach a customer while the question is open*. A name collision
+   qualifies (a real price against the wrong service, D-075); a missing Latin stem does not
+   (a rule that fails to fire leaves the model answering unrefused, which the outbound guard
+   still bounds).
+
+3. **The reader was accepting unknown keys and casting.** Found by writing the example.
+   `raw as IntakeDocument` handed the writer whatever else was in the file, unexamined,
+   under a name that claimed it had been checked — "answer with what you managed" (D-057)
+   wearing a type annotation. And a questionnaire exported with `never_say` instead of
+   `neverSay` parsed perfectly, yielded an empty rule list, and would have let the bot
+   discuss the one topic the business said it must never discuss. The document is now built
+   field by field from what was validated, and an unrecognised key is reported.
+   `_`-prefixed keys are annotations and are dropped.
 
 ### 7. What this design deliberately does not do
 

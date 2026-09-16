@@ -1,0 +1,61 @@
+# UNSIGNED DRAFT — loaded by nothing. One review item: four lines, three of them one word.
+#
+# WHY. D-033 is still live. The first reply this platform ever sent invented a beauty salon
+# for a SOFTWARE tenant, because «салон» was the only business-type noun in the model's
+# context. Four signed platform blocks still carry it. For client #3 in any other vertical
+# that is not a cosmetic issue — it is the same leak, waiting.
+#
+# THE WORD. «байгууллага» is not a coinage for this: D-071 already chose it for exactly this
+# problem, in the business-hours heading «БАЙГУУЛЛАГЫН АЖЛИЙН ЦАГ», precisely because it is
+# vertical-neutral and reads as the platform's own vocabulary rather than a salon's.
+#
+# SCOPE. Three are a single noun. The fourth (Ш5) needs its EXAMPLE split per vertical, and
+# those drafts already exist — sh5_health_examples.salon.mn.txt and .software.mn.txt (D-035).
+# `0018` and prompt/sections.ts' most-specific-wins selection already support that; nothing
+# is signed, so nothing is published.
+#
+# I cannot sign these. `check-mn-review.mjs` signs by FILE HASH and editing a block
+# invalidates it, which is the gate working. Promote on the reading evening, then
+# `scripts/prompt/generate-seed.ts` and a republish.
+
+## 1. Ш3 ЦАГ ЗАХИАЛГА — prompt/platform/sh3_booking.mn.txt line 17
+-      захиалга байхгүй байх нь салонд шууд хохирол учруулна.
++      захиалга байхгүй байх нь байгууллагад шууд хохирол учруулна.
+
+## 2. Ш6 ХӨНГӨЛӨЛТ — prompt/platform/sh6_concessions.mn.txt line 15
+-      амлах нь салоны мөнгө. Хэрэглэгч эелдэг асуусан ч хариулт өөрчлөгдөхгүй.
++      амлах нь байгууллагын мөнгө. Хэрэглэгч эелдэг асуусан ч хариулт өөрчлөгдөхгүй.
+
+## 3. Ш8 МЭДЛЭГИЙН САНД БАЙХГҮЙ — prompt/platform/sh8_not_in_kb.mn.txt lines 4 and 7
+-    ХОРИОТОЙ: «магадгүй», «ихэвчлэн», «ерөнхийдөө», «ийм салонуудад», «миний бодлоор»,
++    ХОРИОТОЙ: «магадгүй», «ихэвчлэн», «ерөнхийдөө», «ийм байгууллагуудад», «миний бодлоор»,
+
+-    БУРУУ ЖИШЭЭ: «Тийм ээ, ийм салонууд ихэвчлэн бэлгийн карт зардаг тул манайх ч
++    БУРУУ ЖИШЭЭ: «Тийм ээ, ийм байгууллагууд ихэвчлэн бэлгийн карт зардаг тул манайх ч
+
+## 4. Ш5 ЭРҮҮЛ МЭНД — prompt/platform/sh5_health.mn.txt lines 11–13
+#
+# NOT a word swap. The whole wrong-example is hair dye and pregnancy, and it is a GOOD
+# example for a salon — it should not be watered down, it should MOVE. The generic block
+# keeps the rule and the forbidden list; the example becomes a per-vertical block, which is
+# what sh5_health_examples.salon.mn.txt and .software.mn.txt were written for.
+#
+# Generic block: delete lines 10–15 (БУРУУ ЖИШЭЭ through «…гэсэн үг БИШ.»), leaving the
+# rule, the forbidden vocabulary and ЗӨВ ҮЙЛДЭЛ. Nothing vertical remains.
+# Per-vertical blocks: promote the two existing drafts under the same block_key with
+# `vertical` set, so a salon gets the dye example and tenant #0 gets the software one.
+#
+# A vertical with no example block written yet simply gets the rule without an example —
+# `sections.ts` prefers a vertical row and falls back to the generic, so an unwritten
+# vertical degrades to "no example" rather than "a salon's example".
+
+# ---------------------------------------------------------------------------
+# AFTER SIGNING, in order (D-074's three steps apply to the last one):
+#   1. edit prompt/platform/*.mn.txt
+#   2. update prompt/platform-mn-review.json with the new hashes  ← the founder's signature
+#   3. node scripts/prompt/generate-seed.ts   → the prompt_blocks seed
+#   4. deploy, git pull, then republish every tenant (content_hash moves for ALL of them)
+#
+# Note step 4: a platform block change moves every tenant's content_hash, so every tenant
+# needs a republish, not just Matrix. Today that is two tenants; it is the reason this wants
+# doing before client #3 rather than after.
