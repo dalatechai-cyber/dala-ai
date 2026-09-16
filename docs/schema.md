@@ -16,7 +16,7 @@ Built against PostgreSQL 16.13 and verified by **execution**, not by reading:
 
 | | |
 |---|---|
-| `supabase/migrations/0001`–`0025` | apply clean in order on an empty database (`scripts/localvalidate/run.sh`) |
+| `supabase/migrations/0001`–`0026` | apply clean in order on an empty database (`scripts/localvalidate/run.sh`) |
 | `scripts/verify/spend.sql` | **10/10 PASS** on PG16 — the ledger moves all of its counters or none. Runs in `run-all.sh` beside the other three |
 | `scripts/verify/catalog.sql` | **30/30 PASS** on PG16. On the real project V25 fails by design until `supabase_admin`'s default ACL is revoked by a role that can; V26 and V27 pass since `0014` and `0015` landed; V28 fails until `0017` is pushed |
 | `scripts/verify/isolation.sql` | **14/14 PASS** — behavioural, **as `service_role`**, the role that writes. It must bypass RLS for these checks to mean anything; `T0` fails the run if it stops doing so (D-027) |
@@ -279,3 +279,15 @@ partial, one of four tables.
 - **`voice` anywhere** — not a provider row, not a role state a code path executes.
 - **Billing** — there is still no revenue path. The platform can spend and cannot
   collect (`10-completeness.md` #6).
+
+### `0026_image_reply_kind`
+
+Adds the `image_received` row to `canned_response_kinds`. A customer whose message is only
+a photograph got silence: `meta/extract.ts` skips a text-less attachment, and four real
+photographs were dropped on 2026-09-15/16 (`inbound_dropped`, `attachments: ["image"]`, no
+`sticker_ids`) — the case D-070 predicted. The ancestor answers these with a fixed line, so
+the silence was a regression against the bot being replaced.
+
+The kind only. The tenant's sentence is founder-gated Mongolian and lands as a
+`canned_responses` row with `reviewed_at` null; `inbound/imageReply.ts` refuses to serve an
+unreviewed row, so nothing reaches a customer until the reading evening.

@@ -251,6 +251,29 @@ export function segmentsAroundCanned(replyFlat: string, cannedFlat: readonly str
  *
  * ## What this deliberately loosens
  *
+ * ## The same boundary, at the other end (2026-09-16)
+ *
+ * D-068 was the LEADING space. On 2026-09-16 at 11:26:29 the trailing one cost a reply
+ * too, and the cut could not help because the model had ADAPTED the line rather than
+ * quoted it: it wrote «Шулуун химийн үнийн мэдээлэл надад байхгүй байна…» where the
+ * approved row says «Уучлаарай, энэ үйлчилгээний …». Naming the service the customer had
+ * actually asked about is BETTER than the row, and the reply was refused for it.
+ *
+ * Measured, per approved line rather than against them concatenated: of the reply's 104
+ * windows, 23 were in the corpus and 22 of those sat inside `refusal_price_unlisted`. The
+ * single offender was `"…байхгүй байна. та 7741-7777 дугаараар холбогдож лавлана уу. "` —
+ * the approved sentence to its last full stop, plus ONE SPACE of the model's own text.
+ *
+ * So the exemption is padded by one space at each end. The give is small and worth
+ * stating: a disclosure must now consist of `runLength` characters that are not an
+ * approved line bordered by whitespace. It buys back every reply that continues after
+ * quoting one, which is what a helpful answer does.
+ *
+ * (The diagnostic that first missed this joined the canned bodies into one string and
+ * matched against that, which manufactured a window spanning two unrelated lines and
+ * reported zero offenders — the very splice this function refuses to perform on the
+ * corpus, committed in the tool used to investigate it.)
+ *
  * A disclosure now has to be `runLength` characters long WITHIN one segment. Text on
  * either side of a quoted approved line is no longer joined across it — which is the fix —
  * and in exchange a reply that interleaved a full canned line between every fifty-nine
@@ -269,7 +292,18 @@ export function disclosesPrompt(
   if (corpus.size === 0) return false;
 
   const exempt = new Set<string>();
-  for (const canned of cannedResponses) for (const s of shingles(canned, runLength)) exempt.add(s);
+  for (const canned of cannedResponses) {
+    for (const s of shingles(canned, runLength)) exempt.add(s);
+    // ONE character past either end, and no further. See the boundary note above: the
+    // exemption is built per line, so it can never hold a window that reaches beyond the
+    // line's own last character — while the CORPUS holds that line in context and does.
+    // A reply that carries on after an approved sentence therefore produces a window of
+    // 59 approved characters plus one space, which is in the corpus and in no approved
+    // line. Padding with the space `foldFlat` would have put there covers exactly that
+    // case at both ends and nothing else.
+    const padded = foldFlat(canned);
+    if (padded !== '') for (const s of shinglesOfFlat(` ${padded} `, runLength)) exempt.add(s);
+  }
 
   const cannedFlat = cannedResponses.map(foldFlat).filter((c) => c !== '');
   for (const segment of segmentsAroundCanned(foldFlat(reply), cannedFlat)) {

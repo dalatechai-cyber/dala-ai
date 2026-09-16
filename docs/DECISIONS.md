@@ -5243,3 +5243,142 @@ and an alias points at a `service_id`. Four match exactly (Афро хими, О
 nearest to the name the salon said does not exist. A rename or a delete moves the id the
 alias would point at, so section 2 of the seed is held — for that reason, and not because
 the spellings are in doubt.
+
+---
+
+## D-076 — a photograph got silence, and the bot we replace answers it
+
+**2026-09-16.** D-070 built the instrument and argued the case in the abstract. Between
+2026-09-15 11:59 and 2026-09-16 00:17 it caught the case four times: `inbound_dropped` rows
+carrying `attachments: ["image"]` and **no `sticker_ids`**. Four real customers sent a
+photograph to a hair salon and got nothing. A fifth drop, 2026-09-15 11:37, was sticker
+`369239263222822` — the thumbs-up — and dropping that one is right, which is the whole
+reason the discriminator had to be the payload's `sticker_id` rather than `type`.
+
+**The ancestor answers these and has for weeks** (`Matrix-Chatbot` PR #27: one fixed line
+saying it cannot see pictures, asking for the request in words). So this was not a gap in a
+new product; it was a **measured regression against the bot this platform replaces**, on the
+surface that matters most at a salon.
+
+`inbound/imageReply.ts` ends it. The reply is one reviewed `canned_responses` row served
+whole — the model is never consulted, so nothing can be inferred from a picture it cannot
+see, which is the ancestor's reasoning and D-065's. `0026` adds the `image_received` kind;
+the sentence itself is founder-gated Mongolian and the path **refuses to serve an unreviewed
+row**, so the code is inert until the reading evening.
+
+Three rules, each load-bearing and each tested: a skip with ANY `stickerIds` is never
+answered whatever its `type` claimed; at most one reply per sender per entry, and a
+ten-minute look-back for a burst spread across separate events (two of the four real drops
+were 82 seconds apart); and the look-back **fails open**, because repeating ourselves is
+much better than returning to the silence this file exists to end.
+
+**Not covered, deliberately: a photograph WITH a caption.** It carries text, so `extract`
+does not skip it and the model answers the words alone. The ancestor treats a captioned
+photo as a photo — *"the caption is almost always about the picture, and answering the words
+alone is exactly how an unseen image gets quoted."* Ours does not. That is a live divergence
+and it needs the founder, because closing it means routing text-bearing messages away from
+the model.
+
+**Note before adding a row: `refusal_out_of_scope` is already reviewed and already about
+pictures** — «Зураг харж зөвлөгөө өгөх боломжгүй…». It could be wired today. What it does
+not do is invite a description, and it routes to a phone a customer told us went unanswered
+for two days. Both are reasons for a second line, not reasons the first is wrong.
+
+---
+
+## D-077 — one space at the end of an approved sentence refused a better answer
+
+**2026-09-16 11:26:29.** The model wrote «Шулуун химийн үнийн мэдээлэл надад байхгүй байна.
+Та 7741-7777 дугаараар холбогдож лавлана уу.» plus the location. The approved row says
+«Уучлаарай, **энэ үйлчилгээний** үнийн мэдээлэл…». Naming the service the customer actually
+asked about is **better than the row**, and `outbound_disclosure` threw the whole reply away.
+
+Measured per approved line: of the reply's 104 windows, 23 were in the corpus and 22 sat
+inside `refusal_price_unlisted`. **The single offender was the approved sentence to its last
+full stop plus ONE SPACE** — `"…байхгүй байна. та 7741-7777 дугаараар холбогдож лавлана уу. "`.
+
+This is D-068's boundary at the other end. The exemption is built per line, so it can never
+contain a window reaching past that line's last character; the corpus holds the line in
+context and does. `segmentsAroundCanned` was the patch for exactly this, and it could not
+fire, because it cuts at EXACT occurrences and the model had adapted the opening. So the
+two mechanisms have a gap between them that only an adapted-and-continued line falls into —
+which is to say, the most natural helpful reply there is.
+
+**The fix is one space at each end of the exemption**, padded with the separator `foldFlat`
+itself would have produced. The give, stated plainly: a disclosure must now consist of sixty
+characters that are not an approved line bordered by whitespace. Both real incidents are
+pinned as tests — the leading space from 2026-09-14 and the trailing one from 2026-09-16.
+
+**Two things worth carrying beyond the fix.**
+
+First, the diagnostic that missed it. The initial check joined the canned bodies into one
+string and matched against that, which manufactured a window spanning two unrelated lines
+and reported **zero offenders** — the exact splice `disclosesPrompt` refuses to perform on
+the corpus, and its docstring explains why, committed inside the tool used to investigate
+it. The conclusion drawn from it was reported to the founder before it was checked per-row,
+and it was wrong.
+
+Second, and still open: **the adaptation was counted nowhere.** `checkPinnedLines` rejected
+the reply on `MIN_LENGTH_RATIO = 0.8` before computing similarity, because the reply is
+longer than the row — which is that constant working as designed, to stop a long correct
+answer being replaced by a refusal. So no `canned_paraphrased` flag was written and the
+drift is invisible. D-065's rule is that a near-copy is an unreviewed sentence carrying an
+approved one's meaning; here the near-copy was an IMPROVEMENT. Whether an embedded
+adaptation should be corrected, counted, or allowed is the founder's call, and it wants the
+native speaker rather than a threshold.
+
+### D-077 addendum — an adapted line is drift, and the founder chose exactness
+
+**2026-09-16, founder's call.** *"A near-copy of an approved sentence isn't the approved
+sentence — the mechanism only means anything if it's exact, and «би» dropping today is a
+rewrite tomorrow. If the row's wording is worse than what the model produces, fix the row."*
+
+So the gap D-077 found is closed rather than left open. `embeddedAdaptation` asks two
+**exact** questions of each reviewed row, deliberately avoiding a similarity score inside
+the mechanism that decides whether an approved sentence was altered:
+
+  1. does the reply contain the row WHOLE? → an exact quotation, left alone;
+  2. otherwise, does it share ≥ `EMBEDDED_MIN_SHARE` (0.6) of the row and at least
+     `EMBEDDED_MIN_RUN` (40) characters? → drift: counted as `canned_paraphrased`, and the
+     row is served in its place.
+
+Proportional because the rows differ in length, with a floor because Matrix's rows share a
+36-character closing sentence — «Та 7741-7777 дугаараар холбогдоно уу.» — that a reply may
+legitimately end with without having reproduced any row.
+
+Both real incidents pin it: 2026-09-14's «tsag avii» reply quoted `booking_line` exactly
+inside a longer sentence and is left alone; 2026-09-16's adapted `refusal_price_unlisted` is
+corrected.
+
+**The cost, stated rather than discovered later.** Serving the row discards the rest of the
+reply — `handleReception` never edits a reply and this keeps that line. In the 11:26 case
+the customer loses the location link that followed the adapted sentence. That is the price
+of exactness, and it was chosen knowingly.
+
+**What it does not solve, and the founder named it:** `refusal_price_unlisted` says «энэ
+үйлчилгээний» where the model wrote «Шулуун химийн». The model's version was better because
+it named the service the customer asked about, and **a static row cannot do that.** "Fix the
+row" therefore has a floor: the row can be reworded, but naming the service needs a template
+with a slot, which is machinery this platform does not have. Recorded as the open question
+rather than quietly not done.
+
+### D-076 addendum — the approved image line, and the first refusal that does not end at the phone
+
+**2026-09-16, founder's approval:**
+
+> Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
+
+«бичвэл» over «бичиж өгвөл» (every reply has to be brief); all three prompts kept (a
+customer who does not know what to write needs the examples); «харах боломжгүй» because it
+is about the assistant and it is true.
+
+**And no phone.** This is the first refusal row that does not end at 7741-7777, and the
+reason is the corpus: on 2026-09-15 a customer wrote «Утсаа авахгүй байна» and then «2 өдөр
+залгаж байна», and on 2026-09-16 another asked for a human rather than an AI. *"The point is
+keeping them in the conversation, not sending them to a number nobody answered for two
+days."* Every other refusal row still ends there, so that remains the platform's escape
+hatch — this one deliberately does not use it.
+
+Wiring the already-reviewed `refusal_out_of_scope` was rejected for the same reason: it
+would have shipped without a reading evening, and it both fails to invite a description and
+ends at the phone.

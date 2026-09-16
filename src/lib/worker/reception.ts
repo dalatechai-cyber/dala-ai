@@ -34,6 +34,7 @@ import { canDeliver } from '../channel/delivery.ts';
 import { extractInboundMessages } from '../meta/extract.ts';
 import { ensureContact, ensurePerson, openConversation, readHistory, recordInbound, traceAnswer } from '../inbound/persist.ts';
 import { recordDroppedInbound, skipSummary } from '../inbound/dropped.ts';
+import { draftImageReplies, planImageReplies, readImageLine } from '../inbound/imageReply.ts';
 import { loadReceptionContext } from '../reception/load.ts';
 import { renderVolatile } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
@@ -278,6 +279,37 @@ export async function runReceptionJob(
       fx.log('error', 'dropped_inbound_unrecorded', {
         eventId, ...recorded, ...skipSummary(skipped),
       });
+    }
+
+    // --- A photograph is not a thumbs-up, and silence is the wrong answer to it. -------
+    //
+    // Four real photographs were dropped on 2026-09-15/16 while the ancestor answered
+    // the same messages with a fixed line, so this is a regression against the bot being
+    // replaced rather than a missing feature. `planImageReplies` keys on `stickerIds`
+    // and never on `type`, which is what keeps a thumbs-up quiet (D-070).
+    //
+    // Draft only. The send is the claim step, so a `shadow` channel records what it
+    // WOULD have said and delivers nothing — the mirror's whole point.
+    const plannedImages = planImageReplies(skipped);
+    if (plannedImages.length > 0) {
+      const line = await readImageLine(db, { tenantId, locale: settings.defaultLocale });
+      if (!line.ok) {
+        fx.log('error', 'image_line_unreadable', { eventId, detail: line.detail });
+      } else if (line.line === null) {
+        // Not an error: a tenant without the row keeps today's behaviour, visibly.
+        fx.log('info', 'image_line_missing', { tenantId, count: plannedImages.length });
+      } else if (line.line.reviewedAt === null) {
+        // An unreviewed row is not an approved sentence (D-065). Silence is the safer
+        // half of this trade, and the log is what stops it being a silent one.
+        fx.log('error', 'image_line_unreviewed', { tenantId, count: plannedImages.length });
+      } else {
+        const answered = await draftImageReplies(db, {
+          tenantId, channelId, eventId, body: line.line.body, planned: plannedImages, now,
+        });
+        if (answered.failed > 0 || answered.detail !== undefined) {
+          fx.log('error', 'image_reply_incomplete', { eventId, ...answered });
+        }
+      }
     }
   }
 
