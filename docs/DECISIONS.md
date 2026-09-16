@@ -5382,3 +5382,64 @@ hatch — this one deliberately does not use it.
 Wiring the already-reviewed `refusal_out_of_scope` was rejected for the same reason: it
 would have shipped without a reading evening, and it both fails to invite a description and
 ends at the phone.
+
+---
+
+## D-078 — is the engine an engine? Audited, and the answer is split
+
+**2026-09-16, on the founder's ask.** The architecture is meant to be one multi-tenant
+codebase where a client is rows: one security fix protects everyone, one guard improvement
+reaches every tenant, nothing bespoke per customer. Measured rather than assumed.
+
+### `src/` is sound
+
+- **No tenant identifier anywhere.** `8f2826f5-…` appears in no file under `src/`,
+  `scripts/` or `supabase/`. The only hardcoded UUID in `src/` is `NIL_UUID`, the sentinel
+  in `job_runs`' partial unique index.
+- **No per-tenant branch.** The only `=== '…'` comparisons on tenant fields are
+  empty-string guards in `worker/reception.ts` and `crypto/envelope.ts`.
+- **No tenant vocabulary in code.** Every «салон»/«үс»/«хими» hit in `src/` is inside a
+  comment. That is the right place for them: a docstring citing `Matrix's measured ~60
+  messages/day` is the evidence for a constant, not a coupling to a customer.
+- **No migration writes tenant business data.** `0019` mentions Matrix only to explain why
+  `staff_members.short_name` exists, and says in as many words that no INSERT was written.
+- **Scripts take arguments.** `publish/tenant.ts` reads `--slug`; `diagnose/mirror-corpus.sql`
+  is parameterised on `:'tenant'` and `:'hours'`.
+- **Compiled constants are deliberate and reversible.** `RECEPTION_UPSTREAM_TIMEOUT_MS` and
+  `ALWAYS_ON_GATES` are platform-wide, each with a docstring saying why and — the part that
+  matters — **the read site already takes the value as a parameter**, so the day a tenant
+  needs its own it becomes a column rather than a refactor. `PLATFORM_TIMEZONE` is used only
+  for platform-scoped counters; tenant-scoped ones follow the tenant's clock (`periods.ts`).
+
+### Two things are not
+
+**1. `scripts/provision/` is Matrix, not a template.** Nine hand-written SQL files —
+`matrix-stage1`, `-stage3-canned`, `-stage3b-children`, `-stage4-kb`, `-stage4b-booking`,
+`-stage4c-promo-date`, `-stage5-role`, `-budget`, `-cache-1h` — every one hardcoding
+`'matrix-eco-salon'`, none parameterised. **There is no generic provisioning path at all.**
+Client #3 does not fill in a config today; somebody writes nine more SQL files. This is the
+single largest gap between the stated architecture and the built one, and it is the reason
+Matrix took days.
+
+Minor, same family: `verify/compile-tenant.ts` defaults to `matrix-eco-salon` when given no
+argument, and `seed/matrix-service-aliases.sql` is tenant-specific (held, unapplied).
+
+**2. Four platform gate blocks are written in salon language** — `sh3_booking`,
+`sh5_health`, `sh6_concessions`, `sh8_not_in_kb`. This is D-033's finding, still live: the
+first reply this platform ever sent invented a beauty salon for a software tenant because
+«салон» was the only business-type noun in its context.
+
+**The mechanism to fix it is built and inert**, which is the important half. `0018` plus
+`prompt/sections.ts`' most-specific-wins selection means a platform block may be written per
+vertical, and `prompt/drafts/` already holds `.salon.` and `.software.` variants of the two
+worst blocks. Nothing is signed, so nothing is published. **So this is a CONTENT debt, not a
+code debt, and it is per-VERTICAL rather than per-CLIENT**: client #4 in a vertical already
+written for is pure rows; a new vertical costs one reading evening, once, for everyone in it.
+
+### The verdict, plainly
+
+**The engine is real where it is hardest to fake — the reply path, the guards, the schema.**
+A security fix there does protect every client. What does not yet exist is the *on-ramp*: the
+path from a signed customer to a provisioned tenant is nine bespoke SQL files and a founder's
+evening. The architecture is sound and the tooling around it is not finished, and those are
+different problems with different fixes.

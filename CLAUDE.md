@@ -216,6 +216,26 @@ Everything that distinguishes one customer from another is a row. If you find yo
 writing a per-tenant `if`, a per-tenant prompt string, or a per-tenant env var, the design
 is wrong — make it data.
 
+**A client is rows. Never a repo, never a branch, never a code path.** (Standing rule,
+2026-09-16, founder.) One multi-tenant codebase; one security fix protects every client;
+one guard improvement reaches every tenant; nothing bespoke per customer. A change that
+would have to be repeated for the next client is not finished. Concretely, none of these
+may exist in `src/`: a tenant id or slug in a literal, a branch on `slug`/`display_name`/
+`vertical`, a tenant's own sentence, or a constant only one tenant's numbers fit. A script
+that names a tenant takes it as an ARGUMENT.
+
+Two things are NOT violations of this and must not be "fixed" into one: a **docstring that
+cites a tenant as evidence** (`Matrix's measured ~60 messages/day`) belongs next to the code
+it justifies and is why the constant is what it is; and a **per-VERTICAL** prompt block is
+not per-client — `0018`'s most-specific-wins selection means client #4 in a vertical already
+written for is pure rows, while a new vertical costs signed Mongolian once, for everyone
+in it, ever.
+
+**Audited 2026-09-16 and `src/` is clean** (D-078): no tenant UUID, no slug branch, no salon
+vocabulary in code. What is NOT clean is `scripts/provision/` — nine hand-written
+Matrix-only SQL files and no template — and four platform gate blocks still written in salon
+language. Read D-078 before assuming either way.
+
 ## The rules that override convenience
 
 1. **Tenant is derived server-side**, per webhook entry, from a registry with a unique
