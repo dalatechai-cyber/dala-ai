@@ -39,6 +39,7 @@ import { recordHandover, readThreadState } from '../handover/record.ts';
 import { humanHoldsThread } from '../handover/control.ts';
 import { loadReceptionContext } from '../reception/load.ts';
 import { renderVolatile } from '../reception/volatile.ts';
+import type { Surface } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
 import { RECEPTION_HISTORY_TURNS } from '../model/reception.ts';
 import { withTenantRole } from '../guard/withTenantRole.ts';
@@ -52,6 +53,25 @@ import type { Turn } from '../inbound/persist.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
 import type { Reservation } from '../spend/reserve.ts';
 import type { ReceptionContext } from '../reception/load.ts';
+
+/**
+ * The surface this worker answers on.
+ *
+ * Reception is the DIRECT MESSAGE path and only that: every draft it writes is
+ * `kind: 'reply'` — one literal, below — and the comment surface is `worker/comments.ts`,
+ * which posts a reviewed row's bytes and never builds a prompt at all. Verified against the
+ * live project on 2026-09-17: all sixty-one outbound rows this platform has ever written are
+ * `kind = 'reply'` with a null `comment_post_id`. No comment conversation has ever existed.
+ *
+ * It was `channel: 'facebook_page'` here, and that is the provider, not the surface. Ш0 asks
+ * whether the reply is publicly visible; Facebook carries both a public wall and a private
+ * inbox, so the provider's name cannot answer it, and the model resolved the ambiguity the
+ * wrong way — see `Surface` in `reception/volatile.ts` for the measured cost.
+ *
+ * A constant rather than an inline literal so there is one place to change when a comment
+ * path grows a prompt, and so the reasoning sits with the value instead of at the call site.
+ */
+const RECEPTION_SURFACE: Surface = 'direct_message';
 
 /**
  * What one Reception reply is expected to cost, reserved before the call and settled
@@ -416,7 +436,7 @@ export async function runReceptionJob(
    * every entry, silently, and the bill roughly triples.
    */
   const promptVolatile = renderVolatile({
-    now, timezone, channel: 'facebook_page', hours: ctx.hours, closures: ctx.closures,
+    now, timezone, surface: RECEPTION_SURFACE, hours: ctx.hours, closures: ctx.closures,
   });
 
   // --- One message, one reservation, one reply. -----------------------------

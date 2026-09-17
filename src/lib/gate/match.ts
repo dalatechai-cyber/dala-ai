@@ -238,6 +238,40 @@ function cannedKinds(rows: readonly CannedRow[]): string[] {
 }
 
 /**
+ * Canned kinds the model is never asked to produce, and so must never be shown.
+ *
+ * `image_received` is served whole by `inbound/imageReply.ts`, on a path that never calls
+ * the model at all — a photograph with no caption carries no text, so there is nothing to
+ * reason about and nothing to choose. D-058 swept every `canned_responses` row into the
+ * cached prefix without asking which of them the model is supposed to reach for, and this
+ * one had no business being there.
+ *
+ * **The cost was measured, not predicted** (2026-09-17, D-082). At 02:07:23 a customer
+ * asked, in Latin-script Mongolian and with no photograph anywhere in the conversation —
+ * `quality_flags` holds zero `inbound_dropped` rows for it — whether the salon would pick
+ * a colour for them. The reply opened «Уучлаарай, зурган дээр үндэслэн зохих өнгөний
+ * зөвлөгөө өгөх боломж надад байхгүй байна»: *I cannot advise on a colour based on a
+ * picture*. The only picture in that conversation was in the prompt.
+ *
+ * The rule generalises past this one kind, which is why it is a list and not an `if`: a
+ * line the platform serves WITHOUT the model is not an instruction to the model, it is a
+ * fact about the platform — and a fact about the platform sitting in the model's context is
+ * something the model will eventually find a use for. D-065's lesson from the other side:
+ * an instruction is a request, but a sentence is an offer.
+ *
+ * **Filtered here, inside the one renderer both paths call**, and that placement is the
+ * load-bearing part. `sections.ts` hashes this output into `canned_hash` at publish time and
+ * `reception/load.ts` recomputes it per request; filtering at either caller instead would
+ * move the hash on one side only and 503 every reply with `canned_stale` — the exact outage
+ * the shared-renderer rule was written to prevent (D-058).
+ *
+ * It does NOT filter the review gate. `renderCannedSection` still refuses the whole section
+ * when an `image_received` row is unreviewed, because that is a question about the row, not
+ * about the prompt, and `imageReply.ts` refuses an unreviewed row independently.
+ */
+export const MODEL_INVISIBLE_KINDS: readonly string[] = ['image_received'];
+
+/**
  * The canned section's TEXT, with no checking of any kind.
  *
  * Split out because the same bytes are now produced in two places: at publish time, where
@@ -252,7 +286,8 @@ function cannedKinds(rows: readonly CannedRow[]): string[] {
  * lower_snake, so the two agree today, and relying on that would be relying on an accident.
  */
 export function cannedSectionBody(label: string, rows: readonly { kind: string; body: string }[]): string {
-  const ordered = [...rows].sort((a, b) => (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
+  const shown = rows.filter((r) => !MODEL_INVISIBLE_KINDS.includes(r.kind));
+  const ordered = [...shown].sort((a, b) => (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
   const lines = ordered.map((r) => `"${r.kind}": ${r.body.trim()}`);
   return `=== ${label} ===\n${lines.join('\n')}`;
 }

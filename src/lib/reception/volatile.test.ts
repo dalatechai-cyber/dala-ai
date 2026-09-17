@@ -93,7 +93,7 @@ test('A CLOSURE OUTRANKS THE WEEKLY HOURS', () => {
   // A public holiday is exactly the case where the schedule says open and the door is
   // locked. Monday 2026-09-07 is inside the closure and inside Monday's hours.
   const out = renderVolatile({
-    now: new Date('2026-09-07T04:00:00Z'), timezone: UB, channel: 'facebook_page',
+    now: new Date('2026-09-07T04:00:00Z'), timezone: UB, surface: 'direct_message',
     hours: HOURS, closures: [HOLIDAY],
   });
   assert.equal(isOpenAt(HOURS, 1, '12:00'), true, 'precondition: the schedule says open');
@@ -105,7 +105,7 @@ test('the closure message is reproduced VERBATIM', () => {
   // It is the tenant's own sentence, written and reviewed by them. Paraphrasing would put
   // words in their mouth about something as concrete as a public holiday.
   const out = renderVolatile({
-    now: new Date('2026-09-07T04:00:00Z'), timezone: UB, channel: 'facebook_page',
+    now: new Date('2026-09-07T04:00:00Z'), timezone: UB, surface: 'direct_message',
     hours: HOURS, closures: [HOLIDAY],
   });
   assert.equal(out.includes(HOLIDAY.message), true);
@@ -113,7 +113,7 @@ test('the closure message is reproduced VERBATIM', () => {
 
 test('a closure message in NFD is normalised, because the prompt is NFC everywhere', () => {
   const out = renderVolatile({
-    now: new Date('2026-09-07T04:00:00Z'), timezone: UB, channel: 'facebook_page',
+    now: new Date('2026-09-07T04:00:00Z'), timezone: UB, surface: 'direct_message',
     hours: HOURS, closures: [{ ...HOLIDAY, message: 'Ёлка'.normalize('NFD') }],
   });
   assert.equal(out.includes('Ёлка'), true);
@@ -125,17 +125,57 @@ test('a closure message in NFD is normalised, because the prompt is NFC everywhe
 
 test('the block carries the local time, the channel, and the status', () => {
   const out = renderVolatile({
-    now: new Date('2026-09-07T04:00:00Z'), timezone: UB, channel: 'facebook_page',
+    now: new Date('2026-09-07T04:00:00Z'), timezone: UB, surface: 'direct_message',
     hours: HOURS, closures: [],
   });
   assert.equal(out.includes('2026-09-07 12:00 (Asia/Ulaanbaatar)'), true);
-  assert.equal(out.includes('СУВАГ: facebook_page'), true);
+  assert.equal(out.includes('СУВАГ: хувийн зурвас'), true);
   assert.equal(out.includes('НЭЭЛТТЭЙ'), true);
+});
+
+// ---------------------------------------------------------------------------
+// The surface. D-082.
+// ---------------------------------------------------------------------------
+
+test('A DM IS DESCRIBED AS NOT PUBLICLY VISIBLE, in Ш0\'s own words', () => {
+  // Ш0 asks «Энэ хариулт НИЙТЭД ХАРАГДАХ сэтгэгдэл (comment) мөн үү?». The block was handed
+  // `facebook_page` — the provider — and on 2026-09-17 at 04:14:47 the model answered that
+  // question with it, telling a customer in a private DM that this was a publicly visible
+  // Facebook page comment. Three further drafts that day served `refusal_public_channel` to
+  // people who had already sent a private message.
+  const out = renderVolatile({
+    now: new Date('2026-09-07T04:00:00Z'), timezone: UB, surface: 'direct_message',
+    hours: HOURS, closures: [],
+  });
+  assert.equal(out.includes('ХАРАГДАХГҮЙ'), true, 'it must say NOT publicly visible');
+  assert.equal(out.includes('facebook_page'), false, 'the provider name must not appear at all');
+  // The negative form contains the positive as a substring, so an includes() check for the
+  // affirmative is not evidence on its own — assert the comment word is absent instead.
+  assert.equal(out.includes('сэтгэгдэл'), false, 'a DM is not a comment');
+});
+
+test('a public comment is described as publicly visible', () => {
+  const out = renderVolatile({
+    now: new Date('2026-09-07T04:00:00Z'), timezone: UB, surface: 'public_comment',
+    hours: HOURS, closures: [],
+  });
+  assert.equal(out.includes('нийтэд харагдах сэтгэгдэл'), true);
+  assert.equal(out.includes('ХАРАГДАХГҮЙ'), false, 'and NOT the private form');
+});
+
+test('the two surfaces are described differently', () => {
+  // Cheap, and it is the property that actually failed: one value for both surfaces is
+  // exactly what `channel: 'facebook_page'` was.
+  const base = { now: new Date('2026-09-07T04:00:00Z'), timezone: UB, hours: HOURS, closures: [] } as const;
+  assert.notEqual(
+    renderVolatile({ ...base, surface: 'direct_message' }),
+    renderVolatile({ ...base, surface: 'public_comment' }),
+  );
 });
 
 test('with no hours row and no closure the block says NOTHING about being open', () => {
   const out = renderVolatile({
-    now: new Date('2026-09-09T04:00:00Z'), timezone: UB, channel: 'facebook_page',
+    now: new Date('2026-09-09T04:00:00Z'), timezone: UB, surface: 'direct_message',
     hours: [], closures: [],
   });
   assert.equal(out.includes('НЭЭЛТТЭЙ'), false);
@@ -148,7 +188,7 @@ test('THE BLOCK IS ITS OWN STRING — it can never touch the cached prefix', () 
   // date-shaped added there invalidates every entry, silently, and the bill roughly
   // triples. Two renders one minute apart must differ, which is exactly why this is
   // returned separately rather than appended.
-  const a = renderVolatile({ now: new Date('2026-09-07T04:00:00Z'), timezone: UB, channel: 'c', hours: HOURS, closures: [] });
-  const b = renderVolatile({ now: new Date('2026-09-07T04:01:00Z'), timezone: UB, channel: 'c', hours: HOURS, closures: [] });
+  const a = renderVolatile({ now: new Date('2026-09-07T04:00:00Z'), timezone: UB, surface: 'direct_message', hours: HOURS, closures: [] });
+  const b = renderVolatile({ now: new Date('2026-09-07T04:01:00Z'), timezone: UB, surface: 'direct_message', hours: HOURS, closures: [] });
   assert.notEqual(a, b, 'it varies per request, which is why it must not be cached');
 });

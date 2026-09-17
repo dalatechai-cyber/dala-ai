@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  kindsReferencedBy, kindsRequiredByRules, matchRules, matcherFires, MIN_STEM_CHARS,
-  parseMatcher, renderCannedSection, type GateRule,
+  cannedSectionBody, kindsReferencedBy, kindsRequiredByRules, matchRules, matcherFires,
+  MIN_STEM_CHARS, MODEL_INVISIBLE_KINDS, parseMatcher, renderCannedSection, type GateRule,
 } from './match.ts';
+import { IMAGE_REPLY_KIND } from '../inbound/imageReply.ts';
 
 const CHILDREN: GateRule = {
   gate: 'Ш1', topicKey: 'children_services',
@@ -137,6 +138,54 @@ test('the section is keyed, so the blocks can name a sentence without carrying i
   assert.equal(s.ok, true);
   assert.equal(s.ok && s.body.startsWith('=== БЭЛЭН ХАРИУЛТ ==='), true);
   assert.equal(s.ok && s.body.includes('"handoff": Уучлаарай'), true);
+});
+
+// ---------------------------------------------------------------------------
+// Kinds the model never sees. D-082.
+// ---------------------------------------------------------------------------
+
+const IMAGE_ROW = {
+  kind: 'image_received',
+  body: 'Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.',
+  reviewedAt: REVIEWED,
+};
+
+test('THE IMAGE LINE IS NOT IN THE PROMPT', () => {
+  // On 2026-09-17 at 02:07:23 a customer asked, with no photograph anywhere in the
+  // conversation, whether the salon would pick a colour for them. The reply opened
+  // «зурган дээр үндэслэн … боломж надад байхгүй байна» — *based on a picture*. The line
+  // is served whole by `inbound/imageReply.ts`, which never calls the model, so the only
+  // thing its presence in the prefix could ever do is exactly what it did.
+  const s = renderCannedSection('X', [...ROWS, IMAGE_ROW], []);
+  assert.equal(s.ok, true);
+  assert.equal(s.ok && s.body.includes('image_received'), false, 'not by key');
+  assert.equal(s.ok && s.body.includes('зураг'), false, 'and not by body');
+  assert.equal(s.ok && s.body.includes('"handoff"'), true, 'the others are untouched');
+});
+
+test('canned_hash is UNCHANGED by the presence of an image row', () => {
+  // The property stated as the publish path sees it: adding the row must not move the
+  // prompt-cache key, because the row is not in the prompt.
+  assert.equal(
+    cannedSectionBody('X', ROWS),
+    cannedSectionBody('X', [...ROWS, IMAGE_ROW]),
+  );
+});
+
+test('an UNREVIEWED image row still refuses the whole section', () => {
+  // Filtering is about the prompt, never about the review gate. A row nobody signed off is
+  // a provisioning fault whether or not the model is shown it — and `imageReply.ts` would
+  // serve those bytes to a customer.
+  const s = renderCannedSection('X', [...ROWS, { ...IMAGE_ROW, reviewedAt: null }], []);
+  assert.equal(s.ok, false);
+  assert.equal(s.ok === false && s.code, 'canned_response_unreviewed');
+  assert.deepEqual(s.ok === false && s.kinds, ['image_received']);
+});
+
+test('the filter is keyed to the kind imageReply actually serves', () => {
+  // Two literals for one fact drift. `check-gate-keys` holds a third copy and verifies it
+  // against the source; this holds the runtime end.
+  assert.equal(MODEL_INVISIBLE_KINDS.includes(IMAGE_REPLY_KIND), true);
 });
 
 test('rows are ordered by kind, because the database promises no order', () => {

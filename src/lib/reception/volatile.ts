@@ -33,10 +33,29 @@ export type BusinessHours = {
 /** A `tenant_closures` row. `message` is quoted VERBATIM — it is the tenant's sentence. */
 export type Closure = { startsOn: string; endsOn: string; title: string; message: string };
 
+/**
+ * Which SURFACE this reply lands on — never which provider carried it.
+ *
+ * Ш0 asks the model exactly one question: «Энэ хариулт НИЙТЭД ХАРАГДАХ сэтгэгдэл (comment)
+ * мөн үү?» It was being handed `facebook_page`, the provider slug, and on 2026-09-17 at
+ * 04:14:47 it answered that question with it — «Ш0 (сувагны шалгалт) — энэ нь нийтэд
+ * харагдах Facebook page коммент…», written to a customer sitting in a private DM. Three
+ * further drafts that day served `refusal_public_channel`, telling people to send a private
+ * message they had already sent.
+ *
+ * A provider name is not an answer to a question about visibility, and Facebook carries both
+ * surfaces. The worker knows which one it has — it is the same fact as the draft's `kind` —
+ * and was discarding it at this boundary.
+ *
+ * It is a union rather than a string so that the old value no longer type-checks. The bug
+ * was not that somebody chose the wrong string; it was that the parameter accepted one.
+ */
+export type Surface = 'direct_message' | 'public_comment';
+
 export type VolatileInput = {
   now: Date;
   timezone: string;
-  channel: string;
+  surface: Surface;
   hours: readonly BusinessHours[];
   closures: readonly Closure[];
 };
@@ -76,12 +95,29 @@ export function activeClosure(closures: readonly Closure[], localDate: string): 
  */
 const LABELS = {
   now: 'ОДООГИЙН ЦАГ',
+  /** The heading stays «СУВАГ» because that is Ш0's own title; the VALUE is a surface. */
   channel: 'СУВАГ',
   status: 'ОДОО',
   open: 'НЭЭЛТТЭЙ',
   shut: 'ХААЛТТАЙ',
   closure: 'ТУХАЙН ХУГАЦААНЫ МЭДЭГДЭЛ',
 } as const;
+
+/**
+ * How each surface is described to the model.
+ *
+ * Deliberately phrased in Ш0's OWN vocabulary — «НИЙТЭД ХАРАГДАХ», «сэтгэгдэл (comment)» —
+ * so that what the model reads here is recognisable as an answer to the question the block
+ * asks, rather than a fact it has to interpret. That interpretation step is where
+ * `facebook_page` became "a publicly visible Facebook page comment".
+ *
+ * Scaffolding the MODEL reads, like the labels above, so it is code rather than a
+ * `reviewed_at` row. No customer ever sees these words.
+ */
+const SURFACE_LABELS: Record<Surface, string> = {
+  direct_message: 'хувийн зурвас (зөвхөн энэ хэрэглэгч харна, нийтэд ХАРАГДАХГҮЙ)',
+  public_comment: 'нийтэд харагдах сэтгэгдэл (comment) — хэн ч харж болно',
+};
 
 /**
  * Render L4.
@@ -94,7 +130,7 @@ export function renderVolatile(input: VolatileInput): string {
   const clock = tenantClock(input.now, input.timezone);
   const lines = [
     `${LABELS.now}: ${clock.date} ${clock.time} (${input.timezone})`,
-    `${LABELS.channel}: ${input.channel}`,
+    `${LABELS.channel}: ${SURFACE_LABELS[input.surface]}`,
   ];
 
   const closure = activeClosure(input.closures, clock.date);

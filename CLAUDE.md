@@ -946,6 +946,52 @@ settles the shape. Read `docs/handover.md` before writing `pass_thread_control` 
 the unverified table and the reclaim state machine, and the reclaim ships with the pass or
 the pass does not ship.
 
+**A provider is not a surface, and a parameter that accepts a string invites the mistake**
+(2026-09-17, D-082). Ш0 asks one question — «Энэ хариулт НИЙТЭД ХАРАГДАХ сэтгэгдэл (comment)
+мөн үү?» — and `reception.ts` handed the volatile block `channel: 'facebook_page'`. Facebook
+carries a public wall and a private inbox, so the provider's name cannot answer it and the
+model answered wrong: at 04:14:47 it told a DM customer this was «нийтэд харагдах Facebook
+page коммент», and four of the day's drafts served `refusal_public_channel` — *write me a
+private message* — to people who had. **All sixty-one outbound rows this platform has ever
+written are `kind = 'reply'` with a null `comment_post_id`**, so no comment conversation has
+ever existed and none of those refusals could have been right. `VolatileInput.channel:
+string` is now `surface: 'direct_message' | 'public_comment'`: the bug was not that somebody
+chose the wrong string, it was that the parameter accepted one, and the union caught every
+caller at compile time. L4 is never cached, so this moves no `content_hash`.
+
+**A sentence in the model's context with no instruction attached is an offer, not an
+instruction** (2026-09-17, D-082). `image_received` is served whole by `inbound/imageReply.ts`
+on a path that never calls the model; no platform block and no tenant rule names it; D-058
+swept it into the cached prefix anyway. It is filtered out now, inside `cannedSectionBody` —
+the ONE renderer the publish path and the request path share, because filtering at either
+caller moves `canned_hash` on one side only and 503s every reply with `canned_stale`. The
+review gate is untouched: an unreviewed row still refuses the whole section. Audited, it was
+the only unreferenced row of Matrix's twelve.
+
+**But it was NOT the leak the founder found, and both of us had blamed it.** A text-only
+colour question was answered «зурган дээр үндэслэн» — *based on a picture* — with zero
+`inbound_dropped` rows in that conversation. The live prefix holds **two** picture sentences:
+`refusal_out_of_scope` is the other, it is pointed at by `out_of_scope_topics.photo_consultation`,
+and it has been there since seq 3 on 09-07, nine days before the image feature existed. It is
+Matrix's only consultation-refusal and it is phrased about photographs, so a consultation
+question with no photograph gets the photograph wording. **An edit-distance score could not
+settle which row it was** — the four candidates scored 0.21–0.35 with `handoff` highest, a row
+with nothing to do with it, which is D-077's reason for asking exact questions instead of
+scoring. What settled it was reading which rule points at which row. The rewording is
+customer-visible Mongolian and waits for the founder
+(`prompt/drafts/matrix_out_of_scope_rewording.mn.txt`), so **the code fix does not close the
+finding and must not be reported as if it did.**
+
+Two method notes worth more than either fix. **The new `canned_hash` is `eb27de84`, which is
+exactly what seq 3, 4 and 5 carried** — the filter returns the section to its pre-image-row
+bytes, an independent confirmation it removes that row and nothing else. It was computed only
+after a faithful reimplementation of the pre-change renderer reproduced the live `b1044d93`
+from the twelve rows pulled as base64: **a control that reproduces the known value is what
+makes the unknown one evidence**, and that check belongs before the write. And the first check
+that the picture wording was gone tested `includes('зураг')` against a sentence beginning
+«**З**ураг» — a case-sensitive Cyrillic substring test, inside the tool verifying a Cyrillic
+fix, one line from reporting the section clean. Rule 6 binds the diagnostics too.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

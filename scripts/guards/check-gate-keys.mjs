@@ -60,7 +60,41 @@ for (const dir of BLOCK_DIRS) {
   }
 }
 
+// Kinds the model never sees, mirrored from `MODEL_INVISIBLE_KINDS` in src/lib/gate/match.ts.
+//
+// A guard cannot import TypeScript, so the list is duplicated and then CHECKED against the
+// original below — a copy that can go stale silently is the defect this whole file exists
+// to catch, and writing one inside it would be the joke telling itself.
+const INVISIBLE = ['image_received'];
+const MATCH_TS = 'src/lib/gate/match.ts';
+if (fs.existsSync(MATCH_TS)) {
+  const src = fs.readFileSync(MATCH_TS, 'utf8');
+  const m = src.match(/MODEL_INVISIBLE_KINDS:\s*readonly string\[\]\s*=\s*\[([^\]]*)\]/);
+  if (m === null) {
+    problems.push(`Could not read MODEL_INVISIBLE_KINDS out of ${MATCH_TS}. It moved or was renamed, and this guard's copy of it is now unverifiable — which makes the check below vacuous rather than wrong.`);
+  } else {
+    // ascii-safe: a canned kind is a lower_snake ASCII token in straight single quotes.
+    const actual = [...m[1].matchAll(/'([a-z][a-z_]*)'/g)].map((x) => x[1]).sort();
+    if (actual.join(',') !== [...INVISIBLE].sort().join(',')) {
+      problems.push(
+        `MODEL_INVISIBLE_KINDS in ${MATCH_TS} is [${actual.join(', ')}], but this guard's copy is ` +
+        `[${[...INVISIBLE].sort().join(', ')}]. Update the INVISIBLE list in this file to match.`);
+    }
+  }
+}
+
 for (const [key, files] of referenced) {
+  if (INVISIBLE.includes(key)) {
+    problems.push(
+      `Prompt block names canned-response key "${key}", which is filtered OUT of the prompt.\n` +
+      `      Referenced by: ${[...new Set(files)].join(', ')}\n` +
+      `      "${key}" is served by the platform without ever calling the model (see\n` +
+      `      MODEL_INVISIBLE_KINDS in ${MATCH_TS}), so it is deliberately absent from the\n` +
+      `      compiled prefix. A block telling the model to copy it is an instruction pointing\n` +
+      `      at a line the model cannot see — the gap D-058 left, with the model improvising\n` +
+      `      into it. Either drop the reference, or stop filtering the kind.`);
+    continue;
+  }
   if (!seeded.has(key)) {
     problems.push(
       `Prompt block names canned-response key "${key}", which no migration seeds.\n` +
