@@ -35,6 +35,8 @@ import { extractInboundMessages } from '../meta/extract.ts';
 import { ensureContact, ensurePerson, openConversation, readHistory, recordInbound, traceAnswer } from '../inbound/persist.ts';
 import { recordDroppedInbound, skipSummary } from '../inbound/dropped.ts';
 import { draftImageReplies, planImageReplies, readImageLine } from '../inbound/imageReply.ts';
+import { recordHandover, readThreadState } from '../handover/record.ts';
+import { humanHoldsThread } from '../handover/control.ts';
 import { loadReceptionContext } from '../reception/load.ts';
 import { renderVolatile } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
@@ -190,7 +192,7 @@ export async function runReceptionJob(
   // goes quiet for one.
   const { data: tenantRow, error: tenantErr } = await db
     .from('tenants')
-    .select('default_locale, prompt_cache_mode, timezone, max_reply_age_minutes')
+    .select('default_locale, prompt_cache_mode, timezone, max_reply_age_minutes, human_takeover_cooldown_minutes')
     .eq('id', tenantId)
     .maybeSingle();
   if (tenantErr || tenantRow === null) {
@@ -212,6 +214,10 @@ export async function runReceptionJob(
   }
   const timezone = rawTimezone;
   const replyAgeLimit = replyAgeLimitMinutes(t['max_reply_age_minutes']);
+  // Per tenant, as data (§3.7.3). A salon that answers in ninety seconds and one that
+  // answers on Monday want different numbers, and neither is a constant in `src/`.
+  const cooldownMinutes = typeof t['human_takeover_cooldown_minutes'] === 'number'
+    ? Number(t['human_takeover_cooldown_minutes']) : 30;
   // "Today" is a question about the tenant's clock, so the date the closure query filters
   // on is computed here rather than in SQL's `current_date`, which is the server's.
   const localDate = tenantClock(now, timezone).date;
@@ -241,7 +247,7 @@ export async function runReceptionJob(
   // --- The channel: where a reply would go, and whether it may go at all. ---
   const { data: channelRow, error: channelErr } = await db
     .from('tenant_channels')
-    .select('external_id, delivery_mode, graph_version_override, comment_policy, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day')
+    .select('external_id, delivery_mode, meta_app_id, graph_version_override, comment_policy, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day')
     .eq('id', channelId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
@@ -257,7 +263,12 @@ export async function runReceptionJob(
   }
   const c = channelRow as Record<string, unknown>;
   const pageId = String(c['external_id'] ?? '');
-  const delivery = canDeliver(String(c['delivery_mode'] ?? ''));
+  const deliveryMode = String(c['delivery_mode'] ?? '');
+  const delivery = canDeliver(deliveryMode);
+  // Meta's own app id, never the callback slug (D-041). Null makes every handover verdict
+  // `unknown`, which changes no thread state — correct, and visibly incomplete.
+  const metaAppId = typeof c['meta_app_id'] === 'string' && c['meta_app_id'] !== ''
+    ? String(c['meta_app_id']) : null;
   const override = c['graph_version_override'];
   const graphVersion = typeof override === 'string' && override !== '' ? override : fx.graphVersionDefault();
 
@@ -279,6 +290,40 @@ export async function runReceptionJob(
       fx.log('error', 'dropped_inbound_unrecorded', {
         eventId, ...recorded, ...skipSummary(skipped),
       });
+    }
+
+    // --- Who holds this thread? (§3.7, §3.7.3) ----------------------------------------
+    //
+    // Observational only. Nothing here calls Graph, and `pass_thread_control` is not built
+    // — passing control is a live mutation of a real salon's thread ownership and cannot
+    // be rehearsed during a shadow mirror.
+    //
+    // The echoes come from the skip list because `extract.ts` now CARRIES an echo's `mid`
+    // and its recipient. It used to carry neither, which is why "did we send this?" could
+    // not be asked and a receptionist and the bot answered the same customer in parallel
+    // with nothing recording it.
+    const echoes = skipped
+      .filter((sk) => sk.reason === 'echo' && sk.externalId !== null && sk.recipientId !== null)
+      .map((sk) => ({ mid: sk.externalId as string, psid: sk.recipientId as string }));
+    const handover = await recordHandover(db, {
+      tenantId, channelId, ourAppId: metaAppId, entry: rawPayload, echoes,
+      deliveryMode, now,
+    });
+    if (handover.events > 0 || handover.changed > 0 || handover.echoTakeovers > 0) {
+      fx.log('info', 'thread_control', {
+        eventId, events: handover.events, changed: handover.changed,
+        echoes: handover.echoes, echoTakeovers: handover.echoTakeovers,
+      });
+    }
+    // Never folded into zero. The delivery shape of a handover event is unverified here —
+    // `developers.facebook.com` is refused by this environment's proxy — so an entry that
+    // carried a handover key and could not be read is the single most informative thing
+    // this path can emit, and it is the signal that settles the shape.
+    if (handover.unrecognised > 0) {
+      fx.log('warn', 'handover_unrecognised', { eventId, count: handover.unrecognised });
+    }
+    for (const problem of handover.problems) {
+      fx.log('error', 'thread_control_failed', { eventId, detail: problem });
     }
 
     // --- A photograph is not a thumbs-up, and silence is the wrong answer to it. -------
@@ -416,6 +461,40 @@ export async function runReceptionJob(
       fx.log('error', 'message_failed', { detail: stored.detail });
       return unavailable('worker.message_failed');
     }
+    // --- H11 check 4: is a person already handling this conversation? (§3.7.3) --------
+    //
+    // AFTER the message is stored — §3.4.5's "persist everything, generate nothing" — and
+    // before any generation, so a thread a receptionist has taken costs three rows and no
+    // model call.
+    //
+    // Refuses ONLY on a positively-established `human`. Every conversation predating
+    // `0027` reads `unknown`, and `unknown` must never silence anybody: the honest default
+    // and the narrow gate are one design, not two decisions (see the migration).
+    //
+    // Unreadable does NOT refuse. A database blip must not mute a tenant's bot, and the
+    // cost of being wrong in this direction is one reply overlapping a person, which is
+    // today's behaviour in every conversation anyway.
+    const threadState = await readThreadState(db, { tenantId, conversationId });
+    if (threadState === 'unreadable') {
+      fx.log('error', 'thread_state_unreadable', { tenantId, conversationId });
+    } else {
+      const held = humanHoldsThread(threadState, cooldownMinutes, now);
+      if (held.refuse) {
+        fx.log('info', 'human_has_thread', {
+          tenantId, conversationId, minutesLeft: held.minutesLeft,
+        });
+        // Visible to the Quality layer as a message the bot deliberately did not answer,
+        // which is what it is. Without the row this is indistinguishable from a quiet
+        // afternoon — D-070's whole lesson, one table over.
+        await fx.flagQuality({
+          tenantId, conversationId, code: 'human_has_thread',
+          detail: `a person holds this thread; ${held.minutesLeft} minute(s) of cooldown left`,
+        });
+        notGenerated.push(message.externalId);
+        continue;
+      }
+    }
+
     // A redelivery. The inbound row already existing does NOT mean the reply happened —
     // that inference cost a real message on 2026-09-06, when the first attempt persisted
     // and then died at the spend guard, and the retry skipped on the row it had just

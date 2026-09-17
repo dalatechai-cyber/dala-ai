@@ -291,3 +291,41 @@ the silence was a regression against the bot being replaced.
 The kind only. The tenant's sentence is founder-gated Mongolian and lands as a
 `canned_responses` row with `reviewed_at` null; `inbound/imageReply.ts` refuses to serve an
 unreviewed row, so nothing reaches a customer until the reading evening.
+
+### `0027_thread_control`
+
+Answers a question nothing had ever asked: **who is holding this conversation — the bot, or
+a person in the salon's inbox?** `conversations.state` has allowed `awaiting_human` and
+`human_handled` since `0001` and **nothing writes either**; they appear in exactly one
+place, `persist.ts`'s `OPEN_STATES`, where they read as "still open". That is D-064's
+shape — a value that reads as a safety signal for as long as nobody tests it.
+
+Adds to `conversations`:
+
+| Column | Notes for hand-written INSERTs |
+|---|---|
+| `thread_control` | NOT NULL, **default `unknown`**, `check in ('bot','human','unknown')` |
+| `thread_control_at` | nullable; when control last CHANGED, and what the cooldown measures from |
+| `thread_control_source` | nullable, `check in ('handover','echo','reclaim')`. `reclaim` is unwritten — the outbound half is not built |
+
+Adds `tenants.human_takeover_cooldown_minutes` (NOT NULL, default 30, `between 0 and 1440`)
+and `tenant_channels.meta_app_id` (nullable, `^[0-9]{1,32}$`).
+
+**The default is `unknown` on purpose, and the gate above is built to match.** `bot` would
+be convenient and is a claim this platform cannot support — nobody has read the far side of
+a Meta thread, and D-062 is eleven days of that mistake. D-063's addendum is the rule: a
+migration adding a discriminator with a default retroactively decides the semantics of
+every row already there, and those rows are the ones that motivated the change. H11 check 4
+therefore refuses on a positively-established `human` and nothing else, so `unknown` can
+never silence a tenant. **Widening that gate to refuse on `unknown` mutes every tenant at
+once** — the honest default and the narrow gate are one design.
+
+`meta_app_id` is Meta's own numeric id and **not** `app_slug`, which names a callback path
+on this platform rather than an app at Meta (D-041). Handover events identify apps by this
+id alone; NULL makes every handover verdict `unknown`, which changes no state. Only the
+console can supply the value.
+
+Nothing in this migration sends anything. `pass_thread_control` and `take_thread_control`
+are not built: passing control is a live mutation of a real salon's thread ownership,
+it cannot be rehearsed during a shadow mirror, and the receiver configuration on Matrix's
+Page is not yet known. See [`docs/handover.md`](handover.md).

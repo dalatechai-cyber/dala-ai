@@ -1,0 +1,74 @@
+UNSIGNED DRAFT — loaded by nothing. Two customer-visible sentences for the handover path,
+for the founder's approval. Nothing serves these yet: the outbound half
+(pass_thread_control / take_thread_control) is not built, and the `canned_response_kinds`
+rows land WITH it rather than now — a kind nobody serves is D-064's dead column in another
+table.
+
+Written against the constraints the image line settled on 2026-09-16:
+  · brief — every reply has to be
+  · «бичвэл», not «бичиж өгвөл»
+  · «би» for the assistant, first person
+  · NO phone number. The point is keeping the customer in the conversation, not sending
+    them to a number nobody answered for two days («Утсаа авахгүй байна», «2 өдөр залгаж
+    байна» — both in Matrix's own corpus)
+
+────────────────────────────────────────────────────────────────────────────
+1. HANDOVER NOTICE — the bot has passed the thread to a person
+────────────────────────────────────────────────────────────────────────────
+
+Option A (no timing promise — RECOMMENDED):
+
+    Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтанд шилжүүллээ,
+    тэд энд хариулна.
+
+    "Sorry, I can't answer this question. I've passed it to our staff; they will
+    reply here."
+
+    «энд» — HERE — is the load-bearing word, and the whole difference from today's
+    line, which ends at 7741-7777. It promises no time, so it cannot be broken by a
+    salon that is busy.
+
+Option B (with a timing promise):
+
+    Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтанд шилжүүллээ,
+    удахгүй энд хариулна.
+
+    …«удахгүй» means *shortly*. Warmer, and a promise the salon has already failed to keep
+    on the telephone. If the reclaim window is short, B is defensible; if it is not, B
+    is the phone line again in a new place.
+
+────────────────────────────────────────────────────────────────────────────
+2. RECLAIM — nobody picked the thread up, the bot is coming back
+────────────────────────────────────────────────────────────────────────────
+
+Option A (does not blame the salon — RECOMMENDED):
+
+    Хүлээлгэсэнд уучлаарай. Би үргэлжлүүлэн туслая — асуултаа бичвэл хариулна.
+
+    "Sorry for the wait. Let me keep helping — write your question and I'll answer."
+
+    Says nothing about why. The customer does not need to be told the salon did not
+    look, and the salon should not be told on its own Page.
+
+Option B (explicit):
+
+    Хүлээлгэсэнд уучлаарай. Манай ажилтан одоогоор хариулж амжаагүй байна.
+    Би үргэлжлүүлэн туслая — асуултаа бичвэл хариулна.
+
+    "…Our staff haven't managed to reply yet…" — honest, longer, and it reports a
+    business's own response time to its customer.
+
+────────────────────────────────────────────────────────────────────────────
+FOUR QUESTIONS
+────────────────────────────────────────────────────────────────────────────
+
+1. Announce the handover at all, or pass silently? A silent pass is quieter; an
+   announced one sets an expectation the salon then has to meet.
+2. «шилжүүллээ» (I have transferred) — or «дамжууллаа» (I have passed on)? Both are
+   ordinary; «шилжүүлэх» is the one used for transferring a call, which is the closer
+   metaphor and may be the more familiar one to a salon customer.
+3. Timing promise in the handover notice: A or B?
+4. Reclaim: does the customer learn why the bot is back — A or B?
+
+I cannot sign these. Customer-visible Mongolian is the founder's, and `prompt/drafts/`
+is loaded by nothing.

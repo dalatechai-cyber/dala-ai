@@ -897,6 +897,35 @@ addendum): «Уучлаарай, би зураг харах боломжгүй. 
 then «2 өдөр залгаж байна», then a customer asking for a human rather than an AI. Every other
 refusal row still ends at 7741-7777; this one keeps the customer in the conversation instead.
 
+**A detector built on "not ours" is only sound where we are the only one of us** (2026-09-17,
+D-080). The inbound half of the Handover Protocol is built: `0027` adds
+`conversations.thread_control`, and H11 check 4 finally refuses a conversation a person is
+already handling. The trap it nearly walked into is the part to carry. An echo is an
+outbound message whose `mid` is not ours, and "therefore a person typed it" is FALSE on
+Matrix's Page: the ancestor is live there answering all day while Dala AI is in `shadow` and
+has never sent anything, so `provider_message_id` is null on every draft and **every
+ancestor reply is an echo that is not ours**. Wired the obvious way, day one marks every
+active conversation `human`, check 4 silences the mirror on exactly the conversations worth
+measuring, and the symptom is indistinguishable from a quiet afternoon. Echoes therefore
+move control only where `delivery_mode = 'live'`; elsewhere they are counted and nothing
+moves.
+
+**`thread_control` defaults to `unknown` and check 4 refuses only on `human` — one design,
+not two decisions.** `bot` would be a claim nobody can support (D-062 is eleven days of
+exactly that), so D-063's addendum forces the honest default; the honest default is only
+safe because the gate is that narrow. Widening it to refuse on `unknown` mutes every tenant
+at once. And `tenant_channels.meta_app_id` is new because nothing stored Meta's numeric app
+id — `app_slug` names a callback path here, not an app there (D-041). NULL makes every
+handover verdict `unknown`, which changes no state.
+
+**Nothing outbound was built and the delivery shape is unverified.** `developers.facebook.com`
+is 403 through this environment's egress proxy, re-measured 2026-09-17, so
+`parseHandoverEvents` searches both plausible containers and COUNTS what it cannot classify
+(`handover_unrecognised`). That counter is the instrument; the first real handover event
+settles the shape. Read `docs/handover.md` before writing `pass_thread_control` — it carries
+the unverified table and the reclaim state machine, and the reclaim ships with the pass or
+the pass does not ship.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

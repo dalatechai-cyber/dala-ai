@@ -60,6 +60,13 @@ export type SkippedEvent = {
    * conversation it belongs to. It must never reach a log line.
    */
   senderId: string | null;
+  /**
+   * The OTHER party's id, when the event carried one. On an `echo` this is the customer:
+   * an echo's `sender` is the Page itself, so `senderId` is the wrong end of the thread
+   * for finding the conversation it belongs to, and reusing that field would quietly file
+   * a page id where a PSID is expected. Null on every other reason. PII, like `senderId`.
+   */
+  recipientId: string | null;
   /** Attachment kinds, deduplicated — see `attachmentKinds`. Empty for a text-less skip. */
   attachments: string[];
   /** Facebook sticker asset ids, when the attachments were stickers. Not PII. */
@@ -165,6 +172,7 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
         reason, idx,
         externalId: extra.externalId ?? null,
         senderId: extra.senderId ?? null,
+        recipientId: extra.recipientId ?? null,
         attachments: extra.attachments ?? [],
         stickerIds: extra.stickerIds ?? [],
       });
@@ -175,6 +183,8 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
 
     const senderOf = asRecord(ev['sender']);
     const senderIdOf = senderOf === null ? '' : String(senderOf['id'] ?? '');
+    const recipientOf = asRecord(ev['recipient']);
+    const recipientIdOf = recipientOf === null ? '' : String(recipientOf['id'] ?? '');
 
     if ('delivery' in ev || 'read' in ev) { skip('status_event'); continue; }
     if ('postback' in ev) {
@@ -185,11 +195,29 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
     const message = asRecord(ev['message']);
     if (message === null) { skip('status_event'); continue; }
 
-    // OUR OWN message, delivered back to us. Answering it is a loop that bills.
-    if (message['is_echo'] === true) { skip('echo'); continue; }
+    const externalId = String(message['mid'] ?? '');
+
+    // An outbound message on this thread, delivered back to us. Answering it is a loop
+    // that bills — that has always been the reason to skip it, and it still is.
+    //
+    // What changed is that the skip now CARRIES the `mid` and the customer. An echo whose
+    // `mid` is not one of our own sends is a person typing in the salon's inbox, and it is
+    // the only detector that works while another app owns the thread (§3.7.3). Carrying
+    // nothing made that question unaskable, so the bot kept answering alongside the
+    // receptionist and nothing anywhere recorded that it was happening.
+    //
+    // `sender` on an echo is the PAGE, so the customer is the RECIPIENT. Filing the page
+    // id under `senderId` would look right and resolve to no conversation.
+    if (message['is_echo'] === true) {
+      skip('echo', {
+        externalId: externalId === '' ? null : externalId,
+        senderId: senderIdOf === '' ? null : senderIdOf,
+        recipientId: recipientIdOf === '' ? null : recipientIdOf,
+      });
+      continue;
+    }
 
     const senderId = senderIdOf;
-    const externalId = String(message['mid'] ?? '');
     const text = typeof message['text'] === 'string' ? nfc(message['text']) : '';
     const { kinds, stickerIds } = attachmentKinds(message);
     const carried = {

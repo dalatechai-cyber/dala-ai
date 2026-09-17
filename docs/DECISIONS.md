@@ -5536,3 +5536,91 @@ code path.** It also ships deliberately incomplete — a name collision and a ru
 an absent sentence — so a reader sees the validator speak rather than reading a claim about
 what it would say, with a test pinning both faults so the example's own comment cannot
 become a lie.
+
+---
+
+## D-080 — Thread control: the inbound half, and the trap that would have silenced the mirror
+
+**2026-09-17. Founder: "Build the inbound half — `thread_control`, the
+`messaging_handovers` handler, the echo subscription, H11 check 4. Nothing outbound,
+nothing touching the live Page."** Built to §3.7, which had reserved exactly this seam.
+
+`conversations.state` has allowed `awaiting_human` and `human_handled` since `0001` and
+**nothing writes either** — they appear in one place, `persist.ts`'s `OPEN_STATES`, where
+they read as "still open". D-064's shape again: a value that reads as a safety signal for
+as long as nobody tests it. So the product bug underneath was live and uninstrumented — a
+receptionist answering from Business Suite while the bot answers the same customer in
+parallel, and nothing anywhere recording that it happened.
+
+### The trap: echo detection would have destroyed the fourteen days
+
+This is the finding worth carrying, because it is invisible from the feature's own
+description and obvious once stated.
+
+An echo is "an outbound message on this thread whose `mid` is not one of ours", and the
+inference is "therefore a person typed it". On Matrix's Page that inference is **false in
+the ordinary case**: the ancestor is live there answering customers all day, while Dala AI
+is in `shadow` and has never sent anything, so `provider_message_id` is null on every draft
+this platform has ever written. **Every ancestor reply is an echo that is not ours.**
+
+Wired the obvious way, day one marks every active conversation `human`, H11 check 4
+silences the mirror on precisely the conversations worth measuring, and the fourteen days
+produce nothing — while the symptom is indistinguishable from a quiet afternoon, which is
+the failure class D-070 and D-060 are both about.
+
+So an echo moves control **only where `delivery_mode = 'live'`** — where our sends are the
+sends, and "not ours" therefore means "not the bot". Elsewhere it is counted and nothing
+moves. Note the general shape: **a detector built on "not ours" is only sound where we are
+the only one of us**, and during a mirror phase we are not.
+
+### `unknown` as the default and the narrow gate are ONE design
+
+`bot` would have been the convenient default and is a claim this platform cannot support:
+nobody has read the far side of a Meta thread, and D-062 is eleven days of that mistake.
+D-063's addendum is the rule — a migration adding a discriminator with a default is
+retroactively deciding the semantics of every row already there, and those rows are the
+ones that motivated the change.
+
+So the default is `unknown`, and **H11 check 4 refuses on a positively-established `human`
+and nothing else.** Neither half is safe alone: the honest default only works because the
+gate is that narrow, and widening the gate to refuse on `unknown` mutes every tenant at
+once. `control.test.ts` pins both halves against each other for that reason.
+
+An unreadable lookup concludes nothing, anywhere. `controlFromEcho` is a tristate:
+concluding `human` from an unreadable table would silence a tenant on a database blip, and
+concluding `bot` would let it talk over a receptionist. Undetermined is a result (D-057).
+
+### `app_slug` is not an app id, and nothing stored the real one
+
+A handover event names apps by Meta's numeric id. Nothing in the schema had one —
+`app_slug` names a **callback path on this platform**, not an app at Meta, which is D-041
+stated forwards, and tenant #0's slug says `dalatech` while its Page lives in `DALA_AI`.
+`tenant_channels.meta_app_id` is new, nullable, and only the console can fill it. NULL
+makes every handover verdict `unknown`, which changes no state — correct, and visibly
+incomplete rather than quietly wrong.
+
+### What is NOT built, and the shape nobody could verify
+
+No Graph call. `pass_thread_control` and `take_thread_control` are absent: passing control
+is a live mutation of a real salon's thread ownership, it cannot be rehearsed during a
+shadow mirror, and the receiver configuration on Matrix's Page is unknown — the founder is
+establishing it before anything is written.
+
+**`developers.facebook.com` is 403 through this environment's egress proxy (measured
+2026-09-17, `curl` via the CONNECT tunnel).** So the delivery shape of a handover event is
+unverified here. `parseHandoverEvents` searches both plausible containers and, crucially,
+**counts what it could not classify**; the worker logs `handover_unrecognised`. That
+counter is the instrument — the first real handover event is what settles the shape, and an
+entry carrying a handover key we could not read is the most informative thing this path can
+emit. An unverified claim is not a fact to inherit (CLAUDE.md), so none of it is written as
+one: `docs/handover.md` carries a table of what is unverified and why.
+
+`prompt/drafts/handover_and_reclaim.mn.txt` holds the two customer-visible sentences — the
+handover notice and the reclaim — with two options each and four questions. The
+`canned_response_kinds` rows land WITH the outbound half rather than now: a kind nobody
+serves is D-064's dead column in another table.
+
+**The reclaim is not an enhancement to add later.** The founder's motive is a phone that
+went unanswered for two days; a handover into an inbox nobody reads is the same failure
+with better plumbing, and worse, because the customer gets silence from a bot that has
+deliberately stopped talking. It ships with the pass or the pass does not ship.
