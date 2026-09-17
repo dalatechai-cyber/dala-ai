@@ -4,7 +4,7 @@ import type { SkippedEvent } from '../meta/extract.ts';
 import { imageReplyDedupKey, planImageReplies } from './imageReply.ts';
 
 const skip = (o: Partial<SkippedEvent>): SkippedEvent => ({
-  reason: 'no_text', idx: 0, externalId: 'm_1', senderId: 'psid_1',
+  reason: 'no_text', idx: 0, externalId: 'm_1', senderId: 'psid_1', recipientId: null,
   attachments: [], stickerIds: [], ...o,
 });
 

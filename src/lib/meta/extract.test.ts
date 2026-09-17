@@ -207,3 +207,36 @@ test('kinds are deduplicated: three photos in one message are still "image"', ()
   ]));
   assert.deepEqual(r.skipped[0]?.attachments, ['image', 'file']);
 });
+
+test('DONE-TEST: AN ECHO CARRIES ITS mid AND THE CUSTOMER', () => {
+  // The unlock for §3.7.3. `skip('echo')` used to carry nothing, so "did WE send this?"
+  // had nothing to ask with, and a receptionist and the bot answered the same customer in
+  // parallel with nothing anywhere recording it.
+  //
+  // `sender` on an echo is the PAGE. Filing that under `senderId` would look right and
+  // resolve to no conversation, so the customer travels as `recipientId`.
+  const r = extractInboundMessages({
+    id: 'PAGE_1',
+    messaging: [{
+      sender: { id: 'PAGE_1' },
+      recipient: { id: 'psid_customer' },
+      timestamp: 1_758_000_000_000,
+      message: { mid: 'm_echo', text: 'Сайн байна уу', is_echo: true },
+    }],
+  });
+  assert.equal(r.messages.length, 0, 'an echo is still never answered — that loop bills');
+  assert.equal(r.skipped.length, 1);
+  const echo = r.skipped[0]!;
+  assert.equal(echo.reason, 'echo');
+  assert.equal(echo.externalId, 'm_echo');
+  assert.equal(echo.senderId, 'PAGE_1', 'the page, because that is who Meta says sent it');
+  assert.equal(echo.recipientId, 'psid_customer', 'the customer, which is the thread');
+});
+
+test('a non-echo skip carries no recipient', () => {
+  const r = extractInboundMessages({
+    id: 'PAGE_1',
+    messaging: [{ sender: { id: 'psid_1' }, recipient: { id: 'PAGE_1' }, message: { mid: 'm_1', attachments: [] } }],
+  });
+  assert.equal(r.skipped[0]?.recipientId, null);
+});

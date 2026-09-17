@@ -5382,3 +5382,245 @@ hatch — this one deliberately does not use it.
 Wiring the already-reviewed `refusal_out_of_scope` was rejected for the same reason: it
 would have shipped without a reading evening, and it both fails to invite a description and
 ends at the phone.
+
+---
+
+## D-078 — is the engine an engine? Audited, and the answer is split
+
+**2026-09-16, on the founder's ask.** The architecture is meant to be one multi-tenant
+codebase where a client is rows: one security fix protects everyone, one guard improvement
+reaches every tenant, nothing bespoke per customer. Measured rather than assumed.
+
+### `src/` is sound
+
+- **No tenant identifier anywhere.** `8f2826f5-…` appears in no file under `src/`,
+  `scripts/` or `supabase/`. The only hardcoded UUID in `src/` is `NIL_UUID`, the sentinel
+  in `job_runs`' partial unique index.
+- **No per-tenant branch.** The only `=== '…'` comparisons on tenant fields are
+  empty-string guards in `worker/reception.ts` and `crypto/envelope.ts`.
+- **No tenant vocabulary in code.** Every «салон»/«үс»/«хими» hit in `src/` is inside a
+  comment. That is the right place for them: a docstring citing `Matrix's measured ~60
+  messages/day` is the evidence for a constant, not a coupling to a customer.
+- **No migration writes tenant business data.** `0019` mentions Matrix only to explain why
+  `staff_members.short_name` exists, and says in as many words that no INSERT was written.
+- **Scripts take arguments.** `publish/tenant.ts` reads `--slug`; `diagnose/mirror-corpus.sql`
+  is parameterised on `:'tenant'` and `:'hours'`.
+- **Compiled constants are deliberate and reversible.** `RECEPTION_UPSTREAM_TIMEOUT_MS` and
+  `ALWAYS_ON_GATES` are platform-wide, each with a docstring saying why and — the part that
+  matters — **the read site already takes the value as a parameter**, so the day a tenant
+  needs its own it becomes a column rather than a refactor. `PLATFORM_TIMEZONE` is used only
+  for platform-scoped counters; tenant-scoped ones follow the tenant's clock (`periods.ts`).
+
+### Two things are not
+
+**1. `scripts/provision/` is Matrix, not a template.** Nine hand-written SQL files —
+`matrix-stage1`, `-stage3-canned`, `-stage3b-children`, `-stage4-kb`, `-stage4b-booking`,
+`-stage4c-promo-date`, `-stage5-role`, `-budget`, `-cache-1h` — every one hardcoding
+`'matrix-eco-salon'`, none parameterised. **There is no generic provisioning path at all.**
+Client #3 does not fill in a config today; somebody writes nine more SQL files. This is the
+single largest gap between the stated architecture and the built one, and it is the reason
+Matrix took days.
+
+Minor, same family: `verify/compile-tenant.ts` defaults to `matrix-eco-salon` when given no
+argument, and `seed/matrix-service-aliases.sql` is tenant-specific (held, unapplied).
+
+**2. Four platform gate blocks are written in salon language** — `sh3_booking`,
+`sh5_health`, `sh6_concessions`, `sh8_not_in_kb`. This is D-033's finding, still live: the
+first reply this platform ever sent invented a beauty salon for a software tenant because
+«салон» was the only business-type noun in its context.
+
+**The mechanism to fix it is built and inert**, which is the important half. `0018` plus
+`prompt/sections.ts`' most-specific-wins selection means a platform block may be written per
+vertical, and `prompt/drafts/` already holds `.salon.` and `.software.` variants of the two
+worst blocks. Nothing is signed, so nothing is published. **So this is a CONTENT debt, not a
+code debt, and it is per-VERTICAL rather than per-CLIENT**: client #4 in a vertical already
+written for is pure rows; a new vertical costs one reading evening, once, for everyone in it.
+
+### The verdict, plainly
+
+**The engine is real where it is hardest to fake — the reply path, the guards, the schema.**
+A security fix there does protect every client. What does not yet exist is the *on-ramp*: the
+path from a signed customer to a provisioned tenant is nine bespoke SQL files and a founder's
+evening. The architecture is sound and the tooling around it is not finished, and those are
+different problems with different fixes.
+
+---
+
+## D-079 — The provisioning pipeline, and three things building it found
+
+**2026-09-16. Founder: "Build the pipeline as designed. Two gates, `subsetCollisions`
+before a customer hits «Сор», incompleteness as a recorded state with a readiness line in
+the digest."** Built to `docs/provisioning.md`, which now describes what exists.
+
+A filled questionnaire becomes an intake document, the document is read (refusing rather
+than guessing), validated against the checks that already existed, written as rows by an
+idempotent dry-run-by-default script, and where it stands is recorded. Two signatures are
+required and neither can be forged from inside the pipeline: the **client's**, on the facts
+(`confirmedBy`, landing on `service_variants.confirmed_at`), and the **founder's**, on the
+words (`canned_responses.reviewed_at`, which nothing here writes).
+
+### Incompleteness needed no new table, and that is the interesting part
+
+The design assumed one. `alerts` has carried the right model since `0025`: `route: 'digest'`
+puts a row in front of a human at 09:00 without a Telegram — which matters, because Telegram
+is shared with Core Language's customers — and `repeat_policy: 'on_change'` is an **episode**
+that opens, holds and resolves.
+
+D-063's question is "does this condition recur, or does it persist?" A tenant waiting on its
+price list does not become newly incomplete every morning; it is the same fact, continuing.
+So the key carries no date, the digest lists it because it is an open episode, and
+`digest.ts` was not touched at all. **The mechanism built for a dead channel fits an
+unfinished tenant exactly**, and noticing that was worth more than the table would have
+been: no migration, so nothing waits on a push, and D-058's asymmetry never arises.
+
+One ordering rule inside it is load-bearing and is not obvious. `alerts_dedup_hourly` is
+unique on `(kind, dedup_key, hour)`, so a tenant returning to a state it held earlier the
+same hour gets 23505 and `suppressed_duplicate`. Resolving the other episodes on that
+outcome would leave the tenant with **no open episode at all** — and an absent readiness
+line reads exactly like a ready tenant. So: raise first, and resolve the others only if the
+raise actually left an episode open. **Stale by up to an hour beats invisible**, because
+invisible is indistinguishable from finished.
+
+### An `ask_client` finding had to be able to hold `ready`
+
+As designed, only blockers held provisioning. So a document with an unresolved «Сор»
+collision reached `ready` — the exact failure the check exists to prevent, one layer up,
+and it would have passed its own test suite. The founder's instruction was specific:
+*before* a customer hits it.
+
+`Finding.holdsReady` is the fix, and the criterion is **consequence, not severity**: set it
+when a wrong answer could reach a customer while the question is open. A service-name
+collision qualifies — the matcher returns `ambiguous`, and D-075's whole point is that a
+real price against the wrong service is more plausible, and therefore worse, than an
+invented one. A missing Latin stem does not: a rule that fails to fire leaves the model
+answering unrefused, which the outbound guard still bounds. Writing the rule into the type
+rather than into a list of codes is deliberate — the next check gets asked the question.
+
+### The reader was accepting unknown keys, and casting rather than building
+
+Found by writing the worked example, which is the argument for shipping one. Two defects,
+one line apart:
+
+`return { ok: true, doc: raw as unknown as IntakeDocument }` handed the writer whatever else
+was in the file, unexamined, under a name asserting it had been checked. That is **D-057
+wearing a type annotation** — a validator answering with the part it managed — and TypeScript
+cannot see it, because the cast is the programmer promising it is true.
+
+And an unrecognised key was silently ignored. A client questionnaire exported with
+`never_say` instead of `neverSay` parses perfectly, yields an **empty rule list**, and the
+bot then discusses the one topic the business said it must never discuss. Nothing is red;
+the document reports as valid. It is `hasTenantData`'s shape (a guard that cannot fire) and
+`replied_at`'s (a field nobody writes), arriving at the front door instead.
+
+The document is now built field by field from what was validated, so what the writer sees is
+exactly what was checked. Unknown keys are reported and name the fields that were probably
+meant; `_`-prefixed keys are deliberate annotations and are dropped.
+
+### What it does not do, and must not learn to
+
+It does not approve Mongolian, publish, infer a missing fact, or resolve an ambiguity. The
+sheet it prints has no database handle by construction — it takes a document and returns
+text — so there is no version of it that could set `reviewed_at`. A sentence edited later is
+written back **unreviewed** and the tenant stops replying until it is signed again: an
+edited sentence is an unreviewed sentence, which is D-065 stated for the writer.
+
+Unchanged bodies are left completely alone. Writing one back would clear a signature for no
+reason — the same defect pointing the other way.
+
+### The example is an auto-service tenant on purpose
+
+`intake/example-auto.json` is in a vertical this platform has never served, and a test
+asserts no salon vocabulary appears anywhere in it. That is the cheapest ongoing proof of
+the standing rule D-078 recorded: **a client is rows, never a repo, never a branch, never a
+code path.** It also ships deliberately incomplete — a name collision and a rule pointing at
+an absent sentence — so a reader sees the validator speak rather than reading a claim about
+what it would say, with a test pinning both faults so the example's own comment cannot
+become a lie.
+
+---
+
+## D-080 — Thread control: the inbound half, and the trap that would have silenced the mirror
+
+**2026-09-17. Founder: "Build the inbound half — `thread_control`, the
+`messaging_handovers` handler, the echo subscription, H11 check 4. Nothing outbound,
+nothing touching the live Page."** Built to §3.7, which had reserved exactly this seam.
+
+`conversations.state` has allowed `awaiting_human` and `human_handled` since `0001` and
+**nothing writes either** — they appear in one place, `persist.ts`'s `OPEN_STATES`, where
+they read as "still open". D-064's shape again: a value that reads as a safety signal for
+as long as nobody tests it. So the product bug underneath was live and uninstrumented — a
+receptionist answering from Business Suite while the bot answers the same customer in
+parallel, and nothing anywhere recording that it happened.
+
+### The trap: echo detection would have destroyed the fourteen days
+
+This is the finding worth carrying, because it is invisible from the feature's own
+description and obvious once stated.
+
+An echo is "an outbound message on this thread whose `mid` is not one of ours", and the
+inference is "therefore a person typed it". On Matrix's Page that inference is **false in
+the ordinary case**: the ancestor is live there answering customers all day, while Dala AI
+is in `shadow` and has never sent anything, so `provider_message_id` is null on every draft
+this platform has ever written. **Every ancestor reply is an echo that is not ours.**
+
+Wired the obvious way, day one marks every active conversation `human`, H11 check 4
+silences the mirror on precisely the conversations worth measuring, and the fourteen days
+produce nothing — while the symptom is indistinguishable from a quiet afternoon, which is
+the failure class D-070 and D-060 are both about.
+
+So an echo moves control **only where `delivery_mode = 'live'`** — where our sends are the
+sends, and "not ours" therefore means "not the bot". Elsewhere it is counted and nothing
+moves. Note the general shape: **a detector built on "not ours" is only sound where we are
+the only one of us**, and during a mirror phase we are not.
+
+### `unknown` as the default and the narrow gate are ONE design
+
+`bot` would have been the convenient default and is a claim this platform cannot support:
+nobody has read the far side of a Meta thread, and D-062 is eleven days of that mistake.
+D-063's addendum is the rule — a migration adding a discriminator with a default is
+retroactively deciding the semantics of every row already there, and those rows are the
+ones that motivated the change.
+
+So the default is `unknown`, and **H11 check 4 refuses on a positively-established `human`
+and nothing else.** Neither half is safe alone: the honest default only works because the
+gate is that narrow, and widening the gate to refuse on `unknown` mutes every tenant at
+once. `control.test.ts` pins both halves against each other for that reason.
+
+An unreadable lookup concludes nothing, anywhere. `controlFromEcho` is a tristate:
+concluding `human` from an unreadable table would silence a tenant on a database blip, and
+concluding `bot` would let it talk over a receptionist. Undetermined is a result (D-057).
+
+### `app_slug` is not an app id, and nothing stored the real one
+
+A handover event names apps by Meta's numeric id. Nothing in the schema had one —
+`app_slug` names a **callback path on this platform**, not an app at Meta, which is D-041
+stated forwards, and tenant #0's slug says `dalatech` while its Page lives in `DALA_AI`.
+`tenant_channels.meta_app_id` is new, nullable, and only the console can fill it. NULL
+makes every handover verdict `unknown`, which changes no state — correct, and visibly
+incomplete rather than quietly wrong.
+
+### What is NOT built, and the shape nobody could verify
+
+No Graph call. `pass_thread_control` and `take_thread_control` are absent: passing control
+is a live mutation of a real salon's thread ownership, it cannot be rehearsed during a
+shadow mirror, and the receiver configuration on Matrix's Page is unknown — the founder is
+establishing it before anything is written.
+
+**`developers.facebook.com` is 403 through this environment's egress proxy (measured
+2026-09-17, `curl` via the CONNECT tunnel).** So the delivery shape of a handover event is
+unverified here. `parseHandoverEvents` searches both plausible containers and, crucially,
+**counts what it could not classify**; the worker logs `handover_unrecognised`. That
+counter is the instrument — the first real handover event is what settles the shape, and an
+entry carrying a handover key we could not read is the most informative thing this path can
+emit. An unverified claim is not a fact to inherit (CLAUDE.md), so none of it is written as
+one: `docs/handover.md` carries a table of what is unverified and why.
+
+`prompt/drafts/handover_and_reclaim.mn.txt` holds the two customer-visible sentences — the
+handover notice and the reclaim — with two options each and four questions. The
+`canned_response_kinds` rows land WITH the outbound half rather than now: a kind nobody
+serves is D-064's dead column in another table.
+
+**The reclaim is not an enhancement to add later.** The founder's motive is a phone that
+went unanswered for two days; a handover into an inbox nobody reads is the same failure
+with better plumbing, and worse, because the customer gets silence from a bot that has
+deliberately stopped talking. It ships with the pass or the pass does not ship.
