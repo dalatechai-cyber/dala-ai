@@ -42,6 +42,7 @@ const bodyOf = (s: PromptSection[], key: string) => s.find((x) => x.key === key)
 const RENDERED_ELSEWHERE: Record<string, string> = {
   'БЭЛЭН ХАРИУЛТ': 'renderCannedSection, per request, in the volatile tail',
   'ХАРИУЛАХЫН ӨМНӨХ ЗААВАЛ ШАЛГАХ ЖАГСААЛТ': "00_gate_preamble's own heading",
+  'ХАРИУЛТЫН ХЭВ МАЯГ': "02_style's own heading",
   'ҮГҮЙ': 'a word in Ш8, not a section name',
 };
 

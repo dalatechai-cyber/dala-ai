@@ -897,6 +897,26 @@ addendum): «Уучлаарай, би зураг харах боломжгүй. 
 then «2 өдөр залгаж байна», then a customer asking for a human rather than an AI. Every other
 refusal row still ends at 7741-7777; this one keeps the customer in the conversation instead.
 
+**When the incumbent has a rule we do not, that is a MEASURED LOSS, not a theoretical gap**
+(2026-09-17, founder, after the third instance in a week). `Matrix-Chatbot` is in production
+for the same salon, so every rule it carries and this platform does not is a difference a
+real customer is already experiencing — not a feature request, not a nice-to-have, and not
+something to weigh against other work on its merits. Three in seven days:
+
+| | The ancestor has | We did not | Cost |
+|---|---|---|---|
+| D-067, 09-14 | a matcher that LISTS Latin forms (`/^(сайн\|байна\|уу\|hi\|hello\|hey)/i`) | any Latin coverage — `fold()` does not transliterate | the founder-approved children's rule never fired for «huuhdiin» |
+| D-076, 09-16 | a fixed line answering a photograph | anything — `extract.ts` skipped it | four real photographs got silence while the ancestor answered |
+| D-081, 09-17 | «Хариултаа товч, ойлгомжтой, Messenger-т тохирсон байдлаар бич» | any rule about length | replies to p90 364 and max 768 chars, with markdown the customer sees |
+
+The reading that produced all three is the same and is cheap: **read the ancestor for the
+rule, not only for the architecture.** `docs/architecture/00-research-notes.md` catalogues
+its DEFECTS — what not to port — and that list has been read carefully. Its *prompt* had not
+been, and the prompt is where a bot in production keeps the lessons its operator learned the
+hard way. Before building any customer-facing behaviour, diff our rules against
+`lib/salonBrain.js` and its `MESSENGER_ADDENDUM`. Anything it has and we lack is already
+costing Matrix something measurable.
+
 **A detector built on "not ours" is only sound where we are the only one of us** (2026-09-17,
 D-080). The inbound half of the Handover Protocol is built: `0027` adds
 `conversations.thread_control`, and H11 check 4 finally refuses a conversation a person is
