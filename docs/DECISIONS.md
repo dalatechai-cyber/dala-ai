@@ -5624,3 +5624,92 @@ serves is D-064's dead column in another table.
 went unanswered for two days; a handover into an inbox nobody reads is the same failure
 with better plumbing, and worse, because the customer gets silence from a bot that has
 deliberately stopped talking. It ships with the pass or the pass does not ship.
+
+---
+
+## D-081 — Brevity as a platform rule, and the seeding trap publishing it exposed
+
+**2026-09-17. Founder: "Option B. Every tenant, new file, as you've reasoned it."** After
+measuring that replies were too long, that the cause was not verbosity, and that the
+ancestor already had the rule.
+
+### The rule, and why the tail rather than the mean
+
+54 model drafts: **median 138 chars, p90 364, max 768**, 39% over 200, 44% carrying line
+breaks. The median is fine. A rule aimed at the average would make good short answers curt
+and fix nothing. Reading the four longest drafts, the behaviour is **catalogue-answering**:
+asked about greasy hair, the model explains CICA, then the course schedule, then
+эмчилгээний хими, then advises a specialist, then gives the phone — 768 characters
+answering a question nobody asked. So the rule leads with *answer only what was asked* and
+*ask one question instead of listing options*, not with "be brief".
+
+The same reading found the model emitting markdown — «**CICA эмчилгээ**» — which Messenger
+does not render, so the customer sees the asterisks. A visible defect nobody had looked for.
+
+`prompt/platform/02_style.mn.txt`, 431 chars, ordinal 2 (after the preamble and the data
+marker, before the Ш gates). `vertical` NULL: brevity is a fact about how a person reads a
+chat message, not about hairdressing. **`RECEPTION_MAX_TOKENS` is not the lever** — hitting
+it is terminal in `model/reception.ts` and the partial text is discarded, so lowering it
+converts long answers into refusals.
+
+**The carve-out is load-bearing.** The block opens by exempting «БЭЛЭН ХАРИУЛТ». Without it
+"be brief" reads as licence to trim an approved sentence — precisely the drift D-065
+measured (the model dropping «би») and D-077 measured (adapting `refusal_price_unlisted`).
+
+### Third regression against the ancestor in a week
+
+`Matrix-Chatbot`'s `lib/salonBrain.js:91` has carried «Хариултаа товч, ойлгомжтой,
+Messenger-т тохирсон байдлаар бич» for weeks. Recorded in CLAUDE.md as a standing rule:
+**when the incumbent has a rule we do not, that is a measured loss, not a theoretical gap** —
+with the cheap reading that would have caught all three (D-067 Latin, D-076 photographs,
+this): read the ancestor for the RULE, not only for the architecture. Its defect list has
+been read carefully; its *prompt* had not been.
+
+### What publishing it exposed, which is the larger half
+
+`generate-seed.ts` wrote into `0010_prompt_blocks_seed.sql` — **applied to the project**.
+Running it rewrote an applied migration; `db push` never re-runs one, so the row would have
+reached no database while the repo disagreed with what ran. And it was worse than stale:
+**`0010`'s `on conflict (block_key)` cannot be applied at all since `0018`** replaced that
+index with one over `(block_key, coalesce(vertical, ''))` — measured, PG 16.13, «there is
+no unique or exclusion constraint matching the ON CONFLICT specification». The regenerate
+path produced SQL that fails.
+
+The tool's own docstring already said an applied block "needs a new migration too — the
+generator cannot express that". **Fourth instance of a comment asserting a control nobody
+built** (`meta/extract.ts`, `config/platform.ts:33`, `preflight`'s `WORKER_PUBLIC_URL`). The
+replacement is a structure, not a sentence: the writer allocates `max(prefix) + 1` and uses
+`writeFileSync(..., { flag: 'wx' })`, an EEXIST from the operating system. There is no
+`--force`.
+
+**Convergent, never delta** — the load-bearing choice, and it came from the adversarial
+pass killing the delta design. A delta computes "already seeded" from the REPO, so a missed
+push is permanent AND self-concealing: the generator finds the block in the unpushed file,
+excludes it from every future delta, and reports "nothing changed" for ever. A full-set
+upsert self-heals; the repair is the ordinary next commit. Measured cost of convergence:
+zero — `prompt_blocks` has no triggers and no `updated_at`.
+
+**A live collision, deleted rather than patched.** `VERTICAL_SEED_PATH` pointed at a
+per-vertical seed numbered **0019** while `0019_staff_short_name` is applied under that
+number. The first per-vertical block ever signed would have written a second 0019 — and the
+four gate blocks waiting on the reading evening are exactly that case. Generic and
+per-vertical blocks are now one family in one file.
+
+### A row in `prompt_blocks` is not a publish
+
+The finding that changes the operator's model. `compileStablePrefix` reads `prompt_blocks`
+at COMPILE time; the reply path serves frozen `config_snapshots` bytes via
+`tenants.live_revision_id`. Pushing the migration only puts the text where the compiler can
+see it — **the republish is what publishes it**, per tenant. If the migration is pushed and
+nothing is republished, the block reaches nobody and nothing goes red.
+
+`scripts/publish/tenant.ts` now refuses before compiling unless the LIVE platform blocks
+equal the signed set. It is the only check in this repository that reads the project rather
+than a database CI built out of the repo, and it is on the only path that can change what a
+customer reads. It also repairs a confirmation inversion: «byte-identical to the live one.
+Nothing to publish» is exactly what a silently-missing block printed, and that sentence is
+only true with this check ahead of it.
+
+**Named and NOT built:** `platform_hash` on `config_snapshots` surfaced as a D-063
+`on_change` digest episode, which is what would make "pushed but never republished" go red
+on its own. A second PR. Until then the staleness signal is a human running the publisher.

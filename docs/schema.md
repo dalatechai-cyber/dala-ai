@@ -329,3 +329,42 @@ Nothing in this migration sends anything. `pass_thread_control` and `take_thread
 are not built: passing control is a live mutation of a real salon's thread ownership,
 it cannot be rehearsed during a shadow mirror, and the receiver configuration on Matrix's
 Page is not yet known. See [`docs/handover.md`](handover.md).
+
+### `0028_prompt_blocks_seed`
+
+The signed platform Mongolian, **the full set**, upserted into `prompt_blocks`. Twenty-two
+blocks — the twenty-one of `0010` plus `02_style`, the brevity rules (D-081).
+
+**`0010` is not regenerated and must never be.** It is what ran in September, and it is not
+merely stale history: its `on conflict (block_key)` **cannot be applied at all** since `0018`
+replaced that index with one over `(block_key, coalesce(vertical, ''))` — Postgres answers
+the old target with *"there is no unique or exclusion constraint matching the ON CONFLICT
+specification"* (measured, PG 16.13, `0001`–`0027` applied). So `0010`'s own row above —
+"seeds 21 signed platform blocks" — stays true, and would have become a lie under the
+regenerate path.
+
+Every seed migration from here carries **every** signed block as an idempotent upsert, so:
+
+- the end state after `db push` is the newest seed file, whatever was missed before;
+- a push that is skipped is repaired by the *next* ordinary commit rather than lost. A
+  delta chain cannot do this — it computes "already seeded" from the repo, so an unpushed
+  block is excluded from every future delta and the tool reports "nothing changed" for ever;
+- `generate-seed.ts` allocates `max(prefix) + 1` and writes with `wx`, so it has no way to
+  open an existing migration. There is no `--force`.
+
+The header carries a **manifest** — one line per row with `block_key`, `vertical`, `ordinal`,
+`layer`, `sha256(body)[0:12]` and the sign-off date — emitted from the same array that emits
+the tuples. A one-block change moves two lines of it; without it a 20 KB regenerated file is
+unreviewable.
+
+`VERTICAL_SEED_PATH` is **deleted**, and with it a live collision: it pointed at a
+per-vertical seed file numbered **0019**, while `0019_staff_short_name` is applied under that
+same number — so the first per-vertical block ever signed would have written a *second*
+migration numbered 0019.
+The four per-vertical gate blocks waiting on the reading evening are exactly that case. A
+per-vertical block is now just a row whose `vertical` is not null, in the same file.
+
+**A row here reaches no customer.** `compileStablePrefix` reads `prompt_blocks` at compile
+time; the reply path serves frozen `config_snapshots` bytes via `tenants.live_revision_id`.
+Pushing this migration puts the text where the compiler can see it — **the republish is what
+publishes it**, per tenant.

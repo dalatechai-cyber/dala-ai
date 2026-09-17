@@ -4,18 +4,43 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildSeedSql, buildVerticalSeedSql, readSignedBlocks, splitVertical, SEED_PATH, VERTICAL_SEED_PATH } from './generate-seed.ts';
+import { buildSeedSql, newestSeed, nextSeedPath, readSignedBlocks, seedMigrations, splitVertical } from './generate-seed.ts';
 
-test('DONE-TEST: the checked-in migration is exactly what the signed files produce', () => {
-  // The whole reason this generator exists. The Mongolian has to be COPIED into SQL —
-  // a migration cannot read a file — and a copy of signed text is precisely what D-020
-  // says will drift, here from the one copy carrying a native speaker's signature.
-  // Regenerating and comparing turns that drift into a red build.
+test('DONE-TEST: the NEWEST seed migration is exactly what the signed files produce', () => {
+  // Was an equality against a constant `SEED_PATH` = 0010. That assertion and the
+  // generator's own docstring contradicted each other the moment a 22nd block was signed:
+  // the docstring said an applied file needs a new migration, the test said 0010 must equal
+  // the whole signed set. Regenerating 0010 was not merely dishonest about history — its
+  // `on conflict (block_key)` cannot be applied at all since 0018 replaced that index
+  // (measured: «there is no unique or exclusion constraint matching the ON CONFLICT
+  // specification»).
+  const newest = newestSeed();
+  assert.notEqual(newest, null, 'there must be at least one seed migration');
   assert.equal(
-    readFileSync(SEED_PATH, 'utf8'),
+    readFileSync(newest as string, 'utf8'),
     buildSeedSql(),
-    `${SEED_PATH} is stale. Run: node scripts/prompt/generate-seed.ts`,
+    `${newest} is stale. Run: node scripts/prompt/generate-seed.ts`,
   );
+});
+
+test('DONE-TEST: 0010 IS HISTORY AND IS NEVER REGENERATED', () => {
+  // The applied file must keep saying what ran in September. The generator can no longer
+  // express writing it: there is no path constant, and the writer allocates max-prefix + 1.
+  const all = seedMigrations();
+  assert.ok(all.length >= 2, 'expected 0010 plus at least one later seed');
+  assert.equal(all[0], 'supabase/migrations/0010_prompt_blocks_seed.sql');
+  const first = readFileSync(all[0] as string, 'utf8');
+  assert.ok(first.includes("on conflict (block_key) where"), "0010 keeps its pre-0018 conflict target");
+  assert.equal(first.includes('02_style'), false, '02_style must not have been written into 0010');
+});
+
+test('the next seed is allocated past every existing migration, never at a constant', () => {
+  // A constant is exactly what put VERTICAL_SEED_PATH at 0019 while 0019_staff_short_name
+  // was already applied — so the first per-vertical block ever signed would have written a
+  // SECOND migration numbered 0019.
+  const next = path.basename(nextSeedPath());
+  const used = readdirSync('supabase/migrations').map((f) => f.slice(0, 4));
+  assert.equal(used.includes(next.slice(0, 4)), false, `${next} collides with an existing migration`);
 });
 
 test('every signed platform file reaches the migration, and nothing else does', () => {
@@ -27,7 +52,7 @@ test('every signed platform file reaches the migration, and nothing else does', 
     files.map((f) => f.slice(0, -'.mn.txt'.length)),
   );
 
-  const sql = readFileSync(SEED_PATH, 'utf8');
+  const sql = readFileSync(newestSeed() as string, 'utf8');
   for (const b of blocks) {
     assert.ok(sql.includes(`'${b.blockKey}'`), `${b.blockKey} missing from the migration`);
     // The BODY, byte for byte. A block whose text reached the file but not the database
@@ -49,7 +74,7 @@ test('the boundary gate is L0 and in wire order; the other two families are not 
   const blocks = readSignedBlocks();
   const gate = blocks.filter((b) => b.layer === 'L0').sort((a, b) => a.ordinal - b.ordinal);
   assert.deepEqual(gate.map((b) => b.blockKey), [
-    '00_gate_preamble', '01_data_marker',
+    '00_gate_preamble', '01_data_marker', '02_style',
     'sh0_channel', 'sh1_refusal_topics', 'sh2_price', 'sh3_booking', 'sh4_staff_schedule',
     'sh5_health', 'sh6_concessions', 'sh7_abuse_offtopic', 'sh8_not_in_kb',
     'sh9_instruction_disclosure',
@@ -124,34 +149,36 @@ test('the filename carries the vertical, and a block without one applies to ever
   assert.deepEqual(splitVertical('sh8_examples.software'), { key: 'sh8_examples', vertical: 'software' });
 });
 
-test('DONE-TEST: TODAY THERE IS NO 0019, and the generator says so rather than writing an empty one', () => {
-  // The founder approved the shape and deliberately did not schedule the reading evening.
-  // Until the drafts are signed and moved into `prompt/platform`, nothing per-vertical is
-  // seeded — and an empty migration in a directory whose contract is "these get pushed"
-  // would be a file that claims work nobody did.
-  assert.equal(buildVerticalSeedSql(), null);
-  assert.equal(existsSync(VERTICAL_SEED_PATH), false, `${VERTICAL_SEED_PATH} must not exist yet`);
-});
+test('DONE-TEST: A PER-VERTICAL BLOCK REACHES THE SAME FILE AS A GENERIC ONE', () => {
+  // Replaces two tests built on VERTICAL_SEED_PATH — a CONSTANT pointing at 0019 while
+  // 0019_staff_short_name.sql is applied, so the first per-vertical block ever signed would
+  // have written a second migration numbered 0019. The four gate blocks waiting on the
+  // reading evening are exactly that case.
+  //
+  // The split existed only because the generator could not allocate a number. A
+  // per-vertical block is just a row whose `vertical` is not null, and the conflict target
+  // `coalesce(vertical, '')` lets it sit beside its generic twin.
+  const root = mkdtempSync(path.join(tmpdir(), 'seed-vertical-'));
+  mkdirSync(path.join(root, 'prompt/platform'), { recursive: true });
+  const write = (name: string, body: string) =>
+    writeFileSync(path.join(root, 'prompt/platform', name), body);
+  write('sh8_not_in_kb.mn.txt', 'Ш8 ерөнхий\n');
+  write('sh8_not_in_kb.salon.mn.txt', 'Ш8 жишээ салон\n');
+  writeFileSync(path.join(root, 'prompt/platform-mn-review.json'), JSON.stringify({
+    blocks: [
+      { block_id: 'sh8_not_in_kb', sha256: 'x', reviewed_by: 'B', reviewed_at: '2026-09-04' },
+      { block_id: 'sh8_not_in_kb.salon', sha256: 'y', reviewed_by: 'B', reviewed_at: '2026-09-17' },
+    ],
+  }));
 
-test('a signed per-vertical block seeds into 0019, NEVER into 0010', () => {
-  // 0010 is applied to the project. A generator that rewrote it would produce a migration
-  // that no longer describes what ran — the same class of untruth as a schema doc that
-  // has drifted from the schema.
-  const root = fixture({
-    'sh0_channel.mn.txt': 'Ш0. СУВАГ.\n',
-    'sh8_examples.salon.mn.txt': 'Ш8 жишээ: салон.\n',
-    'sh8_examples.software.mn.txt': 'Ш8 жишээ: софтвэр.\n',
-  });
-  const shared = buildSeedSql(root);
-  assert.ok(shared.includes('Ш0. СУВАГ.'));
-  assert.equal(shared.includes('Ш8 жишээ'), false, 'a per-vertical block must not reach 0010');
-
-  const perVertical = buildVerticalSeedSql(root) ?? '';
-  assert.ok(perVertical.includes("'salon'") && perVertical.includes("'software'"));
-  assert.ok(perVertical.includes('Ш8 жишээ: салон.') && perVertical.includes('Ш8 жишээ: софтвэр.'));
-  // Both variants share one block_key, which is exactly what 0018 relaxed the index for.
-  assert.equal((perVertical.match(/'sh8_examples'/g) ?? []).length, 2);
-  assert.ok(perVertical.includes("on conflict (block_key, coalesce(vertical, ''))"));
+  const sql = buildSeedSql(root);
+  assert.ok(sql.includes('Ш8 ерөнхий'), 'the generic block is in the file');
+  assert.ok(sql.includes('Ш8 жишээ салон'), 'and so is the per-vertical one — same file');
+  assert.ok(sql.includes("'salon'"), 'the vertical is carried as a column value');
+  assert.ok(
+    sql.includes("on conflict (block_key, coalesce(vertical, ''))"),
+    'the conflict target is the index 0018 created, so both rows can coexist',
+  );
 });
 
 test('an unsigned per-vertical block is refused like any other', () => {

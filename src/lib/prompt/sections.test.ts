@@ -157,14 +157,14 @@ test('DONE-TEST: the twelve signed gate blocks compile into one prefix, in wire 
       reviewedAt: b.reviewedAt,
       origin: 'platform' as const,
     }));
-  assert.equal(sections.length, 12);
+  assert.equal(sections.length, 13);
 
   const out = renderStablePrefix(sections);
   assert.equal(out.ok, true);
   if (!out.ok) return;
 
   assert.deepEqual(out.rendered.order, [
-    '00_gate_preamble', '01_data_marker',
+    '00_gate_preamble', '01_data_marker', '02_style',
     'sh0_channel', 'sh1_refusal_topics', 'sh2_price', 'sh3_booking', 'sh4_staff_schedule',
     'sh5_health', 'sh6_concessions', 'sh7_abuse_offtopic', 'sh8_not_in_kb',
     'sh9_instruction_disclosure',

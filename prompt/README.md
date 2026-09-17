@@ -44,7 +44,9 @@ It can of course be skipped by someone pasting a hash they did not earn — this
 process gate, not a cryptographic one. What it makes impossible is the *accidental* case:
 a block edited in a hurry, shipped without review, and read by customers.
 
-## Signed 2026-09-04 — twenty-one blocks, three families
+## Signed — twenty-two blocks, three families
+
+(Twenty-one on 2026-09-04; `02_style` added 2026-09-17.)
 
 `platform/` was empty until the founder signed off. It now holds three families, and they
 are not the same kind of thing:
