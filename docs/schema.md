@@ -385,9 +385,18 @@ already refuses at `comment_policy = 'none'` for both tenants.
 | `enabled` | **defaults FALSE.** A rule is written, read by a human, then switched on. The same shape as `deterministic_shortcircuit`, and for the same reason: this surface is public and permanent |
 | `provenance` | D-020, NOT NULL with no default |
 
-RLS is on, `anon` and `authenticated` are revoked, and a restrictive
-`using (false) with check (false)` policy is added as well as the absent grant — rule 4's
-two halves, on a table that decides whether the platform speaks on a customer's wall.
+RLS is on and forced, `anon` and `authenticated` are revoked, the three per-command
+restrictive deny-write policies are created, and the table is registered in
+`ops.tenant_scope` and `ops.table_security_class` — the five things `0001` does in bulk
+loops that a later migration inherits none of.
+
+**And a sixth: `grant all on comment_rules to service_role`.** `0001:1636` is a one-time
+bulk grant over the tables that existed when it ran. Without it PostgREST does not expose
+the relation at all — not a permission error, an absence from the schema cache, so every
+`.from('comment_rules')` 404s at runtime while every SQL suite stays green. It shipped that
+way and CI's PostgREST reachability check (D-037) caught it. **`catalog.sql` V35 asserts it
+now**, because that suite only ever checked the deny side: V5 (`anon` holds nothing) and V6
+(`authenticated` holds only SELECT) both pass perfectly for a table nobody can read.
 
 **`MatcherSpec` gains a `stem_sequence` mode** in the same change (`src/lib/gate/match.ts`),
 available to every caller of `parseMatcher` and not only to this table. It exists because

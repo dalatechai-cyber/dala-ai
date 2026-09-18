@@ -30,6 +30,15 @@
 --      know this table exists                           — V7, V8
 --   5. a row in `ops.table_security_class`. `client_readable` defaults FALSE, which is the
 --      answer here: comment rules are ours, not the tenant dashboard's
+--   6. **`grant all … to service_role`** — `0001:1636` is a one-time bulk grant over the
+--      tables that existed when it ran, so a later table is invisible to the RUNTIME.
+--      PostgREST exposes a relation only where the role holds a privilege on it, so the
+--      symptom is not a permission error: the table is simply **absent from the schema
+--      cache**, and every `.from('comment_rules')` 404s. Caught by
+--      `scripts/verify/postgrest.ts` (D-037) — and NOT by `catalog.sql`, which asserts
+--      `anon` holds nothing and `authenticated` holds only SELECT. **The catalog suite
+--      proves nobody unauthorised can read; only the transport check proves the runtime
+--      can.** Both are needed and neither substitutes for the other.
 --
 -- ## `verdict` has three values and `unclassified` is not one of them
 --
@@ -101,3 +110,8 @@ values ('public', 'comment_rules', 'server_owned',
 -- be empty — the revoke is explicit anyway, because "should already be" is the assumption
 -- that made that line untested for months.
 revoke all on comment_rules from anon, authenticated;
+
+-- 6. And the grant the runtime actually needs. Checklist item 6 above says why this is not
+--    implied by anything: `0001`'s `grant all on all tables in schema public to
+--    service_role` ran once, over the tables that existed then.
+grant all on comment_rules to service_role;
