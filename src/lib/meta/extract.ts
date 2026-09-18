@@ -40,6 +40,21 @@ export type InboundMessage = {
   externalId: string;
   text: string;
   sentAt: Date;
+  /**
+   * Attachment kinds on a message that ALSO carries text — the captioned case.
+   *
+   * This existed and was thrown away (D-083). `attachmentKinds()` has always run for every
+   * message and bound its result into `carried`, but `carried` was only ever used on the
+   * skip paths, so a message with text pushed four fields and lost the rest. A customer who
+   * sends a photograph with «Ийм болгож болох уу?» — *can you do it like this?* — therefore
+   * reached the model as those five words and nothing else, and the model answered about a
+   * picture it cannot see and did not know existed.
+   *
+   * Empty for an ordinary text message, which is the overwhelming majority.
+   */
+  attachments: string[];
+  /** Sticker asset ids, when the attachments were stickers. Not PII. @see attachmentKinds */
+  stickerIds: string[];
 };
 
 export type SkipReason = 'echo' | 'no_text' | 'status_event' | 'postback' | 'malformed';
@@ -239,7 +254,9 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
     const ts = ev['timestamp'];
     const sentAt = typeof ts === 'number' && Number.isFinite(ts) ? new Date(ts) : new Date(NaN);
 
-    messages.push({ senderId, externalId, text, sentAt });
+    // `kinds` and `stickerIds` were computed above for `carried` and then dropped here for
+    // every message that had text. That silent discard is D-083; see `InboundMessage`.
+    messages.push({ senderId, externalId, text, sentAt, attachments: kinds, stickerIds });
   }
 
   return { messages, skipped, standby };

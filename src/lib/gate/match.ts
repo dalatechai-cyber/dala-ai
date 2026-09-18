@@ -43,7 +43,36 @@ export const MIN_STEM_CHARS = 4;
 
 export type MatcherSpec =
   | { mode: 'contains_stem'; stems: readonly string[] }
-  | { mode: 'whole_message'; phrases: readonly string[] };
+  | { mode: 'whole_message'; phrases: readonly string[] }
+  /**
+   * Fires on what the message CARRIES, not on what it says (D-083).
+   *
+   * Every other mode reads the customer's text, which is a proxy for the thing a rule
+   * actually cares about. For photographs the proxy is measurably bad in both directions:
+   * «зураг явуулж болох уу?» — *may I send a picture?* — fires a refusal whose honest
+   * answer is *yes, send it*; and a photograph captioned «Ийм болгож болох уу?» fires
+   * nothing at all, because the caption need not contain a picture word. The second is the
+   * one that costs: it is the case where the model answers about an image it cannot see.
+   *
+   * The kinds are Meta's own attachment types (`image`, `video`, `audio`, `file`, `fallback`
+   * …), matched exactly and case-sensitively — they are ASCII identifiers from the payload,
+   * never customer text, so none of rule 6's folding applies to them.
+   */
+  | { mode: 'has_attachment'; kinds: readonly string[] };
+
+/**
+ * What a matcher is run against.
+ *
+ * An object rather than a bare `text` argument so that a mode reading something other than
+ * the words cannot be added without every call site being told about it. `matcherFires`
+ * used to take a string, and a `has_attachment` mode bolted onto that signature would have
+ * had to invent its answer from text it was never given.
+ */
+export type MatchSubject = {
+  text: string;
+  /** Attachment kinds on THIS message; empty for an ordinary text message. */
+  attachments: readonly string[];
+};
 
 export type GateRule = {
   /** Which check this rule belongs to — `Ш1`, `Ш5`, … */
@@ -109,13 +138,23 @@ export function parseMatcher(raw: unknown): ParseResult {
     return { ok: true, spec: { mode: 'whole_message', phrases: phrases as string[] } };
   }
 
+  if (mode === 'has_attachment') {
+    const kinds = o['kinds'];
+    if (!Array.isArray(kinds) || kinds.length === 0) return { ok: false, detail: 'has_attachment needs a non-empty kinds array' };
+    // ascii-safe: an attachment kind is Meta's own identifier from the payload, not text a
+    // customer typed, so MIN_STEM_CHARS and the Cyrillic folding rules do not apply.
+    if (kinds.some((k) => typeof k !== 'string' || k.trim() === '')) return { ok: false, detail: 'an attachment kind is not a non-empty string' };
+    return { ok: true, spec: { mode: 'has_attachment', kinds: kinds as string[] } };
+  }
+
   return { ok: false, detail: `unknown matcher mode ${JSON.stringify(mode)}` };
 }
 
 /** Does one parsed matcher fire on this message? */
-export function matcherFires(text: string, spec: MatcherSpec): boolean {
-  if (spec.mode === 'whole_message') return wholeMessageMatches(text, spec.phrases);
-  return spec.stems.some((stem) => containsStem(text, stem));
+export function matcherFires(subject: MatchSubject, spec: MatcherSpec): boolean {
+  if (spec.mode === 'whole_message') return wholeMessageMatches(subject.text, spec.phrases);
+  if (spec.mode === 'has_attachment') return subject.attachments.some((a) => spec.kinds.includes(a));
+  return spec.stems.some((stem) => containsStem(subject.text, stem));
 }
 
 export type MatchOutcome =
@@ -150,7 +189,7 @@ export type MatchOutcome =
  * («Оюунсүрэн маргааш ажиллаж байна уу, үнэ нь хэд вэ?») and first-match-wins answers the
  * price while leaving the schedule unconstrained.
  */
-export function matchRules(text: string, rules: readonly GateRule[]): MatchOutcome {
+export function matchRules(subject: MatchSubject, rules: readonly GateRule[]): MatchOutcome {
   const firedGates: GateKey[] = [];
   const matchedTopics: string[] = [];
   const unconfirmedTopics: string[] = [];
@@ -162,7 +201,7 @@ export function matchRules(text: string, rules: readonly GateRule[]): MatchOutco
     if (!parsed.ok) {
       return { ok: false, detail: `rule ${rule.topicKey} (${rule.gate}): ${parsed.detail}` };
     }
-    if (!matcherFires(text, parsed.spec)) continue;
+    if (!matcherFires(subject, parsed.spec)) continue;
 
     matchedTopics.push(rule.topicKey);
     // D-020: counted, never silent — and counted AFTER the fire, so the number means "a

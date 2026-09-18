@@ -926,6 +926,34 @@ settles the shape. Read `docs/handover.md` before writing `pass_thread_control` 
 the unverified table and the reclaim state machine, and the reclaim ships with the pass or
 the pass does not ship.
 
+**A value computed and thrown away reads exactly like a value the system never had**
+(2026-09-18, D-083). `meta/extract.ts` has always run `attachmentKinds()` for every message
+and bound it into `carried` — and `carried` is used only on the skip paths, so a message
+WITH text pushed four fields and dropped the rest. **A photograph captioned «Ийм болгож
+болох уу?» reached the model as those five words, with nothing saying a picture existed**,
+and the model answered about an image it cannot see. That is D-064 inverted: its rule is
+"when you find a column, ask who writes it"; this one was written and never carried. Ask
+both, and ask it of values as well as columns.
+
+**A matcher over the customer's WORDS is a proxy, and this one was wrong in both
+directions.** `out_of_scope_topics.photo_consultation` matched `зураг / зурган / фото`:
+«зураг явуулж болох уу?» — *may I send a picture?* — fires a refusal whose honest answer is
+*yes, send it*, while a caption need not contain a picture word at all, so the dangerous case
+fires nothing. `has_attachment` fires on what the message CARRIES. Its kinds are Meta's own
+payload identifiers, so they are matched exactly and are deliberately NOT held to
+`MIN_STEM_CHARS` — that floor exists because a short stem over-matches customer text, and
+these are never customer text. **The rule stays a ROW**: nothing in `src/` decides that a
+picture means a refusal, and no behaviour changes until a tenant's matcher is edited.
+
+`matcherFires` takes a `MatchSubject` now rather than a string, which is D-082's move one
+file over — a mode reading something other than the words could not have been bolted onto the
+old signature without inventing its answer. `ReceptionInput.customerAttachments` is required
+rather than defaulted, because a default of `[]` asserts "no attachment" for a caller that
+forgot, and the case it would get wrong is the one the field exists for.
+`quality_flags.inbound_captioned_attachment` is the instrument and it precedes the policy:
+what such a message should be ANSWERED with is customer-visible Mongolian and still the
+founder's (D-076). Stickers are excluded from the count — D-070's lesson from the other side.
+
 And `scripts/guards/check-deterministic-order.mjs` fails the build on a `.localeCompare(`
 call anywhere in `src/`. Ordering that can reach the compiled prompt decides
 `content_hash`, i.e. the prompt-cache key, so it must not depend on the runtime's locale

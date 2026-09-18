@@ -81,6 +81,15 @@ export type ReceptionDeps = {
 
 export type ReceptionInput = {
   customerMessage: string;
+  /**
+   * Attachment kinds on this message, for the gate (D-083).
+   *
+   * Required, not optional-with-a-default. A default of `[]` would mean "this message had
+   * no attachment", which is the wrong answer for a caller that simply forgot — and the
+   * case it would get wrong is the captioned photograph, the one the field exists for.
+   * A new caller that does not know should not compile.
+   */
+  customerAttachments: readonly string[];
   history: readonly { role: 'user' | 'assistant'; content: string }[];
   eventAt: Date;
   now: Date;
@@ -171,7 +180,7 @@ export async function handleReception(
   // 2. Which gates fired. An unparseable matcher refuses the whole match rather than
   //    being skipped — a silently disarmed refusal is the failure this platform keeps
   //    finding.
-  const matched = matchRules(input.customerMessage, input.rules);
+  const matched = matchRules({ text: input.customerMessage, attachments: input.customerAttachments }, input.rules);
   if (!matched.ok) {
     await deps.release();
     return { kind: 'retry', detail: `matcher unusable: ${matched.detail}` };
