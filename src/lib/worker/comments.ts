@@ -49,12 +49,27 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { canDeliver } from '../channel/delivery.ts';
 import { extractComments, type InboundComment } from '../meta/comments.ts';
 import { decideCommentReply, type CommentChannelConfig, type CommentRefusal } from '../comments/eligibility.ts';
+import { classifyComment, type CommentRule } from '../comments/classify.ts';
+import { cpLength } from '../mn/text.ts';
 import type { CommentSendOutcome } from '../comments/send.ts';
 import { claim, draftOnce, markFailed, markIndeterminate, markSent } from '../outbound/claim.ts';
 import { MESSENGER_SEND_UNIT_COST } from '../../config/platform.ts';
 
 /** The canned kind seeded by 0007. One sentence, per tenant, per locale. */
 export const COMMENT_LINE_KIND = 'comment_public_reply';
+
+/**
+ * The flag written for a comment no rule fired on (D-085).
+ *
+ * It carries the comment's IDS and its shape, and deliberately **not its text**.
+ * `quality_flags` is not reached by `ops.purge_expired` — that function deletes and nulls
+ * `webhook_events` — so a copy of a customer's words here would be a second store of the
+ * same PII under weaker rules than the first. The text is already in
+ * `webhook_events.raw_payload`, already governed by the tenant's retention and already
+ * nulled by the purge; the operator's tool joins back to it by `comment_id` for as long as
+ * it exists, and after that the text is gone, which is correct rather than unfortunate.
+ */
+export const UNCLASSIFIED_FLAG = 'comment_unclassified';
 
 export type CommentEffects = {
   db: SupabaseClient;
@@ -129,6 +144,79 @@ async function readPinnedLine(
     line: { body: String(row['body'] ?? ''), reviewedAt: row['reviewed_at'] === null ? null : String(row['reviewed_at']) },
   };
 }
+
+/**
+ * The tenant's enabled comment rules (D-085).
+ *
+ * `enabled` is filtered HERE rather than in `classifyComment`, so the classifier is handed
+ * the rules that are live and cannot be made to reason about ones that are not. A tenant
+ * whose rows all happen to be disabled therefore reaches `classifyComment` with an empty
+ * list and refuses with `no_rules` — which is the intended reading: a switched-on comment
+ * channel with no live rule is not a channel that ignores everything, it is a channel
+ * nobody finished configuring.
+ */
+async function readCommentRules(
+  db: SupabaseClient,
+  input: { tenantId: string },
+): Promise<{ ok: true; rules: CommentRule[] } | { ok: false; detail: string }> {
+  const { data, error } = await db
+    .from('comment_rules')
+    .select('rule_key, verdict, matcher')
+    .eq('tenant_id', input.tenantId)
+    .eq('enabled', true);
+  if (error) return { ok: false, detail: `comment_rules unreadable: ${error.message}` };
+  const rows = Array.isArray(data) ? data : [];
+  return {
+    ok: true,
+    rules: rows.map((r) => {
+      const row = r as Record<string, unknown>;
+      return {
+        ruleKey: String(row['rule_key']),
+        // The CHECK constraint is the guarantee; this cast carries it across the seam. A
+        // value outside the three would make `classifyComment` treat the rule as matching
+        // nothing, which is why the constraint and not the cast is what is relied on.
+        verdict: String(row['verdict']) as CommentRule['verdict'],
+        matcher: row['matcher'],
+      };
+    }),
+  };
+}
+
+/**
+ * Record a comment no rule fired on, so the shadow phase produces a stem list.
+ *
+ * Failure here does NOT fail the job. The row is an instrument, and a tenant losing one
+ * line of their own to-do list is not a reason to stop answering customers — the opposite
+ * trade from every refusal in `eligibility.ts`, because nothing downstream reads this.
+ * It is logged so the loss is visible rather than assumed away.
+ */
+async function recordUnclassified(
+  fx: CommentEffects,
+  input: { tenantId: string; comment: InboundComment },
+): Promise<void> {
+  const { error } = await fx.db.from('quality_flags').insert({
+    tenant_id: input.tenantId,
+    flag: UNCLASSIFIED_FLAG,
+    detail: {
+      comment_id: input.comment.commentId,
+      post_id: input.comment.postId,
+      // Shape, not content — see UNCLASSIFIED_FLAG. Characters, never bytes (rule 6).
+      chars: cpLength(input.comment.text),
+      has_cyrillic: HAS_CYRILLIC.test(input.comment.text),
+    },
+    at: fx.now.toISOString(),
+  });
+  if (error) fx.log('warn', 'comment_unclassified_unrecorded', { detail: error.message });
+}
+
+/**
+ * Does this text carry any Cyrillic at all?
+ *
+ * Recorded because 52% of the DM corpus does not, and a silence that is all Latin means
+ * something different from one that is all Cyrillic: the first says the tenant's stem list
+ * is missing the romanised spellings (D-067), the second says it is missing a word.
+ */
+const HAS_CYRILLIC = /\p{Script=Cyrillic}/u;
 
 /**
  * Is the comment this one replies to one of OURS?
@@ -247,6 +335,18 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     return result;
   }
 
+  // The rules, before anything is decided. A tenant with no live rule refuses the whole
+  // job rather than classifying every comment as noise — D-070's rule applied before the
+  // mechanism ships: "the classifier has no rules" and "every comment was noise" must not
+  // produce the same counters, because the first is a configuration the operator has to
+  // finish and the second is a quiet day.
+  const rules = await readCommentRules(fx.db, { tenantId: input.tenantId });
+  if (!rules.ok) {
+    fx.log('error', 'comment_rules_unreadable', { tenantId: input.tenantId, detail: rules.detail });
+    result.retry = true;
+    return result;
+  }
+
   const parents = await parentsWeWrote(fx.db, {
     tenantId: input.tenantId,
     // Only replies have a parent that could be ours: a top-level comment is its own root.
@@ -288,8 +388,27 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
   const postCounts = new Map(perPost.counts);
 
   for (const comment of comments) {
+    // A comment carries no attachment kinds on this surface: `extractComments` skips a
+    // sticker or bare-photo comment as `no_text` before it reaches here, so there is
+    // nothing for a `has_attachment` rule to read. Passed explicitly as empty rather than
+    // defaulted, for D-083's reason — a default asserts "no attachment" on behalf of a
+    // caller who forgot, and the case it would get wrong is the one the field exists for.
+    const classified = classifyComment({ text: comment.text, attachments: [] }, rules.rules);
+    if (!classified.ok) {
+      // A malformed or missing rule set refuses the JOB, not the comment. Continuing would
+      // answer a complaint as a sales enquiry with nothing anywhere going red, which is the
+      // failure `parseMatcher` refuses to commit one layer down.
+      fx.log('error', 'comment_classify_refused', {
+        tenantId: input.tenantId, code: classified.code, detail: classified.detail,
+      });
+      result.retry = true;
+      return result;
+    }
+    if (classified.verdict === 'unclassified') await recordUnclassified(fx, { tenantId: input.tenantId, comment });
+
     const decision = decideCommentReply({
       config: input.config,
+      verdict: classified.verdict,
       pinnedLine: line.line,
       comment: {
         commentId: comment.commentId,

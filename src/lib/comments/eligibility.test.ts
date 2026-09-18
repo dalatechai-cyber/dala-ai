@@ -7,6 +7,9 @@ const LINE = { body: 'Сайн байна уу! Дэлгэрэнгүйг хув�
 
 const base: CommentDecisionInput = {
   config: { policy: 'public_only', maxPostAgeDays: 30, ignoreCommenterIds: [], repliesPerPostPerDay: 1 },
+  // The existing cases were all written before the classifier and all describe a comment
+  // worth answering, so `reply` is the base. The verdict's own four cases are below.
+  verdict: 'reply',
   pinnedLine: LINE,
   comment: {
     commentId: 'c_1',

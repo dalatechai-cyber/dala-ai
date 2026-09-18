@@ -29,8 +29,23 @@ const entry = (changes: unknown[]) => ({ id: PAGE, changes });
 
 type Reply = { data?: unknown; error?: unknown };
 
+/**
+ * A `reply` rule that fires on the fixture comment «Үнэ хэд вэ?», and an `escalate` rule.
+ *
+ * Every pre-classifier case in this file describes a customer worth answering, so the
+ * default rule set has to say so or the whole suite refuses with `no_rules` — which is
+ * itself the correct behaviour and is asserted below.
+ */
+const RULE_ROWS = [
+  { rule_key: 'price', verdict: 'reply', matcher: { mode: 'contains_stem', stems: ['хэдэ', 'үнэ '] } },
+  { rule_key: 'complaint', verdict: 'escalate', matcher: { mode: 'contains_stem', stems: ['утсаа', 'залга'] } },
+  { rule_key: 'praise', verdict: 'ignore', matcher: { mode: 'contains_stem', stems: ['гоён', 'баярла'] } },
+];
+
 const DEFAULTS: Record<string, Reply> = {
   canned_responses: { data: { body: LINE, reviewed_at: '2026-09-01T00:00:00Z' }, error: null },
+  comment_rules: { data: RULE_ROWS, error: null },
+  quality_flags: { data: null, error: null },
 };
 
 /**
@@ -456,4 +471,107 @@ test('a redelivery of a row already SENT posts nothing', async () => {
   const r = await result;
   assert.equal(posted.length, 0);
   assert.equal(r.refused['thread_already_answered'], 1);
+});
+
+// ---------------------------------------------------------------------------
+// The classifier (D-085)
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: no comment rules REFUSES the job; it does not treat every comment as noise', async () => {
+  // Fails CLOSED, and the direction matters. Classifying everything as `ignore` would make
+  // "nobody finished configuring this tenant" and "today was quiet" produce identical
+  // counters — D-070's rule, applied before the mechanism ships rather than after it fails.
+  const { fx, posted } = stubFx({ tables: { comment_rules: { data: [], error: null } } });
+  const r = await runCommentJob(fx, baseInput);
+  assert.equal(r.retry, true);
+  assert.deepEqual(posted, [], 'nothing reaches the wall');
+  assert.equal(r.replied, 0);
+});
+
+test('an unreadable comment_rules asks for a retry rather than answering unclassified', async () => {
+  const { fx, posted } = stubFx({ tables: { comment_rules: { data: null, error: { message: 'boom' } } } });
+  const r = await runCommentJob(fx, baseInput);
+  assert.equal(r.retry, true);
+  assert.deepEqual(posted, []);
+});
+
+test('DONE-TEST: a complaint is ESCALATED — nothing is posted and the allowance survives', async () => {
+  // «Утсаа авахгүй байна» — *you are not answering the phone* — under the salon's own post.
+  // The pinned line says "come to DM", which is a brush-off to a public complaint. And the
+  // post's one daily reply must still be there for the question that arrives later, so the
+  // refusal must not draft a row.
+  const { fx, posted, ops } = stubFx();
+  const r = await runCommentJob(fx, {
+    ...baseInput,
+    rawPayload: entry([comment({ message: 'Утсаа авахгүй байна' })]),
+  });
+  assert.equal(r.refused['comment_escalated'], 1);
+  assert.deepEqual(posted, [], 'a public complaint is never answered with the canned line');
+  assert.equal(r.drafted, 0);
+  assert.equal(
+    ops.filter((o) => o.table === 'outbound_messages' && o.op === 'insert').length, 0,
+    'no draft row, so the per-post cap is untouched — an escalation does not spend the allowance',
+  );
+});
+
+test('recognised noise is silent and writes NO unclassified row', async () => {
+  const { fx, posted, ops } = stubFx();
+  const r = await runCommentJob(fx, { ...baseInput, rawPayload: entry([comment({ message: 'гоён юм аа' })]) });
+  assert.equal(r.refused['comment_not_worth_reply'], 1);
+  assert.deepEqual(posted, []);
+  assert.equal(ops.filter((o) => o.table === 'quality_flags').length, 0,
+    'a rule recognised it, so it is not on the operator’s to-do list');
+});
+
+test('DONE-TEST: an unclassified comment is recorded WITHOUT its text', async () => {
+  // The shadow phase's only product is this list. It carries the ids and the shape, and
+  // not the words: `quality_flags` is not reached by `ops.purge_expired`, so a copy of the
+  // customer's text here would outlive the `webhook_events` row it was copied from.
+  const { fx, ops } = stubFx();
+  const r = await runCommentJob(fx, {
+    ...baseInput,
+    rawPayload: entry([comment({ message: 'Ямар нэгэн шинэ зүйл' })]),
+  });
+  assert.equal(r.refused['comment_unclassified'], 1);
+  const flag = ops.find((o) => o.table === 'quality_flags' && o.op === 'insert');
+  assert.ok(flag, 'the row is written');
+  const patch = flag?.patch ?? {};
+  assert.equal(patch['flag'], 'comment_unclassified');
+  const detail = patch['detail'] as Record<string, unknown>;
+  assert.equal(detail['comment_id'], `${PAGE}_c1`);
+  assert.equal(detail['chars'], 20);
+  assert.equal(detail['has_cyrillic'], true);
+  assert.equal(
+    JSON.stringify(patch).includes('Ямар нэгэн'), false,
+    'the customer’s words are NOT copied into an unpurged table',
+  );
+});
+
+test('a failure to record an unclassified comment does not fail the job', async () => {
+  // The inverse trade from every refusal in eligibility.ts, and deliberate: nothing reads
+  // this row, so losing one line of the operator's to-do list must not stop the tenant
+  // answering customers. It is logged rather than swallowed.
+  const { fx, logs } = stubFx({ tables: { quality_flags: { data: null, error: { message: 'nope' } } } });
+  const r = await runCommentJob(fx, { ...baseInput, rawPayload: entry([comment({ message: 'Ямар нэгэн' })]) });
+  assert.equal(r.retry, false);
+  assert.ok(logs.includes('comment_unclassified_unrecorded'));
+});
+
+test('a malformed rule refuses the job rather than silently dropping that rule', async () => {
+  // A skipped `escalate` rule is a complaint quietly reclassified as a sales enquiry.
+  const { fx, posted } = stubFx({
+    tables: { comment_rules: { data: [{ rule_key: 'broken', verdict: 'escalate', matcher: { mode: 'nope' } }], error: null } },
+  });
+  const r = await runCommentJob(fx, baseInput);
+  assert.equal(r.retry, true);
+  assert.deepEqual(posted, []);
+});
+
+test('only ENABLED rules are loaded', async () => {
+  const { fx, ops } = stubFx();
+  await runCommentJob(fx, baseInput);
+  const read = ops.find((o) => o.table === 'comment_rules');
+  assert.ok(read, 'the rules are read');
+  assert.equal(read?.filters['eq:enabled'], true, 'a rule nobody switched on must not decide anything');
+  assert.equal(read?.filters['eq:tenant_id'], TENANT);
 });

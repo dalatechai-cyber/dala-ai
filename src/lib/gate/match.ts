@@ -27,7 +27,7 @@
  * thing the rule existed to prevent.
  */
 import { isTenantConfirmed } from '../provenance.ts';
-import { containsStem, wholeMessageMatches } from '../mn/match.ts';
+import { containsStem, matchesStemSequence, wholeMessageMatches } from '../mn/match.ts';
 import { cpLength } from '../mn/text.ts';
 import type { GateKey } from '../guard/outbound.ts';
 
@@ -58,7 +58,41 @@ export type MatcherSpec =
    * …), matched exactly and case-sensitively — they are ASCII identifiers from the payload,
    * never customer text, so none of rule 6's folding applies to them.
    */
-  | { mode: 'has_attachment'; kinds: readonly string[] };
+  | { mode: 'has_attachment'; kinds: readonly string[] }
+  /**
+   * Ordered stems within a window — the mechanism `matchesStemSequence` already provides
+   * for outbound forbidden phrases, exposed as a matcher so tenant rows can use it.
+   *
+   * It exists because `MIN_STEM_CHARS` has a cost this platform had not had to pay yet.
+   * «цаг» — *appointment*, the most valuable intent a salon has — is THREE characters, and
+   * it also begins «цагаан» (white), so a bare `цаг` fires booking on a colour question and
+   * the floor correctly refuses it. `['цаг', 'ав']` within a window does not have that
+   * problem in the same way: the ordering and the window are the specificity that the
+   * length floor is a proxy for.
+   *
+   * **A sequence is therefore exempt from `MIN_STEM_CHARS`, and the exemption is bounded
+   * rather than waived.** Each stem must still be non-empty, at least two stems are
+   * required, and the window is capped — so the mode cannot be used to smuggle a single
+   * short stem past the floor by pairing it with something that matches everywhere.
+   *
+   * What it does NOT buy: «цагаан авна» (*I will take white*) fires `['цаг', 'ав']`, because
+   * «цаг» prefixes «цагаан» and «ав» prefixes «авна» nine characters later. On the comment
+   * surface that costs nothing — both readings are a customer worth answering and the reply
+   * is one fixed sentence either way — but anywhere the matched TOPIC selects the response,
+   * it is a real mislabel. Use it where the verdict is coarse; prefer a long single stem
+   * where the topic decides what is said.
+   */
+  | { mode: 'stem_sequence'; stems: readonly string[]; windowCp: number };
+
+/**
+ * The widest window a `stem_sequence` may span, in code points.
+ *
+ * A sequence with an unbounded window degenerates into "all of these words appear
+ * somewhere", which is precisely the unanchored substring matcher rule 6 forbids — and it
+ * would do it while looking like a tightening. 40 is `matchesStemSequence`'s own default
+ * and is roughly one Mongolian clause.
+ */
+export const MAX_SEQUENCE_WINDOW_CP = 40;
 
 /**
  * What a matcher is run against.
@@ -147,6 +181,29 @@ export function parseMatcher(raw: unknown): ParseResult {
     return { ok: true, spec: { mode: 'has_attachment', kinds: kinds as string[] } };
   }
 
+  if (mode === 'stem_sequence') {
+    const stems = o['stems'];
+    if (!Array.isArray(stems) || stems.length < 2) {
+      // One stem in a sequence is a `contains_stem` that has escaped the length floor.
+      // Refusing it here is the whole reason the exemption above is safe to grant.
+      return { ok: false, detail: 'stem_sequence needs at least two stems; one stem is contains_stem without the floor' };
+    }
+    if (stems.some((s) => typeof s !== 'string' || s.trim() === '')) {
+      return { ok: false, detail: 'a stem is not a non-empty string' };
+    }
+    const raw = o['windowCp'];
+    // Absent means the default, not zero. A zero window matches nothing and would read as
+    // a rule that is switched off rather than one that is malformed.
+    const windowCp = raw === undefined || raw === null ? MAX_SEQUENCE_WINDOW_CP : raw;
+    if (typeof windowCp !== 'number' || !Number.isInteger(windowCp) || windowCp < 1) {
+      return { ok: false, detail: 'windowCp must be a positive integer' };
+    }
+    if (windowCp > MAX_SEQUENCE_WINDOW_CP) {
+      return { ok: false, detail: `windowCp ${windowCp} exceeds ${MAX_SEQUENCE_WINDOW_CP}: an unbounded window is an unanchored matcher wearing a tightening's clothes` };
+    }
+    return { ok: true, spec: { mode: 'stem_sequence', stems: stems as string[], windowCp } };
+  }
+
   return { ok: false, detail: `unknown matcher mode ${JSON.stringify(mode)}` };
 }
 
@@ -154,6 +211,7 @@ export function parseMatcher(raw: unknown): ParseResult {
 export function matcherFires(subject: MatchSubject, spec: MatcherSpec): boolean {
   if (spec.mode === 'whole_message') return wholeMessageMatches(subject.text, spec.phrases);
   if (spec.mode === 'has_attachment') return subject.attachments.some((a) => spec.kinds.includes(a));
+  if (spec.mode === 'stem_sequence') return matchesStemSequence(subject.text, spec.stems, spec.windowCp);
   return spec.stems.some((stem) => containsStem(subject.text, stem));
 }
 
