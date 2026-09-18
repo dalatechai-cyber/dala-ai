@@ -431,3 +431,19 @@ rate windows one day past close, and its returned jsonb gains `sessions_purged` 
 `counters_purged`. The one-day lag on sessions is not a retention preference: it keeps a
 just-expired token resolvable long enough to say "your session ended" rather than missing,
 which is indistinguishable from a forged token.
+
+### `0032_web_mint_secret_kind`
+
+`tenant_secrets.kind` gains **`web_mint_secret`** — the tenant server's HMAC key for the
+website channel's session mint (D-086). Widening a CHECK, so every existing row still
+satisfies it and nothing is dropped, rewritten or narrowed.
+
+It is per-tenant data and therefore sealed under the KEK like `page_token`, not an
+environment variable: `META_APP_SECRETS` is an env map because a Meta app secret belongs to
+the app, which is ours, and a mint secret belongs to the client. Keyed on `channel_key` as
+well as `tenant_id`, so a tenant running two widgets can rotate one without the other going
+dark.
+
+**Nothing reads this value yet** — the mint route is not built. It exists so that sealing
+the secret (a founder step) can start in parallel. Do not cite its presence as evidence the
+channel works.
