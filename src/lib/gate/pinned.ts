@@ -57,7 +57,7 @@
  * unreviewed rows for the same reason.
  */
 import { nfc } from '../mn/text.ts';
-import type { CannedRow } from './match.ts';
+import { MODEL_INVISIBLE_KINDS, type CannedRow } from './match.ts';
 
 /**
  * How close a reply must be to a pinned line before it is read as a copy of it.
@@ -150,6 +150,31 @@ export function similarity(a: string, b: string): number {
 }
 
 /**
+ * Is this row one the model could actually have been reaching for?
+ *
+ * Two rows are excluded, for the same reason in different words: **a reply can only be an
+ * adaptation of a sentence the model was shown.**
+ *
+ *  - An UNREVIEWED row is not an approved sentence. Measuring against it and then serving
+ *    it would ship Mongolian nobody signed off on because the model roughly typed it.
+ *  - A MODEL-INVISIBLE row is filtered out of the compiled prefix (D-082), so the model
+ *    never read it. A reply that happens to resemble it is a coincidence, and correcting
+ *    to it replaces the model's answer with a sentence about a subject nobody raised.
+ *
+ * The second is not hypothetical (D-083). Matrix's `refusal_out_of_scope` was reworded on
+ * 2026-09-18 to end with the same invitation as `image_received` — «Хүссэн үйлчилгээ, үсний
+ * урт, өнгөө бичвэл баяртайгаар хариулна.» Measured with the image row still a candidate, a
+ * reply that kept that sentence and reworded the one before it resolved to `image_received`
+ * at a 0.68 share, because `embeddedAdaptation` picks the longest common RUN and the shorter
+ * row wins on run-over-length. A customer asking which colour suits them would have been
+ * told the bot cannot see pictures — D-082's own defect, rebuilt inside the mechanism that
+ * corrects drift. With the row excluded the same reply comes back `clean`.
+ */
+function isPinnable(row: CannedRow): boolean {
+  return row.reviewedAt !== null && !MODEL_INVISIBLE_KINDS.includes(row.kind);
+}
+
+/**
  * Is this reply a copy of one of the tenant's approved lines?
  *
  * Returns the CLOSEST match when several are near, because the canned kinds for one tenant
@@ -164,9 +189,7 @@ export function checkPinnedLines(reply: string, canned: readonly CannedRow[]): P
 
   let best: { row: CannedRow; body: string; score: number } | null = null;
   for (const row of canned) {
-    // An unreviewed row is not an approved sentence. Measuring against it, and then serving
-    // it, would ship Mongolian nobody signed off on because the model roughly typed it.
-    if (row.reviewedAt === null) continue;
+    if (!isPinnable(row)) continue;
     const body = comparable(row.body);
     if (body === '') continue;
 
@@ -273,7 +296,7 @@ function embeddedAdaptation(candidate: string, canned: readonly CannedRow[]): Pi
   let best: { row: CannedRow; run: number } | null = null;
 
   for (const row of canned) {
-    if (row.reviewedAt === null) continue;
+    if (!isPinnable(row)) continue;
     const body = comparable(row.body);
     if (body === '') continue;
     // An exact quotation is not drift. `comparable` has already folded both sides.

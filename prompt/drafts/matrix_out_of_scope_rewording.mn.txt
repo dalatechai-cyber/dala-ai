@@ -1,10 +1,43 @@
-# OPTION A APPROVED 2026-09-18 by the founder. Kept here as the record of what was approved
-# and why; the live sentence is the `canned_responses` row, not this file.
+# APPROVED 2026-09-18 by the founder — the VARIANT, not plain A. Kept here as the record of
+# what was approved and why; the live sentence is the `canned_responses` row, not this file.
 #
 # THE APPROVED TEXT:
 #
 #   Уучлаарай, ямар үйлчилгээ, өнгө Танд тохирохыг би шийдэж өгөх боломжгүй.
-#   Манай мэргэжилтэн Танд туслах болно. Та 7741-7777 дугаараар холбогдоно уу.
+#   Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
+#
+# A's first sentence with the image line's approved second sentence. The founder's reason:
+# *"ending at the phone number is what I keep trying to get away from, and that version
+# routes them back into the conversation."* It is the second refusal row that does not end
+# at 7741-7777, after `image_received` (D-076), and for the same corpus reason.
+#
+# THE AMBIGUITY THIS RAISED, MEASURED BEFORE IT WAS APPROVED
+#
+# Sharing a sentence with `image_received` puts two rows in front of `checkPinnedLines`.
+# Measured against the real code:
+#
+#   the row verbatim                         -> exact      refusal_out_of_scope
+#   the row with «би» dropped (D-065 drift)  -> paraphrase  refusal_out_of_scope   0.978
+#   sentence 1 reworded, sentence 2 kept     -> paraphrase  IMAGE_RECEIVED         0.680
+#   the shared sentence alone                -> paraphrase  IMAGE_RECEIVED         0.630
+#
+# The third line is the problem: a model faithfully adapting THIS row gets corrected to the
+# image line, and a customer asking which colour suits them is told the bot cannot see
+# pictures. That is D-082's defect rebuilt inside the mechanism meant to correct drift.
+# `embeddedAdaptation` picks the longest common RUN, and the shorter row wins on
+# run-over-length (62/100 against 62/139).
+#
+# THE FIX, and it is principled rather than a patch: `image_received` is filtered out of the
+# compiled prefix, so the model never reads it — therefore it must not be a row the model's
+# output is MEASURED against either. `isPinnable` now excludes the same
+# `MODEL_INVISIBLE_KINDS` that `cannedSectionBody` excludes. With that, lines three and four
+# come back `clean` and lines one and two are unchanged.
+#
+# THE GIVE, stated rather than discovered: a partial adaptation — keeping sentence 2 and
+# rewording sentence 1 — is now `clean`, so it is neither corrected nor COUNTED. The shared
+# run is 62 characters of a 139-character row, a 0.45 share against `EMBEDDED_MIN_SHARE` 0.6.
+# Plain A does not have this, because it shares nothing. That is D-077's "counted nowhere"
+# at smaller scale, and it is the price of routing the customer back into the conversation.
 #
 # NOT YET APPLIED, AND THE ORDER MATTERS. Editing this row moves `canned_hash`, and
 # `reception/handle.ts:231` compares the live rows against the published snapshot and
@@ -16,7 +49,7 @@
 #   deploy → git pull → run the UPDATE below → publish immediately
 #
 #   update canned_responses
-#      set body = 'Уучлаарай, ямар үйлчилгээ, өнгө Танд тохирохыг би шийдэж өгөх боломжгүй. Манай мэргэжилтэн Танд туслах болно. Та 7741-7777 дугаараар холбогдоно уу.',
+#      set body = 'Уучлаарай, ямар үйлчилгээ, өнгө Танд тохирохыг би шийдэж өгөх боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.',
 #          reviewed_at = now()
 #    where tenant_id = (select id from tenants where slug = 'matrix-eco-salon')
 #      and kind = 'refusal_out_of_scope'

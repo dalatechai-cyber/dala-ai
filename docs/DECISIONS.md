@@ -5852,3 +5852,41 @@ case-sensitive substring test on Cyrillic, inside the tool checking a Cyrillic f
 line away from reporting that the section was clean. Rule 6 is about matchers over customer
 text; it applies to the diagnostics just as hard, and D-077's first diagnostic made the same
 class of mistake three days ago.
+
+
+### D-082 addendum — the variant, and a row the model was never shown
+
+**2026-09-18.** The founder took the variant over plain A for `refusal_out_of_scope`:
+A's first sentence with `image_received`'s approved second sentence, because *"ending at the
+phone number is what I keep trying to get away from, and that version routes them back into
+the conversation."* It is the second refusal row that does not end at 7741-7777, for D-076's
+corpus reason.
+
+Sharing a sentence with `image_received` put two rows in front of `checkPinnedLines`, and
+the measurement is why the variant is safe rather than a hope:
+
+| reply | canonical row |
+|---|---|
+| the row verbatim | `exact` → `refusal_out_of_scope` |
+| the row with «би» dropped (D-065's real drift) | `paraphrase` → `refusal_out_of_scope`, 0.978 |
+| sentence 1 reworded, sentence 2 kept | `paraphrase` → **`image_received`**, 0.680 |
+| the shared sentence alone | `paraphrase` → **`image_received`**, 0.630 |
+
+The third row is the defect: a model faithfully adapting the CONSULTATION refusal gets
+corrected to the IMAGE line, and a customer asking which colour suits them is told the bot
+cannot see pictures. **D-082's own defect, rebuilt inside the mechanism that exists to
+correct drift.** `embeddedAdaptation` picks the longest common run and the shorter row wins
+on run-over-length — 62/100 against 62/139.
+
+The fix is the same principle one file over: `image_received` is filtered out of the compiled
+prefix because the model is never asked to produce it, so **it must not be a row the model's
+output is measured against either.** A reply resembling a sentence the model never read is a
+coincidence, not an adaptation. `isPinnable` excludes `MODEL_INVISIBLE_KINDS` alongside the
+unreviewed rows it already excluded, in both passes. Rows three and four then come back
+`clean`; rows one and two are unchanged.
+
+**The give, stated rather than discovered:** a partial adaptation is now `clean`, so it is
+neither corrected nor counted — the shared run is a 0.45 share of the longer row, under
+`EMBEDDED_MIN_SHARE`. Plain A has no such case because it shares nothing. That is D-077's
+"counted nowhere" at smaller scale, and it is what routing the customer back into the
+conversation costs.
