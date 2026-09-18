@@ -1,3 +1,39 @@
+# OPTION A APPROVED 2026-09-18 by the founder. Kept here as the record of what was approved
+# and why; the live sentence is the `canned_responses` row, not this file.
+#
+# THE APPROVED TEXT:
+#
+#   Уучлаарай, ямар үйлчилгээ, өнгө Танд тохирохыг би шийдэж өгөх боломжгүй.
+#   Манай мэргэжилтэн Танд туслах болно. Та 7741-7777 дугаараар холбогдоно уу.
+#
+# NOT YET APPLIED, AND THE ORDER MATTERS. Editing this row moves `canned_hash`, and
+# `reception/handle.ts:231` compares the live rows against the published snapshot and
+# returns `retry` — `canned_stale` — on any difference. QStash holds and re-delivers, so
+# the window defers rather than loses replies, but `isFresh` drops a message after the
+# tenant's `reply_age_limit_minutes` (Matrix: the 30-minute default). So the update and the
+# republish must be under half an hour apart, and the update goes INSIDE that window:
+#
+#   deploy → git pull → run the UPDATE below → publish immediately
+#
+#   update canned_responses
+#      set body = 'Уучлаарай, ямар үйлчилгээ, өнгө Танд тохирохыг би шийдэж өгөх боломжгүй. Манай мэргэжилтэн Танд туслах болно. Та 7741-7777 дугаараар холбогдоно уу.',
+#          reviewed_at = now()
+#    where tenant_id = (select id from tenants where slug = 'matrix-eco-salon')
+#      and kind = 'refusal_out_of_scope'
+#      and locale = 'mn-MN';
+#
+# The founder also settled QUESTION 2 below on 2026-09-18: keep the rule, do not tune it.
+# The repair is to key it on whether a picture is PRESENT rather than on whether the
+# customer typed the word — see D-083 and the new matcher mode «has_attachment». Once that
+# ships, this rule's matcher changes from a stem list to that mode, naming the image kind,
+# and the row above answers a captioned photograph without needing a second sentence.
+# (The literal JSON is deliberately not written here: a lower_snake token in ASCII double
+#  quotes is how check-gate-keys recognises a canned-response key, and it reads .mn.txt
+#  drafts too. Correct of it — this file is the wrong place for a matcher literal.)
+#
+# The original draft, with both options and the reasoning, follows unchanged.
+#
+# ─────────────────────────────────────────────────────────────────────────────
 # UNSIGNED DRAFT — loaded by nothing. For the founder's reading evening.
 #
 # Tenant: Matrix Eco Salon. Row: canned_responses (kind = 'refusal_out_of_scope', mn-MN).
