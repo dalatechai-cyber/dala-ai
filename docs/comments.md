@@ -277,6 +277,32 @@ make, on a path that must fail closed. That is a design decision, not a rename, 
 recorded rather than taken. `eligibility.test.ts` asserts the gap, so it goes red the day
 somebody closes it.
 
+## Known and deliberately not fixed here
+
+Three findings from the design review are real, traced to code, and left alone on purpose —
+each needs a mechanism this branch would have to invent, and none can fire while
+`comment_policy` is `none`.
+
+**The post's age is still not checked.** `comment_too_old` bounds how stale a *delivery*
+we act on, which is a real guarantee and not the one §3.8.2 rule 5 asks for. Closing it
+needs `GET /{post-id}?fields=created_time` — one Graph read per distinct post per entry,
+cacheable, on a path that must fail closed when the read fails. Building that inside a
+classifier change would widen it into a Graph-enrichment change.
+
+**The per-post cap checks and writes in two steps.** `repliesPerPost` counts, then
+`draftOnce` inserts, and two workers racing the same post can both read a count below the
+cap. The thread rule does not have this problem because a unique index adjudicates it; the
+post cap has no such key. The honest fix is the shape `0015` used for the spend RPCs — a
+`security definer` function taking `pg_advisory_xact_lock` on `(tenant_id, post_id)` — and
+that is a migration and an RPC, not a filter. The exposure is bounded meanwhile: the cap is
+per post per day and the loser of the race posts one extra reply, not a stream.
+
+**An ignored commenter's comment does not claim its thread.** A stylist commenting from her
+personal account is refused by the ignore list, and the refusal persists nothing — so a
+customer replying to her in the same thread arrives in a later delivery, finds no
+`outbound_messages` row for that thread, and is answerable. Fixing it means a durable
+thread-level claim for a comment we deliberately did not answer, which is a new kind of row.
+
 ## What is blocked, and on whom
 
 | | Blocked on | Why it cannot be done here |
