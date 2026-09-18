@@ -84,6 +84,7 @@ const GATE_ONLY = 'STABLE';
 
 const base: ReceptionInput = {
   customerMessage: 'Чёлк тайралт хэд вэ?',
+  customerAttachments: [],
   history: [],
   eventAt: new Date('2026-09-04T09:59:00Z'),
   now: new Date('2026-09-04T10:00:00Z'),

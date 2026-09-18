@@ -5890,3 +5890,94 @@ neither corrected nor counted — the shared run is a 0.45 share of the longer r
 `EMBEDDED_MIN_SHARE`. Plain A has no such case because it shares nothing. That is D-077's
 "counted nowhere" at smaller scale, and it is what routing the customer back into the
 conversation costs.
+## D-083 — A value computed and thrown away, and a matcher that read a proxy
+
+**2026-09-18.** The founder, on the photo-consultation rule: *"keep it, don't tune it. The
+real repair is carrying attachments through to the turn so the gate keys on whether a
+picture is there, not whether the customer typed the word."*
+
+### The discard
+
+`meta/extract.ts` has always called `attachmentKinds()` for **every** message and bound the
+result into `carried`. `carried` is used on the skip paths — malformed, and the textless
+attachment D-070 taught it to record. For a message that has text the function ended:
+
+```ts
+messages.push({ senderId, externalId, text, sentAt });
+```
+
+`InboundMessage` had no attachment field, so the kinds were computed and dropped one line
+before they would have been useful. **A photograph captioned «Ийм болгож болох уу?» — *can
+you do it like this?* — reached the model as those five words, with nothing anywhere saying
+a picture existed.** The model then answered about an image it cannot see and did not know
+about.
+
+This is D-064's shape inverted. That rule is "when you find a column, ask who writes it";
+this is a value that was written and never carried. Both produce the same class of thing: a
+fact the system has and does not act on, which reads from the outside exactly like a fact it
+does not have.
+
+### The proxy
+
+Matrix's one `out_of_scope_topics` row matched the stems `зураг / зурган / фото` and pointed
+at `refusal_out_of_scope`. Matching the customer's WORDS is a proxy for the thing the rule
+cares about — a picture being present — and it is wrong in both directions:
+
+| | |
+|---|---|
+| **Over-fires** | «зураг явуулж болох уу?» — *may I send a picture?* The honest answer is *yes, send it*, and the rule refuses |
+| **Under-fires** | a caption need not contain a picture word at all, so the dangerous case fires nothing |
+
+Since 2026-09-16 an *uncaptioned* photograph is answered by `inbound/imageReply.ts` on a path
+that never reaches the model or this rule. So what the word matcher still covers is the
+question about sending one — the case it answers wrongly — while the case it exists for goes
+past it.
+
+`has_attachment` is the mode: it fires on what the message CARRIES. The kinds are Meta's own
+identifiers out of the payload (`image`, `video`, `audio`, `file`…), matched exactly and
+case-sensitively, and deliberately **not** held to `MIN_STEM_CHARS` — that floor exists
+because a short stem over-matches customer text, and these are never customer text.
+
+**The rule stays a ROW.** Nothing in `src/` decides that a picture means a refusal; a tenant's
+matcher does. Matrix's rule changes from a stem list to this mode and keeps pointing at the
+same response kind, so the rule the founder approved survives with its proxy replaced by the
+fact. No behaviour changes until that row is edited — this PR ships the signal, the lever and
+the instrument, and no new sentence.
+
+### `matcherFires` takes a subject, not a string
+
+It was `matcherFires(text: string, spec)`. A mode that reads something other than the words
+bolted onto that signature would have had to invent its answer from an argument it was never
+given. `MatchSubject` is `{ text, attachments }`, and the change caught every call site at
+compile time — one in `src/`, the rest tests. Same move as D-082's `Surface` union: the bug
+class is closed by making the wrong call impossible to write, not by remembering not to
+write it.
+
+`ReceptionInput.customerAttachments` is **required, not optional with a default**. A default
+of `[]` would assert "this message had no attachment" on behalf of a caller that simply
+forgot — and the case it would get wrong is the captioned photograph, the one the field
+exists for.
+
+### The instrument, before the policy
+
+`quality_flags` gains `inbound_captioned_attachment`, written before the `delivery.generate`
+check so a captioned photograph arriving at a channel in `shadow` is still counted — the
+mirror phase is precisely when the number is wanted. **Stickers are excluded**, which is
+D-070's lesson applied on the other side: Meta sends one sticker as two attachments and
+declares the first `image`, so reading `type` alone would turn every thumbs-up with a word
+beside it into a photograph. Any `stickerIds` at all means filler.
+
+The flag needs no migration — `quality_flags.flag` is `text not null` with no CHECK, verified
+against `0001`. So this whole change is code-only: no migration, no `db push`, no republish,
+no hash movement. It merges and deploys independently of anything else in flight.
+
+**What is deliberately NOT decided here:** what a captioned photograph should be answered
+*with*. That is a customer-visible Mongolian sentence and D-076 already put it to the founder.
+The measurement comes first, and now it can exist.
+
+### Verified by execution, both directions
+
+The two probes matter more than the green run. Restoring the original discard
+(`attachments: []` at the push) turns four tests red, including both worker-level ones;
+removing the sticker exclusion turns exactly one red. A test that cannot fail is the thing
+this repository keeps catching itself writing.

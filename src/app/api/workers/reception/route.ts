@@ -65,6 +65,7 @@ function effects(now: Date): WorkerEffects {
         }),
         {
           customerMessage: a.customerMessage,
+          customerAttachments: a.customerAttachments,
           history: a.history,
           eventAt: a.eventAt,
           now,

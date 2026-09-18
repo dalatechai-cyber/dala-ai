@@ -100,6 +100,8 @@ export type GenerateArgs = {
   inboundExternalId: string;
   reservation: Reservation;
   customerMessage: string;
+  /** Attachment kinds on the customer's message, for the gate (D-083). */
+  customerAttachments: readonly string[];
   history: readonly Turn[];
   eventAt: Date;
   promptVolatile: string;
@@ -535,6 +537,35 @@ export async function runReceptionJob(
       fx.log('info', 'redelivery_unanswered', { eventId, externalId: message.externalId });
     }
 
+    // --- The captioned attachment, counted (D-083). ------------------------------------
+    //
+    // A photograph with no caption is answered by `inbound/imageReply.ts` and never reaches
+    // here. A photograph WITH a caption carries text, so it comes down this path and goes to
+    // the model — which cannot see it, and until now was not even told it existed, because
+    // `extract.ts` computed the attachment kinds and dropped them for any message that had
+    // text. This row is the instrument: before deciding what such a message should be
+    // answered WITH, the corpus has to be able to say how often one arrives.
+    //
+    // Stickers are excluded rather than counted, and that is D-070's lesson applied on the
+    // other side: Meta sends one sticker as TWO attachments and declares the first `image`,
+    // so `type` alone would turn every thumbs-up with a word next to it into a photograph.
+    // Any `stickerIds` at all means filler, whatever the kinds claim.
+    //
+    // Before `delivery.generate`, so a captioned photograph arriving at a channel that is
+    // `off` or in `shadow` is still counted — the mirror phase is precisely when this
+    // number is wanted.
+    if (message.attachments.length > 0 && message.stickerIds.length === 0) {
+      fx.log('info', 'inbound_captioned_attachment', {
+        tenantId, externalId: message.externalId, attachments: message.attachments,
+      });
+      await fx.flagQuality({
+        tenantId,
+        conversationId,
+        code: 'inbound_captioned_attachment',
+        detail: `${message.attachments.join(', ')} arrived with text; the model cannot see it`,
+      });
+    }
+
     // The channel cannot send, and is not the mirror. Stop here — after the message is
     // stored, which is §3.4.5's "persist everything, generate nothing" taken literally for
     // the first time. `canDeliver` used to be consulted only after the reply existed, so
@@ -612,6 +643,7 @@ export async function runReceptionJob(
       inboundExternalId: message.externalId,
       reservation: guard.reservation,
       customerMessage: message.text,
+      customerAttachments: message.attachments,
       history: priorTurns,
       eventAt,
       promptVolatile,

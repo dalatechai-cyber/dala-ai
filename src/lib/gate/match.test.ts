@@ -24,19 +24,19 @@ const HEALTH: GateRule = {
 // ---------------------------------------------------------------------------
 
 test('a refusal topic fires on an inflected form, which is the whole point', () => {
-  const r = matchRules('Хүүхдэд зориулсан үйлчилгээ байна уу?', [CHILDREN]);
+  const r = matchRules({ text: 'Хүүхдэд зориулсан үйлчилгээ байна уу?', attachments: [] }, [CHILDREN]);
   assert.equal(r.ok, true);
   assert.deepEqual(r.ok && r.firedGates, ['Ш1']);
   assert.deepEqual(r.ok && r.matchedTopics, ['children_services']);
 });
 
 test('quote_price=false sets the flag that check 2b reads', () => {
-  const r = matchRules('Хүүхдийн чёлк тайралт хэд вэ?', [CHILDREN, HEALTH]);
+  const r = matchRules({ text: 'Хүүхдийн чёлк тайралт хэд вэ?', attachments: [] }, [CHILDREN, HEALTH]);
   assert.equal(r.ok && r.refusedTopicBlocksPrice, true);
 });
 
 test('a topic that DOES allow prices leaves the flag alone', () => {
-  const r = matchRules('Жирэмсэн үедээ будуулж болох уу?', [CHILDREN, HEALTH]);
+  const r = matchRules({ text: 'Жирэмсэн үедээ будуулж болох уу?', attachments: [] }, [CHILDREN, HEALTH]);
   assert.deepEqual(r.ok && r.firedGates, ['Ш5']);
   assert.equal(r.ok && r.refusedTopicBlocksPrice, false);
 });
@@ -44,20 +44,20 @@ test('a topic that DOES allow prices leaves the flag alone', () => {
 test('EVERY rule is evaluated — the composition rule forbids stopping at the first', () => {
   // Mongolian customer messages bundle constantly. First-match-wins answers the price and
   // leaves the health question unconstrained.
-  const r = matchRules('Хүүхдийн үс, жирэмсэн үед аюулгүй юу, үнэ нь хэд вэ?', [CHILDREN, HEALTH]);
+  const r = matchRules({ text: 'Хүүхдийн үс, жирэмсэн үед аюулгүй юу, үнэ нь хэд вэ?', attachments: [] }, [CHILDREN, HEALTH]);
   assert.deepEqual(r.ok && r.firedGates, ['Ш1', 'Ш5']);
   assert.deepEqual(r.ok && r.matchedTopics, ['children_services', 'health']);
 });
 
 test('a message matching nothing fires nothing, and that is not an error', () => {
-  const r = matchRules('Хэдэн цагт ажилладаг вэ?', [CHILDREN, HEALTH]);
+  const r = matchRules({ text: 'Хэдэн цагт ажилладаг вэ?', attachments: [] }, [CHILDREN, HEALTH]);
   assert.deepEqual(r.ok && r.firedGates, []);
   assert.equal(r.ok && r.refusedTopicBlocksPrice, false);
 });
 
 test('two rules on one gate report that gate once', () => {
   const second: GateRule = { ...CHILDREN, topicKey: 'infant_services', matcher: { mode: 'contains_stem', stems: ['нярай'] } };
-  const r = matchRules('Хүүхдийн болон нярайн үйлчилгээ', [CHILDREN, second]);
+  const r = matchRules({ text: 'Хүүхдийн болон нярайн үйлчилгээ', attachments: [] }, [CHILDREN, second]);
   assert.deepEqual(r.ok && r.firedGates, ['Ш1']);
   assert.equal(r.ok && r.matchedTopics.length, 2);
 });
@@ -70,13 +70,13 @@ test('a match does NOT silence the model by default', () => {
   // §10: matchers run inbound only to select which gate text is rendered. A
   // short-circuit that fires wrongly refuses a paying customer with no model in the loop
   // to recover, so it is off per topic per tenant until a precision run says otherwise.
-  const r = matchRules('Хүүхдийн үс', [CHILDREN]);
+  const r = matchRules({ text: 'Хүүхдийн үс', attachments: [] }, [CHILDREN]);
   assert.equal(r.ok && r.shortCircuitKind, null);
 });
 
 test('an explicitly enabled short-circuit names the canned kind to send', () => {
   const opted: GateRule = { ...CHILDREN, deterministicShortcircuit: true };
-  const r = matchRules('Хүүхдийн үс', [opted]);
+  const r = matchRules({ text: 'Хүүхдийн үс', attachments: [] }, [opted]);
   assert.equal(r.ok && r.shortCircuitKind, 'refusal_topic');
 });
 
@@ -88,7 +88,7 @@ test('AN UNPARSEABLE MATCHER FAILS THE WHOLE MATCH', () => {
   // Skipping it would mean the topic the tenant explicitly asked never to be discussed
   // becomes discussable, with nothing anywhere going red.
   const broken: GateRule = { ...CHILDREN, matcher: { mode: 'regex', pattern: '.*' } };
-  const r = matchRules('юу ч', [broken, HEALTH]);
+  const r = matchRules({ text: 'юу ч', attachments: [] }, [broken, HEALTH]);
   assert.equal(r.ok, false);
   assert.equal(!r.ok && r.detail.includes('children_services'), true, 'the refusal names the rule');
 });
@@ -119,8 +119,8 @@ test('every malformed shape is refused with a reason', () => {
 
 test('whole_message mode matches the reduced form, not a prefix', () => {
   const spec = { mode: 'whole_message', phrases: ['сайн байна уу'] } as const;
-  assert.equal(matcherFires('Сайн байна уу!', spec), true);
-  assert.equal(matcherFires('Уучлаарай асуумаар байна', spec), false);
+  assert.equal(matcherFires({ text: 'Сайн байна уу!', attachments: [] }, spec), true);
+  assert.equal(matcherFires({ text: 'Уучлаарай асуумаар байна', attachments: [] }, spec), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -279,7 +279,7 @@ test('DONE-TEST: an unconfirmed refusal rule STILL FIRES, and is counted', () =>
   // nothing anywhere going red. That is the same outcome `parseMatcher` refuses to produce
   // when a matcher will not parse.
   const seeded: GateRule = { ...CHILDREN, provenance: 'seeded' };
-  const r = matchRules('Хүүхдийн үс', [seeded]);
+  const r = matchRules({ text: 'Хүүхдийн үс', attachments: [] }, [seeded]);
   assert.equal(r.ok, true);
   assert.deepEqual(r.ok && r.firedGates, ['Ш1'], 'it fired');
   assert.deepEqual(r.ok && r.matchedTopics, ['children_services']);
@@ -289,7 +289,7 @@ test('DONE-TEST: an unconfirmed refusal rule STILL FIRES, and is counted', () =>
 
 test('a rule with no provenance at all counts as unconfirmed, and still fires', () => {
   const unlabelled: GateRule = { ...CHILDREN, provenance: undefined };
-  const r = matchRules('Хүүхдийн үс', [unlabelled]);
+  const r = matchRules({ text: 'Хүүхдийн үс', attachments: [] }, [unlabelled]);
   assert.deepEqual(r.ok && r.firedGates, ['Ш1']);
   assert.deepEqual(r.ok && r.unconfirmedTopics, ['children_services']);
 });
@@ -298,13 +298,13 @@ test('the count is of rules that FIRED, not of rules that exist', () => {
   // Otherwise every reply from a tenant with one seeded row anywhere carries the flag, the
   // flag stops meaning anything, and the signal is lost to noise.
   const seededHealth: GateRule = { ...HEALTH, provenance: 'seeded' };
-  const r = matchRules('Хүүхдийн үс', [CHILDREN, seededHealth]);
+  const r = matchRules({ text: 'Хүүхдийн үс', attachments: [] }, [CHILDREN, seededHealth]);
   assert.deepEqual(r.ok && r.matchedTopics, ['children_services']);
   assert.deepEqual(r.ok && r.unconfirmedTopics, [], 'the seeded rule did not fire, so it is not counted');
 });
 
 test('a confirmed rule that fires is not counted', () => {
-  const r = matchRules('Хүүхдийн үс', [CHILDREN]);
+  const r = matchRules({ text: 'Хүүхдийн үс', attachments: [] }, [CHILDREN]);
   assert.deepEqual(r.ok && r.unconfirmedTopics, []);
 });
 
@@ -335,4 +335,70 @@ test('kindsRequiredByRules collects the kinds a tenant\'s own rules point at', (
   // it into a required kind named '' would refuse every reply with an empty kind list.
   assert.deepEqual(kindsRequiredByRules([rule('x', '')]), []);
   assert.deepEqual(kindsRequiredByRules([]), []);
+});
+
+// ---------------------------------------------------------------------------
+// Keying on what the message CARRIES. D-083.
+// ---------------------------------------------------------------------------
+
+const PHOTO_RULE: GateRule = {
+  gate: 'Ш1', topicKey: 'photo_consultation',
+  matcher: { mode: 'has_attachment', kinds: ['image'] },
+  quotePrice: false, deterministicShortcircuit: false, responseKind: 'refusal_out_of_scope',
+  provenance: 'tenant_confirmed',
+};
+
+/** What the stem-based rule looked like before, kept to show what it could not see. */
+const PHOTO_RULE_BY_WORD: GateRule = {
+  ...PHOTO_RULE,
+  matcher: { mode: 'contains_stem', stems: ['зураг', 'зурган', 'фото'] },
+};
+
+test('has_attachment parses, and refuses an empty kinds list', () => {
+  assert.equal(parseMatcher({ mode: 'has_attachment', kinds: ['image'] }).ok, true);
+  assert.equal(parseMatcher({ mode: 'has_attachment', kinds: [] }).ok, false);
+  assert.equal(parseMatcher({ mode: 'has_attachment', kinds: ['image', ''] }).ok, false);
+});
+
+test('an attachment kind is NOT held to MIN_STEM_CHARS', () => {
+  // `image` is five characters and would pass anyway, but the rule is the point: these are
+  // Meta's identifiers out of the payload, never customer text, so the over-matching that
+  // MIN_STEM_CHARS exists to prevent does not apply to them.
+  assert.equal(parseMatcher({ mode: 'has_attachment', kinds: ['gif'] }).ok, true);
+});
+
+test('THE CAPTION NEED NOT MENTION A PICTURE — that is the whole point', () => {
+  // The case that worried the founder most. A photograph captioned «Ийм болгож болох уу?»
+  // — *can you do it like this?* — contains no picture word in any script, so the stem
+  // rule cannot fire and the model answers about an image it cannot see.
+  const subject = { text: 'Ийм болгож болох уу?', attachments: ['image'] };
+
+  const byWord = matchRules(subject, [PHOTO_RULE_BY_WORD]);
+  assert.equal(byWord.ok && byWord.matchedTopics.length, 0, 'the stem rule is blind to it');
+
+  const byAttachment = matchRules(subject, [PHOTO_RULE]);
+  assert.deepEqual(byAttachment.ok && byAttachment.matchedTopics, ['photo_consultation']);
+});
+
+test('«may I send a picture?» fires the WORD rule and not the attachment rule', () => {
+  // The over-firing direction, and the reason the word matcher was wrong rather than
+  // merely incomplete: the honest answer to this question is *yes, send it*.
+  const subject = { text: 'зураг явуулж болох уу?', attachments: [] };
+  const byWord = matchRules(subject, [PHOTO_RULE_BY_WORD]);
+  const byAttachment = matchRules(subject, [PHOTO_RULE]);
+  assert.deepEqual(byWord.ok && byWord.matchedTopics, ['photo_consultation']);
+  assert.deepEqual(byAttachment.ok && byAttachment.matchedTopics, []);
+});
+
+test('a kind the rule does not name does not fire it', () => {
+  assert.equal(matcherFires({ text: '', attachments: ['audio'] }, { mode: 'has_attachment', kinds: ['image'] }), false);
+  assert.equal(matcherFires({ text: '', attachments: [] }, { mode: 'has_attachment', kinds: ['image'] }), false);
+  assert.equal(matcherFires({ text: '', attachments: ['audio', 'image'] }, { mode: 'has_attachment', kinds: ['image'] }), true);
+});
+
+test('a text matcher is unaffected by attachments being present', () => {
+  // The modes must not leak into each other: a stem rule answers about the words, whatever
+  // came attached.
+  assert.equal(matcherFires({ text: 'хүүхдийн үс', attachments: ['image'] }, { mode: 'contains_stem', stems: ['хүүхд'] }), true);
+  assert.equal(matcherFires({ text: 'үс засуулна', attachments: ['image'] }, { mode: 'contains_stem', stems: ['хүүхд'] }), false);
 });
