@@ -80,6 +80,23 @@ export type Rendered = {
   promptChars: number;
   /** Every numeral the model may emit, from the prefix it can actually see. */
   allowedNumbers: string[];
+  /**
+   * The PLATFORM sections only — what `disclosesPrompt` treats as the prompt (D-084).
+   *
+   * The exact mirror of `allowedNumbers` below, and for the same kind of reason read the
+   * other way round. That one excludes platform text because the gate's numerals are its
+   * counter-examples; this one excludes TENANT text because the tenant's sections are the
+   * material the bot exists to relay. A customer reading Matrix's own knowledge base has
+   * not been shown the prompt — they have been answered.
+   *
+   * Measured before the narrowing (2026-09-18 04:02): a customer asked how many branches
+   * the salon has, the model answered «Матрикс эко салон нийт зургаан салбартай» from the
+   * knowledge base, and the reply was refused. The offending run was sixty characters of
+   * which two were punctuation — a 58-character KB sentence plus the full stop and space
+   * in front of it, which the corpus and the reply happened to share. Every KB sentence of
+   * 58 characters or more was a trap of that shape.
+   */
+  promptGate: string;
   /** Section keys, in the exact order rendered. The reviewable artifact. */
   order: string[];
 };
@@ -139,6 +156,12 @@ export function renderStablePrefix(sections: readonly PromptSection[]): RenderRe
       allowedNumbers: allowedNumbersFrom(
         ordered.filter((s) => s.origin === 'tenant').map((s) => nfc(s.body)).join('\n\n'),
       ),
+      // The same join as `promptStable`, over the platform half. Built here rather than
+      // sliced out of `promptStable` by offset: an offset would be correct only while
+      // every platform section sorts ahead of every tenant one, which is true today
+      // because `PLATFORM_LAYERS` is checked above — and would break silently, with no
+      // test failing, the day a platform block is allowed at L2.
+      promptGate: ordered.filter((s) => s.origin === 'platform').map((s) => nfc(s.body)).join('\n\n'),
       order: ordered.map((s) => s.key),
     },
   };

@@ -157,3 +157,22 @@ test('the numerals around a link are still compiled', () => {
     ['10:00', '20:00', '33,000'],
   );
 });
+
+test('promptGate carries the PLATFORM sections and none of the tenant\'s', () => {
+  // D-084. The mirror of `allowedNumbers`, which carries the tenant's and none of the
+  // platform's. Both narrowings exist because the two halves of the prefix mean opposite
+  // things: the gate's numerals are its counter-examples, and the tenant's sentences are
+  // the answer the bot was hired to give.
+  const out = renderStablePrefix([
+    section({ key: 'gate', layer: 'L0', origin: 'platform', ordinal: 0, body: 'ГЭЙТ БЛОК' }),
+    section({ key: 'kb', layer: 'L3', origin: 'tenant', ordinal: 0, body: 'МЭДЛЭГИЙН САН' }),
+  ]);
+  assert.equal(out.ok, true);
+  if (!out.ok) return;
+  assert.equal(out.rendered.promptGate.includes('ГЭЙТ БЛОК'), true);
+  assert.equal(out.rendered.promptGate.includes('МЭДЛЭГИЙН САН'), false, 'the KB is not the prompt');
+  // The full prefix still carries both — the narrowing is the GUARD's view of the prompt,
+  // not a change to what the model reads.
+  assert.equal(out.rendered.promptStable.includes('МЭДЛЭГИЙН САН'), true);
+  assert.equal(out.rendered.promptStable.includes('ГЭЙТ БЛОК'), true);
+});
