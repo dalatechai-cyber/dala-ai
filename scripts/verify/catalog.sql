@@ -403,21 +403,21 @@ insert into _v select 'V22', 'the signed platform blocks are seeded, attributed,
     -- out against a database 0010 had not reached instead of reporting the very absence
     -- it exists to detect — a check that cannot fail cleanly is the same defect as a
     -- guard that under-reads its own source. Found by running it.
-    -- The twelve SHARED gate blocks. Counting rows would have been wrong from 0018: a
+    -- The thirteen SHARED gate blocks. Counting rows would have been wrong from 0018: a
     -- per-vertical example block is a real L0 row and there is one per vertical, so the
     -- row count grows with the number of verticals while the gate does not. Restricting
-    -- to `vertical is null` keeps the tripwire exact where it matters — a thirteenth
+    -- to `vertical is null` keeps the tripwire exact where it matters — a fourteenth
     -- block shared by every tenant is still a failure — without it firing on a design
     -- the platform now supports. `to_jsonb` for `vertical` for the same reason as `layer`
     -- directly below: a bare column reference does not parse on a database 0018 has not
     -- reached, and a check that cannot fail cleanly is the defect it exists to detect.
-    select 'the twelve-block boundary gate is not seeded at L0 (found ' ||
+    select 'the thirteen-block boundary gate is not seeded at L0 (found ' ||
            (select count(*) from prompt_blocks p
              where p.scope='platform' and to_jsonb(p) ->> 'layer' = 'L0'
                and to_jsonb(p) ->> 'vertical' is null) || ' shared blocks)'
      where (select count(*) from prompt_blocks p
              where p.scope='platform' and to_jsonb(p) ->> 'layer' = 'L0'
-               and to_jsonb(p) ->> 'vertical' is null) <> 12
+               and to_jsonb(p) ->> 'vertical' is null) <> 13
     union all
     select 'the eight data-deletion status blocks are not seeded (found ' ||
            (select count(*) from prompt_blocks where scope='platform' and block_key like 'data_deletion\_%') || ')'

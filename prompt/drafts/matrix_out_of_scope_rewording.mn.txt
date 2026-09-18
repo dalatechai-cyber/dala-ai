@@ -1,0 +1,161 @@
+# APPROVED 2026-09-18 by the founder — the VARIANT, not plain A. Kept here as the record of
+# what was approved and why; the live sentence is the `canned_responses` row, not this file.
+#
+# THE APPROVED TEXT:
+#
+#   Уучлаарай, ямар үйлчилгээ, өнгө Танд тохирохыг би шийдэж өгөх боломжгүй.
+#   Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
+#
+# A's first sentence with the image line's approved second sentence. The founder's reason:
+# *"ending at the phone number is what I keep trying to get away from, and that version
+# routes them back into the conversation."* It is the second refusal row that does not end
+# at 7741-7777, after `image_received` (D-076), and for the same corpus reason.
+#
+# THE AMBIGUITY THIS RAISED, MEASURED BEFORE IT WAS APPROVED
+#
+# Sharing a sentence with `image_received` puts two rows in front of `checkPinnedLines`.
+# Measured against the real code:
+#
+#   the row verbatim                         -> exact      refusal_out_of_scope
+#   the row with «би» dropped (D-065 drift)  -> paraphrase  refusal_out_of_scope   0.978
+#   sentence 1 reworded, sentence 2 kept     -> paraphrase  IMAGE_RECEIVED         0.680
+#   the shared sentence alone                -> paraphrase  IMAGE_RECEIVED         0.630
+#
+# The third line is the problem: a model faithfully adapting THIS row gets corrected to the
+# image line, and a customer asking which colour suits them is told the bot cannot see
+# pictures. That is D-082's defect rebuilt inside the mechanism meant to correct drift.
+# `embeddedAdaptation` picks the longest common RUN, and the shorter row wins on
+# run-over-length (62/100 against 62/139).
+#
+# THE FIX, and it is principled rather than a patch: `image_received` is filtered out of the
+# compiled prefix, so the model never reads it — therefore it must not be a row the model's
+# output is MEASURED against either. `isPinnable` now excludes the same
+# `MODEL_INVISIBLE_KINDS` that `cannedSectionBody` excludes. With that, lines three and four
+# come back `clean` and lines one and two are unchanged.
+#
+# THE GIVE, stated rather than discovered: a partial adaptation — keeping sentence 2 and
+# rewording sentence 1 — is now `clean`, so it is neither corrected nor COUNTED. The shared
+# run is 62 characters of a 139-character row, a 0.45 share against `EMBEDDED_MIN_SHARE` 0.6.
+# Plain A does not have this, because it shares nothing. That is D-077's "counted nowhere"
+# at smaller scale, and it is the price of routing the customer back into the conversation.
+#
+# NOT YET APPLIED, AND THE ORDER MATTERS. Editing this row moves `canned_hash`, and
+# `reception/handle.ts:231` compares the live rows against the published snapshot and
+# returns `retry` — `canned_stale` — on any difference. QStash holds and re-delivers, so
+# the window defers rather than loses replies, but `isFresh` drops a message after the
+# tenant's `reply_age_limit_minutes` (Matrix: the 30-minute default). So the update and the
+# republish must be under half an hour apart, and the update goes INSIDE that window:
+#
+#   deploy → git pull → run the UPDATE below → publish immediately
+#
+#   update canned_responses
+#      set body = 'Уучлаарай, ямар үйлчилгээ, өнгө Танд тохирохыг би шийдэж өгөх боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.',
+#          reviewed_at = now()
+#    where tenant_id = (select id from tenants where slug = 'matrix-eco-salon')
+#      and kind = 'refusal_out_of_scope'
+#      and locale = 'mn-MN';
+#
+# The founder also settled QUESTION 2 below on 2026-09-18: keep the rule, do not tune it.
+# The repair is to key it on whether a picture is PRESENT rather than on whether the
+# customer typed the word — see D-083 and the new matcher mode «has_attachment». Once that
+# ships, this rule's matcher changes from a stem list to that mode, naming the image kind,
+# and the row above answers a captioned photograph without needing a second sentence.
+# (The literal JSON is deliberately not written here: a lower_snake token in ASCII double
+#  quotes is how check-gate-keys recognises a canned-response key, and it reads .mn.txt
+#  drafts too. Correct of it — this file is the wrong place for a matcher literal.)
+#
+# The original draft, with both options and the reasoning, follows unchanged.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# UNSIGNED DRAFT — loaded by nothing. For the founder's reading evening.
+#
+# Tenant: Matrix Eco Salon. Row: canned_responses (kind = 'refusal_out_of_scope', mn-MN).
+# Related row: out_of_scope_topics (topic_key = 'photo_consultation').
+#
+# WHY THIS IS HERE (D-082, 2026-09-17)
+#
+# On 2026-09-17 at 02:07:23 a customer wrote, in Latin-script Mongolian and with no
+# photograph anywhere in the conversation:
+#
+#     Hi vsnii ongo oorchlowol zohih ongiin songoj ogohvv
+#     — "if I change my hair colour, will you pick a suitable colour for me?"
+#
+# The reply opened:
+#
+#     Уучлаарай, зурган дээр үндэслэн зохих өнгөний зөвлөгөө өгөх боломж надад байхгүй байна.
+#     — "Sorry, I cannot advise on a suitable colour BASED ON A PICTURE."
+#
+# There was no picture. The customer never mentioned one.
+#
+# The live row is the reason:
+#
+#     Зураг харж зөвлөгөө өгөх боломжгүй. Манай мэргэжилтэн Танд туслах болно.
+#     Та 7741-7777 дугаараар холбогдоно уу.
+#
+# It is the ONLY consultation-refusal in the prefix, and it is phrased about photographs.
+# A customer asking for a consultation with no photograph in sight gets the photograph
+# wording, because that is the only way the prompt knows how to decline a consultation.
+# The draft's second sentence tracks this row closely («Манай мэргэжилтэн Танд … туслах
+# болно»), which is what points at it rather than at the image line.
+#
+# TWO THINGS HAVE CHANGED SINCE THIS ROW WAS WRITTEN
+#
+#   1. A photograph now has its own handler. `image_received` (approved 2026-09-16) is
+#      served whole by the platform when an actual picture arrives, without the model.
+#      So `refusal_out_of_scope` no longer needs to be about pictures at all — that job
+#      moved. Two rows saying the same thing, one of which the model can reach for on a
+#      question that has nothing to do with pictures, is one row too many.
+#
+#   2. The stems are Cyrillic-only, so the photo_consultation rule does not fire for a
+#      customer who types «zurag» (D-067). It did not fire here either — the message had
+#      no picture word in any script.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# QUESTION 1 — what should `refusal_out_of_scope` say?
+#
+# Option A — make it about the consultation, not the medium. Covers the 02:07 customer
+# properly, and stops the picture wording being available for non-picture questions.
+#
+#   Уучлаарай, ямар үйлчилгээ, өнгө Танд тохирохыг би шийдэж өгөх боломжгүй.
+#   Манай мэргэжилтэн Танд туслах болно. Та 7741-7777 дугаараар холбогдоно уу.
+#
+#   — "Sorry, I cannot decide which service or colour suits you. Our specialist will
+#      help you. Please call 7741-7777."
+#
+# Option B — keep it general, name nothing:
+#
+#   Уучлаарай, үүнийг би шийдэж өгөх боломжгүй. Манай мэргэжилтэн Танд туслах болно.
+#   Та 7741-7777 дугаараар холбогдоно уу.
+#
+#   — "Sorry, I cannot decide this for you. Our specialist will help you. Call 7741-7777."
+#
+# A is more useful to the customer and narrower; B is safer against the next unforeseen
+# out-of-scope question. Both drop «Зураг харж» — that is the point of either.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# QUESTION 2 — should the photo_consultation rule stay at all?
+#
+# Its stems are зураг / зурган / фото. Since 2026-09-16 a customer who SENDS a photograph
+# is answered by `image_received` on a path that never reaches this rule. What the rule
+# still catches is a customer who TYPES the word — «зураг явуулж болох уу?». That is a
+# real and different case (they are asking whether they may send one), and the honest
+# answer to it is yes, send it — which is the opposite of a refusal.
+#
+#   (a) Keep the rule and reword its row for the "may I send one" case.
+#   (b) Drop the rule; let `image_received` carry photographs and the model handle the
+#       question about sending one.
+#
+# Not a wording question, so not strictly reading-evening material — but the answer
+# decides whether Question 1's row is still reachable by a rule at all.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHAT WAS DONE IN CODE, AND WHAT IT DOES NOT FIX
+#
+# `image_received` is now filtered out of the compiled prefix entirely: nothing points at
+# it, the model is never asked to produce it, and a sentence in the context with no
+# instruction attached is exactly what invites improvisation. That removes one of the two
+# picture sentences and returns Matrix's canned section to what it was before 2026-09-16,
+# byte for byte (canned_hash eb27de84, the value seq 3/4/5 carried).
+#
+# It does NOT fix the 02:07 reply. That one came from the row above, and the row is a
+# customer-visible Mongolian sentence, so it is yours.

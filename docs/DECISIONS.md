@@ -5627,6 +5627,269 @@ deliberately stopped talking. It ships with the pass or the pass does not ship.
 
 ---
 
+## D-081 — Brevity as a platform rule, and the seeding trap publishing it exposed
+
+**2026-09-17. Founder: "Option B. Every tenant, new file, as you've reasoned it."** After
+measuring that replies were too long, that the cause was not verbosity, and that the
+ancestor already had the rule.
+
+### The rule, and why the tail rather than the mean
+
+54 model drafts: **median 138 chars, p90 364, max 768**, 39% over 200, 44% carrying line
+breaks. The median is fine. A rule aimed at the average would make good short answers curt
+and fix nothing. Reading the four longest drafts, the behaviour is **catalogue-answering**:
+asked about greasy hair, the model explains CICA, then the course schedule, then
+эмчилгээний хими, then advises a specialist, then gives the phone — 768 characters
+answering a question nobody asked. So the rule leads with *answer only what was asked* and
+*ask one question instead of listing options*, not with "be brief".
+
+The same reading found the model emitting markdown — «**CICA эмчилгээ**» — which Messenger
+does not render, so the customer sees the asterisks. A visible defect nobody had looked for.
+
+`prompt/platform/02_style.mn.txt`, 431 chars, ordinal 2 (after the preamble and the data
+marker, before the Ш gates). `vertical` NULL: brevity is a fact about how a person reads a
+chat message, not about hairdressing. **`RECEPTION_MAX_TOKENS` is not the lever** — hitting
+it is terminal in `model/reception.ts` and the partial text is discarded, so lowering it
+converts long answers into refusals.
+
+**The carve-out is load-bearing.** The block opens by exempting «БЭЛЭН ХАРИУЛТ». Without it
+"be brief" reads as licence to trim an approved sentence — precisely the drift D-065
+measured (the model dropping «би») and D-077 measured (adapting `refusal_price_unlisted`).
+
+### Third regression against the ancestor in a week
+
+`Matrix-Chatbot`'s `lib/salonBrain.js:91` has carried «Хариултаа товч, ойлгомжтой,
+Messenger-т тохирсон байдлаар бич» for weeks. Recorded in CLAUDE.md as a standing rule:
+**when the incumbent has a rule we do not, that is a measured loss, not a theoretical gap** —
+with the cheap reading that would have caught all three (D-067 Latin, D-076 photographs,
+this): read the ancestor for the RULE, not only for the architecture. Its defect list has
+been read carefully; its *prompt* had not been.
+
+### What publishing it exposed, which is the larger half
+
+`generate-seed.ts` wrote into `0010_prompt_blocks_seed.sql` — **applied to the project**.
+Running it rewrote an applied migration; `db push` never re-runs one, so the row would have
+reached no database while the repo disagreed with what ran. And it was worse than stale:
+**`0010`'s `on conflict (block_key)` cannot be applied at all since `0018`** replaced that
+index with one over `(block_key, coalesce(vertical, ''))` — measured, PG 16.13, «there is
+no unique or exclusion constraint matching the ON CONFLICT specification». The regenerate
+path produced SQL that fails.
+
+The tool's own docstring already said an applied block "needs a new migration too — the
+generator cannot express that". **Fourth instance of a comment asserting a control nobody
+built** (`meta/extract.ts`, `config/platform.ts:33`, `preflight`'s `WORKER_PUBLIC_URL`). The
+replacement is a structure, not a sentence: the writer allocates `max(prefix) + 1` and uses
+`writeFileSync(..., { flag: 'wx' })`, an EEXIST from the operating system. There is no
+`--force`.
+
+**Convergent, never delta** — the load-bearing choice, and it came from the adversarial
+pass killing the delta design. A delta computes "already seeded" from the REPO, so a missed
+push is permanent AND self-concealing: the generator finds the block in the unpushed file,
+excludes it from every future delta, and reports "nothing changed" for ever. A full-set
+upsert self-heals; the repair is the ordinary next commit. Measured cost of convergence:
+zero — `prompt_blocks` has no triggers and no `updated_at`.
+
+**A live collision, deleted rather than patched.** `VERTICAL_SEED_PATH` pointed at a
+per-vertical seed numbered **0019** while `0019_staff_short_name` is applied under that
+number. The first per-vertical block ever signed would have written a second 0019 — and the
+four gate blocks waiting on the reading evening are exactly that case. Generic and
+per-vertical blocks are now one family in one file.
+
+### A row in `prompt_blocks` is not a publish
+
+The finding that changes the operator's model. `compileStablePrefix` reads `prompt_blocks`
+at COMPILE time; the reply path serves frozen `config_snapshots` bytes via
+`tenants.live_revision_id`. Pushing the migration only puts the text where the compiler can
+see it — **the republish is what publishes it**, per tenant. If the migration is pushed and
+nothing is republished, the block reaches nobody and nothing goes red.
+
+`scripts/publish/tenant.ts` now refuses before compiling unless the LIVE platform blocks
+equal the signed set. It is the only check in this repository that reads the project rather
+than a database CI built out of the repo, and it is on the only path that can change what a
+customer reads. It also repairs a confirmation inversion: «byte-identical to the live one.
+Nothing to publish» is exactly what a silently-missing block printed, and that sentence is
+only true with this check ahead of it.
+
+**Named and NOT built:** `platform_hash` on `config_snapshots` surfaced as a D-063
+`on_change` digest episode, which is what would make "pushed but never republished" go red
+on its own. A second PR. Until then the staleness signal is a human running the publisher.
+
+---
+
+## D-082 — The surface is not the provider, and the leak was not the line we blamed
+
+**2026-09-17.** Two defects the founder found by reading the day's corpus himself, one of
+which was attributed to the wrong sentence by both of us.
+
+### 1. «СУВАГ: facebook_page» — a provider name answering a question about visibility
+
+Ш0 asks the model exactly one question: «Энэ хариулт НИЙТЭД ХАРАГДАХ сэтгэгдэл (comment)
+мөн үү?» — *is this reply a publicly visible comment?* `worker/reception.ts:419` handed the
+volatile block `channel: 'facebook_page'`, a hardcoded literal, and Facebook carries both a
+public wall and a private inbox. The provider's name cannot answer the question, so the
+model resolved the ambiguity itself, and it resolved it wrong.
+
+Measured on 2026-09-17:
+
+| | |
+|---|---|
+| 04:14:47 | `outbound_gate_label` — «Ш0 (сувагны шалгалт) — энэ нь **нийтэд харагдах Facebook page коммент** боловч…», written to a customer in a DM |
+| four drafts | `refusal_public_channel` served on DMs: «Хувийн мессеж бичвэл хариулна» — *write me a private message* — to people who had |
+
+Verified against the live project: **all sixty-one outbound rows this platform has ever
+written are `kind = 'reply'` with a null `comment_post_id`.** No comment conversation has
+ever existed, so every one of those refusals was wrong, and none of them could have been
+right.
+
+`VolatileInput.channel: string` is now `surface: 'direct_message' | 'public_comment'`, and
+the labels are phrased in Ш0's own vocabulary so that what the model reads is recognisable
+as an ANSWER rather than a fact it has to interpret:
+
+```
+СУВАГ: хувийн зурвас (зөвхөн энэ хэрэглэгч харна, нийтэд ХАРАГДАХГҮЙ)
+СУВАГ: нийтэд харагдах сэтгэгдэл (comment) — хэн ч харж болно
+```
+
+**It is a union rather than a string, and that is the fix rather than a tidiness.** The bug
+was not that somebody chose the wrong string; it was that the parameter accepted one. The
+old value no longer type-checks, and the change caught every caller in the repository at
+compile time — there was exactly one.
+
+L4 is rendered per request and never cached, so **this moves no `content_hash` and needs no
+republish.** The labels are prompt scaffolding the model reads and no customer sees, which
+`volatile.ts` has said in its own docstring since it was written; they are code, not a
+`reviewed_at` row.
+
+### 2. The picture leak, and why `image_received` was the wrong suspect
+
+The founder's second finding: a text-only message answered with «зурган дээр үндэслэн» —
+*based on a picture*. His reading, and mine before his, was that the image line approved on
+2026-09-16 had entered the cached prefix and was leaking. **That was wrong, and the way it
+was wrong is the part to carry.**
+
+The conversation, read off the live project:
+
+| | |
+|---|---|
+| 02:06:57 | inbound: «Hi vsnii ongo oorchlowol zohih ongiin songoj ogohvv» — *if I change my hair colour, will you pick a suitable one for me?* Latin script, no picture word in any script |
+| 02:07:23 | draft: «Уучлаарай, **зурган дээр үндэслэн** зохих өнгөний зөвлөгөө өгөх боломж надад байхгүй байна» |
+| — | `quality_flags`: **zero** `inbound_dropped` rows for that conversation. No photograph, ever |
+
+So the contamination is real. But the live prefix (seq 6) holds **two** sentences about
+photographs, and only one of them is `image_received`:
+
+| row | pointed at by | text |
+|---|---|---|
+| `image_received` | **nothing** | «би зураг харах боломжгүй…» |
+| `refusal_out_of_scope` | `out_of_scope_topics.photo_consultation` | «**Зураг харж зөвлөгөө өгөх боломжгүй.** Манай мэргэжилтэн Танд туслах болно…» |
+
+`refusal_out_of_scope` has been in the prefix since **seq 3 on 2026-09-07**, nine days
+before the image feature existed. The draft's second sentence — «Манай мэргэжилтэн Танд
+өнгө сонголт хийхэд туслах болно» — tracks that row almost word for word. It is Matrix's
+only consultation-refusal, and it is phrased about photographs, so a consultation question
+with no photograph in it gets the photograph wording, because that is the only way the
+prompt knows how to decline a consultation.
+
+**An edit-distance score could not settle this and was not allowed to.** Run against the
+four candidate rows the whole-draft similarities were 0.21–0.35 with `handoff` scoring
+highest — a row that has nothing to do with it. That is D-077's lesson holding: the
+mechanism that decides whether an approved sentence was reused asks exact questions
+precisely because scoring on Mongolian sentences is dominated by shared function words and
+length. What settled it was reading which rule points at which row.
+
+The fix that *is* code: `image_received` is filtered out of the compiled prefix, because
+**nothing points at it.** It is served whole by `inbound/imageReply.ts` on a path that never
+calls the model, no platform block names it, and no tenant rule names it. A sentence sitting
+in the model's context with no instruction attached is not an instruction — it is an offer,
+and the model will eventually take it. Audited across Matrix's twelve rows: it was the only
+one in that state (`refusal_topic` is pointed at by the children's `disclosure_rules` row).
+
+`MODEL_INVISIBLE_KINDS` lives inside `cannedSectionBody`, the ONE renderer both the publish
+path and the request path call. Filtering at either caller instead would move `canned_hash`
+on one side only and 503 every reply with `canned_stale` — the outage the shared-renderer
+rule was written to prevent (D-058). It does not touch the review gate: an unreviewed
+`image_received` row still refuses the whole section, because that is a question about the
+row and `imageReply.ts` would serve those bytes to a customer.
+
+`scripts/guards/check-gate-keys.mjs` gained the contradiction: a prompt block that NAMES a
+filtered kind is an instruction pointing at a line the model cannot see — the gap D-058 left
+with the model improvising into it. The guard holds a copy of the list and verifies it
+against `match.ts`, because a copy that can go stale silently is the defect that file exists
+to catch. All three branches were executed and seen to fail before merge.
+
+**What this does not fix, stated plainly:** the 02:07 reply. That came from
+`refusal_out_of_scope`, which is a customer-visible Mongolian sentence and therefore the
+founder's. `prompt/drafts/matrix_out_of_scope_rewording.mn.txt` carries two options and the
+open question of whether the `photo_consultation` rule should survive at all, now that a
+photograph has its own handler and the rule's Cyrillic-only stems miss «zurag» anyway
+(D-067).
+
+### The hash, reproduced before the write and not after
+
+Matrix's canned section shrinks by 119 characters. The new `canned_hash` is **`eb27de84`**,
+and that number is worth reading twice: it is exactly what seq 3, 4 and 5 carried — the
+value from before the image row existed. The filter returns the section to its previous
+bytes, which is an independent confirmation that it removes that row and nothing else.
+
+The method satisfies CLAUDE.md's standing rule that a publish is not trusted until something
+independent reproduces its hash **before** the write: the twelve live rows were pulled as
+base64 (no transcription), rendered through a faithful reimplementation of the pre-change
+function, and reproduced `b1044d93` — the live seq 6 value — exactly. Only then was the new
+number computed. A control that reproduces the known value is what makes the unknown one
+evidence.
+
+`allowed_numbers` is unchanged: the image line carries no numeral.
+
+**Republish: Matrix only.** Tenant #0 has no `image_received` row, so its `canned_hash` does
+not move and it needs nothing. Matrix is in `shadow`, so the window between deploy and
+republish costs mirror drafts and reaches no customer.
+
+### A near-miss inside the verification
+
+The first check that the picture wording was gone tested `section.includes('зураг')` and
+printed `false`. The remaining sentence begins «**З**ураг харж» — capital З. A
+case-sensitive substring test on Cyrillic, inside the tool checking a Cyrillic fix, one
+line away from reporting that the section was clean. Rule 6 is about matchers over customer
+text; it applies to the diagnostics just as hard, and D-077's first diagnostic made the same
+class of mistake three days ago.
+
+
+### D-082 addendum — the variant, and a row the model was never shown
+
+**2026-09-18.** The founder took the variant over plain A for `refusal_out_of_scope`:
+A's first sentence with `image_received`'s approved second sentence, because *"ending at the
+phone number is what I keep trying to get away from, and that version routes them back into
+the conversation."* It is the second refusal row that does not end at 7741-7777, for D-076's
+corpus reason.
+
+Sharing a sentence with `image_received` put two rows in front of `checkPinnedLines`, and
+the measurement is why the variant is safe rather than a hope:
+
+| reply | canonical row |
+|---|---|
+| the row verbatim | `exact` → `refusal_out_of_scope` |
+| the row with «би» dropped (D-065's real drift) | `paraphrase` → `refusal_out_of_scope`, 0.978 |
+| sentence 1 reworded, sentence 2 kept | `paraphrase` → **`image_received`**, 0.680 |
+| the shared sentence alone | `paraphrase` → **`image_received`**, 0.630 |
+
+The third row is the defect: a model faithfully adapting the CONSULTATION refusal gets
+corrected to the IMAGE line, and a customer asking which colour suits them is told the bot
+cannot see pictures. **D-082's own defect, rebuilt inside the mechanism that exists to
+correct drift.** `embeddedAdaptation` picks the longest common run and the shorter row wins
+on run-over-length — 62/100 against 62/139.
+
+The fix is the same principle one file over: `image_received` is filtered out of the compiled
+prefix because the model is never asked to produce it, so **it must not be a row the model's
+output is measured against either.** A reply resembling a sentence the model never read is a
+coincidence, not an adaptation. `isPinnable` excludes `MODEL_INVISIBLE_KINDS` alongside the
+unreviewed rows it already excluded, in both passes. Rows three and four then come back
+`clean`; rows one and two are unchanged.
+
+**The give, stated rather than discovered:** a partial adaptation is now `clean`, so it is
+neither corrected nor counted — the shared run is a 0.45 share of the longer row, under
+`EMBEDDED_MIN_SHARE`. Plain A has no such case because it shares nothing. That is D-077's
+"counted nowhere" at smaller scale, and it is what routing the customer back into the
+conversation costs.
 ## D-083 — A value computed and thrown away, and a matcher that read a proxy
 
 **2026-09-18.** The founder, on the photo-consultation rule: *"keep it, don't tune it. The

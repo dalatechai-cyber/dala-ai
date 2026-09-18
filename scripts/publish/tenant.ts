@@ -37,6 +37,7 @@
  * revision cannot be left behind by a compile that refuses.
  */
 import { compileAndPublish, compileStablePrefix } from '../../src/lib/prompt/sections.ts';
+import { comparePlatformBlocks, type LiveBlock } from '../prompt/blockset.ts';
 import { loadLiveSnapshot } from '../../src/lib/prompt/publish.ts';
 import { supabasePublish } from '../../src/lib/supabase/clients.ts';
 import { SECTION_LABELS } from '../../src/lib/prompt/tenant.ts';
@@ -83,6 +84,35 @@ const live = await loadLiveSnapshot(db, { tenantId, channel: channels[0] as stri
 const before = live.ok ? live.snapshot : null;
 
 // ---- what a publish WOULD produce ----------------------------------------
+// ---- the platform blocks this project is actually serving --------------
+//
+// The ONLY check in this repository that reads the live project rather than a database CI
+// built out of the repo. CI applies every migration from `supabase/migrations/`, so it is
+// structurally incapable of noticing that one was never pushed (D-058) — and this command
+// is the one place holding both the checkout and a service key, on the only path that can
+// change what a customer reads.
+//
+// Publishing with a block missing would freeze that absence into the tenant's prefix, and
+// the run would print «byte-identical to the live one. Nothing to publish» — which is
+// exactly what a silently-missing block produces. That sentence is only true with this
+// check ahead of it.
+const { data: blockRows, error: blockErr } = await db
+  .from('prompt_blocks')
+  .select('block_key, ordinal, layer, body, reviewed_by, reviewed_at, vertical')
+  .eq('scope', 'platform')
+  .is('tenant_id', null);
+if (blockErr) die(`prompt_blocks unreadable: ${blockErr.message}`);
+const gaps = comparePlatformBlocks((blockRows ?? []) as unknown as LiveBlock[]);
+if (gaps.length > 0) {
+  die(
+    `the LIVE platform blocks are not the signed ones. Publishing would freeze this\n`
+    + `difference into ${slug}'s prefix:\n  ${gaps.join('\n  ')}\n\n`
+    + `Push the seed migration, then read the ledger:\n`
+    + `  select count(*), max(version) from supabase_migrations.schema_migrations;`,
+  );
+}
+process.stdout.write(`platform blocks: ${(blockRows ?? []).length} live, matching the signed set.\n`);
+
 const compiled = await compileStablePrefix(db, { tenantId, approvedAt: now.toISOString() });
 if (!compiled.ok) {
   die(compiled.code === 'refused'

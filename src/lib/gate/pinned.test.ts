@@ -175,3 +175,50 @@ test('the whole-reply exact and paraphrase verdicts are unchanged', () => {
   const near = PRICE_ROW.body.replace('Уучлаарай, ', 'Уучлаарай ');
   assert.equal(checkPinnedLines(near, ROWS).kind, 'paraphrase');
 });
+
+// ---------------------------------------------------------------------------
+// A row the model was never shown is not a row it adapted. D-083.
+// ---------------------------------------------------------------------------
+
+const SHARED_INVITE = 'Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.';
+const IMAGE_ROW = {
+  kind: 'image_received',
+  body: `Уучлаарай, би зураг харах боломжгүй. ${SHARED_INVITE}`,
+  reviewedAt: '2026-09-18',
+};
+/** Matrix's reworded consultation refusal — it ends with the same invitation. */
+const OOS_ROW = {
+  kind: 'refusal_out_of_scope',
+  body: `Уучлаарай, ямар үйлчилгээ, өнгө Танд тохирохыг би шийдэж өгөх боломжгүй. ${SHARED_INVITE}`,
+  reviewedAt: '2026-09-18',
+};
+
+test('A FILTERED ROW IS NEVER THE CANONICAL ONE, even when it scores highest', () => {
+  // `image_received` is excluded from the compiled prefix (D-082), so the model never read
+  // it. With it still a pinning candidate, a reply that keeps the shared invitation and
+  // rewords the sentence before it resolves to `image_received` — `embeddedAdaptation`
+  // picks the longest common RUN and the shorter row wins on run-over-length. The customer
+  // asked which colour suits them and would have been told the bot cannot see pictures.
+  const reply = `Уучлаарай, Танд юу тохирохыг би хэлж чадахгүй. ${SHARED_INVITE}`;
+  const v = checkPinnedLines(reply, [OOS_ROW, IMAGE_ROW]);
+  assert.notEqual(v.kind === 'paraphrase' && v.canonicalKind, 'image_received');
+  assert.equal(v.kind, 'clean', 'a coincidence with an unshown row is not drift');
+});
+
+test('the visible row still resolves correctly, exactly and as drift', () => {
+  // The filter must not cost the mechanism its actual job.
+  const exact = checkPinnedLines(OOS_ROW.body, [OOS_ROW, IMAGE_ROW]);
+  assert.equal(exact.kind, 'exact');
+  assert.equal(exact.kind === 'exact' && exact.canonicalKind, 'refusal_out_of_scope');
+
+  // D-065's real drift: the model dropped «би» from a pinned line.
+  const drift = checkPinnedLines(OOS_ROW.body.replace(' би ', ' '), [OOS_ROW, IMAGE_ROW]);
+  assert.equal(drift.kind, 'paraphrase');
+  assert.equal(drift.kind === 'paraphrase' && drift.canonicalKind, 'refusal_out_of_scope');
+  assert.equal(drift.kind === 'paraphrase' && drift.canonical, OOS_ROW.body, 'the row\'s own bytes');
+});
+
+test('an unreviewed row is still excluded, and for the same reason', () => {
+  const unreviewed = { ...OOS_ROW, reviewedAt: null };
+  assert.equal(checkPinnedLines(OOS_ROW.body, [unreviewed]).kind, 'clean');
+});
