@@ -124,9 +124,13 @@ test('DONE-TEST: three comments in one thread get ONE reply', () => {
 // Age
 // ---------------------------------------------------------------------------
 
-test('a comment on a post older than the tenant window is not answered', () => {
+test('a COMMENT older than the tenant window is not answered', () => {
+  // Renamed with the refusal (D-085). The old name said "a comment on a post older than
+  // the tenant window" while constructing an old COMMENT — the test, the code, the config
+  // name and the docstring all agreed with each other and all four were wrong about which
+  // age was being measured.
   const old = withComment({ createdAt: new Date('2026-07-01T00:00:00Z') });
-  assert.equal(old.reply === false && old.refusal, 'post_too_old');
+  assert.equal(old.reply === false && old.refusal, 'comment_too_old');
   assert.match(old.reply === false ? old.detail : '', /limit is 30/);
 
   // The window is per channel: a tenant who wants a year gets a year.
@@ -242,4 +246,19 @@ test('the decision carries the post id, so the count can be written with the dra
   const r = decide();
   assert.equal(r.reply === true && r.postId, 'p_1');
   assert.equal(r.reply === true && r.threadId, 'c_1', 'and the thread, which is the dedup key');
+});
+
+test('DONE-TEST: the POST\u2019s age is NOT checked, and this is the case that proves it', () => {
+  // §3.8.2 rule 5 exists because *old posts attract spam and the tenant gets no value*.
+  // A brand-new comment on a four-year-old post is exactly that case, and it passes every
+  // check — because the only date the `feed` payload carries is the COMMENT's.
+  //
+  // Asserted rather than left as a docstring so the gap is a red test the day somebody
+  // adds the Graph read that closes it, instead of a paragraph nobody re-reads.
+  const freshCommentOnAncientPost = withComment({
+    createdAt: new Date(NOW.getTime() - 60_000),   // one minute old
+    postId: 'p_from_2022',
+  });
+  assert.equal(freshCommentOnAncientPost.reply, true,
+    'the post-age rule is not implemented; closing it needs GET /{post-id}?fields=created_time');
 });

@@ -237,6 +237,32 @@ rules loaded" must not produce the same counters, so a tenant with zero enabled 
 refuses the whole job as `no_comment_rules` rather than silently classifying everything as
 `ignore`.
 
+## A pre-existing defect found while wiring this up
+
+`post_too_old` measures the **comment's** age, not the post's. It is configured by
+`comment_max_post_age_days`, §3.8.2 rule 5 justifies it as *old posts attract spam and the
+tenant gets no value*, and the value it compares is `value.created_time` on the comment. So
+**a brand-new spam comment on a four-year-old post has an age near zero and passes** —
+precisely the case the rule was written to stop.
+
+Four things agreed with each other and all four were wrong: the refusal's name, the config
+column's name, the docstring, and a test called *"a comment on a post older than the tenant
+window"* that constructed an old COMMENT. The branch immediately above it even says
+*"Refusing is the direction that cannot put a reply under a four-year-old post."* It is
+CLAUDE.md's own lesson — a rule and the code it describes have to be read together, because
+each one alone reads as correct.
+
+What it actually does is worth keeping, so it is renamed rather than deleted: `comment_too_old`
+bounds how stale a **delivery** this platform will act on, which is a real guarantee against
+a replayed or long-delayed webhook.
+
+**The post-age rule is not implemented and cannot be from this payload**: the `feed` webhook
+carries `post_id` and no post creation time, and a Facebook post id is not a timestamp.
+Closing it needs `GET /{post-id}?fields=created_time` — a Graph read this platform does not
+make, on a path that must fail closed. That is a design decision, not a rename, so it is
+recorded rather than taken. `eligibility.test.ts` asserts the gap, so it goes red the day
+somebody closes it.
+
 ## What is blocked, and on whom
 
 | | Blocked on | Why it cannot be done here |

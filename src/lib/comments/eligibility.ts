@@ -40,8 +40,26 @@ export type CommentRefusal =
   | 'commenter_ignored'
   /** A reply to one of our own comments: the loop, one level down. */
   | 'reply_to_self'
-  /** The post is older than the tenant's window. Old posts attract spam. */
-  | 'post_too_old'
+  /**
+   * The COMMENT is older than the tenant's window, and the name says so now (D-085).
+   *
+   * It read `post_too_old`, it is configured by `comment_max_post_age_days`, and §3.8.2
+   * rule 5 justifies it as *old posts attract spam and the tenant gets no value* — but the
+   * value it measures is `value.created_time` on the COMMENT. **A brand-new spam comment
+   * on a four-year-old post has an age near zero and passes**, which is the exact case the
+   * rule was written to stop, and the branch below says so in as many words one line up.
+   *
+   * What it does do is worth keeping, so it is kept and renamed rather than deleted: it
+   * bounds how stale a DELIVERY this platform will act on, which is a real guarantee
+   * against a replayed or long-delayed webhook.
+   *
+   * **The post-age rule is therefore NOT IMPLEMENTED**, and it cannot be from this payload:
+   * the `feed` webhook carries `post_id` but no post creation time, and a Facebook post id
+   * is not a timestamp. Closing it needs `GET /{post-id}?fields=created_time` — a Graph
+   * read this platform does not make, cacheable per post, with its own failure mode on a
+   * path that must fail closed. That is a design decision, not a rename.
+   */
+  | 'comment_too_old'
   /** We could not date the comment. Unknown age is not young. */
   | 'comment_age_unknown'
   /**
@@ -173,8 +191,10 @@ export function decideCommentReply(input: CommentDecisionInput): CommentDecision
   if (ageMs > config.maxPostAgeDays * 86_400_000) {
     return {
       reply: false,
-      refusal: 'post_too_old',
-      detail: `${Math.floor(ageMs / 86_400_000)} days old; this channel's limit is ${config.maxPostAgeDays}`,
+      refusal: 'comment_too_old',
+      // Says which age it measured. The previous wording — and the refusal's previous
+      // name — would have sent a reader looking for a post-age rule that is not there.
+      detail: `the COMMENT is ${Math.floor(ageMs / 86_400_000)} days old; this channel's limit is ${config.maxPostAgeDays}. The POST's age is not checked — see comment_too_old`,
     };
   }
 
