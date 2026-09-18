@@ -398,3 +398,36 @@ that must never happen by default.
 **Not backfilled**, and it cannot be: `prompt_stable` is the concatenation and the
 platform/tenant boundary is not recorded in it. A guessed corpus is worse than a null one
 that says so.
+
+### `0031_website_channel`
+
+Two tables and one function, for the website channel. Additive; nothing existing changes,
+and `channel_providers.web` stays `enabled = false`.
+
+**`web_sessions`** — the registry rule 1 demands for a surface where the caller can be
+asked nothing. A tenant's own server signs a mint request with a per-tenant secret; the
+platform derives the tenant from *which secret verified* (the shape `verifyMetaSignature`
+already uses), mints an opaque token, and every later message resolves the tenant by
+looking that token up here.
+
+Writing one by hand, the columns with no default: `tenant_id`, `channel_id`,
+`token_sha256`, `expires_at`, **`turn_cap`**. `turn_cap` is deliberately undefaulted — a
+caller that cannot say what bound it wants must answer rather than be given a generous one
+— and `check (turn_cap > 0)` refuses zero. `token_sha256` is the SHA-256 of the token in
+PostgREST's `\x…` hex form, never the token; `web_sessions_token_key` is unique across
+**all** tenants, because the lookup has no tenant to scope by. Two further CHECKs will
+refuse a hand-written row: `expires_at > issued_at`, and `turns <= turn_cap`.
+
+**`web_rate_counters`** — `(tenant_id, bucket_key, window_start)` is the primary key, and
+`window_start` is floored by the caller. Do not insert into it directly; use the function
+below, because read-then-write lets two concurrent requests both pass.
+
+**`public.bump_web_rate(p_tenant_id uuid, p_bucket_key text, p_window_start timestamptz)`**
+→ `integer` — upserts and returns the count *after* this request, in one statement. In
+`public` and not `app`, for D-029's reason: the clients carry no `db: { schema }` option.
+
+`ops.purge_expired` gains clauses (d) and (e), deleting sessions one day past expiry and
+rate windows one day past close, and its returned jsonb gains `sessions_purged` and
+`counters_purged`. The one-day lag on sessions is not a retention preference: it keeps a
+just-expired token resolvable long enough to say "your session ended" rather than missing,
+which is indistinguishable from a forged token.

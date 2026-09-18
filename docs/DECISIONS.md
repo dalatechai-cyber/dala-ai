@@ -6000,3 +6000,122 @@ live snapshot, finding a mismatch and going looking for a bug that is not there 
 the failure mode CLAUDE.md already names for `allowed_numbers`: **read the count off the
 live snapshot, never off a sentence in this file.** The same applies to every hash recorded
 here.
+
+---
+
+## D-086 — The website channel derives its tenant from the tenant's own server, not from the browser
+
+**2026-09-18. Founder's call, from three named options.**
+
+`0001` seeded the `web` provider row with `enabled = false` and this note:
+
+> `'Undesigned in v1. The one surface where the tenant-identity rule has no answer.'`
+
+That has been true and unaddressed for eighteen days. This settles it.
+
+### What rule 1 is actually made of
+
+The rule reads *"tenant is derived server-side, per webhook entry, from a registry with a
+unique key. Never from a request body, a header, or an env var."* It is easy to read that
+as a rule about WHERE in the request the identifier sits, and that reading is wrong — Meta's
+Page id arrives in the **body**, at `entry[].id`.
+
+What makes reading it legal is the ordering in `webhooks/meta/[app]/route.ts`: raw bytes at
+step 1, `verifyMetaSignature` at step 2, `JSON.parse` only at step 3 — against a secret only
+Meta holds — and `signature.ts` returning `matchedAppSlug`, *the slug whose secret actually
+verified*. **The rule's operative content is: derive the tenant from an attested signal.**
+
+A browser holds no secret by construction. A site key, the Origin header, the Host, a path
+segment, a cookie — every one is chosen by the caller and attested by nothing.
+`Matrix-Chatbot/lib/cors.js` says it in its own first ten lines about the control people
+reach for first: *"CORS is a browser control… It is NOT an authorization gate and must never
+be relied on as one."*
+
+So the commercial-widget construction — a public site key — is **identification dressed as
+derivation**. Anyone who reads the page source can mint as that tenant and spend that
+tenant's budget, which is rule 2's stated harm (*another tenant's money*) arrived at through
+rule 1's hole.
+
+### The construction chosen
+
+**The tenant's own server mints.** It signs a mint request with a per-tenant secret; the
+platform derives the tenant from which secret verified, mints an opaque token, and returns
+it. The browser never names a tenant, and every later message resolves the tenant by looking
+that token up in `web_sessions` — a registry, server-side, with a unique key, holding a
+value the platform itself issued.
+
+Three consequences worth writing down:
+
+- **`live_requires_active_token` is already correct for this surface.** A website channel's
+  "token" is the mint secret, so the constraint that looked like an obstacle is the right
+  one. Nothing is loosened.
+- **No new `Surface` value is needed, on either type.** A widget is spend-surface
+  `reception` and volatile-surface `direct_message`. That is the signal the seam is in the
+  right place: the channel reuses Matrix's reply path, prompt, gate blocks and guards
+  unchanged, which is what was asked for.
+- **The cost is stated, not discovered.** A client with no server of their own — a salon on
+  Wix — cannot do this. The answer for them is a Dala-hosted chat page (option B, where Dala
+  is the origin and the tenant comes from a path Dala itself serves). It is a separate build
+  and is deliberately not started.
+
+### Why a caller-supplied channel id is not a violation
+
+The mint request carries `X-Dala-Channel`, and a channel id is not secret. On its face that
+is what rule 1 forbids.
+
+It **selects a candidate**; it does not determine the answer. A caller naming another
+tenant's channel gets that tenant's secret loaded and tried, the HMAC fails, and the request
+is refused. That is exactly `verifyMetaSignature`'s `appSlug` parameter, which the `[app]`
+URL segment supplies and which "selects which secret to try first" with a miss falling
+through to a refusal. JWT's `kid` is the same construction. Trying every tenant's secret is
+equally sound and O(tenants) decryptions per mint; this is O(1), and both derive the tenant
+from the signature.
+
+What it must not do is leak, so an unknown channel and a bad signature are **one refusal**
+over the wire (`mint_unauthorised`) and two different diagnoses in the log. Otherwise the
+endpoint enumerates which channel ids exist, unauthenticated.
+
+### Two orderings that are findings rather than taste
+
+**The timestamp is checked after the signature.** Checking freshness first answers *"that
+timestamp is stale"* to a caller holding no secret at all — a distinction offered to somebody
+entitled to none.
+
+**Turnstile sits behind the HMAC, and gates the mint rather than every message.** Turnstile
+says "a browser that passed a challenge", not "a person", and solving services exist. It is a
+cost multiplier on automation; the HMAC is the authorization. There is deliberately no
+`TURNSTILE_DISABLED` — a bypass flag is one dashboard edit from being live and its failure is
+silent.
+
+### What the survey that preceded this found, and how much of it is refuted
+
+The map of Meta assumptions in the reply path was run as a four-lens workflow. **43 of its 54
+agents died on a usage limit, and every one of them was a refuter** — so its findings came
+back unrefuted and were checked by hand instead. Confirmed by direct reading:
+
+- **`tenant_domains` is keyed `(tenant_id, host)`**, so `host` is not unique across tenants
+  and it cannot serve as an Origin→tenant registry without violating rule 1's "unique key".
+  `verified_at` is nullable and nothing sets it. It has **no reader anywhere** in `src/`,
+  `scripts/` or `supabase/`.
+- **`tenants.allowed_origins[]` does not exist.** `10-completeness.md:175` and
+  `08-onboarding.md:153` both cite it as if it were schema. Implementing the sketch as
+  written produces D-058's failure: a `.select()` naming a column the project does not have,
+  a 400 from PostgREST, and CI structurally unable to see it.
+- **`channel_providers.enabled` has no reader either.** Flipping it does nothing today —
+  D-064's dead column in its other form, a flag nobody reads. It is not the switch for this
+  surface and must not be treated as one.
+- **The two fail-open CORS paths this repo's docs cite at `Matrix-Chatbot/lib/cors.js:16-17`
+  were fixed on 2026-08-31.** Our citation is stale; the principle in that file's header is
+  the part to carry.
+
+### What is NOT built
+
+The two routes. This lands the identity spine, the session registry, the rate limiter, the
+Turnstile client and the migration — inert, because no `tenant_channels` row has
+`provider = 'web'` and no mint secret is provisioned. Provisioning one is credentials, which
+waits for the founder; the ceiling number for anonymous traffic is money, which waits too.
+
+And `turnstile.ts` has **never been exercised against Cloudflare** — `challenges.cloudflare.com`
+is unreachable from this environment, as is `api.github.com`, so the request shape is written
+from the documented contract. The parsing is narrow (`success === true`, nothing else) so an
+unexpected body refuses rather than passes.
