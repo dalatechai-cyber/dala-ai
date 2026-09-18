@@ -240,3 +240,47 @@ test('a non-echo skip carries no recipient', () => {
   });
   assert.equal(r.skipped[0]?.recipientId, null);
 });
+
+// ---------------------------------------------------------------------------
+// The captioned attachment. D-083.
+// ---------------------------------------------------------------------------
+
+test('A CAPTIONED PHOTOGRAPH CARRIES ITS ATTACHMENT KINDS THROUGH', () => {
+  // `attachmentKinds` always ran for every message and bound its result into `carried`,
+  // but `carried` was only used on the skip paths — so a message WITH text pushed four
+  // fields and lost the rest. A customer sending a photograph captioned «Ийм болгож болох
+  // уу?» reached the model as those five words, with nothing saying a picture existed.
+  const r = extractInboundMessages(entry([{
+    ...textEvent,
+    message: { mid: 'm_cap', text: 'Ийм болгож болох уу?', attachments: [{ type: 'image', payload: { url: 'https://x/y' } }] },
+  }]));
+  assert.equal(r.messages.length, 1, 'it is still answered — the caption is a real question');
+  assert.deepEqual(r.messages[0]?.attachments, ['image']);
+  assert.equal(r.messages[0]?.text, 'Ийм болгож болох уу?');
+});
+
+test('an ordinary text message carries an EMPTY attachment list, not undefined', () => {
+  // The overwhelming majority. `[]` is the honest answer and the one a matcher can read
+  // without a null check; `undefined` would make "no attachment" and "nobody looked" the
+  // same value, which is the distinction D-064 is about.
+  const r = extractInboundMessages(entry([{ ...textEvent, message: { mid: 'm_txt', text: 'Сайн байна уу' } }]));
+  assert.deepEqual(r.messages[0]?.attachments, []);
+  assert.deepEqual(r.messages[0]?.stickerIds, []);
+});
+
+test('a sticker sent WITH text carries its sticker ids, so it can be told from a photograph', () => {
+  // Meta sends one sticker as TWO attachments and declares the first `image` (D-070).
+  // Reading `type` alone would make every thumbs-up with a word beside it a photograph.
+  const r = extractInboundMessages(entry([{
+    ...textEvent,
+    message: {
+      mid: 'm_sticker_text', text: 'за',
+      attachments: [
+        { type: 'image', payload: { sticker_id: 369239263222822 } },
+        { type: 'sticker', payload: { sticker_id: 369239263222822 } },
+      ],
+    },
+  }]));
+  assert.equal(r.messages.length, 1);
+  assert.deepEqual(r.messages[0]?.stickerIds, ['369239263222822']);
+});

@@ -23,7 +23,7 @@ const SENT_AT = new Date('2026-09-04T11:58:00Z');
  * and the job answers 200 "nothing_to_answer", which looks exactly like a quiet success.
  * That is what the first draft of this file did.
  */
-function payload(over: { mid?: string; text?: string; ts?: number } = {}) {
+function payload(over: { mid?: string; text?: string; ts?: number; attachments?: unknown[] } = {}) {
   return {
     id: '100000000000001',
     time: NOW.getTime(),
@@ -32,7 +32,11 @@ function payload(over: { mid?: string; text?: string; ts?: number } = {}) {
         sender: { id: PSID },
         recipient: { id: '100000000000001' },
         timestamp: over.ts ?? SENT_AT.getTime(),
-        message: { mid: over.mid ?? MID, text: over.text ?? 'Сайн байна уу, үнэ хэд вэ?' },
+        message: {
+          mid: over.mid ?? MID,
+          text: over.text ?? 'Сайн байна уу, үнэ хэд вэ?',
+          ...(over.attachments === undefined ? {} : { attachments: over.attachments }),
+        },
       },
     ],
   };
@@ -787,4 +791,64 @@ test('DONE-TEST: a 503 refusal logs the DETAIL, not just the category', async ()
   const refused = logs.find((l) => l.event === 'refused');
   assert.equal(refused?.fields?.['code'], 'guard_unavailable');
   assert.match(String(refused?.fields?.['detail']), /permission denied/);
+});
+
+// ---------------------------------------------------------------------------
+// The captioned attachment, carried and counted. D-083.
+// ---------------------------------------------------------------------------
+
+test('A CAPTIONED PHOTOGRAPH REACHES THE GATE AS AN ATTACHMENT, AND IS COUNTED', async () => {
+  // Before this the kinds were computed in `extract.ts` and dropped for any message that
+  // had text, so the model was handed the caption alone and answered about a picture it
+  // could not see and did not know existed.
+  const { fx, generated, flags } = stubEffects({
+    tables: {
+      webhook_events: {
+        data: { raw_payload: payload({ text: 'Ийм болгож болох уу?', attachments: [{ type: 'image', payload: { url: 'https://x/y' } }] }) },
+      },
+    },
+  });
+  const r = await run(fx);
+
+  assert.equal(r.status, 200);
+  assert.deepEqual(generated[0]?.customerAttachments, ['image'], 'the gate is told a picture is there');
+  const captioned = flags.find((f) => f.code === 'inbound_captioned_attachment');
+  assert.ok(captioned, `expected the flag; got ${JSON.stringify(flags.map((f) => f.code))}`);
+  assert.equal(captioned?.tenantId, TENANT, 'quality_flags.tenant_id is NOT NULL');
+  assert.match(captioned?.detail ?? '', /image/);
+});
+
+test('a STICKER sent with text is not counted as a photograph', async () => {
+  // D-070's lesson on the other side: Meta sends one sticker as TWO attachments and
+  // declares the first `image`, so reading `type` alone turns every thumbs-up with a word
+  // beside it into a lost sales enquiry in the morning report. Any sticker id means filler.
+  const { fx, generated, flags } = stubEffects({
+    tables: {
+      webhook_events: {
+        data: {
+          raw_payload: payload({
+            text: 'за',
+            attachments: [
+              { type: 'image', payload: { sticker_id: 369239263222822 } },
+              { type: 'sticker', payload: { sticker_id: 369239263222822 } },
+            ],
+          }),
+        },
+      },
+    },
+  });
+  const r = await run(fx);
+
+  assert.equal(r.status, 200);
+  assert.equal(flags.some((f) => f.code === 'inbound_captioned_attachment'), false, 'a thumbs-up is not a photograph');
+  // The kinds still reach the gate — a tenant rule may legitimately want to see them.
+  assert.ok((generated[0]?.customerAttachments ?? []).length > 0);
+});
+
+test('an ordinary text message is neither flagged nor given attachments', async () => {
+  const { fx, generated, flags } = stubEffects({});
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.deepEqual(generated[0]?.customerAttachments, []);
+  assert.equal(flags.some((f) => f.code === 'inbound_captioned_attachment'), false);
 });
