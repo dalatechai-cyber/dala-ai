@@ -79,6 +79,7 @@ export async function publishRevision(
       channel: s.channel,
       content_hash: s.rendered.contentHash,
       prompt_stable: s.rendered.promptStable,
+      prompt_gate: s.rendered.promptGate,
       prompt_volatile: '',              // L4 is per-request and is never snapshotted.
       prompt_chars: s.rendered.promptChars,
       allowed_numbers: s.rendered.allowedNumbers,
@@ -161,6 +162,11 @@ export type LiveSnapshot = {
   allowedNumbers: string[];
   /** D-058. null means the snapshot predates the canned section moving into the prefix. */
   cannedHash: string | null;
+  /**
+   * D-084. The PLATFORM sections only — the corpus `disclosesPrompt` matches against.
+   * null means the snapshot predates `0029`; the caller falls back to `promptStable`.
+   */
+  promptGate: string | null;
 };
 
 export type LoadOutcome =
@@ -195,7 +201,7 @@ export async function loadLiveSnapshot(
 
   const { data, error } = await db
     .from('config_snapshots')
-    .select('content_hash, prompt_stable, allowed_numbers, canned_hash')
+    .select('content_hash, prompt_stable, prompt_gate, allowed_numbers, canned_hash')
     .eq('tenant_id', input.tenantId)
     .eq('revision_id', revisionId)
     .eq('channel', input.channel)
@@ -219,6 +225,12 @@ export async function loadLiveSnapshot(
       // skipped check would be wrong in the other direction — the section would go missing
       // entirely and the model would be told to reproduce sentences it cannot see.
       cannedHash: typeof row['canned_hash'] === 'string' ? row['canned_hash'] : null,
+      // Null is a FORMAT marker too (D-084, `0029`): this snapshot predates the column, so
+      // its gate text was never stored separately. The caller falls back to the whole
+      // prefix — today's behaviour, which over-refuses rather than under-refuses — and the
+      // next republish fills it in. Treating null as "no corpus" would silently disable
+      // the disclosure check, which is the one direction that must never be the default.
+      promptGate: typeof row['prompt_gate'] === 'string' ? row['prompt_gate'] : null,
     },
   };
 }

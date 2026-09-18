@@ -5,6 +5,7 @@ import type { Rendered } from './render.ts';
 
 const RENDERED: Rendered = {
   promptStable: 'compiled prefix',
+  promptGate: 'gate blocks only',
   contentHash: 'abc123',
   promptChars: 15,
   allowedNumbers: ['33,000'],

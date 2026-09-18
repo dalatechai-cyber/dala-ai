@@ -234,3 +234,30 @@ test('the maps url is excluded from the Cyrillic script share, like every allowe
   }).db, input);
   assert.ok((r.ok ? r.context.tenantGuard.scriptShareExclusions : []).includes('https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9'));
 });
+
+test('THE GUARD IS HANDED THE GATE, NOT THE WHOLE PREFIX', () => {
+  // D-084, founder's call 2026-09-18. A customer reading the tenant's own knowledge base
+  // has been answered, not shown the prompt. Before this the corpus was `prompt_stable`,
+  // so a reply quoting the KB was a disclosure — measured at 04:02 that day, when a correct
+  // answer about the number of branches was discarded for the generic handoff.
+  return (async () => {
+    const withGate = stubDb({
+      config_snapshots: { data: { ...SNAPSHOT, prompt_gate: 'GATE BLOCKS ONLY' }, error: null },
+    });
+    const r = await loadReceptionContext(withGate.db, input);
+    assert.equal(r.ok, true);
+    assert.equal(r.ok && r.context.tenantGuard.promptCorpus, 'GATE BLOCKS ONLY');
+  })();
+});
+
+test('a snapshot published before 0029 falls back to the whole prefix', () => {
+  // Null is a FORMAT marker, not "unknown". The fallback is today's behaviour, which
+  // over-refuses rather than under-refuses, and the next republish narrows it. Reading
+  // null as "no corpus" would silently disable the disclosure check — the one direction
+  // that must never be the default.
+  return (async () => {
+    const r = await loadReceptionContext(stubDb().db, input);
+    assert.equal(r.ok, true);
+    assert.equal(r.ok && r.context.tenantGuard.promptCorpus, 'PREFIX');
+  })();
+});

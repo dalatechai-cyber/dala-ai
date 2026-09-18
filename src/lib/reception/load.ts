@@ -30,6 +30,11 @@ export type ReceptionContext = {
   allowedNumbers: string[];
   /** D-058. null means this snapshot predates the canned section moving into the prefix. */
   cannedHash: string | null;
+  /**
+   * D-084. The gate blocks alone, which is what a disclosure is measured against. null
+   * means the snapshot predates `0029` and the caller falls back to the whole prefix.
+   */
+  promptGate: string | null;
   revisionId: string;
   /**
    * The published snapshot's `content_hash` — the compiled prefix's identity, and the
@@ -218,7 +223,12 @@ export async function loadReceptionContext(
     kbHasPromotion: false,
     concessionStems,
     forbiddenStemSeqs,
-    promptCorpus: snapshot.snapshot.promptStable,
+    // THE GATE, not the whole prefix (D-084, founder's call 2026-09-18: «a customer
+    // reading Matrix's own knowledge base isn't a disclosure — that's the material the bot
+    // exists to relay»). The fallback is the old corpus, and it is the safe direction: a
+    // snapshot published before `0029` over-refuses exactly as it does today rather than
+    // skipping the check, and the next republish narrows it.
+    promptCorpus: snapshot.snapshot.promptGate ?? snapshot.snapshot.promptStable,
     cannedResponses: cannedRows.map((c) => c.body),
     scriptShareExclusions: [...serviceNames, ...allowedUrls],
     maxReplyChars: MAX_REPLY_CHARS,
@@ -270,6 +280,7 @@ export async function loadReceptionContext(
       closures,
       allowedNumbers: snapshot.snapshot.allowedNumbers,
       cannedHash: snapshot.snapshot.cannedHash,
+      promptGate: snapshot.snapshot.promptGate,
       revisionId: snapshot.snapshot.revisionId,
       contentHash: snapshot.snapshot.contentHash,
       rules,

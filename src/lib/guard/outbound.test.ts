@@ -625,7 +625,8 @@ test('A KB SENTENCE UNDER THE THRESHOLD IS REFUSED BY THE PUNCTUATION AROUND IT'
   const corpus = `=== ТУХАЙН БАЙГУУЛЛАГЫН МЭДЭЭЛЭЛ ===\nӨмнөх мөр энд дуусна.\n${kbSentence}.\n`;
   const reply = `Ажлын цаг 10:00-20:00.\n\n${kbSentence} байж болно.`;
 
-  assert.equal(disclosesPrompt(reply, corpus, []), true, 'refused today');
+  // Against the WHOLE prefix — what the corpus used to be — it is refused.
+  assert.equal(disclosesPrompt(reply, corpus, []), true, 'the old corpus refuses it');
   const windows = disclosureWindows(reply, corpus, []);
   assert.equal(windows.length, 1);
   assert.equal([...(windows[0] ?? '')].length, 60);
@@ -634,6 +635,22 @@ test('A KB SENTENCE UNDER THE THRESHOLD IS REFUSED BY THE PUNCTUATION AROUND IT'
   // And the sentence WITHOUT that leading punctuation is not an offender — which is what
   // makes this a boundary problem rather than a "the KB is in the corpus" problem.
   assert.equal(disclosesPrompt(kbSentence, corpus, []), false);
+
+  // THE FIX (D-084, founder's call): the corpus is the GATE, and a tenant's knowledge base
+  // is not part of it. Same reply, same sentence, corpus narrowed — not a disclosure.
+  const gateOnly = 'Ш0. СУВАГ. Энэ хариулт НИЙТЭД ХАРАГДАХ сэтгэгдэл (comment) мөн үү?';
+  assert.equal(disclosesPrompt(reply, gateOnly, []), false, 'quoting the KB is answering, not leaking');
+});
+
+test('THE GATE ITSELF IS STILL A DISCLOSURE — the narrowing must not disarm the check', () => {
+  // The other half, and the one that matters for safety: narrowing the corpus to the gate
+  // blocks must leave the thing the guard exists for fully caught. A reply that reproduces
+  // sixty characters of a gate instruction is still refused.
+  const gate = 'Ш2. ҮНЭ. Хэрэглэгч ямар нэг үйлчилгээний үнэ асууж байна уу? '
+    + 'Жагсаалтад БАЙХГҮЙ бол: ямар ч тоо, ямар ч үнийн хүрээ бүү дурд.';
+  const leak = `Танд хэлье: ${gate.slice(0, 80)}`;
+  assert.equal(disclosesPrompt(leak, gate, []), true);
+  assert.equal(disclosureWindows(leak, gate, []).length > 0, true);
 });
 
 test('disclosureWindows and disclosesPrompt cannot disagree', () => {
