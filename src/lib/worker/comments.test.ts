@@ -554,7 +554,7 @@ test('a failure to record an unclassified comment does not fail the job', async 
   const { fx, logs } = stubFx({ tables: { quality_flags: { data: null, error: { message: 'nope' } } } });
   const r = await runCommentJob(fx, { ...baseInput, rawPayload: entry([comment({ message: 'Ямар нэгэн' })]) });
   assert.equal(r.retry, false);
-  assert.ok(logs.includes('comment_unclassified_unrecorded'));
+  assert.ok(logs.includes('comment_flag_unrecorded'));
 });
 
 test('a malformed rule refuses the job rather than silently dropping that rule', async () => {
@@ -574,4 +574,55 @@ test('only ENABLED rules are loaded', async () => {
   assert.ok(read, 'the rules are read');
   assert.equal(read?.filters['eq:enabled'], true, 'a rule nobody switched on must not decide anything');
   assert.equal(read?.filters['eq:tenant_id'], TENANT);
+});
+
+test('DONE-TEST: an ESCALATED comment writes its own durable row', async () => {
+  // docs/comments.md promised escalate "writes a flag for the operator" and nothing did —
+  // a public complaint refused a reply, incremented a counter, and left no trace anybody
+  // could find tomorrow. `meta/extract.ts`'s "everything skipped is reported", one surface
+  // over.
+  const { fx, posted, ops } = stubFx();
+  const r = await runCommentJob(fx, {
+    ...baseInput,
+    rawPayload: entry([comment({ message: 'Утсаа авахгүй байна' })]),
+  });
+  assert.equal(r.refused['comment_escalated'], 1);
+  assert.deepEqual(posted, []);
+  const flag = ops.find((o) => o.table === 'quality_flags' && o.op === 'insert');
+  assert.ok(flag, 'the escalation is recorded');
+  assert.equal((flag?.patch ?? {})['flag'], 'comment_escalated');
+  assert.equal(
+    JSON.stringify(flag?.patch ?? {}).includes('Утсаа'), false,
+    'ids and shape, never the words — quality_flags is not reached by the purge',
+  );
+});
+
+test('DONE-TEST: a refusal BEFORE the verdict writes no row at all', async () => {
+  // The ordering that makes the to-do list readable. `decideCommentReply` refuses on
+  // policy, self-reply, the ignore list and age before it looks at the verdict, so writing
+  // beside the classifier put a staff member's own comment — and spam under a four-year-old
+  // post — onto the operator's list as work.
+  const { fx, ops } = stubFx();
+  const r = await runCommentJob(fx, {
+    ...baseInput,
+    config: { ...baseInput.config, ignoreCommenterIds: ['customer_1'] },
+    rawPayload: entry([comment({ message: 'Ямар нэгэн шинэ зүйл' })]),
+  });
+  assert.equal(r.refused['commenter_ignored'], 1);
+  assert.equal(ops.filter((o) => o.table === 'quality_flags').length, 0);
+});
+
+test('DONE-TEST: the per-post cap counts only rows that are or may be public', async () => {
+  // A `failed` row proves a reply was NOT posted. With a cap of one it silenced the post
+  // for 24 hours, so a single transient Graph error cost the salon every public answer on
+  // that post for a day — and the counter that hid it read as the cap working.
+  const { fx, ops } = stubFx();
+  await runCommentJob(fx, baseInput);
+  const counter = ops.find((o) => o.table === 'outbound_messages' && (o.cols ?? '').includes('comment_post_id'));
+  assert.ok(counter, 'the per-post counter runs');
+  assert.deepEqual(
+    counter?.filters['in:state'],
+    ['draft', 'claiming', 'sending', 'sent', 'indeterminate'],
+    'failed and refused prove nothing was posted and must not consume the allowance',
+  );
 });

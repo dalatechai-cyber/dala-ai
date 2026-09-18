@@ -71,6 +71,21 @@ export const COMMENT_LINE_KIND = 'comment_public_reply';
  */
 export const UNCLASSIFIED_FLAG = 'comment_unclassified';
 
+/**
+ * The flag written for a comment a person must answer (D-085 review).
+ *
+ * `docs/comments.md` said `escalate` "writes a flag for the operator" and nothing wrote
+ * one — the verdict refused the reply, incremented a counter, and left no durable trace of
+ * a public complaint anybody could find tomorrow. That is `meta/extract.ts`'s "everything
+ * skipped is reported" exactly: a docstring asserting a mechanism that was never built,
+ * and the counter made it look present.
+ *
+ * It carries the same ID-only payload as `UNCLASSIFIED_FLAG` and for the same reason —
+ * `quality_flags` is not reached by `ops.purge_expired`, so the customer's words stay in
+ * `webhook_events` where the retention policy can reach them.
+ */
+export const ESCALATED_FLAG = 'comment_escalated';
+
 export type CommentEffects = {
   db: SupabaseClient;
   now: Date;
@@ -190,13 +205,13 @@ async function readCommentRules(
  * trade from every refusal in `eligibility.ts`, because nothing downstream reads this.
  * It is logged so the loss is visible rather than assumed away.
  */
-async function recordUnclassified(
+async function recordCommentFlag(
   fx: CommentEffects,
-  input: { tenantId: string; comment: InboundComment },
+  input: { tenantId: string; comment: InboundComment; flag: string },
 ): Promise<void> {
   const { error } = await fx.db.from('quality_flags').insert({
     tenant_id: input.tenantId,
-    flag: UNCLASSIFIED_FLAG,
+    flag: input.flag,
     detail: {
       comment_id: input.comment.commentId,
       post_id: input.comment.postId,
@@ -206,7 +221,7 @@ async function recordUnclassified(
     },
     at: fx.now.toISOString(),
   });
-  if (error) fx.log('warn', 'comment_unclassified_unrecorded', { detail: error.message });
+  if (error) fx.log('warn', 'comment_flag_unrecorded', { flag: input.flag, detail: error.message });
 }
 
 /**
@@ -286,6 +301,20 @@ async function repliesPerPost(
     .eq('tenant_id', input.tenantId)
     .eq('kind', 'comment_reply')
     .in('comment_post_id', [...input.postIds])
+    // Only rows that ARE public or still might become public (D-085 review).
+    //
+    // There was no state filter, and with a cap of ONE that is not a rounding error: a
+    // `failed` row proves a reply was NOT posted — `markFailed` writes it after the Graph
+    // call was refused — and a `refused` row proves we decided not to. Either one silenced
+    // the post for the next 24 hours, so a single transient Graph error cost the salon
+    // every public answer on that post for a day, and the counter that hid it read as the
+    // cap working.
+    //
+    // `draft` stays, and deliberately: it is what a shadow run writes, and it is the
+    // die-mid-send direction this function's docstring defends — count one too many rather
+    // than post one too many. `indeterminate` stays for the same reason, because it may
+    // already be public.
+    .in('state', ['draft', 'claiming', 'sending', 'sent', 'indeterminate'])
     .gte('created_at', input.since.toISOString());
   if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
   const counts = new Map<string, number>();
@@ -404,8 +433,6 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       result.retry = true;
       return result;
     }
-    if (classified.verdict === 'unclassified') await recordUnclassified(fx, { tenantId: input.tenantId, comment });
-
     const decision = decideCommentReply({
       config: input.config,
       verdict: classified.verdict,
@@ -427,6 +454,20 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       // Every refusal is counted rather than logged one line each: on a viral post the
       // log would be the volume problem, and a counter is what an operator reads anyway.
       count(result.refused, decision.refusal);
+
+      // Two of them also get a durable row. Written from HERE rather than beside the
+      // classifier (D-085 review): `decideCommentReply` refuses on policy, self-reply, the
+      // ignore list and age BEFORE it ever looks at the verdict, so writing at the
+      // classifier put a row on the operator's to-do list for a staff member's own comment
+      // and for spam under an ancient post — work nobody should be handed.
+      //
+      // It also bounds the duplicates. `quality_flags` has no unique key, so a redelivery
+      // re-runs this loop and inserts again; refusing earlier is fewer rows, and the
+      // `comment_id` in the payload is what lets the operator collapse them.
+      const flag = decision.refusal === 'comment_unclassified' ? UNCLASSIFIED_FLAG
+        : decision.refusal === 'comment_escalated' ? ESCALATED_FLAG
+        : null;
+      if (flag !== null) await recordCommentFlag(fx, { tenantId: input.tenantId, comment, flag });
       continue;
     }
 

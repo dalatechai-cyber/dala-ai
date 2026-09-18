@@ -39,9 +39,13 @@ The obvious classifier asks *is this a question?* — a `?`, a final interrogati
 ```
 question-shaped            20/71  (28%)
 bare noun phrase, ≤3 tokens 37/71  (52%)   no question marker at all
-praise / thanks              1/71  ( 1%)
-emoji-only                   0/71  ( 0%)
 ```
+
+**No noise figure is given here on purpose.** This corpus is direct messages, and nobody
+sends a salon a DM to say «гоё» — so its praise and emoji counts (1 and 0) are facts about
+the wrong population and would read as a measurement of the thing the founder actually
+described. The noise rate is the one half of this design that rests on his reading of his
+own feed, and printing a number beside it would bury that.
 
 **It is wrong in both directions at once.** The 52% it ignores is the demand:
 
@@ -193,7 +197,9 @@ A classifier reads the comment text, so the naive wiring — adding `text: strin
 somebody chose the wrong string, it was that the parameter accepted one.*
 
 So the classifier is a **separate function whose output is an enum**, and
-`decideCommentReply` receives the enum. `CommentVerdict` is three values; there is still no
+`decideCommentReply` receives the enum. `CommentVerdict` is **four** values — the three a
+rule may declare (`RuleVerdict`: `escalate`, `reply`, `ignore`) plus `unclassified`, which
+is the absence of a matching rule and is deliberately unwritable in a row. There is still no
 parameter through which a question about prices could influence an answer, and the reply is
 still the tenant's reviewed row, byte for byte.
 
@@ -228,8 +234,16 @@ and the per-post cap rather than stubbing them.
 
 The thing to measure is **not** the replies. It is the comments that got **no verdict** —
 every one is either a stem the operator should add or a silence that is correct, and only
-reading them says which. `comment_unclassified` is written for each, with the text, so the
-fourteen days produce a stem list rather than a score.
+reading them says which. `comment_unclassified` is written for each — **with the comment's
+ids and its shape, never its text.** `quality_flags` is not reached by `ops.purge_expired`,
+so a copy of a customer's words there would outlive the `webhook_events` row it was copied
+from and sit under weaker rules than the original. The operator joins back on `comment_id`
+while the payload exists; after that the words are gone, which is correct rather than
+unfortunate. The fourteen days still produce a stem list rather than a score.
+
+An **escalated** comment is written the same way, under `comment_escalated`. It has to be:
+a public complaint that refused a reply, incremented a counter and left no durable trace is
+the one outcome here nobody could act on tomorrow.
 
 D-070's rule applies directly: a mechanism whose correct behaviour and its worst behaviour
 look identical from outside is not yet a mechanism. `ignore` and "the classifier has no
@@ -267,9 +281,13 @@ somebody closes it.
 
 | | Blocked on | Why it cannot be done here |
 |---|---|---|
+| **App Review** — `pages_read_user_content` + `pages_manage_engagement` | **The founder** | **This is the first gate and the table omitted it.** D-023 settled the submission as the comment delta and nothing else: `pages_read_user_content` gates the `feed` webhook field itself, and Meta makes `pages_manage_engagement` *depend on* it, so the two go together or neither. Until both are granted there is no feed to subscribe to and no way to post a reply — every other row below is downstream of this one |
 | Subscribing `feed` | **The founder** | One Graph write on Matrix's live Page. `POST /{page-id}/subscribed_apps` **replaces** the field list rather than adding to it (D-043, D-062) — sending `feed` alone drops `messages` and takes the DM mirror offline. It must be `messages,feed`. Facebook is unreachable from this environment in any case |
 | `comment_policy` → `public_only` | **The founder** | A config row, but it is the switch that makes the surface live |
 | `comment_public_reply` | **The founder** | Customer-visible Mongolian. Neither tenant has one; the path refuses without it |
 | The stem lists | Proposable here | Stems are not customer-visible strings. The corpus suggests the first set; the salon's own vocabulary confirms it |
 
-None of these blocks building and testing the classifier, which is what the branch does.
+None of these blocks building and testing the classifier, which is what the branch does —
+but note the ORDER, because the earlier draft of this table implied the feed subscription
+was step one. It is not. App Review is, it is the multi-week item, and the two Graph
+permissions it grants are what make every other row here reachable at all.
