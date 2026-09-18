@@ -283,11 +283,23 @@ Three findings from the design review are real, traced to code, and left alone o
 each needs a mechanism this branch would have to invent, and none can fire while
 `comment_policy` is `none`.
 
-**The post's age is still not checked.** `comment_too_old` bounds how stale a *delivery*
-we act on, which is a real guarantee and not the one §3.8.2 rule 5 asks for. Closing it
-needs `GET /{post-id}?fields=created_time` — one Graph read per distinct post per entry,
-cacheable, on a path that must fail closed when the read fails. Building that inside a
-classifier change would widen it into a Graph-enrichment change.
+**The post's age is still not checked, and this is the one that must be closed before the
+channel goes live.** `comment_too_old` bounds how stale a *delivery* we act on, which is a
+real guarantee and not the one §3.8.2 rule 5 asks for.
+
+The severity is higher than "spam on an old post gets answered", and the review is what
+made that clear: **the cap is per post per day, so every post in the Page's archive is a
+separate untouched allowance.** Someone commenting a reply-verdict word on two hundred
+archived Matrix posts gets two hundred public "message us" replies from the salon in a
+single day — resurfacing years-old posts to everyone who follows them, and looking to Meta
+like Page-driven comment spam from an app whose comment permissions are still under review.
+One person with a list of post ids can do it, and every existing check passes: the comments
+are fresh, the threads are new, each post is under its own cap.
+
+So it is not merely deferred, it is a **precondition**. Closing it needs
+`GET /{post-id}?fields=created_time` — one Graph read per distinct post per entry,
+cacheable per post, refusing as `post_age_unknown` when the read fails, which is this
+file's own "unknown age is not young" applied to the field that would then carry the rule.
 
 **The per-post cap checks and writes in two steps.** `repliesPerPost` counts, then
 `draftOnce` inserts, and two workers racing the same post can both read a count below the
@@ -296,6 +308,20 @@ post cap has no such key. The honest fix is the shape `0015` used for the spend 
 `security definer` function taking `pg_advisory_xact_lock` on `(tenant_id, post_id)` — and
 that is a migration and an RPC, not a filter. The exposure is bounded meanwhile: the cap is
 per post per day and the loser of the race posts one extra reply, not a stream.
+
+**`recordCommentFlag` has no idempotency key.** `quality_flags` carries no unique
+constraint, and a redelivery re-runs the loop, so one comment can produce several rows. The
+write now happens after `decideCommentReply` rather than beside the classifier, which is
+the half that mattered — it keeps staff comments and ancient-post spam off the operator's
+list entirely — but duplicates are still possible. The `comment_id` in every payload is
+what lets them be collapsed on read; a unique index is a migration and belongs with whoever
+builds the operator's view of this list.
+
+**The cap still counts `indeterminate`, and that is deliberate.** The review argued for
+excluding it alongside `failed` and `refused`. It is kept because `indeterminate` means the
+send's outcome is unknown and the reply **may already be public** — counting it is the
+fail-high direction this function's docstring defends, and the cost of being wrong is one
+unanswered thread rather than a duplicate comment on the salon's wall.
 
 **An ignored commenter's comment does not claim its thread.** A stylist commenting from her
 personal account is refused by the ignore list, and the refusal persists nothing — so a
