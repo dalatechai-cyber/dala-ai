@@ -369,6 +369,35 @@ time; the reply path serves frozen `config_snapshots` bytes via `tenants.live_re
 Pushing this migration puts the text where the compiler can see it — **the republish is what
 publishes it**, per tenant.
 
+### `0029_snapshot_prompt_gate`
+
+`config_snapshots.prompt_gate text` — nullable.
+
+The PLATFORM sections of the snapshot, joined; the corpus `disclosesPrompt` matches a
+reply against. Before this the corpus was `prompt_stable`, the **whole** compiled prefix —
+gate blocks and the tenant's knowledge base together — so a reply that quoted the tenant's
+own facts back to a customer counted as disclosing the prompt.
+
+Measured 2026-09-18 04:02 (D-084): a customer asked Matrix how many branches it has, the
+model answered «Матрикс эко салон нийт зургаан салбартай» straight from the knowledge base,
+and the reply was discarded for the generic handoff. The offending run was sixty characters
+of which **two were punctuation** — a 58-character KB sentence plus the full stop and space
+in front of it, present in both corpus and reply by coincidence of sentence boundaries.
+Every KB sentence of 58 characters or more carried that trap.
+
+It is the exact mirror of `allowed_numbers`, which has always excluded platform sections
+because the gate's numerals are its counter-examples. This excludes tenant sections because
+the tenant's sentences are the answer the bot was hired to give.
+
+**NULL is a format marker, not "unknown"** — the same shape as `canned_hash` in `0024`. A
+snapshot published before this column falls back to `prompt_stable`, which is exactly
+today's behaviour: it over-refuses rather than under-refuses, and the next republish
+narrows it. Reading NULL as "no corpus" would disable the check, which is the one direction
+that must never happen by default.
+
+**Not backfilled**, and it cannot be: `prompt_stable` is the concatenation and the
+platform/tenant boundary is not recorded in it. A guessed corpus is worse than a null one
+that says so.
 ---
 
 ## `0030_comment_rules.sql` — which public comments deserve a reply (D-085)
