@@ -288,8 +288,42 @@ export function disclosesPrompt(
   cannedResponses: readonly string[],
   runLength = 60,
 ): boolean {
+  return disclosureWindows(reply, promptCorpus, cannedResponses, runLength).length > 0;
+}
+
+/**
+ * The offending runs themselves, in the order the reply carries them.
+ *
+ * `disclosesPrompt` is this, reduced to a boolean. They are one function because the
+ * alternative — a diagnostic that reimplements the matching — is the mistake D-077 made
+ * inside the tool built to investigate D-077: that one joined the canned bodies into a
+ * single string, manufactured a window across two unrelated lines, and reported zero
+ * offenders. A second implementation of a check answers a different question than the
+ * check does, and it is most convincing exactly when it is wrong.
+ *
+ * ## Why the guard needs this and not just the boolean
+ *
+ * `quality_flags` recorded `a 60-character run of the system prompt appeared in the reply`
+ * and did not say WHICH run. On 2026-09-18 a reply was refused that had answered the
+ * customer correctly from the tenant's own knowledge base, and finding the window from the
+ * outside took a long sequence of guesses against the live snapshot — three of which were
+ * wrong. The guard knows the answer at the moment it refuses; it was throwing it away.
+ * A detector that says "something matched" and not "this matched" costs an investigation
+ * every time it fires.
+ *
+ * Returns folded text, which is what was actually compared — not a slice of the original
+ * reply. Folding is why a window can look unfamiliar next to the sentence it came from,
+ * and reporting the pre-fold text would hide the very transformation that produced the
+ * match.
+ */
+export function disclosureWindows(
+  reply: string,
+  promptCorpus: string,
+  cannedResponses: readonly string[],
+  runLength = 60,
+): string[] {
   const corpus = shingles(promptCorpus, runLength);
-  if (corpus.size === 0) return false;
+  if (corpus.size === 0) return [];
 
   const exempt = new Set<string>();
   for (const canned of cannedResponses) {
@@ -306,12 +340,14 @@ export function disclosesPrompt(
   }
 
   const cannedFlat = cannedResponses.map(foldFlat).filter((c) => c !== '');
+  const found: string[] = [];
+  const seen = new Set<string>();
   for (const segment of segmentsAroundCanned(foldFlat(reply), cannedFlat)) {
     for (const s of shinglesOfFlat(segment, runLength)) {
-      if (corpus.has(s) && !exempt.has(s)) return true;
+      if (corpus.has(s) && !exempt.has(s) && !seen.has(s)) { seen.add(s); found.push(s); }
     }
   }
-  return false;
+  return found;
 }
 
 /**
