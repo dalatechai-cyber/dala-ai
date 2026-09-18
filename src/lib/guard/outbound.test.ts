@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { disclosesPrompt, namesAGate, outboundGuard, type OutboundContext, type TenantGuardView } from './outbound.ts';
+import { disclosesPrompt, namesAGate, outboundGuard, type OutboundContext, type TenantGuardView, disclosureWindows } from './outbound.ts';
 
 /**
  * Matrix Eco Salon as the compiler would render it. Every Mongolian string below is
@@ -597,4 +597,50 @@ test('the padding does not splice two approved lines into one exemption', () => 
   // covered by either line's own exemption and must still be examined.
   const windows = disclosesPrompt(spliced, corpus, [PRICE_UNLISTED, BOOKING_LINE]);
   assert.equal(typeof windows, 'boolean');
+});
+
+// ---------------------------------------------------------------------------
+// The knowledge base is not a secret, and its boundary is. D-084.
+// ---------------------------------------------------------------------------
+
+test('A KB SENTENCE UNDER THE THRESHOLD IS REFUSED BY THE PUNCTUATION AROUND IT', () => {
+  // Matrix, 2026-09-18 04:02. A customer asked how many branches the salon has. The model
+  // answered correctly and from the tenant's own knowledge base — and the reply was
+  // refused. Measured: the KB sentence it quoted is 58 folded characters, UNDER the
+  // 60-character run length, so quoting it alone is safe. What reached 60 was the sentence
+  // plus the two characters in front of it: a full stop and a space.
+  //
+  // The corpus has them because the previous KB line ends in a full stop and a newline.
+  // The reply has them because the model's previous sentence ended in a full stop and a
+  // blank line. Both fold to ". " — and 58 + 2 = 60.
+  //
+  // This is D-068's boundary, one layer out. There it was a window straddling a CANNED
+  // line's opening edge, and the fix was to pad the exemption. Here it is a window
+  // straddling a KNOWLEDGE BASE sentence's opening edge, and there is no exemption at all:
+  // only canned rows have one. A tenant fact the bot exists to relay is refusable whenever
+  // the quoted span plus adjacent punctuation reaches sixty folded characters.
+  const kbSentence = 'Шулуун хими (сеттинг) нь хүчтэй бөгөөд хүн бүрд тохирохгүй';
+  assert.equal([...kbSentence].length, 58, 'precondition: the sentence alone is under the run length');
+
+  const corpus = `=== ТУХАЙН БАЙГУУЛЛАГЫН МЭДЭЭЛЭЛ ===\nӨмнөх мөр энд дуусна.\n${kbSentence}.\n`;
+  const reply = `Ажлын цаг 10:00-20:00.\n\n${kbSentence} байж болно.`;
+
+  assert.equal(disclosesPrompt(reply, corpus, []), true, 'refused today');
+  const windows = disclosureWindows(reply, corpus, []);
+  assert.equal(windows.length, 1);
+  assert.equal([...(windows[0] ?? '')].length, 60);
+  assert.equal(windows[0]?.startsWith('. '), true, 'the offender opens with the punctuation, not the sentence');
+
+  // And the sentence WITHOUT that leading punctuation is not an offender — which is what
+  // makes this a boundary problem rather than a "the KB is in the corpus" problem.
+  assert.equal(disclosesPrompt(kbSentence, corpus, []), false);
+});
+
+test('disclosureWindows and disclosesPrompt cannot disagree', () => {
+  // They are one function; this is the property that keeps them so. A diagnostic that
+  // reimplements its subject is how D-077's investigation reported zero offenders.
+  const corpus = 'A'.repeat(200);
+  for (const reply of ['A'.repeat(70), 'nothing in common at all', '']) {
+    assert.equal(disclosesPrompt(reply, corpus, []), disclosureWindows(reply, corpus, []).length > 0);
+  }
 });
