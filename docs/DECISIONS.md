@@ -5982,6 +5982,24 @@ The two probes matter more than the green run. Restoring the original discard
 removing the sticker exclusion turns exactly one red. A test that cannot fail is the thing
 this repository keeps catching itself writing.
 
+
+### D-082 addendum — the published `canned_hash` is not the one this record predicted
+
+**2026-09-18.** D-082 records the new `canned_hash` as **`eb27de84`**, and that number was
+right about the thing it measured: the `image_received` filter ALONE returns Matrix's canned
+section to its pre-image-row bytes, which is what seq 3, 4 and 5 carried. It was reproduced
+before the write, against a control.
+
+The value actually published at seq 7 is **`00486066`**, with `content_hash 91349162…` and
+14,279 chars. The difference is not a miss: the founder's `refusal_out_of_scope` rewording
+landed in the same publish, so two changes moved one section. Both numbers are true of
+different things.
+
+It is written down because the alternative is a session reading D-082, comparing it to the
+live snapshot, finding a mismatch and going looking for a bug that is not there — which is
+the failure mode CLAUDE.md already names for `allowed_numbers`: **read the count off the
+live snapshot, never off a sentence in this file.** The same applies to every hash recorded
+here.
 ---
 
 ## D-085 — which public comments deserve a reply

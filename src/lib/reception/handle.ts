@@ -415,10 +415,25 @@ export async function handleReception(
       // Corrected AND counted. A paraphrase that is quietly fixed is a paraphrase nobody
       // knows is happening, and the rate is the only evidence about whether the gate
       // wording works at all.
+      // HOW MUCH WAS DISCARDED, not only that something was.
+      //
+      // Serving the row replaces the WHOLE reply, which is right when the reply is that
+      // line adapted and costly when the adapted line is one paragraph of three. D-077's
+      // addendum accepted that cost — «the mechanism only means anything if it's exact» —
+      // and the flag recorded no way to see how large it is.
+      //
+      // Measured on Matrix 2026-09-18 03:59: a 292-character reply was replaced by a
+      // 108-character row, so 184 characters went, including the only sentence responsive
+      // to what the customer had actually asked. Nothing in the corpus said so. A cost that
+      // was stated rather than discovered still has to be COUNTED before anyone can judge
+      // whether it is still the right trade.
+      const replyChars = [...result.text].length;
+      const rowChars = [...pinned.canonical].length;
       await deps.flag({
         code: 'canned_paraphrased',
         detail: `the reply is ${pinned.similarity.toFixed(3)} of "${pinned.canonicalKind}" and is not it; `
-          + `served the row instead. Attempted: ${result.text}`,
+          + `served the row instead, discarding ${Math.max(0, replyChars - rowChars)} of ${replyChars} characters. `
+          + `Attempted: ${result.text}`,
       });
     }
     const drafted = await deps.draft({ body: pinned.canonical, answeredBy: 'canned' });
