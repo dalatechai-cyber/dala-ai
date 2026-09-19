@@ -1,7 +1,13 @@
 # Thread control: the inbound half, and the reclaim path it is built for
 
-**The inbound half is BUILT (2026-09-17).** The outbound half — `pass_thread_control`,
-`take_thread_control` — is **not**, deliberately. Passing control is a live mutation of a
+**The inbound half is BUILT (2026-09-17), and since 2026-09-19 it can actually fire:**
+`tenant_channels.meta_app_id` was NULL on every channel, which made every verdict `unknown`
+and every handover event a parse-and-discard. Both `facebook_page` channels now carry an id
+(D-089); the `web` channel does not and will not, because handover is Meta-only.
+
+**The outbound CALLS are written (`src/lib/handover/graph.ts`, D-090) and wired to nothing.**
+The reclaim below is what turns them into a feature, and it is still owed the three answers
+at the foot of this file. Passing control is a live mutation of a
 real salon's thread ownership: it cannot be rehearsed during a shadow mirror, and the
 receiver configuration on Matrix's Page is not yet known.
 
