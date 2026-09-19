@@ -6447,3 +6447,67 @@ product's name, is a price answer that cannot be attached to the wrong thing.
 
 Those rows are customer-visible Mongolian, so they wait for the founder. The alternative —
 compiling prices into the prefix — is a reversal of D-075 and is his to make, not a session's.
+
+## D-088 — tenant #0 quotes prices from one row, and per-product is rejected
+
+**2026-09-19, founder's call.** D-087 left prices open. The mechanism chosen is D-075's own
+second half: a `deterministic_replies` row, drafted **verbatim before the model call**, so
+its numerals enter neither the compiled prefix nor `allowed_numbers`, and the price is bound
+to the product by the MATCH rather than by the model's judgement.
+
+One row, `price_overview`, `match_mode = 'whole_message'`, `requires_empty_history = false`,
+`provenance = 'tenant_confirmed'`, eleven stems. It is live: nothing in `src/lib/prompt/` or
+`scripts/publish/` reads `deterministic_replies`, so the row took effect on insert with no
+republish, no `content_hash` move and no `canned_hash` move.
+
+### Per-product was asked for, drafted, and rejected
+
+The request was one row per product matched on the product name. Three things measured
+against the real `matchDeterministic` decided otherwise:
+
+- **«эхо» and «ора» are THREE code points against `MIN_STEM_CHARS = 4`.** Those rules skip
+  with `stem_too_short` and can never fire — two of the five staff silently unanswerable.
+  `stem_sequence` clears the floor but is a `gate/match.ts` mode, and
+  `deterministic_replies.match_mode` permits only `whole_message | contains_stem`.
+- **`matchDeterministic` returns the FIRST matching rule and has no ambiguity verdict.**
+  «Дали Вира хоёрыг авбал үнэ хэд вэ?» matches two product rules; the same rules in the
+  opposite array order answer with the other price. `reception/load.ts` selects the table
+  with **no `order by`**, so which price a customer is quoted is *unspecified*, not merely
+  first-wins.
+- **`requires_empty_history` defaults TRUE** and a price question arrives mid-conversation,
+  so every price row needs it false explicitly.
+
+The founder's words: *"Per-product is the same failure one table over, and unspecified
+ordering on a path with no outbound guard is worse than the problem it solves."* Note what
+that rejects — not only the rows but the matcher change that would have rescued them. An
+ambiguity verdict would have fixed the ordering and left the design wrong for the second,
+independent reason, which is the better argument against it.
+
+**This path has no outbound guard at all**, and that is the whole reason the row can carry
+prices: `handle.ts` drafts the short-circuit body at line 269 and returns, while
+`outboundGuard` is at 447. So the numeral, URL, phrasing and gate-label checks never run on
+these bytes. They are safe because they are the founder's bytes, reviewed as a sentence —
+not because anything downstream checks them. Anyone adding a second row here is adding
+unguarded customer-facing text.
+
+### What it answers, measured by replaying the row AS STORED
+
+Fires: «Үнэ хэд вэ?», «үнэ», «ҮНЭ ХЭД ВЭ?», «Үнэ.», «Үнийн мэдээлэл», «Үнэ хэдэн төгрөг вэ?»,
+`Price?`, `How much?`, `une hed ve?` — first turn and mid-conversation alike, and also when
+the history read FAILS, because `requiresEmptyHistory` is false so history is never consulted.
+
+Falls through to the model as `no_match`: «Танай үнэ хэд вэ?», «Далийн үнэ хэд вэ?». Those
+then meet D-075's prefix, which holds no prices, so they get `refusal_price_unlisted`. **That
+is a known, accepted gap rather than a bug**: a price question with any extra word in it is
+not answered with a price. It is the cost of the row being exact.
+
+The Latin stems are D-067's lesson applied — rows listing the Latin forms, not a
+transliteration engine. `whole_message` carries no length floor, which is what lets «үнэ»
+(three code points) serve as a stem at all.
+
+### The two edits
+
+The drafted body compressed the setup fee to «Суурилуулалт 150,000₮, Эхо 200,000₮», which
+made the reader do the subtraction; it is enumerated per member of staff now, in the source
+prompt's own phrase «нэг удаагийн суурилуулалт». And the closing question «Аль ажилтны талаар
+дэлгэрэнгүй сонирхож байна вэ?» is gone — they asked a price, so give the price.

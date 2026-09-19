@@ -15,7 +15,7 @@ Its own answer rules applied here:
 
 
 ════════════════════════════════════════════════════════════════════════════════
-ROW A — price_overview       SAFE TO INSERT TODAY
+ROW A — price_overview       APPROVED AND INSERTED 2026-09-19
 ════════════════════════════════════════════════════════════════════════════════
 match_mode             whole_message
 requires_empty_history false
@@ -24,15 +24,22 @@ stems                  үнэ / үнэ хэд вэ / үнэ хэдэн төгр�
                        үнэ ямар вэ / төлбөр хэд вэ / үнийн санал / ямар үнэтэй вэ /
                        price / how much / une hed ve
 
-body:
+body (as approved, and as the row now holds it):
 
 Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮.
-Суурилуулалт 150,000₮, Эхо 200,000₮. Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд
-урьдчилан бүртгүүлж болно. Аль ажилтны талаар дэлгэрэнгүй сонирхож байна вэ?
+Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮,
+Ора 150,000₮. Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.
+
+Two edits from the draft, both the founder's:
+  — the setup fee is enumerated per member of staff rather than compressed to
+    «Суурилуулалт 150,000₮, Эхо 200,000₮», which made the reader do the subtraction.
+    «нэг удаагийн суурилуулалт» is the source prompt's own phrase.
+  — the closing question «Аль ажилтны талаар дэлгэрэнгүй сонирхож байна вэ?» is gone:
+    they asked a price, so give the price.
 
 
 ════════════════════════════════════════════════════════════════════════════════
-ROWS B1–B8 — one per product   BLOCKED: see the note at the foot of this file
+ROWS B1–B8 — one per product   REJECTED 2026-09-19, see the foot of this file
 ════════════════════════════════════════════════════════════════════════════════
 These are drafted so the Mongolian can be read now. They must NOT be inserted while
 `matchDeterministic` resolves a tie by array order.
@@ -94,9 +101,11 @@ WHY B1–B8 ARE HELD — measured 2026-09-19, by execution
 3. `requires_empty_history` defaults TRUE, and a price question arrives mid-conversation.
    Every B row needs it set false explicitly. (Row A too.)
 
-(3) is a column value. (1) and (2) are the table's and the matcher's, and the fix is
-small: give `matchDeterministic` an ambiguity verdict — when two enabled rules match one
-message, fire NEITHER and let the model answer. That is the module's own stated doctrine
-(«every ambiguity here resolves towards the model»), it costs one model call, and
-`deterministic_replies` currently holds ZERO rows for either tenant, so nothing in
-production can change behaviour under it.
+(3) is a column value, and Row A carries it. (1) and (2) are the table's and the
+matcher's.
+
+The founder's call, 2026-09-19: **take Row A alone and reject B1–B8.** «Per-product is
+the same failure one table over, and unspecified ordering on a path with no outbound
+guard is worse than the problem it solves.» The matcher change that would have made
+per-product sound is therefore not wanted either — it would buy back a design that is
+wrong for a second, independent reason.
