@@ -26,6 +26,7 @@ import { renderTenantSections, type ServiceVariant, type TenantKb } from '../pro
 import { entriesFrom, subsetCollisions } from '../services/match.ts';
 import { containsStem } from '../mn/match.ts';
 import { scriptMatcher } from '../mn/text.ts';
+import { parseMatcher } from '../gate/match.ts';
 import type { IntakeDocument } from './intake.ts';
 
 export type Severity = 'blocker' | 'ask_client' | 'advisory';
@@ -151,6 +152,63 @@ export function validateIntake(doc: IntakeDocument, now = new Date()): Finding[]
         + 'Ask which spellings their customers use, and store the shortest distinctive stem.');
     }
   }
+  // --- Comment rules: the surface where a mistake is public and permanent ---------------
+  //
+  // Validated with `parseMatcher`, the SAME function that runs the rule at request time.
+  // A provisioning-only validator would be a second reader of one jsonb, free to disagree
+  // with the first — and the direction it would disagree in is "accepted here, refuses the
+  // whole job there", which is a tenant switched on and silently unable to answer.
+  const VERDICTS = new Set(['escalate', 'reply', 'ignore']);
+  const ruleKeys = new Set<string>();
+  for (const rule of doc.commentRules) {
+    if (rule.key === '') add('blocker', 'comment_rule_unnamed', 'a comment rule has no key');
+    if (ruleKeys.has(rule.key)) {
+      add('blocker', 'comment_rule_duplicate', `two comment rules share the key «${rule.key}»`);
+    }
+    ruleKeys.add(rule.key);
+
+    if (!VERDICTS.has(rule.verdict)) {
+      add('blocker', 'comment_rule_verdict',
+        `comment rule «${rule.key}» has verdict "${rule.verdict}"; it must be escalate, reply or ignore. `
+        + '`unclassified` is the ABSENCE of a matching rule and cannot be written in a row — a rule able to '
+        + 'assert it would edit the operator\u2019s own to-do list.');
+    }
+
+    const parsed = parseMatcher(rule.matcher);
+    if (!parsed.ok) {
+      add('blocker', 'comment_rule_matcher', `comment rule «${rule.key}»: ${parsed.detail}`);
+      continue;
+    }
+    // Stems only; `has_attachment` kinds are Meta's identifiers and never customer text.
+    const stems = parsed.spec.mode === 'contains_stem' ? parsed.spec.stems
+      : parsed.spec.mode === 'stem_sequence' ? parsed.spec.stems
+      : parsed.spec.mode === 'whole_message' ? parsed.spec.phrases
+      : [];
+    if (stems.length > 0 && !hasNonPrimaryScriptForm([...stems], primary)) {
+      add('ask_client', 'comment_rule_no_latin',
+        `comment rule «${rule.key}» has only ${primary} stems. 52% of the measured corpus carries no `
+        + 'Cyrillic at all (D-067/D-085), and on the comment surface a missed rule is a lost sale in public. '
+        + 'Ask which spellings their customers use.');
+    }
+  }
+
+  // A rule set with no ESCALATE rule is the one shape that cannot be read from the counters
+  // later: every complaint would be answered "come to DM" or ignored, and both look like the
+  // classifier working. Four of the 71 measured messages were complaints (D-085).
+  if (doc.commentRules.length > 0 && !doc.commentRules.some((r) => r.verdict === 'escalate')) {
+    add('ask_client', 'comment_rules_no_escalate',
+      'no comment rule escalates. A public complaint — «Утсаа авахгүй байна» — would be answered with '
+      + 'the "message us privately" line under the business\u2019s own post, or silently ignored. Ask what '
+      + 'their customers complain about in public and store those words.');
+  }
+
+  // Rules without the sentence they ultimately serve are rules that can never produce one.
+  if (doc.commentRules.some((r) => r.verdict === 'reply')
+      && (doc.sentences['comment_public_reply'] ?? '').trim() === '') {
+    add('blocker', 'comment_rules_without_line',
+      'comment rules would reply, and there is no `comment_public_reply` sentence for them to send');
+  }
+
   for (const s of doc.services) {
     if (s.aliases.length > 0 && !hasNonPrimaryScriptForm(s.aliases, primary)) {
       add('advisory', 'service_without_latin_alias',

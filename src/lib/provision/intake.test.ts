@@ -10,7 +10,7 @@ const VALID = {
   },
   confirmedBy: null,
   hours: [], services: [], contacts: [], booking: { url: null },
-  sentences: {}, neverSay: [], faqs: [], staff: [],
+  sentences: {}, neverSay: [], faqs: [], staff: [], commentRules: [],
 };
 
 test('DONE-TEST: A MISSPELLED FIELD IS REPORTED, NEVER IGNORED', () => {
@@ -38,7 +38,7 @@ test('DONE-TEST: THE DOCUMENT IS BUILT, NOT CAST', () => {
   if (r.ok) {
     assert.ok(!Object.prototype.hasOwnProperty.call(r.doc, '_note'));
     assert.deepEqual(Object.keys(r.doc).sort(), [
-      'booking', 'business', 'confirmedBy', 'contacts', 'faqs', 'hours',
+      'booking', 'business', 'commentRules', 'confirmedBy', 'contacts', 'faqs', 'hours',
       'neverSay', 'sentences', 'services', 'slug', 'staff',
     ]);
   }
