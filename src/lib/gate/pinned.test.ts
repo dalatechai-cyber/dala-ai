@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkPinnedLines, similarity, NEAR_COPY_MIN_SIMILARITY } from './pinned.ts';
+import { checkPinnedLines, similarity, NEAR_COPY_MIN_SIMILARITY, EMBEDDED_MIN_RUN } from './pinned.ts';
 import type { CannedRow } from './match.ts';
 
 const REVIEWED = '2026-09-07T00:00:00Z';
@@ -148,12 +148,49 @@ test('DONE-TEST: AN EXACT QUOTATION INSIDE A LONGER REPLY IS LEFT ALONE', () => 
   assert.equal(checkPinnedLines(reply, ROWS).kind, 'clean');
 });
 
-test('the shared phone sentence alone is not drift', () => {
-  // «Та 7741-7777 дугаараар холбогдоно уу.» is 36 characters and ends several rows. A reply
-  // may legitimately end that way without having reproduced any particular one — which is
-  // what EMBEDDED_MIN_RUN is for.
-  const reply = 'Манай ажилтан Танд туслах болно. Та 7741-7777 дугаараар холбогдоно уу.';
-  assert.equal(checkPinnedLines(reply, ROWS).kind, 'clean');
+// The salon's CURRENT closing sentence, as published at revision seq 8 on 2026-09-19.
+// Written out rather than transcribed from the old one, because the old one is what made
+// this test pass for the wrong reason — see the pair below.
+const CLOSING = 'Та 76001888 эсвэл 80905498 дугаараар лавлана уу.';
+// Shaped like the SHORTEST live row that ends with it: `refusal_no_promotion`, 99 cp.
+const SHORTEST_LIVE_ROW = {
+  kind: 'refusal_no_promotion',
+  body: `Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. ${CLOSING}`,
+  reviewedAt: '2026-09-19T00:00:00Z',
+};
+
+test('the shared phone sentence alone is not drift — and NOT because of the floor', () => {
+  // This test used to read: «Та 7741-7777 дугаараар холбогдоно уу.» is 36 characters (it is
+  // 37), a reply may legitimately end that way, "which is what EMBEDDED_MIN_RUN is for."
+  //
+  // The salon replaced that number on 2026-09-19 and the replacement is 48–51 code points,
+  // so EMBEDDED_MIN_RUN = 40 no longer excludes the sentence. The test stayed green because
+  // its FIXTURE still carried the retired number — it was asserting a world that had ended.
+  // What keeps a real reply clean now is EMBEDDED_MIN_SHARE: 0.6 × 99 = 59.4 > 48.
+  const reply = `Манай ажилтан Танд туслах болно. ${CLOSING}`;
+  assert.equal(checkPinnedLines(reply, [SHORTEST_LIVE_ROW, BOOKING_ROW]).kind, 'clean');
+  assert.ok([...CLOSING].length > EMBEDDED_MIN_RUN,
+    'the closing sentence is no longer under the floor — if it ever is again, this test is '
+    + 'passing for the old reason and the pair below stops being the real boundary');
+});
+
+test('the boundary is a property of the ROWS: a short row ending the same way IS drift', () => {
+  // The hazard the comment above can only describe, stated executably. A row of 80 code
+  // points or fewer ending in the shared sentence satisfies 48 >= 0.6 x L, so a correct
+  // answer that merely closes that way would be discarded and the row served in its place —
+  // D-068's failure by a new route. Matrix's shortest such row is 99, ~19 characters clear.
+  //
+  // This assertion is the tripwire. Adding a shorter row, or lowering EMBEDDED_MIN_SHARE,
+  // moves the live rows across this line; raising EMBEDDED_MIN_RUN above 48 flips this
+  // verdict and turns the test red rather than silently loosening the guard.
+  const shortRow = {
+    kind: 'refusal_terse',
+    body: `Мэдээлэл надад байхгүй. ${CLOSING}`,
+    reviewedAt: '2026-09-19T00:00:00Z',
+  };
+  assert.ok([...shortRow.body].length <= 80, 'fixture must sit inside the hazardous band');
+  const reply = `Манай ажилтан Танд туслах болно. ${CLOSING}`;
+  assert.equal(checkPinnedLines(reply, [shortRow]).kind, 'paraphrase');
 });
 
 test('an unreviewed row is never the canonical answer, embedded or not', () => {

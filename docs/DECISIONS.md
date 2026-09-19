@@ -6893,3 +6893,59 @@ canned floor**, not the guard refusal: together ≈0.9 conversations a day again
 fire on customers who are stuck rather than on replies the guard got wrong. Both reach the
 conversation above by different routes. It is his because it decides how much of the salon's
 day this feature spends.
+
+## D-094 — the phone change falsified a guard's reason, and its test was asserting a world that had ended
+
+Found while checking whether the retired number survived anywhere in `src/`. It does, in test
+fixtures and docstrings only — no provisioning file, no seed, nothing on a write path, so a
+re-provision cannot put the dead number back. One of those docstrings was not inert.
+
+`EMBEDDED_MIN_RUN = 40` is the floor below which a shared run is not counted as drift, and its
+justification was the shared closing sentence: «Та 7741-7777 дугаараар холбогдоно уу.», *"36
+characters"*, so *"forty keeps the phone sentence from reading as drift on its own."* Two things
+are now wrong with that sentence. It was **37** code points, not 36. And its replacement is
+**51** («холбогдоно») or **48** («лавлана»), both comfortably over the floor — so forty no longer
+excludes the shared sentence at all.
+
+**The guard did not break.** Every probe against Matrix's live rows came back `clean`, because
+`EMBEDDED_MIN_SHARE` catches what the floor stopped catching: the shortest live row ending that
+way is `refusal_no_promotion` at 99 code points, and 0.6 × 99 = 59.4 > 48, so the run now fails
+the proportion instead of failing the floor. This is D-058's shape exactly — *the guard did not
+break; the reason it was true did, and nothing pointed at the reason* — arriving through a row
+edit in a different table from the code it invalidated.
+
+### The test was the part that should have caught it
+
+`'the shared phone sentence alone is not drift'` existed, said in its own comment that
+`EMBEDDED_MIN_RUN` is what the property rests on, and stayed green — **because its fixture still
+carried the retired number.** A test whose fixture is a copy of production data keeps asserting
+the world that fixture came from, and reports it as a pass. Nothing in CI could have seen this:
+the fixture is in the repo and CI is built out of the repo (D-058's asymmetry, one more time).
+
+The fixture now carries the sentence as published at seq 8, and the property is stated on BOTH
+sides of the boundary rather than on the safe side only:
+
+- a reply merely ending that way, against a row shaped like the shortest live one → `clean`;
+- the same reply against a row of **≤ 80 code points** ending the same way → `paraphrase`,
+  i.e. the correct answer discarded and the row served in its place.
+
+80 is where 48 ≥ 0.6 × L turns over. **The boundary is a property of the ROWS, not of the
+constant**, and Matrix has about 19 characters of margin: one shorter refusal row ending at the
+phone number would start replacing correct answers with it, which is D-068's failure by a new
+route. Both assertions were checked adversarially — `EMBEDDED_MIN_RUN` at 52 and
+`EMBEDDED_MIN_SHARE` at 0.45 each turn them red, and 0.45 also reddens a pre-existing test, so
+the share is load-bearing in more than one place.
+
+### What was deliberately not done
+
+`EMBEDDED_MIN_RUN` was **not raised to 52** to restore the original reading. That loosens a guard
+on the surface D-077's founder call was about — *"the mechanism only means anything if it's
+exact"* — and it is a behaviour change to a guard that is currently correct. The number stays and
+the justification is now accurate, which is the honest repair; whether the floor should track the
+closing sentence's length is a question for the founder, not a constant to nudge.
+
+The incident fixtures keep the OLD number on purpose. `PRICE_ROW` and the D-077 tests reproduce
+production turns from 2026-09-16, when 7741-7777 was live; rewriting them to the new number would
+falsify the record of what actually happened. **A fixture reproducing an incident is dated
+evidence; a fixture asserting a live property must track the live value.** Conflating the two is
+what produced this finding.
