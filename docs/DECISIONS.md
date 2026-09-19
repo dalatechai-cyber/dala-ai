@@ -6894,11 +6894,87 @@ fire on customers who are stuck rather than on replies the guard got wrong. Both
 conversation above by different routes. It is his because it decides how much of the salon's
 day this feature spends.
 
-## D-094 — the phone change falsified a guard's reason, and its test was asserting a world that had ended
+## D-094 — a retired phone number in a re-runnable seed, a guard whose reason expired, and a truncated grep that hid both
 
-Found while checking whether the retired number survived anywhere in `src/`. It does, in test
-fixtures and docstrings only — no provisioning file, no seed, nothing on a write path, so a
-re-provision cannot put the dead number back. One of those docstrings was not inert.
+Found while checking whether the retired number survived anywhere in the repository. Two
+separate things did, and the way the first was nearly missed is the most useful part.
+
+### First, the error, because it was published before it was caught
+
+This entry originally read: *"it does, in test fixtures and docstrings only — no provisioning
+file, no seed, nothing on a write path, so a re-provision cannot put the dead number back."*
+**That was false, and it was committed and pushed.** The grep behind it ended in `head -30` and
+returned exactly thirty lines; the real count is **117**, and the provisioning files were below
+the cut. An answer assembled from a truncated read was reported as an audit — D-057's lesson
+(*when a parser cannot complete, it must say so, not answer with the part it managed*) arriving
+in a shell pipeline rather than in a parser, and arriving inside the check that existed to find
+exactly this. The finding below is what the untruncated search returned.
+
+### The seed files, and a claim that had to be corrected twice
+
+The first version of this section said `matrix-stage4-kb.sql` *"would have written the dead
+number back as a second escalation contact, and the next publish would have compiled it into the
+prefix and into `allowed_numbers`."* **That is also false.** It was written from reading the SQL:
+
+```sql
+insert into contact_points (tenant_id, kind, value, is_escalation)
+select t.id, 'phone', '7741-7777', true
+  ... and not exists (select 1 from contact_points c
+                      where ... and c.value = '7741-7777');
+```
+
+The guard IS keyed on the value it inserts, so after the republish removed that row it stops
+preventing anything — that much was right. What was wrong was the consequence. Run against a
+scratch PostgreSQL 16.13 holding the new value, the old file does not insert anything:
+
+```
+psql:/tmp/old-stage4.sql:106: ERROR:  duplicate key value violates unique constraint
+                                      "contact_points_pkey"
+exit: 3
+```
+
+`contact_points`'s primary key is **`(tenant_id, kind)`** — one phone row per tenant, ever — and
+the file wraps lines 40–213 in a transaction, so the violation rolls the whole stage back. No
+corruption, no partial state. **The safety came from a constraint the guard does not know about**,
+which is worth more than the guard: a dead idempotency check sitting on top of a live primary key
+looks exactly like a working idempotency check. The real defect is that stage 4 silently became
+un-re-runnable. After aligning the value and the guard, a re-run is a genuine no-op — measured,
+`re-run OK`, one phone row.
+
+**The actual risk is in the canned files, which is the opposite of the ordering first written
+here.** `canned_responses` guards on `(kind, locale)`, so a re-run is a no-op whatever the body
+says — but a FRESH provision is not. Rows deleted and the old `matrix-stage3-canned.sql` re-run,
+measured:
+
+```
+handoff                -> Та 7741-7777
+refusal_no_promotion   -> Та 7741-7777
+refusal_price_unlisted -> Та 7741-7777
+refusal_staff_schedule -> Та 7741-7777
+```
+
+Four reviewed bodies carrying a disconnected number, stamped `reviewed_by = 'founder'` — and this
+file's own header explains why that is the serious one: *a canned line is trusted on `reviewed_at`
+alone*, bypasses the outbound guard entirely, and is served to a customer verbatim. The review
+gate cannot help, because the rows genuinely were reviewed; what expired is the number inside
+them. The same held for `refusal_topic` in `matrix-stage3b-children.sql` and for the «Салбарууд»
+knowledge document.
+
+All are now the live approved text, verified by running the whole chain against the scratch
+cluster and comparing lengths to the project: `refusal_topic` 128, `refusal_no_promotion` 99,
+`handoff` 143, `refusal_price_unlisted` 122, `refusal_staff_schedule` 102, `contact_points.phone`
+= `76001888, 80905498`. Every one matches. The `contact_points` row takes the comma form because
+it renders as data (`- Утас: …`); the canned bodies take the sentence form «76001888 эсвэл
+80905498» because they are sentences.
+
+One was deliberately **not** updated. `matrix-stage3b-children.sql`'s `refusal_out_of_scope` body
+is superseded outright — D-082 found its photograph wording was answering text-only colour
+questions «зурган дээр үндэслэн», and the founder reworded it to a row carrying no phone number
+at all. Swapping its number would have produced a sentence current in exactly one respect and
+retired in every other, which is the most misleading state for a line somebody might re-run. It
+is flagged in place; replacing it is customer-visible Mongolian and the founder's.
+
+### And second, the docstring that was not inert
 
 `EMBEDDED_MIN_RUN = 40` is the floor below which a shared run is not counted as drift, and its
 justification was the shared closing sentence: «Та 7741-7777 дугаараар холбогдоно уу.», *"36
@@ -6949,3 +7025,13 @@ production turns from 2026-09-16, when 7741-7777 was live; rewriting them to the
 falsify the record of what actually happened. **A fixture reproducing an incident is dated
 evidence; a fixture asserting a live property must track the live value.** Conflating the two is
 what produced this finding.
+
+### The method, which is the part worth keeping
+
+This entry was wrong twice, in the same direction, and both times the correction came from
+running the thing rather than reading it. First a `head -30` truncation reported as an audit.
+Then a consequence — *it would insert the dead number back* — inferred from SQL that, executed,
+does something else entirely, and whose real risk turned out to be in a different file with the
+severity ordering reversed. **Reading SQL tells you what it says; only running it tells you what
+the schema will let it do**, and a primary key declared in `0001` is exactly the sort of thing
+that is not in front of you when you are reading line 100 of a seed file.

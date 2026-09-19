@@ -16,9 +16,14 @@
 -- ## Why these bodies bypass the outbound guard
 --
 -- The guard (`guard/outbound.ts`) runs on MODEL text only — `handle.ts:311`. A canned line
--- is trusted on `reviewed_at` alone. That is why the phone number 7741-7777 is fine in
--- four of them without appearing in `allowed_numbers`, and it is also why the review that
--- `reviewed_at` records is the entire control. Measured anyway, before insert:
+-- is trusted on `reviewed_at` alone. That is why the phone number is fine in four of them
+-- without appearing in `allowed_numbers`, and it is also why the review that `reviewed_at`
+-- records is the entire control.
+--
+-- The number is no longer written out here. It was 7741-7777 until 2026-09-19, and a
+-- prose copy of a value that lives in four bodies below is a fifth thing to keep in step
+-- — which it was not: these bodies still said 7741-7777 days after the salon replaced it.
+-- Measured anyway, before insert:
 --
 --   * all nine are NFC (the `body is normalized` CHECK would refuse otherwise);
 --   * all nine are under the 1900-character reply cap, the longest being 144;
@@ -49,19 +54,19 @@ insert into _stage3(kind, body) values
   -- new — no line in their bot answers "what are you?"
   ($tag$booking_line$tag$, $tag$Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.$tag$),
   -- verbatim in form; the URL is tenant-confirmed (2026-09-07)
-  ($tag$handoff$tag$, $tag$Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та 7741-7777 дугаараар холбогдоно уу.$tag$),
+  ($tag$handoff$tag$, $tag$Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.$tag$),
   -- verbatim from the ancestor's HANDOFF_REPLY
   ($tag$refusal_health$tag$, $tag$Эрүүл мэндийн талаар зөвлөгөө өгөх боломжгүй. Эмчид хандахыг зөвлөж байна. Үйлчилгээний талаар асуувал баяртайгаар хариулна.$tag$),
   -- new — the chemistry contraindications need a refusal, not an answer
-  ($tag$refusal_no_promotion$tag$, $tag$Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та 7741-7777 дугаараар лавлана уу.$tag$),
+  ($tag$refusal_no_promotion$tag$, $tag$Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та 76001888 эсвэл 80905498 дугаараар лавлана уу.$tag$),
   -- new — Sh6: the bot may quote a running promotion, never announce one
   ($tag$refusal_off_topic$tag$, $tag$Уучлаарай, би тухайн асуултын талаар мэдээлэлтэй байхгүй байна. Салоны үйлчилгээ, үнэ, цагийн хуваарийн талаар асуугаарай.$tag$),
   -- verbatim from the ancestor's systemPromptBuilder rule 10
-  ($tag$refusal_price_unlisted$tag$, $tag$Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 7741-7777 дугаараар холбогдож лавлана уу.$tag$),
+  ($tag$refusal_price_unlisted$tag$, $tag$Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу.$tag$),
   -- new — the load-bearing one while service_variants is empty
   ($tag$refusal_public_channel$tag$, $tag$Сайн байна уу. Энэ талаар нийтэд дэлгэрэнгүй хариулах боломжгүй. Хувийн мессеж бичвэл хариулна.$tag$),
   -- new — comments path; no line existed because the ancestor has no comments path
-  ($tag$refusal_staff_schedule$tag$, $tag$Үсчдийн ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та 7741-7777 дугаараар лавлана уу.$tag$)
+  ($tag$refusal_staff_schedule$tag$, $tag$Үсчдийн ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та 76001888 эсвэл 80905498 дугаараар лавлана уу.$tag$)
   -- new — attendance is a fact we cannot know (D-020)
 ;
 
