@@ -96,7 +96,22 @@ failure with better plumbing, and worse, because the customer gets silence from 
 has deliberately stopped talking. The reclaim is what stops that, so it is not an
 enhancement to add later — it ships with the pass or the pass does not ship.
 
-### Three open questions, all the founder's
+### Three open questions — ANSWERED 2026-09-19 (D-091)
+
+1. **The reclaim window is 15 minutes.**
+2. **A staff reply resets the clock**, and `applyThreadControl` now refreshes
+   `thread_control_at` on a human echo. The refresh is only safe because the reclaim bounds
+   it; they are one design.
+3. **The customer sees the pass.** Both sentences are drafted and unsigned in
+   `prompt/drafts/handover_notice_and_reclaim.mn.txt`.
+
+**Still open, and it blocks the sweeper:** the reclaim window (15) is shorter than
+`human_takeover_cooldown_minutes` (30), so a sweeper that reclaims ANY `human` thread makes
+the cooldown unreachable. Step 3 above scopes the reclaim to threads *we* passed, which
+needs something `thread_control_source` cannot give — it says `handover` both when we pass
+and when a person takes the thread through Meta's UI.
+
+### The original wording of those three questions
 
 1. **The reclaim window.** Distinct from the cooldown: the cooldown is how long the bot
    stays quiet after a person takes over, the reclaim window is how long we wait before

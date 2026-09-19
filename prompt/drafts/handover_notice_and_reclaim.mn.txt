@@ -1,0 +1,66 @@
+UNSIGNED DRAFT — the two handover sentences. Loaded by nothing.
+Founder's answers, 2026-09-19: reclaim window 15 minutes; a staff reply resets the clock;
+the customer DOES see the pass.
+
+These are `canned_responses` rows, one per tenant, served WHOLE by the handover path with
+no model in the loop — like `image_received` and `comment_public_reply`.
+
+
+════════════════════════════════════════════════════════════════════════════════
+1. handover_notice — sent WITH the pass, when the bot hands the thread to a person
+════════════════════════════════════════════════════════════════════════════════
+
+Хамт олон маань энэ яриаг аван тантай холбогдоно. Тэр хүртэл би хариулахгүй,
+түр хүлээнэ үү.
+
+    "Our team will take this conversation and get in touch with you. Until then I
+     will not reply — please wait a moment."
+
+Why it is worded this way:
+
+  — It EXPLAINS THE SILENCE that follows, which is the whole reason for sending it
+    («Silence with no explanation is what makes people give up»). A pass with no notice
+    and a dead channel look identical from the customer's side.
+  — It promises no TIME. «удахгүй», «хэдхэн минутын дотор» and anything like them are a
+    commitment the salon has to keep, and D-069's «Хаяг» lesson is that a label promising
+    more than it delivers is worse than declining.
+  — «би хариулахгүй» is first person and explicit. The customer is told the bot is
+    stepping back, not that it broke.
+  — It does NOT say «Уучлаарай». The bot is not apologising for fetching a person; that
+    is the system working.
+
+
+════════════════════════════════════════════════════════════════════════════════
+2. handover_reclaim — sent when the window expires and nobody came
+════════════════════════════════════════════════════════════════════════════════
+
+Уучлаарай, хүлээлгэсэнд. Би үргэлжлүүлэн туслая. Хүнтэй ярих шаардлагатай бол
+хэлээрэй.
+
+    "Sorry for keeping you waiting. Let me carry on helping you. If you need to
+     speak to a person, say so."
+
+Your sentence, kept — «Уучлаарай, хүлээлгэсэнд. Би үргэлжлүүлэн туслая.» is grammatical
+and lands correctly: «хүлээлгэсэн» is the causative, so the bot apologises for HAVING MADE
+the customer wait rather than for the customer's own waiting.
+
+Two notes on what was added and what was refused:
+
+  — THE THIRD SENTENCE IS DELIBERATE and breaks the source prompt's «нэг, ихдээ хоёр
+    өгүүлбэр» rule. This is the one moment the customer has evidence that asking for a
+    person does not work, so the door has to be held open explicitly. Drop it if you would
+    rather keep the two-sentence rule; the reply is still honest without it.
+  — NO REASON IS GIVEN. «Хамт олон маань завгүй байна» — *our team is busy* — was drafted
+    and rejected: nobody was necessarily busy, they may simply not have seen it, and the
+    platform cannot tell the difference. Asserting a cause we cannot observe is the same
+    failure as a label promising an address.
+
+
+════════════════════════════════════════════════════════════════════════════════
+BEFORE EITHER ROW IS INSERTED
+════════════════════════════════════════════════════════════════════════════════
+Both kinds must be in `MODEL_INVISIBLE_KINDS` **and deployed** first. They are served by
+the platform and named by no gate block, so unfiltered they would sweep into the cached
+prefix, move `canned_hash`, and 503 every DM reply for that tenant with `canned_stale`
+until a republish — D-082's outage with a different sentence in it. That is the same
+deploy-then-insert order `comment_public_reply` needed on 2026-09-19.

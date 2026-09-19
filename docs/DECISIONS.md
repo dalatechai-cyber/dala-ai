@@ -6608,3 +6608,94 @@ would move thread control on the wrong salon's Page and answer 200 — and a pas
 The `NEVER_CONNECTED` list is duplicated from `meta/send.ts` deliberately (importing it would
 export an internal), and a test parses BOTH files and fails when they drift. That test was
 checked adversarially: deleting one entry from `graph.ts` turns it red.
+
+## D-091 — the handover policy answered, and D-089's app id was wrong
+
+**2026-09-19, founder.** All three of `docs/handover.md`'s open questions are answered, and
+the `meta_app_id` set hours earlier was corrected from the App Dashboard.
+
+### The app id was wrong, and it was wrong for the reason D-089 quoted
+
+`meta_app_id` is **`1562862634970492`** (`DALA_AI`). D-089 set `1380702870025418`, which is
+the **ancestor's** app.
+
+The mistake is worth more than the fix. D-089 quoted D-041 — *a slug is this platform's
+name for a callback path, not Meta's name for an app* — wrote that the numeric id could not
+be derived from the measurement, and then derived it from the measurement anyway: 197
+deliveries verified under the slug `dalatech`, and `dalatech` is also the NAME of a Meta
+app, so the id of that app was taken. **The slug named `dalatech` holds DALA_AI's secret.**
+That is precisely the coincidence D-041 exists to warn about, recited and then walked into
+one paragraph later.
+
+The general form: quoting a warning is not applying it. The application here would have been
+to notice that the only step from evidence to value was *a name matching a name*, and stop.
+
+**Nothing was harmed, and D-089's harm table is why** — it argued a wrong id is never worse
+than the NULL it replaced, and that held: no handover event has ever arrived, so
+`controlAfter` was never called with the wrong value. The table was right; the id was not.
+
+### The three answers
+
+**1. The reclaim window is 15 minutes.** *"Long enough for someone to notice, short enough
+that «2 өдөр залгаж байна» doesn't happen again."*
+
+**2. A staff reply resets the clock.** `applyThreadControl` now refreshes
+`thread_control_at` on a human turn. The file argued the opposite, and that argument was
+incomplete rather than wrong: refreshing on every human turn does extend the silence for as
+long as someone keeps typing. What bounds it is the reclaim. **The refresh and the reclaim
+are one design, not two decisions** — ship the refresh alone and the old comment's warning
+comes true.
+
+It is deliberately narrow: only `source = 'echo'` (a person typing), only `human`, and
+`changed` stays **false** because `recordHandover` counts `changed` as takeovers and a
+refresh moved nothing. A `handover` event re-asserting `human` is Meta repeating itself, and
+treating it as a turn would let a redelivered webhook hold a thread open for ever. Both
+narrowings are tested, and the test was checked adversarially: widening the condition turns
+one red.
+
+**3. The customer sees the pass.** Both sentences are drafted in
+`prompt/drafts/handover_notice_and_reclaim.mn.txt` and are unsigned. Neither promises a
+time, and the reclaim gives no reason for the wait — *our team is busy* was drafted and
+rejected, because nobody was necessarily busy and the platform cannot tell the difference.
+
+### Open: 15 minutes and 30 minutes cannot both bind
+
+`tenants.human_takeover_cooldown_minutes` is **30** for both tenants; the reclaim window is
+**15**. If the sweeper reclaims any `human` thread after its window, it always fires first
+and **the cooldown becomes unreachable** — a configured control that can never be observed,
+which is D-064's dead column from the other end.
+
+`docs/handover.md` step 3 scopes the reclaim to threads **we** passed, which keeps both
+numbers meaningful: our pass reclaims at 15, a person's own takeover holds for 30. That
+needs something `thread_control_source` cannot give — `handover` is written both when we
+pass and when a person grabs the thread through Meta's UI — so it wants either a fourth
+source value or a column recording that the pass was ours.
+
+Not decided here, because picking silently either kills a number the founder set or adds a
+column he has not seen. The sweeper is not built until it is settled.
+
+### Also: `pages_messaging` is at STANDARD access on the app that matters
+
+The founder reports `DALA_AI` holds `pages_messaging` **Active at Standard access**, and did
+not request Advanced, on the reasoning that this platform administers both Pages. CLAUDE.md
+records **Advanced** — but for the app named `dalatech`, which the correction above shows is
+the ancestor's, not ours. Both statements can be true of different apps, and the one that
+carries our traffic is the Standard one.
+
+Standard Access is what an app has for users who hold a role on it. Messaging the general
+public is what Advanced Access is for. If that is right, the first reply to a stranger fails
+at send time. It cannot be checked from here — `developers.facebook.com` is 403 — so it is
+recorded as a risk with its evidence rather than asserted:
+
+**The evidence is thin in the direction that matters.** `outbound_messages` holds four sent
+messages with provider ids for tenant #0, across **two conversations**, on this platform's
+own Page — both plausibly the founder. Matrix holds **163 drafts across 57 conversations**
+and has sent to none of them, because it is in `shadow`. So **the cutover would be the first
+time this platform sends to a stranger**, and if Standard is insufficient it will be
+discovered on Matrix's real customers rather than in a test.
+
+The cheap settlement, before cutover: have somebody with **no role on `DALA_AI`** message
+tenant #0's Page, which is `live`, and see whether the reply sends. Two minutes, and it
+converts the whole question into an observation. A failure would surface as Graph code 200 →
+`channel_permission_error`, terminal, which halts outbound and pages rather than failing
+quietly — loud, but on a live customer.
