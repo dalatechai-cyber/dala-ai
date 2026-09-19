@@ -1,0 +1,61 @@
+UNSIGNED DRAFT — Matrix knowledge rows from the salon's 2026-09-19 answers.
+Loaded by nothing. Read before any of it goes in.
+
+NO PRICES ANYWHERE BELOW. 198,000₮ / 154,000₮ and the dye figures are deliberately absent:
+D-075 keeps prices out of the prefix and out of `allowed_numbers`, and the serve-from-row
+half that would carry them is still unbuilt. These rows describe WHAT the services are, so
+the bot stops being ignorant of them; the figures wait for the mechanism.
+
+
+════════════════════════════════════════════════════════════════════════════════
+A. knowledge_documents — «CICA нөхөн сэргээх эмчилгээ»
+════════════════════════════════════════════════════════════════════════════════
+
+Гурван үе шаттай эмчилгээ.
+Үсний уураг, чийгийг нөхөн сэргээнэ. Үс 97% уураг, 3% ус агуулдаг.
+Үсний меланин пигментийг нөхнө.
+Нэг удаагийн эмчилгээ нь 30-40 тэжээлийн тостой дүйцэхүйц үр дүнтэй. Энэ нь тэжээлийн
+тос биш бөгөөд түүнээс хамаагүй илүү үр дүнтэй.
+Шулуутгах химийн бодис агуулсан уургийн эмчилгээнээс илүү үр дүнтэй.
+Үс унах, хуурайших, хагарах, гэмтсэн тохиолдолд тохиромжтой.
+
+    ⚠ THIS ROW WIDENS `allowed_numbers`. It carries 97, 3, 30 and 40. `3` and `30` are
+    already on Matrix's list; **97 and 40 would be new**, and `30-40` may compile as one
+    fused token. None of them is a price, but every numeral added to the allow-list is one
+    more thing the outbound guard will permit the model to say. Say the word and I drop the
+    two statistics — the row still answers the question without «97%» and «30-40».
+
+
+════════════════════════════════════════════════════════════════════════════════
+B. knowledge_documents — «Эмчилгээний хими»
+════════════════════════════════════════════════════════════════════════════════
+
+Зөөлөн, ургамлын гаралтай, үнэр багатай хими.
+Үсийг гэмтээхгүй.
+
+    No numerals. Safe.
+
+
+════════════════════════════════════════════════════════════════════════════════
+C. The damaged-hair standard answer
+════════════════════════════════════════════════════════════════════════════════
+
+Үс унах, хуурайших, хагарах зэрэг асуудалтай бол мастер үсчинд үзүүлж, зөвлөгөө авахыг
+зөвлөж байна. Цаг захиалах бол хэлээрэй.
+
+    PLACED AS KNOWLEDGE, NOT AS A CANNED ROW, and the difference matters. A canned row
+    pointed at by a rule is SERVED — the platform types it. Knowledge is read by the model
+    and followed or not, which D-065 calls a request rather than an instruction.
+
+    Enforcing it would need a matcher for "the customer is describing damaged hair", and
+    that is a fuzzy judgement no stem list makes well — «гэмтсэн», «хуурай», «унаж байна»
+    over-match and under-match in the ways D-067 and D-083 both catalogue. So it goes in as
+    guidance now, and becomes a served row later if the corpus shows the model ignoring it.
+
+
+════════════════════════════════════════════════════════════════════════════════
+D. «CICA хими» — nothing to remove
+════════════════════════════════════════════════════════════════════════════════
+It was never in our rows. Matrix's eight services were CICA эмчилгээ, CMC тос, Office өнгө,
+Афро хими, Омбре, Сор, Шулуун хими, Эмчилгээний хими. `CICA эмчилгээ` has been RENAMED to
+«CICA нөхөн сэргээх эмчилгээ», which is the real service the salon names.

@@ -6699,3 +6699,70 @@ tenant #0's Page, which is `live`, and see whether the reply sends. Two minutes,
 converts the whole question into an observation. A failure would surface as Graph code 200 →
 `channel_permission_error`, terminal, which halts outbound and pages rather than failing
 quietly — loud, but on a live customer.
+
+## D-092 — Matrix's names settled, and what the rename did and did not fix
+
+**2026-09-19, founder, after the salon finally answered.** D-075 held the alias seed because
+*"the `services` rows and the confirmed price list disagree about the names."* Two are now
+settled and applied:
+
+| was | is |
+|---|---|
+| `CICA эмчилгээ` | **«CICA нөхөн сэргээх эмчилгээ»** |
+| `Office өнгө` | **«Оффис колор /Сор/»** |
+
+«CICA хими» was never in our rows at all — there was nothing to remove. Four aliases seeded,
+`tenant_confirmed`: the two old CICA names, and «Оффис колор» / «Офис колор» for the single-ф
+spelling.
+
+### Measured through `matchService`, not assumed
+
+| text | verdict |
+|---|---|
+| «оффис колор сор хийлгэмээр байна» | **Оффис колор /Сор/**, 3 tokens |
+| «Оффис колор хийлгэе» | **Оффис колор /Сор/**, 2 tokens (via alias) |
+| «офис колор» | **Оффис колор /Сор/**, 2 tokens (spelling alias) |
+| «cica эмчилгээ хийлгэх үү» | **CICA нөхөн сэргээх эмчилгээ**, 2 tokens (old-name alias) |
+| bare «cica» | **none** — safe, as D-075 measured |
+| «Сор хийлгэх үнэ хэд вэ» | **Сор**, 1 token |
+| **«сорри буруу бичлээ»** | **Сор**, 1 token |
+
+**The rename did not remove the collision, and could not.** `subsetCollisions` still reports
+«Сор» ⊂ «Оффис колор /Сор/», because the salon's own name for the three-dye service contains
+the one-dye service's name. The founder's *"they're separable"* is true in the direction that
+has words to separate on — anything naming «оффис» resolves — and false for a bare «сор»,
+which `match.ts`'s own docstring already said no row can repair.
+
+**And D-075's warning fired on the first probe.** «сорри» — a customer apologising — still
+reaches «Сор» at one token. So **a specificity floor above the matcher is a precondition for
+letting any of this choose a price**, not a refinement of it. The matcher reports the token
+count precisely so the caller can refuse a one-token hit; nothing calls it yet, and nothing
+should until that floor exists.
+
+### Prices are still out, and the reason is unchanged
+
+The salon gave figures — a by-length dye scale, and one-session against course rates for the
+CICA treatment. **None of them is in a row.** Putting them in `service_variants` renders them
+into the price list and into `allowed_numbers`, which is exactly what D-075 forbids, and the
+serve-from-row half that would carry them safely is still unbuilt. Per-service
+`deterministic_replies` cannot rescue it either: «Сор» is three code points, under
+`MIN_STEM_CHARS`, the same wall that stopped «Эхо» and «Ора» in D-088.
+
+Two readings of the figures are also still open and were NOT guessed: whether the by-length
+scale replaces the 120–190k range for «Сор» or describes a different dye service, and whether
+the course rate is per session. A wrong price against a service is the failure D-075 exists to
+prevent, so an ambiguity in the source is not resolved by picking.
+
+### The knowledge rows are drafted, and one of them widens the allow-list
+
+`prompt/drafts/matrix_cica_knowledge.mn.txt`, unsigned. The CICA row carries **97, 3, 30 and
+40** — the protein/water split and the тэжээлийн тос equivalence. `3` and `30` are already on
+Matrix's list; **97 and 40 would be new**. None is a price, but every numeral added is one more
+the outbound guard must permit, so it is put to the founder as a choice rather than absorbed:
+the row answers the question perfectly well without either statistic.
+
+The damaged-hair answer is placed as KNOWLEDGE rather than a served canned row, and the
+difference is D-065's: a served row is typed by the platform, knowledge is a request the model
+may ignore. Enforcing it needs a matcher for "the customer is describing damaged hair", which
+is the fuzzy judgement D-067 and D-083 both show stem lists make badly. It becomes a served
+row if the corpus shows the model ignoring it.
