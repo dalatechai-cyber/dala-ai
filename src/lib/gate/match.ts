@@ -365,8 +365,29 @@ function cannedKinds(rows: readonly CannedRow[]): string[] {
  * It does NOT filter the review gate. `renderCannedSection` still refuses the whole section
  * when an `image_received` row is unreviewed, because that is a question about the row, not
  * about the prompt, and `imageReply.ts` refuses an unreviewed row independently.
+ *
+ * ## `comment_public_reply` is the second member, and it is the generalisation landing
+ *
+ * `worker/comments.ts` posts that row's bytes and never calls a model — `decideCommentReply`
+ * returns `body: line.body`, and the only field carrying anything about the comment's text
+ * is a four-value enum that gates whether the line is sent, never which sentence. So it is
+ * a fact about the platform, exactly as `image_received` is.
+ *
+ * Two distinct costs, both real, and the first is an outage rather than a quality problem:
+ *
+ *   1. Unfiltered, adding the row MOVES `canned_hash` — and a live snapshot published
+ *      before it was added no longer matches, so every DM reply for that tenant 503s with
+ *      `canned_stale` until a republish. The filter has to be DEPLOYED BEFORE the row is
+ *      inserted; the other order is the D-058 outage with a different sentence in it.
+ *   2. The line says «Мессеж бичээрэй» — *write us a message*. Offered to a model that is
+ *      already answering a message, in a DM, it is D-082's `refusal_public_channel` defect
+ *      rebuilt out of a different row: telling somebody who is already in the inbox to go
+ *      to the inbox.
+ *
+ * `readPinnedLine` reads the row straight from the database, like `readImageLine`, so
+ * filtering it out of the cached section takes nothing away from the path that serves it.
  */
-export const MODEL_INVISIBLE_KINDS: readonly string[] = ['image_received'];
+export const MODEL_INVISIBLE_KINDS: readonly string[] = ['image_received', 'comment_public_reply'];
 
 /**
  * The canned section's TEXT, with no checking of any kind.

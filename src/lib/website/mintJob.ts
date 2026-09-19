@@ -109,7 +109,7 @@ export type MintResult = { status: number; body: Record<string, unknown> };
 function refuse(
   effects: MintEffects,
   refusal: MintRefusal | 'mint_rate_limited' | 'mint_bad_request',
-  diagnosis: MintDiagnosis | string,
+  diagnosis: MintDiagnosis,
   status: number,
   fields: Record<string, unknown> = {},
 ): MintResult {
@@ -191,6 +191,20 @@ export async function runMintJob(effects: MintEffects, req: MintRequest): Promis
   }
   if (row['status'] !== 'active') {
     return refuse(effects, 'mint_unauthorised', 'channel_inactive', 401, { channelId, status: row['status'] });
+  }
+  // `delivery_mode` is a SWITCH here, not a note. It was selected and only logged in the
+  // first version of this job, which made `off` a setting that reads like a control and is
+  // not one — D-064's shape, and the founder's own words: a channel that answers regardless
+  // of delivery_mode is the shape that bit him before.
+  //
+  // Refused for every mode except `live`, rather than only for `off`. The two shadow modes
+  // mean "generate but do not deliver", and on this surface delivery IS the HTTP response —
+  // there is nothing to withhold and a visitor is waiting, so a shadow website channel
+  // cannot be honoured, only misread. A web channel that should answer is `live`.
+  if (row['delivery_mode'] !== 'live') {
+    return refuse(effects, 'mint_unauthorised', 'channel_not_delivering', 401, {
+      channelId, deliveryMode: row['delivery_mode'],
+    });
   }
 
   // 3. Rate-limit, before any decryption. Keyed on the address rather than the channel:
