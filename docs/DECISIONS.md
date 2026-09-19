@@ -6248,3 +6248,76 @@ And `turnstile.ts` has **never been exercised against Cloudflare** — `challeng
 is unreachable from this environment, as is `api.github.com`, so the request shape is written
 from the documented contract. The parsing is narrow (`success === true`, nothing else) so an
 unexpected body refuses rather than passes.
+
+### D-086 addendum — the two routes, and the three things that turned out to need no code
+
+2026-09-19. `POST /api/web/session` and `POST /api/web/message` are built, as
+`src/lib/website/mintJob.ts` and `messageJob.ts` with the routes as thin bindings — the
+rule `api/workers/reception/route.ts` states, that a condition inside a route handler is a
+condition no test can reach.
+
+**Three things the survey expected to cost code and did not.** Each is the platform's own
+test — client #3 fills in a config — coming out right, and each was found by reading rather
+than assumed:
+
+| | |
+|---|---|
+| Publishing for the web channel | `scripts/publish/tenant.ts` already reads a tenant's channels off `tenant_channels.provider` and passes the distinct set to `compileAndPublish`, and `config_snapshots` is keyed `(tenant_id, revision_id, channel)`. A `provider = 'web'` row is therefore the whole of "publish for the website" |
+| A new spend or volatile `Surface` | Neither. A widget is spend-surface `reception` and volatile-surface `direct_message`, so it shares Reception's ceiling by construction rather than by a second number that could drift |
+| The CORS allow-list | `tenant_domains` has existed since `0001` with no reader anywhere. This is its reader. `.env.example` already lists `ALLOWED_ORIGINS` as **banned** as an environment variable — "per-tenant DATA" — so the table was the answer the repository had already written down |
+
+**`verified_at` means "an operator confirmed this host".** Nothing in this platform performs
+an automated domain check, and a row without it is not an allow-list entry. Saying it means
+anything stronger would be a comment asserting a control that was never built —
+`config/platform.ts:33`'s monthly ceiling, one directory over.
+
+**Two orderings, and they pull against each other.** The spend guard runs BEFORE the turn is
+claimed, because a visitor refused for the tenant's ceiling has not had a turn and burning
+one charges them for an answer they never got. The turn is claimed BEFORE the model is
+called, because rule 3 — a ceiling checked after the call is not a ceiling. Both hold only
+because the guard costs no model tokens, so nothing but `handleReception` sits between the
+claim and the provider call. `messageJob.test.ts` asserts each as a trace ordering rather
+than as a comment.
+
+**A gate that cannot PASS is the same defect as one that cannot fail.** The first draft of
+`runMintJob` passed a hardcoded `null` to `verifyTurnstile`, so every mint would have
+answered `turnstile_missing` — a 403 on the happy path. The repository catalogues the other
+direction at length (D-058's `hasTenantData`, `sweepStrandedEvents`' dead filter); this is
+its mirror, and neither is visible without a test that drives the success case. The token
+travels inside the SIGNED body, not a header, for the reason `issued_at` does: anything
+outside the raw bytes is not covered by the HMAC, so a relay could strip it and the
+signature would still verify.
+
+**`x-forwarded-for` is a list whose FIRST entry is attacker-controlled.** A client may send
+its own, and each proxy appends. Taking `[0]` — the reflex — hands an attacker the
+rate-limit bucket key: vary it per request and every request opens a fresh window, so the
+limiter counts to one for ever while looking like it works. `clientIp.ts` takes the
+rightmost entry, and an unreadable address is a NAMED bucket rather than `''`, so
+unattributable traffic is bounded together and is visible as itself.
+
+**One bucket was not enough, and the arithmetic said so.** The mint allows 30 sessions a
+minute from one address; a per-session message limit alone would then permit 30 × that many
+turns from it. There are two buckets, and the per-address one is sized as a blast-radius cap
+rather than a per-visitor limit because school, office and carrier NAT put many real people
+behind one address — `dalatech-english` sizes its own per-IP backstop on the same reasoning.
+
+**`SecretKind` did not contain `web_mint_secret`.** `0032` widened the database CHECK and the
+TypeScript union was never widened to match, so the database permitted a kind the code could
+not name. Found by `tsc`, not by reading. The union is now mirrored with a note saying why it
+is mirrored rather than derived: the two halves have to be changed together, and a drift
+should be a compile error rather than a 400 from PostgREST at the first real request.
+
+**And a comment of mine that was false when written.** `.env.example` gained a note saying
+the two new variables were "deliberately NOT in `scripts/preflight.ts`'s required set" —
+except preflight DERIVES that set from the uncommented names in that very file, so writing
+them there made them required and broke `preflight.test.ts`. The rule and the code it
+describes have to be read together; each alone read as correct. They sit in the Optional
+section now, commented out, to be uncommented in the same change that provisions the first
+web channel.
+
+**Still not exercised, and not to be written as if it were.** No tenant has a `provider =
+'web'` channel, no mint secret is sealed, and `challenges.cloudflare.com` is unreachable from
+this environment — so Turnstile's request shape is still written from the documented
+contract and has never met Cloudflare. What IS proven: 51 unit tests over both jobs against
+fakes that record ordering, and every column the new code selects verified to exist in the
+live project rather than only in the repo.

@@ -40,7 +40,21 @@ import { aadFor, channelKeyOf, openForRow } from '../crypto/envelope.ts';
 import { kekForVersion } from '../crypto/kek.ts';
 
 /** The `kind` CHECK constraint on `tenant_secrets`, in TypeScript. */
-export type SecretKind = 'page_token' | 'ig_token' | 'app_secret' | 'sip_password' | 'booking_webhook_secret';
+/**
+ * The `kind` CHECK constraint, mirrored.
+ *
+ * It is mirrored rather than derived, so the two halves have to be changed together and a
+ * drift is a compile error rather than a 400 from PostgREST at the first real request.
+ * `web_mint_secret` arrived with `0032`: the migration widened the constraint and this
+ * union did not, so the database permitted a kind the code could not name.
+ */
+export type SecretKind =
+  | 'page_token'
+  | 'ig_token'
+  | 'app_secret'
+  | 'sip_password'
+  | 'booking_webhook_secret'
+  | 'web_mint_secret';
 
 /** The `status` CHECK constraint. Only the first two can produce a credential. */
 export type SecretStatus = 'active' | 'rotating' | 'revoked';
