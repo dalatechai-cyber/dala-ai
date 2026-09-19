@@ -398,3 +398,39 @@ that must never happen by default.
 **Not backfilled**, and it cannot be: `prompt_stable` is the concatenation and the
 platform/tenant boundary is not recorded in it. A guessed corpus is worse than a null one
 that says so.
+---
+
+## `0030_comment_rules.sql` — which public comments deserve a reply (D-085)
+
+Adds one table, `comment_rules`. Nothing else is touched, and no existing behaviour
+changes until a tenant has rows: `classifyComment` refuses `no_rules`, and the comment path
+already refuses at `comment_policy = 'none'` for both tenants.
+
+| column | |
+|---|---|
+| `tenant_id`, `rule_key` | composite primary key, as `out_of_scope_topics` |
+| `verdict` | `escalate` \| `reply` \| `ignore`. **`unclassified` is deliberately unwritable** — it is the absence of a matching rule, and a row able to assert it would be a way to edit the operator's own to-do list |
+| `matcher` | the SAME `matcher` jsonb `out_of_scope_topics` carries, parsed by the same `parseMatcher`. One matcher language on this platform, not two that drift |
+| `enabled` | **defaults FALSE.** A rule is written, read by a human, then switched on. The same shape as `deterministic_shortcircuit`, and for the same reason: this surface is public and permanent |
+| `provenance` | D-020, NOT NULL with no default |
+
+RLS is on and forced, `anon` and `authenticated` are revoked, the three per-command
+restrictive deny-write policies are created, and the table is registered in
+`ops.tenant_scope` and `ops.table_security_class` — the five things `0001` does in bulk
+loops that a later migration inherits none of.
+
+**And a sixth: `grant all on comment_rules to service_role`.** `0001:1636` is a one-time
+bulk grant over the tables that existed when it ran. Without it PostgREST does not expose
+the relation at all — not a permission error, an absence from the schema cache, so every
+`.from('comment_rules')` 404s at runtime while every SQL suite stays green. It shipped that
+way and CI's PostgREST reachability check (D-037) caught it. **`catalog.sql` V35 asserts it
+now**, because that suite only ever checked the deny side: V5 (`anon` holds nothing) and V6
+(`authenticated` holds only SELECT) both pass perfectly for a table nobody can read.
+
+**`MatcherSpec` gains a `stem_sequence` mode** in the same change (`src/lib/gate/match.ts`),
+available to every caller of `parseMatcher` and not only to this table. It exists because
+`MIN_STEM_CHARS = 4` correctly refuses «цаг» (*appointment*) and «хэд» (*how much*), which
+are three characters and prefix «цагаан» and «хэдийнээ» — so a salon's two most valuable
+intents were unreachable in rows. Ordered stems within a capped code-point window supply the
+specificity the length floor is a proxy for; `parseMatcher` requires at least two stems and
+a window ≤ 40, so the mode cannot smuggle a single short stem past the floor.

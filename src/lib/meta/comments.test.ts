@@ -103,11 +103,21 @@ test('a hidden comment is left hidden — a public reply would drag it back into
   assert.deepEqual(skipped, ['hidden']);
 });
 
-test('a comment with no text carries no question', () => {
+test('DONE-TEST: a comment with NO TEXT is returned, not skipped', () => {
+  // It used to push `no_text` into a `string[]` carrying no comment_id, no post_id and no
+  // author — so a photograph under the salon's own post became the word "no_text" in a
+  // counter and was unfindable. D-070, on the surface where it costs most: a customer
+  // posting a picture of the colour they want is the most valuable comment a salon gets,
+  // and it looked identical to a thumbs-up.
+  //
+  // Returned with an empty `text`, it reaches the classifier, fires no matcher, comes back
+  // `unclassified` — silent, and RECORDED with its ids.
   for (const message of ['', '   ', undefined]) {
     const { comments, skipped } = one({ message });
-    assert.equal(comments.length, 0, JSON.stringify(message));
-    assert.deepEqual(skipped, ['no_text']);
+    assert.equal(comments.length, 1, JSON.stringify(message));
+    assert.equal(comments[0]?.text.trim(), '');
+    assert.equal(comments[0]?.commentId, `${PAGE}_c1`, 'the ids survive — that is the whole point');
+    assert.deepEqual(skipped, [], 'nothing is dropped, so nothing needs reporting');
   }
 });
 

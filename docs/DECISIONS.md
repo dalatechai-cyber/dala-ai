@@ -6000,3 +6000,132 @@ live snapshot, finding a mismatch and going looking for a bug that is not there 
 the failure mode CLAUDE.md already names for `allowed_numbers`: **read the count off the
 live snapshot, never off a sentence in this file.** The same applies to every hash recorded
 here.
+---
+
+## D-085 — which public comments deserve a reply
+
+**2026-09-18.** The founder: *"Most of a salon's comments are «гоё», tags and emoji;
+answering all is noise, answering none misses «хэдэн төгрөг вэ» asked in public. Propose
+the design against the real feed first."*
+
+The design is `docs/comments.md`. This records the decisions inside it and the two things
+that turned out not to be true.
+
+### The real feed does not exist, and that was the first finding
+
+89 `webhook_events` rows at the time of asking, every one an entry with `messaging` and
+**zero with `changes`**. `subscribed_fields` is `["messages"]` on both Pages,
+`comment_policy` is `none` on both, and neither tenant has a `comment_public_reply` row.
+Facebook is unreachable through this environment's proxy. So it was designed against the
+71-message DM corpus instead, and the substitution is stated wherever it bites — most
+importantly that **nobody sends a salon a DM to say «гоё»**, so the corpus grounds what a
+real customer asks and is silent on the noise rate a public feed carries. That half is the
+founder's reading of his own feed and is not evidence this repository holds.
+
+### Question-shape is the wrong signal, and wrong in both directions
+
+Measured: 28% of the corpus is question-shaped; **52% is a bare topic noun** with no
+question marker at all — «Хаяг», «Хими», «Мэдээлэл», «Salbaruud» — and those are the
+customers worth answering. Meanwhile «уу» **is** the interrogative particle, so the
+detector fires on «Сайн байна уу». It greets the greeters and ignores the buyers. Topic
+stems reach 65% `reply` + 6% `escalate`.
+
+### The cap makes the classifier a prioritiser, not a filter
+
+`comment_replies_per_post_per_day` is 1 and replies are decided first-come-first-served —
+verified against the control flow, where `postCounts` increments only when `draftOnce`
+reports `created`. So a false positive is not one wasted comment, it is **the day's single
+allowance spent**, and the question that arrives an hour later gets nothing. Precision
+matters more than recall here, which is the opposite of the DM surface, and silence is a
+decision to hold the allowance rather than a failure to answer.
+
+### Three verdicts, not two, and the ordering is load-bearing
+
+The corpus holds four complaints in 71 messages. «Утсаа авахгүй байна» answered with the
+pinned line — whose whole content is *come to DM* — is a brush-off to a public complaint,
+in the salon's own voice, permanently, under their own post. `escalate` posts nothing and,
+because a refusal never drafts, does not spend the allowance.
+
+Its precedence over `reply` is not tidiness: «ai bish huntei holbogdmoor bna» — *I want to
+talk to a human, not an AI* — contains `holbog` and is caught by a contact topic. Under any
+order where `reply` can win, a customer explicitly asking not to talk to a bot is answered
+by one. D-066's ordering lesson.
+
+A `priority` column was rejected for D-075's reason: ambiguity must be a verdict, never a
+tie broken silently. With a declared total order over three verdicts there is no tie.
+
+`ignore` and `unclassified` stay separate (D-070). Merged, the shadow phase's only
+product — the list of comments the tenant has no rule for — is unreadable under «гоё»
+volume.
+
+### The verdict is an enum, and that is the safety argument
+
+`eligibility.ts` rests on the comment's words not being a parameter. A classifier reads
+them, so the reading happens in `classify.ts` and what crosses the seam is one of four
+values. D-082: *the defect is a parameter that accepts a string.* TypeScript caught every
+caller.
+
+**It must not be a model, and on this surface that is a security argument**: a public
+comment is attacker-controlled text from anyone with a Facebook account. With a fixed reply
+and an enum verdict, the worst a crafted comment achieves is a wrong enum — it cannot
+produce prose.
+
+### Two claims in this record's own drafts that were wrong
+
+**The first measurement said 56% and was measuring its own bug.** It reimplemented
+`containsStem` by splitting the subject into tokens and testing `startsWith`, which makes
+every multi-word stem silently unmatchable — so the booking intent, the clearest in the
+corpus, scored zero and the conclusion drawn was that `contains_stem` could not express it.
+`containsStem` is a Unicode-boundary substring match. D-077's lesson in a third file: **a
+diagnostic that reimplements the thing it measures is measuring the reimplementation.**
+
+**Both "over-matches" the probe reported were the probe's fault** — «цагаан будаг» firing
+`service` via `будаг`, and «цагаан өнгө» via `өнгө`, are correct; those are service
+questions about white dye and white colour. The trap strings contained genuine service
+words. No true over-match was found.
+
+### The floor costs two words, and the fix already existed
+
+`MIN_STEM_CHARS = 4` correctly refuses **«цаг»** (*appointment*) and **«хэд»** (*how
+much*) — both three characters, both prefixes of something else («цагаан» white,
+«хэдийнээ»). A salon's two most valuable intents were unreachable in rows.
+`matchesStemSequence` is the answer and was already built for outbound forbidden phrases;
+its own docstring uses `['цаг', 'авл']` as the worked example. The exemption is **bounded,
+not waived**: at least two stems, and a window no wider than 40 code points. The «хэд»
+half was found by a test failing, not by reading.
+
+### Two defects found while building it
+
+**`post_too_old` measures the COMMENT's age, not the post's.** A brand-new spam comment on
+a four-year-old post passes — the exact case §3.8.2 rule 5 exists to stop. Four things
+agreed with each other and all four were wrong: the refusal's name, the config column's
+name, the docstring, and a test called *"a comment on a post older than the tenant window"*
+that constructed an old COMMENT. Renamed to `comment_too_old`, which is what it actually
+guarantees; the post-age rule needs `GET /{post-id}?fields=created_time` and is recorded
+rather than taken, with a test asserting the gap.
+
+**`0030` is the first migration since `0001` to create a table**, and `0001` does its
+security bookkeeping in bulk catalog loops that a later migration inherits none of. Six
+items, and they were found in two batches by two different mechanisms:
+
+- `catalog.sql` caught three against a real PostgreSQL — no `force row level security`, no
+  `ops.tenant_scope` row, and a single `for all` restrictive policy where the convention is
+  three per-command ones (a `for all` denies SELECT too, the silent fail-closed `0001`'s
+  own comment warns about).
+- **CI's PostgREST reachability check caught the fourth**: no `grant … to service_role`, so
+  the table was absent from the schema cache entirely and every `.from('comment_rules')`
+  would have 404'd at runtime.
+
+That split is the lesson worth carrying. **`catalog.sql` proves nobody unauthorised can
+read; only the transport check proves the runtime can.** V5 (`anon` holds no privilege) and
+V6 (`authenticated` holds only SELECT) both pass perfectly for a table nobody can read at
+all. **V35** asserts the allow side now, one layer earlier than PostgREST, and was probed in
+both directions — with the grant revoked it fails and names the table.
+
+### Status
+
+Nothing changes for any tenant. `comment_policy` is `none` on both channels and
+`classifyComment` refuses `no_rules` until somebody writes rows. Going live still waits on
+the founder for three things: subscribing `feed` (a Graph write that **replaces** the field
+list — sending `feed` alone drops `messages` and takes the DM mirror offline),
+`comment_policy`, and the `comment_public_reply` sentence.
