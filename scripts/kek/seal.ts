@@ -29,8 +29,11 @@
 import { readFileSync } from 'node:fs';
 import { aadFor, channelKeyOf, openForRow, sealForRow } from '../../src/lib/crypto/envelope.ts';
 import { activeKek } from '../../src/lib/crypto/kek.ts';
+import { SECRET_KINDS } from '../../src/lib/secrets/tenantSecret.ts';
 
-const KINDS = ['page_token', 'ig_token', 'app_secret', 'sip_password', 'booking_webhook_secret'] as const;
+// Imported, never re-listed. A second copy of this list is how `web_mint_secret` came to
+// be accepted by the database, named by the runtime and refused by this script.
+const KINDS = SECRET_KINDS;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function die(message: string): never {
