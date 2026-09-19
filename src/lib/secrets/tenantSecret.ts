@@ -41,20 +41,29 @@ import { kekForVersion } from '../crypto/kek.ts';
 
 /** The `kind` CHECK constraint on `tenant_secrets`, in TypeScript. */
 /**
- * The `kind` CHECK constraint, mirrored.
+ * The `kind` CHECK constraint, mirrored ONCE.
  *
- * It is mirrored rather than derived, so the two halves have to be changed together and a
- * drift is a compile error rather than a 400 from PostgREST at the first real request.
- * `web_mint_secret` arrived with `0032`: the migration widened the constraint and this
- * union did not, so the database permitted a kind the code could not name.
+ * A runtime array with the type derived from it, rather than a type alone, because there
+ * were three copies of this list and they disagreed. `0032` widened the database CHECK;
+ * this union was widened after `tsc` caught it; and `scripts/kek/seal.ts` carried a THIRD
+ * copy that neither change reached — so the one command that puts a `web_mint_secret` in
+ * the database would have refused the kind the database had just been taught to accept.
+ *
+ * Found while writing the provisioning runbook, which is the only reason it was found at
+ * all: nothing executes that path in CI, because sealing a secret needs a real KEK and a
+ * real value. Anything that needs the list now imports it.
  */
-export type SecretKind =
-  | 'page_token'
-  | 'ig_token'
-  | 'app_secret'
-  | 'sip_password'
-  | 'booking_webhook_secret'
-  | 'web_mint_secret';
+export const SECRET_KINDS = [
+  'page_token',
+  'ig_token',
+  'app_secret',
+  'sip_password',
+  'booking_webhook_secret',
+  // The tenant server's HMAC key for POST /api/web/session (D-086, `0032`).
+  'web_mint_secret',
+] as const;
+
+export type SecretKind = (typeof SECRET_KINDS)[number];
 
 /** The `status` CHECK constraint. Only the first two can produce a credential. */
 export type SecretStatus = 'active' | 'rotating' | 'revoked';
