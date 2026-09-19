@@ -1,0 +1,102 @@
+UNSIGNED DRAFT — tenant #0 (dalatech) price replies for `deterministic_replies`.
+Loaded by nothing. Read the Mongolian before any of it goes in.
+
+Source: dalatech-chatbot, api/chat.js, buildConversationSystemInstruction — the prompt
+the company's own site has been serving. Prices, discount tiers and the call to action
+are that prompt's, unchanged. The sentences below are composed FROM it, so they are new
+customer-visible Mongolian and gated on that reading.
+
+Its own answer rules applied here:
+  rule 2 — prices written with a thousands comma and ₮ («250,000₮»)
+  rule 3 — Эхо, Нова, Ора are stated as not yet running, every time
+  rule 6 — the call to action is always «Хүсэлт илгээх», never «демо захиал»
+  ХАРИУЛТЫН УРТ — one or two sentences; the overview row is a list because a bare price
+                  question is a request for one
+
+
+════════════════════════════════════════════════════════════════════════════════
+ROW A — price_overview       SAFE TO INSERT TODAY
+════════════════════════════════════════════════════════════════════════════════
+match_mode             whole_message
+requires_empty_history false
+provenance             tenant_confirmed
+stems                  үнэ / үнэ хэд вэ / үнэ хэдэн төгрөг вэ / үнийн мэдээлэл /
+                       үнэ ямар вэ / төлбөр хэд вэ / үнийн санал / ямар үнэтэй вэ /
+                       price / how much / une hed ve
+
+body:
+
+Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮.
+Суурилуулалт 150,000₮, Эхо 200,000₮. Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд
+урьдчилан бүртгүүлж болно. Аль ажилтны талаар дэлгэрэнгүй сонирхож байна вэ?
+
+
+════════════════════════════════════════════════════════════════════════════════
+ROWS B1–B8 — one per product   BLOCKED: see the note at the foot of this file
+════════════════════════════════════════════════════════════════════════════════
+These are drafted so the Mongolian can be read now. They must NOT be inserted while
+`matchDeterministic` resolves a tie by array order.
+
+B1  price_dali            stems: дали
+Дали — Хүлээн авагч: сарын төлбөр 250,000₮, суурилуулалт 150,000₮. Дали одоо ажиллаж
+байгаа тул шууд нэвтрүүлэх боломжтой.
+
+B2  price_vira            stems: вира
+Вира — Бизнес аналитик: сарын төлбөр 150,000₮, суурилуулалт 150,000₮. Вира дангаараа
+зарагдахгүй, өөр ажилтантай хамт авна.
+
+B3  price_ekho            stems: эхо          ← three characters, below the floor
+Эхо — Утасны оператор: сарын төлбөр 250,000₮, суурилуулалт 200,000₮, дээр нь дуудлагын
+минут тутамд нэмэлт төлбөр. Минутын үнийг хараахан зарлаагүй бөгөөд Эхо удахгүй ажиллаж
+эхэлнэ.
+
+B4  price_nova            stems: нова
+Нова — Харилцагчийн менежер: сарын төлбөр 150,000₮, суурилуулалт 150,000₮. Нова удахгүй
+ажиллаж эхэлнэ, урьдчилан бүртгүүлж болно.
+
+B5  price_ora             stems: ора          ← three characters, below the floor
+Ора — Хувийн туслах: сарын төлбөр 250,000₮, суурилуулалт 150,000₮. Ора удахгүй ажиллаж
+эхэлнэ, урьдчилан бүртгүүлж болно.
+
+B6  price_website         stems: вэбсайт
+Ухаалаг вэбсайт: 750,000₮, нэг удаагийн төлбөртэй бөгөөд сарын төлбөргүй. 7–10 ажлын
+өдөрт хүлээлгэн өгнө.
+
+B7  price_website_bundle  stems: багц
+Вэбсайт + Дали багц: 800,000₮. Тус тусад нь авбал 900,000₮ тул багцаар авахад
+100,000₮-өөр хямд. Дараа нь Дали сарын 250,000₮.
+
+B8  price_team_discount   stems: хөнгөлөлт
+Багийн хөнгөлөлт: хоёр ажилтан −10%, гурав −15%, дөрөв ба түүнээс дээш −20%. Хөнгөлөлт
+сарын төлбөрт хамаарна.
+
+
+════════════════════════════════════════════════════════════════════════════════
+WHY B1–B8 ARE HELD — measured 2026-09-19, by execution
+════════════════════════════════════════════════════════════════════════════════
+1. «эхо» and «ора» are THREE code points and MIN_STEM_CHARS is 4, so B3 and B5 are
+   skipped with `stem_too_short` and can never fire. Two of the five staff would be
+   silently unanswerable. `stem_sequence` would get past the floor but is a
+   `gate/match.ts` mode; `deterministic_replies.match_mode` permits only
+   `whole_message | contains_stem`.
+
+2. `matchDeterministic` returns the FIRST matching rule and has no ambiguity verdict.
+   «Дали Вира хоёрыг авбал үнэ хэд вэ?» matches B1 and B2; measured, the same rules in
+   the opposite array order answer with the other price. `reception/load.ts` selects
+   `deterministic_replies` with no `order by`, so which price a customer is quoted is
+   not merely first-wins — it is unspecified.
+
+   That is the failure D-075 exists to prevent, rebuilt in a different table: a real,
+   allow-listed price attached to a product the customer did not ask about. Here it is
+   worse than in the prefix, because this path sends the row VERBATIM with no model and
+   no outbound guard in the loop.
+
+3. `requires_empty_history` defaults TRUE, and a price question arrives mid-conversation.
+   Every B row needs it set false explicitly. (Row A too.)
+
+(3) is a column value. (1) and (2) are the table's and the matcher's, and the fix is
+small: give `matchDeterministic` an ambiguity verdict — when two enabled rules match one
+message, fire NEITHER and let the model answer. That is the module's own stated doctrine
+(«every ambiguity here resolves towards the model»), it costs one model call, and
+`deterministic_replies` currently holds ZERO rows for either tenant, so nothing in
+production can change behaviour under it.
