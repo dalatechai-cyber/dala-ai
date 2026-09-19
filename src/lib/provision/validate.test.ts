@@ -18,6 +18,7 @@ const MINIMAL: IntakeDocument = {
   neverSay: [],
   faqs: [],
   staff: [],
+  commentRules: [],
 };
 const svc = (name: string, aliases: string[] = [], min = '10000', max: string | null = null) => ({
   name, category: null, durationMinutes: null, aliases,
@@ -152,7 +153,7 @@ test('DONE-TEST: THE READER REFUSES RATHER THAN RETURNING WHAT IT MANAGED', () =
 });
 
 test('price shape mirrors the database CHECK constraints', () => {
-  const base = { slug: 'x-y', business: MINIMAL.business, confirmedBy: null, hours: [], contacts: [], booking: { url: null }, sentences: {}, neverSay: [], faqs: [], staff: [] };
+  const base = { slug: 'x-y', business: MINIMAL.business, confirmedBy: null, hours: [], contacts: [], booking: { url: null }, sentences: {}, neverSay: [], faqs: [], staff: [], commentRules: [] };
   const withVariant = (v: Record<string, unknown>) => readIntake({
     ...base, services: [{ name: 'S', category: null, durationMinutes: null, aliases: [], variants: [v] }],
   });
@@ -197,4 +198,86 @@ test('a question that cannot produce a wrong answer does not hold the tenant', (
   assert.ok(r.findings.some((f) => f.code === 'no_latin_stems'));
   assert.equal(r.stage, 'ready');
   assert.ok(r.waitingOn.some((w) => w.startsWith('client:')), 'still said out loud');
+});
+
+// ---------------------------------------------------------------------------
+// Comment rules (D-085) — the surface where a mistake is public and permanent
+// ---------------------------------------------------------------------------
+
+const withRules = (rules: IntakeDocument['commentRules'], over: Partial<IntakeDocument> = {}): IntakeDocument =>
+  ({ ...MINIMAL, ...over, commentRules: rules });
+
+const stemRule = (key: string, verdict: string, stems: string[]) =>
+  ({ key, verdict, matcher: { mode: 'contains_stem', stems } });
+
+test('DONE-TEST: a comment rule is validated by the SAME parser that will run it', () => {
+  // A provisioning-only validator would be a second reader of one jsonb, free to disagree
+  // with the first — and the direction it disagrees in is "accepted here, refuses the whole
+  // job there", which is a tenant switched on and silently unable to answer a comment.
+  // These are `parseMatcher`'s own rules, reaching the operator at intake instead of at
+  // 3am in a worker log.
+  const short = withRules([stemRule('price', 'reply', ['үнэ'])]);   // under MIN_STEM_CHARS
+  assert.ok(codes(short).includes('comment_rule_matcher'));
+
+  const oneStemSequence = withRules([
+    { key: 'booking', verdict: 'reply', matcher: { mode: 'stem_sequence', stems: ['цаг'] } },
+  ]);
+  assert.ok(codes(oneStemSequence).includes('comment_rule_matcher'),
+    'one stem in a sequence is contains_stem with the length floor removed');
+
+  const unknownMode = withRules([{ key: 'x', verdict: 'reply', matcher: { mode: 'vibes' } }]);
+  assert.ok(codes(unknownMode).includes('comment_rule_matcher'));
+});
+
+test('DONE-TEST: `unclassified` cannot be written as a rule', () => {
+  // It is the ABSENCE of a matching rule, and it is the shadow phase's entire product: the
+  // list of comments the tenant has no rule for. A row able to assert it would let somebody
+  // edit that list into saying whatever they wanted.
+  const f = validateIntake(withRules([{ key: 'x', verdict: 'unclassified', matcher: { mode: 'contains_stem', stems: ['хаяг'] } }]))
+    .find((x) => x.code === 'comment_rule_verdict');
+  assert.ok(f);
+  assert.match(f?.detail ?? '', /escalate, reply or ignore/);
+});
+
+test('a rule set with no escalate is questioned, not accepted silently', () => {
+  // Four of the 71 measured messages were complaints. With no escalate rule every one is
+  // either answered "message us privately" under the business's own post, or ignored — and
+  // both look exactly like the classifier working.
+  const noEscalate = withRules(
+    [stemRule('price', 'reply', ['хэдэ', 'hedee'])],
+    { sentences: { ...MINIMAL.sentences, comment_public_reply: 'Сайн байна уу.' } },
+  );
+  assert.ok(codes(noEscalate).includes('comment_rules_no_escalate'));
+
+  const withEscalate = withRules(
+    [stemRule('price', 'reply', ['хэдэ', 'hedee']), stemRule('complaint', 'escalate', ['гомдол', 'gomdol'])],
+    { sentences: { ...MINIMAL.sentences, comment_public_reply: 'Сайн байна уу.' } },
+  );
+  assert.ok(!codes(withEscalate).includes('comment_rules_no_escalate'));
+});
+
+test('rules that would reply, with no sentence to send, is a blocker', () => {
+  const f = validateIntake(withRules([stemRule('price', 'reply', ['хэдэ', 'hedee'])]))
+    .find((x) => x.code === 'comment_rules_without_line');
+  assert.ok(f);
+  assert.equal(f?.severity, 'blocker');
+});
+
+test('Cyrillic-only comment stems are questioned — D-067 on the public surface', () => {
+  const f = validateIntake(withRules([stemRule('price', 'reply', ['хэдэ', 'төлбөр'])]))
+    .find((x) => x.code === 'comment_rule_no_latin');
+  assert.ok(f, '52% of the measured corpus carries no Cyrillic');
+  assert.equal(f?.severity, 'ask_client');
+});
+
+test('two rules sharing a key is a blocker — the primary key would silently drop one', () => {
+  const dupe = withRules([stemRule('price', 'reply', ['хэдэ', 'hedee']), stemRule('price', 'ignore', ['баярла', 'bayarla'])]);
+  assert.ok(codes(dupe).includes('comment_rule_duplicate'));
+});
+
+test('no comment rules at all is silent — a tenant need not answer comments', () => {
+  // The absence is a legitimate configuration, not an omission: `comment_policy` defaults
+  // to `none` and `classifyComment` refuses `no_rules`, so the tenant simply stays quiet.
+  const c = codes(MINIMAL);
+  assert.ok(!c.some((x) => x.startsWith('comment_rule')));
 });

@@ -16,3 +16,7 @@ build/
 .vscode/
 coverage/
 *.tsbuildinfo
+
+# Scratch probes. A diagnostic is worked out here and its conclusion belongs in a test —
+# `git add -A` swept two of them into a commit on 2026-09-18, which is why this line exists.
+.probe-tmp/

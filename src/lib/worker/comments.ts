@@ -49,12 +49,42 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { canDeliver } from '../channel/delivery.ts';
 import { extractComments, type InboundComment } from '../meta/comments.ts';
 import { decideCommentReply, type CommentChannelConfig, type CommentRefusal } from '../comments/eligibility.ts';
+import { classifyComment, type CommentRule } from '../comments/classify.ts';
+import { cpLength } from '../mn/text.ts';
 import type { CommentSendOutcome } from '../comments/send.ts';
 import { claim, draftOnce, markFailed, markIndeterminate, markSent } from '../outbound/claim.ts';
 import { MESSENGER_SEND_UNIT_COST } from '../../config/platform.ts';
 
 /** The canned kind seeded by 0007. One sentence, per tenant, per locale. */
 export const COMMENT_LINE_KIND = 'comment_public_reply';
+
+/**
+ * The flag written for a comment no rule fired on (D-085).
+ *
+ * It carries the comment's IDS and its shape, and deliberately **not its text**.
+ * `quality_flags` is not reached by `ops.purge_expired` — that function deletes and nulls
+ * `webhook_events` — so a copy of a customer's words here would be a second store of the
+ * same PII under weaker rules than the first. The text is already in
+ * `webhook_events.raw_payload`, already governed by the tenant's retention and already
+ * nulled by the purge; the operator's tool joins back to it by `comment_id` for as long as
+ * it exists, and after that the text is gone, which is correct rather than unfortunate.
+ */
+export const UNCLASSIFIED_FLAG = 'comment_unclassified';
+
+/**
+ * The flag written for a comment a person must answer (D-085 review).
+ *
+ * `docs/comments.md` said `escalate` "writes a flag for the operator" and nothing wrote
+ * one — the verdict refused the reply, incremented a counter, and left no durable trace of
+ * a public complaint anybody could find tomorrow. That is `meta/extract.ts`'s "everything
+ * skipped is reported" exactly: a docstring asserting a mechanism that was never built,
+ * and the counter made it look present.
+ *
+ * It carries the same ID-only payload as `UNCLASSIFIED_FLAG` and for the same reason —
+ * `quality_flags` is not reached by `ops.purge_expired`, so the customer's words stay in
+ * `webhook_events` where the retention policy can reach them.
+ */
+export const ESCALATED_FLAG = 'comment_escalated';
 
 export type CommentEffects = {
   db: SupabaseClient;
@@ -131,6 +161,79 @@ async function readPinnedLine(
 }
 
 /**
+ * The tenant's enabled comment rules (D-085).
+ *
+ * `enabled` is filtered HERE rather than in `classifyComment`, so the classifier is handed
+ * the rules that are live and cannot be made to reason about ones that are not. A tenant
+ * whose rows all happen to be disabled therefore reaches `classifyComment` with an empty
+ * list and refuses with `no_rules` — which is the intended reading: a switched-on comment
+ * channel with no live rule is not a channel that ignores everything, it is a channel
+ * nobody finished configuring.
+ */
+async function readCommentRules(
+  db: SupabaseClient,
+  input: { tenantId: string },
+): Promise<{ ok: true; rules: CommentRule[] } | { ok: false; detail: string }> {
+  const { data, error } = await db
+    .from('comment_rules')
+    .select('rule_key, verdict, matcher')
+    .eq('tenant_id', input.tenantId)
+    .eq('enabled', true);
+  if (error) return { ok: false, detail: `comment_rules unreadable: ${error.message}` };
+  const rows = Array.isArray(data) ? data : [];
+  return {
+    ok: true,
+    rules: rows.map((r) => {
+      const row = r as Record<string, unknown>;
+      return {
+        ruleKey: String(row['rule_key']),
+        // The CHECK constraint is the guarantee; this cast carries it across the seam. A
+        // value outside the three would make `classifyComment` treat the rule as matching
+        // nothing, which is why the constraint and not the cast is what is relied on.
+        verdict: String(row['verdict']) as CommentRule['verdict'],
+        matcher: row['matcher'],
+      };
+    }),
+  };
+}
+
+/**
+ * Record a comment no rule fired on, so the shadow phase produces a stem list.
+ *
+ * Failure here does NOT fail the job. The row is an instrument, and a tenant losing one
+ * line of their own to-do list is not a reason to stop answering customers — the opposite
+ * trade from every refusal in `eligibility.ts`, because nothing downstream reads this.
+ * It is logged so the loss is visible rather than assumed away.
+ */
+async function recordCommentFlag(
+  fx: CommentEffects,
+  input: { tenantId: string; comment: InboundComment; flag: string },
+): Promise<void> {
+  const { error } = await fx.db.from('quality_flags').insert({
+    tenant_id: input.tenantId,
+    flag: input.flag,
+    detail: {
+      comment_id: input.comment.commentId,
+      post_id: input.comment.postId,
+      // Shape, not content — see UNCLASSIFIED_FLAG. Characters, never bytes (rule 6).
+      chars: cpLength(input.comment.text),
+      has_cyrillic: HAS_CYRILLIC.test(input.comment.text),
+    },
+    at: fx.now.toISOString(),
+  });
+  if (error) fx.log('warn', 'comment_flag_unrecorded', { flag: input.flag, detail: error.message });
+}
+
+/**
+ * Does this text carry any Cyrillic at all?
+ *
+ * Recorded because 52% of the DM corpus does not, and a silence that is all Latin means
+ * something different from one that is all Cyrillic: the first says the tenant's stem list
+ * is missing the romanised spellings (D-067), the second says it is missing a word.
+ */
+const HAS_CYRILLIC = /\p{Script=Cyrillic}/u;
+
+/**
  * Is the comment this one replies to one of OURS?
  *
  * The loop the thread rule alone does not close. A customer comments (thread C1); we reply
@@ -198,6 +301,20 @@ async function repliesPerPost(
     .eq('tenant_id', input.tenantId)
     .eq('kind', 'comment_reply')
     .in('comment_post_id', [...input.postIds])
+    // Only rows that ARE public or still might become public (D-085 review).
+    //
+    // There was no state filter, and with a cap of ONE that is not a rounding error: a
+    // `failed` row proves a reply was NOT posted — `markFailed` writes it after the Graph
+    // call was refused — and a `refused` row proves we decided not to. Either one silenced
+    // the post for the next 24 hours, so a single transient Graph error cost the salon
+    // every public answer on that post for a day, and the counter that hid it read as the
+    // cap working.
+    //
+    // `draft` stays, and deliberately: it is what a shadow run writes, and it is the
+    // die-mid-send direction this function's docstring defends — count one too many rather
+    // than post one too many. `indeterminate` stays for the same reason, because it may
+    // already be public.
+    .in('state', ['draft', 'claiming', 'sending', 'sent', 'indeterminate'])
     .gte('created_at', input.since.toISOString());
   if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
   const counts = new Map<string, number>();
@@ -247,6 +364,18 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     return result;
   }
 
+  // The rules, before anything is decided. A tenant with no live rule refuses the whole
+  // job rather than classifying every comment as noise — D-070's rule applied before the
+  // mechanism ships: "the classifier has no rules" and "every comment was noise" must not
+  // produce the same counters, because the first is a configuration the operator has to
+  // finish and the second is a quiet day.
+  const rules = await readCommentRules(fx.db, { tenantId: input.tenantId });
+  if (!rules.ok) {
+    fx.log('error', 'comment_rules_unreadable', { tenantId: input.tenantId, detail: rules.detail });
+    result.retry = true;
+    return result;
+  }
+
   const parents = await parentsWeWrote(fx.db, {
     tenantId: input.tenantId,
     // Only replies have a parent that could be ours: a top-level comment is its own root.
@@ -288,8 +417,25 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
   const postCounts = new Map(perPost.counts);
 
   for (const comment of comments) {
+    // A comment carries no attachment kinds on this surface: `extractComments` skips a
+    // sticker or bare-photo comment as `no_text` before it reaches here, so there is
+    // nothing for a `has_attachment` rule to read. Passed explicitly as empty rather than
+    // defaulted, for D-083's reason — a default asserts "no attachment" on behalf of a
+    // caller who forgot, and the case it would get wrong is the one the field exists for.
+    const classified = classifyComment({ text: comment.text, attachments: [] }, rules.rules);
+    if (!classified.ok) {
+      // A malformed or missing rule set refuses the JOB, not the comment. Continuing would
+      // answer a complaint as a sales enquiry with nothing anywhere going red, which is the
+      // failure `parseMatcher` refuses to commit one layer down.
+      fx.log('error', 'comment_classify_refused', {
+        tenantId: input.tenantId, code: classified.code, detail: classified.detail,
+      });
+      result.retry = true;
+      return result;
+    }
     const decision = decideCommentReply({
       config: input.config,
+      verdict: classified.verdict,
       pinnedLine: line.line,
       comment: {
         commentId: comment.commentId,
@@ -308,6 +454,20 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       // Every refusal is counted rather than logged one line each: on a viral post the
       // log would be the volume problem, and a counter is what an operator reads anyway.
       count(result.refused, decision.refusal);
+
+      // Two of them also get a durable row. Written from HERE rather than beside the
+      // classifier (D-085 review): `decideCommentReply` refuses on policy, self-reply, the
+      // ignore list and age BEFORE it ever looks at the verdict, so writing at the
+      // classifier put a row on the operator's to-do list for a staff member's own comment
+      // and for spam under an ancient post — work nobody should be handed.
+      //
+      // It also bounds the duplicates. `quality_flags` has no unique key, so a redelivery
+      // re-runs this loop and inserts again; refusing earlier is fewer rows, and the
+      // `comment_id` in the payload is what lets the operator collapse them.
+      const flag = decision.refusal === 'comment_unclassified' ? UNCLASSIFIED_FLAG
+        : decision.refusal === 'comment_escalated' ? ESCALATED_FLAG
+        : null;
+      if (flag !== null) await recordCommentFlag(fx, { tenantId: input.tenantId, comment, flag });
       continue;
     }
 

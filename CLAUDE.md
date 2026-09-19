@@ -61,7 +61,7 @@ on the critical path to a first real message.
 **The Supabase project EXISTS as of 2026-09-05** — ref `tlggenaatnopnxzbkbuf`, PostgreSQL
 17.6, ap-southeast-1. Migrations `0001`–`0015` are applied through the CLI with a real
 **fifteen**-row ledger (D-012, read back 2026-09-06), and `catalog.sql` returned 25/25
-against it when the file carried twenty-five checks. It carries **thirty-five** now (V0–V34):
+against it when the file carried twenty-five checks. It carries **thirty-six** now (V0–V35):
 V26 and V27 pass there since `0014` and `0015` landed, and **V25 still fails and is meant
 to** (see the second bullet below). **The ledger reads twenty-three rows, `0001`–`0023`,
 read back 2026-09-07 18:0x UTC** — `0023_channel_expects_traffic` was pushed by the founder
@@ -1044,7 +1044,7 @@ somebody wrote rather than a filename that happened to match.
 **Done.** [`docs/schema.md`](docs/schema.md) + `supabase/migrations/0001_initial_schema.sql`
 are the schema; the eight section files carry a banner saying their DDL is superseded.
 Applied to a scratch PostgreSQL 16.13 and verified by execution, re-counted 2026-09-07
-from a run out of an empty cluster: `catalog.sql` **35/35** (V0–V34), `isolation.sql`
+from a run out of an empty cluster: `catalog.sql` **36/36** (V0–V35), `isolation.sql`
 **16/16** (T0–T14, with T4 split into T4a/T4b, so 18 PASS lines), `rls.sql` **8/8**
 (R1–R8), `spend.sql` **10/10** (S1–S10), `retention.sql` **17/17** (P1–P17). **Count the
 checks, not the PASS lines** — several PRs on 2026-09-07 published rls 9, spend 11,

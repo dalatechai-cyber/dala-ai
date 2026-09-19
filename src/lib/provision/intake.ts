@@ -83,6 +83,18 @@ export type IntakeDocument = {
   neverSay: { key: string; question: string; responseKind: string; stems: string[] }[];
   faqs: { question: string; answer: string }[];
   staff: { name: string; shortName: string | null }[];
+  /**
+   * Which PUBLIC COMMENTS deserve a reply (D-085). Rows for `comment_rules`.
+   *
+   * Not customer-visible Mongolian — a stem is what the platform LOOKS for, never what it
+   * says — so this is the operator's to fill in and not the founder's to sign. What it
+   * decides is only whether the tenant's one reviewed `comment_public_reply` is sent at
+   * all; the sentence itself is still gated.
+   *
+   * Every rule lands `enabled: false`. A rule is written, read by a human, then switched
+   * on, because this is the surface where a mistake is public and permanent.
+   */
+  commentRules: { key: string; verdict: string; matcher: unknown }[];
 };
 
 export type ShapeProblem = { path: string; detail: string };
@@ -108,7 +120,7 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '');
  */
 const KNOWN_KEYS = new Set([
   'slug', 'business', 'confirmedBy', 'hours', 'services', 'contacts', 'booking',
-  'sentences', 'neverSay', 'faqs', 'staff',
+  'sentences', 'neverSay', 'faqs', 'staff', 'commentRules',
 ]);
 
 /**
@@ -194,7 +206,7 @@ export function readIntake(raw: unknown): { ok: true; doc: IntakeDocument } | { 
   }
 
   if (!isRecord(raw['sentences'])) bad('sentences', 'missing — an object of canned kind to Mongolian body');
-  for (const k of ['contacts', 'neverSay', 'faqs', 'staff'] as const) {
+  for (const k of ['contacts', 'neverSay', 'faqs', 'staff', 'commentRules'] as const) {
     if (!Array.isArray(raw[k])) bad(k, 'missing — use an empty array to say so explicitly');
   }
   if (!isRecord(raw['booking'])) bad('booking', 'missing — use { "url": null } to say there is none');
@@ -259,6 +271,13 @@ export function readIntake(raw: unknown): { ok: true; doc: IntakeDocument } | { 
     staff: pick(raw['staff'], (st) => ({
       name: str(st['name']),
       shortName: typeof st['shortName'] === 'string' ? st['shortName'] : null,
+    })),
+    // `matcher` is carried RAW and validated by `parseMatcher` — the same function that
+    // will run it at request time. Reshaping it here would mean two readers of one jsonb
+    // that could disagree, which is the whole reason this platform has one matcher
+    // language rather than a second one for provisioning.
+    commentRules: pick(raw['commentRules'], (c) => ({
+      key: str(c['key']), verdict: str(c['verdict']), matcher: c['matcher'],
     })),
   } };
 }

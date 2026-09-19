@@ -31,12 +31,8 @@ export type CommentSkipReason =
   | 'not_an_add'
   /** The Page itself commented. Answering it is the salon talking to itself. */
   | 'comment_self'
-  /** A reply to one of our own comments. The same loop, one level down. */
-  | 'reply_to_self'
   /** Hidden by the tenant already; replying would un-bury it. */
   | 'hidden'
-  /** No text — a sticker or a bare photo comment carries no question. */
-  | 'no_text'
   /** Missing an id we need. Reported, never guessed at. */
   | 'malformed';
 
@@ -153,12 +149,18 @@ export function extractComments(entry: unknown, pageExternalId: string): Comment
     const isReply = parentId !== '' && parentId !== postId;
     const threadId = isReply ? parentId : commentId;
 
+    // A comment with NO TEXT is returned, not skipped (D-085 review).
+    //
+    // It used to push `no_text` into a `string[]` that carries no comment_id, no post_id
+    // and no author — so a photograph under the salon's own post became the word
+    // "no_text" in a counter and was unfindable. That is D-070 exactly, on the surface
+    // where it costs most: a customer posting a picture of the colour they want is the
+    // most valuable comment a salon receives, and it looked identical to a thumbs-up.
+    //
+    // Returned with `text: ''`, it reaches `classifyComment`, fires no matcher, and comes
+    // back `unclassified` — which is silent, and which WRITES A ROW carrying the ids. The
+    // operator can find it; the platform still says nothing, because no rule claimed it.
     const text = typeof value['message'] === 'string' ? nfc(value['message']) : '';
-    if (text.trim() === '') {
-      // A sticker or a bare photo. Nothing was asked, so there is nothing to point at DM.
-      skipped.push('no_text');
-      continue;
-    }
 
     comments.push({
       commentId,

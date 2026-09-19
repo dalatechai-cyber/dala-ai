@@ -26,6 +26,8 @@
  * removed. `reviewed_at` is the same gate every other pinned sentence passes.
  */
 
+import type { CommentVerdict } from './classify.ts';
+
 /** `tenant_channels.comment_policy`. V1 implements two of the four. */
 export type CommentPolicy = 'none' | 'public_only' | 'private_only' | 'both';
 
@@ -38,10 +40,48 @@ export type CommentRefusal =
   | 'commenter_ignored'
   /** A reply to one of our own comments: the loop, one level down. */
   | 'reply_to_self'
-  /** The post is older than the tenant's window. Old posts attract spam. */
-  | 'post_too_old'
+  /**
+   * The COMMENT is older than the tenant's window, and the name says so now (D-085).
+   *
+   * It read `post_too_old`, it is configured by `comment_max_post_age_days`, and §3.8.2
+   * rule 5 justifies it as *old posts attract spam and the tenant gets no value* — but the
+   * value it measures is `value.created_time` on the COMMENT. **A brand-new spam comment
+   * on a four-year-old post has an age near zero and passes**, which is the exact case the
+   * rule was written to stop, and the branch below says so in as many words one line up.
+   *
+   * What it does do is worth keeping, so it is kept and renamed rather than deleted: it
+   * bounds how stale a DELIVERY this platform will act on, which is a real guarantee
+   * against a replayed or long-delayed webhook.
+   *
+   * **The post-age rule is therefore NOT IMPLEMENTED**, and it cannot be from this payload:
+   * the `feed` webhook carries `post_id` but no post creation time, and a Facebook post id
+   * is not a timestamp. Closing it needs `GET /{post-id}?fields=created_time` — a Graph
+   * read this platform does not make, cacheable per post, with its own failure mode on a
+   * path that must fail closed. That is a design decision, not a rename.
+   */
+  | 'comment_too_old'
   /** We could not date the comment. Unknown age is not young. */
   | 'comment_age_unknown'
+  /**
+   * A person must look at this one. Posts NOTHING (docs/comments.md).
+   *
+   * The corpus has four of these in 71 messages — «Утсаа авахгүй байна», *you are not
+   * answering the phone*. In a DM that is bad; in a public comment the pinned line, whose
+   * whole content is *come to DM*, is close to the worst available answer: a brush-off to a
+   * visible complaint, in the salon's own voice, permanently, under their own post.
+   */
+  | 'comment_escalated'
+  /** A rule recognised this as noise — praise, a tag, an emoji. */
+  | 'comment_not_worth_reply'
+  /**
+   * NO rule fired. Silent for the same reason, counted separately on purpose.
+   *
+   * Distinguishing this from `comment_not_worth_reply` is what makes the shadow phase
+   * produce a stem list instead of a score: every row here is either a rule the tenant
+   * should add or a silence that is correct, and only reading them says which. Merged into
+   * the noise counter they would be unfindable under the volume of «гоё».
+   */
+  | 'comment_unclassified'
   /** This thread already has its one public reply. */
   | 'thread_already_answered'
   /** This POST already has today's allowance of public replies, in any thread. */
@@ -74,6 +114,19 @@ export type CommentChannelConfig = {
 
 export type CommentDecisionInput = {
   config: CommentChannelConfig;
+  /**
+   * What `classifyComment` decided — an ENUM, never the comment's text.
+   *
+   * This is the one field that carries any information about what the customer wrote, and
+   * it carries four possible values. The docstring at the top of this file says the reply
+   * text cannot depend on the comment text *structurally*; that is still true, because
+   * there is no value of this field that selects a different sentence. It selects only
+   * whether the tenant's one pinned line is sent at all.
+   *
+   * Passing the text here instead would have been the obvious wiring and would have ended
+   * the guarantee — D-082's lesson, that the defect is a parameter which accepts a string.
+   */
+  verdict: CommentVerdict;
   /** The tenant's own pinned sentence, and whether a human has signed it off. */
   pinnedLine: { body: string; reviewedAt: string | null } | null;
   comment: {
@@ -138,9 +191,39 @@ export function decideCommentReply(input: CommentDecisionInput): CommentDecision
   if (ageMs > config.maxPostAgeDays * 86_400_000) {
     return {
       reply: false,
-      refusal: 'post_too_old',
-      detail: `${Math.floor(ageMs / 86_400_000)} days old; this channel's limit is ${config.maxPostAgeDays}`,
+      refusal: 'comment_too_old',
+      // Says which age it measured. The previous wording — and the refusal's previous
+      // name — would have sent a reader looking for a post-age rule that is not there.
+      detail: `the COMMENT is ${Math.floor(ageMs / 86_400_000)} days old; this channel's limit is ${config.maxPostAgeDays}. The POST's age is not checked — see comment_too_old`,
     };
+  }
+
+  // THE VERDICT, and it sits here on purpose — after the categorical facts about who wrote
+  // this and when, before both counting rules.
+  //
+  // Putting it after `post_cap_reached` would be the natural reading of "cheapest first"
+  // and it would corrupt the one number the cap exists to be judged by. The operator's
+  // question is *is a cap of 1 costing me customers?*, and they answer it by counting
+  // `post_cap_reached`. With the verdict downstream, every «гоё» arriving on a capped post
+  // lands in that counter too, and the honest answer is buried under noise that was never
+  // going to be replied to. Here, `post_cap_reached` and `thread_already_answered` mean
+  // exactly *a comment worth answering that we declined for a structural reason* — which
+  // is the number, and the only number, that should move the cap.
+  //
+  // It is also what keeps the allowance intact: a refusal never drafts a row, and the cap
+  // is counted from drafted rows, so an escalated or ignored comment cannot consume it.
+  if (input.verdict === 'escalate') {
+    return {
+      reply: false,
+      refusal: 'comment_escalated',
+      detail: 'a person must answer this one; the pinned line points at DM and this is not a DM question',
+    };
+  }
+  if (input.verdict === 'ignore') {
+    return { reply: false, refusal: 'comment_not_worth_reply', detail: 'a rule recognised this as noise' };
+  }
+  if (input.verdict === 'unclassified') {
+    return { reply: false, refusal: 'comment_unclassified', detail: 'no rule fired; silent, and recorded so a rule can be written' };
   }
 
   if (input.threadAlreadyAnswered) {

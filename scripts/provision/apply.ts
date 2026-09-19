@@ -213,6 +213,28 @@ async function applyIntake(
     log.push(`${d.neverSay.length} out_of_scope_topics`);
   }
 
+  // 4b. Comment rules (D-085). Which PUBLIC comments deserve a reply.
+  //
+  // `enabled: false` on every row, always, and this script has no flag to change that —
+  // the same shape as `reviewed_at`, one surface over. A comment rule decides whether the
+  // business speaks under its own post, where a mistake is public, permanent and
+  // screenshot-able; switching one on is an operator reading it, not a provisioner
+  // guessing. `classifyComment` refuses `no_rules` until somebody does, so the tenant
+  // stays silent rather than answering wrongly.
+  //
+  // `provenance` is `seeded`, never `tenant_confirmed` (D-020): the client filled in a
+  // questionnaire, they did not review a matcher. Only a person who has read the rule can
+  // upgrade that, and this script is not one.
+  if (d.commentRules.length > 0) {
+    const { error } = await db.from('comment_rules').upsert(
+      d.commentRules.map((c) => ({
+        tenant_id: id, rule_key: c.key, verdict: c.verdict, matcher: c.matcher,
+        enabled: false, provenance: 'seeded',
+      })), { onConflict: 'tenant_id,rule_key' });
+    if (error) fail('comment_rules', error.message);
+    log.push(`${d.commentRules.length} comment_rules (all disabled)`);
+  }
+
   // 5. Services, then their variants and aliases. `unique (tenant_id, name)` is what makes
   //    this idempotent: the same document re-run updates in place rather than duplicating.
   for (const s of d.services) {

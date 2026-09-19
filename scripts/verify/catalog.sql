@@ -827,6 +827,28 @@ insert into _v select 'V30', 'staff_members carries every column the prompt load
           and a.attnum > 0 and not a.attisdropped)
   ) bad;
 
+-- V35 — every public table is READABLE BY service_role. (D-085.)
+--
+-- The allow side, and nothing else in this file checks it. V5 asserts `anon` holds no
+-- privilege and V6 that `authenticated` holds only SELECT — both are the DENY side, and a
+-- table nobody can read at all passes both of them perfectly.
+--
+-- It matters because `0001:1636` is `grant all on all tables in schema public to
+-- service_role`, executed ONCE over the tables that existed then. A table created by a
+-- later migration inherits nothing, and PostgREST exposes a relation only where the role
+-- holds a privilege on it — so the symptom is not a permission error. The table is simply
+-- absent from the schema cache and every `.from()` against it 404s at runtime while every
+-- SQL suite here stays green.
+--
+-- `comment_rules` shipped exactly that way in `0030` and CI's PostgREST reachability check
+-- (D-037) is what caught it. This is the same assertion one layer earlier, where it costs
+-- seconds instead of a CI cycle.
+insert into _v select 'V35', 'every public table is readable by service_role',
+  coalesce(string_agg(c.relname, ', ' order by c.relname), 'all readable'), count(*) = 0
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+ where n.nspname = 'public' and c.relkind = 'r'
+   and not has_table_privilege('service_role', c.oid, 'select');
+
 -- ---- verdict -------------------------------------------------------------
 \pset format aligned
 select id, name, case when ok then 'PASS' else 'FAIL' end as result, detail from _v order by id;
