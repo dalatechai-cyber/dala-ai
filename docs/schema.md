@@ -434,3 +434,52 @@ are three characters and prefix «цагаан» and «хэдийнээ» — so
 intents were unreachable in rows. Ordered stems within a capped code-point window supply the
 specificity the length floor is a proxy for; `parseMatcher` requires at least two stems and
 a window ≤ 40, so the mode cannot smuggle a single short stem past the floor.
+
+### `0031_website_channel`
+
+Two tables and one function, for the website channel. Additive; nothing existing changes,
+and `channel_providers.web` stays `enabled = false`.
+
+**`web_sessions`** — the registry rule 1 demands for a surface where the caller can be
+asked nothing. A tenant's own server signs a mint request with a per-tenant secret; the
+platform derives the tenant from *which secret verified* (the shape `verifyMetaSignature`
+already uses), mints an opaque token, and every later message resolves the tenant by
+looking that token up here.
+
+Writing one by hand, the columns with no default: `tenant_id`, `channel_id`,
+`token_sha256`, `expires_at`, **`turn_cap`**. `turn_cap` is deliberately undefaulted — a
+caller that cannot say what bound it wants must answer rather than be given a generous one
+— and `check (turn_cap > 0)` refuses zero. `token_sha256` is the SHA-256 of the token in
+PostgREST's `\x…` hex form, never the token; `web_sessions_token_key` is unique across
+**all** tenants, because the lookup has no tenant to scope by. Two further CHECKs will
+refuse a hand-written row: `expires_at > issued_at`, and `turns <= turn_cap`.
+
+**`web_rate_counters`** — `(tenant_id, bucket_key, window_start)` is the primary key, and
+`window_start` is floored by the caller. Do not insert into it directly; use the function
+below, because read-then-write lets two concurrent requests both pass.
+
+**`public.bump_web_rate(p_tenant_id uuid, p_bucket_key text, p_window_start timestamptz)`**
+→ `integer` — upserts and returns the count *after* this request, in one statement. In
+`public` and not `app`, for D-029's reason: the clients carry no `db: { schema }` option.
+
+`ops.purge_expired` gains clauses (d) and (e), deleting sessions one day past expiry and
+rate windows one day past close, and its returned jsonb gains `sessions_purged` and
+`counters_purged`. The one-day lag on sessions is not a retention preference: it keeps a
+just-expired token resolvable long enough to say "your session ended" rather than missing,
+which is indistinguishable from a forged token.
+
+### `0032_web_mint_secret_kind`
+
+`tenant_secrets.kind` gains **`web_mint_secret`** — the tenant server's HMAC key for the
+website channel's session mint (D-086). Widening a CHECK, so every existing row still
+satisfies it and nothing is dropped, rewritten or narrowed.
+
+It is per-tenant data and therefore sealed under the KEK like `page_token`, not an
+environment variable: `META_APP_SECRETS` is an env map because a Meta app secret belongs to
+the app, which is ours, and a mint secret belongs to the client. Keyed on `channel_key` as
+well as `tenant_id`, so a tenant running two widgets can rotate one without the other going
+dark.
+
+**Nothing reads this value yet** — the mint route is not built. It exists so that sealing
+the secret (a founder step) can start in parallel. Do not cite its presence as evidence the
+channel works.
