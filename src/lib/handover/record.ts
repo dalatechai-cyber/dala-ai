@@ -81,14 +81,42 @@ export async function applyThreadControl(
     tenantId: string; conversationId: string;
     control: ThreadControl; at: Date; source: ControlSource;
   },
-): Promise<{ ok: true; changed: boolean } | { ok: false; detail: string }> {
+): Promise<{ ok: true; changed: boolean; refreshed?: true } | { ok: false; detail: string }> {
   const before = await readThreadState(db, input);
   if (before === 'unreadable') return { ok: false, detail: 'conversation unreadable' };
-  // `thread_control_at` is what the cooldown measures from, so it must move only when
-  // control actually changes hands. Refreshing it on every echo would extend the silence
-  // for as long as a person keeps typing, which sounds protective and is how a bot stays
-  // switched off for an afternoon.
-  if (before.control === input.control) return { ok: true, changed: false };
+
+  if (before.control === input.control) {
+    // A STAFF REPLY RESETS THE CLOCK (founder's call, 2026-09-19). `thread_control_at` is
+    // what the cooldown measures from, and until now it moved only when control changed
+    // hands — so a receptionist typing for twenty minutes had the bot come back over the
+    // top of them halfway through.
+    //
+    // This file used to argue the other way, and the argument was not wrong so much as
+    // incomplete: refreshing on every human turn does extend the silence for as long as a
+    // person keeps typing, which on its own is how a bot stays switched off for an
+    // afternoon. What makes it safe is the RECLAIM — the bot takes the thread back once
+    // the human has been quiet for the reclaim window, so the extension is bounded by
+    // somebody actually still being there. **The refresh and the reclaim are one design,
+    // not two decisions**, in the same way `thread_control` defaulting to `unknown` is
+    // only safe because check 4 refuses on `human` alone. Ship the refresh without the
+    // reclaim and the old comment's warning comes true.
+    //
+    // Narrow on purpose: only an ECHO, and only `human`. An echo is a person typing. A
+    // `handover` event re-asserting `human` is Meta repeating itself, not a new turn, and
+    // treating it as one would let a redelivered webhook hold a thread open for ever.
+    if (input.control !== 'human' || input.source !== 'echo') return { ok: true, changed: false };
+
+    const { error: refreshErr } = await db
+      .from('conversations')
+      .update({ thread_control_at: input.at.toISOString() })
+      .eq('tenant_id', input.tenantId)
+      .eq('id', input.conversationId);
+    if (refreshErr) return { ok: false, detail: refreshErr.message };
+    // `changed` stays FALSE: control did not move, and `recordHandover` counts `changed`
+    // as takeovers. Reporting a refresh as a change would make the mirror's numbers read
+    // as control churning when nothing moved at all.
+    return { ok: true, changed: false, refreshed: true };
+  }
 
   const { error } = await db
     .from('conversations')
