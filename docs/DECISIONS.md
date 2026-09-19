@@ -6511,3 +6511,100 @@ The drafted body compressed the setup fee to «Суурилуулалт 150,000�
 made the reader do the subtraction; it is enumerated per member of staff now, in the source
 prompt's own phrase «нэг удаагийн суурилуулалт». And the closing question «Аль ажилтны талаар
 дэлгэрэнгүй сонирхож байна вэ?» is gone — they asked a price, so give the price.
+
+## D-089 — `meta_app_id`, set from 197 deliveries and one thing still unverified
+
+**2026-09-19, founder's instruction.** `tenant_channels.meta_app_id` was NULL on every
+channel, and D-080's inbound handover half is inert without it: `controlAfter` returns
+`unknown` when `ourAppId` is null, and `recordHandover`'s `move()` writes nothing on
+`unknown` — *"no evidence; write nothing."* Every handover event was being parsed, counted
+and discarded.
+
+### Two channels, not three
+
+The instruction said all three. Handover is Meta-only: `recordHandover` is called from
+`worker/reception.ts` and nowhere else, and `src/lib/website/` contains no reference to it.
+A `meta_app_id` on the `web` channel would be data describing a thing that does not exist
+there, so it stays NULL. Both `facebook_page` channels are set.
+
+### What the evidence says, and it is better evidence than D-062 had
+
+`matchedAppSlug` is persisted as the last colon-separated field of `webhook_events.dedup_key`
+(`identity.ts`), so it is readable without any log. Across **every delivery this platform has
+ever received — 197 rows, not D-062's seven:**
+
+| Page | tenant | deliveries | `matched_app_slug` |
+|---|---|---|---|
+| `1520409424715591` | matrix-eco-salon | 179 | `dalatech` |
+| `1520409424715591` | (unrouted, 09-07) | 2 | `dalatech` |
+| `863503883522801` | dalatech | 16 | `dalatech` |
+
+**One `META_APP_SECRETS` entry verifies both Pages.** So whatever the right numeric id is, it
+is the SAME for both Meta channels — that part is measured, not inferred, and it is why a
+single `update … where provider = 'facebook_page'` is the correct shape.
+
+### What is still unverified, stated plainly
+
+The slug is a callback path, never Meta's name for an app (D-041), so the measurement does
+not name the numeric id. It was set to **`1380702870025418`**, CLAUDE.md's console reading
+for the app named `dalatech`, on the grounds that it is the only value consistent with every
+record: that app holds Matrix's Page, and D-043 measured tenant #0's Page subscribed to both
+apps at once — so both Pages arriving under one secret fits without contradiction.
+
+**It has never appeared in any data this platform holds.** Searched: no `app_id` key occurs
+in any `raw_payload` row. `developers.facebook.com` is 403 through this environment's egress
+proxy, re-measured 2026-09-19. So this is a console reading carried forward, which is exactly
+the class of claim CLAUDE.md says to re-ask about rather than inherit — and it is flagged
+here rather than left to be discovered.
+
+### Why setting it anyway is safe, which is the part that decided it
+
+A wrong id is **never worse than NULL**, and that is not a guess — it is `controlAfter` read
+line by line:
+
+| event | `ourAppId` NULL | WRONG | RIGHT |
+|---|---|---|---|
+| pass → us | nothing | `human` — bot goes quiet needlessly | `bot` |
+| pass → someone else | nothing | `human` ✓ | `human` |
+| take from us | nothing | nothing | `human` |
+| take from other | nothing | nothing ✓ | `unknown` |
+
+Every cell a wrong value produces is either correct or over-cautious, and none of them lets
+the bot talk over a person — the failure the feature exists to prevent. The worst case is a
+needlessly quiet bot, which is the direction this platform picks everywhere else. Correcting
+it later is one `update`.
+
+## D-090 — the two outbound handover calls, written and wired to nothing
+
+`src/lib/handover/graph.ts` adds `passThreadControl` and `takeThreadControl`. **No caller.**
+`docs/handover.md` requires the reclaim to ship with the pass, and the reclaim is a policy
+question with three answers still owed; this is the plumbing under it, whose shape those
+answers cannot change.
+
+Three things it refuses to assume:
+
+**`{"success": true}` is not proof.** D-062 is this repository already paying for that on the
+neighbouring endpoint: `POST /{page-id}/subscribed_apps` answers `success: true` when the app
+never had the field enabled, and eleven days of a dead channel hid behind it. Same product
+surface, same shape of answer. So the outcome is `accepted` — Graph took the request — and
+what proves a pass is the handover webhook that follows, which `recordHandover` already
+consumes.
+
+**An indeterminate handover is read the OPPOSITE way to an indeterminate send.**
+`meta/send.ts` treats it as "do not re-send", because the risk is a duplicate. Here the risk
+runs the other way: a pass that may have succeeded means the Page Inbox may already own the
+thread, so the caller must assume it happened and go quiet. Both calls resolve towards
+silence. The type cannot say that, so the module header does.
+
+**No Graph code is mapped for "not the primary receiver".** Only the primary receiver may
+take control back, and whether this platform holds that role is on `docs/handover.md`'s
+unverified list. Inventing a code would be a rule nobody has watched fire; it falls through
+`classify` to a non-retryable 4xx, which is right for a call Meta will refuse identically.
+
+`/me` is refused as in `sendMessage` — it resolves the Page from the token, so a mismatch
+would move thread control on the wrong salon's Page and answer 200 — and a pass with no
+`target_app_id` is refused rather than letting Graph pick who owns a customer.
+
+The `NEVER_CONNECTED` list is duplicated from `meta/send.ts` deliberately (importing it would
+export an internal), and a test parses BOTH files and fails when they drift. That test was
+checked adversarially: deleting one entry from `graph.ts` turns it red.
