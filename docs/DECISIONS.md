@@ -6359,3 +6359,91 @@ deliberately contain no salon words. There is no dalatech comment corpus, and un
 the only honest claim about those ten rows is that they parse and that they fire on the
 generic intents.
 
+
+## D-087 — tenant #0's knowledge base, ported from its own live chatbot, minus every price
+
+**2026-09-19.** Tenant #0 published at seq 3 carrying two channels (`facebook_page`, `web`)
+and **no data marker**. Its eleven knowledge tables held nothing at all: ten
+`canned_responses` rows and zero everywhere else — `knowledge_documents`, `faqs`,
+`contact_points`, `services`, `service_variants`, `business_hours`, `staff_members`,
+`out_of_scope_topics`, `price_axes`, `deposit_rules`, `tenant_booking`.
+
+That is `DAY_ONE_KB` exactly, and D-033's guard does what it is built to do: `hasTenantData`
+is false, so `handleReception` serves the handoff line **before the provider call**. Every
+message, every channel. The website channel was therefore about to replace a site chatbot
+that answers about the five AI staff with one that says «Хамт олон маань хариулах болно» to
+everything — a measured regression against the incumbent, which is the shape the founder
+named on 2026-09-17: *when the incumbent has a rule we do not, that is a measured loss.*
+
+The source is `dalatech-chatbot`, `api/chat.js`, `buildConversationSystemInstruction` — the
+prompt the company's own site has been serving. `scripts/provision/tenant0-knowledge.sql`
+ports it into rows: seven `knowledge_documents`, eight `faqs`, two `contact_points`.
+
+### Every ₮ amount was dropped, and that is D-075 rather than an omission
+
+D-075 is platform-wide and is the founder's call: *prices never enter `allowed_numbers`, and
+never enter the prefix.* `allowed_numbers` is a SET, so the guard checks that a numeral is on
+the tenant's list and **never that it belongs to the thing being discussed**.
+
+This tenant is the worst case that rule was written for, and worse than the salon it was
+written about. Matrix's collisions are between services with distinct names; here **five
+products share two price points** — three staff at one monthly figure, two at another, and
+two setup figures — so «Вира» carrying Dali's fee is a real, allow-listed number against the
+wrong product at a 67% overquote. More plausible to a customer than an invention, and
+therefore worse.
+
+What was kept is everything that is not a price: what each member of staff does, which are
+live and which take pre-registrations, the rollout time, what the monthly fee covers, the
+discount tiers, the payment split, the contact route. Measured through the real
+`renderTenantSections` with `DAY_ONE_KB` as the control:
+
+| | control (canned only) | after the seed |
+|---|---|---|
+| sections | `canned_responses` | `tenant_data_marker, canned_responses, kb_documents, faqs, contacts` |
+| data marker | **false** | **true** |
+| tenant-section chars | — | 4,088 |
+| `allowed_numbers` | `[]` | `10, 15, 20, 3–5, 5, 50, 7–10` |
+
+Seven tokens: three discount percentages, the payment split, the page count and two
+durations. **No price, and no phone number.**
+
+### Three things that would have been wrong, found by checking rather than by reasoning
+
+**An unconfirmed FAQ renders nothing.** `sections.ts` EXCLUDES a FAQ whose provenance is not
+`tenant_confirmed` — deliberately, because a guessed answer is a promise the business is then
+expected to honour. Seeding these as `seeded`, which is the cautious-looking choice, would
+have inserted sixteen rows that compile to an empty section and a marker that still never
+fires: the repository's own "a row exists ⇒ the work was done". They are
+`tenant_confirmed` because every ANSWER is a sentence from the live prompt verbatim. The
+question strings are composed, and that is stated here rather than implied.
+
+**A dash is not a numeral.** The rollout answer is «3–5 хоногт» with an EN DASH and the
+discounts use U+2212 MINUS. A prefix that hashes one way and a reply that hashes another is
+the `btrim`/`.trim()` coin flip of 2026-09-07, one table over. Measured instead of assumed:
+`extractNumerals` reduces `3–5` and `3-5` to the same `35`, and reads `−10%` as `10`
+whichever minus is used, so the comparison is on digits and the dash cannot disagree.
+
+**A URL the tenant never declared is refused even when the tenant wrote it.** D-071's shape:
+`allowedUrls` is `tenant_booking.booking_url` plus the URL-bearing contact kinds, and
+`urlsNotAllowed` matches on the CANONICAL form — scheme, host and path. So the `website`
+contact row covers `https://dalatech.online/` and does **not** cover `app.dalatech.online`,
+the demo-site tool. Rather than compile a link the guard would then discard, the demo tool is
+absent from the documents; putting it back means a second row, and the primary key is
+`(tenant_id, kind)`, so it needs a kind of its own or a different home.
+
+**There is deliberately no `phone` row.** The source prompt states that the company publishes
+no number and instructs the model never to produce one. Here that is structural rather than
+an instruction (D-065): with no row there is no number in the prefix, and the guard refuses
+every numeral outside `allowed_numbers`.
+
+### Open, and the founder's: prices
+
+Nothing above lets the bot quote a price, and the incumbent does. The mechanism that closes
+that is already built and is D-075's own second half: a `deterministic_replies` row is
+drafted **verbatim before the model call**, so its body never enters the prefix, its numerals
+reach neither `allowed_numbers` nor the outbound guard, and the price is bound to the product
+by the MATCH rather than by the model's judgement. One row per product, matched on the
+product's name, is a price answer that cannot be attached to the wrong thing.
+
+Those rows are customer-visible Mongolian, so they wait for the founder. The alternative —
+compiling prices into the prefix — is a reversal of D-075 and is his to make, not a session's.
