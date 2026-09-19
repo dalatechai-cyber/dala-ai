@@ -6766,3 +6766,130 @@ difference is D-065's: a served row is typed by the platform, knowledge is a req
 may ignore. Enforcing it needs a matcher for "the customer is describing damaged hair", which
 is the fuzzy judgement D-067 and D-083 both show stem lists make badly. It becomes a served
 row if the corpus shows the model ignoring it.
+
+## D-093 — which handoffs become a pass, measured instead of argued
+
+`docs/handover.md` step 1 says *"the bot decides a person should take over"* and never says on
+what. That is the last thing blocking the outbound half, and it is the kind of question this
+repository has been wrong about before by reasoning from the code rather than the corpus. So it
+was measured first.
+
+`passThreadControl` and `takeThreadControl` still have **no callers** — D-090 built them and
+wired them to nothing, which is still true. Nothing here changes that.
+
+### The obvious wiring, and why the corpus refuses it
+
+`handoff()` is the only place the reply path gives up, so hanging the pass off it is the
+reading that presents itself. Matrix, six days, 09-14 → 09-19: **57 conversations, 154 inbound
+messages, 151 answered** (105 model, 46 canned), mean **2.70** turns, max 10, and **21 of 57**
+are a single turn.
+
+| Candidate trigger | Conversations | % of 57 | ≈/day |
+|---|---|---|---|
+| any canned answer | 29 | 51% | 4.8 |
+| any guard refusal (reaches `handoff()`) | 13 | 23% | 2.2 |
+| 2+ canned answers in one conversation | 10 | 18% | 1.7 |
+| 3+ canned answers | 4 | 7% | 0.7 |
+| the customer asks for a person | **1** | **2%** | **0.2** |
+
+The guard-refusal row is 15 `quality_flags` rows — `outbound_disclosure` 7, `outbound_gate_label`
+7, `outbound_price` 1. **Most of those are this platform's own defects, not customers needing a
+person**: D-068 threw away a correct booking answer for quoting the reviewed `booking_line`,
+D-077 discarded a reply that named the service better than the row did, D-082 served
+*write me a private message* to four people who had. Passing control on a guard refusal
+therefore converts OUR bug into the salon's labour, at 2.2 conversations a day, and it does it
+most often on exactly the turns where the bot was right and the guard was wrong.
+
+That is the argument against the trigger that was easiest to build. It is not an argument
+against passing at all.
+
+### One conversation carries the whole case
+
+2026-09-15, six turns, and it is the only place in the corpus a customer says it outright:
+
+```
+05:09:46  sn bna uu                              → model
+05:10:20  emchilgeenii himu                      → model
+05:10:25  himu hymdral bgaa yu                   → model
+06:55:06  эмчилгээний хими сонирхож бна          → canned
+06:55:37  ai bish huntei holbogdmoor bna         → canned   ("I want a human, not an AI")
+06:55:51  asuult oilgoh tuvshnii bish bna        → canned   ("it can't understand questions")
+```
+
+Our draft at 06:55:23 was «Энэ талаар нийтэд дэлгэрэнгүй хариулах боломжгүй. Хувийн мессеж
+бичвэл хариулна.» — D-082's `refusal_public_channel`, telling someone already in a DM to send a
+DM. Our drafts for the last two turns were the handoff line twice, pointing at **7741-7777** —
+the number the salon disconnected four days later.
+
+**The causal reading of that is wrong and worth stating, because it was the first one written
+here.** Matrix is `shadow`: 163 outbound rows, **0 sent**, every one a draft. The customer was
+reacting to the ANCESTOR's live replies, not to ours. What our rows show is not that we drove
+this customer off — it is what we would have said at each turn, which is a refusal aimed at the
+wrong surface followed twice by a dead phone number. Third time in this corpus that reading a
+draft as an effect rather than as a proposal produced a wrong answer; *read the flag before
+explaining the draft* applies to whole conversations too.
+
+### The matcher half needs no code, and that is the point
+
+The trigger «the customer asked for a person» looked like it needed transliteration or a new
+mechanism, because «хүн» and `hun` are **3 code points** and `MIN_STEM_CHARS` is 4 — the same
+wall as «Сор», «Эхо» and «Ора». It does not. `stem_sequence` is already exempt from the floor,
+bounded rather than waived (≥2 stems, window ≤ `MAX_SEQUENCE_WINDOW_CP` = 40), on exactly the
+argument that applies here: *ordering and the window are the specificity that the length floor
+is a proxy for.* `['hun', 'holbogd']` and «хүн»+«холбогд» are both expressible as rows today,
+and `ажилтан` (7) and `оператор` (8) clear the floor on their own. Client #3 fills in a config.
+
+`холбогд` alone would NOT do, and the corpus says why rather than intuition: «Холбогдох утас
+бна» is a customer asking for the phone number, which is not a request for a person.
+
+Run against the six corpus messages rather than asserted:
+
+```
+{"mode":"stem_sequence","stems":["hun","holbogd"],"windowCp":40}
+  fires=true   ai bish huntei holbogdmoor bna          <- the real request
+  fires=false  Ugluni mend. Unudr tom huni tairalt ...  <- «хүний», an adult's
+  fires=false  Хүннү салбар                             <- a branch name
+  fires=false  Холбогдох утас бна                       <- asking for the PHONE
+  fires=false  2 өдөр залгаж байна                      <- distress, not a request
+```
+
+**It takes TWO rows, one per script, and that is the finding rather than a caveat.** The Latin
+pair does not fire on «хүнтэй холбогдмоор байна» and the Cyrillic pair does not fire on
+«ai bish huntei holbogdmoor bna» — `fold()` does not transliterate (D-067), so each row covers
+its own script and neither covers both. The probe was written expecting one row to do the job
+and reported three MISSes; the misses were the expectation, not the matcher. `ажилтан` catches
+neither of these two phrasings and is a third row, not a substitute for either.
+
+The exemption is bounded, and the bounds were checked by trying to break them — all three
+refused: a bare `hun` (`stems shorter than 4 characters over-match badly`), a one-stem sequence
+(`one stem is contains_stem without the floor`), and `windowCp: 999` (`an unbounded window is an
+unanchored matcher wearing a tightening's clothes`).
+
+### How the stems were checked, since counting them lied
+
+Six messages matched the probe; reading them left one. «tom **hun**i tairalt» is «хүний» — *an
+adult's* haircut — and «**Хүн**нү салбар» is a branch name. **Two of six matches were false
+positives on a 3-character stem**, which is `MIN_STEM_CHARS` earning its keep inside the
+diagnostic that was arguing about it. A count would have reported 6 and been wrong by 6×.
+
+### The reclaim discriminator
+
+D-091 left the sweeper blocked on recording that a pass was ours, and the proposal is a fourth
+`thread_control_source` value, **`pass`**. The column already holds our own outbound action in
+one direction — `reclaim` — and was simply missing the other; this is a missing enum member, not
+a new dimension.
+
+One rule comes with it. `applyThreadControl` returns early when control has not changed, so a
+pass recorded AFTER Meta's webhook has already moved the thread to `human` would leave
+`source = 'handover'` and the thread unreclaimable — the exact silence the reclaim exists to
+prevent. So **a `pass` writes its source even when control already matches**: the other three
+sources are evidence, and re-applying evidence is not news, but a pass is our own action. When
+the webhook and the pass disagree about who moved the thread, the webhook is the redundant one.
+
+### Open — the founder's call
+
+Which trigger. The recommendation is **the customer asking for a person, plus a consecutive-
+canned floor**, not the guard refusal: together ≈0.9 conversations a day against 2.2, and they
+fire on customers who are stuck rather than on replies the guard got wrong. Both reach the
+conversation above by different routes. It is his because it decides how much of the salon's
+day this feature spends.
