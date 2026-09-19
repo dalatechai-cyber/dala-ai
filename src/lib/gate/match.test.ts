@@ -402,3 +402,32 @@ test('a text matcher is unaffected by attachments being present', () => {
   assert.equal(matcherFires({ text: 'хүүхдийн үс', attachments: ['image'] }, { mode: 'contains_stem', stems: ['хүүхд'] }), true);
   assert.equal(matcherFires({ text: 'үс засуулна', attachments: ['image'] }, { mode: 'contains_stem', stems: ['хүүхд'] }), false);
 });
+
+test('DONE-TEST: comment_public_reply is invisible to the model and does not move canned_hash', () => {
+  // The outage this prevents, stated as the test: `worker/comments.ts` posts this row's
+  // bytes with no model call, so it is a fact about the platform rather than an
+  // instruction — and unfiltered it would enter the cached prefix, move `canned_hash`,
+  // and 503 every DM reply with `canned_stale` until a republish (D-058).
+  //
+  // Asserted as an EQUALITY against the section without the row, not merely as an
+  // absence: "the text does not appear" would also pass if the renderer had started
+  // dropping something else too.
+  const base = [
+    { kind: 'handoff', body: 'Түр хүлээнэ үү' },
+    { kind: 'booking_line', body: 'Онлайнаар цаг авна уу' },
+  ];
+  const withComment = [...base, { kind: 'comment_public_reply', body: 'Сайн байна уу! Мессеж бичээрэй.' }];
+
+  assert.equal(MODEL_INVISIBLE_KINDS.includes('comment_public_reply'), true);
+  assert.equal(
+    cannedSectionBody('БЭЛЭН ХАРИУЛТ', withComment),
+    cannedSectionBody('БЭЛЭН ХАРИУЛТ', base),
+    'adding the comment line changed the section — canned_hash would move and every reply would 503',
+  );
+});
+
+test('a kind NOT on the invisible list still reaches the section, so the filter can be wrong in both directions', () => {
+  const base = [{ kind: 'handoff', body: 'Түр хүлээнэ үү' }];
+  const extra = [...base, { kind: 'refusal_price_unlisted', body: 'Үнийг хэлж чадахгүй' }];
+  assert.notEqual(cannedSectionBody('БЭЛЭН ХАРИУЛТ', extra), cannedSectionBody('БЭЛЭН ХАРИУЛТ', base));
+});

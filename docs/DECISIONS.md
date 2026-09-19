@@ -6321,3 +6321,41 @@ this environment — so Turnstile's request shape is still written from the docu
 contract and has never met Cloudflare. What IS proven: 51 unit tests over both jobs against
 fakes that record ordering, and every column the new code selects verified to exist in the
 live project rather than only in the repo.
+
+### D-085 addendum — the comment rules are seeded, and one of them is not a salon's
+
+2026-09-19. `comment_rules` is provisioned for both tenants, every row `enabled = false` and
+`provenance = 'seeded'` (D-020: a provisioner did not review a matcher, so it cannot claim
+`tenant_confirmed`). Matrix carries the full thirteen from `classify.test.ts`; **dalatech
+carries ten.**
+
+The three it does not carry are `service`, `booking_free_mn` and `booking_free_lat`.
+`service`'s stems are «хими», «буда», «маникюр», «педикюр» — hair dye, perms and nail work.
+Seeding those under a tenant whose `vertical` is `software` is D-033's shape exactly: a
+tenant carrying another business's vocabulary because it was convenient to copy. The two
+`booking_free_*` sequences are tuned to «цаг байна уу» as a salon's customers phrase it and
+have no measured basis off that corpus; `booking_mn`/`booking_lat` («цаг авах») are ordinary
+Mongolian for making an appointment and are kept.
+
+**Validated by replaying the corpus through the rows as stored**, read back out of the
+database rather than from the insert script, through the real `parseMatcher` and
+`classifyComment`:
+
+```
+parseMatcher            23/23 accepted, 0 refused
+matrix-eco-salon        reply 46  escalate 4  ignore 1  unclassified 20   72% actioned
+dalatech                reply 23  escalate 4  ignore 1  unclassified 43   39% actioned
+```
+
+Matrix's four figures are **exactly** the ones this document's own rule-set section
+records, which is the point of running it: a control that reproduces a known value is what
+makes the unknown one evidence (D-082's method note). Without that agreement the dalatech
+row would be a number with nothing behind it.
+
+**And the dalatech figure is not a quality measurement, and must never be quoted as one.**
+It is Matrix's DM corpus — a salon's customers asking about hair — scored against a software
+company's rule set. 39% is what *should* happen when a salon corpus meets rules that
+deliberately contain no salon words. There is no dalatech comment corpus, and until there is,
+the only honest claim about those ten rows is that they parse and that they fire on the
+generic intents.
+

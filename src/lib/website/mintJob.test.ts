@@ -324,3 +324,36 @@ test('a failed session insert is 503 and returns no token', async () => {
   assert.equal(r.status, 503);
   assert.equal(r.body['token'], undefined, 'a token was handed out for a session that does not exist');
 });
+
+// ---------------------------------------------------------------------------
+// delivery_mode is a switch, not a note
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: a channel that is not `live` cannot mint, whatever its status says', async () => {
+  // The first version selected delivery_mode and only LOGGED it, so `off` read like a
+  // control and was not one — D-064's shape, in code written days after D-064 was
+  // written down. `status` and `delivery_mode` are orthogonal (health vs. cutover
+  // position), so an `active` channel that is not delivering must still refuse.
+  const b = body();
+  for (const mode of ['off', 'shadow', 'shadow_routing']) {
+    const db = stubDb({
+      channel: { data: { id: CHANNEL, tenant_id: 't-1', provider: 'web', status: 'active', delivery_mode: mode } },
+    });
+    const r = await runMintJob(effects(db), { rawBody: b, channelHeader: CHANNEL, signatureHeader: sign(b), clientIp: IP });
+    assert.equal(r.status, 401, mode);
+    assert.deepEqual(r.body, { error: 'mint_unauthorised' }, mode);
+    assert.equal(db.trace.includes('secret'), false, `${mode} reached the secret`);
+    assert.equal(db.trace.includes('insert:web_sessions'), false, `${mode} minted a session`);
+  }
+});
+
+test('a `live` channel still mints — the gate can pass as well as fail', async () => {
+  // The companion to the test above, and the one that matters: a refusal that refuses
+  // everything is not a gate. `mintJob`'s own Turnstile bug was exactly this shape.
+  const b = body();
+  const db = stubDb({
+    channel: { data: { id: CHANNEL, tenant_id: 't-1', provider: 'web', status: 'active', delivery_mode: 'live' } },
+  });
+  const r = await runMintJob(effects(db), { rawBody: b, channelHeader: CHANNEL, signatureHeader: sign(b), clientIp: IP });
+  assert.equal(r.status, 200);
+});

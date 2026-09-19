@@ -69,7 +69,21 @@ export type MintDiagnosis =
   | 'timestamp_missing'
   | 'timestamp_malformed'
   | 'timestamp_outside_window'
-  | 'secret_unreadable';
+  | 'secret_unreadable'
+  // The channel exists and is healthy, but its `delivery_mode` is not `live`. Separate
+  // from `channel_inactive`, which is about `status`: the two columns are orthogonal —
+  // status is health, delivery_mode is where the channel sits in the cutover — and
+  // collapsing them would send a reader to the wrong column.
+  | 'channel_not_delivering'
+  // Raised by `mintJob`, which is the only caller. They live in this union rather than as
+  // loose strings because `refuse()` no longer accepts a bare string: a union with a
+  // `| string` escape hatch beside it constrains nothing, and every one of these was
+  // passing typecheck for that reason alone.
+  | 'rate_limited'
+  | 'rate_unavailable'
+  | 'turnstile_unavailable'
+  | 'turn_cap_missing'
+  | 'session_insert_failed';
 
 export type MintVerification =
   | { ok: true }
