@@ -216,3 +216,27 @@ test('DONE-TEST: TWO EQUAL WINNERS IS AMBIGUOUS EVEN WHEN ONE IS SHADOWED', () =
   assert.equal(r.verdict === 'ambiguous' && r.matches.some((m) => m.shadowed), true,
     'one winner IS shadowed — the ordering is what keeps the verdict honest, not its absence');
 });
+
+test('DONE-TEST: A SPECIFIC ALIAS BEATS A SHORT NAME AT THE SAME TOKEN COUNT', () => {
+  // Terms are `[name, ...aliases]` and the winner was chosen by a strict `>` on token
+  // count, so the first one-token term could never be replaced. A service whose NAME is
+  // below the floor therefore lost to itself, and the repair a human reaches for first —
+  // add an alias the customers actually type — did nothing at all.
+  //
+  // Measured on Matrix before this existed: «Сор» is three code points, «сортой» occurs
+  // twice in 164 real messages, and adding it changed the corpus verdicts by zero.
+  const entries = [{ serviceId: 'sor', name: 'Сор', terms: [toTerm('Сор'), toTerm('сортой')] }];
+  const r = matchService('будаг бүтэн сортой', entries);
+  assert.equal(r.verdict, 'unique', 'the alias clears the floor, so the match is actionable');
+  assert.equal(r.verdict === 'unique' && r.match.term, 'сортой', 'and the log names the term that won');
+
+  // The floor still bites where nothing longer matched: «сор» reaches only the short name.
+  const short = matchService('сорри', entries);
+  assert.equal(short.verdict, 'too_vague');
+  assert.equal(short.verdict === 'too_vague' && short.matches[0]?.term, 'Сор');
+
+  // More tokens still wins outright — specificity is a TIE-break, never a promotion.
+  const two = [{ serviceId: 'a', name: 'Хими', terms: [toTerm('хими'), toTerm('усан хими')] }];
+  const m = matchService('усан хими хэд вэ', two);
+  assert.equal(m.verdict === 'unique' && m.match.term, 'усан хими');
+});

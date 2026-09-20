@@ -26,7 +26,7 @@ import { renderTenantSections, type ServiceVariant, type TenantKb } from '../pro
 import { entriesFrom, subsetCollisions, termIsSpecific, toTerm } from '../services/match.ts';
 import { containsStem } from '../mn/match.ts';
 import { scriptMatcher } from '../mn/text.ts';
-import { parseMatcher } from '../gate/match.ts';
+import { MIN_STEM_CHARS, parseMatcher } from '../gate/match.ts';
 import type { IntakeDocument } from './intake.ts';
 
 export type Severity = 'blocker' | 'ask_client' | 'advisory';
@@ -168,8 +168,9 @@ export function validateIntake(doc: IntakeDocument, now = new Date()): Finding[]
     if (all.length > 0 && all.every((t) => !termIsSpecific(toTerm(t)))) {
       add('ask_client', 'service_name_unmatchable',
         `«${s.name}» has no term long enough to match on — every one of «${all.join('», «')}» is `
-        + 'a single short token, so the matcher answers `too_vague` and this service can never '
-        + 'be priced. A longer alias the customers actually type is the cheapest repair.');
+        + `a single short token, so the matcher answers \`too_vague\` and this service can never `
+        + `be priced. The repair is an alias of at least ${MIN_STEM_CHARS} characters that the `
+        + `customers actually type; read it off the corpus, not off a guess.`);
     }
   }
 

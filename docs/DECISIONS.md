@@ -7918,3 +7918,36 @@ does not.* A root list that omits the one tree that writes; a column check that 
 directions; a parser that answers about whichever object it found first. None of them was ever
 red. The founder's `--apply` was the first thing in this repository's history to read the real
 `out_of_scope_topics` schema from the writer's side.
+
+### D-104 addendum — the tenant-side repair could not work, and nothing said so
+
+The founder asked to see the seven corpus messages that reach «Сор» before anyone picked an
+alias for it, rather than take the recommendation `service_name_unmatchable` prints. He was
+right to, and the reason is better than the one either of us had.
+
+Every `сор`/`sor` token in all 164 messages: `sor` ×3, `sortoi` ×2, `сортой` ×2. **Bare
+«сор» in Cyrillic occurs zero times** — customers type the comitative «сортой», or Latin
+`sortoi`, or bare `sor`. All seven are genuinely about the service, so on this corpus the
+specificity floor refuses seven true positives and prevents zero false ones; «сорри» is a
+constructed probe, not an instance.
+
+**Adding «сортой» and «sortoi» to the intake changed the verdicts by nothing.** Identical
+counts, byte for byte. `bestTerm` chose the winning term by token count alone, with a strict
+`>`, so the first one-token term could never be replaced — and terms are `[name, ...aliases]`,
+so the three-character NAME always beat the six-character alias, and the match was then
+refused as `too_vague`. The repair the validator recommends in as many words could not work.
+
+The tie-break is fixed: on equal token count a term that clears the floor beats one that does
+not. Measured — with no new rows it changes **nothing**, which is the property that makes it
+safe; with both aliases, `too_vague` falls 7 → 3, `ambiguous` 1 → 4, `unique` 22 → 23 and
+nothing else moves. The three survivors typed bare `sor`; three characters cannot be rescued
+and no alias will.
+
+Two things to carry. **A comment asserting a behaviour nobody tested is worth nothing**: the
+docstring above the verdict already said an entry "should be judged on its best reading, and
+`bestTerm` has already chosen that", and it had not — the same shape as
+`config/platform.ts:33` claiming a monthly ceiling that was never built. And **a finding that
+recommends a repair should be tested against the repair working**: `service_name_unmatchable`
+shipped advice that was false at the moment it was written, and it took a founder asking for
+the corpus to find that out. Its wording now names the length the alias must clear, and says
+to read it off the corpus rather than guess.
