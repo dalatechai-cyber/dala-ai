@@ -401,9 +401,15 @@ All twenty-one Mongolian blocks were signed on 2026-09-04 and are seeded by
 > correction.** What actually changed:
 >
 > - **The mirror ran and produced a corpus.** Item 16's "THE MIRROR PRODUCED ZERO DATA" was
->   true on 2026-09-14 and is not now: 165 DM drafts exist, segmented by `revision_id`, and
->   87 of them validate the current revision. Item 15's subscription fault was the
->   app-level `feed` toggle and it is fixed.
+>   true on 2026-09-14 and is not now: 172 DM drafts over 163 inbound turns, segmented by
+>   `revision_id`. Item 15's subscription fault was the app-level `feed` toggle and it is
+>   fixed.
+>   **CORRECTED 2026-09-20 16:00** — an earlier version of this line said "87 of them
+>   validate the current revision". The 87 belong to **seq 7**. Seq 8 was published at
+>   23:22 on 2026-09-19 and carries **9** inbound turns. Per revision: seq 3 → 8,
+>   seq 5 → 31, seq 6 → 25, seq 7 → 87, seq 8 → 9. The current config's evidence is thin,
+>   which is the opposite of what the sentence implied, and it bears directly on a go-live
+>   decision. `revision_id` existing is what made the error findable (D-064).
 > - **The comment surface took real traffic**, 02:17–04:04 UTC on 2026-09-20. Six comments,
 >   two of them the salon's own. See D-098 for the whole corpus.
 > - **Matrix's published config is seq 8** (`content_hash de35bb6a…`, 14,372 chars, thirteen
