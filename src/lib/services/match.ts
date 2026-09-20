@@ -52,7 +52,8 @@
  * on «сорил» (a test). A stem list is reviewable; a heuristic buried in code is not.
  */
 import { containsStem } from '../mn/match.ts';
-import { fold } from '../mn/text.ts';
+import { cpLength, fold } from '../mn/text.ts';
+import { MIN_STEM_CHARS } from '../gate/match.ts';
 
 /** One name for a service — its own, or an alias row. */
 export type ServiceTerm = {
@@ -75,10 +76,23 @@ export type ServiceMatch = {
   /** The term that matched, and how many tokens it needed — the specificity. */
   readonly term: string;
   readonly tokens: number;
+  /**
+   * Did the term clear the specificity floor? See `matchService`.
+   *
+   * Carried on the match rather than recomputed by callers, so the count that goes in a
+   * log line and the decision that suppresses the match cannot disagree.
+   */
+  readonly specific: boolean;
 };
 
 export type ServiceMatchResult =
   | { readonly verdict: 'none' }
+  /**
+   * Something matched, and not specifically enough to act on. Distinct from `none` so the
+   * case is COUNTABLE — «сорри» reaching «Сор» is a measurement worth having, and a silent
+   * downgrade to `none` is the console.info that hid three lost messages in D-070.
+   */
+  | { readonly verdict: 'too_vague'; readonly matches: readonly ServiceMatch[] }
   | { readonly verdict: 'unique'; readonly match: ServiceMatch }
   | { readonly verdict: 'ambiguous'; readonly matches: readonly ServiceMatch[] };
 
@@ -120,6 +134,32 @@ export function entriesFrom(
   }));
 }
 
+/**
+ * Is this term specific enough that matching it is evidence?
+ *
+ * D-092 measured the failure this exists for: «сорри» — a customer apologising — reaches
+ * «Сор» at one token, because «сор» prefixes it. The name is three code points and the
+ * gate's own floor for a bare stem is four, so the matcher was accepting as a service
+ * identification exactly what `MIN_STEM_CHARS` refuses to accept as a topic stem.
+ *
+ * The rule reuses that floor rather than inventing a second number, and states the
+ * exemption the same way `stem_sequence` does: **two tokens or more, or one token of at
+ * least `MIN_STEM_CHARS`.** Several tokens that must all occur are their own specificity,
+ * which is what the length floor is a proxy for in the single-token case.
+ *
+ * The consequence for «Сор» is that it becomes unmatchable on its own, and that is the
+ * honest outcome rather than a regression: D-092 established the collision cannot be
+ * repaired by any row, because the salon's name for the three-dye service CONTAINS its
+ * name for the one-dye service. Refusing to guess makes the rename it needs visible.
+ * «Оффис колор /Сор/» still resolves at three tokens, and a one-token name like «Ботокс»
+ * clears the floor on its own.
+ */
+export function termIsSpecific(term: ServiceTerm): boolean {
+  if (term.tokens.length >= 2) return true;
+  const only = term.tokens[0];
+  return only !== undefined && cpLength(only) >= MIN_STEM_CHARS;
+}
+
 /** The best term of one entry that the text satisfies, or null. */
 function bestTerm(folded: string, entry: ServiceEntry): ServiceMatch | null {
   let best: ServiceMatch | null = null;
@@ -127,7 +167,10 @@ function bestTerm(folded: string, entry: ServiceEntry): ServiceMatch | null {
     if (term.tokens.length === 0) continue;
     if (!term.tokens.every((tok) => containsStem(folded, tok))) continue;
     if (best === null || term.tokens.length > best.tokens) {
-      best = { serviceId: entry.serviceId, name: entry.name, term: term.text, tokens: term.tokens.length };
+      best = {
+        serviceId: entry.serviceId, name: entry.name, term: term.text,
+        tokens: term.tokens.length, specific: termIsSpecific(term),
+      };
     }
   }
   return best;
@@ -156,6 +199,12 @@ export function matchService(text: string, entries: readonly ServiceEntry[]): Se
   // a `quality_flags` row are, and a set that reorders between runs is unreadable.
   // guard-ok:locale — byCodePoint is not needed; ids are ASCII uuids compared as such.
   winners.sort((a, b) => (a.serviceId < b.serviceId ? -1 : a.serviceId > b.serviceId ? 1 : 0));
+
+  // The floor is applied to the WINNERS, after most-specific-wins has run — not to each
+  // term as it is tested. An entry that matches vaguely and specifically at once should be
+  // judged on its best reading, and `bestTerm` has already chosen that.
+  if (!winners.every((w) => w.specific)) return { verdict: 'too_vague', matches: winners };
+
   return winners.length === 1 ? { verdict: 'unique', match: winners[0]! } : { verdict: 'ambiguous', matches: winners };
 }
 
