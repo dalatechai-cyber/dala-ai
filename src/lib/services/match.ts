@@ -83,6 +83,16 @@ export type ServiceMatch = {
    * log line and the decision that suppresses the match cannot disagree.
    */
   readonly specific: boolean;
+  /**
+   * Are this term's tokens a strict subset of some OTHER service's term?
+   *
+   * Separate from `specific` on purpose. Both send a match to `too_vague`, and they are
+   * different facts: `specific` is about the term's own size, `shadowed` is about the
+   * catalogue around it. D-074's lesson is that a defect filed under the wrong reason
+   * sends the reader to the wrong screen — a log line saying «Будаг» was too short would
+   * be false, and would point at `MIN_STEM_CHARS` for a problem no floor can fix.
+   */
+  readonly shadowed: boolean;
 };
 
 export type ServiceMatchResult =
@@ -160,8 +170,45 @@ export function termIsSpecific(term: ServiceTerm): boolean {
   return only !== undefined && cpLength(only) >= MIN_STEM_CHARS;
 }
 
+/**
+ * Every term whose tokens are a strict subset of some other service's term.
+ *
+ * D-101 measured why this has to gate matching and not merely be reported. «Будаг» is a
+ * hair service; «Дип будаг» and «Будаг арилгалт» are MANICURE services whose names contain
+ * it. A customer writing «үсний будаг арилгах» — *remove my hair colour* — satisfies only
+ * «Будаг», at one token, five code points, clearing `MIN_STEM_CHARS` comfortably. The old
+ * answer was `unique`, and the three dye-APPLICATION prices would have been quoted to
+ * somebody asking about REMOVAL.
+ *
+ * `subsetCollisions` has always computed this relation; it only ever printed it. The
+ * docstring there says the pair is "UNVERIFIABLE in one direction" and that no row repairs
+ * it — which is precisely the argument for refusing, rather than for reporting and then
+ * answering anyway. **A collision the code can describe and does not act on is a comment.**
+ *
+ * Keyed by serviceId and term text together: two services may legitimately carry the same
+ * term text, and shadowing is a property of the pair, not of the string.
+ */
+function shadowedTerms(entries: readonly ServiceEntry[]): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const a of entries) {
+    for (const ta of a.terms) {
+      if (ta.tokens.length === 0) continue;
+      for (const b of entries) {
+        if (b.serviceId === a.serviceId) continue;
+        for (const tb of b.terms) {
+          if (tb.tokens.length <= ta.tokens.length) continue;
+          if (ta.tokens.every((tok) => tb.tokens.includes(tok))) {
+            out.add(`${a.serviceId}\u0000${ta.text}`);
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /** The best term of one entry that the text satisfies, or null. */
-function bestTerm(folded: string, entry: ServiceEntry): ServiceMatch | null {
+function bestTerm(folded: string, entry: ServiceEntry, shadowed: ReadonlySet<string>): ServiceMatch | null {
   let best: ServiceMatch | null = null;
   for (const term of entry.terms) {
     if (term.tokens.length === 0) continue;
@@ -170,6 +217,7 @@ function bestTerm(folded: string, entry: ServiceEntry): ServiceMatch | null {
       best = {
         serviceId: entry.serviceId, name: entry.name, term: term.text,
         tokens: term.tokens.length, specific: termIsSpecific(term),
+        shadowed: shadowed.has(`${entry.serviceId}\u0000${term.text}`),
       };
     }
   }
@@ -185,9 +233,10 @@ function bestTerm(folded: string, entry: ServiceEntry): ServiceMatch | null {
  */
 export function matchService(text: string, entries: readonly ServiceEntry[]): ServiceMatchResult {
   const folded = fold(text);
+  const shadowed = shadowedTerms(entries);
   const hits: ServiceMatch[] = [];
   for (const entry of entries) {
-    const m = bestTerm(folded, entry);
+    const m = bestTerm(folded, entry, shadowed);
     if (m !== null) hits.push(m);
   }
   if (hits.length === 0) return { verdict: 'none' };
@@ -205,7 +254,23 @@ export function matchService(text: string, entries: readonly ServiceEntry[]): Se
   // judged on its best reading, and `bestTerm` has already chosen that.
   if (!winners.every((w) => w.specific)) return { verdict: 'too_vague', matches: winners };
 
-  return winners.length === 1 ? { verdict: 'unique', match: winners[0]! } : { verdict: 'ambiguous', matches: winners };
+  // SEVERAL winners is `ambiguous`, and shadowing does not change that. Both verdicts
+  // refuse, so the temptation is to fold them together — and the first version of D-101
+  // did, which turned «гоёл» (reaching «Хумсны гоёл» AND «Гоёлын засалт») from a verdict
+  // naming both services into a vaguer one. `ambiguous` is the more precise answer
+  // whenever it is available, and a rule that makes an answer LESS specific in the name of
+  // safety has confused the two.
+  if (winners.length > 1) return { verdict: 'ambiguous', matches: winners };
+
+  // One winner, and the catalogue holds a longer name containing it. This is the only
+  // shape shadowing decides, and it is the dangerous one: everything above has already
+  // concluded `unique`, so without this the caller gets a confident answer to a question
+  // the text cannot settle. D-101: «үсний будаг арилгах» reaches «Будаг» alone, and
+  // «Дип будаг» and «Будаг арилгалт» — both MANICURE services — contain that name.
+  const only = winners[0]!;
+  if (only.shadowed) return { verdict: 'too_vague', matches: winners };
+
+  return { verdict: 'unique', match: only };
 }
 
 /**

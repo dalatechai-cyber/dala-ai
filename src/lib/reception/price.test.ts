@@ -143,55 +143,74 @@ test('priceText keeps the symbol on both endpoints and the spaces around the das
   );
 });
 
-// D-100, the founder's call 2026-09-20: a bare «будаг» answers with ALL THREE lengths in
-// one message rather than asking which one. *"That's what a receptionist says when someone
-// asks about colouring, it uses a mechanism I've already approved, and it needs no
-// migration and no new sentence. The customer self-selects."*
+// D-100 SUPERSEDED BY D-101, the founder's call 2026-09-20 on the same evening:
+// *"a bare «будаг» will now be too_vague rather than serving three prices. That's right —
+// «будаг» is ambiguous across categories and I didn't know «Дип будаг» was a manicure when
+// I chose B."*
 //
-// The alternative was a clarifying question, and it would have cost a new
-// `canned_response_kinds` row and a new reviewed Mongolian sentence — none of the 21 kinds
-// is a question, they are all statements or refusals. Serving every variant answers the
-// ambiguity with DATA, which `decidePriceQuote` already does by construction.
+// Option B was: answer a bare «будаг» with all three lengths and let the customer
+// self-select. It was the right call on the facts then available, and the fact that
+// arrived afterwards is that «Дип будаг» (65,000₮) and «Будаг арилгалт» (8,000₮) are
+// MANICURE services whose names contain «Будаг», a hair service priced 135,000–200,000₮.
+// Self-selection cannot work across a category the customer never mentioned.
 //
-// Pinned as a test rather than written down, because the behaviour it depends on —
-// serve-every-variant-or-none — is one `if` away from becoming pick-the-first, and that
-// change would read as a tidy-up. Note what the alternative failure looks like: a customer
-// asking «будаг хэдээр хийх вэ» told «135,000₮» and arriving with shoulder-length hair.
-test('a bare «будаг» serves every length, because the customer self-selects', () => {
-  const entries = [{ serviceId: 'budag', name: 'Будаг', terms: [toTerm('Будаг')] }];
+// What survives from D-100 is the mechanism, not the verdict: serve-every-variant-or-none
+// is still how a multi-variant service answers, and the test below still pins it — it just
+// takes a service with no shadowing to exercise it.
+test('a service with several variants serves EVERY variant or none', () => {
+  const entries = [{ serviceId: 'helber', name: 'Хэлбэржүүлэлт', terms: [toTerm('Хэлбэржүүлэлт')] }];
   const services = [{
-    serviceId: 'budag', name: 'Будаг',
+    serviceId: 'helber', name: 'Хэлбэржүүлэлт',
     variants: [
-      { variantKey: 'Хүзүүний урт',   priceKind: 'exact' as const, priceMin: '135000', priceMax: null, confirmedAt: CONFIRMED },
-      { variantKey: 'Далны дээгүүр',  priceKind: 'exact' as const, priceMin: '176000', priceMax: null, confirmedAt: CONFIRMED },
-      { variantKey: 'Далнаас доош',   priceKind: 'exact' as const, priceMin: '200000', priceMax: null, confirmedAt: CONFIRMED },
+      { variantKey: 'Мастер',     priceKind: 'range' as const, priceMin: '33000', priceMax: '50000', confirmedAt: CONFIRMED },
+      { variantKey: '1-р зэрэг',  priceKind: 'exact' as const, priceMin: '33000', priceMax: null, confirmedAt: CONFIRMED },
     ],
   }];
-  const r = decidePriceQuote(ask({ text: 'будаг хэдээр хийх вэ', entries, services }));
+  const r = decidePriceQuote(ask({ text: 'хэлбэржүүлэлт хэд вэ', entries, services }));
   assert.equal(r.serve, true);
   assert.equal(r.serve === true && r.body,
-    'Будаг (Хүзүүний урт) — 135,000₮\n'
-    + 'Будаг (Далны дээгүүр) — 176,000₮\n'
-    + 'Будаг (Далнаас доош) — 200,000₮\n'
+    'Хэлбэржүүлэлт (Мастер) — 33,000₮ - 50,000₮\n'
+    + 'Хэлбэржүүлэлт (1-р зэрэг) — 33,000₮\n'
     + TAIL);
 });
 
-// The other half of the founder's «Будаг» question, and it needed no change at all:
-// most-specific-wins already means a bare «будаг» cannot reach the two-token names.
-// Measured against the intake's real 36 services before answering him.
-test('«Будаг арилгалт» and «Дип будаг» match only when NAMED', () => {
+// D-101 PROOF. The founder asked for this case by name before applying the intake.
+// «Будаг» is shadowed by two manicure names, so a bare mention of it — however it is
+// wrapped — cannot resolve, and `decidePriceQuote` refuses rather than quoting the
+// hair-dye prices to somebody asking about removal.
+test('a bare «будаг» does not price anything, because two manicure names contain it', () => {
   const entries = [
     { serviceId: 'budag',  name: 'Будаг',          terms: [toTerm('Будаг')] },
     { serviceId: 'arilga', name: 'Будаг арилгалт', terms: [toTerm('Будаг арилгалт')] },
     { serviceId: 'dip',    name: 'Дип будаг',      terms: [toTerm('Дип будаг')] },
   ];
-  const bare = matchService('будаг', entries);
-  assert.equal(bare.verdict, 'unique');
-  assert.equal(bare.verdict === 'unique' && bare.match.name, 'Будаг');
+  const services = [{
+    serviceId: 'budag', name: 'Будаг',
+    variants: [
+      { variantKey: 'Хүзүүний урт',  priceKind: 'exact' as const, priceMin: '135000', priceMax: null, confirmedAt: CONFIRMED },
+      { variantKey: 'Далны дээгүүр', priceKind: 'exact' as const, priceMin: '176000', priceMax: null, confirmedAt: CONFIRMED },
+      { variantKey: 'Далнаас доош',  priceKind: 'exact' as const, priceMin: '200000', priceMax: null, confirmedAt: CONFIRMED },
+    ],
+  }];
+  for (const text of ['будаг хэдээр хийх вэ', 'үсний будаг арилгах', 'будаг арилгах']) {
+    const r = decidePriceQuote(ask({ text, entries, services }));
+    assert.equal(r.serve, false, text);
+    assert.equal(r.serve === false && r.reason, 'service_not_unique', text);
+  }
+});
 
+// The two-token names still resolve when the customer NAMES them — the rule gates the
+// subset, never the superset. Measured against the intake's real 36 services first.
+test('«Будаг арилгалт» and «Дип будаг» still match when NAMED', () => {
+  const entries = [
+    { serviceId: 'budag',  name: 'Будаг',          terms: [toTerm('Будаг')] },
+    { serviceId: 'arilga', name: 'Будаг арилгалт', terms: [toTerm('Будаг арилгалт')] },
+    { serviceId: 'dip',    name: 'Дип будаг',      terms: [toTerm('Дип будаг')] },
+  ];
+  assert.equal(matchService('будаг', entries).verdict, 'too_vague');
   for (const [q, want] of [['будаг арилгалт', 'Будаг арилгалт'], ['дип будаг', 'Дип будаг']] as const) {
     const m = matchService(q, entries);
-    assert.equal(m.verdict, 'unique');
+    assert.equal(m.verdict, 'unique', q);
     assert.equal(m.verdict === 'unique' && m.match.name, want);
   }
 });

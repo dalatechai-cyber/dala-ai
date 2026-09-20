@@ -101,7 +101,17 @@ test('no match is the safe answer and the common one', () => {
 
 test('DONE-TEST: THE THREE CICA NAMES SEPARATE WHEN THE CUSTOMER TYPES ENOUGH', () => {
   const e = entriesFrom(COLLIDING, [{ serviceId: 'Хими эмэгтэй / CICA', alias: 'cica хими' }]);
-  assert.equal(uniqueName('cica эмчилгээ', e), 'CICA эмчилгээ');
+
+  // D-101 CHANGED THIS LINE, and CLAUDE.md's «the three CICA names DO separate at two
+  // tokens or more» is superseded for this one pair. «CICA эмчилгээ» is a strict SUBSET of
+  // «CICA нөхөн сэргээх эмчилгээ», so a customer typing the shorter name in full has
+  // written something the longer service's customer would also write. That is «Сор» ⊂
+  // «Оффис колор /Сор/» exactly, and it was answered `unique` here only because the
+  // subset relation was computed for REPORTING and never consulted when matching.
+  //
+  // Matrix is unaffected: its confirmed list carries one CICA service, not three. This
+  // fixture keeps all three because the collision is what it exists to exercise.
+  assert.equal(uniqueName('cica эмчилгээ', e), 'too_vague');
   assert.equal(uniqueName('CICA нөхөн сэргээх эмчилгээ', e), 'CICA нөхөн сэргээх эмчилгээ');
   assert.equal(uniqueName('хими эмэгтэй cica', e), 'Хими эмэгтэй / CICA');
   assert.equal(uniqueName('cica хими', e), 'Хими эмэгтэй / CICA', 'via the alias');
