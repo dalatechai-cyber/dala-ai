@@ -48,9 +48,15 @@ test('DONE-TEST: THE PROJECTED ALLOW-LIST IS SHOWN BEFORE IT IS LIVE', () => {
   // D-055 and D-074 are both "a numeral nobody meant to approve". The failure is not that
   // the list is wrong — it is that nobody looks at it. So it is always reported, never
   // blocks, and is computed with the REAL renderer rather than a second one.
+  //
+  // SINCE D-075 PART 1 A PRICE IS NOT ON IT, and the preview says so by omission: prices
+  // no longer reach the compiled prefix, so they are no longer permissions the model holds.
+  // The property under test is unchanged and is the one that matters — the projection uses
+  // `renderTenantSections`, so whatever the compiler would really produce is what the
+  // operator is shown, and a second copy of the rule cannot drift from it.
   const doc: IntakeDocument = { ...MINIMAL, services: [svc('Угаалт', [], '22000')] };
   const numbers = projectedAllowedNumbers(doc);
-  assert.ok(numbers.includes('22,000'), `expected the stated price, got ${numbers.join(', ')}`);
+  assert.ok(!numbers.includes('22,000'), `a price is not a permission any more: ${numbers.join(', ')}`);
   const f = validateIntake(doc).find((x) => x.code === 'allowed_numbers');
   assert.ok(f && f.severity === 'advisory');
 });

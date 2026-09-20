@@ -324,10 +324,35 @@ async function record(
     kind: `channel.${input.diagnosis.state}`,
     dedupKey: stateKey,
     body: `Page ${input.externalId}: ${input.diagnosis.reason}`,
-    // The first fire is genuinely news and pages immediately. Every run after it is silent
-    // until the state changes; the 09:00 digest is what keeps it from being forgotten, and
-    // three days unresolved re-escalates it on its own.
-    route: 'now',
+    // DIGEST, NOT `now` — founder's call, 2026-09-20, on measured noise.
+    //
+    // It paged immediately until then, on the argument that a first fire is genuinely news.
+    // Measured over eight days that produced EIGHT criticals, every one of them an ordinary
+    // quiet morning: fired 06:00–16:00, cleared one to five hours later, six of the eight
+    // with a matching recovery. D-063's addendum predicted exactly this and named the
+    // arithmetic — `DEFAULT_THRESHOLD_OPEN_MINUTES = 180` argues from D-016's 60.5
+    // replies/day that three open hours carry ~18 replies, and the ancestor's own worker
+    // invocations measure 37, 30 and 9 over three days. At 0.9–3.7/hour a three-hour gap is
+    // a morning, not a fault.
+    //
+    // THE THRESHOLD IS NOT TOUCHED, deliberately. D-063 makes re-deriving D-016's 60.5 the
+    // precondition for moving it, that is a measurement against the ancestor's logs, and
+    // guessing a new number here would be the third tuning of a constant nobody has
+    // re-measured. Demoting the route stops the noise without deciding anything early.
+    //
+    // What this costs, stated rather than discovered: time-to-detect on a REAL outage goes
+    // from ~3h to the digest's daily cadence. What stops it being unbounded is the
+    // escalation already in `planDigest` — an open critical older than ESCALATE_AFTER_DAYS
+    // gets its own Telegram message on every run, so an eleven-day silence like D-062's is
+    // still caught, with a three-day ceiling instead of a three-hour one.
+    //
+    // The RECOVERY above stays `now`. It is `info`, once per episode, and it names the
+    // fault it closes — so nothing goes silent, which is the one thing D-063 forbids. The
+    // net is eight criticals plus six recoveries a week becoming six info lines.
+    //
+    // Telegram is shared with `dalatech-online`'s demo requests, so this is not merely
+    // tidiness: a daily false critical buries the only messages with a person behind them.
+    route: 'digest',
     repeat: 'on_change',
   });
 }

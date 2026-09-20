@@ -1,0 +1,1047 @@
+{
+  "slug": "matrix-eco-salon",
+  "business": {
+    "displayName": "Matrix Eco Salon",
+    "vertical": "salon",
+    "timezone": "Asia/Ulaanbaatar",
+    "locale": "mn-MN",
+    "currencySymbol": "₮",
+    "currencySymbolBefore": false
+  },
+  "confirmedBy": null,
+  "hours": [
+    {
+      "weekday": 0,
+      "opens": "11:00",
+      "closes": "19:00",
+      "closed": false
+    },
+    {
+      "weekday": 1,
+      "opens": "10:00",
+      "closes": "20:00",
+      "closed": false
+    },
+    {
+      "weekday": 2,
+      "opens": "10:00",
+      "closes": "20:00",
+      "closed": false
+    },
+    {
+      "weekday": 3,
+      "opens": "10:00",
+      "closes": "20:00",
+      "closed": false
+    },
+    {
+      "weekday": 4,
+      "opens": "10:00",
+      "closes": "20:00",
+      "closed": false
+    },
+    {
+      "weekday": 5,
+      "opens": "10:00",
+      "closes": "20:00",
+      "closed": false
+    },
+    {
+      "weekday": 6,
+      "opens": "10:00",
+      "closes": "20:00",
+      "closed": false
+    }
+  ],
+  "services": [
+    {
+      "name": "Эмэгтэй тайралт",
+      "category": "Тайралт ба засалт",
+      "durationMinutes": 60,
+      "aliases": [
+        "эмэгтэй тайр",
+        "emegtei tair",
+        "emegtei zas"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "66000",
+          "priceMax": "88000",
+          "variantKey": "Мастер",
+          "refusalTopic": null
+        },
+        {
+          "priceKind": "exact",
+          "priceMin": "55000",
+          "priceMax": null,
+          "variantKey": "1-р зэрэг",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Эрэгтэй тайралт",
+      "category": "Тайралт ба засалт",
+      "durationMinutes": 45,
+      "aliases": [
+        "эрэгтэй тайр",
+        "eregtei tair"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "66000",
+          "priceMax": null,
+          "variantKey": "Мастер",
+          "refusalTopic": null
+        },
+        {
+          "priceKind": "exact",
+          "priceMin": "49500",
+          "priceMax": null,
+          "variantKey": "1-р зэрэг",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Хэлбэржүүлэлт",
+      "category": "Тайралт ба засалт",
+      "durationMinutes": 45,
+      "aliases": [
+        "хэлбэрж",
+        "helberj"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "33000",
+          "priceMax": "50000",
+          "variantKey": "Мастер",
+          "refusalTopic": null
+        },
+        {
+          "priceKind": "exact",
+          "priceMin": "33000",
+          "priceMax": null,
+          "variantKey": "1-р зэрэг",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Хуйх цэвэрлэгээ",
+      "category": "Тайралт ба засалт",
+      "durationMinutes": 45,
+      "aliases": [
+        "хуйх",
+        "huih"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "88000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Тэжээлийн тос",
+      "category": "Тайралт ба засалт",
+      "durationMinutes": 30,
+      "aliases": [
+        "тэжээлийн тос",
+        "tejeeliin tos"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "49500",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Чёлк тайралт",
+      "category": "Тайралт ба засалт",
+      "durationMinutes": 20,
+      "aliases": [
+        "чёлк",
+        "чолк",
+        "cholk"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "33000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Угаалт",
+      "category": "Тайралт ба засалт",
+      "durationMinutes": 20,
+      "aliases": [
+        "угаал",
+        "ugaalt"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "22000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Үс хусах",
+      "category": "Тайралт ба засалт",
+      "durationMinutes": 20,
+      "aliases": [
+        "хусах",
+        "husah"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "22000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Сахал засах",
+      "category": "Тайралт ба засалт",
+      "durationMinutes": 20,
+      "aliases": [
+        "сахал",
+        "sahal"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "16500",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Гоёлын засалт",
+      "category": "Тайралт ба засалт",
+      "durationMinutes": 60,
+      "aliases": [
+        "гоёлын зас",
+        "goyoliin zas"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "71500",
+          "priceMax": "99000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Хуримын засалт",
+      "category": "Тайралт ба засалт",
+      "durationMinutes": 90,
+      "aliases": [
+        "хурим",
+        "hurim"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "154000",
+          "priceMax": "198000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Үндэс",
+      "category": "Үс будалт",
+      "durationMinutes": 90,
+      "aliases": [
+        "үндэс",
+        "undes"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "135000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Будаг",
+      "category": "Үс будалт",
+      "durationMinutes": 120,
+      "aliases": [
+        "буда",
+        "budag",
+        "budal"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "135000",
+          "priceMax": null,
+          "variantKey": "Хүзүүний урт",
+          "refusalTopic": null
+        },
+        {
+          "priceKind": "exact",
+          "priceMin": "176000",
+          "priceMax": null,
+          "variantKey": "Далны дээгүүр",
+          "refusalTopic": null
+        },
+        {
+          "priceKind": "exact",
+          "priceMin": "200000",
+          "priceMax": null,
+          "variantKey": "Далнаас доош",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Оффис колор",
+      "category": "Үс будалт",
+      "durationMinutes": 180,
+      "aliases": [
+        "оффис",
+        "offis",
+        "office color"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "380000",
+          "priceMax": "460000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Омбре",
+      "category": "Үс будалт",
+      "durationMinutes": 180,
+      "aliases": [
+        "омбре",
+        "ombre"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "500000",
+          "priceMax": "640000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Сор",
+      "category": "Үс будалт",
+      "durationMinutes": 150,
+      "aliases": [
+        "сор",
+        "sor"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "120000",
+          "priceMax": "190000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Цайруулалт",
+      "category": "Үс будалт",
+      "durationMinutes": 180,
+      "aliases": [
+        "цайруул",
+        "tsairuul"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "430000",
+          "priceMax": "570000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Эмчилгээний хими",
+      "category": "Химийн үйлчилгээ",
+      "durationMinutes": 180,
+      "aliases": [
+        "эмчилгээний хим",
+        "emchilgee him"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "220000",
+          "priceMax": "255000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Усан хими",
+      "category": "Химийн үйлчилгээ",
+      "durationMinutes": 150,
+      "aliases": [
+        "усан хим",
+        "usan him"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "132000",
+          "priceMax": "154000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Афро хими",
+      "category": "Химийн үйлчилгээ",
+      "durationMinutes": 240,
+      "aliases": [
+        "афро",
+        "afro"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "430000",
+          "priceMax": "510000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Шулуун хими",
+      "category": "Химийн үйлчилгээ",
+      "durationMinutes": 240,
+      "aliases": [
+        "шулуун хим",
+        "shuluun him"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "430000",
+          "priceMax": "510000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Тэжээл",
+      "category": "Химийн үйлчилгээ",
+      "durationMinutes": 60,
+      "aliases": [
+        "тэжээл",
+        "tejeel"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "44000",
+          "priceMax": "88000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Хими арчилт",
+      "category": "Химийн үйлчилгээ",
+      "durationMinutes": 60,
+      "aliases": [
+        "хими арчил",
+        "himi archil"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "154000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "CICA нөхөн сэргээх эмчилгээ",
+      "category": "Химийн үйлчилгээ",
+      "durationMinutes": 90,
+      "aliases": [
+        "cica",
+        "цика"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "198000",
+          "priceMax": null,
+          "variantKey": "1 удаа",
+          "refusalTopic": null
+        },
+        {
+          "priceKind": "exact",
+          "priceMin": "154000",
+          "priceMax": null,
+          "variantKey": "Курсээр, 1 удаагийн үнэ",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "CMC тэжээл",
+      "category": "Химийн үйлчилгээ",
+      "durationMinutes": 60,
+      "aliases": [
+        "cmc"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "132000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Гелэн будалт",
+      "category": "Маникюр",
+      "durationMinutes": 60,
+      "aliases": [
+        "гелэн",
+        "gelen"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "50000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Дип будаг",
+      "category": "Маникюр",
+      "durationMinutes": 60,
+      "aliases": [
+        "дип",
+        "dip"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "65000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Будаггүй маникюр",
+      "category": "Маникюр",
+      "durationMinutes": 40,
+      "aliases": [
+        "будаггүй маник",
+        "budaggui manik"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "25000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Хумс нөхөлт",
+      "category": "Маникюр",
+      "durationMinutes": 20,
+      "aliases": [
+        "нөхөл",
+        "nuhult"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "5000",
+          "priceMax": null,
+          "variantKey": "1 хумс",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Хумсны гоёл",
+      "category": "Маникюр",
+      "durationMinutes": 20,
+      "aliases": [
+        "хумсны гоёл",
+        "humsnii goyol"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "5000",
+          "priceMax": null,
+          "variantKey": "1 хумс",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Будаг арилгалт",
+      "category": "Маникюр",
+      "durationMinutes": 20,
+      "aliases": [
+        "арилгал",
+        "arilgal"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "8000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Хумс салгалт",
+      "category": "Маникюр",
+      "durationMinutes": 20,
+      "aliases": [
+        "салгал",
+        "salgalt"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "15000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Гарын спа",
+      "category": "Маникюр",
+      "durationMinutes": 40,
+      "aliases": [
+        "гарын спа",
+        "gariin spa"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "30000",
+          "priceMax": null,
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Хиймэл хумс",
+      "category": "Маникюр",
+      "durationMinutes": 90,
+      "aliases": [
+        "хиймэл хумс",
+        "hiimel hums"
+      ],
+      "variants": [
+        {
+          "priceKind": "exact",
+          "priceMin": "75000",
+          "priceMax": null,
+          "variantKey": "Смарт хумс",
+          "refusalTopic": null
+        },
+        {
+          "priceKind": "exact",
+          "priceMin": "85000",
+          "priceMax": null,
+          "variantKey": "Гелин хумс",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Будаггүй педикюр",
+      "category": "Педикюр",
+      "durationMinutes": 50,
+      "aliases": [
+        "будаггүй педик",
+        "budaggui pedik"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "45000",
+          "priceMax": "55000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    },
+    {
+      "name": "Гель педикюр",
+      "category": "Педикюр",
+      "durationMinutes": 60,
+      "aliases": [
+        "гель педик",
+        "gel pedik"
+      ],
+      "variants": [
+        {
+          "priceKind": "range",
+          "priceMin": "75000",
+          "priceMax": "80000",
+          "variantKey": "Стандарт",
+          "refusalTopic": null
+        }
+      ]
+    }
+  ],
+  "contacts": [
+    {
+      "kind": "address",
+      "value": "Яармаг салбар, Мөнхада төвийн зүүн талд, Төгөлдөр Апартмент 1 давхарт"
+    },
+    {
+      "kind": "maps_url",
+      "value": "https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9"
+    },
+    {
+      "kind": "phone",
+      "value": "76001888, 80905498"
+    }
+  ],
+  "booking": {
+    "url": "https://www.matrixecosalon.org/"
+  },
+  "sentences": {
+    "assistant_identity": "Би Матрикс эко салоны хуудсыг хариуцдаг хиймэл оюунтай туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр асуулт байвал асуугаарай.",
+    "booking_line": "Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.",
+    "handoff": "Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.",
+    "refusal_health": "Эрүүл мэндийн талаар зөвлөгөө өгөх боломжгүй. Эмчид хандахыг зөвлөж байна. Үйлчилгээний талаар асуувал баяртайгаар хариулна.",
+    "refusal_no_promotion": "Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та 76001888 эсвэл 80905498 дугаараар лавлана уу.",
+    "refusal_off_topic": "Уучлаарай, би тухайн асуултын талаар мэдээлэлтэй байхгүй байна. Салоны үйлчилгээ, үнэ, цагийн хуваарийн талаар асуугаарай.",
+    "refusal_price_unlisted": "Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу.",
+    "refusal_public_channel": "Сайн байна уу. Энэ талаар нийтэд дэлгэрэнгүй хариулах боломжгүй. Хувийн мессеж бичвэл хариулна.",
+    "refusal_staff_schedule": "Үсчдийн ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та 76001888 эсвэл 80905498 дугаараар лавлана уу.",
+    "refusal_topic": "Уучлаарай, хүүхдийн үйлчилгээний мэдээллийг би өгөх боломжгүй. Та салоны 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу.",
+    "refusal_out_of_scope": "Уучлаарай, ямар үйлчилгээ, өнгө Танд тохирохыг би шийдэж өгөх боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.",
+    "image_received": "Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.",
+    "comment_public_reply": "Сайн байна уу! Мессеж бичээрэй, манай AI туслах шууд хариулна."
+  },
+  "neverSay": [
+    {
+      "key": "photo_consultation",
+      "question": "Сүүлийн мессеж зураг харж зөвлөгөө өгөх тухай юу?",
+      "responseKind": "refusal_out_of_scope",
+      "stems": [
+        "зураг",
+        "зурган",
+        "фото"
+      ]
+    }
+  ],
+  "faqs": [],
+  "staff": [
+    {
+      "name": "Ананд",
+      "shortName": null
+    },
+    {
+      "name": "Бадамцэцэг",
+      "shortName": "Бадмаа"
+    },
+    {
+      "name": "Батзаяа",
+      "shortName": "Zaya"
+    },
+    {
+      "name": "Г. Мөнхзаяа",
+      "shortName": "Muugii"
+    },
+    {
+      "name": "Мухлай",
+      "shortName": null
+    },
+    {
+      "name": "Отгонжаргал",
+      "shortName": "Otgoo"
+    },
+    {
+      "name": "Оюунсүрэн",
+      "shortName": "Оюунаа"
+    },
+    {
+      "name": "Тэргэл",
+      "shortName": null
+    },
+    {
+      "name": "Уянга",
+      "shortName": null
+    }
+  ],
+  "commentRules": [
+    {
+      "key": "booking_free_lat",
+      "verdict": "reply",
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "tsag",
+          "b"
+        ],
+        "windowCp": 20
+      }
+    },
+    {
+      "key": "booking_free_mn",
+      "verdict": "reply",
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "цаг",
+          "ба"
+        ],
+        "windowCp": 18
+      }
+    },
+    {
+      "key": "booking_lat",
+      "verdict": "reply",
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "tsag",
+          "av"
+        ],
+        "windowCp": 14
+      }
+    },
+    {
+      "key": "booking_mn",
+      "verdict": "reply",
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "цаг",
+          "ав"
+        ],
+        "windowCp": 14
+      }
+    },
+    {
+      "key": "complaint",
+      "verdict": "escalate",
+      "matcher": {
+        "mode": "contains_stem",
+        "stems": [
+          "утсаа",
+          "залга",
+          "хүнтэй",
+          "huntei",
+          "holbogdmoor",
+          "tuvshnii",
+          "ai bish"
+        ]
+      }
+    },
+    {
+      "key": "contact",
+      "verdict": "reply",
+      "matcher": {
+        "mode": "contains_stem",
+        "stems": [
+          "утас",
+          "utas",
+          "дугаар"
+        ]
+      }
+    },
+    {
+      "key": "hours",
+      "verdict": "reply",
+      "matcher": {
+        "mode": "contains_stem",
+        "stems": [
+          "хуваар",
+          "huwaari",
+          "hoowari",
+          "ажилла"
+        ]
+      }
+    },
+    {
+      "key": "location",
+      "verdict": "reply",
+      "matcher": {
+        "mode": "contains_stem",
+        "stems": [
+          "хаяг",
+          "hayg",
+          "xayg",
+          "байршил",
+          "салбар",
+          "salbar",
+          "salbaruud"
+        ]
+      }
+    },
+    {
+      "key": "praise",
+      "verdict": "ignore",
+      "matcher": {
+        "mode": "contains_stem",
+        "stems": [
+          "гоён",
+          "гоёх",
+          "сайхан",
+          "баярла",
+          "bayrla",
+          "bayrll",
+          "goyo"
+        ]
+      }
+    },
+    {
+      "key": "praise_short",
+      "verdict": "ignore",
+      "matcher": {
+        "mode": "whole_message",
+        "phrases": [
+          "гоё",
+          "гоё шүү",
+          "goy",
+          "goy shuu"
+        ]
+      }
+    },
+    {
+      "key": "price",
+      "verdict": "reply",
+      "matcher": {
+        "mode": "contains_stem",
+        "stems": [
+          "хэдэ",
+          "төлбөр",
+          "tulbur",
+          "hymdral",
+          "хямдрал",
+          "үнэ ",
+          "үний"
+        ]
+      }
+    },
+    {
+      "key": "price_lat",
+      "verdict": "reply",
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "hed",
+          "ve"
+        ],
+        "windowCp": 24
+      }
+    },
+    {
+      "key": "price_mn",
+      "verdict": "reply",
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "хэд",
+          "вэ"
+        ],
+        "windowCp": 24
+      }
+    },
+    {
+      "key": "service",
+      "verdict": "reply",
+      "matcher": {
+        "mode": "contains_stem",
+        "stems": [
+          "хими",
+          "himi",
+          "буда",
+          "budal",
+          "budag",
+          "тайрал",
+          "tairal",
+          "сэттинг",
+          "setting",
+          "эмчилгээ",
+          "emchilge",
+          "маникюр",
+          "педикюр",
+          "үйлчилгээ",
+          "uilchilge",
+          "өнгө",
+          "ongo",
+          "ongi",
+          "сурга",
+          "surgalt",
+          "color"
+        ]
+      }
+    }
+  ]
+}

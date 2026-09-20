@@ -511,3 +511,24 @@ on the publish side only, and 503s every DM reply for that tenant with `canned_s
 a republish — D-082's outage with a different sentence in it. The code half ships with the
 migration; the sentences are unsigned in `prompt/drafts/handover_notice_and_reclaim.mn.txt`
 and wait for the founder.
+
+### `0034_refusal_suitability`
+
+`canned_response_kinds` gains **`refusal_suitability`**. One lookup row; nothing is dropped,
+rewritten or narrowed, and no tenant row is inserted by the migration.
+
+It exists because "will this work on MY hair" is a question the platform must never answer.
+A live customer asked on 2026-09-20 whether office colour takes on black-dyed hair; all
+seven of Matrix's knowledge documents were read and **none says**. Two adjacent true rows do
+exist — office colour is a technique involving «30 хувийн цайруулалт», and black-dyed hair
+«хоёр удаагийн будалтаар бор өнгөтэй болгож болно» — and the model bridged them into three
+different answers in 26 seconds, one of them carrying the real bleach figure.
+
+**Ш8 structurally cannot catch that.** It refuses what is not in the knowledge base, and
+here the parts are in it; only the join is invented. Writing INSERTs by hand against this
+kind: the sentence is founder-approved Mongolian and belongs in `canned_responses` with
+`reviewed_at` set, pointed at by `out_of_scope_topics` rows whose matchers are
+`stem_sequence` — never `contains_stem`, because «болох», «үсэнд» and «тохирох» all appear
+in ordinary PRICE questions («хэд болох вэ» is *how much will it be*) and a single-stem
+matcher refuses those too. Measured: five real suitability questions caught, zero false
+positives across seventeen price, booking, location and greeting messages.

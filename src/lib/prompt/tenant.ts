@@ -252,24 +252,51 @@ export function formatMoney(raw: string | null, symbol: string, before: boolean)
   return before ? `${symbol}${amount}` : `${amount}${symbol}`;
 }
 
-function priceOf(v: ServiceVariant, kb: TenantKb): string {
-  const money = (raw: string | null) => formatMoney(raw, kb.currencySymbol, kb.currencySymbolBefore);
-  const min = money(v.priceMin);
-  const max = money(v.priceMax);
+/**
+ * How a variant appears in the prompt — **never as a figure** (D-075, built 2026-09-20).
+ *
+ * ## Why the numbers left
+ *
+ * `allowedNumbersFrom` runs over every tenant section, so a rendered price is also a
+ * PERMISSION. Measured with the real compiler over Matrix's 43 confirmed entries, the
+ * allow-list goes from thirteen tokens to forty-five, thirty-eight of them prices — and
+ * `guard/outbound.ts` checks that a numeral is ON the list, never that it belongs to the
+ * service under discussion. «Омбре 33,000₮» — a real haircut price against a 500,000–640,000
+ * service — passes every check. A real price against the wrong service is more plausible to
+ * a customer than an invented one, which makes it worse, and it is the exact failure D-075
+ * exists to prevent.
+ *
+ * `0001` said this above `service_variants` before any of it was built: *a price that is not
+ * in the prompt cannot be quoted, which is stronger than any rule forbidding it.*
+ *
+ * ## The two kinds that stay, and why removing them would be the bug
+ *
+ * Only THREE of the five kinds carry a numeral. `on_inspection` renders «(үзлэгээр
+ * тодорхойлно)» and `none` renders «(үнэ мэдээлэхгүй: {topic})» — neither is a price, and
+ * `none` is how the prompt says *this service exists and its price is deliberately withheld,
+ * see this refusal*. `tenant.test.ts` has asserted that `children_services` reaches the
+ * price list since it was written. Suppressing "the price section" wholesale would delete a
+ * working refusal to save a number that is not there.
+ *
+ * So: the numeric kinds render the service and nothing else. The model can still say the
+ * service exists and name it correctly; it cannot quote a figure, and `reception/price.ts`
+ * serves one from the row instead.
+ */
+function priceOf(v: ServiceVariant, kb: TenantKb): string | null {
+  void kb;
+  // The three numeric kinds, collapsed to nothing. Deliberately not a placeholder like
+  // «(үнэтэй)»: a marker in the model's context is a sentence with no instruction attached,
+  // which D-082 calls an offer rather than an instruction, and the model would reach for it.
+  if (v.priceKind === 'exact' || v.priceKind === 'range' || v.priceKind === 'from') return null;
 
-  if (v.priceKind === 'exact' && min !== null) return min;
-  // Spaces around the dash AND the symbol on both numbers. Either alone would leave a
-  // join the guard cannot undo — see the module note.
-  if (v.priceKind === 'range' && min !== null && max !== null) return `${min} - ${max}`;
-  if (v.priceKind === 'from' && min !== null) return `${min} (${PRICE_LABELS.from})`;
   if (v.priceKind === 'on_inspection') return `(${PRICE_LABELS.onInspection})`;
   if (v.priceKind === 'none') {
     return v.refusalTopic === null
       ? `(${PRICE_LABELS.none})`
       : `(${PRICE_LABELS.none}: ${v.refusalTopic})`;
   }
-  // A kind whose numbers are missing. The row is malformed; naming it beats printing a
-  // price that is not there.
+  // A kind this function does not know. Naming it beats printing nothing, because a silent
+  // fall-through would make a malformed row indistinguishable from a priced one.
   return `(${PRICE_LABELS.none})`;
 }
 
@@ -353,7 +380,11 @@ export function renderTenantSections(kb: TenantKb, approvedAt: string): PromptSe
     kb.services.flatMap((svc) =>
       svc.variants.map((v) => {
         const name = v.variantKey === '' ? svc.name : `${svc.name} (${v.variantKey})`;
-        return `- ${name}: ${priceOf(v, kb)}`;
+        // `null` is a PRICED variant, rendered as the name alone. The colon goes with the
+        // figure: `- Омбре:` with nothing after it reads as a missing value rather than a
+        // withheld one, and the model would try to fill it.
+        const shown = priceOf(v, kb);
+        return shown === null ? `- ${name}` : `- ${name}: ${shown}`;
       })), approvedAt));
 
   out.push(section('L3', 'faqs', 3, SECTION_LABELS.faqs,
