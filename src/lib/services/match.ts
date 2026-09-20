@@ -104,6 +104,30 @@ export type ServiceMatchResult =
    */
   | { readonly verdict: 'too_vague'; readonly matches: readonly ServiceMatch[] }
   | { readonly verdict: 'unique'; readonly match: ServiceMatch }
+  /**
+   * The text named ONE service, and the catalogue holds longer names containing it. The
+   * customer may mean any of them, so the answer is the whole FAMILY rather than a refusal.
+   *
+   * D-102, the founder's call, once the structural fact arrived: Matrix runs a hair salon
+   * and a NAIL salon under one Page, and «будаг» is a real word in both. «Будаг» is hair
+   * colouring (135,000–200,000₮); «Дип будаг» (65,000₮) and «Будаг арилгалт» (8,000₮) are
+   * manicure services. The names are not sloppy and nothing should be renamed — the word
+   * genuinely means two things, and which one the customer means is theirs to say.
+   *
+   * So this generalises D-100's option B one level up. Option B answered «будаг» with the
+   * three LENGTHS of one service and let the customer self-select; this answers it with the
+   * three SERVICES, and the category label is what makes «Будаг арилгалт — 8,000₮» legible
+   * beside a hair price.
+   *
+   * `family` always contains the matched service itself, first. A caller that does not know
+   * this verdict refuses, because every existing one tests `=== 'unique'` — serving the set
+   * is opt-in, which is the direction a new verdict must fail in.
+   */
+  | {
+      readonly verdict: 'family';
+      readonly match: ServiceMatch;
+      readonly family: readonly { readonly serviceId: string; readonly name: string }[];
+    }
   | { readonly verdict: 'ambiguous'; readonly matches: readonly ServiceMatch[] };
 
 /**
@@ -262,15 +286,42 @@ export function matchService(text: string, entries: readonly ServiceEntry[]): Se
   // safety has confused the two.
   if (winners.length > 1) return { verdict: 'ambiguous', matches: winners };
 
-  // One winner, and the catalogue holds a longer name containing it. This is the only
-  // shape shadowing decides, and it is the dangerous one: everything above has already
-  // concluded `unique`, so without this the caller gets a confident answer to a question
-  // the text cannot settle. D-101: «үсний будаг арилгах» reaches «Будаг» alone, and
-  // «Дип будаг» and «Будаг арилгалт» — both MANICURE services — contain that name.
+  // One winner, and the catalogue holds a longer name containing it. D-101 refused here;
+  // D-102 answers with the family instead, having learned WHY the collision exists — two
+  // salons under one Page, and «будаг» is a real word in both. The refusal was right about
+  // the danger (a confident single price) and wrong about the remedy: what the customer
+  // cannot settle from the text, the REPLY can settle by listing the alternatives.
   const only = winners[0]!;
-  if (only.shadowed) return { verdict: 'too_vague', matches: winners };
+  if (only.shadowed) {
+    return { verdict: 'family', match: only, family: familyOf(entries, only) };
+  }
 
   return { verdict: 'unique', match: only };
+}
+
+/**
+ * The matched service, then every service holding a term that strictly CONTAINS the matched
+ * term — the set a customer who typed the short name might have meant.
+ *
+ * Ordered by serviceId after the match itself, for the reason `matchService` sorts winners:
+ * a reply and a log line are downstream, and a set that reorders between runs is unreadable.
+ * The matched service leads because it is the one the text actually named.
+ */
+function familyOf(
+  entries: readonly ServiceEntry[], match: ServiceMatch,
+): { serviceId: string; name: string }[] {
+  const want = toTerm(match.term).tokens;
+  const rest: { serviceId: string; name: string }[] = [];
+  for (const e of entries) {
+    if (e.serviceId === match.serviceId) continue;
+    const contains = e.terms.some(
+      (t) => t.tokens.length > want.length && want.every((tok) => t.tokens.includes(tok)),
+    );
+    if (contains) rest.push({ serviceId: e.serviceId, name: e.name });
+  }
+  // guard-ok:locale — serviceIds are ASCII uuids, compared as such.
+  rest.sort((a, b) => (a.serviceId < b.serviceId ? -1 : a.serviceId > b.serviceId ? 1 : 0));
+  return [{ serviceId: match.serviceId, name: match.name }, ...rest];
 }
 
 /**

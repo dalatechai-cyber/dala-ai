@@ -472,24 +472,6 @@
       ]
     },
     {
-      "name": "Тэжээл",
-      "category": "Химийн үйлчилгээ",
-      "durationMinutes": 60,
-      "aliases": [
-        "тэжээл",
-        "tejeel"
-      ],
-      "variants": [
-        {
-          "priceKind": "range",
-          "priceMin": "44000",
-          "priceMax": "88000",
-          "variantKey": "",
-          "refusalTopic": null
-        }
-      ]
-    },
-    {
       "name": "Хими арчилт",
       "category": "Химийн үйлчилгээ",
       "durationMinutes": 60,

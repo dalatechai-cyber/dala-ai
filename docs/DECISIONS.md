@@ -7688,3 +7688,69 @@ not code, and it was NOT applied here because the founder was mid-apply of the i
 `too_vague`, because «дип» is three code points and fails the length floor. That is a real
 cost to nail customers for a phrasing with zero corpus instances, so it is reported and not
 taken.
+
+## D-102 — two salons under one Page, and a refusal that was right about the danger
+
+**2026-09-20, the founder, supplying the fact none of us had.** Matrix runs a hair salon
+AND a nail salon on one Facebook Page. Тайралт ба засалт, Үс будалт and Химийн үйлчилгээ are
+the hair salon; Маникюр and Педикюр are the nail salon. «Будаг» is hair colouring
+(135,000–200,000₮). «Дип будаг» (65,000₮) and «Будаг арилгалт» — removing polish from nails,
+8,000₮ — are manicure services. **The names are not sloppy: «будаг» genuinely means two
+things, and nothing should be renamed.**
+
+### What that does to D-101
+
+D-101 refused a shadowed single winner. It was **right about the danger and wrong about the
+remedy.** The danger is a confident single price for a word the text cannot disambiguate;
+the remedy is not silence but the LIST. What the customer cannot settle from their own
+message, the reply settles by showing the alternatives — which is D-100's option B one level
+up: three SERVICES instead of three lengths.
+
+`shadowed` survives unchanged; it was always the right detector. Only the verdict moves,
+from `too_vague` to a new `family`. Existing callers test `=== 'unique'` and so keep
+refusing — serving the set is opt-in, which is the direction a new verdict has to fail in.
+
+**The category label is load-bearing, not decoration.** «Будаг арилгалт — 8,000₮» under two
+hair prices, unlabelled, reads as a cheaper colouring option — the wrong-price failure this
+mechanism exists to prevent, reached by a different road. The heading is the salon's own
+`services.category` as they wrote it, so the reply gains no Mongolian the client has not
+already published. A single service shows no heading, because there is nothing to tell apart.
+
+Measured: the two real messages D-101 refused — «будаг хэдээр хийх вэ» and «Тайралт будаг» —
+now serve five labelled lines in **203 characters**, against a measured p90 of 364.
+
+### Three things the measurement settled that argument could not
+
+**The hair/nail matcher split is not worth building.** Of 164 real inbound messages,
+**exactly one** mentions any nail vocabulary — «Үс будуулна, маникюр педикюр» — and it names
+BOTH salons, so no disambiguation rule could resolve it. 52 mention hair. The nail salon
+receives essentially no inbound traffic on this Page, and the one case a category rule would
+face is the one it cannot decide. Revisit if nail traffic appears.
+
+**«хумсны» does no work, and the family covers for it anyway.** The founder asked for
+«хумсны будаг» to serve Гелэн будалт and Дип будаг. Measured, it reaches NEITHER — «Гелэн
+будалт» needs `{гелэн, будалт}` and «Дип будаг» needs `{дип}`, none of which is present. The
+word matches no service name at all. What it now gets is the «будаг» family, which contains
+both nail services among the five, labelled — self-selection rather than targeting.
+
+**Removing «Тэжээл» kills the collision AND the match.** The founder dropped «Тэжээл»
+(44,000–88,000₮), leaving «Тэжээлийн тос» and «CMC тэжээл», which share no token — so the
+collision is gone outright. But a bare «тэжээл» now reaches **nothing**: «тэжээлийн» is not a
+prefix of «тэжээл» and «CMC тэжээл» needs `cmc`. His instruction was *"a customer asking
+«тэжээл» should get both, not a refusal"*, and the removal makes that impossible by this
+route. Measured alternative: an alias «тэжээл» on both remaining services yields `ambiguous`,
+which `decidePriceQuote` also refuses. **Serving both would need `ambiguous` to serve its set
+too** — a different relation (two peers, neither containing the other) and a separate call,
+so it is reported rather than taken.
+
+### The shape worth carrying
+
+Three verdicts in one evening for one relation: serve one (D-100), refuse (D-101), serve the
+set (D-102). The DETECTION never changed. What changed each time was a fact about the
+business — first that «Дип будаг» exists, then that it belongs to a different salon — and
+each fact arrived after a decision had been made on the assumption it did not exist.
+
+**A collision between names is a question about the business, not about the matcher.** The
+repository read «Будаг» ⊂ «Дип будаг» as a naming defect for three revisions because nobody
+had asked the salon what the two words meant. One sentence from the founder settled what no
+amount of measurement could.
