@@ -69,9 +69,49 @@ if (ids.length === 0) {
   die('at least one --app-id is required. CLAUDE.md names two: 1562862634970492 (DALA_AI) and 1380702870025418 (dalatech)');
 }
 
-/** The field every tenant_channels row on this platform subscribes to today. */
-const REQUIRED_FIELD = 'messages';
+/**
+ * The fields the operator expects this app to carry, from `--field`, never a constant.
+ *
+ * It WAS a constant — `REQUIRED_FIELD = 'messages'`, under a docstring calling it "the
+ * field every tenant_channels row on this platform subscribes to today". That sentence
+ * stopped being true on 2026-09-20, when Matrix's comment surface needed `feed` and the
+ * app-level `feed` toggle went on. A second copy of a fact, drifting, inside the one tool
+ * built to catch drift — and the drift it hid is the exact failure D-062 cost eleven days
+ * on: this command would have printed `page/messages is subscribed and active` and exited
+ * 0 with `feed` switched off and every comment silently undelivered.
+ *
+ * `tenant_channels.subscribed_fields` is the column that ought to answer this, and it is
+ * READ BY NOTHING — written at provisioning and never consulted since, which is D-064's
+ * shape and D-072's addendum together. Matrix's row says `{messages}` while Meta has both,
+ * so reading it here would have reproduced the same blindness from a different source.
+ * Until something reconciles that column against Meta, the honest input is the operator's
+ * own expectation, stated per run.
+ *
+ * REQUIRED, never defaulted, for D-083's reason: a default of `messages` asserts on behalf
+ * of an operator who forgot, and the case it gets wrong is the one the flag exists for.
+ */
+function requiredFields(): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < process.argv.length; i += 1) {
+    if (process.argv[i] !== '--field') continue;
+    const value = process.argv[i + 1] ?? '';
+    // ascii-safe: a Meta webhook field name is Meta's own identifier, never customer text.
+    if (!/^[a-z_]{3,40}$/.test(value)) die(`--field must be a Meta webhook field name, not ${JSON.stringify(value)}`);
+    out.push(value);
+  }
+  return [...new Set(out)].sort();
+}
+
 const REQUIRED_OBJECT = 'page';
+const REQUIRED_FIELDS = requiredFields();
+if (REQUIRED_FIELDS.length === 0) {
+  die(
+    'at least one --field is required, and there is deliberately no default.\n'
+    + '  A DM-only channel needs:            --field messages\n'
+    + '  A channel answering comments needs: --field messages --field feed\n'
+    + '  Sending one alone to Meta REPLACES the set (D-043), so name every field you expect.',
+  );
+}
 
 const graphVersion = process.env['META_GRAPH_VERSION'] ?? 'v21.0';
 
@@ -148,7 +188,8 @@ for (const { slug, index, secret } of secrets) {
       continue;
     }
 
-    let ok = false;
+    /** Fields this app carries on an ACTIVE `page` subscription. */
+    const present = new Set<string>();
     for (const sub of data) {
       const object = typeof sub.object === 'string' ? sub.object : '(no object)';
       const callback = typeof sub.callback_url === 'string' ? sub.callback_url : '(none)';
@@ -156,14 +197,21 @@ for (const { slug, index, secret } of secrets) {
       const names = fieldNames(sub.fields);
       process.stdout.write(`    object=${object} active=${active} fields=[${names.join(', ')}]\n`);
       process.stdout.write(`      callback_url ${callback}\n`);
-      if (object === REQUIRED_OBJECT && active && names.includes(REQUIRED_FIELD)) ok = true;
+      if (object === REQUIRED_OBJECT && active) for (const f of names) present.add(f);
     }
-    if (ok) {
-      healthyPairs += 1;
-      process.stdout.write(`    => ${REQUIRED_OBJECT}/${REQUIRED_FIELD} is subscribed and active.\n`);
-    } else {
-      process.stdout.write(`    => ${REQUIRED_OBJECT}/${REQUIRED_FIELD} is MISSING or INACTIVE. Nothing will be delivered.\n`);
+    // Reported PER FIELD rather than as one verdict. A run that says only "not healthy"
+    // sends the reader to the App Dashboard without saying which switch to look at, and
+    // the two halves fail independently: `messages` can be live while `feed` is off, which
+    // is precisely the state this Page was in until 2026-09-20.
+    const missing = REQUIRED_FIELDS.filter((f) => !present.has(f));
+    for (const f of REQUIRED_FIELDS) {
+      process.stdout.write(
+        present.has(f)
+          ? `    => ${REQUIRED_OBJECT}/${f} is subscribed and active.\n`
+          : `    => ${REQUIRED_OBJECT}/${f} is MISSING or INACTIVE. Nothing on that field will be delivered.\n`,
+      );
     }
+    if (missing.length === 0) healthyPairs += 1;
     process.stdout.write('\n');
   }
 }
@@ -184,6 +232,9 @@ if (authenticatedPairs === 0) {
   die('no secret authenticated against any of the app ids given. Either the ids are wrong or the secrets are.');
 }
 if (healthyPairs === 0) {
-  process.stderr.write(`meta-subscription: no app has ${REQUIRED_OBJECT}/${REQUIRED_FIELD} subscribed and active.\n`);
+  process.stderr.write(
+    `meta-subscription: no app carries every requested field on an active ${REQUIRED_OBJECT} subscription `
+    + `(${REQUIRED_FIELDS.join(', ')}).\n`,
+  );
   process.exit(1);
 }
