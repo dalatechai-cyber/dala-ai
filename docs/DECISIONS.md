@@ -7035,3 +7035,51 @@ does something else entirely, and whose real risk turned out to be in a differen
 severity ordering reversed. **Reading SQL tells you what it says; only running it tells you what
 the schema will let it do**, and a primary key declared in `0001` is exactly the sort of thing
 that is not in front of you when you are reading line 100 of a seed file.
+
+## D-095 — the specificity floor, and the fixtures it exposed
+
+D-092 called this a PRECONDITION rather than a refinement: «сорри» — a customer apologising —
+reached «Сор» at one token, so the matcher that D-075 wants to choose a price was accepting as a
+service identification exactly what `MIN_STEM_CHARS` refuses to accept as a topic stem. Built.
+`matchService` still has no callers; this makes it correct before it gets one.
+
+**The rule reuses the gate's floor rather than inventing a second number, and states the
+exemption the way `stem_sequence` does: two tokens or more, or one token of at least
+`MIN_STEM_CHARS`.** Several tokens that must ALL occur are their own specificity, which is what a
+length floor is a proxy for in the single-token case. A service name is matched against the same
+customer prose a topic stem is, so it earns the same floor.
+
+The verdict is **`too_vague`**, not a downgrade to `none`. Both mean "do not act", but only one is
+countable — «сорри» reaching «Сор» is a measurement worth having, and a silent collapse into
+`none` is D-070's `console.info` in a fourth table. The match, its term and its token count are
+carried through, and `specific: false` says why it was refused. The floor is applied to the
+WINNERS, after most-specific-wins has run: an entry reachable both vaguely and specifically is
+judged on its best reading, so a two-token alias rescues a short name.
+
+«Сор» becomes unmatchable on its own, and that is the honest outcome rather than a regression.
+D-092 established the collision cannot be repaired by any row, because the salon's name for the
+three-dye service CONTAINS its name for the one-dye service; refusing to guess makes the rename
+it needs visible instead of silently picking between prices 3.2× apart.
+
+### Four tests failed, and the split between them is the point
+
+Two were **about the behaviour that changed**, and now record the floor holding instead of the
+defect. `A ONE-TOKEN MATCH ON A SHORT STEM IS NOT EVIDENCE` had said in as many words that it was
+*"the argument for a specificity floor above the matcher"* — it now asserts the floor.
+
+Two were **about other mechanisms whose fixtures happened to use a sub-floor name**:
+agglutination («сортой» from «сор») and Latin aliases (`sor`). Both mechanisms are untouched —
+`fold()` still does not transliterate, a token-prefix hit still finds the comitative — and both
+tests would have passed with a one-character fixture swap. **That swap is exactly the failure
+D-094 had just recorded**: a fixture quietly changed so a test goes green stops describing what
+it claims to. So each keeps its old fixture as a second assertion — agglutination still *finds*
+«сортой», and the floor is what declines to act on it — and the new fixture is explained rather
+than substituted.
+
+The fifth test was mine and wrong before the code was. `uniqueName('CICA нөхөн сэргээх')` was
+asserted to reach «CICA нөхөн сэргээх эмчилгээ»; that name has **four** tokens and three were
+supplied, so the all-tokens rule correctly returns `none`. The assertion now states that, which
+is a better demonstration of this test's actual subject than the one intended.
+
+Both halves checked adversarially: making the floor always-true, and applying it to every hit
+rather than to the winners, each turn five tests red.
