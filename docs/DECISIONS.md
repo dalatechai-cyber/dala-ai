@@ -7262,3 +7262,142 @@ to mean.** `verified` after seventeen lines of output is read as "the command wo
 whatever its sentence says. The same failure is in this repository twice already —
 `meta/extract.ts`'s "everything skipped is reported" when the report was one `console.info`,
 and `config/platform.ts:33` asserting a monthly ceiling no code reads.
+
+## D-098 — two instruments that could not see what they were built to see, and the price measurement that reframes the go-live
+
+Three findings from one night's reading of Matrix's comment rehearsal (2026-09-20), plus
+the measurement that changes what "load the price list" means. They belong together because
+the first two are one shape and the third is the argument for not shipping yet.
+
+### The rehearsal, in full, because six comments is the whole corpus
+
+The comment surface took its first real traffic between 02:17 and 04:04 UTC:
+
+| id | from | text | outcome |
+|---|---|---|---|
+| 203 | the founder | `une hed ve` | the first `changes` event this platform has ever received |
+| 205 | the DalaTech.ai **Page** | `une hed ve` | **the one draft**, 02:32:44 |
+| 212 | a real customer | «Яармаг хаяг хаана вэ» | nothing |
+| 215, 217 | **Matrix eco salon itself** | the salon's own address replies | `comment_self` |
+| 219 | a real customer | «Зэсэн улаан туяа арилдагуу» | `comment_unclassified` |
+
+Four of the six are on one post. **Our own test comment spent that post's daily allowance,
+and the only real answerable customer comment of the night was capped.** Somebody asked
+where the salon is and got silence.
+
+### A refusal that is counted is not a refusal that is recorded
+
+`decideCommentReply` places the per-post cap AFTER the verdict deliberately, and its own
+comment gives the reason in as many words: the operator's question is *is a cap of 1 costing
+me customers?*, they answer it **by counting `post_cap_reached`**, and putting the verdict
+downstream would bury that number under every «гоё» arriving on a capped post.
+
+The ordering was right and the counter it describes did not exist. The refusal went into a
+return value and one `console` line; only `comment_unclassified` and `comment_escalated`
+ever got a `quality_flags` row. So the number the cap exists to be judged by could not be
+read at all — third instance of one shape in this neighbourhood, after `meta/extract.ts`
+claiming everything skipped was reported and `docs/comments.md` claiming an escalation wrote
+a flag. **A comment explaining how to count something uncountable.**
+
+`post_cap_reached` is now the only structural refusal that writes a row, and the line is
+drawn where **a reply was wanted and lost**. `thread_already_answered` withholds nothing —
+the thread has its reply. `comment_self`, `comment_too_old` and `comment_not_worth_reply`
+were never going to be answered. `no_reviewed_line` is a per-tenant provisioning fault that
+would write one identical row per comment for ever, which is volume rather than signal.
+
+The row carries `replies_in_window` and `cap`, so it answers the question without a join,
+and the digest carries the count with its DISTINCT POST COUNT beside it. That second number
+is not decoration: six capped comments on one post is the cap working exactly as designed,
+six across six posts is six conversations the wall never got, and only the second argues for
+raising the number. A single total cannot tell them apart and is what somebody would use.
+
+### A constant that named a fact, inside the tool built to catch drifting facts
+
+`scripts/diagnose/meta-subscription.ts` checked `REQUIRED_FIELD = 'messages'`, under a
+docstring calling it *"the field every `tenant_channels` row on this platform subscribes to
+today"*. That stopped being true the moment Matrix's comment surface needed `feed`.
+
+So the one instrument built to read the far side of a Meta subscription — the instrument
+that exists because D-062 cost eleven days of a dead channel — would have printed
+`page/messages is subscribed and active`, exited 0, and said nothing whatever about `feed`
+being off with every comment silently undelivered.
+
+**`tenant_channels.subscribed_fields` is read by nothing.** Written at provisioning, never
+consulted since: D-064's rule is "ask who WRITES a column", D-072's addendum is "ask who
+READS it", and this one fails the second. Reading it in the diagnostic would not have helped
+either — Matrix's row says `{messages}` while Meta holds both — so the check would have
+reproduced the same blindness from a different source. Until something reconciles that
+column against Meta, the honest input is the operator's own expectation, stated per run.
+
+`--field` is therefore required, repeatable and **has no default**, which is D-083's rule
+again: a default asserts on behalf of an operator who forgot, and the case it gets wrong is
+the one the flag exists for. The verdict is per field, because `messages` live while `feed`
+is off is a real state and "not healthy" does not name the switch.
+
+### The praise rule cannot fire, measured
+
+`praise` carries the stem `гоён`, and `containsStem` is a token-PREFIX match: a four-
+character stem cannot match the three-character token «гоё». Measured — `гоён` misses «гоё»
+AND misses «гоёхон»; it only reaches «гоён…» forms.
+
+It cannot be repaired by swapping in `гоё`, because `contains_stem` refuses a stem under
+`MIN_STEM_CHARS` and a malformed matcher refuses the whole job. Nor by `whole_message`
+alone, which is an EXACT match on the entire message — it catches «гоё» and misses «гоё юм
+аа». Only `stem_sequence` is exempt from the length floor, and it needs two stems.
+
+So the covering set is three rules, measured at 12/12 on the praise forms and 4/5 on the
+negatives: `contains_stem` for the long words (`гоёх`, `сайхан`, `баярла`, Latin),
+`whole_message` for the bare short forms, `stem_sequence` for «гоё» inside a longer
+sentence. The one false positive — «Сайхан амраарай» — fires on a stem that is already live
+and already does that, so it is not a regression, and `praise` is `ignore`, so the cost of
+either error is accounting rather than a wrong reply.
+
+### And the price list is not a data-entry job
+
+`service_variants` is empty, the table already has the right shape, and the ancestor's list
+is **43 entries** (not the 40 in circulation). The assumption was that loading it is the
+easy half. It is not, and the measurement is the reason.
+
+`sections.ts` already reads `service_variants`; `tenant.ts` already renders them as an L3
+«ҮНИЙН ЖАГСААЛТ»; `allowedNumbersFrom` runs over every tenant section. Three real rows
+through the real compiler:
+
+```
+- Омбре: 500,000₮ - 640,000₮
+- Үндэс: 135,000₮
+- Эмэгтэй тайралт (Мастер): 66,000₮ - 88,000₮
+
+allowed_numbers → ["135,000","500,000","640,000","66,000","88,000"]
+```
+
+Loading the list as-is puts 43 prices in the model's context and ~60 price numerals in
+`allowed_numbers` — and the guard checks that a numeral is ON the list, never that it
+belongs to the service under discussion. **That is D-075's «Омбре 33,000₮» at full scale,
+with a real price against the wrong service, which is more plausible than an invented one
+and therefore worse.** Today's thirteen-token allow-list is the only reason that failure has
+never been available.
+
+So D-075's serve-from-row half is not "add a short-circuit". It requires the price section
+to stop emitting figures first, and the two must land together: rows without the renderer
+change is the worst state this platform could be put in.
+
+One refinement the audit produced. `priceOf` has five kinds and only three carry a numeral.
+`on_inspection` renders «(үзээд)» and `none` renders «(none: children_services)» — neither
+is a price, both do real work, and `tenant.test.ts` already asserts the second. Suppressing
+"the price section" wholesale would delete the mechanism by which the prompt says *this
+service exists and its price is deliberately withheld, see this refusal*. Suppress the
+numbers; keep the kinds.
+
+`hasTenantData` keys on the data-marker heading and not on this section, so the change does
+not reach it. `price_list` renders in exactly one place.
+
+### The lesson, which is one lesson and not four
+
+Each of these is a mechanism whose own prose describes a measurement it does not take: a
+cap explaining how to count something uncountable, a subscription check naming the field it
+does not parameterise, a stem list naming a word it cannot match, and a price list whose
+docstring says prices are kept out of the prompt while the renderer puts them in.
+
+D-097 stated it for a success message — *a report must be no wider than what was verified*.
+The general form is older and worth writing down plainly: **prose in this repository is a
+claim, and a claim next to the code it describes is the most credible kind of wrong.**
