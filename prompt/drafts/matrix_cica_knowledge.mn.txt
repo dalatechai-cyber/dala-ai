@@ -19,11 +19,21 @@ A. knowledge_documents — «CICA нөхөн сэргээх эмчилгээ»
 Шулуутгах химийн бодис агуулсан уургийн эмчилгээнээс илүү үр дүнтэй.
 Үс унах, хуурайших, хагарах, гэмтсэн тохиолдолд тохиромжтой.
 
-    ⚠ THIS ROW WIDENS `allowed_numbers`. It carries 97, 3, 30 and 40. `3` and `30` are
-    already on Matrix's list; **97 and 40 would be new**, and `30-40` may compile as one
-    fused token. None of them is a price, but every numeral added to the allow-list is one
-    more thing the outbound guard will permit the model to say. Say the word and I drop the
-    two statistics — the row still answers the question without «97%» and «30-40».
+    ⚠ THIS ROW WIDENS `allowed_numbers` BY EXACTLY TWO TOKENS: `97` and `30-40`.
+    MEASURED 2026-09-20, not reasoned — `allowedNumbersFrom` run over this exact prose
+    returns ["3","30-40","97"], and `3` is already on Matrix's live list (seq 8, thirteen
+    tokens). The earlier guess in this file — that `40` would be new and `30-40` "may
+    compile as one fused token" — was wrong on both halves: the hyphenated form IS one
+    token, so a bare `40` is never licensed.
+
+    Neither new token can license a price, and that is a property of the comparison rather
+    than of the numbers: `extractNumerals` reduces to digits only and the guard compares
+    reduced forms, so `30-40` reduces to `3040` and licenses nothing else, and `97` licenses
+    `97` alone — not `97,000`. Matrix's prices are five and six digits.
+
+    So the cost is precisely: the bot may say «97» or «30-40» in some unrelated sentence.
+    Say the word and I drop the two statistics — the row still answers the question without
+    «97%» and «30-40».
 
 
 ════════════════════════════════════════════════════════════════════════════════
