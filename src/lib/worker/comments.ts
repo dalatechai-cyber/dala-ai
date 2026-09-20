@@ -86,6 +86,39 @@ export const UNCLASSIFIED_FLAG = 'comment_unclassified';
  */
 export const ESCALATED_FLAG = 'comment_escalated';
 
+/**
+ * The flag written for a comment the per-post cap silenced.
+ *
+ * `decideCommentReply` places this check AFTER the verdict on purpose, and its own comment
+ * says why in as many words: the operator's question is *is a cap of 1 costing me
+ * customers?*, they answer it **by counting `post_cap_reached`**, and putting the verdict
+ * downstream would bury that number under every «гоё» arriving on a capped post.
+ *
+ * That reasoning was right and the counter it describes did not exist. The refusal went
+ * into a return value and one log line, so a capped comment left NOTHING in the database —
+ * the number the cap is meant to be judged by could not be read at all. Third instance of
+ * the same shape in this neighbourhood: `meta/extract.ts` claiming everything skipped was
+ * reported, `docs/comments.md` claiming an escalation wrote a flag, and now a comment
+ * explaining how to count something uncountable.
+ *
+ * MEASURED, which is what moved it from tidy to necessary. Matrix's comment rehearsal
+ * opened on 2026-09-20 and took six comments in its first 1h47m. Four were on one post.
+ * Our own test comment at 02:32 drafted that post's single daily reply, and the only real
+ * answerable customer comment of the night — «Яармаг хаяг хаана вэ» at 03:31 — was capped.
+ * Nothing anywhere recorded it, and saying what real customers send is the rehearsal's
+ * entire purpose.
+ *
+ * It is the ONLY structural refusal that gets a row, and the line is drawn where a reply
+ * was WANTED AND LOST. `thread_already_answered` withholds nothing — the thread has its
+ * reply. `comment_self`, `comment_too_old` and `comment_not_worth_reply` were never going
+ * to be answered. `no_reviewed_line` is a per-tenant provisioning fault that would write
+ * one identical row per comment for ever, which is volume rather than signal.
+ *
+ * Same ID-only payload as the other two, for the same retention reason, plus the two
+ * numbers that let the row answer the question on its own instead of by joining.
+ */
+export const CAPPED_FLAG = 'comment_post_cap_reached';
+
 export type CommentEffects = {
   db: SupabaseClient;
   now: Date;
@@ -207,7 +240,11 @@ async function readCommentRules(
  */
 async function recordCommentFlag(
   fx: CommentEffects,
-  input: { tenantId: string; comment: InboundComment; flag: string },
+  input: {
+    tenantId: string; comment: InboundComment; flag: string;
+    /** Numbers a particular flag needs. Never the customer's words. */
+    extra?: Record<string, number> | undefined;
+  },
 ): Promise<void> {
   const { error } = await fx.db.from('quality_flags').insert({
     tenant_id: input.tenantId,
@@ -218,6 +255,7 @@ async function recordCommentFlag(
       // Shape, not content — see UNCLASSIFIED_FLAG. Characters, never bytes (rule 6).
       chars: cpLength(input.comment.text),
       has_cyrillic: HAS_CYRILLIC.test(input.comment.text),
+      ...(input.extra ?? {}),
     },
     at: fx.now.toISOString(),
   });
@@ -466,8 +504,21 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       // `comment_id` in the payload is what lets the operator collapse them.
       const flag = decision.refusal === 'comment_unclassified' ? UNCLASSIFIED_FLAG
         : decision.refusal === 'comment_escalated' ? ESCALATED_FLAG
+        : decision.refusal === 'post_cap_reached' ? CAPPED_FLAG
         : null;
-      if (flag !== null) await recordCommentFlag(fx, { tenantId: input.tenantId, comment, flag });
+      if (flag !== null) {
+        await recordCommentFlag(fx, {
+          tenantId: input.tenantId,
+          comment,
+          flag,
+          // Only the cap carries them, and only because they are what the row is FOR: an
+          // operator asking whether the cap costs customers should not have to rebuild the
+          // allowance from a second table to read their own counter.
+          extra: flag === CAPPED_FLAG
+            ? { replies_in_window: postCounts.get(comment.postId) ?? 0, cap: input.config.repliesPerPostPerDay }
+            : undefined,
+        });
+      }
       continue;
     }
 
