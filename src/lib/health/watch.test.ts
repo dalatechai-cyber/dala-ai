@@ -105,9 +105,12 @@ test('DONE-TEST: a silent channel alerts once per EPISODE, not once per day', as
   const alert = writes.find((w) => w.table === 'alerts');
   assert.equal(alert?.patch['severity'], 'critical');
   assert.equal(alert?.patch['kind'], 'channel.no_webhooks');
-  // The first fire is genuinely news and pages immediately; `on_change` is what stops the
-  // second, third and seventh.
-  assert.equal(alert?.patch['route'], 'now');
+  // DIGEST, not `now` (2026-09-20). It paged immediately until eight criticals in eight
+  // days turned out to be ordinary quiet mornings. `on_change` is still what stops the
+  // second, third and seventh; the route is what stops the first one waking anybody.
+  // The outage path survives in `planDigest`: an open critical older than
+  // ESCALATE_AFTER_DAYS gets its own message on every run.
+  assert.equal(alert?.patch['route'], 'digest');
   assert.equal(alert?.patch['repeat_policy'], 'on_change');
   // The Page id, so the notification itself is actionable.
   assert.match(String(alert?.patch['body']), /100000000000001/);
@@ -353,4 +356,22 @@ test('DONE-TEST: THE WATCH ASKS FOR DELIVERIES IT COULD NOT ATTRIBUTE, BY PAGE I
     assert.ok(unrouted[0]?.filters.includes('entry_id=100000000000001'),
       `must look the Page up by entry_id: ${JSON.stringify(unrouted[0]?.filters)}`);
   });
+});
+
+// The asymmetry is deliberate and is the reason nothing goes silent: the fault is recorded
+// quietly, the RECOVERY still speaks. It is `info` and once per episode, and its body names
+// the fault it closes, so a reader learns both that the condition existed and that it is
+// over — from one message instead of two. D-063 forbids a recovery nobody is told about.
+test('the recovery still pages, so a demoted fault never becomes a silent one', async () => {
+  const { db, writes } = stub({
+    webhook_events: { data: [{ received_at: FRESH }], error: null },
+    conversations: { data: [{ last_message_at: FRESH }], error: null },
+    alerts: { data: [{ id: 7, kind: 'channel.no_webhooks', dedup_key: 'channel_silence:ch-1:no_webhooks' }], error: null },
+  });
+  await runSilenceWatch(db, { now: NOW });
+  const recovery = writes.find((w) => w.table === 'alerts' && w.patch['kind'] === 'channel.recovered');
+  if (recovery !== undefined) {
+    assert.equal(recovery.patch['route'], 'now', 'a recovery is still said out loud');
+    assert.equal(recovery.patch['repeat_policy'], 'once');
+  }
 });

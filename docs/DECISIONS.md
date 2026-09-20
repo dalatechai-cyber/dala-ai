@@ -7401,3 +7401,73 @@ docstring says prices are kept out of the prompt while the renderer puts them in
 D-097 stated it for a success message — *a report must be no wider than what was verified*.
 The general form is older and worth writing down plainly: **prose in this repository is a
 claim, and a claim next to the code it describes is the most credible kind of wrong.**
+
+## D-099 — composition across two true rows, a failure mode Ш8 structurally cannot catch
+
+**2026-09-20, the founder's call.** Recorded because the next instance will not be about
+hair colour.
+
+### What happened
+
+A customer asked whether office colour could be done on already-dyed hair. The bot answered
+with a figure — «30 хувийн цайруулалт», *a 30 percent bleach* — that appears in no row, no
+knowledge document and no price list. It was not retrieved and it was not invented from
+nothing. Two true, separately approved facts were bridged by a relationship nobody wrote:
+
+- the knowledge base says office colour is **three dyes**, and
+- the knowledge base says CICA compares to **30–40 тэжээлийн тос**.
+
+The `30` was real. Its attachment to a bleaching percentage was not.
+
+### Why the existing gates cannot see it
+
+**Ш8 — *do not answer what is not in the knowledge base* — is structurally blind here**,
+and that is the finding rather than a gap in its wording. Ш8 asks whether the PARTS are in
+the base. They were. Every individual proposition the reply rests on is approved; what is
+fabricated is the edge between them, and no rule that quantifies over facts can quantify
+over the relations a fluent model will draw between them.
+
+The numeral guard cannot see it either, for a reason worth stating precisely: `30` was on
+`allowed_numbers` because a knowledge row legitimately contains it. **The allow-list is a
+SET** — D-075's whole argument — so it licenses `30` in any sentence whatsoever, including
+one about bleach concentration in a chemical process performed on a person.
+
+`disclosesPrompt`, `checkPinnedLines` and `urlsNotAllowed` are all properties of the reply's
+TEXT. None of them models the claim the text makes.
+
+### It is the same shape as the price problem
+
+D-075's sentence is *«Омбре 33,000₮» — a real price against the wrong service — is more
+plausible than an invented one, and passes every check.* This is that, one layer up: **a
+real number attached to an invented relationship.** The repair is the same in form — the
+platform serves the fact from the row and the model chooses only WHICH row — and that is
+why part 2's `decidePriceQuote` and item A's refusal row are the same design and not two.
+
+### What was built, and what deliberately was not
+
+Built: `out_of_scope_topics` rows routing a SUITABILITY question — *will this chemical
+process work on my hair* — to a founder-approved refusal that hands the customer to a
+person (`scripts/provision/matrix-suitability-refusal.sql`, `0034`). The matcher keys on the
+QUESTION'S SHAPE rather than on chemistry vocabulary, because the shape is the invariant:
+whether a process suits a particular head of hair is a judgement requiring eyes on the hair,
+whatever chemistry is attached to it.
+
+**Not built: a guard.** An input filter over chemical words is D-033's fallacy — it would
+refuse «зураг явуулж болох уу?» in a new costume, firing on the vocabulary rather than on
+the act. And an output check for "invented relationships" is a check that cannot be written:
+there is no corpus of false relations to match against, only a corpus of true parts.
+
+**Not closed:** the reply that prompted this was about office colour on dyed hair, and the
+honest answer to it is the salon's, not ours. It goes to them with the rest.
+
+### The general rule
+
+**Two approved facts in one context are a third, unapproved claim waiting to be made.** A
+knowledge base is not a set of independent statements to a model reading it; it is a graph
+it will complete. When a row is added, ask not only *is this true* but *what will this be
+bridged to* — and expect the bridge to carry the credibility of both endpoints, because a
+sentence built from two approved facts reads exactly like an approved sentence.
+
+That is also why the measurement mattered more than the reasoning here: the matcher pair
+`[хими, болох]` looked obviously right and fired on three price questions out of
+twenty-two, every one of them *«хэд болох вэ»* — how much will it be.

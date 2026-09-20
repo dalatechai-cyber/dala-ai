@@ -122,19 +122,28 @@ test('DONE-TEST: the data marker is byte-identical to the one 01_data_marker dec
 // Prices, and the guard that has to agree with them
 // ---------------------------------------------------------------------------
 
-test('DONE-TEST: no two prices can fuse into one numeral, so a range survives the guard', () => {
-  // extractNumerals joins digit runs across `-` and `–` unconditionally, so a range
-  // written «80,000–150,000» is ONE numeral whose digits are 80000150000. allowed_numbers
-  // would then hold the fused token and refuse a reply quoting either endpoint. The
-  // currency symbol after every number breaks the join from both sides. Verified here
-  // rather than assumed, because the failure is silent and looks like a model problem.
+// D-075 PART 1, 2026-09-20: the price section carries NO FIGURE. Measured with the real
+// compiler, three priced rows used to contribute five tokens to `allowed_numbers`, and
+// Matrix's 43 confirmed entries would contribute thirty-eight — while the outbound guard
+// checks only that a numeral is ON the list, never that it belongs to the service under
+// discussion. A real price against the wrong service is more plausible than an invented one.
+//
+// The range-fusion concern this test was written for did not retire, it RELOCATED: the only
+// place a price becomes text now is `reception/price.ts`, and `price.test.ts` asserts it
+// there against the same trap.
+test('DONE-TEST: the price list names services and quotes no figure', () => {
   const prices = bodyOf(renderTenantSections(MATRIX, APPROVED), 'price_list');
-  const tokens = extractNumerals(prices).map((n) => n.digits);
-  assert.deepEqual(tokens, ['33000', '80000', '150000']);
-  assert.ok(!tokens.some((t) => t.length > 6), `a fused token: ${tokens.join(', ')}`);
+  assert.deepEqual(extractNumerals(prices).map((n) => n.digits), []);
+  // The services are still NAMED — the model must be able to say one exists and spell it
+  // correctly; what it cannot do is put a number next to it.
+  assert.match(prices, /Үс будалт/);
 });
 
-test('DONE-TEST: a reply quoting a range either way passes the guard', () => {
+// The inverse of what this file asserted until 2026-09-20. `allowed_numbers` no longer
+// widens with the price list, so a reply quoting a price is refused like any other numeral —
+// and that is the point: the model never holds the figure, `reception/price.ts` serves it
+// from the row, and a served line is not model text and is not guarded.
+test('DONE-TEST: a price quoted by the MODEL is refused, because it is no longer approved', () => {
   const sections = renderTenantSections(MATRIX, APPROVED);
   const rendered = renderStablePrefix([
     { layer: 'L0', key: 'gate', ordinal: 0, body: 'Ш2.', reviewedAt: APPROVED, origin: 'platform' },
@@ -143,16 +152,7 @@ test('DONE-TEST: a reply quoting a range either way passes the guard', () => {
   assert.equal(rendered.ok, true);
   if (!rendered.ok) return;
   const allowed = rendered.rendered.allowedNumbers;
-
-  // Split, joined, and reformatted without the comma — all the same number to the guard.
-  for (const reply of [
-    'Үс будалт 80,000₮-өөс 150,000₮ хооронд.',
-    'Үс будалт 80,000₮-150,000₮.',
-    'Үс будалт 80000₮ - 150000₮.',
-  ]) {
-    assert.deepEqual(numeralsNotAllowed(reply, allowed), [], reply);
-  }
-  // And an invented price is still refused.
+  assert.deepEqual(numeralsNotAllowed('Үс будалт 80,000₮-150,000₮.', allowed), ['80,000', '150,000']);
   assert.deepEqual(numeralsNotAllowed('Үс будалт 99,000₮.', allowed), ['99,000']);
 });
 
@@ -163,18 +163,40 @@ test('DONE-TEST: allowed_numbers stops being empty, and holds exactly the tenant
   ]);
   assert.equal(rendered.ok, true);
   if (!rendered.ok) return;
-  // The prices, the deposit and the phone number. NOT the gate's counter-example (D-024).
-  assert.deepEqual(rendered.rendered.allowedNumbers, ['150,000', '20,000', '33,000', '7741-7777', '80,000']);
+  // The deposit and the phone number — the tenant's non-price facts. NOT the prices, which
+  // part 1 removed, and NOT the gate's counter-example, which D-024 removed. Both exclusions
+  // are the same rule: only a fact the tenant stated may be quoted, and a price is now
+  // served from its row rather than permitted to the model.
+  assert.deepEqual(rendered.rendered.allowedNumbers, ['20,000', '7741-7777']);
 });
 
-test('a price the compiler cannot read is named, never printed as 0', () => {
+// The unreadable-price concern also relocated to `reception/price.ts`, where a value
+// `formatMoney` cannot read refuses the whole quote. Here it simply renders as the name,
+// which is what every priced row now does — so a malformed row is indistinguishable from a
+// good one IN THE PROMPT, and that is safe precisely because neither carries a figure.
+test('a price the compiler cannot read still prints no digit', () => {
   const broken: TenantKb = {
     ...EMPTY,
     services: [{ name: 'Х', variants: [{ variantKey: '', priceKind: 'exact', priceMin: 'not-a-number', priceMax: null, refusalTopic: null }] }],
   };
   const body = bodyOf(renderTenantSections(broken, APPROVED), 'price_list');
   assert.ok(!body.includes('0'), body);
-  assert.ok(body.includes('үнэ мэдээлэхгүй'));
+  assert.match(body, /- Х$/m);
+});
+
+// The two kinds that KEEP their annotation, because neither is a figure and `none` is how
+// the prompt says "this exists and its price is withheld, see this refusal".
+test('on_inspection and none still annotate, so a refusal is not deleted with the numbers', () => {
+  const kb: TenantKb = {
+    ...EMPTY,
+    services: [{ name: 'Х', variants: [
+      { variantKey: 'a', priceKind: 'on_inspection', priceMin: null, priceMax: null, refusalTopic: null },
+      { variantKey: 'b', priceKind: 'none', priceMin: null, priceMax: null, refusalTopic: 'children_services' },
+    ] }],
+  };
+  const body = bodyOf(renderTenantSections(kb, APPROVED), 'price_list');
+  assert.match(body, /үзлэгээр тодорхойлно/);
+  assert.match(body, /children_services/);
 });
 
 test('formatMoney drops zero cents, groups thousands, and honours symbol placement', () => {

@@ -1,5 +1,21 @@
-UNSIGNED DRAFT — Matrix knowledge rows from the salon's 2026-09-19 answers.
-Loaded by nothing. Read before any of it goes in.
+SIGNED 2026-09-20 by the founder, with two edits applied below. Loaded by nothing YET:
+these are knowledge_documents rows, they render into the compiled prefix, and inserting
+them moves `content_hash` — so they go in with a republish, not before one.
+
+THE TWO EDITS, recorded because each names a rule rather than a preference:
+
+  A, last line: «гэмтсэн» → «гэмтэх». The list breaks parallel otherwise — «унах,
+  хуурайших, хагарах» are verbal nouns and «гэмтсэн» is a past participle, so the fourth
+  item changes grammatical category mid-list.
+
+  C: «зөвлөгөө авахыг зөвлөж байна» doubles the root (зөвлөгөө / зөвлөж). Replaced with
+  «…мастер үсчинд үзүүлж зөвлөгөө аваарай.»
+
+  B unchanged. «Үсийг гэмтээхгүй» is the salon's own word for it.
+
+97 and 30-40 are KEPT, on the founder's call: the salon specifically wants the comparison
+to 30–40 tejeeliin tos said, and that it is not one — that is the selling point. The
+measurement below is why it costs nothing.
 
 NO PRICES ANYWHERE BELOW. 198,000₮ / 154,000₮ and the dye figures are deliberately absent:
 D-075 keeps prices out of the prefix and out of `allowed_numbers`, and the serve-from-row
@@ -17,7 +33,7 @@ A. knowledge_documents — «CICA нөхөн сэргээх эмчилгээ»
 Нэг удаагийн эмчилгээ нь 30-40 тэжээлийн тостой дүйцэхүйц үр дүнтэй. Энэ нь тэжээлийн
 тос биш бөгөөд түүнээс хамаагүй илүү үр дүнтэй.
 Шулуутгах химийн бодис агуулсан уургийн эмчилгээнээс илүү үр дүнтэй.
-Үс унах, хуурайших, хагарах, гэмтсэн тохиолдолд тохиромжтой.
+Үс унах, хуурайших, хагарах, гэмтэх тохиолдолд тохиромжтой.
 
     ⚠ THIS ROW WIDENS `allowed_numbers` BY EXACTLY TWO TOKENS: `97` and `30-40`.
     MEASURED 2026-09-20, not reasoned — `allowedNumbersFrom` run over this exact prose
@@ -50,8 +66,8 @@ B. knowledge_documents — «Эмчилгээний хими»
 C. The damaged-hair standard answer
 ════════════════════════════════════════════════════════════════════════════════
 
-Үс унах, хуурайших, хагарах зэрэг асуудалтай бол мастер үсчинд үзүүлж, зөвлөгөө авахыг
-зөвлөж байна. Цаг захиалах бол хэлээрэй.
+Үс унах, хуурайших, хагарах зэрэг асуудалтай бол мастер үсчинд үзүүлж зөвлөгөө аваарай.
+Цаг захиалах бол хэлээрэй.
 
     PLACED AS KNOWLEDGE, NOT AS A CANNED ROW, and the difference matters. A canned row
     pointed at by a rule is SERVED — the platform types it. Knowledge is read by the model
