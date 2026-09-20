@@ -53,6 +53,14 @@ export type PriceVariant = {
 export type PricedService = {
   readonly serviceId: string;
   readonly name: string;
+  /**
+   * The salon's own price-list heading, shown ONLY when a family is served (D-102).
+   *
+   * It is the tenant's word, never ours — `services.category` as they wrote it — so this
+   * adds no Mongolian to the reply that the client has not already published. A single
+   * service answers without it, because there is nothing to tell apart.
+   */
+  readonly category: string | null;
   readonly variants: readonly PriceVariant[];
 };
 
@@ -121,31 +129,48 @@ export function decidePriceQuote(input: PriceQuoteInput): PriceQuote {
   if (!input.priceIntent) return { serve: false, reason: 'no_price_intent' };
 
   const match = matchService(input.text, input.entries);
-  if (match.verdict !== 'unique') {
+  if (match.verdict !== 'unique' && match.verdict !== 'family') {
     return { serve: false, reason: 'service_not_unique', verdict: match.verdict };
   }
 
-  const svc = input.services.find((s) => s.serviceId === match.match.serviceId);
-  if (svc === undefined || svc.variants.length === 0) return { serve: false, reason: 'no_variant' };
+  // A `family` answers with every service the short name could mean (D-102). One service
+  // shows no category; several do, because the heading is the only thing distinguishing
+  // «Будаг арилгалт — 8,000₮» from the hair prices above it.
+  const wanted = match.verdict === 'family' ? match.family.map((f) => f.serviceId) : [match.match.serviceId];
+  const chosen: PricedService[] = [];
+  for (const id of wanted) {
+    const s = input.services.find((x) => x.serviceId === id);
+    // A family member with no priced row is not a partial answer to give. Refusing the
+    // whole set is the same rule as refusing a service's readable half, one level up:
+    // a customer shown two of three «будаг» services learns a price and not the choice.
+    if (s === undefined || s.variants.length === 0) return { serve: false, reason: 'no_variant' };
+    chosen.push(s);
+  }
+  const showCategory = chosen.length > 1;
 
+  const all = chosen.flatMap((s) => s.variants);
   // EVERY variant is priced or none is served. A service with a Мастер and a 1-р зэрэг row
   // answered with one of them is the wrong-price failure wearing a right answer's clothes,
   // and picking one is exactly the tie-breaking `matchService` refuses to do one layer up.
-  if (svc.variants.some((v) => v.priceKind === 'none' || v.priceKind === 'on_inspection')) {
+  if (all.some((v) => v.priceKind === 'none' || v.priceKind === 'on_inspection')) {
     return { serve: false, reason: 'not_numeric' };
   }
-  if (svc.variants.some((v) => v.confirmedAt === null)) {
+  if (all.some((v) => v.confirmedAt === null)) {
     return { serve: false, reason: 'unconfirmed_price' };
   }
 
+  const svc = chosen[0]!;
   const lines: string[] = [];
-  for (const v of svc.variants) {
-    const text = priceText(v, input.currencySymbol, input.currencySymbolBefore);
-    // One unreadable row refuses the WHOLE quote. Serving the readable half of a service's
-    // prices is how a customer learns the master's rate and not the junior's.
-    if (text === null) return { serve: false, reason: 'price_unreadable' };
-    const label = v.variantKey === '' ? svc.name : `${svc.name} (${v.variantKey})`;
-    lines.push(`${label} — ${text}`);
+  for (const s of chosen) {
+    for (const v of s.variants) {
+      const text = priceText(v, input.currencySymbol, input.currencySymbolBefore);
+      // One unreadable row refuses the WHOLE quote. Serving the readable half of a service's
+      // prices is how a customer learns the master's rate and not the junior's.
+      if (text === null) return { serve: false, reason: 'price_unreadable' };
+      const label = v.variantKey === '' ? s.name : `${s.name} (${v.variantKey})`;
+      const suffix = showCategory && s.category !== null && s.category !== '' ? ` [${s.category}]` : '';
+      lines.push(`${label} — ${text}${suffix}`);
+    }
   }
 
   if (input.tail === null || input.tail.trim() === '') {

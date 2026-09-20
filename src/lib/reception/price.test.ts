@@ -10,10 +10,12 @@ const TAIL = 'Дэлгэрэнгүйг утсаар лавлана уу.';
 const SERVICES: PricedService[] = [
   {
     serviceId: 'ombre', name: 'Омбре',
+    category: null,
     variants: [{ variantKey: '', priceKind: 'range', priceMin: '500000', priceMax: '640000', confirmedAt: CONFIRMED }],
   },
   {
     serviceId: 'cut', name: 'Эмэгтэй тайралт',
+    category: null,
     variants: [
       { variantKey: 'Мастер', priceKind: 'range', priceMin: '66000', priceMax: '88000', confirmedAt: CONFIRMED },
       { variantKey: '1-р зэрэг', priceKind: 'exact', priceMin: '55000', priceMax: null, confirmedAt: CONFIRMED },
@@ -161,6 +163,7 @@ test('a service with several variants serves EVERY variant or none', () => {
   const entries = [{ serviceId: 'helber', name: 'Хэлбэржүүлэлт', terms: [toTerm('Хэлбэржүүлэлт')] }];
   const services = [{
     serviceId: 'helber', name: 'Хэлбэржүүлэлт',
+    category: null,
     variants: [
       { variantKey: 'Мастер',     priceKind: 'range' as const, priceMin: '33000', priceMax: '50000', confirmedAt: CONFIRMED },
       { variantKey: '1-р зэрэг',  priceKind: 'exact' as const, priceMin: '33000', priceMax: null, confirmedAt: CONFIRMED },
@@ -174,29 +177,73 @@ test('a service with several variants serves EVERY variant or none', () => {
     + TAIL);
 });
 
-// D-101 PROOF. The founder asked for this case by name before applying the intake.
-// «Будаг» is shadowed by two manicure names, so a bare mention of it — however it is
-// wrapped — cannot resolve, and `decidePriceQuote` refuses rather than quoting the
-// hair-dye prices to somebody asking about removal.
-test('a bare «будаг» does not price anything, because two manicure names contain it', () => {
+// D-102 SUPERSEDES D-101's VERDICT. The structural fact arrived last: Matrix runs a hair
+// salon and a NAIL salon under one Page, so «будаг» is a real word in both and nothing is
+// misnamed. D-101 refused here; refusing was right about the danger and wrong about the
+// remedy. What the customer cannot settle from the text, the REPLY settles by listing the
+// alternatives — which is D-100's option B one level up: three SERVICES instead of three
+// lengths, and the salon's own category heading telling them apart.
+//
+// The label is the load-bearing part. Without it «Будаг арилгалт — 8,000₮» sitting under
+// two hair prices reads as a cheaper haircut colour, which is the wrong-price failure this
+// whole mechanism exists to prevent, arrived at by a different road.
+test('a bare «будаг» serves the whole family, labelled by salon', () => {
   const entries = [
     { serviceId: 'budag',  name: 'Будаг',          terms: [toTerm('Будаг')] },
     { serviceId: 'arilga', name: 'Будаг арилгалт', terms: [toTerm('Будаг арилгалт')] },
     { serviceId: 'dip',    name: 'Дип будаг',      terms: [toTerm('Дип будаг')] },
   ];
-  const services = [{
-    serviceId: 'budag', name: 'Будаг',
-    variants: [
+  const services = [
+    { serviceId: 'budag', name: 'Будаг', category: 'Үс будалт', variants: [
       { variantKey: 'Хүзүүний урт',  priceKind: 'exact' as const, priceMin: '135000', priceMax: null, confirmedAt: CONFIRMED },
       { variantKey: 'Далны дээгүүр', priceKind: 'exact' as const, priceMin: '176000', priceMax: null, confirmedAt: CONFIRMED },
-      { variantKey: 'Далнаас доош',  priceKind: 'exact' as const, priceMin: '200000', priceMax: null, confirmedAt: CONFIRMED },
-    ],
-  }];
-  for (const text of ['будаг хэдээр хийх вэ', 'үсний будаг арилгах', 'будаг арилгах']) {
-    const r = decidePriceQuote(ask({ text, entries, services }));
-    assert.equal(r.serve, false, text);
-    assert.equal(r.serve === false && r.reason, 'service_not_unique', text);
-  }
+    ] },
+    { serviceId: 'arilga', name: 'Будаг арилгалт', category: 'Маникюр', variants: [
+      { variantKey: '', priceKind: 'exact' as const, priceMin: '8000', priceMax: null, confirmedAt: CONFIRMED },
+    ] },
+    { serviceId: 'dip', name: 'Дип будаг', category: 'Маникюр', variants: [
+      { variantKey: '', priceKind: 'exact' as const, priceMin: '65000', priceMax: null, confirmedAt: CONFIRMED },
+    ] },
+  ];
+  const r = decidePriceQuote(ask({ text: 'будаг хэдээр хийх вэ', entries, services }));
+  assert.equal(r.serve, true);
+  assert.equal(r.serve === true && r.body,
+    'Будаг (Хүзүүний урт) — 135,000₮ [Үс будалт]\n'
+    + 'Будаг (Далны дээгүүр) — 176,000₮ [Үс будалт]\n'
+    + 'Будаг арилгалт — 8,000₮ [Маникюр]\n'
+    + 'Дип будаг — 65,000₮ [Маникюр]\n'
+    + TAIL);
+});
+
+// A family member with no priced row refuses the WHOLE set. Two of three «будаг» services
+// teaches a customer a price and hides the choice, which is the partial answer this
+// mechanism refuses one level down for a service's own variants.
+test('a family with an unpriced member serves nothing', () => {
+  const entries = [
+    { serviceId: 'budag', name: 'Будаг',     terms: [toTerm('Будаг')] },
+    { serviceId: 'dip',   name: 'Дип будаг', terms: [toTerm('Дип будаг')] },
+  ];
+  const services = [
+    { serviceId: 'budag', name: 'Будаг', category: 'Үс будалт', variants: [
+      { variantKey: '', priceKind: 'exact' as const, priceMin: '135000', priceMax: null, confirmedAt: CONFIRMED },
+    ] },
+    { serviceId: 'dip', name: 'Дип будаг', category: 'Маникюр', variants: [] },
+  ];
+  const r = decidePriceQuote(ask({ text: 'будаг', entries, services }));
+  assert.equal(r.serve, false);
+  assert.equal(r.serve === false && r.reason, 'no_variant');
+});
+
+// A single service shows NO category — there is nothing to tell apart, and a heading on
+// one line is noise. Guards the `showCategory` branch in both directions.
+test('a lone service is served without a category heading', () => {
+  const entries = [{ serviceId: 'ombre', name: 'Омбре', terms: [toTerm('Омбре')] }];
+  const services = [{ serviceId: 'ombre', name: 'Омбре', category: 'Үс будалт', variants: [
+    { variantKey: '', priceKind: 'range' as const, priceMin: '500000', priceMax: '640000', confirmedAt: CONFIRMED },
+  ] }];
+  const r = decidePriceQuote(ask({ text: 'омбре хэд вэ', entries, services }));
+  assert.equal(r.serve, true);
+  assert.equal(r.serve === true && r.body, `Омбре — 500,000₮ - 640,000₮\n${TAIL}`);
 });
 
 // The two-token names still resolve when the customer NAMES them — the rule gates the
@@ -207,7 +254,13 @@ test('«Будаг арилгалт» and «Дип будаг» still match when
     { serviceId: 'arilga', name: 'Будаг арилгалт', terms: [toTerm('Будаг арилгалт')] },
     { serviceId: 'dip',    name: 'Дип будаг',      terms: [toTerm('Дип будаг')] },
   ];
-  assert.equal(matchService('будаг', entries).verdict, 'too_vague');
+  // D-102: the bare name is a FAMILY now, not a refusal — and the family names all three.
+  const bare = matchService('будаг', entries);
+  assert.equal(bare.verdict, 'family');
+  assert.deepEqual(
+    bare.verdict === 'family' ? bare.family.map((f) => f.name).sort() : [],
+    ['Будаг', 'Будаг арилгалт', 'Дип будаг'],
+  );
   for (const [q, want] of [['будаг арилгалт', 'Будаг арилгалт'], ['дип будаг', 'Дип будаг']] as const) {
     const m = matchService(q, entries);
     assert.equal(m.verdict, 'unique', q);

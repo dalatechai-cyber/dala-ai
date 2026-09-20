@@ -111,7 +111,11 @@ test('DONE-TEST: THE THREE CICA NAMES SEPARATE WHEN THE CUSTOMER TYPES ENOUGH', 
   //
   // Matrix is unaffected: its confirmed list carries one CICA service, not three. This
   // fixture keeps all three because the collision is what it exists to exercise.
-  assert.equal(uniqueName('cica эмчилгээ', e), 'too_vague');
+  //
+  // D-102 changed the VERDICT again, not the finding: the subset is answered with its
+  // family rather than refused, so a customer typing «cica эмчилгээ» is shown both CICA
+  // services and picks. `uniqueName` reports the verdict when it is not `unique`.
+  assert.equal(uniqueName('cica эмчилгээ', e), 'family');
   assert.equal(uniqueName('CICA нөхөн сэргээх эмчилгээ', e), 'CICA нөхөн сэргээх эмчилгээ');
   assert.equal(uniqueName('хими эмэгтэй cica', e), 'Хими эмэгтэй / CICA');
   assert.equal(uniqueName('cica хими', e), 'Хими эмэгтэй / CICA', 'via the alias');
