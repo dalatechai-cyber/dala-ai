@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ESCALATE_AFTER_DAYS, planDigest, runDigestJob } from './digest.ts';
+import { cappedLine, ESCALATE_AFTER_DAYS, planDigest, runDigestJob } from './digest.ts';
 import type { OpenAlert } from './alert.ts';
 
 const NOW = new Date('2026-09-14T01:00:00Z');   // 09:00 in Ulaanbaatar
@@ -17,7 +17,8 @@ function episode(over: Partial<OpenAlert> = {}): OpenAlert {
 }
 
 const NO_DROPS = { total: 0, byKind: {}, unavailable: false };
-const CLEAN = { now: NOW, watchdogLastRan: RAN, channelsChecked: 2, dropped: NO_DROPS };
+const NO_CAPS = { total: 0, posts: 0, unavailable: false };
+const CLEAN = { now: NOW, watchdogLastRan: RAN, channelsChecked: 2, dropped: NO_DROPS, capped: NO_CAPS };
 
 test('DONE-TEST: A CLEAN DAY STILL SENDS, AND CARRIES PROOF OF LIFE', () => {
   // A digest that stays silent when nothing is open makes silence mean two things —
@@ -33,7 +34,7 @@ test('DONE-TEST: and when the watchdog has never run, the clean day SAYS SO', ()
   // `channel_health` is upserted on every run including healthy ones, precisely so that its
   // absence is a statement. A digest reading "nothing open" over a watchdog that has never
   // executed would be the most confident wrong sentence this system could produce.
-  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS });
+  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS });
   assert.match(plan.summary, /never recorded an observation/);
   assert.doesNotMatch(plan.summary, /last ran/);
 });
@@ -224,4 +225,37 @@ test('the job counts dropped events by kind out of quality_flags', async () => {
     { rawBody: '{}', signature: 'sig' },
   );
   assert.equal(r.status, 200);
+});
+
+// The line is present on a CLEAN day too, for `droppedLine`'s reason: a counter that goes
+// quiet when it finds nothing is indistinguishable from one that has stopped, and this
+// counter exists because a capped comment was invisible for a whole night.
+test('the capped clause is on every digest, clean days included', () => {
+  assert.match(planDigest([], CLEAN).summary, /No public comments capped \(24h\)/);
+});
+
+// Total and distinct posts answer different questions. Six on ONE post is the cap working
+// as designed — one public answer under a post is the whole rule. Six across six posts is
+// six conversations the wall never got, and only the second argues for a higher cap.
+test('capped counts name the posts as well as the comments', () => {
+  assert.equal(
+    cappedLine({ total: 6, posts: 1, unavailable: false }),
+    '6 public comments silenced by the per-post cap (24h), across 1 post',
+  );
+  assert.equal(
+    cappedLine({ total: 6, posts: 6, unavailable: false }),
+    '6 public comments silenced by the per-post cap (24h), across 6 posts',
+  );
+  assert.equal(
+    cappedLine({ total: 1, posts: 1, unavailable: false }),
+    '1 public comment silenced by the per-post cap (24h), across 1 post',
+  );
+});
+
+// An unreadable count is never zero. Rebuilding that conflation inside the clause written
+// to end it is the mistake worth a test of its own.
+test('an unreadable capped count prints UNREADABLE, never a clean day', () => {
+  const line = cappedLine({ total: 0, posts: 0, unavailable: true });
+  assert.match(line, /UNREADABLE/);
+  assert.doesNotMatch(line, /No public comments/);
 });
