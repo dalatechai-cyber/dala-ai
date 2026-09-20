@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CHECKED_ROOTS, chainWindow, parseObjectKeys, chainsFromSource } from './querysites.ts';
+import { CHECKED_ROOTS, chainWindow, firstCallArgument, parseObjectKeys, chainsFromSource } from './querysites.ts';
 
 test('DONE-TEST: A SEMICOLON INSIDE A COMMENT DOES NOT END THE CHAIN', () => {
   // The window was `indexOf(';')`. `settle.ts`'s ledger insert carries the comment
@@ -74,4 +74,39 @@ test('and the verify scripts are NOT — they are psql, not PostgREST', () => {
   const roots: readonly string[] = CHECKED_ROOTS;
   assert.equal(roots.includes('scripts'), false);
   assert.equal(roots.includes('scripts/verify'), false);
+});
+
+test('DONE-TEST: A NON-LITERAL PAYLOAD IS UNDETERMINED, NEVER THE OPTIONS OBJECT', () => {
+  // The payload is argument ONE. Before `firstCallArgument`, the key scan started at
+  // `.upsert(` and ran forward to the first `{` it could find — so a call whose payload is
+  // a VARIABLE walked past it into the options object and reported `onConflict` as a
+  // column being written. One real site did exactly that.
+  //
+  // D-057 a third time, with an extra turn: the earlier two returned an INCOMPLETE answer,
+  // and this returned an answer about a different object, which no count of keys reveals.
+  const viaVariable = firstCallArgument(".upsert(tenantPatch, { onConflict: 'slug' })");
+  assert.equal(viaVariable, 'tenantPatch');
+  assert.equal(parseObjectKeys(viaVariable ?? ''), null, 'undetermined, not [onConflict]');
+
+  // A literal payload beside an options object still reads as itself.
+  const literal = firstCallArgument(".upsert({ tenant_id: id, mode }, { onConflict: 'tenant_id' })");
+  assert.deepEqual(parseObjectKeys(literal ?? ''), ['tenant_id', 'mode']);
+
+  // The overwhelmingly common shape here: rows built by `.map()`.
+  const mapped = firstCallArgument(".upsert(rows.map((r) => ({ tenant_id: id, kind: r.k })), { onConflict: 'x' })");
+  assert.deepEqual(parseObjectKeys(mapped ?? ''), ['tenant_id', 'kind']);
+
+  // An unbalanced call — the window ended mid-argument — is undetermined, never a guess.
+  assert.equal(firstCallArgument('.upsert({ a: 1 }, { onConflict:'), null);
+});
+
+test('a comment between the paren and the payload does not move the argument boundary', () => {
+  // Comments carry commas and brackets. Counting them shifts where argument one ends, and
+  // the site drops to unresolvable — a safe answer that still checks nothing. This is the
+  // exact text that regressed `apply.ts`'s alias upsert while it was being fixed.
+  const src = ".upsert(\n  // `out_of_scope_topics` is written at step 4, this at step 5, so the\n"
+    + "  // first refusal aborted before the second could be reached.\n"
+    + "  s.aliases.map((a) => ({ tenant_id: id, alias: a, provenance: 'seeded' })),\n"
+    + "  { onConflict: 'tenant_id,alias' });";
+  assert.deepEqual(parseObjectKeys(firstCallArgument(src) ?? ''), ['tenant_id', 'alias', 'provenance']);
 });

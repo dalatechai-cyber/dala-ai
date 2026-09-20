@@ -49,6 +49,7 @@ import { createHmac } from 'node:crypto';
 import { CHECKED_ROOTS, chainsFromSource } from './querysites.ts';
 import http from 'node:http';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';   // guard-ok: scripts/, not src/
 
 const SRC = 'src';
@@ -181,6 +182,93 @@ export function writeProblems(uses: readonly WriteUse[], known: Map<string, Set<
   return problems;
 }
 
+/**
+ * The columns the database will not let a row omit: NOT NULL, no default, not generated.
+ *
+ * The mirror image of `columnsFrom`, and the direction nothing checked until 2026-09-20.
+ * `writeProblems` asks whether every key in a payload is a real column. This asks the
+ * opposite: whether every column the database insists on is in the payload.
+ * `scripts/provision/apply.ts` had never been able to write an `out_of_scope_topics` row,
+ * because `provenance` is NOT NULL with no default since `0001` and the payload did not
+ * carry it. Every key it DID send was real, so the check that existed was green on a
+ * writer that could not write, and the first thing to read the real schema was the
+ * founder's `--apply` against the real project.
+ *
+ * ## Why the CATALOG and not the Swagger document
+ *
+ * Everything else here is read off PostgREST's own document, which is the right source for
+ * what the transport exposes. It is the wrong source for this one question. PostgREST
+ * derives `required` from "not nullable and no default", and an IDENTITY column has no
+ * `pg_attrdef` row — so `webhook_events.id`, `alerts.id`, `spend_ledger.id` and both
+ * `quality_flags.id` sites would be reported as missing from payloads that are correct
+ * precisely because they omit them. Measured against the real schema before this was
+ * written: five false positives, every one of them a generated key.
+ *
+ * `attidentity` and `attgenerated` are the columns that settle it and they exist only in
+ * the catalog, which is rule 4's own instruction — ask the thing that enforces, not a
+ * description of it.
+ *
+ * Fails loudly rather than returning an empty map: a required-column check that silently
+ * knows about no required columns passes everything, which is the assertion-that-cannot-
+ * fail this file exists to prevent.
+ */
+export function requiredColumns(db: string): Map<string, Set<string>> {
+  const out = execFileSync('psql', ['-v', 'ON_ERROR_STOP=1', '-tAq', '-F', '|', '-d', db, '-c', `
+    select c.relname, string_agg(a.attname, ',' order by a.attnum)
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
+    join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+    left join pg_attrdef d on d.adrelid = c.oid and d.adnum = a.attnum
+    where c.relkind = 'r'
+      and a.attnotnull and d.adbin is null
+      and a.attidentity = '' and a.attgenerated = ''
+    group by c.relname;`], { encoding: 'utf8' });
+  const map = new Map<string, Set<string>>();
+  for (const line of out.split('\n')) {
+    const [table, cols] = line.trim().split('|');
+    if (table === undefined || table === '' || cols === undefined) continue;
+    map.set(table, new Set(cols.split(',').filter((x) => x !== '')));
+  }
+  if (map.size === 0) throw new Error('requiredColumns read no tables — the check cannot run');
+  return map;
+}
+
+/**
+ * Every required column absent from an INSERT or UPSERT payload.
+ *
+ * `update` is excluded and that is the whole subtlety: an UPDATE leaves an omitted column
+ * at its old value, so a partial patch is legitimate. An UPSERT is not a patch — PostgREST
+ * sends `insert … on conflict do update`, so the INSERT arm runs and its NOT NULL columns
+ * bite on a row that does not exist yet. That is exactly the case a provisioning script
+ * hits on a new tenant and never hits again.
+ *
+ * A table the catalog does not know is reported rather than skipped — D-057's rule, that a
+ * check which cannot complete must say so rather than answer with the part it managed.
+ */
+export function missingRequiredProblems(
+  uses: readonly WriteUse[], required: Map<string, Set<string>>, known: Map<string, Set<string>>,
+): string[] {
+  const problems: string[] = [];
+  for (const u of uses) {
+    if (u.verb !== 'insert' && u.verb !== 'upsert') continue;
+    // A table absent from the transport document is already named by the reachability check.
+    if (!known.has(u.table)) continue;
+    const need = required.get(u.table);
+    if (need === undefined) {
+      problems.push(`${u.file}:${u.line}: ${u.table} is not in the catalog, so the .${u.verb}() `
+        + 'payload CANNOT be checked for required columns');
+      continue;
+    }
+    const have = new Set(u.columns);
+    const missing = [...need].filter((c) => !have.has(c));
+    if (missing.length > 0) {
+      problems.push(`${u.file}:${u.line}: ${u.table}.${missing.join(', ')} `
+        + `NOT NULL with no default and absent from the .${u.verb}() payload`);
+    }
+  }
+  return problems;
+}
+
 /** `definitions` in PostgREST's Swagger 2.0 document: one entry per exposed relation. */
 export function columnsFrom(openApi: unknown): Map<string, Set<string>> {
   const defs = (openApi as { definitions?: Record<string, { properties?: Record<string, unknown> }> })
@@ -285,6 +373,12 @@ async function main(): Promise<void> {
   if (url === undefined || secret === undefined) {
     throw new Error('PGRST_URL and PGRST_JWT_SECRET must be set — see .github/workflows/schema.yml');
   }
+  // The database BEHIND that PostgREST, for the catalog half of the check. Named rather
+  // than defaulted: a wrong guess here reads no required columns and passes everything.
+  const db = process.argv[2];
+  if (db === undefined || db === '') {
+    throw new Error('usage: node scripts/verify/postgrest.ts <database> — see .github/workflows/schema.yml');
+  }
   const jwt = serviceRoleJwt(secret);
 
   const res = await fetch(url, { headers: { Authorization: `Bearer ${jwt}`, apikey: jwt } });
@@ -301,6 +395,7 @@ async function main(): Promise<void> {
 
   const writes = writesFromSource();
   problems.push(...writeProblems(writes.uses, columns));
+  problems.push(...missingRequiredProblems(writes.uses, requiredColumns(db), columns));
   if (writes.unresolved.length > 0) {
     // Reported, never skipped silently — the same posture `query-columns.ts` takes. A
     // payload built from a variable or a spread cannot be read statically, and a check
@@ -352,7 +447,8 @@ async function main(): Promise<void> {
     process.stderr.write(`POSTGREST REACHABILITY FAILED:\n  - ${problems.join('\n  - ')}\n`);
     process.exit(1);
   }
-  process.stdout.write('POSTGREST OK (every name and column the runtime selects OR WRITES is exposed on the default profile)\n');
+  process.stdout.write('POSTGREST OK (every name and column the runtime selects OR WRITES is exposed on the '
+    + 'default profile, and every insert carries the columns the database requires)\n');
 }
 
 if (process.argv[1] !== undefined && process.argv[1].endsWith('postgrest.ts')) {
