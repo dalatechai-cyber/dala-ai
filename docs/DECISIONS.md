@@ -7617,3 +7617,74 @@ byte-identical to what the bot will serve"* — and it was not, for thirty of th
 forty-three lines. **A list rendered by one code path and served by another is two
 implementations of one sentence** (the `btrim`/`.trim()` lesson, third instance). The
 generator now uses the renderer's own label rule.
+
+## D-101 — a collision the code could describe and did not act on
+
+**2026-09-20, the founder, on the point of applying the intake.** He asked one question:
+«Дип будаг» and «Будаг арилгалт» are MANICURE services — if a customer writes «үсний будаг
+арилгах», *remove my hair colour*, does that match «Будаг арилгалт» and quote 8,000₮?
+
+**No, and what it did instead was worse.** «арилгалт» is not a prefix of «арилгах» — they
+diverge after «арилга» — so the manicure name never matched. The text satisfied «Будаг»
+alone, at one token, five code points, comfortably clearing `MIN_STEM_CHARS`. The verdict
+was `unique`, and the three dye-APPLICATION prices (135,000 / 176,000 / 200,000₮) would
+have been quoted to somebody asking about REMOVAL.
+
+### The defect was a function that only ever printed
+
+`subsetCollisions` has computed this relation since D-092 and was never consulted when
+matching. Its own docstring says the pair is *"UNVERIFIABLE in one direction"* and that no
+row repairs it — which is an argument for REFUSING, and it was used as an argument for
+reporting and then answering anyway. **A collision the code can describe and does not act
+on is a comment.** That is `meta/extract.ts`'s "everything skipped is reported" and
+`config/platform.ts`'s monthly ceiling, a third time: prose asserting a control that was
+never wired.
+
+`shadowed` is carried beside `specific` rather than folded into it, because they are
+different facts and D-074's lesson is that a defect filed under the wrong reason sends the
+reader to the wrong screen. A log line saying «Будаг» was too SHORT would be false.
+
+### The first version was too broad, and the test that caught it said so in its name
+
+Folding both checks into one condition turned «гоёл» — which reaches «Хумсны гоёл» AND
+«Гоёлын засалт» — from `ambiguous` into `too_vague`. Both refuse, so it looked harmless;
+`ambiguous` names the candidates and `too_vague` does not. **A rule that makes an answer
+LESS specific in the name of safety has confused the two.** Shadowing now decides exactly
+one shape: a SINGLE winner that a longer name contains. Several winners stay `ambiguous`.
+
+### What it costs, measured on real traffic rather than argued
+
+Over all 164 inbound messages Matrix has received: 132 `none`, 22 `unique`, 9 `too_vague`,
+1 `ambiguous`. **Exactly two change**, and both were right before:
+
+| message | was | now |
+|---|---|---|
+| «будаг хэдээр хийх вэ» | `unique → Будаг` | refused |
+| «Тайралт будаг» | `unique → Будаг` | refused |
+
+Both are genuine hair-colour price questions that D-100's option B would have answered with
+the three lengths. Against that: **«арилга» occurs 0 times in 164 and «дип» occurs 0
+times.** The threat cases are hypothetical and the cost is real — two of twenty-two
+будаг-family messages lose a correct answer. The founder took the trade knowing «Дип будаг»
+is a manicure service; it is recorded here so it can be reversed on evidence rather than
+re-argued from scratch.
+
+**And note where the invented example came from: me.** «үсэндээ дип будаг» was my
+construction in the previous measurement, and the corpus says no customer has ever written
+«дип» at all. It is the same error as D-099's addendum one turn later — a case that feels
+diagnostic because the author wrote it. Checking whether an example is ATTESTED costs one
+grep and changes what the measurement means.
+
+### Two holes left open, both measured
+
+**Latin.** `budag arilgah` is still `unique → Будаг`, because «Дип будаг» and «Будаг
+арилгалт» carry no Latin aliases, so `{budag}` is a subset of nothing in that script — and
+58.5% of the corpus carries no Cyrillic. Measured repair: add the alias rows «dip budag»
+and «budag arilgal», after which all three `budag` probes return `too_vague`. It is data,
+not code, and it was NOT applied here because the founder was mid-apply of the intake.
+
+**«Дип будаг» itself** is a subset of nothing, so no shadow rule reaches it. A rename to
+«Дип хумсны будаг» fixes it and was measured — but it also makes a plain «дип будаг»
+`too_vague`, because «дип» is three code points and fails the length floor. That is a real
+cost to nail customers for a phrasing with zero corpus instances, so it is reported and not
+taken.
