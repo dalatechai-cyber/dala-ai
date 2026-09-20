@@ -3722,6 +3722,15 @@ META_APP_SECRETS='{"dalatech":"…"}' \
     --app-id 1562862634970492 --app-id 1380702870025418
 ```
 
+**The invocation above is superseded and kept as the record of what was decided.** On
+2026-09-20 `--field` became REQUIRED with no default: the command checked a transcribed
+`REQUIRED_FIELD = 'messages'` under a docstring calling it "the field every
+`tenant_channels` row on this platform subscribes to today", and that stopped being true
+the moment Matrix's comment surface needed `feed`. It would have printed
+`page/messages is subscribed and active` and exited 0 with `feed` switched off and every
+comment silently undelivered — the drift the command exists to catch, inside the command.
+Add `--field messages --field feed` for a channel answering comments.
+
 It prints, per app: the callback URL Meta currently holds, `active`, and the field list —
 so a revoked field, an edited callback and a disabled subscription are all visible in one
 read. It issues GETs and nothing else; neither of the two dangerous writes is reachable

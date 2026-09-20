@@ -626,3 +626,39 @@ test('DONE-TEST: the per-post cap counts only rows that are or may be public', a
     'failed and refused prove nothing was posted and must not consume the allowance',
   );
 });
+
+// The cap's own reasoning says the operator answers "is a cap of 1 costing me customers?"
+// by counting `post_cap_reached` — and until now there was nothing to count. Matrix's
+// rehearsal on 2026-09-20 spent one post's daily allowance on our own test comment and then
+// capped the only real answerable customer comment of the night, «Яармаг хаяг хаана вэ»,
+// leaving no trace anywhere in the database.
+test('a capped comment writes a durable row carrying the count and the cap', async () => {
+  const { ops, result } = run(
+    { outbound: { posts: { data: [{ comment_post_id: `${PAGE}_p1` }], error: null } } },
+  );
+  const r = await result;
+  assert.equal(r.refused['post_cap_reached'], 1);
+  const flag = ops.find((o) => o.table === 'quality_flags' && o.op === 'insert');
+  assert.ok(flag, 'the cap must leave a row, not only a counter and a log line');
+  const patch = flag?.patch ?? {};
+  const detail = patch['detail'] as Record<string, unknown>;
+  assert.equal(patch['flag'], 'comment_post_cap_reached');
+  assert.equal(detail['replies_in_window'], 1);
+  assert.equal(detail['cap'], 1);
+  // Ids and shape, never the words — quality_flags is not reached by ops.purge_expired.
+  assert.deepEqual(
+    Object.keys(detail).sort(),
+    ['cap', 'chars', 'comment_id', 'has_cyrillic', 'post_id', 'replies_in_window'],
+  );
+});
+
+// The line is drawn at "a reply was wanted and lost". A second comment in a thread that
+// already has its reply loses nothing, so it stays a counter.
+test('thread_already_answered stays a counter and writes no row', async () => {
+  const { ops, result } = run(
+    { outbound: { existing: { data: [{ dedup_key: `${PAGE}_c1`, provider_message_id: 'r_old' }], error: null } } },
+  );
+  const r = await result;
+  assert.equal(r.refused['thread_already_answered'], 1, 'the case under test actually fired');
+  assert.equal(ops.filter((o) => o.table === 'quality_flags').length, 0);
+});

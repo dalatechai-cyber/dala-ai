@@ -786,7 +786,7 @@ An hourly cron (capped, no model) that for each `active` channel:
 2. **`GET /{app-id}/subscriptions` with an app access token (`{app-id}|{app-secret}`), once per app per run** — and refuses to activate a channel, or alerts on an active one, when any entry in `subscribed_fields` is missing from the app-level list for that object.
 
 **Step 2 is BUILT as of 2026-09-14, as a command rather than as part of the reconciler:**
-`node scripts/diagnose/meta-subscription.ts --app-id <id>` with `META_APP_SECRETS` in the
+`node scripts/diagnose/meta-subscription.ts --app-id <id> --field messages [--field feed]` with `META_APP_SECRETS` in the
 shell. Read-only, GET-only, and it prints the callback URL, `active` and the field list
 Meta currently holds for each app. It was written because that read had never been made
 and both channels had then been silent for eleven days with nothing able to say why
