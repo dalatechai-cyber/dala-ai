@@ -11,8 +11,13 @@
  *
  * A MISS costs a refusal, which is today's behaviour and therefore no regression. A wrong
  * SERVE costs a real price attached to the wrong service, which a customer cannot detect
- * and may act on. So every rule below resolves towards not serving, and `matchService`'s
- * `ambiguous` and `too_vague` verdicts are treated as refusals rather than as ties to break.
+ * and may act on. So every rule below resolves towards not serving, and no verdict is ever
+ * treated as a tie to break.
+ *
+ * Serving a SET is not a tie broken (D-102, D-103). Every line names its own service, so a
+ * customer shown «Будаг арилгалт — 8,000₮ [Маникюр]» beside a hair price has been told which
+ * is which; nothing is attached to the wrong service. What stays forbidden is choosing one
+ * of several, and `too_vague` — a term too short to act on at all — still refuses outright.
  *
  * ## What the four retired render tests became
  *
@@ -54,7 +59,7 @@ export type PricedService = {
   readonly serviceId: string;
   readonly name: string;
   /**
-   * The salon's own price-list heading, shown ONLY when a family is served (D-102).
+   * The salon's own price-list heading, shown ONLY when a SET is served (D-102, D-103).
    *
    * It is the tenant's word, never ours — `services.category` as they wrote it — so this
    * adds no Mongolian to the reply that the client has not already published. A single
@@ -79,7 +84,13 @@ export type PriceQuoteInput = {
 export type PriceQuoteReason =
   /** The tenant's matcher did not call this a price question. */
   | 'no_price_intent'
-  /** `matchService` returned none, ambiguous or too_vague. Never a tie to break. */
+  /**
+   * `matchService` returned `none` or `too_vague`. Never a tie to break.
+   *
+   * The name predates D-102/D-103 and is kept: `unique` is no longer the only verdict that
+   * serves, but "the text did not settle which service" is still exactly what this counts,
+   * and it is the number that says whether the salon's NAMES need work.
+   */
   | 'service_not_unique'
   /** The service matched but carries no variants at all. */
   | 'no_variant'
@@ -93,7 +104,15 @@ export type PriceQuoteReason =
   | 'no_reviewed_tail';
 
 export type PriceQuote =
-  | { readonly serve: true; readonly body: string; readonly serviceId: string; readonly serviceName: string }
+  /**
+   * `served` is every service whose prices are in `body`, in the order they appear.
+   *
+   * A list rather than a single id, because since D-102 a reply may name several and a
+   * trace that recorded one of them would be D-064's dead column with a plausible value in
+   * it: a log line saying «Будаг» when the customer was also shown a manicure price is
+   * worse than no log line, because nobody would go looking.
+   */
+  | { readonly serve: true; readonly body: string; readonly served: readonly { readonly serviceId: string; readonly name: string }[] }
   | { readonly serve: false; readonly reason: PriceQuoteReason; readonly verdict?: ServiceMatchResult['verdict'] };
 
 /**
@@ -129,18 +148,26 @@ export function decidePriceQuote(input: PriceQuoteInput): PriceQuote {
   if (!input.priceIntent) return { serve: false, reason: 'no_price_intent' };
 
   const match = matchService(input.text, input.entries);
-  if (match.verdict !== 'unique' && match.verdict !== 'family') {
-    return { serve: false, reason: 'service_not_unique', verdict: match.verdict };
-  }
+  // `family` answers with every service a short name could mean (D-102); `ambiguous` with
+  // every service that matched equally (D-103). Both are the SET the text is consistent
+  // with, served in full, and the difference between them is the relation rather than the
+  // policy — which is why they are read through one expression and not two branches.
+  //
+  // `none` and `too_vague` still refuse. That is not an oversight kept for symmetry: there
+  // is no set to serve. `none` matched nothing, and `too_vague` matched on a term too short
+  // to be evidence — «сорри», a customer apologising, reaching «Сор».
+  const wanted = match.verdict === 'family' ? match.family.map((f) => f.serviceId)
+    : match.verdict === 'ambiguous' ? match.matches.map((m) => m.serviceId)
+    : match.verdict === 'unique' ? [match.match.serviceId]
+    : null;
+  if (wanted === null) return { serve: false, reason: 'service_not_unique', verdict: match.verdict };
 
-  // A `family` answers with every service the short name could mean (D-102). One service
-  // shows no category; several do, because the heading is the only thing distinguishing
-  // «Будаг арилгалт — 8,000₮» from the hair prices above it.
-  const wanted = match.verdict === 'family' ? match.family.map((f) => f.serviceId) : [match.match.serviceId];
+  // One service shows no category; several do, because the heading is the only thing
+  // distinguishing «Будаг арилгалт — 8,000₮» from the hair prices above it.
   const chosen: PricedService[] = [];
   for (const id of wanted) {
     const s = input.services.find((x) => x.serviceId === id);
-    // A family member with no priced row is not a partial answer to give. Refusing the
+    // A member of the set with no priced row is not a partial answer to give. Refusing the
     // whole set is the same rule as refusing a service's readable half, one level up:
     // a customer shown two of three «будаг» services learns a price and not the choice.
     if (s === undefined || s.variants.length === 0) return { serve: false, reason: 'no_variant' };
@@ -159,7 +186,6 @@ export function decidePriceQuote(input: PriceQuoteInput): PriceQuote {
     return { serve: false, reason: 'unconfirmed_price' };
   }
 
-  const svc = chosen[0]!;
   const lines: string[] = [];
   for (const s of chosen) {
     for (const v of s.variants) {
@@ -180,7 +206,6 @@ export function decidePriceQuote(input: PriceQuoteInput): PriceQuote {
   return {
     serve: true,
     body: `${lines.join('\n')}\n${input.tail}`,
-    serviceId: svc.serviceId,
-    serviceName: svc.name,
+    served: chosen.map((s) => ({ serviceId: s.serviceId, name: s.name })),
   };
 }

@@ -154,7 +154,9 @@
       "durationMinutes": 30,
       "aliases": [
         "тэжээлийн тос",
-        "tejeeliin tos"
+        "tejeeliin tos",
+        "тэжээл",
+        "tejeel"
       ],
       "variants": [
         {
@@ -519,7 +521,9 @@
       "category": "Химийн үйлчилгээ",
       "durationMinutes": 60,
       "aliases": [
-        "cmc"
+        "cmc",
+        "тэжээл",
+        "tejeel"
       ],
       "variants": [
         {

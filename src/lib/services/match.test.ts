@@ -196,3 +196,23 @@ test('the verdict is stable across runs', () => {
   const first = matchService('z', e);
   for (let i = 0; i < 5; i++) assert.deepEqual(matchService('z', e), first);
 });
+
+test('DONE-TEST: TWO EQUAL WINNERS IS AMBIGUOUS EVEN WHEN ONE IS SHADOWED', () => {
+  // Aliasing «тэжээл» onto both «Тэжээлийн тос» and «CMC тэжээл» makes the first entry's
+  // term a strict subset of the SECOND's name, so that winner carries `shadowed`. Reaching
+  // the family branch would mean naming one of two equal winners as the match the family is
+  // built around — the silent pick this function exists to refuse.
+  //
+  // Measured, both readings happen to yield the same pair here. The order is right because
+  // of what it refuses to decide, not because of the set it produces.
+  const entries = [
+    { serviceId: 'tos', name: 'Тэжээлийн тос', terms: [toTerm('Тэжээлийн тос'), toTerm('тэжээл')] },
+    { serviceId: 'cmc', name: 'CMC тэжээл',    terms: [toTerm('CMC тэжээл'), toTerm('тэжээл')] },
+  ];
+  const r = matchService('тэжээл хэд вэ', entries);
+  assert.equal(r.verdict, 'ambiguous');
+  assert.deepEqual(r.verdict === 'ambiguous' ? r.matches.map((m) => m.name) : [],
+    ['CMC тэжээл', 'Тэжээлийн тос']);
+  assert.equal(r.verdict === 'ambiguous' && r.matches.some((m) => m.shadowed), true,
+    'one winner IS shadowed — the ordering is what keeps the verdict honest, not its absence');
+});

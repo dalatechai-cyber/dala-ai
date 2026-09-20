@@ -21,7 +21,7 @@
  */
 import type { IntakeDocument } from './intake.ts';
 import type { Finding, Readiness } from './validate.ts';
-import { entriesFrom, subsetCollisions } from '../services/match.ts';
+import { entriesFrom, subsetCollisions, termIsSpecific, toTerm } from '../services/match.ts';
 
 /** The order a customer is most likely to meet these, not alphabetical. */
 const SENTENCE_ORDER = [
@@ -94,9 +94,29 @@ export function reviewSheet(
   ));
   if (collisions.length > 0) {
     L.push('\n   Service names a customer cannot disambiguate:');
-    for (const c of collisions) L.push(`   · «${c.subset}» ⊂ «${c.superset}»`);
-    L.push('   Until one is renamed the matcher returns `ambiguous` and no price is served.');
-    L.push('   That is the safe outcome, not the acceptable one: the customer gets nothing.');
+    const seenPair = new Set<string>();
+    for (const c of collisions) {
+      const key = `${c.subset}\u0000${c.superset}`;
+      if (seenPair.has(key)) continue;
+      seenPair.add(key);
+      const terms = [...new Set(collisions
+        .filter((o) => o.subset === c.subset && o.superset === c.superset)
+        .map((o) => o.via))];
+      const vague = terms.filter((v) => !termIsSpecific(toTerm(v)));
+      // Naming the TERM, not only the service: «Тэжээлийн тос» is not a subword of «CMC
+      // тэжээл» — its alias «тэжээл» is, and the full name resolves perfectly well.
+      const via = terms.length === 1 && terms[0] === c.subset ? '' : `  (via «${terms.join('», «')}»)`;
+      L.push(`   · «${c.subset}» ⊂ «${c.superset}»${via}`
+        + (vague.length > 0 ? `  ← «${vague.join('», «')}» is too short to act on` : ''));
+    }
+    // The sheet said "until one is renamed the matcher returns `ambiguous` and no price is
+    // served" until 2026-09-20, and D-102 had already made that false: a shadowed winner is
+    // answered with the whole family. The sentence outlived the behaviour it described by one
+    // merge, and the founder caught it in a dry run — a review sheet that misdescribes the
+    // code is a gate reading something other than what is served.
+    L.push('   The customer is shown EVERY service the short name could mean, each with the');
+    L.push('   salon’s own category heading beside its price, and self-selects (D-102).');
+    L.push('   A term marked too short above is the exception: nothing at all is served for it.');
   }
 
   L.push('\n4. WHAT SIGNING MEANS');

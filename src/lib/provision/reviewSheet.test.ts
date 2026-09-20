@@ -46,11 +46,17 @@ test('every sentence appears on the sheet, whole and unabridged', () => {
   for (const body of Object.values(doc.sentences)) assert.ok(sheet.includes(body), body);
 });
 
-test('DONE-TEST: THE SHEET NAMES THE COLLISION AND SAYS IT HOLDS PROVISIONING', () => {
+test('DONE-TEST: THE SHEET NAMES THE COLLISION AND SAYS WHAT THE CUSTOMER IS SHOWN', () => {
+  // This test asserted `holds provisioning` and `no price is served` until 2026-09-20, and
+  // D-102 had made both false one merge earlier: a shadowed winner is answered with the whole
+  // family. The founder found it in a dry run, not here, because the assertion pinned the
+  // sentence rather than the behaviour. It pins the behaviour now: «Хайрцаг» clears the
+  // specificity floor, so the sheet must describe a reply, not a refusal.
   const sheet = sheetFor(example());
   assert.match(sheet, /«Хайрцаг» ⊂ «Автомат хайрцаг»/);
-  assert.match(sheet, /holds provisioning/);
-  assert.match(sheet, /no price is served/);
+  assert.match(sheet, /EVERY service the short name could mean/);
+  assert.doesNotMatch(sheet, /holds provisioning/, 'a collision the code answers is not a hold');
+  assert.doesNotMatch(sheet, /too short to act on/, '«Хайрцаг» is seven code points');
 });
 
 test('the sheet prints the allow-list as permissions, including non-price numerals', () => {

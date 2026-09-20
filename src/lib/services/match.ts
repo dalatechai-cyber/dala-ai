@@ -86,11 +86,15 @@ export type ServiceMatch = {
   /**
    * Are this term's tokens a strict subset of some OTHER service's term?
    *
-   * Separate from `specific` on purpose. Both send a match to `too_vague`, and they are
-   * different facts: `specific` is about the term's own size, `shadowed` is about the
-   * catalogue around it. D-074's lesson is that a defect filed under the wrong reason
-   * sends the reader to the wrong screen — a log line saying «Будаг» was too short would
-   * be false, and would point at `MIN_STEM_CHARS` for a problem no floor can fix.
+   * Separate from `specific` on purpose, and they are different facts: `specific` is about
+   * the term's own size, `shadowed` is about the catalogue around it. D-074's lesson is
+   * that a defect filed under the wrong reason sends the reader to the wrong screen — a log
+   * line saying «Будаг» was too short would be false, and would point at `MIN_STEM_CHARS`
+   * for a problem no floor can fix.
+   *
+   * The two also diverged once the reason mattered: since D-102 a shadowed winner is
+   * ANSWERED as a `family`, while a term below the floor is still refused as `too_vague`.
+   * Had they been folded together, that split could not have been expressed.
    */
   readonly shadowed: boolean;
 };
@@ -128,6 +132,17 @@ export type ServiceMatchResult =
       readonly match: ServiceMatch;
       readonly family: readonly { readonly serviceId: string; readonly name: string }[];
     }
+  /**
+   * SEVERAL services matched equally well, none of them containing another — peers rather
+   * than a family. «тэжээл» is Matrix's case: «Тэжээлийн тос» (49,500₮) and «CMC тэжээл»
+   * (132,000₮) are different services that share a word, and a customer typing it alone has
+   * asked a question with two right answers.
+   *
+   * D-103, the founder's call, and the same move D-102 made one relation over: the reply
+   * names them all with their categories and the customer self-selects. It is NOT a silent
+   * pick — every match is carried, and a caller that does not know this verdict still
+   * refuses. What is forbidden is choosing one, which no code here does.
+   */
   | { readonly verdict: 'ambiguous'; readonly matches: readonly ServiceMatch[] };
 
 /**
@@ -278,12 +293,18 @@ export function matchService(text: string, entries: readonly ServiceEntry[]): Se
   // judged on its best reading, and `bestTerm` has already chosen that.
   if (!winners.every((w) => w.specific)) return { verdict: 'too_vague', matches: winners };
 
-  // SEVERAL winners is `ambiguous`, and shadowing does not change that. Both verdicts
-  // refuse, so the temptation is to fold them together — and the first version of D-101
-  // did, which turned «гоёл» (reaching «Хумсны гоёл» AND «Гоёлын засалт») from a verdict
-  // naming both services into a vaguer one. `ambiguous` is the more precise answer
-  // whenever it is available, and a rule that makes an answer LESS specific in the name of
-  // safety has confused the two.
+  // SEVERAL winners is `ambiguous`, and shadowing does not change that — it is checked
+  // FIRST because it is the more precise answer whenever it is available. The first version
+  // of D-101 folded the two together, which turned «гоёл» (reaching «Хумсны гоёл» AND
+  // «Гоёлын засалт») from a verdict naming both services into a vaguer one; a rule that
+  // makes an answer LESS specific in the name of safety has confused the two.
+  //
+  // Note what the order now decides rather than merely how it reads. Aliasing «тэжээл» onto
+  // both «Тэжээлийн тос» and «CMC тэжээл» makes the first term a strict subset of the
+  // second's NAME, so that winner is `shadowed` too. Reaching the family branch would mean
+  // naming ONE of two equal winners as the match a family is built around — the silent pick
+  // this function exists to refuse. Measured, both readings happen to yield the same pair
+  // here; the order is right because of what it refuses to decide, not because of the set.
   if (winners.length > 1) return { verdict: 'ambiguous', matches: winners };
 
   // One winner, and the catalogue holds a longer name containing it. D-101 refused here;

@@ -23,7 +23,7 @@
  */
 import { allowedNumbersFrom } from '../prompt/render.ts';
 import { renderTenantSections, type ServiceVariant, type TenantKb } from '../prompt/tenant.ts';
-import { entriesFrom, subsetCollisions } from '../services/match.ts';
+import { entriesFrom, subsetCollisions, termIsSpecific, toTerm } from '../services/match.ts';
 import { containsStem } from '../mn/match.ts';
 import { scriptMatcher } from '../mn/text.ts';
 import { parseMatcher } from '../gate/match.ts';
@@ -100,22 +100,77 @@ export function validateIntake(doc: IntakeDocument, now = new Date()): Finding[]
   const add = (severity: Severity, code: string, detail: string, holdsReady = false) =>
     out.push(holdsReady ? { severity, code, detail, holdsReady } : { severity, code, detail });
 
-  // --- Service names that collide, which no alias row can repair -------------------------
+  // --- Service names that collide -------------------------------------------------------
+  //
+  // This finding used to hold `ready` in every case, and said the client must rename one.
+  // D-102 retired that advice: a subset collision is now ANSWERED — a customer naming only
+  // the short term is shown every service containing it, each under the salon's own category
+  // heading. Matrix is why. «Будаг» is hair colouring and «Дип будаг» is a manicure, because
+  // Matrix runs two salons under one Page, so the name is not sloppy and nothing should be
+  // renamed. A validator still blocking on it was asking the client to fix the catalogue to
+  // suit a refusal the code had stopped making.
+  //
+  // The hold survives in the one case the family branch cannot reach. `matchService` applies
+  // the specificity floor to the winners BEFORE it looks at shadowing, so a subset term below
+  // it returns `too_vague` and nothing is served at all. That is «Сор» — 120,000–190,000
+  // against «Оффис колор /Сор/» 380,000–460,000, prices 3.2× apart, a real customer wrote
+  // «сортой» on 2026-09-14, and seven of Matrix's 164 corpus messages still reach it. Three
+  // code points cannot be made to carry a decision, and no alias and no verdict changes that.
   const entries = entriesFrom(
     doc.services.map((s) => ({ id: s.name, name: s.name })),
     doc.services.flatMap((s) => s.aliases.map((a) => ({ serviceId: s.name, alias: a }))),
   );
-  const seen = new Set<string>();
+  // Grouped by the NAME PAIR and judged on every term that produces it: one service may hold
+  // both a long term and a short one, and reporting whichever `subsetCollisions` happened to
+  // list first would decide the hold on the order of a nested loop.
+  const vias = new Map<string, { c: { subset: string; superset: string }; terms: string[] }>();
   for (const c of subsetCollisions(entries)) {
-    const key = `${c.subset}>>${c.superset}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    add('ask_client', 'service_name_collision',
-      `«${c.subset}» is a subword of «${c.superset}» — a customer naming only the first cannot be told apart. `
-      + 'No alias fixes this; the client renames one, or supplies a clarifying question.',
-      // Holds `ready`. Measured on Matrix: «Сор» 120,000–190,000 against «Оффис колор /Сор/»
-      // 380,000–460,000, prices 3.2× apart, and a real customer wrote «сортой» on 2026-09-14.
-      true);
+    const key = `${c.subset}\u0000${c.superset}`;
+    const at = vias.get(key) ?? { c, terms: [] };
+    if (!at.terms.includes(c.via)) at.terms.push(c.via);
+    vias.set(key, at);
+  }
+  for (const { c, terms } of vias.values()) {
+    const vague = terms.filter((t) => !termIsSpecific(toTerm(t)));
+    // The colliding thing is a TERM, which is the service's name only sometimes. «Тэжээлийн
+    // тос» is not a subword of «CMC тэжээл»; its ALIAS «тэжээл» is, and a finding that named
+    // the service would send the client to check a name that resolves perfectly well.
+    const via = terms.length === 1 && terms[0] === c.subset ? '' : ` (via «${terms.join('», «')}»)`;
+    if (vague.length === 0) {
+      add('ask_client', 'service_name_collision',
+        `«${c.subset}»${via} collides with «${c.superset}» — a customer typing only the shared `
+        + 'words is answered with BOTH, each under its own category heading (D-102). Confirm '
+        + 'that is the reply you want; renaming one is the alternative, and no longer the only repair.');
+    } else {
+      add('ask_client', 'service_name_collision',
+        `«${c.subset}»${via} collides with «${c.superset}», and «${vague.join('», «')}» is too short `
+        + 'to act on, so the matcher refuses it as too vague and NO price is served. No alias '
+        + 'fixes this; the client renames one.',
+        true);
+    }
+  }
+
+  // --- A service no customer can ever reach ----------------------------------------------
+  //
+  // Separate from the collision above on purpose, because it is a different fact and the
+  // repair is different (D-074: a defect filed under the wrong reason sends the reader to
+  // the wrong screen). «Сор» is unreachable whether or not «Оффис колор /Сор/» exists — the
+  // floor refuses a one-token term of three code points as evidence, since «сорри», a
+  // customer apologising, reaches it too. Splitting the two names, which is what Matrix did,
+  // removes the collision and leaves this untouched; without this finding the service would
+  // simply have vanished from the sheet.
+  //
+  // It does NOT hold `ready`. Nothing wrong is served — the turn falls through to the model
+  // exactly as it does today — so it is a question that cannot produce a wrong answer, which
+  // is the same footing as `no_latin_stems`.
+  for (const s of doc.services) {
+    const all = [s.name, ...s.aliases].filter((t) => t.trim() !== '');
+    if (all.length > 0 && all.every((t) => !termIsSpecific(toTerm(t)))) {
+      add('ask_client', 'service_name_unmatchable',
+        `«${s.name}» has no term long enough to match on — every one of «${all.join('», «')}» is `
+        + 'a single short token, so the matcher answers `too_vague` and this service can never '
+        + 'be priced. A longer alias the customers actually type is the cheapest repair.');
+    }
   }
 
   // --- Duplicate names, which would make the matcher ambiguous for a different reason -----
