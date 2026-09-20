@@ -248,9 +248,32 @@ export const EMBEDDED_MIN_SHARE = 0.6;
 /**
  * And a floor, because a proportion alone is too generous to a short row.
  *
- * Matrix's rows share a closing sentence — «Та 7741-7777 дугаараар холбогдоно уу.», 36
- * characters — and a reply may legitimately end that way without having reproduced any
- * particular row. Forty keeps the phone sentence from reading as drift on its own.
+ * Matrix's rows share a closing sentence and a reply may legitimately end that way without
+ * having reproduced any particular row, so something has to keep that sentence from reading
+ * as drift on its own.
+ *
+ * **Forty was that something and is not any more.** It was chosen against
+ * «Та 7741-7777 дугаараар холбогдоно уу.» — stated here as 36 characters, actually **37** —
+ * and the salon replaced that number on 2026-09-19. «Та 76001888 эсвэл 80905498 дугаараар
+ * холбогдоно уу.» is **51** code points, and the «лавлана» variant **48**: both clear this
+ * floor comfortably, so the floor no longer excludes the shared sentence at all.
+ *
+ * What excludes it now is `EMBEDDED_MIN_SHARE`. The shortest live row carrying that sentence
+ * is `refusal_no_promotion` at 99 code points, and 0.6 × 99 = 59.4 > 48, so the run falls
+ * short of the proportion instead of short of the floor. Measured, not reasoned: every probe
+ * came back `clean`.
+ *
+ * **The guard did not break; the reason it was true did**, which is D-058's shape and the
+ * reason this comment is long. The boundary is now a property of the ROWS rather than of
+ * this constant: a row of **80 code points or fewer** ending in that sentence satisfies
+ * 48 ≥ 0.6 × L and would be served in place of a correct answer. Matrix has ~19 characters
+ * of margin. `pinned.test.ts` states both sides of that boundary executably, so a shorter
+ * row — or a lowered share — turns a test red instead of turning a reply into a refusal.
+ *
+ * Deliberately NOT raised to 52 to restore the old reading. That would make the guard more
+ * permissive on the surface D-077's founder call was about (*"the mechanism only means
+ * anything if it's exact"*), and it is a live-customer-facing behaviour change on a guard
+ * that is currently correct. The number stays; the justification is now accurate.
  */
 export const EMBEDDED_MIN_RUN = 40;
 

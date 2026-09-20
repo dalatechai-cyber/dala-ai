@@ -113,11 +113,11 @@ begin
   -- ------------------------------------------------------------------------
   -- The line the children's rule fires into. VERBATIM from the ancestor's
   -- CHILDREN_REPLY (`Matrix-Chatbot/lib/salonBrain.js:70`), phone number and all.
-  -- 114 characters, 100% Cyrillic over letters, NFC, no "lower_snake" token.
+  -- 128 characters, 100% Cyrillic over letters, NFC, no "lower_snake" token.
   -- ------------------------------------------------------------------------
   insert into canned_responses (tenant_id, kind, locale, body, reviewed_by, reviewed_at)
   select v_tenant, 'refusal_topic', 'mn-MN',
-         'Уучлаарай, хүүхдийн үйлчилгээний мэдээллийг би өгөх боломжгүй. Та салоны 7741-7777 дугаараар холбогдож лавлана уу.',
+         'Уучлаарай, хүүхдийн үйлчилгээний мэдээллийг би өгөх боломжгүй. Та салоны 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу.',
          'founder', v_reviewed
   where not exists (
     select 1 from canned_responses c
@@ -134,6 +134,18 @@ begin
   -- there. `kindsRequiredByRules` (D-050) now refuses that state before the model is
   -- called. This is the data half of the same fix.
   -- 110 characters, 100% Cyrillic, NFC.
+  --
+  -- SUPERSEDED, and deliberately NOT updated to the new phone number. The live
+  -- `refusal_out_of_scope` row no longer says any of this: D-082 found that this wording —
+  -- phrased about PHOTOGRAPHS — was Matrix's only consultation refusal, so a text-only
+  -- colour question was being answered «зурган дээр үндэслэн», and the founder reworded it.
+  -- The row now reads «Уучлаарай, ямар үйлчилгээ, өнгө Танд тохирохыг би шийдэж өгөх
+  -- боломжгүй…» and carries no phone number at all.
+  --
+  -- Swapping the number here would have produced a sentence that is current in exactly one
+  -- respect and retired in every other — the most misleading possible state for a line
+  -- somebody might re-run. The whole statement needs replacing with the live body, which is
+  -- customer-visible Mongolian and therefore the founder's, not a number swap's.
   -- ------------------------------------------------------------------------
   insert into canned_responses (tenant_id, kind, locale, body, reviewed_by, reviewed_at)
   select v_tenant, 'refusal_out_of_scope', 'mn-MN',

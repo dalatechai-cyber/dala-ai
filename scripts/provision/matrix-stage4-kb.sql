@@ -96,13 +96,23 @@ where t.slug = 'matrix-eco-salon'
 -- ---------------------------------------------------------------------------
 -- 3. Contact points
 -- ---------------------------------------------------------------------------
+-- The salon replaced 7741-7777 (and -7771, -7776) with these two on 2026-09-19. The
+-- VALUE and the GUARD both carried the old number, and that pair is why this mattered:
+-- the guard asked whether a row holding 7741-7777 existed, the republish had removed it,
+-- so a re-run would not have been a no-op — it would have inserted the dead number back
+-- as a second escalation contact, and the next publish would have compiled it into the
+-- prefix and into allowed_numbers. An idempotency guard keyed on the value it inserts
+-- stops being idempotent the moment that value changes.
+--
+-- Comma form, not «эсвэл»: this is a DATA row that renders as `- Утас: …`. The sentence
+-- form belongs in the canned bodies, where it is a sentence.
 insert into contact_points (tenant_id, kind, value, is_escalation)
-select t.id, 'phone', '7741-7777', true
+select t.id, 'phone', '76001888, 80905498', true
 from tenants t
 where t.slug = 'matrix-eco-salon'
   and not exists (
     select 1 from contact_points c
-    where c.tenant_id = t.id and c.kind = 'phone' and c.value = '7741-7777'
+    where c.tenant_id = t.id and c.kind = 'phone' and c.value = '76001888, 80905498'
   );
 
 -- ---------------------------------------------------------------------------
@@ -158,7 +168,7 @@ cross join (values
   'Салбарууд',
   'Матрикс эко салон нийт зургаан салбартай.' || chr(10) ||
   'Энэ хуудас бол Яармаг салбар. Паранчайс бол өөр салбар.' || chr(10) ||
-  'Бусад салбарын мэдээллийг 7741-7777 дугаараар лавлана уу.' || chr(10) ||
+  'Бусад салбарын мэдээллийг 76001888 эсвэл 80905498 дугаараар лавлана уу.' || chr(10) ||
   'Энд байгаа зарим үйлчилгээ бусад салбарт байхгүй.' || chr(10) ||
   'Оюунаа зөвхөн Яармаг салбарт ажилладаг.'
 ),
