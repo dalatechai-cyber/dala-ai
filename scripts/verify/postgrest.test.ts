@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   columnsFrom, exposedFrom, namesFromSource, parseSelect, selectProblems, selectsFromSource,
-  writeProblems, writesFromSource,
+  missingRequiredProblems, writeProblems, writesFromSource,
 } from './postgrest.ts';
 
 test('the names come from the source, never from a list', () => {
@@ -164,4 +164,64 @@ test('the select walker finds chains with a filter between .from() and .select()
   // `.eq()` first was invisible. Both checks now share one walker (`querysites.ts`).
   const selects = selectsFromSource();
   assert.ok(selects.length >= 70, `expected the non-adjacent chains too, found ${selects.length}`);
+});
+
+test('DONE-TEST: A REQUIRED COLUMN ABSENT FROM AN INSERT IS A FAILURE', () => {
+  // The real defect, reduced. `out_of_scope_topics.provenance` has been NOT NULL with no
+  // default since `0001`, and `scripts/provision/apply.ts` never sent it — so that writer
+  // had NEVER been able to write a row, for any tenant, and nothing was red. Every key it
+  // did send was a real column, which is the only question the old check asked.
+  const known = new Map([['out_of_scope_topics', new Set(['tenant_id', 'topic_key', 'provenance'])]]);
+  const required = new Map([['out_of_scope_topics', new Set(['tenant_id', 'topic_key', 'provenance'])]]);
+  const missing = missingRequiredProblems(
+    [{ file: 'a.ts', line: 1, table: 'out_of_scope_topics', verb: 'upsert', columns: ['tenant_id', 'topic_key'] }],
+    required, known);
+  assert.equal(missing.length, 1);
+  assert.match(missing[0] ?? '', /out_of_scope_topics\.provenance/);
+
+  const satisfied = missingRequiredProblems(
+    [{ file: 'a.ts', line: 1, table: 'out_of_scope_topics', verb: 'upsert', columns: ['tenant_id', 'topic_key', 'provenance'] }],
+    required, known);
+  assert.deepEqual(satisfied, []);
+});
+
+test('an UPDATE may omit a required column; an UPSERT may not', () => {
+  // The whole subtlety. An UPDATE leaves an omitted column at its old value, so a partial
+  // patch is legitimate and flagging it would make the check unusable. An UPSERT is not a
+  // patch: PostgREST sends `insert … on conflict do update`, so the INSERT arm runs and
+  // NOT NULL bites on a row that does not exist yet — a new tenant, once, and never again.
+  const known = new Map([['t', new Set(['a', 'b'])]]);
+  const required = new Map([['t', new Set(['b'])]]);
+  const at = (verb: string) => missingRequiredProblems(
+    [{ file: 'f.ts', line: 2, table: 't', verb, columns: ['a'] }], required, known).length;
+  assert.equal(at('update'), 0, 'a patch is allowed to be partial');
+  assert.equal(at('upsert'), 1);
+  assert.equal(at('insert'), 1);
+});
+
+test('DONE-TEST: A TABLE THE CATALOG DOES NOT KNOW IS REPORTED, NEVER SKIPPED', () => {
+  // D-057's rule inside the checker: a check that cannot complete says so. Passing here
+  // would make a typo'd or unmigrated table read as "no required columns", which is the
+  // assertion that cannot fail — and this file exists to remove those.
+  const problems = missingRequiredProblems(
+    [{ file: 'f.ts', line: 3, table: 'ghost', verb: 'insert', columns: ['a'] }],
+    new Map(), new Map([['ghost', new Set(['a'])]]));
+  assert.equal(problems.length, 1);
+  assert.match(problems[0] ?? '', /not in the catalog/);
+});
+
+test('DONE-TEST: EVERY PROVISIONING PAYLOAD IS ACTUALLY PARSED, not silently skipped', () => {
+  // `scripts/provision` was outside CHECKED_ROOTS until 2026-09-20, so nothing looked at
+  // the one script whose entire job is writing rows the database has never seen. The count
+  // is the assertion: if a payload stops resolving, this fails rather than quietly checking
+  // one site fewer.
+  const uses = writesFromSource().uses.filter((u) => u.file.startsWith('scripts/provision/'));
+  const tables = new Set(uses.map((u) => u.table));
+  for (const t of ['tenants', 'out_of_scope_topics', 'service_aliases', 'comment_rules', 'service_variants']) {
+    assert.ok(tables.has(t), `no resolvable ${t} payload in scripts/provision`);
+  }
+  for (const t of ['out_of_scope_topics', 'service_aliases', 'comment_rules']) {
+    const u = uses.find((x) => x.table === t);
+    assert.ok(u?.columns.includes('provenance'), `${t} payload must carry provenance`);
+  }
 });

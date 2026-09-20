@@ -7841,3 +7841,113 @@ One blocker, `facts_unconfirmed`, which is the founder's own signature and his t
 three collisions are `ask_client` questions; «Сор» is named without holding; with
 `confirmedBy` filled in, readiness reaches **ready**. 35 services, 42 priced entries,
 allow-list 7 tokens and not one of them a price.
+
+## D-104 — the provisioning writer had never been able to write, and nothing could have noticed
+
+**2026-09-20.** The founder ran `--apply` against the real project and it refused:
+`null value in column "provenance" of relation "out_of_scope_topics" violates not-null
+constraint`. Rolled back clean, Matrix untouched.
+
+`provenance` is NOT NULL with no default and **has been since `0001`**. So
+`scripts/provision/apply.ts` has never, for any tenant, been able to write an
+`out_of_scope_topics` row. The nine rows Matrix carries landed because
+`matrix-suitability-refusal.sql` supplies the column by hand.
+
+### There were TWO, and the second is the reason to state the rule
+
+`service_aliases.provenance` is in exactly the same state. Topics are written at step 4 and
+aliases at step 5, so the first refusal aborted before the second could be reached: fixing
+what the log named would have produced an identical crash on the next run. Both confirmed by
+executing the real payloads against a scratch PostgreSQL with all 34 migrations applied, and
+both confirmed fixed the same way.
+
+**Enumerate the whole class from the catalog; never fix the error a run happened to reach.**
+
+### How this path was tested, which is the founder's question and the real finding
+
+`scripts/verify/postgrest.ts` exists precisely to stop this: it reads every `.from()`,
+`.select()` and write payload in the tree and checks them against a live PostgREST. Two gaps
+let this through, and they are different failures:
+
+1. **`CHECKED_ROOTS` was `['src', 'scripts/publish']`.** `scripts/provision` — the one tree
+   whose entire job is writing rows the database has never seen — was not in it. A writer is
+   checked wherever it lives, not where the runtime lives. It is now `['src',
+   'scripts/publish', 'scripts/provision']`.
+
+2. **The check only ever asked one of the two questions.** `writeProblems` asks whether every
+   key in a payload is a real column. Nothing asked the inverse: whether every column the
+   database *requires* is in the payload. Every key `apply.ts` sent was real, so even inside
+   CHECKED_ROOTS it would have been green.
+
+`missingRequiredProblems` is the second question. It applies to `insert` and `upsert` and
+deliberately not to `update`: an UPDATE leaves an omitted column at its old value, so a
+partial patch is legitimate, while PostgREST's upsert is `insert … on conflict do update` and
+the INSERT arm's NOT NULL bites on a row that does not exist yet — a new tenant, once, and
+never again. Reproduced first, then fixed: with the two `provenance` keys removed the check
+names both sites; with them restored it is clean.
+
+**Its `required` set is read from the CATALOG, not from PostgREST's Swagger document**, and
+that is not a preference. PostgREST derives `required` from "not nullable and no default", and
+an IDENTITY column has no `pg_attrdef` row — measured against the real schema, that reading
+produces five false positives (`webhook_events.id`, `alerts.id`, `spend_ledger.id`, and both
+`quality_flags.id` sites), every one a generated key that a correct payload omits. `attidentity`
+and `attgenerated` settle it and exist only in the catalog. Rule 4's own instruction: ask the
+thing that enforces, not a description of it.
+
+### And the parser was answering about the wrong object
+
+Adding `scripts/provision` surfaced a third defect. `parseObjectKeys` was handed the text from
+`.upsert(` onward and scanned for the first `{` — so a call whose payload is a VARIABLE walked
+past it into the OPTIONS object and reported **`onConflict` as a column being written**. One
+site of fifty-five: `apply.ts`'s `tenants` upsert.
+
+That is D-057 a third time, with an extra turn of the screw worth naming. The earlier two
+returned an *incomplete* answer — some keys of the right object. This returned a *complete*
+answer about a different object, so no count, no key total and no summary line could reveal it.
+`firstCallArgument` bounds the payload to argument one, comments stripped before the brackets
+are counted (a comma inside an explanatory comment moves the boundary, which is how the fix
+briefly broke the alias site it was fixing). A payload that is not a literal is UNDETERMINED.
+
+`tenantPatch` is inlined for the same reason: a payload behind a variable is unchecked, and
+`tenants` carries four required columns. **A named const is a hiding place from a static check.**
+
+### The shape
+
+Three of tonight's four defects are one shape — *a check that appears to cover something and
+does not.* A root list that omits the one tree that writes; a column check that asks one of two
+directions; a parser that answers about whichever object it found first. None of them was ever
+red. The founder's `--apply` was the first thing in this repository's history to read the real
+`out_of_scope_topics` schema from the writer's side.
+
+### D-104 addendum — the tenant-side repair could not work, and nothing said so
+
+The founder asked to see the seven corpus messages that reach «Сор» before anyone picked an
+alias for it, rather than take the recommendation `service_name_unmatchable` prints. He was
+right to, and the reason is better than the one either of us had.
+
+Every `сор`/`sor` token in all 164 messages: `sor` ×3, `sortoi` ×2, `сортой` ×2. **Bare
+«сор» in Cyrillic occurs zero times** — customers type the comitative «сортой», or Latin
+`sortoi`, or bare `sor`. All seven are genuinely about the service, so on this corpus the
+specificity floor refuses seven true positives and prevents zero false ones; «сорри» is a
+constructed probe, not an instance.
+
+**Adding «сортой» and «sortoi» to the intake changed the verdicts by nothing.** Identical
+counts, byte for byte. `bestTerm` chose the winning term by token count alone, with a strict
+`>`, so the first one-token term could never be replaced — and terms are `[name, ...aliases]`,
+so the three-character NAME always beat the six-character alias, and the match was then
+refused as `too_vague`. The repair the validator recommends in as many words could not work.
+
+The tie-break is fixed: on equal token count a term that clears the floor beats one that does
+not. Measured — with no new rows it changes **nothing**, which is the property that makes it
+safe; with both aliases, `too_vague` falls 7 → 3, `ambiguous` 1 → 4, `unique` 22 → 23 and
+nothing else moves. The three survivors typed bare `sor`; three characters cannot be rescued
+and no alias will.
+
+Two things to carry. **A comment asserting a behaviour nobody tested is worth nothing**: the
+docstring above the verdict already said an entry "should be judged on its best reading, and
+`bestTerm` has already chosen that", and it had not — the same shape as
+`config/platform.ts:33` claiming a monthly ceiling that was never built. And **a finding that
+recommends a repair should be tested against the repair working**: `service_name_unmatchable`
+shipped advice that was false at the moment it was written, and it took a founder asking for
+the corpus to find that out. Its wording now names the length the alias must clear, and says
+to read it off the corpus rather than guess.

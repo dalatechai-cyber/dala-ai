@@ -151,7 +151,7 @@ jobs:
             docker logs pgrst
             exit 1
           fi
-          node scripts/verify/postgrest.ts
+          node scripts/verify/postgrest.ts dala_ci
 
       - name: Build
         run: npx next build

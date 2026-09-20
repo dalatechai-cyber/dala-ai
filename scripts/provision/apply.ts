@@ -137,17 +137,20 @@ async function applyIntake(
   // 1. The tenant. `status` is left at its default `provisioning` and never advanced here —
   //    `active` needs a probe run, and a script that wrote it would be asserting a test it
   //    did not run.
-  const tenantPatch = {
-    slug: d.slug,
-    display_name: d.business.displayName,
-    vertical: d.business.vertical,
-    timezone: d.business.timezone,
-    default_locale: d.business.locale,
-    currency_symbol: d.business.currencySymbol,
-    currency_symbol_before: d.business.currencySymbolBefore,
-  };
+  // Written inline rather than through a named const, and the reason is a check rather
+  // than a style: `scripts/verify/postgrest.ts` reads payloads statically, so a payload
+  // behind a variable is UNCHECKED — it cannot see that every column the database requires
+  // is present. A `tenants` upsert carries four of them.
   const { data: t, error: tErr } = await db
-    .from('tenants').upsert(tenantPatch, { onConflict: 'slug' }).select('id').maybeSingle();
+    .from('tenants').upsert({
+      slug: d.slug,
+      display_name: d.business.displayName,
+      vertical: d.business.vertical,
+      timezone: d.business.timezone,
+      default_locale: d.business.locale,
+      currency_symbol: d.business.currencySymbol,
+      currency_symbol_before: d.business.currencySymbolBefore,
+    }, { onConflict: 'slug' }).select('id').maybeSingle();
   if (tErr) fail('tenants', tErr.message);
   const id = String((t as Record<string, unknown>)['id']);
   log.push(`${tenantId === null ? 'created' : 'updated'} tenant ${d.slug} (${id})`);
@@ -208,6 +211,10 @@ async function applyIntake(
       d.neverSay.map((n) => ({
         tenant_id: id, topic_key: n.key, matcher: { stems: n.stems },
         decision_question: n.question, response_kind: n.responseKind,
+        // `seeded`, for the reason spelled out above `comment_rules` below: the client
+        // answered a questionnaire, they did not review a matcher, and only a person who
+        // has read the rule may write `tenant_confirmed` (D-020).
+        provenance: 'seeded',
       })), { onConflict: 'tenant_id,topic_key' });
     if (error) fail('out_of_scope_topics', error.message);
     log.push(`${d.neverSay.length} out_of_scope_topics`);
@@ -256,7 +263,11 @@ async function applyIntake(
 
     if (s.aliases.length > 0) {
       const { error: aErr } = await db.from('service_aliases').upsert(
-        s.aliases.map((alias) => ({ tenant_id: id, service_id: serviceId, alias })),
+        // `provenance` again, and this row is the reason to state the rule rather than fix
+        // the one error a run reports: `out_of_scope_topics` is written at step 4 and this
+        // at step 5, so the first refusal aborted the transaction before the second could
+        // be reached. Fixing only what the log named would have failed on the next run.
+        s.aliases.map((alias) => ({ tenant_id: id, service_id: serviceId, alias, provenance: 'seeded' })),
         { onConflict: 'tenant_id,alias' });
       if (aErr) fail(`service_aliases «${s.name}»`, aErr.message);
     }

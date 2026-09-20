@@ -246,13 +246,39 @@ function shadowedTerms(entries: readonly ServiceEntry[]): ReadonlySet<string> {
   return out;
 }
 
-/** The best term of one entry that the text satisfies, or null. */
+/**
+ * The best term of one entry that the text satisfies, or null.
+ *
+ * MORE TOKENS WINS, and on a tie a SPECIFIC term beats a vague one. The second half was
+ * missing until 2026-09-20 and the omission made a whole class of tenant fix inert.
+ *
+ * Terms are `[name, ...aliases]` and the comparison was a strict `>` on token count, so the
+ * first one-token term encountered could never be replaced by a later one. A service whose
+ * NAME is below `MIN_STEM_CHARS` therefore lost to itself: «Сор» is three code points, and
+ * an alias «сортой» — the form Matrix's customers actually type, twice in 164 messages —
+ * matched, was passed over for the name, and the match was then refused as `too_vague`.
+ * Adding the alias changed the corpus verdicts by exactly nothing.
+ *
+ * Note what that cost beyond the seven messages: the repair a human would reach for first,
+ * and the one `service_name_unmatchable` recommends in as many words, could not work, and
+ * nothing said so. The docstring one screen up already claimed an entry "should be judged
+ * on its best reading, and `bestTerm` has already chosen that" — it had not, and a comment
+ * asserting a behaviour nobody tested is the shape `config/platform.ts:33` was caught in.
+ *
+ * Measured on the 164-message corpus. With no new rows this changes NOTHING
+ * (`{none:132, too_vague:7, unique:22, family:2, ambiguous:1}`, identical), which is the
+ * property to keep: it is inert until a tenant supplies a term that earns the upgrade.
+ * With «сортой» and «sortoi» aliased onto «Сор», `too_vague` falls 7 → 3 and nothing else
+ * regresses. The three survivors typed bare `sor`, and three characters cannot be rescued.
+ */
 function bestTerm(folded: string, entry: ServiceEntry, shadowed: ReadonlySet<string>): ServiceMatch | null {
   let best: ServiceMatch | null = null;
   for (const term of entry.terms) {
     if (term.tokens.length === 0) continue;
     if (!term.tokens.every((tok) => containsStem(folded, tok))) continue;
-    if (best === null || term.tokens.length > best.tokens) {
+    const beats = best === null || term.tokens.length > best.tokens
+      || (term.tokens.length === best.tokens && termIsSpecific(term) && !best.specific);
+    if (beats) {
       best = {
         serviceId: entry.serviceId, name: entry.name, term: term.text,
         tokens: term.tokens.length, specific: termIsSpecific(term),

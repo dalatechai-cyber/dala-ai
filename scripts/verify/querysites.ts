@@ -90,6 +90,43 @@ export function stripComments(s: string): string {
 }
 
 /** Literal object keys from `{ a: 1, 'b': 2 }`. Returns null when it cannot be trusted. */
+/**
+ * The FIRST argument of a `.verb(...)` call, or null when it cannot be bounded.
+ *
+ * The payload is argument one, and nothing else in the call is a column. Without this,
+ * `parseObjectKeys` scanned forward from `.upsert(` for the first `{` it could find — so a
+ * call whose payload is a VARIABLE walked straight past it into the options object and
+ * reported `onConflict` as a column being written. Measured on 2026-09-20:
+ * `scripts/provision/apply.ts`'s `tenants` upsert, one site of fifty-five, and it read as
+ * checked.
+ *
+ * That is D-057 a third time — a parser answering with the part it managed. Note the extra
+ * turn of the screw here: the earlier two returned an INCOMPLETE answer, and this one
+ * returned an answer about the wrong object entirely, which no count of keys would reveal.
+ *
+ * Returns null on an unbalanced call, which the window can produce by ending mid-argument.
+ */
+export function firstCallArgument(src: string): string | null {
+  // Comments are stripped BEFORE the brackets are counted. A `(` or a `,` inside an
+  // explanatory comment between `.upsert(` and its payload otherwise moves the argument
+  // boundary, and the site drops to unresolvable — which is a safe answer and still a
+  // wrong one, since nothing is then checked. Measured on `apply.ts`'s alias upsert.
+  const clean = stripComments(src);
+  const open = clean.indexOf('(');
+  if (open < 0) return null;
+  let depth = 0;
+  let body = '';
+  let closed = false;
+  for (const ch of clean.slice(open)) {
+    if (ch === '(' || ch === '{' || ch === '[') { depth += 1; if (depth === 1) continue; }
+    if (ch === ')' || ch === '}' || ch === ']') { depth -= 1; if (depth === 0) { closed = true; break; } }
+    body += ch;
+  }
+  if (!closed) return null;
+  const args = topLevelSplit(body);
+  return args.length === 0 ? null : (args[0] ?? null);
+}
+
 export function parseObjectKeys(src: string): string[] | null {
   let depth = 0;
   let body = '';
@@ -187,7 +224,16 @@ function walk(dir: string, out: string[]): string[] {
  * checks exist to prevent, in the one other place that reaches production data. The verify
  * and localvalidate scripts talk to a scratch cluster over psql and are not PostgREST at all.
  */
-export const CHECKED_ROOTS = ['src', 'scripts/publish'] as const;
+/**
+ * The trees whose `.from()` chains are checked against the live transport.
+ *
+ * `scripts/provision` joined on 2026-09-20 and the omission had a cost: `apply.ts` had
+ * NEVER been able to write an `out_of_scope_topics` row, because `provenance` is NOT NULL
+ * with no default and the payload did not carry it. Nothing here looked at the file, so
+ * the first thing that read the real schema was the founder's `--apply` against the real
+ * project. A writer is checked wherever it lives, not where the runtime lives.
+ */
+export const CHECKED_ROOTS = ['src', 'scripts/publish', 'scripts/provision'] as const;
 
 /** Every `.from('table')…` chain in the tree, with whatever of it resolves statically. */
 export function chainsFromSource(root: string | readonly string[] = CHECKED_ROOTS): ChainUse[] {
@@ -207,7 +253,11 @@ export function chainsFromSource(root: string | readonly string[] = CHECKED_ROOT
       for (const verb of ['insert', 'update', 'upsert'] as const) {
         const at = window.indexOf(`.${verb}(`);
         if (at < 0) continue;
-        writes.push({ verb, keys: parseObjectKeys(window.slice(at)) });
+        // The payload is argument ONE. Bounding the call first is what stops the scan
+        // walking past a non-literal payload into the options object — see
+        // `firstCallArgument`.
+        const arg = firstCallArgument(window.slice(at));
+        writes.push({ verb, keys: arg === null ? null : parseObjectKeys(arg) });
       }
 
       chains.push({
