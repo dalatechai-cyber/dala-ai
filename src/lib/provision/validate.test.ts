@@ -287,3 +287,49 @@ test('no comment rules at all is silent — a tenant need not answer comments', 
   const c = codes(MINIMAL);
   assert.ok(!c.some((x) => x.startsWith('comment_rule')));
 });
+
+test('DONE-TEST: A COLLISION THE CODE ANSWERS IS A QUESTION, NOT A HOLD', () => {
+  // D-102 made a shadowed winner serve its whole family, and this finding went on holding
+  // `ready` and advising a rename for four days. The founder caught it in a dry run, which
+  // is the wrong place: a validator blocking on a relation the code handles is asking the
+  // client to fix their catalogue to suit a refusal that no longer happens.
+  //
+  // «Хайрцаг» is seven code points and one token, so it clears the specificity floor and
+  // reaches the family branch. Matrix is why this is not hypothetical — «Будаг» is hair
+  // colouring and «Дип будаг» a manicure, two salons under one Page, and nothing should be
+  // renamed.
+  const doc: IntakeDocument = {
+    ...MINIMAL,
+    services: [svc('Хайрцаг', [], '40000'), svc('Автомат хайрцаг', [], '90000')],
+  };
+  const f = validateIntake(doc).find((x) => x.code === 'service_name_collision');
+  assert.ok(f, 'still reported — the client should know what the reply looks like');
+  assert.equal(f.severity, 'ask_client');
+  assert.equal(f.holdsReady, undefined, 'answered, so it does not hold provisioning');
+  assert.match(f.detail, /answered with BOTH/);
+  assert.match(f.detail, /collides with/);
+  assert.equal(assessReadiness(doc).stage, 'ready');
+});
+
+test('DONE-TEST: A SERVICE NO TERM CAN REACH IS NAMED, AND DOES NOT VANISH WITH ITS COLLISION', () => {
+  // «Сор» used to be visible only as half of a collision. Matrix split «Оффис колор /Сор/»
+  // into its own service, which removed the collision and left «Сор» exactly as unreachable
+  // as before — three code points, one token, under the floor, so `matchService` answers
+  // `too_vague` and no price can ever be served for it. Seven of Matrix's 164 corpus
+  // messages reach it.
+  //
+  // Reported under its OWN code rather than the collision's, because the repair is different
+  // and D-074's lesson is that the wrong reason sends the reader to the wrong screen. It does
+  // not hold: nothing wrong is served, the turn falls through to the model, and that is the
+  // same footing as `no_latin_stems`.
+  const doc: IntakeDocument = { ...MINIMAL, services: [svc('Сор', ['сор', 'sor'], '120000', '190000')] };
+  const f = validateIntake(doc).find((x) => x.code === 'service_name_unmatchable');
+  assert.ok(f, 'an unreachable service must be named');
+  assert.equal(f.holdsReady, undefined, 'a question that cannot produce a wrong answer');
+  assert.match(f.detail, /Сор/);
+  assert.ok(assessReadiness(doc).waitingOn.some((w) => w.includes('Сор')));
+
+  // A two-token name clears it. The repair is a row the client supplies, not a code change.
+  const longer: IntakeDocument = { ...MINIMAL, services: [svc('Сор будаг', ['сор будаг'], '120000', '190000')] };
+  assert.equal(validateIntake(longer).find((x) => x.code === 'service_name_unmatchable'), undefined);
+});

@@ -267,3 +267,63 @@ test('«Будаг арилгалт» and «Дип будаг» still match when
     assert.equal(m.verdict === 'unique' && m.match.name, want);
   }
 });
+
+// D-103. «тэжээл» is the peer case: «Тэжээлийн тос» (49,500₮) and «CMC тэжээл» (132,000₮)
+// are different services sharing a word, and NEITHER name contains the other — so no family
+// exists and the verdict is `ambiguous`. The founder's call, once the service «Тэжээл»
+// itself was removed from the intake: *"the word should still work"*.
+//
+// This is the same policy as the family, and deliberately not the same relation. What it
+// is NOT is a tie broken: both are served, both are labelled, and the customer chooses.
+test('an ambiguous pair serves BOTH, labelled, rather than refusing', () => {
+  const entries = [
+    { serviceId: 'tos', name: 'Тэжээлийн тос', terms: [toTerm('Тэжээлийн тос'), toTerm('тэжээл')] },
+    { serviceId: 'cmc', name: 'CMC тэжээл',    terms: [toTerm('CMC тэжээл'), toTerm('тэжээл')] },
+  ];
+  const services = [
+    { serviceId: 'cmc', name: 'CMC тэжээл', category: 'Химийн үйлчилгээ', variants: [
+      { variantKey: '', priceKind: 'exact' as const, priceMin: '132000', priceMax: null, confirmedAt: CONFIRMED },
+    ] },
+    { serviceId: 'tos', name: 'Тэжээлийн тос', category: 'Тайралт ба засалт', variants: [
+      { variantKey: '', priceKind: 'exact' as const, priceMin: '49500', priceMax: null, confirmedAt: CONFIRMED },
+    ] },
+  ];
+  assert.equal(matchService('тэжээл хэд вэ', entries).verdict, 'ambiguous');
+  const r = decidePriceQuote(ask({ text: 'тэжээл хэд вэ', entries, services }));
+  assert.equal(r.serve, true);
+  // Ordered by serviceId, which is what `matchService` sorts winners by — a reply that
+  // reordered between runs is unreadable, and the log line beside it worse.
+  assert.equal(r.serve === true && r.body,
+    'CMC тэжээл — 132,000₮ [Химийн үйлчилгээ]\n'
+    + 'Тэжээлийн тос — 49,500₮ [Тайралт ба засалт]\n'
+    + TAIL);
+  assert.deepEqual(r.serve === true && r.served.map((s) => s.name), ['CMC тэжээл', 'Тэжээлийн тос']);
+});
+
+// The naming half of the same case: aliasing the shared word must not cost either service
+// its own precise answer. `most specific wins` is what protects them — two tokens beat one.
+test('naming either peer in full still resolves to exactly that one', () => {
+  const entries = [
+    { serviceId: 'tos', name: 'Тэжээлийн тос', terms: [toTerm('Тэжээлийн тос'), toTerm('тэжээл')] },
+    { serviceId: 'cmc', name: 'CMC тэжээл',    terms: [toTerm('CMC тэжээл'), toTerm('тэжээл')] },
+  ];
+  for (const [q, want] of [['cmc тэжээл хэд вэ', 'CMC тэжээл'], ['тэжээлийн тос хэд вэ', 'Тэжээлийн тос']] as const) {
+    const m = matchService(q, entries);
+    assert.equal(m.verdict, 'unique', q);
+    assert.equal(m.verdict === 'unique' && m.match.name, want);
+  }
+});
+
+// `too_vague` is NOT swept up by D-103. It is the one verdict with no set behind it: the
+// term that matched is too short to be evidence at all — «сорри», a customer apologising,
+// reaching «Сор» — so there is nothing honest to serve.
+test('too_vague still refuses, and says so', () => {
+  const entries = [{ serviceId: 'sor', name: 'Сор', terms: [toTerm('Сор')] }];
+  const services = [{ serviceId: 'sor', name: 'Сор', category: 'Үс будалт', variants: [
+    { variantKey: '', priceKind: 'exact' as const, priceMin: '120000', priceMax: null, confirmedAt: CONFIRMED },
+  ] }];
+  const r = decidePriceQuote(ask({ text: 'сорри хэд вэ', entries, services }));
+  assert.equal(r.serve, false);
+  assert.equal(r.serve === false && r.reason, 'service_not_unique');
+  assert.equal(r.serve === false && r.verdict, 'too_vague');
+});

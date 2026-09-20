@@ -7754,3 +7754,90 @@ each fact arrived after a decision had been made on the assumption it did not ex
 repository read «Будаг» ⊂ «Дип будаг» as a naming defect for three revisions because nobody
 had asked the salon what the two words meant. One sentence from the founder settled what no
 amount of measurement could.
+
+## D-103 — `ambiguous` serves its set too, and a collision the code answers stops holding provisioning
+
+**2026-09-20, the founder's call**, closing the question D-102 reported rather than took.
+
+Two things, and the second is the one worth carrying.
+
+### 1. The word should still work
+
+Removing the service «Тэжээл» (44,000–88,000₮) was right — it should not be offered — and
+D-102 measured the side effect: a bare «тэжээл» then reached **nothing**, because «тэжээлийн»
+is not a prefix of «тэжээл» and «CMC тэжээл» needs `cmc`. The founder's clarification
+separates the two: *"the service should be gone. But when a customer types «тэжээл» I want
+both «Тэжээлийн тос» and «CMC тэжээл» shown. The word should still work."*
+
+So «тэжээл» and its Latin twin `tejeel` are aliases on both survivors, and `decidePriceQuote`
+now serves the `ambiguous` set the same way it serves a `family` — every match, each with the
+salon's own category heading, and the customer self-selects.
+
+**This is not a tie broken.** Every line names its own service, so nothing is attached to the
+wrong one, which is the single failure `src/lib/reception/price.ts` exists to prevent. The
+verdict still says the text did not settle which service; what changed is the policy above it.
+`too_vague` is deliberately NOT swept in: there the matched term is too short to be evidence
+at all — «сорри», a customer apologising, reaching «Сор» — so there is no honest set to serve.
+
+**Ordering matters and it is not cosmetic.** Aliasing «тэжээл» onto both makes the
+«Тэжээлийн тос» term a strict subset of «CMC тэжээл»'s NAME, so that winner carries
+`shadowed`. `matchService` checks `ambiguous` first, so the family branch is never reached —
+and it must not be, because building a family requires naming ONE of two equal winners as
+the match, which is the silent pick the whole function refuses. Measured, both readings
+happen to yield the same pair here. **The order is right because of what it declines to
+decide, not because of the set it produces.**
+
+**Measured against the 164-message corpus, before and after: identical.**
+`{none: 132, too_vague: 7, unique: 22, family: 2, ambiguous: 1}`. «тэжээл» occurs **zero
+times** in the corpus, so this change is proven by probe and not by corpus — `тэжээл`,
+`tejeel` and `тэжээл хэд вэ` all reach both services, `cmc тэжээл` and `тэжээлийн тос` each
+still resolve uniquely. Said plainly because the opposite was claimed twice this month: an
+invented corpus and an invented proof case, both caught by the founder.
+
+The one real `ambiguous` in the corpus is «будагтай үсний уг цайруулалт хэд вэ» → «Будаг» |
+«Цайруулалт», which it now answers with both rather than refusing. The customer mentioned
+both services; answering both is what a receptionist does.
+
+### 2. A validator blocking on a relation the code handles
+
+**`service_name_collision` held `ready` and advised a rename for four days after D-102 had
+made both wrong**, and the founder found it in a dry run — «Будаг» ⊂ «Будаг арилгалт»,
+«Будаг» ⊂ «Дип будаг», both marked `← holds provisioning`, beside a review sheet still
+reading *"Until one is renamed the matcher returns `ambiguous` and no price is served."*
+
+Note the shape, because it is CLAUDE.md's own recurring one from the other side. The usual
+failure is a guard that silently stops firing. This is a guard that kept firing after its
+reason expired — same invisibility, opposite sign. Nothing was red. The validator was
+*asking the client to fix their catalogue to suit a refusal the code had stopped making*,
+and D-102's own conclusion was that **nothing should be renamed**: «будаг» genuinely means
+two things because Matrix runs two salons under one Page.
+
+The hold survives in exactly one case, and it is the one the finding was originally written
+for. `matchService` applies the specificity floor to the winners BEFORE it looks at
+shadowing, so a subset term below `MIN_STEM_CHARS` returns `too_vague` and nothing is served
+at all. That is «Сор» — 120,000–190,000 against «Оффис колор /Сор/» 380,000–460,000, 3.2×
+apart, a real customer wrote «сортой» on 2026-09-14. Three code points cannot carry a
+decision, and no alias and no verdict changes that.
+
+**And «Сор» needed its own finding, not the collision's.** Matrix split «Оффис колор /Сор/»
+into its own service, which removed the collision and left «Сор» exactly as unreachable as
+before — seven of the 164 corpus messages reach it and get nothing. Without
+`service_name_unmatchable` the service would simply have disappeared from the sheet when its
+collision partner did: *the guard did not break, the reason it was true did.* It is
+`ask_client` and does **not** hold, on the same footing as `no_latin_stems` — nothing wrong
+is served, the turn falls through to the model, so it is a question that cannot produce a
+wrong answer. Filed under its own code because the repair is different, and D-074's rule is
+that a defect under the wrong reason sends the reader to the wrong screen.
+
+**The colliding thing is a TERM, which is the service's name only sometimes.** «Тэжээлийн
+тос» is not a subword of «CMC тэжээл» — its new alias «тэжээл» is. The finding said the
+former until it was read back against the real intake, which would have sent the client to
+check a name that resolves perfectly well. Both the finding and the sheet name the via term
+now when it differs.
+
+### What the dry run says after this
+
+One blocker, `facts_unconfirmed`, which is the founder's own signature and his to clear. The
+three collisions are `ask_client` questions; «Сор» is named without holding; with
+`confirmedBy` filled in, readiness reaches **ready**. 35 services, 42 priced entries,
+allow-list 7 tokens and not one of them a price.
