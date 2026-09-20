@@ -483,3 +483,31 @@ dark.
 **Nothing reads this value yet** — the mint route is not built. It exists so that sealing
 the secret (a founder step) can start in parallel. Do not cite its presence as evidence the
 channel works.
+
+### `0033_thread_control_passed`
+
+`conversations.thread_control_source` gains **`passed`**, and `canned_response_kinds` gains
+**`handover_notice`** and **`handover_reclaim`**. Widening a CHECK and adding two lookup
+rows, so nothing existing is dropped, rewritten or narrowed.
+
+`passed` is the discriminator `docs/handover.md` names as the one thing blocking the reclaim
+sweeper. `handover` is written whenever **Meta** names a new owner — which happens both when
+this platform passes a thread and when a receptionist takes one through Business Suite. One
+value, two facts, and the sweeper's safety turns on telling them apart: the reclaim window
+is 15 minutes and `human_takeover_cooldown_minutes` is 30, so reclaiming any `human` thread
+would take it back off a person still inside the cooldown and make that cooldown unreachable.
+
+**No row is retyped and no default is applied.** D-063's addendum is the reason: `0025`
+added a discriminator with a default, and the default retroactively decided the semantics of
+the ten rows recording an eleven-day outage — the exact rows the change was built for. Here
+the conservative reading costs nothing. A thread whose source says `handover` is one we
+cannot prove we passed, so it is not ours to reclaim; `passed` starts empty and fills only
+from the pass path.
+
+The two kinds are **registered with no row inserted**, and that order is a constraint rather
+than tidiness. Both must be in `MODEL_INVISIBLE_KINDS` and deployed before any tenant has a
+row, or `cannedSectionBody` sweeps the sentence into the cached prefix, moves `canned_hash`
+on the publish side only, and 503s every DM reply for that tenant with `canned_stale` until
+a republish — D-082's outage with a different sentence in it. The code half ships with the
+migration; the sentences are unsigned in `prompt/drafts/handover_notice_and_reclaim.mn.txt`
+and wait for the founder.

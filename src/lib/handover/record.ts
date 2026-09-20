@@ -31,7 +31,16 @@ import {
   type HandoverEvent, type ThreadControl, type ThreadState,
 } from './control.ts';
 
-export type ControlSource = 'handover' | 'echo' | 'reclaim';
+/**
+ * How control came to be where it is.
+ *
+ * `passed` is not a synonym for `handover` and the reclaim sweeper's safety rests on the
+ * difference: `handover` is written whenever META names a new owner, which happens both
+ * when this platform passes a thread and when a receptionist takes one through Business
+ * Suite. Only `passed` means WE gave it away, and only a thread we gave away may be taken
+ * back — see `reclaim.ts` and `0033`.
+ */
+export type ControlSource = 'handover' | 'echo' | 'reclaim' | 'passed';
 
 /** Read the thread state. `unreadable` is distinct from `unknown` — see `control.ts`. */
 export async function readThreadState(

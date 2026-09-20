@@ -105,11 +105,30 @@ enhancement to add later — it ships with the pass or the pass does not ship.
 3. **The customer sees the pass.** Both sentences are drafted and unsigned in
    `prompt/drafts/handover_notice_and_reclaim.mn.txt`.
 
-**Still open, and it blocks the sweeper:** the reclaim window (15) is shorter than
-`human_takeover_cooldown_minutes` (30), so a sweeper that reclaims ANY `human` thread makes
-the cooldown unreachable. Step 3 above scopes the reclaim to threads *we* passed, which
-needs something `thread_control_source` cannot give — it says `handover` both when we pass
-and when a person takes the thread through Meta's UI.
+**CLOSED 2026-09-20 by `0033`** (founder's call: reclaim only our own passes). It was the
+last thing blocking the sweeper: the reclaim window (15) is shorter than
+`human_takeover_cooldown_minutes` (30), so a sweeper that reclaimed ANY `human` thread would
+make the cooldown unreachable. Step 3 scopes the reclaim to threads *we* passed, and
+`thread_control_source` could not express that — it said `handover` both when we pass and
+when a person takes the thread through Meta's UI.
+
+`passed` is that fourth value, and `src/lib/handover/reclaim.ts` is the sweeper. Two things
+about it are worth carrying rather than rediscovering:
+
+- **It re-decides every row it reads.** The query narrows on `thread_control_source` and
+  `decideReclaim` then asks the same question again. That is D-064's rule applied before the
+  fact: a filter is an optimisation, the verdict is the rule, and a filter that silently
+  stops excluding anything reads as a safety check for as long as nobody tests it.
+- **It refuses to reclaim without a reviewed line, and that is the worse outcome in the
+  moment.** The thread stays `human` and the bot stays quiet. Reclaiming silently would mean
+  a customer who was told a person was coming, got nobody, and then gets a bot carrying on
+  as if nothing happened — the sentence is what makes the reclaim honest, so a reclaim
+  without it is a different behaviour rather than a degraded one. `no_reviewed_line` is
+  counted so the skip is legible: with no row this otherwise returns a clean-looking sweep.
+
+**Not yet wired to a route, and neither half of the pass is built.** Nothing writes `passed`,
+so the sweeper is inert by construction — it can only reach rows that do not exist. The two
+sentences are unsigned.
 
 ### The original wording of those three questions
 

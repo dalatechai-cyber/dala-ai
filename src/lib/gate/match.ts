@@ -386,8 +386,23 @@ function cannedKinds(rows: readonly CannedRow[]): string[] {
  *
  * `readPinnedLine` reads the row straight from the database, like `readImageLine`, so
  * filtering it out of the cached section takes nothing away from the path that serves it.
+ *
+ * ## The handover pair joins on the same argument, BEFORE either row exists
+ *
+ * `handover_notice` goes out with a pass and `handover_reclaim` when the reclaim window
+ * expires; both are served whole by `handover/`, neither is named by any gate block, and
+ * no model ever chooses between them. So they belong here on the same reasoning.
+ *
+ * They are listed while `canned_response_kinds` has just gained them and no tenant has a
+ * ROW, and that order is the point rather than an accident. Cost 1 above is an ordering
+ * constraint: the filter must be deployed BEFORE the first row is inserted, or the row
+ * sweeps into the cached prefix, moves `canned_hash` on the publish side only, and 503s
+ * every DM reply for that tenant until a republish. Shipping the filter early is free;
+ * shipping it late is an outage.
  */
-export const MODEL_INVISIBLE_KINDS: readonly string[] = ['image_received', 'comment_public_reply'];
+export const MODEL_INVISIBLE_KINDS: readonly string[] = [
+  'image_received', 'comment_public_reply', 'handover_notice', 'handover_reclaim',
+];
 
 /**
  * The canned section's TEXT, with no checking of any kind.
