@@ -8,6 +8,18 @@ The design for the comment classifier, proposed before it is built, per the foun
 
 ## The real feed does not exist, and that is the first finding
 
+> **SUPERSEDED 2026-09-20 (D-096).** It exists now. `webhook_events` id 203 at 02:17:25 UTC is
+> the first `changes` delivery this platform has ever received, and Matrix is rehearsing in
+> shadow with 13 rules enabled and `comment_policy = 'public_only'`. The cause of the silence
+> was the app-level half of the two-part subscription — `feed` was never enabled on the `page`
+> object for DALA_AI, and the page-level POST returns `{"success": true}` regardless, exactly as
+> §3.10.5 predicted it would "the first time a new field is requested".
+>
+> The four measurements below are kept as the dated record they are. Three of the four have since
+> changed: `subscribed_fields` now carries `feed`, `comment_policy` is `public_only` on Matrix,
+> and **both** tenants have a reviewed `comment_public_reply` row. Only the design reasoning that
+> follows still stands — and it was built on the DM corpus, which is still a different surface.
+
 It was asked for and it is not reachable. Four measurements, all made 2026-09-18:
 
 | | |
