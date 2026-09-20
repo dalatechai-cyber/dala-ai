@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decidePriceQuote, priceText, type PricedService, type PriceQuoteInput } from './price.ts';
-import { entriesFrom } from '../services/match.ts';
+import { entriesFrom, matchService, toTerm } from '../services/match.ts';
 import { extractNumerals } from '../mn/extract.ts';
 
 const CONFIRMED = new Date('2026-09-20T00:00:00Z');
@@ -141,4 +141,57 @@ test('priceText keeps the symbol on both endpoints and the spaces around the das
     priceText({ variantKey: '', priceKind: 'range', priceMin: 'x', priceMax: '1', confirmedAt: CONFIRMED }, '₮', false),
     null,
   );
+});
+
+// D-100, the founder's call 2026-09-20: a bare «будаг» answers with ALL THREE lengths in
+// one message rather than asking which one. *"That's what a receptionist says when someone
+// asks about colouring, it uses a mechanism I've already approved, and it needs no
+// migration and no new sentence. The customer self-selects."*
+//
+// The alternative was a clarifying question, and it would have cost a new
+// `canned_response_kinds` row and a new reviewed Mongolian sentence — none of the 21 kinds
+// is a question, they are all statements or refusals. Serving every variant answers the
+// ambiguity with DATA, which `decidePriceQuote` already does by construction.
+//
+// Pinned as a test rather than written down, because the behaviour it depends on —
+// serve-every-variant-or-none — is one `if` away from becoming pick-the-first, and that
+// change would read as a tidy-up. Note what the alternative failure looks like: a customer
+// asking «будаг хэдээр хийх вэ» told «135,000₮» and arriving with shoulder-length hair.
+test('a bare «будаг» serves every length, because the customer self-selects', () => {
+  const entries = [{ serviceId: 'budag', name: 'Будаг', terms: [toTerm('Будаг')] }];
+  const services = [{
+    serviceId: 'budag', name: 'Будаг',
+    variants: [
+      { variantKey: 'Хүзүүний урт',   priceKind: 'exact' as const, priceMin: '135000', priceMax: null, confirmedAt: CONFIRMED },
+      { variantKey: 'Далны дээгүүр',  priceKind: 'exact' as const, priceMin: '176000', priceMax: null, confirmedAt: CONFIRMED },
+      { variantKey: 'Далнаас доош',   priceKind: 'exact' as const, priceMin: '200000', priceMax: null, confirmedAt: CONFIRMED },
+    ],
+  }];
+  const r = decidePriceQuote(ask({ text: 'будаг хэдээр хийх вэ', entries, services }));
+  assert.equal(r.serve, true);
+  assert.equal(r.serve === true && r.body,
+    'Будаг (Хүзүүний урт) — 135,000₮\n'
+    + 'Будаг (Далны дээгүүр) — 176,000₮\n'
+    + 'Будаг (Далнаас доош) — 200,000₮\n'
+    + TAIL);
+});
+
+// The other half of the founder's «Будаг» question, and it needed no change at all:
+// most-specific-wins already means a bare «будаг» cannot reach the two-token names.
+// Measured against the intake's real 36 services before answering him.
+test('«Будаг арилгалт» and «Дип будаг» match only when NAMED', () => {
+  const entries = [
+    { serviceId: 'budag',  name: 'Будаг',          terms: [toTerm('Будаг')] },
+    { serviceId: 'arilga', name: 'Будаг арилгалт', terms: [toTerm('Будаг арилгалт')] },
+    { serviceId: 'dip',    name: 'Дип будаг',      terms: [toTerm('Дип будаг')] },
+  ];
+  const bare = matchService('будаг', entries);
+  assert.equal(bare.verdict, 'unique');
+  assert.equal(bare.verdict === 'unique' && bare.match.name, 'Будаг');
+
+  for (const [q, want] of [['будаг арилгалт', 'Будаг арилгалт'], ['дип будаг', 'Дип будаг']] as const) {
+    const m = matchService(q, entries);
+    assert.equal(m.verdict, 'unique');
+    assert.equal(m.verdict === 'unique' && m.match.name, want);
+  }
 });

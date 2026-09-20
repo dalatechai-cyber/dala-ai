@@ -7569,3 +7569,51 @@ missing column and a non-matching ON CONFLICT — defects 1 and 2 here — in on
 Both were confirmed that way, including reproducing the original error before fixing it. It
 does not catch a CHECK violation, so `body IS NORMALIZED` and the `provenance` CHECK were
 verified by direct probe instead.
+
+## D-100 — a bare «будаг» answers with every length, and two things that needed no change
+
+**2026-09-20, the founder's call.** Three services in the intake share the token «будаг» —
+«Будаг», «Будаг арилгалт», «Дип будаг» — and `validateIntake` reported the collisions. His
+requirement: a bare «будаг» should not resolve to any of the three; the two-token names
+should match only when named.
+
+**Measured before answering, against the intake's real 36 services, and two-thirds of it was
+already true.** Most-specific-wins requires every token, so «будаг» alone cannot reach
+«Будаг арилгалт» or «Дип будаг» — they match only when named. Nothing to build.
+
+The one open case was the first clause: a bare «будаг» resolves uniquely to «Будаг» itself,
+at one token, clearing the specificity floor (five characters). Also «будалт» and
+«Vniin medeelel budag», through the alias «буда».
+
+### Option B, and why the cheap answer was the right one
+
+- **A — a clarifying question.** Costs a new `canned_response_kinds` row and a new reviewed
+  Mongolian sentence. **None of the twenty-one kinds is a question**; they are all statements
+  or refusals, so there was nothing to reuse.
+- **B — serve every variant.** `decidePriceQuote` already serves all of a service's prices
+  or none, so «будаг» answers with all three lengths and the customer self-selects. No
+  migration, no sentence, no code.
+
+The founder took B: *"That's what a receptionist says when someone asks about colouring."*
+The general shape is worth keeping — **an ambiguity can be answered with DATA instead of a
+question**, and where the data is already approved that costs nothing and asks the customer
+for nothing.
+
+It is pinned as a test rather than written down here, because the behaviour it leans on —
+serve-every-variant-or-none — is one `if` away from pick-the-first, and that change would
+read as a tidy-up. The failure it prevents: a customer asking «будаг хэдээр хийх вэ», told
+«135,000₮», arriving with shoulder-length hair.
+
+### The label bug the answer exposed
+
+Writing the salon's confirmation list surfaced a defect in the intake, not the code.
+`decidePriceQuote` omits a variant's label only when `variantKey` is EMPTY, and the intake
+had written `'Стандарт'` for every single-variant service — so the bot would have said
+«Омбре (Стандарт) — 500,000₮ - 640,000₮». Twenty-eight rows retitled to `''`. The two that
+keep a key do so because it carries meaning: «Хумс нөхөлт (1 хумс)» is priced per nail.
+
+Note how it was found. The claim being checked was *"the list the salon confirms is
+byte-identical to what the bot will serve"* — and it was not, for thirty of the
+forty-three lines. **A list rendered by one code path and served by another is two
+implementations of one sentence** (the `btrim`/`.trim()` lesson, third instance). The
+generator now uses the renderer's own label rule.

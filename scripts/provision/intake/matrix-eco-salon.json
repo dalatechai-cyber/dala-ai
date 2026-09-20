@@ -143,7 +143,7 @@
           "priceKind": "exact",
           "priceMin": "88000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -161,7 +161,7 @@
           "priceKind": "exact",
           "priceMin": "49500",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -180,7 +180,7 @@
           "priceKind": "exact",
           "priceMin": "33000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -198,7 +198,7 @@
           "priceKind": "exact",
           "priceMin": "22000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -216,7 +216,7 @@
           "priceKind": "exact",
           "priceMin": "22000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -234,7 +234,7 @@
           "priceKind": "exact",
           "priceMin": "16500",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -252,7 +252,7 @@
           "priceKind": "range",
           "priceMin": "71500",
           "priceMax": "99000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -270,7 +270,7 @@
           "priceKind": "range",
           "priceMin": "154000",
           "priceMax": "198000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -288,7 +288,7 @@
           "priceKind": "exact",
           "priceMin": "135000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -340,7 +340,7 @@
           "priceKind": "range",
           "priceMin": "380000",
           "priceMax": "460000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -358,7 +358,7 @@
           "priceKind": "range",
           "priceMin": "500000",
           "priceMax": "640000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -376,7 +376,7 @@
           "priceKind": "range",
           "priceMin": "120000",
           "priceMax": "190000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -394,7 +394,7 @@
           "priceKind": "range",
           "priceMin": "430000",
           "priceMax": "570000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -412,7 +412,7 @@
           "priceKind": "range",
           "priceMin": "220000",
           "priceMax": "255000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -430,7 +430,7 @@
           "priceKind": "range",
           "priceMin": "132000",
           "priceMax": "154000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -448,7 +448,7 @@
           "priceKind": "range",
           "priceMin": "430000",
           "priceMax": "510000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -466,7 +466,7 @@
           "priceKind": "range",
           "priceMin": "430000",
           "priceMax": "510000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -484,7 +484,7 @@
           "priceKind": "range",
           "priceMin": "44000",
           "priceMax": "88000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -502,7 +502,7 @@
           "priceKind": "exact",
           "priceMin": "154000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -544,7 +544,7 @@
           "priceKind": "exact",
           "priceMin": "132000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -562,7 +562,7 @@
           "priceKind": "exact",
           "priceMin": "50000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -580,7 +580,7 @@
           "priceKind": "exact",
           "priceMin": "65000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -598,7 +598,7 @@
           "priceKind": "exact",
           "priceMin": "25000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -652,7 +652,7 @@
           "priceKind": "exact",
           "priceMin": "8000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -670,7 +670,7 @@
           "priceKind": "exact",
           "priceMin": "15000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -688,7 +688,7 @@
           "priceKind": "exact",
           "priceMin": "30000",
           "priceMax": null,
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -731,7 +731,7 @@
           "priceKind": "range",
           "priceMin": "45000",
           "priceMax": "55000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
@@ -749,7 +749,7 @@
           "priceKind": "range",
           "priceMin": "75000",
           "priceMax": "80000",
-          "variantKey": "Стандарт",
+          "variantKey": "",
           "refusalTopic": null
         }
       ]
