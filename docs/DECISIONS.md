@@ -7521,3 +7521,51 @@ other script, firing on nothing yet, kept as a bet because that script is 41% of
 messages the author can imagine it receiving.** Where no such corpus exists yet, the honest
 report is a recall of *unknown* — not a number from a set you wrote. And when a candidate
 scores zero, ask whether the corpus could have scored it above zero before you cut it.
+
+### D-099 addendum 2 — the third artifact measured against something other than the real thing
+
+**2026-09-20, the founder, having stopped before running the SQL.** He read
+`matrix-suitability-refusal.sql` against the live database and found its first INSERT could
+not execute: `canned_responses` has no `provenance` column, and the live shape is
+`tenant_id, kind, locale, body, reviewed_by, reviewed_at`.
+
+Checking it properly found **three** defects in that one statement, not one:
+
+| | what | would it have failed? |
+|---|---|---|
+| 1 | `provenance` — the column does not exist on this table | **yes**, `42703` at parse time |
+| 2 | `on conflict (tenant_id, kind)` — the PK is `(tenant_id, kind, **locale**)` | **yes**, matches no constraint |
+| 3 | `locale` omitted | no — it defaults to `'mn-MN'` |
+
+The third is the instructive one: it is *not* a bug, and it was named anyway, because the
+same reading that produced 1 and 2 produced it. A file that depends on a value should show
+the value.
+
+What made `provenance` plausible is worth keeping: **`out_of_scope_topics` does have it**,
+and the two INSERTs sit eight lines apart. A column that exists on the neighbouring table,
+in the same file, for the same feature, reads as a column that exists.
+
+### The pattern, which is the founder's observation and not a new finding
+
+He named it: *"the third artifact measured against something other than the real thing."*
+In one session —
+
+1. **The matchers** were scored against a corpus the author invented (addendum 1). 5/5 on
+   imagined messages; 3/6 on the 164 real ones.
+2. **`allowedNumbersFrom`'s earlier estimate** was reasoned from three rows rather than run:
+   "roughly sixty" against a measured 45.
+3. **This INSERT** was written from `docs/schema.md` and `0001`'s DDL rather than from the
+   database it runs against.
+
+Each substitute was a *faithful description* of the real thing — a schema doc maintained by
+a guard, a DDL file that is the source of the schema, a corpus drawn from the same domain.
+That is what makes the substitution invisible: **nothing about a good proxy announces that
+it is a proxy.** Rule 4 already says a migration in the repo is not a migration in the
+database; this is the same sentence about documents, corpora and estimates.
+
+The operational form, and the cheap part: **EXPLAIN the statement against the live database
+before shipping a file that writes to it.** It plans without writing, and it catches a
+missing column and a non-matching ON CONFLICT — defects 1 and 2 here — in one round trip.
+Both were confirmed that way, including reproducing the original error before fixing it. It
+does not catch a CHECK violation, so `body IS NORMALIZED` and the `provenance` CHECK were
+verified by direct probe instead.

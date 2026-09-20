@@ -65,15 +65,40 @@
 
 begin;
 
-insert into canned_responses (tenant_id, kind, body, provenance, reviewed_at)
-select t.id, 'refusal_suitability',
+-- COLUMN LIST READ OFF THE LIVE DATABASE, 2026-09-20, not off docs/schema.md.
+-- The first version of this INSERT was written from the doc and would have failed three
+-- ways against the project. All three are recorded because they are one mistake:
+--
+--   1. `provenance` — canned_responses HAS NO SUCH COLUMN. out_of_scope_topics does, which
+--      is what made it plausible; the two tables differ and the doc did not say so.
+--   2. `on conflict (tenant_id, kind)` — the primary key is (tenant_id, kind, LOCALE), so
+--      that clause matches no constraint and errors before a row is considered.
+--   3. `locale` omitted. This one would NOT have failed (the column defaults to 'mn-MN'),
+--      and it is named anyway: a value this file depends on should be visible in it.
+--
+-- `reviewed_by = 'founder'` matches the twelve rows already reviewed for this tenant.
+-- `body` satisfies CHECK (body IS NORMALIZED) — verified against the live database rather
+-- than assumed, because rule 6 makes NFC a property of the bytes, not of the intent.
+insert into canned_responses (tenant_id, kind, locale, body, reviewed_by, reviewed_at)
+select t.id, 'refusal_suitability', 'mn-MN',
   'Уучлаарай, энэ таны үсэнд тохирох эсэхийг би шийдэж өгөх боломжгүй. Манай мэргэжилтэн үсийг тань харж хэлнэ. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.',
-  'tenant_confirmed', now()
+  'founder', now()
 from tenants t where t.slug = 'matrix-eco-salon'
-on conflict (tenant_id, kind) do nothing;
+on conflict (tenant_id, kind, locale) do nothing;
 
 -- Nine rows rather than one: `out_of_scope_topics.matcher` holds a single matcher, and a
 -- stem_sequence carries exactly one ordered pair.
+--
+-- This INSERT was checked against the live database too and is correct as written: the
+-- primary key IS (tenant_id, topic_key) so the ON CONFLICT matches, `provenance` exists and
+-- is NOT NULL here, and 'tenant_confirmed' satisfies its CHECK (tenant_confirmed | seeded |
+-- inferred). `decision_question` satisfies CHECK (IS NORMALIZED).
+--
+-- On `tenant_confirmed` rather than `seeded` (D-020): the founder wrote the refusal sentence
+-- and approved routing suitability questions to a person, and the stems are measured from
+-- this salon's own customer messages. If you would rather the STEMS carried their own
+-- weaker provenance, change it here — a `seeded` rule still fires and is still counted, it
+-- just reports as unconfirmed.
 insert into out_of_scope_topics
   (tenant_id, topic_key, matcher, decision_question, response_kind, deterministic_shortcircuit, provenance)
 select t.id, v.key, v.matcher::jsonb,
