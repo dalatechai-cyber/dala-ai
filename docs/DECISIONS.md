@@ -7083,3 +7083,103 @@ is a better demonstration of this test's actual subject than the one intended.
 
 Both halves checked adversarially: making the floor always-true, and applying it to every hit
 rather than to the winners, each turn five tests red.
+
+## D-096 — the comment surface's first delivery, and the three wrong diagnoses on the way to it
+
+`webhook_events` id **203, 2026-09-20 02:17:25 UTC**: the first `changes` entry this platform
+has ever received, after 202 deliveries that were all `messaging`. `docs/comments.md` opened by
+recording that the real feed "does not exist, and that is the first finding"; it exists now.
+
+### The cause was the app-level half of a two-part subscription
+
+Webhook delivery needs **two independent subscriptions**: the app subscribed to the field on the
+`page` OBJECT, and the app subscribed to the specific Page ASSET. Only the second was done.
+`POST /{page-id}/subscribed_apps?subscribed_fields=feed` returns `{"success": true}` when the
+first is missing, and no event is ever delivered.
+
+`03-meta-routing.md` §3.10.5 predicted this in as many words, including that it "bites the first
+time a *new* field is requested, i.e. when comments are added" — and it did, on the first
+attempt, eleven days after being written down. The step that would have caught it,
+`GET /{app-id}/subscriptions`, is still the unbuilt half of the reconciler.
+
+**No write was needed to fix it.** The page-level subscription had been correct all along; the
+app-level toggle was the entire cause.
+
+### Three diagnoses, all wrong, and how each was caught
+
+This is the part worth keeping, because the fix was one checkbox and the route to it was not.
+
+**One — "`comment_policy = 'none'` does not protect you."** Asserted from tracing
+`classifyComment`'s `no_rules` refusal and finding no caller for `handleComments`. There is no
+such export: the entry point is `runCommentJob`, and `reception.ts:386` gates it on the policy
+before anything else. **I grepped for a name I had assumed rather than reading the module's
+exports**, concluded the path was unwired, and stated the opposite of the truth. Caught by a
+docstring mentioning "the comment job" inside `reception.ts` — a file the grep had already
+searched and found nothing in.
+
+**Two — "the page-level subscription must be re-POSTed."** Reasoned from the documented
+`{"success": true}` behaviour: a field registered while the app lacked it at app level is not
+really registered, so fixing the app level cannot backfill it. Plausible, and false. The read
+came back `["feed","messages"]` already. The founder ran the GET before the POST, as instructed,
+and the write turned out to be unnecessary — **which is the entire argument for reading before
+writing on a control that is a replacement presented as an addition.** Had the order been
+reversed, a `subscribed_fields=feed` sent without `messages` would have dropped the DM mirror to
+fix a problem that did not exist.
+
+**Three — a test whose negative result could not mean what I said it would.** I asked for
+`debug_token` scopes and pre-announced that a missing `pages_read_user_content` would prove App
+Review was required. A freshly generated Explorer token's `scopes` is a statement about what was
+ticked in that session, not about what the app holds. **The founder flagged the confound
+himself**, in the same message that reported the result. Ticking the permission granted it
+immediately, `granular_scopes` scoped to the Page, no App Review anywhere.
+
+The shape is one this repository keeps recording and I produced three times in one night: a
+source answering plausibly instead of admitting it cannot see. A grep that finds nothing because
+the name is wrong. A documented API behaviour applied to a state it did not describe. A token
+whose scope list answers a different question from the one asked.
+
+**What made it tractable was a control whose timing we chose.** Every delivery on record arrived
+before the salon closed, so silence was uninformative — 09:15 Ulaanbaatar looks identical whether
+`feed` is broken or the city is asleep, and the ancestor's logs showed it had stopped in the same
+half-hour, which is D-062's signature *and* the signature of night. A DM sent on demand arrived
+in seconds and collapsed the hypothesis space in one step. **When silence is the evidence, buy a
+delivery rather than reason about the absence of one.**
+
+### The first real payload, measured against code written blind
+
+Everything in `meta/comments.ts` was written without ever seeing a `feed` entry. Two assumptions
+looked fragile and both were already right, with the reasoning recorded:
+
+- `created_time` is UNIX **seconds** (`1789870639`), not an ISO string. `secondsToDate` handles it
+  and documents both failure directions — ×1000 puts every comment in 1970 and refuses everything.
+- `parent_id` **equals** `post_id` for a top-level comment. `isReply = parentId !== '' &&
+  parentId !== postId` separates a reply from a root without parsing Facebook's `{owner}_{object}`
+  id structure, which `eligibility.ts` then relies on.
+
+Run against the real bytes: no skips, `threadId === commentId`, timestamp sane at two minutes,
+and the self-comment guard fires when `from.id` is the Page. The comment arrived on a **reel**
+(`status_type: added_video`), which nothing in the design had contemplated and which changes
+nothing.
+
+### What the rehearsal starts with, and two things to read it against
+
+Matrix: 13/13 rules enabled, `comment_policy = 'public_only'`, `delivery_mode = 'shadow'`. First
+draft at 02:32:44 — `kind = 'comment_reply'`, `state = 'draft'`, `provider_message_id` null,
+`unit_cost_nanousd` null, body byte-identical to the reviewed `comment_public_reply` row. No model
+call, because this surface never makes one.
+
+**«гоё» classifies as `unclassified`, not `ignore`.** The seeded `praise` stem is `гоён`, and
+`containsStem` is a token-PREFIX match, so the longer stem can never match the shorter word: «гоё»,
+«гоёхон» and «Гоё!» all miss. The cause is `MIN_STEM_CHARS` — «гоё» is three code points and is
+refused outright, so whoever seeded the rule reached for a four-character form and inverted its
+meaning. **The floor forced a stem that misses the word it was written for**, which is the «Сор» /
+«Эхо» / «хүн» wall again, this time failing open into the wrong counter rather than refusing.
+Deliberately NOT fixed yet: the real praise forms are what the rehearsal is for, the outcome is
+silence either way, and `whole_message` (no length floor) is the mechanism once the forms are known.
+
+**A draft consumes the per-post cap.** `repliesPerPost` counts `draft` alongside `sent`, on purpose
+— "it is what a shadow run writes" — so the cap is genuinely exercised in shadow rather than
+bypassed. The consequence for reading the results: **drafts will be far fewer than comments, by
+design.** One per post per rolling 24 hours, not one per comment. A day of thirty comments and four
+drafts is the cap working, so `post_cap_reached` has to be read beside the draft count or the
+classifier will look broken when it is not.
