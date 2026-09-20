@@ -7183,3 +7183,73 @@ bypassed. The consequence for reading the results: **drafts will be far fewer th
 design.** One per post per rolling 24 hours, not one per comment. A day of thirty comments and four
 drafts is the cap working, so `post_cap_reached` has to be read beside the draft count or the
 classifier will look broken when it is not.
+
+## D-097 — a success message narrower than its reader, and the column that believed it
+
+`tenant_secrets` holds exactly one row: tenant #0's `page_token`, sealed 2026-09-05. On
+2026-09-20 the founder ran `scripts/kek/seal.ts` twice against Matrix. Both printed
+`verified`. Both exited 0. Neither wrote anything, and neither could have.
+
+### The script has no database client
+
+`scripts/kek/seal.ts` is a SQL **generator**. It reads the secret from stdin, seals it,
+decrypts it back in memory through the runtime's own `openForRow`, prints an
+`insert into tenant_secrets …` to **stdout**, and exits. There is no Supabase import in the
+file and no network call. Its header said so on line 16 — *"one command and a paste into a
+SQL editor"* — and nothing in its runtime output repeated it.
+
+The trap is one line:
+
+```
+seal: verified — this row decrypts back to the input under the active KEK.
+```
+
+Every word is **true, and about the crypto only**. What made it misread is where it went:
+
+- **stderr**, so in a terminal it interleaves *after* the SQL block. The operator sees a wall
+  of SQL scroll past and then a line saying `verified` — the last thing on screen, which is
+  where a person looks for the outcome of a command.
+- gated on **`process.stderr.isTTY`**, which is backwards. The reassurance appeared only when
+  a human was watching and was suppressed when piped to a file — the one context where a
+  machine could have checked it got nothing at all.
+
+Reproduced by execution rather than read: a run prints 17 lines of SQL, then `verified`, then
+exits 0; the same run with `2>&1 >/dev/null` printed nothing.
+
+### The column then believed the script
+
+`tenant_channels.token_status` was set to `active` by hand on the strength of that report,
+and that is the part with teeth. **`live_requires_active_token` checks the COLUMN, not the
+secret** — `check (delivery_mode <> 'live' or token_status = 'active')`. So the constraint
+built to stop a channel going live without a credential would have waved Matrix through into
+`live` with `tenant_secrets` empty, and every reply would have failed at decrypt with the
+salon silent. The constraint that would actually have blocked the flip was
+`live_requires_name_confirmation` — unrelated bookkeeping. Clear that and nothing is left.
+
+That is D-064's rule needing its third statement. Its first form was *ask who WRITES a
+column*; D-072's addendum added *ask who READS it*; this adds **ask what the writer actually
+checked**. `token_status` is written by a human from a script's report, read by a CHECK
+constraint, and reconciled against `tenant_secrets` by nothing.
+
+Reverted to `unprovisioned` on the founder's instruction, 2026-09-20. `delivery_mode` stays
+`shadow`; the constraint now genuinely blocks.
+
+### The fix, which is not a database client
+
+The script still writes nothing — that is deliberate, and the header's reasoning stands: the
+alternative puts a service-role credential in an operator's shell for a job done twice per
+tenant. What changed is that it can no longer be read as having written:
+
+- **The first line of stdout** is `-- NOTHING HAS BEEN WRITTEN TO THE DATABASE`, followed by
+  the confirming `select`. It is inside the payload, so it survives redirection into a file
+  and is the first thing seen when the SQL is pasted. The stderr notice can be thrown away;
+  this cannot be separated from the statement it warns about.
+- **The stderr notice is unconditional** and three lines, in order: what was checked (the
+  crypto), what was not (the write), and the query that settles it.
+
+The general rule, which is the reason this is an entry and not a commit: **a success message
+must be no wider than what was verified, and where it is printed decides what it will be read
+to mean.** `verified` after seventeen lines of output is read as "the command worked",
+whatever its sentence says. The same failure is in this repository twice already —
+`meta/extract.ts`'s "everything skipped is reported" when the report was one `console.info`,
+and `config/platform.ts:33` asserting a monthly ceiling no code reads.

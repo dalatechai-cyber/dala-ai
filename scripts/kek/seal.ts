@@ -19,12 +19,29 @@
  * here — the obvious way to write a standalone script — is exactly the duplication §6.2.6
  * forbids, and would be the copy that silently disagrees about the AAD format.
  *
- * ## It verifies its own output before printing it
+ * ## THIS SCRIPT WRITES NOTHING. It prints SQL you must then execute.
+ *
+ * There is no database client in this file and there is no network call. Read that again
+ * before trusting any line it prints, because on 2026-09-20 two seals were run against
+ * Matrix, both reported `verified`, both exited 0, and `tenant_secrets` stayed empty — and
+ * the channel's `token_status` was then set to `active` by hand on the strength of it. A
+ * column claiming a credential that does not exist is worse than an empty one: the
+ * `live_requires_active_token` CHECK reads the column, so it would have waved the channel
+ * into `live` with no token to send with.
+ *
+ * ## It verifies its own output before printing it — and ONLY that
  *
  * After sealing, it decrypts the row it just built, through the same code path the worker
  * will use, and compares. So a KEK that is subtly wrong, or an AAD format that has drifted,
  * fails here rather than at the first customer message — where the symptom is a salon
  * going quiet with no error anybody can see.
+ *
+ * **That check is about the CRYPTO and says nothing about the database.** It used to report
+ * itself as `seal: verified`, on stderr, gated on `isTTY` — so in a terminal it landed after
+ * the SQL had scrolled past, as the last line on screen, which is where a person reads the
+ * outcome; and when piped to a file it vanished entirely, so the one context that could have
+ * machine-checked it got nothing. The scope of a success message has to match the scope of
+ * what was done, and where it is printed decides what it will be read to mean.
  */
 import { readFileSync } from 'node:fs';
 import { aadFor, channelKeyOf, openForRow, sealForRow } from '../../src/lib/crypto/envelope.ts';
@@ -89,6 +106,11 @@ const channelSql = channelId === null ? 'null' : `'${channelId}'::uuid`;
 
 process.stdout.write(
   [
+    // First line of the payload, so it survives being piped to a file and is the first
+    // thing read when the SQL is pasted. The stderr notice below can be redirected away;
+    // this cannot be separated from the statement it is warning about.
+    '-- NOTHING HAS BEEN WRITTEN TO THE DATABASE. Execute the statement below, then',
+    `-- confirm with:  select kind, kek_version from tenant_secrets where tenant_id = '${tenantId}';`,
     `-- ${kind} for tenant ${tenantId}, channel ${channelKeyOf(channelId)}`,
     `-- Sealed under TENANT_KEK_V${version}. The secret itself appears nowhere below.`,
     'insert into tenant_secrets',
@@ -109,6 +131,11 @@ process.stdout.write(
   ].join('\n'),
 );
 
-if (process.stderr.isTTY) {
-  process.stderr.write('\nseal: verified — this row decrypts back to the input under the active KEK.\n');
-}
+// Unconditional, and never gated on isTTY: the run that most needs this notice is the one
+// piped into a file, where the old message was suppressed precisely when nobody was watching.
+// It names what was checked (the crypto) and what was not (the write), in that order.
+process.stderr.write(
+  '\nseal: the ciphertext above decrypts back to the input under the active KEK.'
+  + '\nseal: NOTHING WAS WRITTEN. This script has no database client — it printed SQL.'
+  + `\nseal: run it, then confirm: select kind, kek_version from tenant_secrets where tenant_id = '${tenantId}';\n`,
+);
