@@ -7471,3 +7471,53 @@ sentence built from two approved facts reads exactly like an approved sentence.
 That is also why the measurement mattered more than the reasoning here: the matcher pair
 `[хими, болох]` looked obviously right and fired on three price questions out of
 twenty-two, every one of them *«хэд болох вэ»* — how much will it be.
+
+### D-099 addendum — the corpus was invented, and it scored 5/5
+
+**2026-09-20, caught by the founder before the SQL was run.** He asked why two of the six
+matcher pairs had no twin in the other script while the other two did: *measured, or a gap?*
+
+It was a gap, and chasing it found a worse one underneath.
+
+**The pairs had been measured against a corpus somebody typed into the test.** Five
+"suitability questions" written by the same author as the matchers, and the set scored 5/5.
+Re-run against the **real** corpus — all 164 inbound messages Matrix has received — the
+identical six pairs scored **3 of 6**. They missed half the genuine suitability questions
+real customers have actually sent, and two of the six fire on **nothing in 164 messages**.
+
+Note precisely what the invented corpus measured: the author's idea of how customers write,
+compared against matchers built from the author's idea of how customers write. Both sides of
+the test came from the same place, so it could only ever agree with itself. **That is an
+assertion that cannot fail, built out of two halves that each look like evidence.**
+
+It also explains the asymmetry the founder spotted. `[будаг, хими]` and `[ungu, garal]` had
+both been *tested* and both scored 0/5 — so they were dropped. But the invented corpus
+contained each concept exactly once, in exactly one script, so neither pair could have scored
+above zero. **Two pairs were cut for failing a test structurally incapable of passing them**,
+which is the inverse of the same defect: an assertion that cannot succeed.
+
+### What only the real corpus could say
+
+- **Customers write «ү» as `v`** — «Tas har vsend ene ungu garalt blhu», «Hi vsnii ongo…».
+  Every Latin pair keyed on `usend` alone misses them. Nothing in any romanisation standard
+  predicts this; the corpus simply does it.
+- **`ungu` and `ongo` BOTH occur** for «өнгө», in the same corpus. The question "which
+  romanisation is correct" has no answer — both are, and a rule must carry both.
+- **The Cyrillic twin of `[buda, himi]` is actively unsafe**, not merely absent: widened it
+  fires on «тайралт будалт хими», a customer *listing services*. Narrowed to `[будаг, хими]`
+  it fires on nothing. So that asymmetry is correct — but it was correct by luck, since the
+  reasoning that produced it was about a corpus that did not exist.
+- **Four real messages are suitability-shaped PRICE questions** — «Өөрт тохирох үсний өнгөө
+  олж будуулах д үнэ хэд вэ», «Iim ongo gargabal une bogino usend», «будагтай үсний уг
+  цайруулалт хэд вэ», «Yg iim urtta usend hed bolh be». Every one must NOT refuse. They are
+  the reason recall cannot simply be bought by widening stems.
+
+Final set: nine pairs, **7 fires across 164, 6/6 genuine caught, 0 false positives**, verified
+by parsing the matchers back out of the SQL file rather than from the script that wrote them.
+Each row is now marked `attested` (fires on a real message) or `twin` (the same stems in the
+other script, firing on nothing yet, kept as a bet because that script is 41% of traffic).
+
+**The rule: a matcher is measured against messages the business received, never against
+messages the author can imagine it receiving.** Where no such corpus exists yet, the honest
+report is a recall of *unknown* — not a number from a set you wrote. And when a candidate
+scores zero, ask whether the corpus could have scored it above zero before you cut it.
