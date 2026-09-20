@@ -394,6 +394,43 @@ All twenty-one Mongolian blocks were signed on 2026-09-04 and are seeded by
 
 ## 5. The ordered list — what you supply to get one real message
 
+> ### Read this first — 2026-09-20
+>
+> **The cells below are dated and several are now false. They are kept rather than
+> rewritten, because each records what was true when it was written; this banner is the
+> correction.** What actually changed:
+>
+> - **The mirror ran and produced a corpus.** Item 16's "THE MIRROR PRODUCED ZERO DATA" was
+>   true on 2026-09-14 and is not now: 165 DM drafts exist, segmented by `revision_id`, and
+>   87 of them validate the current revision. Item 15's subscription fault was the
+>   app-level `feed` toggle and it is fixed.
+> - **The comment surface took real traffic**, 02:17–04:04 UTC on 2026-09-20. Six comments,
+>   two of them the salon's own. See D-098 for the whole corpus.
+> - **Matrix's published config is seq 8** (`content_hash de35bb6a…`, 14,372 chars, thirteen
+>   `allowed_numbers` tokens), not seq 1. Item 13's figures are three revisions stale.
+> - **The phone changed on 2026-09-19.** `7741-7777` is retired; the rows carry
+>   `76001888, 80905498`.
+> - **Item 14 is about TENANT #0's token, not Matrix's.** Matrix has **no** row in
+>   `tenant_secrets` — the table holds exactly one, sealed 2026-09-05 for tenant #0. Item 5o
+>   is the accurate cell. `token_status` was briefly set to `active` by hand on 2026-09-20
+>   off a false success report and has been reverted to `unprovisioned` (D-097).
+>
+> **And the blocker is no longer any of these.** It is PRICES, and it is a design question
+> rather than a data-entry one. 41% of conversations contain a price question; the ancestor
+> answers from a 43-entry list and this platform refuses all of them. Loading the list
+> as-is is measurably unsafe: three real rows through the real compiler put five price
+> numerals into `allowed_numbers`, so 43 would put roughly sixty there — and the outbound
+> guard checks that a numeral is ON the list, never that it belongs to the service being
+> discussed. That is D-075's «Омбре 33,000₮» at full scale, with a real price against the
+> wrong service. **D-075's serve-from-row half and the removal of figures from the price
+> section have to land together**; rows without the renderer change is the worst state this
+> platform could be put in. See D-098.
+>
+> The two CHECKs that gate `live` are unchanged and are the whole gate:
+> `live_requires_active_token` and `live_requires_name_confirmation`. Channel `status`
+> is **not** one of them — nothing on the reply path reads it, so `pending` does not block.
+
+
 **Revised 2026-09-06, after the first real webhook.** Most of this section used to be
 accounts and variables; nearly all of that is now done, and what is left is rows and one
 schedule. The order is still not arbitrary: several steps are enforced by CHECK

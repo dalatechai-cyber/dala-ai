@@ -42,6 +42,7 @@ import {
   markNotified, openEpisodes, sendTelegram, severityMark, type OpenAlert,
 } from './alert.ts';
 import { DROPPED_FLAG } from '../inbound/dropped.ts';
+import { CAPPED_FLAG } from '../worker/comments.ts';
 import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
 import { tenantClock } from '../time/clock.ts';
 
@@ -103,6 +104,39 @@ export function droppedLine(d: DroppedSummary): string {
   return `${d.total} inbound dropped unanswered (24h): ${parts.join(', ')}`;
 }
 
+/**
+ * Public comments the per-post cap silenced, over the last day.
+ *
+ * The cap's own reasoning says the operator answers *is a cap of 1 costing me customers?*
+ * by counting `post_cap_reached`. That counter finally exists; this is what carries it to
+ * the one place the founder actually reads.
+ *
+ * Distinct POSTS as well as the total, because they answer different questions. Six capped
+ * comments on one viral post is the cap working exactly as designed — one public answer
+ * under a post is the whole rule. Six across six posts is six conversations the salon's
+ * wall never got, and only the second is a reason to raise the number.
+ */
+export type CappedSummary = {
+  total: number;
+  posts: number;
+  /** The count could not be read. Never folded into zero — see `cappedLine`. */
+  unavailable: boolean;
+};
+
+/**
+ * One clause about capped comments, present on every digest including clean ones.
+ *
+ * Same argument as `droppedLine`: a counter that goes silent when it finds nothing is
+ * indistinguishable from a counter that has stopped, and this one exists because a capped
+ * comment was invisible for the whole of the rehearsal's first night.
+ */
+export function cappedLine(c: CappedSummary): string {
+  if (c.unavailable) return 'comments capped (24h): UNREADABLE — quality_flags could not be counted';
+  if (c.total === 0) return 'No public comments capped (24h)';
+  return `${c.total} public comment${c.total === 1 ? '' : 's'} silenced by the per-post cap (24h), `
+    + `across ${c.posts} post${c.posts === 1 ? '' : 's'}`;
+}
+
 function ageOf(from: Date, now: Date): string {
   const minutes = Math.max(0, Math.round((now.getTime() - from.getTime()) / 60_000));
   if (minutes < 90) return `${minutes}m`;
@@ -128,7 +162,8 @@ function clip(text: string, max: number): string {
 export function planDigest(
   open: readonly OpenAlert[],
   input: {
-    now: Date; watchdogLastRan: Date | null; channelsChecked: number; dropped: DroppedSummary;
+    now: Date; watchdogLastRan: Date | null; channelsChecked: number;
+    dropped: DroppedSummary; capped: CappedSummary;
   },
 ): DigestPlan {
   const date = tenantClock(input.now, PLATFORM_TIMEZONE).date;
@@ -145,13 +180,14 @@ export function planDigest(
       + `(${input.channelsChecked} channel${input.channelsChecked === 1 ? '' : 's'})`;
 
   const dropped = droppedLine(input.dropped);
+  const capped = cappedLine(input.capped);
 
   if (ranked.length === 0) {
-    return { summary: `Dala AI — ${date}\nNothing open. ${heartbeat}.\n${dropped}.`, escalate: [] };
+    return { summary: `Dala AI — ${date}\nNothing open. ${heartbeat}.\n${dropped}.\n${capped}.`, escalate: [] };
   }
 
   const header = `Dala AI — ${date}\n${ranked.length} open condition${ranked.length === 1 ? '' : 's'}. `
-    + `${heartbeat}.\n${dropped}.`;
+    + `${heartbeat}.\n${dropped}.\n${capped}.`;
   const lines: string[] = [];
   let used = header.length;
   let omitted = 0;
@@ -218,6 +254,32 @@ async function countDropped(db: SupabaseClient, now: Date): Promise<DroppedSumma
   return { total: rows.length, byKind, unavailable: false };
 }
 
+/**
+ * Count them, degrading loudly for `countDropped`'s reason: a zero that means "the read
+ * failed" is the defect this clause exists to remove, rebuilt inside it.
+ */
+async function countCapped(db: SupabaseClient, now: Date): Promise<CappedSummary> {
+  const since = new Date(now.getTime() - DROPPED_WINDOW_HOURS * 60 * 60_000).toISOString();
+  const { data, error } = await db
+    .from('quality_flags')
+    .select('detail')
+    .eq('flag', CAPPED_FLAG)
+    .gte('at', since);
+  if (error) return { total: 0, posts: 0, unavailable: true };
+
+  const rows = Array.isArray(data) ? data : [];
+  const posts = new Set<string>();
+  for (const row of rows) {
+    const detail = (row as Record<string, unknown>)['detail'];
+    const d = detail !== null && typeof detail === 'object' ? detail as Record<string, unknown> : {};
+    const postId = d['post_id'];
+    // A row with no `post_id` still counts toward the total; it just cannot be attributed.
+    // Silently dropping it would understate the very number this line exists to report.
+    if (typeof postId === 'string' && postId !== '') posts.add(postId);
+  }
+  return { total: rows.length, posts: posts.size, unavailable: false };
+}
+
 export type DigestEffects = {
   db: SupabaseClient;
   now: Date;
@@ -260,6 +322,7 @@ export async function runDigestJob(
     watchdogLastRan: observed[0] ?? null,
     channelsChecked: observed.length,
     dropped: await countDropped(effects.db, effects.now),
+    capped: await countCapped(effects.db, effects.now),
   });
 
   // ALERTS_ENABLED=false silences every path or it silences none of them — the same escape
