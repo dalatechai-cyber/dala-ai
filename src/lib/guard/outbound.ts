@@ -37,6 +37,7 @@ import { ALWAYS_ON_GATES } from '../../config/platform.ts';
 import { matchesStemSequence } from '../mn/match.ts';
 import { containsPercentage, extractNumerals, maskUrls, numeralsNotAllowed, urlsNotAllowed } from '../mn/extract.ts';
 import { cpLength, fold, nfc, scriptShare } from '../mn/text.ts';
+import { SECTION_LABELS } from '../prompt/tenant.ts';
 
 /** A boundary-gate key, `Ш0`–`Ш9`. Platform scaffold, so the ids are stable. */
 export type GateKey = string;
@@ -417,9 +418,29 @@ export function disclosureWindows(
  */
 const GATE_LABEL = /(?<![\p{L}\p{N}])Ш\d{1,2}(?![\p{L}\p{N}])/u;
 
+/**
+ * The compiled prefix's own heading for the canned section, which is an INTERNAL name.
+ *
+ * Measured 2026-09-21 against the real model: «tsag zahialah» was answered
+ * «БЭЛЭН ХАРИУЛТ:\nТа манай вэбсайтаар (…) онлайнаар цаг захиалж…» — the section heading
+ * printed as a label, `answered_by = 'model'`, NO flag, on its way to a customer. D-066's
+ * class in a shape the matcher did not cover: not a gate NUMBER and not a row KEY, but the
+ * heading above them.
+ *
+ * Only this heading, deliberately, and not every `SECTION_LABELS` value. «УРЬДЧИЛГАА
+ * ТӨЛБӨР» is a heading too and is also an ordinary Mongolian phrase a correct reply says
+ * out loud — «Урьдчилгаа төлбөр 20,000₮». Matching all of them would refuse the tenant's
+ * own approved data, which is the mistake D-068 and D-071 are both records of. «БЭЛЭН
+ * ХАРИУЛТ» — *ready answer* — names the platform's machinery and nothing a salon customer
+ * would ever be told.
+ */
+const INTERNAL_HEADING = SECTION_LABELS.canned;
+
 export function namesAGate(reply: string): string | null {
-  const m = GATE_LABEL.exec(nfc(reply));
-  return m === null ? null : m[0];
+  const text = nfc(reply);
+  const m = GATE_LABEL.exec(text);
+  if (m !== null) return m[0];
+  return fold(text).includes(fold(INTERNAL_HEADING)) ? INTERNAL_HEADING : null;
 }
 
 /**
