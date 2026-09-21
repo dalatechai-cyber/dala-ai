@@ -29,7 +29,7 @@ import type { Usage } from '../spend/settle.ts';
 import { kindsRequiredByRules, kindsReferencedBy, matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
 import { cannedHashOf } from '../prompt/sections.ts';
 import { matchDeterministic, type DeterministicRule, type HistoryState } from '../gate/deterministic.ts';
-import { checkPinnedLines, adaptedFrom } from '../gate/pinned.ts';
+import { checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
 import { priceLineReport } from '../quality/priceLines.ts';
@@ -488,7 +488,7 @@ export async function handleReception(
   // Checked BEFORE the canned pinning so the more specific source wins attribution: a FAQ
   // answer and a canned row can share a closing sentence, and reporting a FAQ drift as
   // `canned_paraphrased` would send a reader to the wrong table (D-066).
-  const faqDrift = adaptedFrom(result.text, input.faqAnswers);
+  const faqDrift = faqAdaptation(result.text, input.faqAnswers);
   if (faqDrift !== null) {
     await deps.flag({
       code: 'faq_paraphrased',
@@ -496,7 +496,7 @@ export async function handleReception(
         + `(${faqDrift.run} characters shared)`,
       attempted: result.text,
     });
-    const served = await deps.draft({ body: faqDrift.body, answeredBy: 'canned' });
+    const served = await deps.draft({ body: faqDrift.answer, answeredBy: 'canned' });
     return served.ok
       ? { kind: 'drafted', outboundId: served.id, answeredBy: 'canned' }
       : { kind: 'retry', detail: served.detail };

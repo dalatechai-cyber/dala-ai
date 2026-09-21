@@ -359,3 +359,45 @@ function embeddedAdaptation(candidate: string, canned: readonly CannedRow[]): Pi
     similarity: hit.run / [...comparable(row.body)].length,
   };
 }
+
+/**
+ * A FAQ answer reproduced and altered, compared with line breaks treated as formatting.
+ *
+ * ## Why `adaptedFrom` alone could not see the case it was built for
+ *
+ * Measured 2026-09-21 against the real model and the real row. Matrix's damaged-hair
+ * answer is 234 code points over six lines; the model reproduces it with a BLANK LINE
+ * between the intro and the list, and blank lines between groups. The longest CONTIGUOUS
+ * common run is therefore the first line alone — 55 of 234, a 0.23 share against
+ * `EMBEDDED_MIN_SHARE` of 0.6 — so a deliberately drifted copy scored exactly as clean as a
+ * faithful one. The mechanism was inert on the only FAQ the founder complained about.
+ *
+ * That is the shape this repository keeps meeting: the guard ran, looked right, and could
+ * not fire. It was caught only by asking whether a DRIFTED reply fires, rather than
+ * observing that a clean one did not — a passing observation and a working mechanism look
+ * identical from outside (D-070).
+ *
+ * ## The fix, and its exact cost
+ *
+ * Runs of whitespace collapse to one space on BOTH sides before comparison. A line break is
+ * how a reply is laid out, not what it says, and «байна:\n\nCICA» and «байна:\nCICA» are the
+ * same sentence. The cost, stated: a reply that differs from an approved answer ONLY in its
+ * line breaks is now an exact quotation rather than drift, so it is served as the model
+ * wrote it. That is the right answer — the founder's objection was a changed WORD.
+ *
+ * What is served is always the STORED answer with its own line breaks, never the collapsed
+ * form: the collapse exists to compare, never to publish.
+ */
+export function faqAdaptation(
+  reply: string,
+  answers: readonly string[],
+): { answer: string; run: number } | null {
+  const collapse = (s: string): string => s.replace(/\s+/gu, ' ').trim();
+  const flat = answers.map(collapse);
+  const hit = adaptedFrom(collapse(reply), flat);
+  if (hit === null) return null;
+  const i = flat.indexOf(hit.body);
+  const answer = i === -1 ? undefined : answers[i];
+  // Belt and braces: a body that cannot be mapped back to a stored answer is not served.
+  return answer === undefined ? null : { answer, run: hit.run };
+}
