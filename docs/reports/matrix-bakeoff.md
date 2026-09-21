@@ -492,6 +492,42 @@ Your second goal. It was already met before tonight; what I did was check it ins
 
 **The switch is the only remaining step, and it is yours.**
 
+### Before you republish — preconditions checked against the live rows
+
+**What I could NOT do, first.** `scripts/publish/tenant.ts --slug matrix-eco-salon` (the dry
+run) needs `SUPABASE_SECRET_PUBLISH`, and this environment has **no Supabase credential of
+any kind** — I checked, and that is deliberate. So **I have not reproduced the new
+`content_hash`,** and nothing below should be read as if I had. D-074's rule stands: the
+compiled artefact is trusted once the dry run prints it, and that check is yours and belongs
+before the write. I did not hand-roll a second compiler to guess it — that is the exact class
+of defect D-058 and D-074 record.
+
+What I *did* do is read the live rows and check the compiler's own refusal conditions, so the
+run doesn't fail on you cold:
+
+| condition | live state |
+|---|---|
+| `canned_response_unreviewed` | **clear** — all **14** of Matrix's `canned_responses` carry `reviewed_at` |
+| `canned_response_unreviewed` (platform) | **clear** — all **13** gate blocks reviewed (`00`, `01`, `02`, `sh0`–`sh9`) |
+| `ambiguous_order` | **clear** — the L0 ordinals are 0, 1, 2, 100–109, all distinct |
+| `layer_violation` / `empty_prefix` | not reachable from the current rows |
+
+**What will actually change:**
+
+- **42 confirmed `service_variants` gain figures** — 28 `price_kind = 'exact'` and 14
+  `'range'`. Before D-112 `priceOf` returned `null` for **all 42**, which is why the bot said
+  «сор is in my knowledge base but I was not given the number». This is the change, and it is
+  the one that moves `content_hash`.
+- **4 of the 5 FAQs render, not 5.** The fifth — «Чи хэн бэ? Хүн үү, робот уу?» — is
+  `provenance = 'seeded'`, and `compileStablePrefix` filters it out (`faqsKept =
+  faqRows.filter(isTenantConfirmed)`) and names it in `faqsExcluded`. That is D-020 working:
+  it is a machine-drafted sentence a customer would read, so it stays out until **you** mark
+  it `tenant_confirmed`. The other four are confirmed and will render.
+
+Also worth knowing: the per-vertical prompt blocks from D-035 are still **not seeded** — every
+`prompt_blocks` row is `vertical = (generic)`. The mechanism is built and remains inert, as
+intended.
+
 ### What needs you
 
 | | |
