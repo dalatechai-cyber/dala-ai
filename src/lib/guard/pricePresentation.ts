@@ -69,8 +69,32 @@ export type PriceViolation =
 
 export type PresentationReport = {
   violations: PriceViolation[];
-  /** Services whose prices the reply quoted, in price-list order — what to serve instead. */
+  /**
+   * Services the reply UNAMBIGUOUSLY quoted, in price-list order — what to serve instead.
+   *
+   * A service qualifies two ways: its name is on the line (so the reply said which), or the
+   * price is uniquely its (so the number said which). A price several services share
+   * identifies an AMOUNT and not a SERVICE, and is deliberately left out — see the
+   * `ambiguous` note below.
+   */
   quoted: PricedService[];
+  /**
+   * True when a violation rests only on prices whose owner cannot be determined.
+   *
+   * Measured 2026-09-21 against the real model, which is the only reason this exists.
+   * «CICA хими байгаа юу?» was answered well — CICA is not a chemical service, here are
+   * both its prices — with the prices attached to a paraphrase of the name rather than the
+   * name. Rule (1) fires correctly. But 198,000 is also «Хуримын засалт» and 154,000 is
+   * also «Усан хими», «Хими арчилт» and «Хуримын засалт», so serving "the rows for the
+   * services whose prices were quoted" served FIVE services the customer never asked
+   * about — visibly worse than the model's answer.
+   *
+   * So when the owner is unknowable the platform does not guess: the violation is counted
+   * and the reply is left alone. It is loosely named and TRUE, and a true answer with an
+   * imprecise name beats a list of unrelated services. This is the boundary of what the
+   * mechanism can enforce, and it is stated rather than hidden.
+   */
+  ambiguous: boolean;
 };
 
 /** Digit-runs reduced to digits alone, so `176,000` and `176 000` are one token.
@@ -113,6 +137,7 @@ export function pricePresentation(text: string, services: readonly PricedService
 
   const violations: PriceViolation[] = [];
   const quotedNames = new Set<string>();
+  let ambiguousOnly = false;
 
   for (const line of text.split('\n')) {
     const folded = fold(line);
@@ -136,7 +161,9 @@ export function pricePresentation(text: string, services: readonly PricedService
       const named = owners.filter((o) => folded.includes(fold(o.name)));
       if (named.length === 0) {
         violations.push({ kind: 'orphaned', price: f.digits, line: line.trim() });
-        for (const o of owners) quotedNames.add(o.name);
+        // Only a price with exactly ONE owner says which service was meant.
+        if (owners.length === 1 && owners[0] !== undefined) quotedNames.add(owners[0].name);
+        else ambiguousOnly = true;
       } else {
         for (const o of named) quotedNames.add(o.name);
       }
@@ -145,7 +172,7 @@ export function pricePresentation(text: string, services: readonly PricedService
 
   // Price-list order, not reply order: the rows are served as the data writes them.
   const quoted = services.filter((s) => quotedNames.has(s.name));
-  return { violations, quoted };
+  return { violations, quoted, ambiguous: ambiguousOnly && quoted.length === 0 };
 }
 
 /**

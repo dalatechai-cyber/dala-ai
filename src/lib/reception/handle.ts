@@ -577,6 +577,20 @@ export async function handleReception(
   if (presentation.violations.length > 0) {
     const kinds = [...new Set(presentation.violations.map((v) => v.kind))].sort().join(', ');
     const rowsText = renderQuotedRows(presentation.quoted);
+    // The owner is unknowable, so the platform does not guess which service to serve. The
+    // reply is loosely named and TRUE; substituting a list built from a shared price served
+    // five unrelated services on the first real-model run, which is worse than the defect.
+    if (presentation.ambiguous) {
+      await deps.flag({
+        code: 'outbound_price_presentation',
+        detail: `${kinds}; owner ambiguous, reply left as written`,
+        attempted: capped.text,
+      });
+      const asIs = await deps.draft({ body: capped.text, answeredBy: 'model' });
+      return asIs.ok
+        ? { kind: 'drafted', outboundId: asIs.id, answeredBy: 'model' }
+        : { kind: 'retry', detail: asIs.detail };
+    }
     // An EMPTY substitution must never ship. `servicesFromPrefix` always populates `rows`
     // for a name it parsed, so this is unreachable from the live path — but "unreachable"
     // is what every dead guard in this repository was, and the failure mode here is a

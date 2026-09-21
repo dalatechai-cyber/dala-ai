@@ -1,0 +1,181 @@
+{
+  "ranAt": "2026-09-21T21:12:03.524Z",
+  "model": "claude-sonnet-5",
+  "tag": "price-1",
+  "prefixChars": 22349,
+  "allowedNumbers": [
+    "1",
+    "10,000",
+    "10:00",
+    "11:00",
+    "120,000",
+    "132,000",
+    "135,000",
+    "154,000",
+    "16,500",
+    "176,000",
+    "190,000",
+    "198,000",
+    "19:00",
+    "20,000",
+    "200,000",
+    "20:00",
+    "22,000",
+    "220,000",
+    "255,000",
+    "3",
+    "3-5",
+    "30",
+    "30-40",
+    "33,000",
+    "380,000",
+    "4-5",
+    "430,000",
+    "44,000",
+    "44,000–88,000",
+    "460,000",
+    "49,500",
+    "50,000",
+    "500,000",
+    "510,000",
+    "55,000",
+    "570,000",
+    "640,000",
+    "66,000",
+    "70",
+    "71,500",
+    "76001888",
+    "80905498",
+    "88,000",
+    "99,000"
+  ],
+  "singles": {
+    "f05": {
+      "text": "Үс будахад хэд вэ?",
+      "ok": true,
+      "reply": "Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.",
+      "answeredBy": "canned",
+      "flags": [
+        "outbound_gate_label"
+      ],
+      "flagDetail": [
+        {
+          "code": "outbound_gate_label",
+          "detail": "the reply names a gate block: Ш2 [served: handoff]",
+          "attempted": "Ш2/Ш11-д тохирсон боловч будалтын хэд хэдэн төрөл байгаа тул тодруулна.\n\nТа бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 3311,
+      "usage": {
+        "input_tokens": 136,
+        "output_tokens": 87,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 15714
+      }
+    },
+    "f06": {
+      "text": "Сор хэд вэ?",
+      "ok": true,
+      "reply": "Сор: 120,000₮–190,000₮",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 2454,
+      "usage": {
+        "input_tokens": 133,
+        "output_tokens": 18,
+        "cache_read_input_tokens": 15714,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f07": {
+      "text": "CICA хими байгаа юу?",
+      "ok": true,
+      "reply": "CICA нөхөн сэргээх эмчилгээ (1 удаа): 198,000₮\nCICA нөхөн сэргээх эмчилгээ (Курсээр, 1 удаагийн үнэ): 154,000₮\nУсан хими: 132,000₮–154,000₮\nХими арчилт: 154,000₮\nХуримын засалт: 154,000₮–198,000₮",
+      "answeredBy": "deterministic",
+      "flags": [
+        "style_price_lines",
+        "outbound_price_presentation"
+      ],
+      "flagDetail": [
+        {
+          "code": "style_price_lines",
+          "detail": "rule (4): 2 price options, 2 on one line",
+          "attempted": "CICA хими гэсэн үйлчилгээ манайд байхгүй. CICA бол хими биш, эмчилгээ буруу сэргээх тусдаа эмчилгээ бөгөөд нэг удаа хийхэд 198,000₮, курсээр авбал 154,000₮ (1 удаагийн үнэ) байна. Та үүнийг хэлж байна уу, эсвэл хими үйлчилгээ (жишээ нь Эмчилгээний хими, Шулуун хими) сонирхож байна уу?"
+        },
+        {
+          "code": "outbound_price_presentation",
+          "detail": "orphaned; served the price list's own rows for: CICA нөхөн сэргээх эмчилгээ, Усан хими, Хими арчилт, Хуримын засалт",
+          "attempted": "CICA хими гэсэн үйлчилгээ манайд байхгүй. CICA бол хими биш, эмчилгээ буруу сэргээх тусдаа эмчилгээ бөгөөд нэг удаа хийхэд 198,000₮, курсээр авбал 154,000₮ (1 удаагийн үнэ) байна. Та үүнийг хэлж байна уу, эсвэл хими үйлчилгээ (жишээ нь Эмчилгээний хими, Шулуун хими) сонирхож байна уу?"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 6746,
+      "usage": {
+        "input_tokens": 135,
+        "output_tokens": 187,
+        "cache_read_input_tokens": 15714,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f12": {
+      "text": "Будаг хэд вэ?",
+      "ok": true,
+      "reply": "Будалт хэдэн төрөл байдаг тул тодруулъя: та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?\n\nДунд үсний будаг (мөрнөөс дээш урттай үс): 176,000₮\nУрт үсний будаг (мөр давсан урттай үс): 200,000₮\nҮсний угийн будаг: 135,000₮",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 4782,
+      "usage": {
+        "input_tokens": 134,
+        "output_tokens": 145,
+        "cache_read_input_tokens": 15714,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n02": {
+      "text": "dund zergiin usend shuluun himi hedeer hiih ve",
+      "ok": true,
+      "reply": "Шулуун хими (сеттинг) хүн бүрд тохирохгүй бөгөөд танд тохирох эсэхийг манай мэргэжилтэн шууд харж хэлж чадна. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.\n\nМэдээллийн хувьд, шулуун химийн үнэ 430,000₮–510,000₮ байна.",
+      "answeredBy": "model",
+      "flags": [
+        "style_price_lines"
+      ],
+      "flagDetail": [
+        {
+          "code": "style_price_lines",
+          "detail": "rule (4): 3 price options, 2 on one line",
+          "attempted": "Шулуун хими (сеттинг) хүн бүрд тохирохгүй бөгөөд танд тохирох эсэхийг манай мэргэжилтэн шууд харж хэлж чадна. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.\n\nМэдээллийн хувьд, шулуун химийн үнэ 430,000₮–510,000₮ байна."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 6981,
+      "usage": {
+        "input_tokens": 146,
+        "output_tokens": 144,
+        "cache_read_input_tokens": 15714,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n04": {
+      "text": "us budalt",
+      "ok": true,
+      "reply": "Уучлаарай, тодруулбал та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 3329,
+      "usage": {
+        "input_tokens": 127,
+        "output_tokens": 52,
+        "cache_read_input_tokens": 15714,
+        "cache_creation_input_tokens": 0
+      }
+    }
+  },
+  "conversations": {}
+}

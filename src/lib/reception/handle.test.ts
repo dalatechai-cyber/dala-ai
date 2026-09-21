@@ -838,6 +838,22 @@ test('DONE-TEST: A CROSS-SERVICE RANGE IS REPLACED BY THE PRICE LIST\'S OWN ROWS
     'what the MODEL wrote is kept — quality_flags says that, the draft says what was served');
 });
 
+test('DONE-TEST: AN AMBIGUOUS OWNER IS COUNTED AND THE REPLY IS LEFT AS WRITTEN', async () => {
+  const SHARED = [
+    { name: 'CICA нөхөн сэргээх эмчилгээ', prices: ['198000'], rows: ['CICA нөхөн сэргээх эмчилгээ: 198,000₮'] },
+    { name: 'Хуримын засалт', prices: ['198000'], rows: ['Хуримын засалт: 198,000₮'] },
+  ];
+  const text = 'CICA бол хими биш, нэг удаа 198,000₮.';
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text } });
+  const r = await handleReception(d, {
+    ...base, serviceNames: SHARED, tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['198,000'] },
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'a true answer is not discarded');
+  assert.equal(drafts.at(-1)?.body, text, 'left exactly as written');
+  const f = flags.find((x) => x.code === 'outbound_price_presentation');
+  assert.match(f?.detail ?? '', /owner ambiguous/, 'but it is counted, never silent');
+});
+
 test('DONE-TEST: a correctly presented price is left entirely alone', async () => {
   const DYES = [
     { name: 'Дунд үсний будаг', prices: ['176000'], rows: ['Дунд үсний будаг: 176,000₮'] },

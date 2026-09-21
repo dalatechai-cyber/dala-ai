@@ -77,6 +77,30 @@ test('DONE-TEST: A COMMA IS NOT A RANGE SEPARATOR, even with nothing between the
   assert.deepEqual(r.violations, [], 'a comma lists two prices; it does not assert a spread');
 });
 
+test('DONE-TEST: A SHARED PRICE NAMES AN AMOUNT, NOT A SERVICE — measured on CICA', () => {
+  // Real, 2026-09-21. «CICA хими байгаа юу?» was answered well, with both CICA prices
+  // attached to a paraphrase of the name. Rule (1) fires — correctly. But 198,000 is also
+  // «Хуримын засалт» and 154,000 is also «Усан хими» and «Хими арчилт», so substituting
+  // "the services whose prices were quoted" served FIVE the customer never asked about.
+  const SHARED = servicesFromPrefix([
+    '=== ҮНИЙН ЖАГСААЛТ ===',
+    '- CICA нөхөн сэргээх эмчилгээ (1 удаа): 198,000₮',
+    '- CICA нөхөн сэргээх эмчилгээ (Курсээр): 154,000₮',
+    '- Хими арчилт: 154,000₮',
+    '- Хуримын засалт: 154,000₮–198,000₮',
+  ].join('\n'), 'ҮНИЙН ЖАГСААЛТ');
+  const r = pricePresentation('CICA бол хими биш, нэг удаа 198,000₮, курсээр 154,000₮.', SHARED);
+  assert.ok(r.violations.length > 0, 'the loose naming is still a violation');
+  assert.deepEqual(r.quoted, [], 'no service is identified by a price several of them share');
+  assert.equal(r.ambiguous, true, 'so the caller must not guess');
+});
+
+test('a uniquely-priced service IS identified by its price alone', () => {
+  const r = pricePresentation('Дунд урттай үс (мөрнөөс дээш): 176,000₮', SERVICES);
+  assert.deepEqual(r.quoted.map((s) => s.name), ['Дунд үсний будаг']);
+  assert.equal(r.ambiguous, false);
+});
+
 test('a tenant with no price list has nothing to check', () => {
   assert.deepEqual(pricePresentation('Сор: 120,000₮', []).violations, []);
 });
