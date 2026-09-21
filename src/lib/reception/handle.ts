@@ -33,7 +33,7 @@ import { checkPinnedLines } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
 import { priceLineReport } from '../quality/priceLines.ts';
-import { serviceNameReport } from '../quality/serviceNames.ts';
+import { serviceNameReport, type PricedService } from '../quality/serviceNames.ts';
 import { capToSingleMessage } from '../mn/text.ts';
 
 /** One Messenger send, in characters. */
@@ -127,12 +127,12 @@ export type ReceptionInput = {
   /**
    * The service names the tenant's price list renders, for the name-fidelity COUNTER.
    *
-   * Derived from `promptStable` by `serviceNamesFromPrefix`, so it costs no query. Required
+   * Derived from `promptStable` by `servicesFromPrefix`, so it costs no query. Required
    * rather than defaulted: `[]` would silently mean "this tenant sells nothing", and a
    * caller that forgets would turn the counter off rather than fail — which is the shape
    * `customerAttachments` already refuses for the same reason.
    */
-  serviceNames: readonly string[];
+  serviceNames: readonly PricedService[];
 };
 
 export type ReceptionOutcome =

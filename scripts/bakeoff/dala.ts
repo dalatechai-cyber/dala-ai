@@ -27,7 +27,7 @@ import { handleReception, MAX_REPLY_CHARS, type ReceptionDeps } from '../../src/
 import { renderTenantSections, type TenantKb } from '../../src/lib/prompt/tenant.ts';
 import { renderStablePrefix, type PromptSection } from '../../src/lib/prompt/render.ts';
 import { renderVolatile } from '../../src/lib/reception/volatile.ts';
-import { serviceNamesFromPrefix } from '../../src/lib/quality/serviceNames.ts';
+import { servicesFromPrefix } from '../../src/lib/quality/serviceNames.ts';
 import { callReception } from '../../src/lib/model/reception.ts';
 import { cannedHashOf } from '../../src/lib/prompt/sections.ts';
 import { MODEL_REGISTRY } from '../../src/config/platform.ts';
@@ -198,7 +198,7 @@ async function ask(text: string, attachments: readonly string[], history: { role
         maxReplyChars: MAX_REPLY_CHARS,
       } as never,
       cannedLabel: SECTION_LABELS.canned, cannedHash,
-      serviceNames: serviceNamesFromPrefix(promptStable, SECTION_LABELS.priceList),
+      serviceNames: servicesFromPrefix(promptStable, SECTION_LABELS.priceList),
     } as never);
     return { ok: true, reply: record.body ?? null, answeredBy: record.answeredBy ?? null,
       flags: record.flags, flagDetail: record.flagDetail, kind: (out as { kind: string }).kind, ms: Date.now() - started,
