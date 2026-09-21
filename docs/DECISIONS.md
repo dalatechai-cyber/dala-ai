@@ -7952,6 +7952,46 @@ shipped advice that was false at the moment it was written, and it took a founde
 the corpus to find that out. Its wording now names the length the alias must clear, and says
 to read it off the corpus rather than guess.
 
+## D-105 — a provisioner that may not make a claim may not withdraw one either
+
+**Recorded 2026-09-21, late.** The code shipped in `1187e71` under this number and this
+section was never written — so for a day the only statement of the rule was a commit
+message, which is exactly what this repository keeps saying not to rely on. Written here
+from the diff.
+
+**The measured cost**, found by the founder reading seq 11's publish output: an
+`UNCONFIRMED photo_consultation` line that was not there at seq 10. Read from the live
+project, that row's `provenance` was `seeded` while the nine suitability rows beside it
+were `tenant_confirmed`, and the only thing that wrote it between those two compiles was
+`--apply`. **Re-provisioning Matrix turned a claim about what a human had read back into a
+claim about what a script guessed.**
+
+D-020's rule is that only a person who has read a rule may call it `tenant_confirmed`. The
+corollary nobody had written down is the one this is named for: **a script that cannot make
+that claim must not be able to withdraw it.** `apply.ts` states the principle twenty lines
+up about `reviewed_by` — *"it is half of a signature"*, so it is left alone — and
+`provenance` is the same kind of fact and was not given the same care. An existing row now
+keeps its own provenance on `out_of_scope_topics`, `comment_rules` and `service_aliases`; a
+new row is still `seeded`.
+
+**`enabled` is the sharper half, and it had not fired only by luck.** `comment_rules` wrote
+`enabled: false` unconditionally, so a second `--apply` silently switches OFF every rule an
+operator has read and enabled — on the one surface where the mistake is public, permanent
+and screenshot-able. Matrix has fifteen rules and exactly one enabled, so this was one
+`--apply` away from happening. **A provisioner that may not enable a rule must not be able
+to disable one.**
+
+Note the shape, because it is one this repository keeps meeting: the write was not wrong in
+isolation. `provenance: 'seeded'` and `enabled: false` are both correct for a NEW row, and
+the writer had no idea it was ever looking at an old one. **A default is a claim about a
+row's history, and a writer that cannot tell a create from an update asserts that history
+on every run** — D-063's backfill lesson arriving through a script instead of a migration.
+
+**`config_audit` is EMPTY for this tenant**, so the prior provenance could not be recovered
+from the audit trail; the value was reconstructed from the founder's observation plus the
+code. A table that exists to answer exactly this question and is written by nothing is
+D-064's shape. Noted, not fixed.
+
 ## D-106 — App Review was never the gate, and the daily cap was enforcing a superseded number
 
 **2026-09-21**, on the eve of Matrix going live. Two corrections and one mechanism, all
