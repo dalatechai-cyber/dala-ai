@@ -3965,6 +3965,39 @@ and the only thing that caught it was reading the alert's own wording before tru
 query. Measure the thing the instrument measures, not the thing that is easy to select.
 
 
+### D-062 follow-up, 2026-09-21 — the ancestor is the control, and it settles a silence in one query
+
+An 8.5-hour gap with no text DM (03:56 → 12:27 UTC, mostly open hours) **exceeded the
+maximum ordinary open-hour gap measured over seven days, which is 6.1 hours.** Reactions
+kept arriving throughout, which proves the `feed` subscription works — and proves nothing
+about `messages`, because they are different subscription fields. That ambiguity is exactly
+D-062: eleven days of a dead channel that no instrument could distinguish from a quiet one.
+
+`scripts/diagnose/meta-subscription.ts` is the designed read and needs a Meta token this
+environment does not have. **The ancestor answers it instead, and for free.** `Matrix-Chatbot`
+serves the SAME Page through a DIFFERENT Meta app, and its Vercel project is readable here
+(`prj_CT13Uw8eCeKeW7hKOCYCqwdO6vei`). Since 04:00 UTC it received exactly **one** request:
+
+| | |
+|---|---|
+| ancestor `/api/messenger` | **09:18:25** |
+| our `webhook_events` id 313 | **09:18:26.739** |
+
+The same thumbs-up, 1.2 seconds apart. **Both apps received the only DM that arrived, so our
+`messages` subscription is healthy and the silence is real customer quiet.** We also received
+the reactions the ancestor did not, so we are getting strictly more than it, not less.
+
+**The method is the point.** A silence on a Page this platform mirrors is answerable without
+any Meta credential: count the ancestor's invocations over the same window and compare
+timestamps. Agreement in BOTH directions — it received what we received, and neither received
+anything else — is what separates "nobody wrote" from "our subscription died". One direction
+alone is not enough: had the ancestor logged a delivery at, say, 10:30 that we have no event
+for, that single row would have been proof of a broken subscription.
+
+Note what this does NOT license. It is only available while Matrix runs both systems; after
+the cutover the ancestor stops being a control, and §3.10.5 step 2 becomes the only read.
+`scripts/diagnose/meta-subscription.ts` is still the thing to build against, not a spare.
+
 ## D-064 — three columns the schema carried since `0001`, written by nothing
 
 **2026-09-14, found by reading Matrix's first real mirror drafts.** No migration: every
