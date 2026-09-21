@@ -56,10 +56,18 @@ process.stdout.write(`ancestor: knowledge loaded for "${SALON_NAME}"\n`);
  * comparison table, and the reader could not tell. This is the file's own content hash,
  * so it changes exactly when the prompt does.
  */
-const ancestorPrompt = createHash('sha256')
-  .update(readFileSync('/home/user/Matrix-Chatbot/lib/salonBrain.js'))
-  .digest('hex').slice(0, 12);
-process.stdout.write(`ancestor: salonBrain.js ${ancestorPrompt}\n`);
+const ancestorPrompt = (() => {
+  // BOTH files, because both shape the reply and only hashing one under-reports.
+  // Measured: changing the Maps link in `currentClient.js` altered what the ancestor
+  // says and left a salonBrain-only hash identical, so two different ancestors would
+  // have carried one stamp — the exact confusion the stamp exists to prevent.
+  const h = createHash('sha256');
+  for (const f of ['lib/salonBrain.js', 'config/currentClient.js']) {
+    h.update(readFileSync(`/home/user/Matrix-Chatbot/${f}`));
+  }
+  return h.digest('hex').slice(0, 12);
+})();
+process.stdout.write(`ancestor: prompt+knowledge ${ancestorPrompt}\n`);
 
 const set = JSON.parse(readFileSync('scripts/bakeoff/testset.json', 'utf8'));
 
