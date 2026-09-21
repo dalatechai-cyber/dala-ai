@@ -368,7 +368,7 @@ This is the conversation that produced walls of text in production: replies grew
 - **Speed.** p50 3.7s vs 6.8s; p90 4.8s vs 13.6s. Production last night was p50 25.8s, so this is ~7x faster than what you tested.
 - **Brevity.** p50 128 chars vs 173; longest 250 vs 480. The 11-turn thread no longer grows (105, 67, 139, 28, 176, 138, 189, 131, 80, 124, 106) and greets **once**.
 - **Format.** The ancestor writes `**bold**`, `-` and `•` throughout. Messenger renders those literally, so its replies reach the customer with the markup showing. Dala writes plain prose, which is what `02_style` already required.
-- **`f10`/turn 8 — the ancestor is WRONG and Dala is right.** It gives «Яармагийн Номин Хайпермаркетын баруун талд» and Maps link `zjRgD1qBMoXGfjGx7`; the live `contact_points` row says «Мөнхада төвийн зүүн талд, Төгөлдөр Апартмент 1 давхарт» with link `fHaBVwc9mFZJxYAJ9`. **The incumbent has been sending customers a stale address.**
+- ~~**`f10`/turn 8 — the ancestor is WRONG and Dala is right.**~~ **RETRACTED — I had this exactly backwards, and it was the founder who caught it.** See «The address claim I got backwards» below.
 - **`e04` Тэжээл.** The ancestor answers «44,000 – 88,000₮» for a service not on the confirmed list. Dala splits Тэжээлийн тос 49,500₮ / CMC тэжээл 132,000₮.
 - **`f13` Мастер.** The ancestor says Мастер is «илүү туршлага сайтай» — a recommendation, which breaks your "never recommend Мастер" rule. Dala states the tier prices neutrally.
 - **Turn 10 «Будаг хэд вэ?».** Dala asks hair-vs-nail. The ancestor assumes hair and never mentions the nail catalogue.
@@ -379,6 +379,42 @@ This is the conversation that produced walls of text in production: replies grew
 On `f05`, `f11` and `c01` the ancestor **lists every price** and Dala **asks one clarifying question**. That is not a bug — it is your own signed `02_style` rule, item (4): «Тодорхойгүй бол сонголт жагсаахын оронд НЭГ богино тодруулга асуу». Dala is obeying it and the ancestor is not.
 
 **This is a product call only you can make.** If you prefer the ancestor's behaviour, item (4) of `02_style` is the line to change, and it is signed platform Mongolian.
+
+### The address claim I got backwards
+
+**This report told you the incumbent had been sending customers a stale address. That was
+wrong, and it was the only place in the bake-off where I asserted Dala was right on a FACT
+rather than on behaviour.** The founder corrected it on 2026-09-21.
+
+| | |
+|---|---|
+| **Correct address** | «Яармагийн Номин Хайпермаркетын баруун талд» — what the ancestor says |
+| **Correct Maps link** | `https://maps.app.goo.gl/ckEXBLoq4FnxJHq16` — **which neither bot had** |
+| Dala's old row | «Яармаг салбар, Мөнхада төвийн зүүн талд, Төгөлдөр Апартмент 1 давхарт» + `fHaBVwc9mFZJxYAJ9` — wrong, now corrected |
+| Ancestor's link | `zjRgD1qBMoXGfjGx7` — also wrong, and deliberately left alone |
+
+**Where the wrong value came from, traced.** `docs/STATUS-2026-09-20.md` records it under
+*Waiting on: **The salon*** — «**Their own comment replies** give …». So it was read off the
+salon's public Facebook comments, listed as a thing still to be CONFIRMED, and written into
+`contact_points` anyway. It then rendered into the prefix looking exactly like a founder-
+confirmed fact, and I read it back out as ground truth to judge the incumbent against.
+
+**Why nothing caught it, which is the part that generalises.** D-020's provenance gate — the
+mechanism that keeps an unconfirmed row out of a customer's reply — covers `faqs`,
+`out_of_scope_topics`, `deterministic_replies`, `disclosure_rules`, `comment_rules` and
+`service_aliases`. **`contact_points` has no `provenance` column at all**, nor do
+`business_hours`, `services`, `staff_members`, `tenant_booking` or `knowledge_documents`.
+In a table that cannot record where a value came from, a scraped guess and a confirmed fact
+are byte-identical. The guard did not fail; it was never reachable here.
+
+**The audit the founder asked for, and what it found.** The only other value from that same
+source is «Гар утас: 9100 5498», a third phone number in the salon's comments — it **never
+reached a row or the repo** (verified against the live table and by search). Every
+`knowledge_documents` row carries `source = "Matrix Eco Salon, 2026-09-07, эзний хариулт"`,
+a dated owner answer rather than a scrape, and «Салбарууд» — the one document that could have
+carried a location — names Яармаг as this Page's branch with **no street address and no
+link**, consistent with the correction. `phone`, `website` and `booking_url` were each given
+by the founder directly in a brief.
 
 ### Known gaps I did NOT paper over
 

@@ -25,6 +25,7 @@
  * change. Re-asking would spend the founder's budget to reproduce a file that is already on
  * disk. The script refuses to overwrite an existing capture unless `--force` is passed.
  */
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 
 const OUT = 'scripts/bakeoff/baseline-ancestor.json';
@@ -46,10 +47,27 @@ if (!process.env['ANTHROPIC_API_KEY']) {
 const { generateSalonReply, SALON_NAME } = await import('/home/user/Matrix-Chatbot/lib/salonBrain.js');
 process.stdout.write(`ancestor: knowledge loaded for "${SALON_NAME}"\n`);
 
+/**
+ * Which ancestor produced a reply, recorded per entry.
+ *
+ * The ancestor stopped being a fixed baseline the moment the founder asked for two fixes
+ * in it (stop praising Мастер, stop raw markdown). A capture that mixes pre- and post-fix
+ * replies without saying which is which would put two different bots in one column of the
+ * comparison table, and the reader could not tell. This is the file's own content hash,
+ * so it changes exactly when the prompt does.
+ */
+const ancestorPrompt = createHash('sha256')
+  .update(readFileSync('/home/user/Matrix-Chatbot/lib/salonBrain.js'))
+  .digest('hex').slice(0, 12);
+process.stdout.write(`ancestor: salonBrain.js ${ancestorPrompt}\n`);
+
 const set = JSON.parse(readFileSync('scripts/bakeoff/testset.json', 'utf8'));
+
+let calls = 0;
 
 /** One call, timed, with the failure captured rather than thrown. */
 async function ask(message, history) {
+  calls += 1;
   const started = Date.now();
   try {
     const reply = await generateSalonReply({ message, history });
@@ -64,13 +82,35 @@ async function ask(message, history) {
 
 // No model id recorded: the ancestor chooses its own in `lib/salonBrain.js`, and a copy
 // here would be a second place to update — the drift §6.2.6 exists to prevent.
-const out = { capturedAt: new Date().toISOString(), singles: {}, conversations: {} };
+/**
+ * `--only` MERGES into the capture on disk. It must never start from an empty object.
+ *
+ * It did, and the consequence was not hypothetical: re-running `--only f13` to verify the
+ * founder's ancestor fix wrote a file with one single and ZERO conversations, discarding
+ * the eleven-turn thread the brief says to capture once and never re-ask. Nothing was lost
+ * only because the previous capture was already committed — the recovery was `git
+ * checkout`, not a re-run, so no budget was spent twice. A selective re-run that silently
+ * deletes what it did not select destroys the evidence it exists to preserve, and the
+ * report built on it would have shown a whole section vanishing between runs.
+ */
+const prior = existsSync(OUT) ? JSON.parse(readFileSync(OUT, 'utf8')) : null;
+if (only !== null && prior === null) {
+  process.stderr.write('--only merges into an existing capture, and none exists. Run the full capture first.\n');
+  process.exit(3);
+}
+
+// Seeded from the prior capture so a selective re-run ADDS to it. See the note on `prior`.
+const out = {
+  capturedAt: new Date().toISOString(),
+  singles: { ...(prior?.singles ?? {}) },
+  conversations: { ...(prior?.conversations ?? {}) },
+};
 const wanted = (id) => only === null || only.split(',').includes(id);
 
 for (const c of set.cases) {
   if (!wanted(c.id)) continue;
   const r = await ask(c.text, []);
-  out.singles[c.id] = { text: c.text, ...r };
+  out.singles[c.id] = { text: c.text, ...r, ancestorPrompt };
   process.stdout.write(`  ${c.id}  ${String(r.ms).padStart(6)}ms  ${r.ok ? `${r.reply.length} chars` : `ERROR ${r.error}`}\n`);
 }
 
@@ -102,10 +142,13 @@ for (const conv of set.conversations) {
     if (r.ok) history.push({ role: 'assistant', content: r.reply });
     process.stdout.write(`  ${conv.id}  ${String(r.ms).padStart(6)}ms  ${r.ok ? `${r.reply.length} chars` : `ERROR ${r.error}`}\n`);
   }
-  out.conversations[conv.id] = { note: conv.note, turns };
+  out.conversations[conv.id] = { note: conv.note, turns, ancestorPrompt };
 }
 
 writeFileSync(OUT, `${JSON.stringify(out, null, 2)}\n`);
-const calls = Object.values(out.singles).filter((s) => !s.deterministic && !s.silent).length
-  + Object.values(out.conversations).reduce((n, c) => n + c.turns.length, 0);
-process.stdout.write(`\nwrote ${OUT} — ${calls} model call(s). Re-running needs --force.\n`);
+// Calls made BY THIS RUN, not entries in the merged file. Counting the file was correct
+// only while every run was a full capture; once `--only` merges, it reports the whole
+// baseline as though it had just been re-asked — a `--only f13` run printed "43 model
+// call(s)" having made one. The founder tracks a budget against this line, so a number
+// that overstates spend by 43x is worse than no number.
+process.stdout.write(`\nwrote ${OUT} — ${calls} model call(s) THIS RUN. Re-running needs --force.\n`);
