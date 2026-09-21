@@ -104,6 +104,13 @@ if (/[\u0000-\u001F\u007F]/.test(trimmed)) die('the secret contains control char
  * a real one.
  */
 function expiryArg(name: string): string {
+  // `--expires-at` written LAST, with no value after it, makes `arg` return undefined —
+  // identical to not passing the flag at all. An operator who meant to record a date would
+  // get a silent NULL and a credential that reports as unknown for ever, which is exactly
+  // the blindness this column was added to end. Present-but-empty is a refusal.
+  if (process.argv.includes(`--${name}`) && arg(name) === undefined) {
+    die(`--${name} was given with no value. Pass a date, or 'never' for Meta's expires_at: 0.`);
+  }
   const raw = arg(name);
   if (raw === undefined || raw === 'never') return 'null';
   // ISO 8601 ONLY, and the strictness is the point. `Date.parse` is lenient in a way that
