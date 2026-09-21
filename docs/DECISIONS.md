@@ -8176,3 +8176,84 @@ happened is that the KEK became **unreadable while still working**, which the mi
 D-017 names — provider recovery emails and codes — does not address at all, because there
 is no provider to recover it from. That is a fact for the founder, not a decision reopened
 here.
+
+---
+
+## D-108 — the provisioner wrote a matcher the runtime refuses, and shadow had no traffic to catch it
+
+**Matrix went live at 2026-09-21 01:59:46 UTC and answered nobody.** The founder sent
+«sain bnuu» from his own account at 02:02; `webhook_events` 266 arrived and the worker
+503'd twice:
+
+```
+[worker] reception_retry {
+  detail: 'matcher unusable: rule photo_consultation (Ш8): unknown matcher mode undefined'
+}
+```
+
+`out_of_scope_topics.photo_consultation` held `{"stems": ["зураг","зурган","фото"]}` — **no
+`mode`**. `parseMatcher` has required an explicit mode since the gate was first drafted, the
+gate fails closed on an unusable rule, and so **every direct message for the tenant 503'd**.
+It never reached the secret, so the KEK was never in question. Comments were unaffected: all
+fifteen `comment_rules` carry valid modes.
+
+The repair was one row, restoring `contains_stem` — what an absent mode used to be read as.
+
+### The writer built it, so there was nothing to validate
+
+`scripts/provision/apply.ts` wrote `matcher: { stems: n.stems }`. Not a typo: the intake
+document holds a bare `stems` array for a topic rule and the WRITER manufactures the matcher
+around it. Every `out_of_scope_topics` row `--apply` has ever written is unparseable, for
+every tenant — client #3 would have hit it on day one.
+
+`comment_rules` were fine for the opposite reason: their matcher arrives in the document
+whole, so the validator had a value to check and checked it. **`validate.ts` states the
+principle exactly, in the block immediately below the one that was missing it:**
+
+> Validated with `parseMatcher`, the SAME function that runs the rule at request time. A
+> provisioning-only validator would be a second reader of one jsonb, free to disagree with
+> the first — and the direction it would disagree in is "accepted here, refuses the whole
+> job there", which is a tenant switched on and silently unable to answer.
+
+That is this outage, described in advance, by the file that failed to prevent it. **This is
+the third instance in a week of the same shape**: D-105 (the `reviewed_by` principle stated
+twenty lines above `provenance`, not applied to it), D-106 (the unfalsifiable-claim rule one
+table away from the claim), and now this. The rule keeps being written down correctly and
+applied to the neighbour that happens to hold the value. **A validator can only check a
+value that exists — so where a writer manufactures one, the manufacture must be shared, or
+the check has nothing to bite on.**
+
+`src/lib/provision/matchers.ts` is that shared manufacture: `topicMatcher()` builds the row's
+matcher, `validate.ts` parses *its output* rather than the document's stems, and `apply.ts`
+writes the same function's result. `apply.ts` already dies on any blocker with nothing
+written, so one builder, one validator and one gate close it — a second pre-flight inside
+`apply.ts` would be the second reader the file warns against.
+
+**It closes a second live route nobody had noticed.** `MIN_STEM_CHARS` is enforced inside
+`parseMatcher` and was applied in `validate.ts` to service aliases only, so a three-character
+topic stem passed validation, was written, and would have 503'd at request time exactly as
+the missing mode did. Validating the constructed value catches both without a rule for each.
+
+**Nothing could have caught it downstream.** `matcher` is `jsonb`, so
+`scripts/verify/postgrest.ts` — which now checks that every column exists and that every
+insert carries the NOT NULL columns — sees the column and cannot see inside it. The one
+field deciding whether a rule is usable is invisible to every check the repository has.
+
+### What this says about the fourteen days of shadow (founder, 2026-09-21)
+
+> *"The mirror had no traffic between `--apply` and the flip, so shadow couldn't catch this.
+> Shadow only protects you if messages flow through it after a change — that's a real limit
+> on what fourteen days of mirroring proved."*
+
+Measured, and it is exact. A customer message at 16:47 UTC on 09-20 drafted normally, which
+places `--apply` after it; the next inbound message of any kind was the founder's own test at
+02:02, two minutes past the cutover. **The config change landed inside an overnight traffic
+gap, so the mirror had precisely zero messages to fail on.**
+
+So "fourteen days of shadow" is not a property of the calendar. It is a property of how many
+messages crossed the current configuration, and a change made in a quiet hour resets that
+count to zero without resetting the reassurance. The generalisation: **a shadow phase
+validates a configuration, not a system — and every edit starts a new one.**
+
+The instrument that did work was the founder sending one message himself immediately after
+the flip. Sixty seconds, one test, the whole defect. That belongs in every cutover.

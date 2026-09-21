@@ -42,6 +42,7 @@ import { readIntake, type IntakeDocument } from '../../src/lib/provision/intake.
 import {
   assessReadiness, projectedAllowedNumbers, validateIntake,
 } from '../../src/lib/provision/validate.ts';
+import { topicMatcher } from '../../src/lib/provision/matchers.ts';
 import { recordReadiness } from '../../src/lib/provision/record.ts';
 import { reviewSheet } from '../../src/lib/provision/reviewSheet.ts';
 import { supabasePublish } from '../../src/lib/supabase/clients.ts';
@@ -286,7 +287,7 @@ async function applyIntake(
     const prior = await topicProvenance(db, id);
     const { error } = await db.from('out_of_scope_topics').upsert(
       d.neverSay.map((n) => ({
-        tenant_id: id, topic_key: n.key, matcher: { stems: n.stems },
+        tenant_id: id, topic_key: n.key, matcher: topicMatcher(n.stems),
         decision_question: n.question, response_kind: n.responseKind,
         provenance: prior.get(n.key) ?? 'seeded',
       })), { onConflict: 'tenant_id,topic_key' });
