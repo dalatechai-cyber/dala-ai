@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runReceptionJob, type DeliverArgs, type GenerateArgs, type WorkerEffects } from './reception.ts';
+import { RECEPTION_MAX_DELIVERIES, runReceptionJob, type DeliverArgs, type GenerateArgs, type WorkerEffects } from './reception.ts';
 import type { ReceptionOutcome } from '../reception/handle.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
 
@@ -141,12 +141,14 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
   const delivered: DeliverArgs[] = [];
   const flags: { tenantId: string; conversationId: string; code: string; detail: string }[] = [];
   const standbyAlerts: { tenantId: string; channelId: string; dayKey: string; events: number }[] = [];
+  const exhausted: { tenantId: string; eventId: number; attempts: number; ageMinutes: number; limitMinutes: number | null; code: string }[] = [];
 
   const fx: WorkerEffects = {
     db,
     now: NOW,
     verifySignature: async () => true,
     alertStandby: async (a) => { standbyAlerts.push(a); },
+    alertDeliveryExhausted: async (a) => { exhausted.push(a); },
     graphVersionDefault: () => 'v21.0',
     generateReply: async (a) => {
       generated.push(a);
@@ -169,7 +171,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     },
     ...rest,
   };
-  return { fx, ops, logs, generated, delivered, flags, standbyAlerts };
+  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted };
 }
 
 const run = (fx: WorkerEffects, rawBody = job(), signature: string | null = 'sig') =>
@@ -300,7 +302,11 @@ test('DONE-TEST: a standby entry is refused, marked and ALERTED — never proces
   // The STATE, not merely that a write happened. `processed` is precisely the reading
   // that hides this fault — the row would say the entry was handled and nothing anywhere
   // would disagree. `0001` anticipated `standby_not_primary` for exactly this.
-  const marked = ops.find((o) => o.table === 'webhook_events' && o.op === 'update');
+  // The update that carries a STATE, not merely the first update on the table: since
+  // D-110 every delivery also writes `attempts`, and `.find()` was picking that up. The
+  // assertion always meant the state write, so it now says so.
+  const marked = ops.filter((o) => o.table === 'webhook_events' && o.op === 'update')
+    .find((o) => o.patch?.['state'] !== undefined);
   assert.equal(marked?.patch?.['state'], 'standby_not_primary');
 });
 
@@ -851,4 +857,113 @@ test('an ordinary text message is neither flagged nor given attachments', async 
   assert.equal(r.status, 200);
   assert.deepEqual(generated[0]?.customerAttachments, []);
   assert.equal(flags.some((f) => f.code === 'inbound_captioned_attachment'), false);
+});
+
+// ── D-110: a failed delivery has to be visible, and countable ──────────────────────────
+
+test('DONE-TEST: EVERY DELIVERY IS COUNTED, INCLUDING ONE THAT REFUSES', async () => {
+  // `webhook_events.attempts` was written by nothing and read by nothing from `0001` until
+  // 2026-09-21, which is why the stranded alert could only guess at delivery history and
+  // guessed wrong: it told the founder event 266 was "never delivered to the worker" when
+  // production logs show three deliveries. The count is taken on ARRIVAL, above every
+  // refusal, so the case that matters — a run that dies inside its own error handling —
+  // still leaves evidence that QStash delivered it.
+  const { fx, ops } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: { id: '100000000000001', messaging: [] }, attempts: 0 }, error: null },
+    },
+  });
+  await run(fx);
+  const counted = ops.filter((o) => o.table === 'webhook_events' && o.op === 'update')
+    .find((o) => o.patch?.['attempts'] !== undefined);
+  assert.equal(counted?.patch?.['attempts'], 1, 'the first delivery writes attempts = 1');
+});
+
+test('DONE-TEST: THE EXHAUSTION ALERT FIRES ON THE LAST DELIVERY AND NOT BEFORE', async () => {
+  // The whole point of moving detection off the hourly sweep. A 503 means "retry me", and
+  // on the final delivery the identical status means the opposite — nobody is coming. Only
+  // this wrapper knows both facts at once.
+  //
+  // The refusal used here is the timezone one above: determinate, 503, and reached before
+  // any model call, so the test exercises the wrapper rather than the reply path.
+  const tenantRefusal = {
+    tenants: [
+      { data: { default_locale: 'mn-MN', prompt_cache_mode: '1h', max_reply_age_minutes: 30 }, error: null },
+      { data: { live_revision_id: 'rev-1' }, error: null },
+    ],
+  };
+  const atLimit = await stubEffects({
+    tables: {
+      ...tenantRefusal,
+      webhook_events: {
+        data: {
+          raw_payload: { id: '100000000000001', messaging: [] },
+          attempts: RECEPTION_MAX_DELIVERIES - 1,
+          received_at: new Date(NOW.getTime() - 4 * 60_000).toISOString(),
+        },
+        error: null,
+      },
+    },
+  });
+  const last = await run(atLimit.fx);
+  assert.equal(last.status, 503);
+  assert.equal(atLimit.exhausted.length, 1, 'the final delivery alerts');
+  assert.equal(atLimit.exhausted[0]?.attempts, RECEPTION_MAX_DELIVERIES);
+  assert.equal(atLimit.exhausted[0]?.limitMinutes, 30);
+  assert.equal(Math.floor(atLimit.exhausted[0]?.ageMinutes ?? -1), 4, 'the age a human needs to judge it');
+
+  // …and NOT on an earlier one, which is what keeps this off Telegram for every transient
+  // 503 that the next retry fixes. CLAUDE.md is explicit that the alert chat is shared with
+  // customers, so a false page here buries a real message.
+  const earlier = await stubEffects({
+    tables: {
+      ...tenantRefusal,
+      webhook_events: { data: { raw_payload: { id: '100000000000001', messaging: [] }, attempts: 0 }, error: null },
+    },
+  });
+  assert.equal((await run(earlier.fx)).status, 503);
+  assert.equal(earlier.exhausted.length, 0, 'a retry is still coming — say nothing');
+});
+
+test('DONE-TEST: A LIMIT THE JOB NEVER READ IS NULL, NOT THE PLATFORM DEFAULT', async () => {
+  // `worker.tenant_unreadable` is a 503 that happens ABOVE the tenant's reply limit, so a
+  // run exhausted on that path never learns the number. Pre-filling the trace with
+  // `DEFAULT_REPLY_AGE_LIMIT_MINUTES` — which is what the first version did — prints 30 for
+  // a tenant whose real limit is 15, in the generous direction, inside a critical alert
+  // telling a human how long they have. That is this work's own defect reappearing in the
+  // fix for it: an alert asserting something it had not measured.
+  const { fx, exhausted } = stubEffects({
+    tables: {
+      tenants: { data: null, error: { message: 'timeout' } },
+      webhook_events: {
+        data: {
+          raw_payload: { id: '100000000000001', messaging: [] },
+          attempts: RECEPTION_MAX_DELIVERIES - 1,
+          received_at: new Date(NOW.getTime() - 4 * 60_000).toISOString(),
+        },
+        error: null,
+      },
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+  assert.equal(r.body['error'], 'worker.tenant_unreadable');
+  assert.equal(exhausted.length, 1, 'still alerted — the customer is still unanswered');
+  assert.equal(exhausted[0]?.limitMinutes, null, 'unknown is reported as unknown');
+  assert.equal(exhausted[0]?.attempts, RECEPTION_MAX_DELIVERIES);
+});
+
+test('a delivery that SUCCEEDS never alerts, however many attempts preceded it', async () => {
+  // The recovery case: the matcher is fixed, the redelivery works. An alert here would
+  // report a customer as unanswered at the moment they were answered.
+  const { fx, exhausted } = stubEffects({
+    tables: {
+      webhook_events: {
+        data: { raw_payload: { id: '100000000000001', messaging: [] }, attempts: RECEPTION_MAX_DELIVERIES + 5 },
+        error: null,
+      },
+    },
+  });
+  assert.equal((await run(fx)).status, 200);
+  assert.equal(exhausted.length, 0);
 });

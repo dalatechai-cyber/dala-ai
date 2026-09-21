@@ -302,6 +302,7 @@ function worker(s: ReturnType<typeof store>, eventId: number) {
     now: NOW,
     verifySignature: async () => true,
     alertStandby: async () => {},
+    alertDeliveryExhausted: async () => {},
     graphVersionDefault: () => 'v21.0',
     generateReply: async (a) => {
       // The reply's dedup key comes from THE MESSAGE BEING ANSWERED, exactly as
@@ -336,7 +337,7 @@ function worker(s: ReturnType<typeof store>, eventId: number) {
   };
 }
 
-const ok: EnqueueResult = { ok: true, messageId: 'q-1' };
+const ok: EnqueueResult = { ok: true, messageId: 'q-1', deduplicated: false };
 
 // ---------------------------------------------------------------------------
 

@@ -218,3 +218,48 @@ export async function markEventState(
         .eq('id', eventId);
   return error ? { ok: false, detail: error.message } : { ok: true, detail: null };
 }
+
+/**
+ * Record that this event has just been handed to the worker, and return the new count.
+ *
+ * `webhook_events.attempts` and `max_attempts` existed from `0001` and were written by
+ * nothing and read by nothing — D-064's shape a fourth time, and this one had a measured
+ * cost. On 2026-09-21 event 266 was delivered three times and failed every time; because
+ * nothing counted, `sweepStrandedEvents` could only infer delivery history from `state`,
+ * and `pending_enqueue` does not record it: a worker run that returns 503 leaves no
+ * terminal state ON PURPOSE, so QStash retries. The alert the founder received therefore
+ * said the event was "never delivered to the worker" when it had been delivered three
+ * times — an alert that sends the reader at QStash when the fault was in our own matcher.
+ *
+ * ## Counted on ARRIVAL, not on failure
+ *
+ * This is called once per delivery, as soon as the row is read, before anything can refuse.
+ * Counting failures instead would leave the one case that matters — a run that dies before
+ * reaching its own error handling — indistinguishable from a run that never happened, which
+ * is the exact hole being closed.
+ *
+ * ## Read-modify-write, and why that is sound here
+ *
+ * PostgREST cannot express `attempts = attempts + 1`, and an RPC for a diagnostic counter
+ * would be a migration for no behavioural gain. Two concurrent deliveries of the SAME event
+ * would both read N and write N+1, losing one. That does not happen by construction: QStash
+ * does not start a retry until the previous delivery has returned, and the stranded sweep
+ * only republishes rows already past a grace that exceeds the whole retry horizon. If those
+ * ever overlap the counter undercounts by one and the exhaustion alert fires one delivery
+ * late — it does not fire twice, and it does not lose the event.
+ *
+ * A failure to count is never a failure to serve: the caller logs and carries on. The
+ * customer's reply does not depend on a diagnostic write.
+ */
+export async function recordDeliveryAttempt(
+  db: SupabaseClient,
+  eventId: number,
+  current: number,
+): Promise<{ attempts: number; ok: boolean; detail: string | null }> {
+  const next = current + 1;
+  const { error } = await db.from('webhook_events').update({ attempts: next }).eq('id', eventId);
+  // The count is returned even when the write failed: this delivery DID happen, and the
+  // in-memory number is what the exhaustion check must reason about. Reporting `current`
+  // here would make a failed write look like a delivery that never occurred.
+  return error ? { attempts: next, ok: false, detail: error.message } : { attempts: next, ok: true, detail: null };
+}

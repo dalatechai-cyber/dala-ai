@@ -532,3 +532,31 @@ kind: the sentence is founder-approved Mongolian and belongs in `canned_response
 in ordinary PRICE questions («хэд болох вэ» is *how much will it be*) and a single-stem
 matcher refuses those too. Measured: five real suitability questions caught, zero false
 positives across seventeen price, booking, location and greeting messages.
+
+### `0035_secret_expiry`
+
+`tenant_secrets` gains **`expires_at`** and **`data_access_expires_at`**, both
+`timestamptz` and both **nullable**. Nothing is dropped, rewritten or narrowed, and no row
+is inserted by the migration. Writing INSERTs by hand: neither column is required, and
+`scripts/kek/seal.ts` fills them from `--expires-at` / `--data-access-expires-at` when you
+pass them.
+
+**NULL means "not known", never "never".** Every row written before this reads NULL, and
+`health/secretExpiry.ts` counts those as UNKNOWN rather than clean — a checker that reports
+zero problems while knowing nothing is the shape D-070 is named for.
+
+**Two columns because Meta runs two clocks.** `expires_at` is when the token stops
+authenticating; a Page token minted from a long-lived user token reports `expires_at: 0`
+from `debug_token`, meaning never, and that is stored as NULL. `data_access_expires_at` is
+when data stops flowing to a token that still authenticates — about ninety days after the
+last authorization. A credential can be "never expires" and still go dark on the second
+clock, so recording only the first reproduces the same surprise on a longer fuse.
+
+It exists because Matrix went live on 2026-09-21 on a short-lived Explorer token that
+sealed cleanly, opened cleanly through the runtime loader, and died forty minutes later as
+a `401 code=190 subcode=463` at send time, tripping the credential breaker (D-109). Nothing
+could have warned: `unusableBecause` rejects an empty secret, control characters and stray
+whitespace, and that is the whole test a credential passes.
+
+**Warn only.** Nothing in the platform may renew or re-authorize from these columns
+(founder, 2026-09-21).

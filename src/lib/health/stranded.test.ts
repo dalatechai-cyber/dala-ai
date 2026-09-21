@@ -23,7 +23,7 @@ const EVENT = {
 const TENANT_30 = { data: [{ id: 't-1', max_reply_age_minutes: 30 }], error: null };
 
 /** Records every job it is handed, and answers however the test says. */
-function queue(result: EnqueueResult = { ok: true, messageId: 'msg-1' }) {
+function queue(result: EnqueueResult = { ok: true, messageId: 'msg-1', deduplicated: false }) {
   const jobs: Record<string, unknown>[] = [];
   return {
     jobs,
@@ -263,10 +263,18 @@ test('DONE-TEST: the query sweeps BOTH classes, and only one of them re-drives a
 
 const QUEUED = (minutes: number) => ({ ...EVENT, state: 'pending_enqueue', received_at: minutesAgo(minutes) });
 
-test('DONE-TEST: A ROW QSTASH TOOK AND NEVER DELIVERED IS FOUND, and named as that fault', async () => {
-  // Every completed worker run leaves a terminal state, so a row still reading
-  // `pending_enqueue` an hour later was never processed — and before D-040 nothing swept
-  // it and nothing alerted on it.
+test('DONE-TEST: A ROW QSTASH TOOK AND NEVER COMPLETED IS FOUND, and not blamed on the route', async () => {
+  // This test's original comment read: "every completed worker run leaves a terminal state,
+  // so a row still reading `pending_enqueue` an hour later was never processed". The first
+  // clause is true and the second does not follow — a run that returns 503 completes no
+  // state ON PURPOSE, so `pending_enqueue` means "no run COMPLETED", never "no run
+  // happened". That inference is what told the founder event 266 had never been delivered
+  // when it had been delivered three times (D-110), and it was written down here, in the
+  // test, where it read as a premise rather than a claim.
+  //
+  // What the state DOES establish, and all this asserts: the event reached QStash, so the
+  // webhook route is not the fault. Which of QStash and the worker is, `state` cannot say —
+  // `attempts` can, and this row (from before that column was written) has none.
   const q = queue();
   const { db, writes } = stub({
     webhook_events: { data: [QUEUED(90)], error: null }, tenants: TENANT_30, alerts: ALERT_OK,
@@ -275,10 +283,9 @@ test('DONE-TEST: A ROW QSTASH TOOK AND NEVER DELIVERED IS FOUND, and named as th
   assert.equal(r.ok && r.swept[0]?.action, 'expired', JSON.stringify(r));
   assert.equal(q.jobs.length, 0, 'past the reply limit, so no model call is bought');
 
-  // The alert must point at QStash and the worker, not at the webhook route.
   const body = String(writes.find((w) => w.table === 'alerts' && w.op === 'insert')?.patch['body'] ?? '');
-  assert.match(body, /published to the queue and never delivered/);
-  assert.doesNotMatch(body, /claimed and never queued/);
+  assert.match(body, /no recorded delivery attempt/);
+  assert.doesNotMatch(body, /claimed and never queued/, 'the route is not the fault here');
 });
 
 test('DONE-TEST: A FRESH pending_enqueue ROW IS LEFT ALONE — QStash may still be retrying', async () => {
@@ -372,4 +379,117 @@ test('the alert body carries ids and no customer text', async () => {
   assert.match(body, /863503883522801:0:311:dalatech/);
   assert.match(body, /45 min old/);
   assert.match(body, /raw_payload/);
+});
+
+// ── D-110: the alert has to say what actually happened ─────────────────────────────────
+
+test('DONE-TEST: A DELIVERED-AND-REFUSED EVENT IS NOT REPORTED AS NEVER DELIVERED', async () => {
+  // The alert the founder actually received on 2026-09-21 said event 266 "was published to
+  // the queue and never delivered to the worker". Production logs show three deliveries in
+  // three minutes, every one refused by our own matcher. The sentence was derived from
+  // `state`, on the premise that a completed worker run always leaves a terminal state — and
+  // a run returning 503 leaves none ON PURPOSE, so QStash retries.
+  //
+  // An alert that misstates what happened sends the reader at QStash while the fault is in
+  // our own code, which is the most expensive kind of wrong during an incident.
+  const q = queue();
+  const { db, writes } = stub({
+    webhook_events: [
+      { data: [{ ...EVENT, state: 'pending_enqueue', received_at: minutesAgo(57), attempts: 3 }], error: null },
+      { data: null, error: null },
+    ],
+    tenants: TENANT_30,
+    alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.ok(r.ok);
+  const body = String(writes.find((w) => w.table === 'alerts')?.patch['body'] ?? '');
+  assert.match(body, /delivered to the worker 3 time\(s\) and refused every time/);
+  assert.doesNotMatch(body, /never delivered/, 'the false sentence must be gone');
+});
+
+test('DONE-TEST: ZERO ATTEMPTS NAMES BOTH CAUSES AND ASSERTS NEITHER', async () => {
+  // The fix's own version of the bug it fixes. `attempts` is written by the worker AFTER it
+  // reads the event row, so a delivery that died before that — unreadable row, rejected
+  // signature, or the counter write itself failing — leaves the column at 0 while QStash's
+  // log shows a delivery. Writing "never delivered to the worker" there is the original
+  // false sentence with a new cause, so the branch names both places to look instead.
+  //
+  // Rows from before the column went live read 0 for a third reason, and are covered by the
+  // same wording for the same reason: nothing counted them.
+  const q = queue();
+  const { db, writes } = stub({
+    webhook_events: [
+      { data: [{ ...EVENT, state: 'pending_enqueue', received_at: minutesAgo(57), attempts: 0 }], error: null },
+      { data: null, error: null },
+    ],
+    tenants: TENANT_30,
+    alerts: ALERT_OK,
+  });
+  assert.ok((await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue })).ok);
+  const body = String(writes.find((w) => w.table === 'alerts')?.patch['body'] ?? '');
+  assert.match(body, /no recorded delivery attempt/);
+  assert.match(body, /either QStash never delivered it, or every delivery failed before/);
+  // The bare assertion must not survive anywhere in the sentence.
+  assert.doesNotMatch(body, /was published to the queue and never delivered/);
+});
+
+test('DONE-TEST: A DEDUPLICATED RE-PUBLISH IS NOT REPORTED AS A RESCUE', async () => {
+  // `QUEUED_GRACE_MINUTES` fell from 45 to 10, which puts a re-publish inside QStash's own
+  // deduplication window for the first time. QStash answers 200 with the ORIGINAL message's
+  // id and `deduplicated: true`; nothing new is queued and nothing new will be delivered.
+  // Read as `ok`, the alert would say the event was "re-published successfully" — a second
+  // alert misstating what happened, which is the defect that lowered the grace.
+  const q = queue({ ok: true, messageId: 'msg-1', deduplicated: true });
+  const { db, writes } = stub({
+    webhook_events: [
+      // Inside a 30-minute limit, so this takes the rescue arm rather than the expiry arm.
+      { data: [{ ...EVENT, state: 'pending_enqueue', received_at: minutesAgo(12), attempts: 1 }], error: null },
+      { data: null, error: null },
+    ],
+    tenants: TENANT_30,
+    alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.ok(r.ok);
+  assert.equal(r.swept[0]?.action, 'requeue_deduplicated', 'a distinct action, not requeued');
+  const body = String(writes.find((w) => w.table === 'alerts')?.patch['body'] ?? '');
+  assert.match(body, /REFUSED THE DUPLICATE/);
+  assert.doesNotMatch(body, /re-published successfully/);
+});
+
+test('an ordinary re-publish still reads as a rescue', async () => {
+  // The control for the test above: without it, a wording change that broke BOTH arms would
+  // still show one of them passing.
+  const q = queue();
+  const { db, writes } = stub({
+    webhook_events: [
+      { data: [{ ...EVENT, state: 'pending_enqueue', received_at: minutesAgo(12), attempts: 1 }], error: null },
+      { data: null, error: null },
+    ],
+    tenants: TENANT_30,
+    alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.ok(r.ok);
+  assert.equal(r.swept[0]?.action, 'requeued');
+  assert.match(String(writes.find((w) => w.table === 'alerts')?.patch['body'] ?? ''),
+    /re-published successfully/);
+});
+
+test('a never-QUEUED event is still reported as never queued, whatever attempts says', async () => {
+  // `received`/`failed` never reached QStash, so a delivery count is meaningless for them
+  // and must not rewrite the sentence. The state test comes first for that reason.
+  const q = queue();
+  const { db, writes } = stub({
+    webhook_events: [
+      { data: [{ ...EVENT, state: 'failed', received_at: minutesAgo(57), attempts: 2 }], error: null },
+      { data: null, error: null },
+    ],
+    tenants: TENANT_30,
+    alerts: ALERT_OK,
+  });
+  assert.ok((await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue })).ok);
+  assert.match(String(writes.find((w) => w.table === 'alerts')?.patch['body'] ?? ''),
+    /was claimed and never queued/);
 });

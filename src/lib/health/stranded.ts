@@ -102,29 +102,46 @@ export const RETRY_GRACE_MINUTES = 5;
 /**
  * How long a PUBLISHED event is left to QStash before the sweep will touch it.
  *
- * `queue/qstash.ts` publishes with `retries: 3`, and Upstash backs off exponentially
- * between them; the horizon is tens of minutes, not hours. Forty-five is past it with
- * margin, and the two errors are not symmetrical: too long costs only alert latency on a
- * message that is already too old to answer, while too short means re-publishing on top of
- * a retry that was still coming, doubling the work on every transient QStash delay.
+ * **MEASURED 2026-09-21, and the previous value was 15x too long.** This said the horizon
+ * was "tens of minutes, not hours", sized from Upstash's documented shape because their
+ * docs are unreachable from this environment, and it carried an explicit [UNVERIFIED] note
+ * saying that if the horizon were ever measured AND LONGER this number should move. It was
+ * measured and it is far shorter. Event 266, published with the same `retries: 3` every
+ * reception job uses, was delivered at 02:02:24, 02:02:47 and 02:05:27 and never again:
+ * the entire retry horizon is about **three minutes**.
  *
- * **The exact backoff schedule is [UNVERIFIED] here** — Upstash's docs are not reachable
- * from this environment — so this is sized from the documented shape, not from a measured
- * horizon. If it is ever measured and is longer, this number is the one to move.
+ * Ten is a bit over three times the measured horizon. The asymmetry the old text described
+ * is real — too short means re-publishing on top of a retry still in flight — but it was
+ * being paid at 45 minutes against a 3-minute risk, and the cost was a customer going
+ * unnoticed for 57 minutes.
  *
- * Note what this implies with the default `max_reply_age_minutes` of 30: a
- * `pending_enqueue` row old enough to sweep is ALREADY past the limit, so it takes the
- * expiry arm and the rescue arm is unreachable for a default tenant. That is correct
- * rather than unfortunate — past the limit `worker/freshness.ts` refuses anyway, so a
- * re-publish would buy a model call that produces `reply_too_late`. The alert is the
- * product here: "QStash took this and never delivered it" is a fault worth knowing about
- * whether or not the customer can still be answered.
+ * **Double-answering does not rest on this number alone**, which is what makes tightening
+ * it safe. `worker/reception.ts` asks `findReplyFor` whether this exact inbound message
+ * already produced a reply and skips it if so (D-029). The grace avoids the wasted work of
+ * a racing re-publish; the reply guard is what prevents a second answer, and it holds at
+ * any grace.
+ *
+ * ## This is now the BACKSTOP, not the detector
+ *
+ * Since D-110 the worker raises `webhook.delivery_exhausted` itself on QStash's final
+ * delivery, about three minutes in, with the real delivery count and the real refusal. What
+ * reaches this sweep is the narrower class the worker cannot speak for: events that never
+ * arrived at the worker at all. Those are still found no sooner than the next run of the
+ * health worker, which is hourly and scheduled in the QStash console rather than here — so
+ * the floor on detecting a never-delivered event is that cadence, not this constant.
  */
-export const QUEUED_GRACE_MINUTES = 45;
+export const QUEUED_GRACE_MINUTES = 10;
 
 export type SweepAction =
   /** Re-published to QStash, and the row now reads `pending_enqueue`. */
   | 'requeued'
+  /**
+   * QStash answered 200 and REFUSED the duplicate: it still holds the original message
+   * under the same `deduplicationId`, so nothing new was queued. Distinct from `requeued`
+   * because the two have opposite consequences and one wording covering both is how this
+   * sweep came to tell the founder something untrue (D-110).
+   */
+  | 'requeue_deduplicated'
   /** The publish was refused. The row is untouched, so the next run tries again. */
   | 'requeue_failed'
   /** Past the reply-age limit: marked `expired_unqueued`, founder told. */
@@ -171,7 +188,7 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
     // this query and `neverReachedQueue` are two halves of one definition, and a third
     // state added to one and not the other is a class of event nothing ever sweeps. That
     // is not hypothetical — it is exactly how `pending_enqueue` went unswept (D-040).
-    .select('id, provider, dedup_key, tenant_id, channel_id, state, received_at')
+    .select('id, provider, dedup_key, tenant_id, channel_id, state, received_at, attempts')
     .in('state', [...UNQUEUED_STATES, ...QUEUED_STATES])
     // `replied_at` was READ here and written by nothing until 2026-09-14, so this filter
     // could not exclude a single row: every row in the table satisfied it. Harmless only
@@ -237,10 +254,34 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
 
     // The two classes fail at different places, and an alert that names the wrong one
     // sends the reader to the wrong system. "Never queued" points at this route; "never
-    // delivered" points at QStash and the worker.
-    const fault = (QUEUED_STATES as readonly string[]).includes(state)
-      ? 'was published to the queue and never delivered to the worker'
-      : 'was claimed and never queued';
+    // delivered" points at QStash; "delivered and refused" points at the worker — at US.
+    //
+    // That third case used to be unsayable and was therefore said wrong. `pending_enqueue`
+    // was read as "QStash never delivered it", on the premise that every completed worker
+    // run leaves a terminal state. A run that returns 503 leaves NO terminal state on
+    // purpose, so the state means "no run completed" and never "no run happened". On
+    // 2026-09-21 the founder was told event 266 was never delivered; production logs show
+    // three deliveries in three minutes, all refused by our own matcher (D-110).
+    //
+    // `attempts` is now written on every delivery, so the count is read rather than
+    // inferred. A row from before that column went live reads 0 and takes the old wording,
+    // which is the honest answer for an event nothing counted.
+    //
+    // The zero case is deliberately NOT written as "never delivered". `attempts` is written
+    // by the worker after it reads the event row, so a delivery that died before that — an
+    // unreadable row, a rejected signature, or the counter write itself failing — leaves the
+    // column at 0 while QStash's log shows a delivery. Asserting the stronger claim is the
+    // original defect with a new cause, so the branch names both places to look. Splitting a
+    // verdict and leaving the new branch covering two states is D-062's third turn of the
+    // screw; this one says so instead.
+    const attempts = typeof raw['attempts'] === 'number' ? raw['attempts'] : 0;
+    const fault = !(QUEUED_STATES as readonly string[]).includes(state)
+      ? 'was claimed and never queued'
+      : attempts > 0
+        ? `was delivered to the worker ${attempts} time(s) and refused every time`
+        : 'has no recorded delivery attempt — either QStash never delivered it, or every '
+          + 'delivery failed before the worker could read the row. Check QStash\'s message '
+          + 'log before concluding which';
 
     const record = (action: SweepAction, detail: string | null): void => {
       swept.push({
@@ -255,13 +296,25 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
     // the expiry arm rather than being dropped here.
     if (ageMinutes < limitMinutes && channelId !== null) {
       const again = await input.enqueue({ provider, dedupKey, eventId, tenantId, channelId });
+      // Three outcomes, not two. A deduplicated publish returns `ok` and queues NOTHING —
+      // QStash still holds the original message under the same id — so reading it as a
+      // rescue would report a customer as saved who is not. The state is still advanced,
+      // because `pending_enqueue` is exactly true of a row QStash holds a message for.
+      let outcome: string;
       if (!again.ok) {
         // The row is left exactly as it was, so the next run tries again. Marking it
         // anything else would retire an event that never reached the queue.
         record('requeue_failed', again.detail);
+        outcome = `and REFUSED: ${again.detail}`;
+      } else if (again.deduplicated) {
+        const marked = await markEventState(db, eventId, 'pending_enqueue');
+        record('requeue_deduplicated', marked.ok ? null : `state not advanced: ${marked.detail ?? ''}`);
+        outcome = 'and QStash REFUSED THE DUPLICATE — it still holds the original message, '
+          + 'so nothing new was queued and nothing new will be delivered';
       } else {
         const marked = await markEventState(db, eventId, 'pending_enqueue');
         record('requeued', marked.ok ? null : `state not advanced: ${marked.detail ?? ''}`);
+        outcome = 'successfully';
       }
       // §3.6.3: alert whenever anything is found. A rescue means the primary floor failed.
       await raiseAlert(db, {
@@ -270,7 +323,7 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
         kind: 'webhook.requeued',
         dedupKey: `requeued_event:${eventId}`,
         body: `Inbound event ${eventId} (${provider} ${dedupKey}) ${fault}; `
-          + `re-published ${again.ok ? 'successfully' : `and REFUSED: ${again.detail}`}. `
+          + `re-published ${outcome}. `
           + `State was ${state}, ${Math.floor(ageMinutes)} min old.`,
       });
       continue;
