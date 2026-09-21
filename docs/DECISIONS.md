@@ -7952,6 +7952,46 @@ shipped advice that was false at the moment it was written, and it took a founde
 the corpus to find that out. Its wording now names the length the alias must clear, and says
 to read it off the corpus rather than guess.
 
+## D-105 — a provisioner that may not make a claim may not withdraw one either
+
+**Recorded 2026-09-21, late.** The code shipped in `1187e71` under this number and this
+section was never written — so for a day the only statement of the rule was a commit
+message, which is exactly what this repository keeps saying not to rely on. Written here
+from the diff.
+
+**The measured cost**, found by the founder reading seq 11's publish output: an
+`UNCONFIRMED photo_consultation` line that was not there at seq 10. Read from the live
+project, that row's `provenance` was `seeded` while the nine suitability rows beside it
+were `tenant_confirmed`, and the only thing that wrote it between those two compiles was
+`--apply`. **Re-provisioning Matrix turned a claim about what a human had read back into a
+claim about what a script guessed.**
+
+D-020's rule is that only a person who has read a rule may call it `tenant_confirmed`. The
+corollary nobody had written down is the one this is named for: **a script that cannot make
+that claim must not be able to withdraw it.** `apply.ts` states the principle twenty lines
+up about `reviewed_by` — *"it is half of a signature"*, so it is left alone — and
+`provenance` is the same kind of fact and was not given the same care. An existing row now
+keeps its own provenance on `out_of_scope_topics`, `comment_rules` and `service_aliases`; a
+new row is still `seeded`.
+
+**`enabled` is the sharper half, and it had not fired only by luck.** `comment_rules` wrote
+`enabled: false` unconditionally, so a second `--apply` silently switches OFF every rule an
+operator has read and enabled — on the one surface where the mistake is public, permanent
+and screenshot-able. Matrix has fifteen rules and exactly one enabled, so this was one
+`--apply` away from happening. **A provisioner that may not enable a rule must not be able
+to disable one.**
+
+Note the shape, because it is one this repository keeps meeting: the write was not wrong in
+isolation. `provenance: 'seeded'` and `enabled: false` are both correct for a NEW row, and
+the writer had no idea it was ever looking at an old one. **A default is a claim about a
+row's history, and a writer that cannot tell a create from an update asserts that history
+on every run** — D-063's backfill lesson arriving through a script instead of a migration.
+
+**`config_audit` is EMPTY for this tenant**, so the prior provenance could not be recovered
+from the audit trail; the value was reconstructed from the founder's observation plus the
+code. A table that exists to answer exactly this question and is written by nothing is
+D-064's shape. Noted, not fixed.
+
 ## D-106 — App Review was never the gate, and the daily cap was enforcing a superseded number
 
 **2026-09-21**, on the eve of Matrix going live. Two corrections and one mechanism, all
@@ -8041,3 +8081,98 @@ One warning that belongs with the order, not after it: `POST /{page-id}/subscrib
 **replaces** the field list rather than adding to it (D-043, D-062). Removing the ancestor
 must be a `DELETE` issued with the ancestor's own app token, never a re-POST from either
 side.
+
+---
+
+## D-107 — `ACTIVE_VERSION` is read at seal time only, and a working KEK is a KEK you cannot read
+
+**The question, 2026-09-21, from the founder:** *"Is ACTIVE_VERSION read at decrypt time or
+only at seal time? If only at seal, this is safe today."*
+
+**Seal time only. The plan is safe.** Seal Matrix under `v2`, set
+`TENANT_KEK_ACTIVE_VERSION=v2` in Production; tenant #0's `v1` row keeps opening, because
+each row names its own version and the read path uses the row's.
+
+Verified three ways rather than from the docstring that says so:
+
+| Evidence | What it shows |
+|---|---|
+| `src/lib/secrets/tenantSecret.ts` imports `kekForVersion` and **not** `activeKek`, reads `row['kek_version']`, and calls `kekForVersion(kekVersion)` | the read path never consults the active version |
+| The only `activeKek()` caller in the repository is `scripts/kek/seal.ts:95` | the active version is reachable from exactly one place, and it is a seal |
+| `crypto/kek.test.ts` — with `TENANT_KEK_ACTIVE_VERSION: 'v2'` set, `kekForVersion(1)` still returns V1's key | pinned by a test, so a future edit that adds a fallback goes red |
+
+`kekForVersion` has **no fallback to the active version and no loop over the versions that
+exist**, which is what makes this a property rather than a coincidence: a row pointing at a
+key we do not hold is unreadable, and saying so is correct — trying V1 for a V2 row would
+turn a tamper signal into a success and make the unauthenticated `kek_version` column a
+lever.
+
+### The risk is the opposite one, and it is not the one that was asked about
+
+The safe direction is retiring a version as ACTIVE. The unsafe one is **removing its key**.
+`kekForVersion` does `required('TENANT_KEK_V' + n)`, so `TENANT_KEK_V1` must stay in the
+platform environment for as long as any row names it — which is for ever, since tenant #0's
+`page_token` is sealed under it and the runtime opens it on every send. Its `last_ok_at`
+reads `2026-09-19 12:16:18.117+00`.
+
+**And the value cannot be recovered.** Vercel redacts a secret on `env pull` and the
+dashboard will not reveal it. So `TENANT_KEK_V1` is now a value that is *working in
+production and readable by nobody*: it can be used, and it can be destroyed, and it cannot
+be copied. Deleting it is not a configuration mistake that can be undone — it is the
+permanent loss of a live client's Meta credential, recoverable only by re-running the
+Business-Settings token dance with that client.
+
+Nothing in `src/` can defend against that, because by the time the loader asks for V1 the
+deploy has already shipped. What stands in front of it:
+
+- **`scripts/preflight.ts` requires both names**, and fails the production build before
+  `next build` when either is absent. It derives its required set from the **uncommented**
+  lines of `.env.example` — so the protection is a property of a text file, and is exactly
+  what a tidy-up removes. Both names now carry a comment saying so.
+- **The KEK contract is matched by PATTERN, not by name.** It was keyed to the literal
+  `TENANT_KEK_V1`, which was right for as long as there was one key; `TENANT_KEK_V2` fell
+  through to `no format rule to check`, so a mistyped active key would have passed the
+  deploy and failed at the first send, as a row nobody could open.
+- **A test pins the whole of it** (`preflight.test.ts`, `DONE-TEST: retiring the ACTIVE
+  version does not retire the keys under it`): dropping *either* key fails, with the
+  active version at `v2`.
+- **`scripts/kek/generate.ts` no longer tells the operator to use `TENANT_KEK_V1`.** It
+  did, and an operator following our own tool's printed instruction today would have
+  written a new key over the one that opens tenant #0's live row — the precise loss
+  described above, printed as advice. It now says to use the next unused version, never to
+  overwrite an existing one, and to save the value before pasting it anywhere.
+
+### The pipeline blocker, recorded separately as the founder asked
+
+> *"An operator who can't retrieve the KEK can't provision any client. That's a pipeline
+> blocker, not a Matrix one."*
+
+Correct, and the mechanism is `scripts/kek/seal.ts` calling `activeKek()`, which reads the
+active key from **the operator's own shell** — not from Vercel, which is write-only in
+practice. Provisioning client #3 therefore requires holding the active KEK value locally.
+Today that is satisfied: the founder has V2. The day a laptop is lost it is not, and the
+only way forward is minting V3 — which seals new rows fine and makes the environment carry
+a third value that can never be read back either. **Each rotation is a one-way ratchet**,
+and the set of unrecoverable-but-load-bearing values grows by one every time.
+
+That is not the "hit by a bus" scenario D-017 weighed. It is a working operator, with full
+access to every provider account, unable to read a value his own platform is using.
+
+### Two of D-017's triggers have fired
+
+D-017 accepted single-owner risk and says not to re-raise it — *"unless one of these
+changes — each is a fact a session can check."* Stating that they fired, as it instructs,
+without re-arguing the decision:
+
+| Trigger | Fired? |
+|---|---|
+| A tenant is **live and paying** | Not yet — Matrix goes live today, and is not paying |
+| **Customer conversation data** exists in Supabase | **Yes.** Matrix's corpus is real customers' messages; it is not reproducible from the repository |
+| The **KEK is generated** and encrypts real tenant tokens | **Yes.** V1 seals tenant #0's live Page token and the runtime opens it; V2 is active |
+| A **second person** joins Dalatech | No |
+
+What changed beyond the table's own wording: it anticipated *losing* the KEK. What actually
+happened is that the KEK became **unreadable while still working**, which the mitigation
+D-017 names — provider recovery emails and codes — does not address at all, because there
+is no provider to recover it from. That is a fact for the founder, not a decision reopened
+here.

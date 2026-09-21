@@ -12,6 +12,7 @@ const SECRETS = {
   SUPABASE_SECRET_WORKER: 'sb_secret_CANARYworkerBBBBBBBB',
   SUPABASE_SECRET_PRIVACY: 'sb_secret_CANARYprivacyKKKKKKKK',
   TENANT_KEK_V1: randomBytes(32).toString('base64'),
+  TENANT_KEK_V2: randomBytes(32).toString('base64'),
   META_APP_SECRETS: '{"dala":"CANARYappsecretCCCC"}',
   META_VERIFY_TOKENS: '{"dala":"CANARYverifytokenDDDD"}',
   ANTHROPIC_API_KEY: 'sk-ant-CANARYanthropicEEEEEEEE',
@@ -25,7 +26,7 @@ const SECRETS = {
 const COMPLETE: Record<string, string> = {
   DALA_ENV: 'preview',
   NEXT_PUBLIC_SUPABASE_URL: 'https://abcdefghijklm.supabase.co',
-  TENANT_KEK_ACTIVE_VERSION: 'v1',
+  TENANT_KEK_ACTIVE_VERSION: 'v2',
   META_GRAPH_VERSION: 'v21.0',
   WORKER_PUBLIC_URL: 'https://dala.example.com',
   TELEGRAM_ALERT_CHAT_ID: '-1001234567890',
@@ -91,7 +92,10 @@ test('an empty string is missing, not set', () => {
 test('a malformed value fails with a reason, not just a flag', () => {
   const cases: [string, string, RegExp][] = [
     ['TENANT_KEK_V1', 'abcdefghijklmnopqrstuvwxyz012345', /decoded to 24/],
-    ['TENANT_KEK_ACTIVE_VERSION', 'v2', /TENANT_KEK_V2 is not set/],
+    ['TENANT_KEK_ACTIVE_VERSION', 'v3', /TENANT_KEK_V3 is not set/],
+    // By PATTERN, not by name: V2 had no format rule until D-107, so a mistyped active
+    // key passed the deploy and failed at the first send, on a row nobody could open.
+    ['TENANT_KEK_V2', 'abcdefghijklmnopqrstuvwxyz012345', /decoded to 24/],
     ['META_APP_SECRETS', '{}', /empty map/],
     ['DALA_ENV', 'prod', /production \| staging \| preview/],
     ['SUPABASE_SECRET_WORKER', 'sb_publishable_oops', /publishable key here would fail every write/],
@@ -123,4 +127,23 @@ test('the KEK rule comes from the application, not from a second copy here', () 
   assert.equal(Buffer.from(withJunk, 'base64').length, 32, 'Node really does accept this');
   const { out } = preflight({ ...COMPLETE, TENANT_KEK_V1: withJunk });
   assert.match(out, /contains characters that are not base64/);
+});
+
+test('DONE-TEST: retiring the ACTIVE version does not retire the keys under it', () => {
+  // The whole of what protects tenant #0's Meta token. Its `tenant_secrets` row is sealed
+  // under v1 and carries `kek_version = 1`; `kekForVersion` reads the ROW's version, so
+  // v1 is still opened on every request although v2 has been active since 2026-09-21. The
+  // V1 value cannot be read back out of Vercel — the dashboard will not reveal it and
+  // `vercel env pull` redacts it — so dropping it from the environment is not a config
+  // error that can be undone, it is the permanent loss of a live client's credential.
+  //
+  // Nothing in `src/` can defend that: by the time the loader asks for V1 the deploy has
+  // shipped. Preflight is the only thing standing in front of it, and it only stands there
+  // because BOTH names are uncommented in `.env.example` — which is a property of a text
+  // file, and is exactly the kind of protection that is removed by tidying.
+  for (const retired of ['TENANT_KEK_V1', 'TENANT_KEK_V2']) {
+    const { status, out } = preflight({ ...COMPLETE, [retired]: '' });
+    assert.equal(status, 1, `${retired} was dropped and the deploy still passed:\n${out}`);
+    assert.match(out, new RegExp(`MISSING\\s+${retired}`), retired);
+  }
 });
