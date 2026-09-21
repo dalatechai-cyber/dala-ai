@@ -53,6 +53,19 @@ export function toTenantKb(doc: IntakeDocument): TenantKb {
     currencySymbol: doc.business.currencySymbol,
     currencySymbolBefore: doc.business.currencySymbolBefore,
     refusalTopics: doc.neverSay.map((n) => ({ key: n.key, question: n.question })),
+    // THE PROJECTION'S BLIND SPOT, named rather than left as three empty literals.
+    //
+    // An `IntakeDocument` has no field for any of these three, so anything a tenant already
+    // holds in `clarify_terms`, `deposits` or `knowledge_documents` is invisible to every
+    // check built on `toTenantKb` — including `projectedAllowedNumbers`. Measured on Matrix
+    // 2026-09-21: the sheet projected SEVEN permitted numerals and the live compile carried
+    // THIRTEEN. The six missing ones — `3, 3-5, 30, 4-5, 50, 70` — are percentages and
+    // session counts that occur only in `knowledge_documents`, and every one of them is a
+    // real permission the outbound guard hands the model.
+    //
+    // The projection is still right about what this DOCUMENT licenses, which is what an
+    // intake review is for. It is not, and must never be printed as, a prediction of the
+    // live list. `reviewSheet` says so in the words the operator reads.
     clarify: [],
     deposits: [],
     documents: [],
@@ -284,7 +297,9 @@ export function validateIntake(doc: IntakeDocument, now = new Date()): Finding[]
   add('advisory', 'allowed_numbers',
     numbers.length === 0
       ? 'no numeral would be permitted — the bot can state no price, hour or phone number'
-      : `${numbers.length} numerals would be permitted: ${numbers.join(', ')}`);
+      : `${numbers.length} numerals from THIS DOCUMENT would be permitted: ${numbers.join(', ')}`
+      + ' — a tenant that already holds knowledge-base, clarify or deposit rows licenses more'
+      + ' than this, and they are invisible here (see `toTenantKb`)');
 
   const ranges = doc.services.flatMap((s) => s.variants).filter((v) => v.priceKind === 'range').length;
   const priced = doc.services.flatMap((s) => s.variants).filter((v) => v.priceKind !== 'none').length;
