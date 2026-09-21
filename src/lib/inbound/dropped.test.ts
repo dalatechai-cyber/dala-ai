@@ -8,7 +8,7 @@ const NOW = new Date('2026-09-14T12:27:47Z');
 function skip(over: Partial<SkippedEvent> = {}): SkippedEvent {
   return {
     reason: 'no_text', idx: 0, externalId: 'm_thumb', senderId: 'psid-1', recipientId: null,
-    attachments: ['sticker'], stickerIds: ['369239263222822'], ...over,
+    appId: null, attachments: ['sticker'], stickerIds: ['369239263222822'], ...over,
   };
 }
 

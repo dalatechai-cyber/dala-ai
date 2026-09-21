@@ -151,9 +151,46 @@ export function controlAfter(event: HandoverEvent, ourAppId: string | null): Thr
  *
  * Returns null for "no change", never a default.
  */
-export function controlFromEcho(ours: boolean | 'unreadable'): ThreadControl | null {
-  if (ours === 'unreadable') return null;
-  return ours ? null : 'human';
+export type EchoKind =
+  /** The `mid` is one of our own sends. Positive, and the strongest answer available. */
+  | 'ours'
+  /** The lookup failed. Undetermined is a result (D-057); nothing moves. */
+  | 'unreadable'
+  /** An APP sent it — ours unrecorded, or another one. Not a person, so nothing moves. */
+  | 'app'
+  /** No app is named, and it is not one of ours. The residue, and the only human signal. */
+  | 'human';
+
+export type EchoVerdict = { control: ThreadControl | null; kind: EchoKind };
+
+export function controlFromEcho(
+  ours: boolean | 'unreadable',
+  appId: string | null,
+): EchoVerdict {
+  if (ours === 'unreadable') return { control: null, kind: 'unreadable' };
+  if (ours) return { control: null, kind: 'ours' };
+
+  // NOT ours — and this is where the old version concluded `human` and was wrong.
+  //
+  // D-080's own warning is that a detector built on "not ours" is only sound where we are
+  // the only one of us, and on Matrix's Page we are not: the ancestor bot answers every
+  // thread through the `dalatech` app while Dala AI sits in shadow. Measured on the first
+  // real echo, 2026-09-21 — `app_id 1380702870025418` against our `1562862634970492`.
+  //
+  // The shadow gate in `record.ts` is what has been standing in front of that, and it
+  // DISAPPEARS at cutover: the moment Matrix flips to `live` with the ancestor still
+  // answering, every active conversation is marked `human` and check 4 silences the bot on
+  // exactly the threads that matter. The symptom is a quiet afternoon (D-062), which is the
+  // hardest thing here to tell from working.
+  //
+  // So an echo Meta attributes to ANY app is an app's, not a person's. `human` is the
+  // residue — an echo nobody claims — which is what a receptionist typing in the Page
+  // Inbox should produce. That direction is UNVERIFIED (`developers.facebook.com` is 403
+  // through this environment's proxy), so it is deliberately the conservative way round:
+  // this errs toward missing a handover, never toward muting a tenant, and `kind` is the
+  // instrument that settles it against real traffic.
+  if (appId !== null) return { control: null, kind: 'app' };
+  return { control: 'human', kind: 'human' };
 }
 
 export type ThreadState = {

@@ -495,6 +495,104 @@ test('DONE-TEST: and the same for two messages of merely EQUAL LENGTH', async ()
   assert.equal(s.count('webhook_events'), 2);
 });
 
+test('DONE-TEST: AN ECHO IS NEVER A CUSTOMER AND NEVER DRAFTS A REPLY', async () => {
+  // The founder subscribed `message_echoes` on Matrix's Page on 2026-09-21 and asked for
+  // this property to be guaranteed rather than observed. It WAS observed — the one real
+  // echo, event 328, produced no `messages` row and no draft, and the only draft in that
+  // window traces by `dedup_key` to event 327, the customer's own «sain bnu». But the
+  // single thing standing behind that is one `continue` in `meta/extract.ts`, asserted
+  // nowhere end to end: `extract.test.ts` proves the PARSER drops an echo, and nothing
+  // proved the PIPELINE does. A parser test cannot see a caller that reads `skipped` and
+  // answers it anyway.
+  //
+  // This is the most expensive thing that can go wrong in this codebase. An echo answered
+  // is the bot replying to its own reply, which Meta echoes back, for ever, at full price
+  // — and on Matrix's Page the echoes are the ANCESTOR's, so the loop would be two bots
+  // answering each other in a live salon's inbox.
+  const s = provisioned();
+
+  // Meta's real shape, taken from `webhook_events` id 328: `sender` is the PAGE and
+  // `recipient` is the customer — the reverse of an inbound message, which is exactly
+  // what makes an echo look like a customer turn to anything reading `sender` blindly.
+  const echo = {
+    id: PAGE,
+    messaging: [{
+      sender: { id: PAGE }, recipient: { id: PSID },
+      timestamp: NOW.getTime() - 60_000,
+      message: {
+        mid: 'm_echo_1', text: 'Сайн байна уу? Танд юугаар туслах вэ?',
+        app_id: 1380702870025418, is_echo: true,
+      },
+    }],
+  };
+
+  const w = await webhook(s, async () => ok, echo).run();
+  assert.equal(w.outcome, 'queued', 'the DELIVERY is still durable — we do not drop it at the door');
+  const eventId = w.outcome === 'queued' ? w.eventId : 0;
+
+  const j = worker(s, eventId);
+  assert.equal((await j.run()).status, 200, j.logs.join(' | '));
+
+  assert.equal(s.count('messages'), 0, 'an echo is NOT an inbound customer message');
+  assert.equal(s.count('outbound_messages'), 0, 'an echo drafts NOTHING');
+  assert.equal(j.generated.length, 0, 'the model is never called — an echo costs nothing');
+  assert.equal(j.sends.length, 0, 'and nothing is sent');
+
+  // The control. If `provisioned()` or the worker stub were simply inert, every assertion
+  // above would pass while proving nothing — the failure mode D-082's `canned_hash` note
+  // calls out: a value is only evidence once something reproduces the KNOWN one. A real
+  // customer message through the same store must still be answered.
+  const real = await webhook(s, async () => ok, entry('m_real_1', 'Сайн байна уу', PSID)).run();
+  assert.equal(real.outcome, 'queued');
+  const j2 = worker(s, real.outcome === 'queued' ? real.eventId : 0);
+  assert.equal((await j2.run()).status, 200, j2.logs.join(' | '));
+  assert.equal(s.count('messages'), 1, 'the control: a real customer IS persisted');
+  assert.equal(s.count('outbound_messages'), 1, 'the control: a real customer IS answered');
+});
+
+test("DONE-TEST: an ancestor echo does not mark a LIVE conversation as human-held", async () => {
+  // This harness seeds `delivery_mode: 'live'`, which is the strict case: it is the only
+  // mode in which an echo may move `thread_control` at all, and it is the state Matrix
+  // enters at cutover with the ancestor still answering.
+  //
+  // Wired the obvious way — "an echo whose `mid` is not ours means a person typed it" —
+  // this marks the conversation `human`, and H11 check 4 then refuses every following
+  // turn. Measured on the real echo: `app_id 1380702870025418` is the `dalatech` app that
+  // carries the ancestor, not a receptionist. Nothing here may conclude a person.
+  const s = provisioned();
+
+  // A customer first, so there IS a conversation for an echo to be attached to.
+  const first = await webhook(s, async () => ok, entry('m_c1', 'Сайн байна уу', PSID)).run();
+  assert.equal(first.outcome, 'queued');
+  const jc = worker(s, first.outcome === 'queued' ? first.eventId : 0);
+  assert.equal((await jc.run()).status, 200, jc.logs.join(' | '));
+
+  const echo = {
+    id: PAGE,
+    messaging: [{
+      sender: { id: PAGE }, recipient: { id: PSID },
+      timestamp: NOW.getTime() - 30_000,
+      message: { mid: 'm_echo_2', text: 'Танд юугаар туслах вэ?', app_id: 1380702870025418, is_echo: true },
+    }],
+  };
+  const w = await webhook(s, async () => ok, echo).run();
+  const je = worker(s, w.outcome === 'queued' ? w.eventId : 0);
+  assert.equal((await je.run()).status, 200, je.logs.join(' | '));
+
+  const convs = s.rows('conversations');
+  assert.equal(convs.length, 1, 'one conversation');
+  assert.notEqual(convs[0]?.['thread_control'], 'human',
+    'an APP answered, not a person — marking this `human` silences the mirror at cutover');
+
+  // And the customer can still be answered on that thread afterwards, which is the
+  // consequence the assertion above is really about.
+  const again = await webhook(s, async () => ok, entry('m_c2', 'Хэдэн цагт вэ', PSID)).run();
+  assert.equal(again.outcome, 'queued');
+  const j2 = worker(s, again.outcome === 'queued' ? again.eventId : 0);
+  assert.equal((await j2.run()).status, 200, j2.logs.join(' | '));
+  assert.equal(s.count('outbound_messages'), 2, 'the second customer turn is still answered');
+});
+
 test('the claim records HOW the delivery arrived, not just that it did', async () => {
   // `webhook_events.source` has had its CHECK since `0001` and nothing ever wrote it, so
   // every row said `meta` whether it was or not. A mirror forwards a copy of each delivery
