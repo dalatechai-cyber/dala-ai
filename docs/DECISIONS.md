@@ -8257,3 +8257,142 @@ validates a configuration, not a system — and every edit starts a new one.**
 
 The instrument that did work was the founder sending one message himself immediately after
 the flip. Sixty seconds, one test, the whole defect. That belongs in every cutover.
+
+---
+
+## D-109 — a credential can be wrong in two unrelated ways, and length sees only one
+
+**Matrix's cutover produced both, forty minutes apart, and they look nothing alike.**
+
+| | Sealed value | `verify.ts` | Failure at send |
+|---|---|---|---|
+| First | **105 characters** | never run against it | `secret_undecryptable` |
+| Second | **242 characters** | `OPENED` | `graph 401 code=190 subcode=463` |
+
+The first was a **truncated paste**. The second was **whole, opened cleanly, and expired** —
+a short-lived Graph API Explorer token that answered `GET /{page-id}?fields=name` at 02:0x
+and was dead by 02:24.
+
+**During the incident this session inferred that the 105 characters meant "short-lived",
+and that was wrong.** It read one symptom as evidence for the other defect, and the
+founder corrected it: *"Token length tells us about truncation, not lifetime.
+`expires_at: 0` is the only acceptance test."* Two independent properties, two independent
+checks:
+
+- **Whole?** The character count, compared against a token known to be complete. This is
+  what `scripts/kek/verify.ts` prints and what its header means by "a token you know is
+  whole". It says nothing about lifetime.
+- **Long-lived?** `GET /debug_token` → **`expires_at: 0`**. Nothing else establishes it, and
+  no property of the string does.
+
+**Neither is checked by anything that runs today.** `unusableBecause` in the runtime loader
+rejects an empty secret, control characters and surrounding whitespace — that is the whole
+test. A truncated token passes it, seals, self-checks, decrypts, and fails at Graph; an
+expired one does the same. `tenant_secrets` carries no `expires_at` at all, which `0001`
+omits deliberately, so expiry is discoverable only as a 401 at send time.
+
+**The breaker did its job and should not be softened.** Three consecutive credential
+failures halted the channel — `delivery_mode = 'off'`, `token_status = 'revoked'`,
+`tenant_secrets.status = 'revoked'` — which is correct behaviour for a credential that
+cannot be used, and the founder's own verdict was *"the breaker was correct."* Note the
+recovery asymmetry that follows: `seal.ts`'s SQL restores `tenant_secrets.status` to
+`active` by itself, and the two `tenant_channels` columns do not self-repair. They must move
+together in one statement, because `live_requires_active_token` evaluates the finished row.
+
+**The follow-up is a WARNING, never a refresh** (founder, 2026-09-21). Track `expires_at`
+AND `data_access_expires_at`: a token with `expires_at: 0` still loses data access about
+ninety days after the last authorization, so "never expires" and "never needs the human
+again" are different claims. Automatic re-authorization is out of scope — the platform
+should say *this credential dies on date X* early enough to act, and nothing more.
+
+---
+
+## D-110 — a 503 is a request for a retry until it is the last one, and nothing knew which
+
+**2026-09-21. Matrix's first live day, event 266.** A customer message arrived at 02:02:20,
+was delivered to the worker three times inside three minutes, and was refused every time by
+a matcher D-108 had already broken. The founder learned about it at **02:59**, from the
+hourly stranded sweep, in an alert that said the event *"was published to the queue and
+never delivered to the worker."* Production logs show three `redelivery_unanswered` lines
+for that id.
+
+Three separate defects, and they compound in one direction — later, and wronger:
+
+### 1. The sentence was inferred from a premise that is false
+
+`sweepStrandedEvents` derived the fault from `state` alone, on the premise that every
+completed worker run leaves a terminal state. It does — and it does not follow that a row
+still reading `pending_enqueue` was never processed. **A run that returns 503 leaves no
+terminal state ON PURPOSE**, so QStash retries. `pending_enqueue` means *no run COMPLETED*
+and never *no run happened*, and the two send a reader to different systems: QStash's
+console, or our own code.
+
+The premise was written down in `stranded.test.ts`, above the test asserting the wording,
+where it read as background rather than as the claim it was. **A false premise stated in a
+test comment is an assertion nothing will ever check.**
+
+### 2. `attempts` existed, and was written by nothing and read by nothing
+
+`webhook_events.attempts` and `max_attempts` have been in the schema since `0001`. D-064's
+rule is *"when you find a column, ask who writes it"*; this is the fourth instance, and the
+first with a measured cost — the sweep had to guess at delivery history because the column
+that records it was dead. It is written on ARRIVAL now, before anything can refuse, because
+counting failures would leave a run that dies inside its own error handling
+indistinguishable from a run that never happened.
+
+It is a read-modify-write (PostgREST cannot express `attempts = attempts + 1`), which is
+sound because QStash does not start a retry until the previous delivery returns. If they
+ever overlap the counter undercounts by one; it cannot double-count and cannot lose the
+event.
+
+### 3. Detection was 57 minutes behind a 3-minute retry horizon
+
+`QUEUED_GRACE_MINUTES` was **45**, sized in a docstring from "the documented shape" of
+Upstash's backoff, carrying an explicit `[UNVERIFIED]` note saying to move it if the horizon
+were ever measured **and longer**. It was measured and it is far SHORTER: 02:02:24, 02:02:47,
+02:05:27 — about **three minutes** end to end, under the same `retries: 3` every job uses.
+The guess was wrong by 15×, and the note only anticipated being wrong in one direction.
+
+The fix is not a smaller constant. **The worker raises the alert itself**, on the delivery
+it can identify as QStash's last, because it is the only place that knows both that this
+delivery failed retryably and that no retry is coming. The sweep drops to 10 minutes and
+becomes the BACKSTOP for the narrower class the worker cannot speak for: events that never
+reached it at all. Those are still bounded by the health worker's hourly cadence, which
+lives in the QStash console and not in this repository.
+
+Matrix's `max_reply_age_minutes` went 30 → **15** at the founder's instruction, so detection
+now lands at ~3 minutes inside a 15-minute window instead of 57 minutes outside a 30.
+
+**Tightening the grace does not risk a double answer, and that is by construction rather
+than by timing.** `outbound/claim.ts` asks `findReplyFor` whether this exact inbound message
+already produced a reply (D-029); the grace only avoids the wasted work of a racing
+re-publish. `replay.test.ts` holds the property.
+
+### The three things this fix got wrong on its own first pass
+
+Each was found by re-reading the diff adversarially before committing, and each is the same
+shape as the defect being fixed — an alert asserting something it had not measured.
+
+- **The re-publish at 10 minutes is inside QStash's deduplication window for the first
+  time.** A publish carrying a `deduplicationId` QStash already holds returns **200** with
+  the original message's id and `deduplicated: true`; nothing new is queued and nothing new
+  is delivered. Read as `ok`, the sweep would have said an event was *"re-published
+  successfully"* while QStash had refused it. `EnqueueResult` carries the flag now and
+  `requeue_deduplicated` is a distinct action.
+- **`attempts = 0` is not "never delivered" either.** The counter is written after the
+  worker reads the event row, so a delivery that dies before that — unreadable row, rejected
+  signature, or the counter write itself failing — leaves 0 while QStash's log shows a
+  delivery. The branch names both causes instead of asserting one. Splitting a verdict and
+  leaving the new branch covering two states is D-062's third turn of the screw.
+- **`limitMinutes` was pre-filled with the platform default (30).** `worker.tenant_unreadable`
+  and `worker.tenant_timezone_missing` both refuse before the tenant's own limit is read, so
+  an exhausted delivery on either path would have printed *"30-minute reply limit"* for a
+  tenant whose limit is 15 — wrong in the generous direction, in a critical alert whose whole
+  content is how long a human has. It is `number | null` now, filled at the first line where
+  the row is in hand, and the alert says UNKNOWN rather than substituting.
+
+### What is not closed
+
+The floor on detecting an event that never reaches the worker at all is still the health
+worker's schedule, which is hourly and set in the QStash console. Making it more frequent is
+a console change and therefore the founder's; it is recommended, not done.

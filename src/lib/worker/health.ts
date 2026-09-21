@@ -26,6 +26,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { runSilenceWatch } from '../health/watch.ts';
 import { sweepStrandedEvents, type SweepInput } from '../health/stranded.ts';
+import { checkSecretExpiry, raiseExpiryAlerts } from '../health/secretExpiry.ts';
 
 export type HealthEffects = {
   db: SupabaseClient;
@@ -55,6 +56,17 @@ export async function runHealthJob(
   const sweep = await sweepStrandedEvents(effects.db, { now: effects.now, enqueue: effects.enqueue });
   if (!sweep.ok) return { status: 503, body: { error: 'unavailable', detail: sweep.detail } };
 
+  // Third cheap read on the same schedule, and the only one that is about the FUTURE: the
+  // other two ask whether something already went wrong. A credential with a date on it is
+  // the one fault this platform can see coming, and until `0035` it could not (D-109).
+  //
+  // Unreadable is a 503 like the others. "No credential is expiring" and "I could not ask"
+  // must not be spelled the same way — that equivalence is what let Matrix go live on a
+  // token with forty minutes left.
+  const expiry = await checkSecretExpiry(effects.db, { now: effects.now });
+  if (!expiry.ok) return { status: 503, body: { error: 'unavailable', detail: expiry.detail } };
+  const expiryAlerts = await raiseExpiryAlerts(effects.db, expiry.findings);
+
   // The counts, not the verdicts: this body goes to QStash's delivery log, and a channel's
   // health belongs in `channel_health` and the alert rather than in a queue receipt.
   const counts: Record<string, number> = {};
@@ -67,6 +79,15 @@ export async function runHealthJob(
 
   return {
     status: 200,
-    body: { checked: run.checked, states: counts, swept: sweptCounts },
+    body: {
+      checked: run.checked, states: counts, swept: sweptCounts,
+      // `unknown` is reported beside the findings rather than folded into them: a run that
+      // examined ten credentials and knows the expiry of none is not a clean run, and the
+      // receipt should not read like one.
+      secrets: {
+        checked: expiry.checked, unknown: expiry.unknown,
+        expiring: expiry.findings.length, alerted: expiryAlerts.raised, alert_failures: expiryAlerts.failed,
+      },
+    },
   };
 }

@@ -92,6 +92,47 @@ if (trimmed === '') die('the secret on stdin is empty');
 if (trimmed !== trimmed.trim()) die('the secret has leading or trailing whitespace; refusing to seal it as-is');
 if (/[\u0000-\u001F\u007F]/.test(trimmed)) die('the secret contains control characters and could not go in a header');
 
+/**
+ * When this credential dies, from `debug_token`. Optional, and NOT remembered across a
+ * re-seal: a new token has new clocks, so carrying the previous row's dates forward would
+ * attribute the OLD credential's expiry to the new one — a confident wrong date, which is
+ * worse than the blank this platform already knows how to report as unknown.
+ *
+ * `--expires-at never` is Meta's `expires_at: 0` for a Page token minted from a long-lived
+ * user token. It is stored as NULL, the same as unknown, because the checker warns on
+ * neither and inventing a sentinel far-future date would be a value nobody could tell from
+ * a real one.
+ */
+function expiryArg(name: string): string {
+  // `--expires-at` written LAST, with no value after it, makes `arg` return undefined —
+  // identical to not passing the flag at all. An operator who meant to record a date would
+  // get a silent NULL and a credential that reports as unknown for ever, which is exactly
+  // the blindness this column was added to end. Present-but-empty is a refusal.
+  if (process.argv.includes(`--${name}`) && arg(name) === undefined) {
+    die(`--${name} was given with no value. Pass a date, or 'never' for Meta's expires_at: 0.`);
+  }
+  const raw = arg(name);
+  if (raw === undefined || raw === 'never') return 'null';
+  // ISO 8601 ONLY, and the strictness is the point. `Date.parse` is lenient in a way that
+  // is actively dangerous here: measured, `20 December` parses to 2001-12-20 and `Dec 20`
+  // to the same, so an operator typing a date the way a person writes one would store a
+  // timestamp twenty-five years in the past. The checker would then report that credential
+  // as lapsed nine thousand days ago and page about it — a confidently wrong alert, which
+  // is the exact failure this column was added to prevent. Refusing is the only safe
+  // reading of an ambiguous date.
+  // ascii-safe: an ISO timestamp, never customer text.
+  if (!/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(raw)) {
+    die(`--${name} must be ISO 8601 (2026-12-20, or 2026-12-20T00:00:00Z), or 'never'. Got ${JSON.stringify(raw)}. `
+      + 'Date.parse would accept "20 December" and store 2001-12-20, so this refuses rather than guesses.');
+  }
+  const ms = Date.parse(raw);
+  if (Number.isNaN(ms)) die(`--${name} is ISO-shaped but not a real date: ${JSON.stringify(raw)}`);
+  return `'${new Date(ms).toISOString()}'::timestamptz`;
+}
+
+const expiresAtSql = expiryArg('expires-at');
+const dataAccessSql = expiryArg('data-access-expires-at');
+
 const { version, key } = activeKek();
 const aad = aadFor({ tenantId, channelId, kind });
 const sealed = sealForRow(Buffer.from(trimmed, 'utf8'), key, aad);
@@ -114,18 +155,25 @@ process.stdout.write(
     `-- ${kind} for tenant ${tenantId}, channel ${channelKeyOf(channelId)}`,
     `-- Sealed under TENANT_KEK_V${version}. The secret itself appears nowhere below.`,
     'insert into tenant_secrets',
-    '  (tenant_id, channel_id, kind, ciphertext, wrapped_dek, kek_version, aad, status)',
+    '  (tenant_id, channel_id, kind, ciphertext, wrapped_dek, kek_version, aad, status,',
+    '   expires_at, data_access_expires_at)',
     'values',
     `  ('${tenantId}'::uuid, ${channelSql}, '${kind}',`,
     `   ${hex(sealed.ciphertext)},`,
     `   ${hex(sealed.wrappedDek)},`,
-    `   ${version}, '${aad}', 'active')`,
+    `   ${version}, '${aad}', 'active',`,
+    `   ${expiresAtSql}, ${dataAccessSql})`,
     'on conflict (tenant_id, channel_key, kind) do update set',
     '  ciphertext = excluded.ciphertext,',
     '  wrapped_dek = excluded.wrapped_dek,',
     '  kek_version = excluded.kek_version,',
     '  aad = excluded.aad,',
     "  status = 'active',",
+    // Overwritten, never merged: see `expiryArg`. A re-seal that omits the flags stores
+    // NULL, which reads as "not known" — correct for a token whose clocks nobody recorded,
+    // and the one reading that cannot be mistaken for a promise.
+    '  expires_at = excluded.expires_at,',
+    '  data_access_expires_at = excluded.data_access_expires_at,',
     '  last_error_code = null;',
     '',
   ].join('\n'),

@@ -44,7 +44,7 @@ function effects(over: Record<string, Answer | Answer[]> = {}, verified = true):
     chain['then'] = (res: (v: unknown) => unknown) => res(answer(table));
     return chain;
   };
-  return { db: { from } as never, now: NOW, verifySignature: async () => verified, enqueue: async () => ({ ok: true, messageId: 'msg-1' }) };
+  return { db: { from } as never, now: NOW, verifySignature: async () => verified, enqueue: async () => ({ ok: true, messageId: 'msg-1', deduplicated: false }) };
 }
 
 test('an unsigned call is 401 and reads nothing', async () => {
@@ -86,7 +86,28 @@ test('the body carries counts, never the verdicts themselves', async () => {
   // This lands in QStash's delivery log. A channel's health belongs in `channel_health`
   // and in the alert, not in a queue receipt somebody may or may not read.
   const r = await runHealthJob(effects(), { rawBody: '{}', signature: 'sig' });
-  assert.deepEqual(Object.keys(r.body).sort(), ['checked', 'states', 'swept']);
+  assert.deepEqual(Object.keys(r.body).sort(), ['checked', 'secrets', 'states', 'swept']);
+  // The expiry clause obeys the same rule one level down: which tenant's credential is
+  // running out is in the alert, and a receipt that named it would put a tenant id and a
+  // credential kind into a third party's delivery log for no gain.
+  const secrets = r.body['secrets'] as Record<string, unknown>;
+  assert.deepEqual(Object.keys(secrets).sort(),
+    ['alert_failures', 'alerted', 'checked', 'expiring', 'unknown']);
+  for (const [k, v] of Object.entries(secrets)) assert.equal(typeof v, 'number', `${k} is a count`);
+});
+
+test('DONE-TEST: AN UNREADABLE tenant_secrets IS 503, NOT A CLEAN RUN', async () => {
+  // Same rule as the watch and the sweep, and it matters most here: the whole point of the
+  // expiry check is that "nothing is expiring" and "I could not ask" were spelled the same
+  // way, which is how Matrix went live on a token with forty minutes left (D-109). A 200
+  // carrying `secrets.checked: 0` would rebuild that equivalence inside the fix.
+  const r = await runHealthJob(effects({
+    webhook_events: [{ data: [{ received_at: FRESH }], error: null }, { data: [], error: null }],
+    conversations: { data: [{ last_message_at: FRESH }], error: null },
+    tenant_secrets: { data: null, error: { message: 'timeout' } },
+  }), { rawBody: '{}', signature: 'sig' });
+  assert.equal(r.status, 503);
+  assert.match(String(r.body['detail']), /tenant_secrets unreadable/);
 });
 
 test('DONE-TEST: the stranded sweep runs beside the watch, and its count is reported', async () => {

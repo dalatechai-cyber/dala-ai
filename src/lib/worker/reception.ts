@@ -44,7 +44,7 @@ import { tenantClock } from '../time/clock.ts';
 import { RECEPTION_HISTORY_TURNS } from '../model/reception.ts';
 import { withTenantRole } from '../guard/withTenantRole.ts';
 import { claim, findReplyFor, replyDedupKey } from '../outbound/claim.ts';
-import { markEventState } from '../webhook/events.ts';
+import { markEventState, recordDeliveryAttempt } from '../webhook/events.ts';
 import { usdToNano } from '../money.ts';
 import { isFresh, replyAgeLimitMinutes } from './freshness.ts';
 import { runCommentJob, type CommentEffects, type CommentJobResult } from './comments.ts';
@@ -137,6 +137,25 @@ export type WorkerEffects = {
    * not declare.
    */
   alertStandby: (input: { tenantId: string; channelId: string; dayKey: string; events: number }) => Promise<void>;
+  /**
+   * QStash has just made its last delivery of this event and the worker refused it again,
+   * so nothing else is coming. Raised from the worker rather than waiting for the hourly
+   * sweep, which is what made D-110's customer wait 57 minutes to be noticed.
+   */
+  alertDeliveryExhausted: (input: {
+    tenantId: string; eventId: number; attempts: number;
+    /** NaN when `received_at` could not be read. Never reported as a number. */
+    ageMinutes: number;
+    /**
+     * NULL when the job refused BEFORE it read the tenant row — an unreadable `tenants`
+     * row is one of the 503s that can exhaust a delivery, and on that path the platform
+     * default is not this tenant's limit. Matrix's is 15 and the default is 30, so
+     * substituting one would print a deadline twice as generous as the real one into a
+     * critical alert.
+     */
+    limitMinutes: number | null;
+    code: string;
+  }) => Promise<void>;
   /** `META_GRAPH_VERSION`, read lazily so an unconfigured deployment fails at use. */
   graphVersionDefault: () => string;
   generateReply: (args: GenerateArgs) => Promise<ReceptionOutcome>;
@@ -155,12 +174,95 @@ export type WorkerEffects = {
 
 export type JobResult = { status: number; body: Record<string, unknown> };
 
+/**
+ * How many times QStash delivers one reception job before abandoning it.
+ *
+ * MEASURED, not read from a document: event 266 on 2026-09-21 was delivered at 02:02:24,
+ * 02:02:47 and 02:05:27 and never again, under the `retries: 3` this platform publishes
+ * with. So the whole retry horizon is about three MINUTES, and the third delivery is the
+ * last chance to notice that a customer is not going to be answered.
+ *
+ * If this is ever wrong in the safe direction — QStash delivers a fourth time — the
+ * exhaustion alert has already fired on the third and is deduplicated by event id, so the
+ * fourth changes nothing. Wrong in the other direction (QStash stops at two) the alert
+ * never fires from here and `sweepStrandedEvents` still catches it, late, as it did before.
+ * Both failure modes degrade to the previous behaviour rather than to silence.
+ *
+ * ## `webhook_events.max_attempts` exists, says 2, and is deliberately NOT read
+ *
+ * It has been in the schema since `0001` with `default 2` and no reader — the same dead
+ * state `attempts` was in until this change. Wiring it in is the obvious next tidy-up and
+ * it would be WRONG: it disagrees with the measurement by one, so the alert would fire on
+ * QStash's second delivery and announce that nothing else is coming while a third was
+ * already scheduled. Telling a founder a customer is unanswered, immediately before the
+ * platform answers them, is worse than the silence it replaces.
+ *
+ * The number that belongs here is QStash's retry count, which this repository sets in
+ * `queue/qstash.ts` (`retries: 3`) — not a column nobody has ever written to match it. If
+ * that publish option changes, change this, and re-measure rather than assuming the
+ * arithmetic: `retries: 3` produced three deliveries, not four.
+ */
+export const RECEPTION_MAX_DELIVERIES = 3;
+
 const ok = (body: Record<string, unknown>): JobResult => ({ status: 200, body: { ok: true, ...body } });
 const unavailable = (code: string): JobResult => ({ status: 503, body: { error: code } });
+
+/**
+ * What this delivery turned out to be, filled in as the job learns it.
+ *
+ * A plain record rather than a return value because every `return unavailable(...)` site
+ * below is a different refusal and none of them should have to remember to carry it. The
+ * wrapper reads whatever was established before the refusal happened.
+ */
+type DeliveryTrace = {
+  eventId: number | null;
+  tenantId: string | null;
+  attempts: number;
+  /** NaN until `received_at` is read, and left NaN if it cannot be parsed. */
+  ageMinutes: number;
+  /** NULL until the TENANT's own limit is read. Never pre-filled with the default. */
+  limitMinutes: number | null;
+};
 
 export async function runReceptionJob(
   fx: WorkerEffects,
   request: { rawBody: string; signature: string | null },
+): Promise<JobResult> {
+  const trace: DeliveryTrace = {
+    eventId: null, tenantId: null, attempts: 0,
+    ageMinutes: Number.NaN, limitMinutes: null,
+  };
+  const result = await runReceptionDelivery(fx, request, trace);
+
+  // The only place that knows BOTH that this delivery failed retryably and that it was the
+  // last one. A 503 is the worker asking for a redelivery; on the final attempt there is no
+  // redelivery coming, so the same status code means the opposite thing — the customer is
+  // about to go unanswered. Nothing downstream can tell those apart, which is why the alert
+  // belongs here and not in the hourly sweep (D-110).
+  if (result.status === 503 && trace.eventId !== null && trace.tenantId !== null
+      && trace.attempts >= RECEPTION_MAX_DELIVERIES) {
+    const code = typeof result.body['error'] === 'string' ? result.body['error'] : 'unknown';
+    try {
+      await fx.alertDeliveryExhausted({
+        tenantId: trace.tenantId, eventId: trace.eventId, attempts: trace.attempts,
+        ageMinutes: trace.ageMinutes, limitMinutes: trace.limitMinutes, code,
+      });
+    } catch (e) {
+      // An alert that throws must not turn a 503 into a 500: the status QStash sees decides
+      // whether it retries, and this path is reached when we most want that behaviour left
+      // exactly as the job chose it.
+      fx.log('error', 'delivery_exhausted_alert_failed', {
+        eventId: trace.eventId, detail: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  return result;
+}
+
+async function runReceptionDelivery(
+  fx: WorkerEffects,
+  request: { rawBody: string; signature: string | null },
+  trace: DeliveryTrace,
 ): Promise<JobResult> {
   if (!(await fx.verifySignature(request.rawBody, request.signature))) {
     return { status: 401, body: { error: 'worker.signature_invalid' } };
@@ -189,7 +291,7 @@ export async function runReceptionJob(
   // --- The stored entry. One source, parsed once, at the point of use. -------
   const { data: event, error: eventErr } = await db
     .from('webhook_events')
-    .select('raw_payload')
+    .select('raw_payload, attempts, received_at')
     .eq('id', eventId)
     .maybeSingle();
   if (eventErr) {
@@ -201,7 +303,26 @@ export async function runReceptionJob(
     return ok({ dropped: 'event_missing' });
   }
 
-  const rawPayload = (event as Record<string, unknown>)['raw_payload'];
+  // --- This delivery happened. Counted here, before anything can refuse. ----------------
+  //
+  // The earliest point at which the row is known to exist, and deliberately above every
+  // refusal below: a run that dies inside its own error handling must still leave evidence
+  // that QStash delivered it, because "delivered and failed" and "never delivered" send an
+  // operator to completely different systems (D-110). The counter is diagnostic, so a write
+  // that fails is logged and the job carries on — a customer's reply never depends on it.
+  const eventRow = event as Record<string, unknown>;
+  trace.eventId = eventId;
+  trace.tenantId = tenantId;
+  const priorAttempts = typeof eventRow['attempts'] === 'number' ? eventRow['attempts'] : 0;
+  const counted = await recordDeliveryAttempt(db, eventId, priorAttempts);
+  trace.attempts = counted.attempts;
+  if (!counted.ok) fx.log('error', 'attempt_count_failed', { eventId, detail: counted.detail });
+
+  const receivedRaw = eventRow['received_at'];
+  const receivedMs = typeof receivedRaw === 'string' ? new Date(receivedRaw).getTime() : Number.NaN;
+  trace.ageMinutes = Number.isNaN(receivedMs) ? Number.NaN : (now.getTime() - receivedMs) / 60_000;
+
+  const rawPayload = eventRow['raw_payload'];
   const { messages, skipped, standby } = extractInboundMessages(rawPayload);
 
   // --- Tenant settings, read once for the whole entry. ----------------------
@@ -222,6 +343,13 @@ export async function runReceptionJob(
     return unavailable('worker.tenant_unreadable');
   }
   const t = tenantRow as Record<string, unknown>;
+  // Bound here, at the first line where the row is in hand, and NOT thirty lines down with
+  // the rest of the settings: `worker.tenant_timezone_missing` refuses in between, and an
+  // exhaustion alert on that path would have to say the limit was unknown when the value
+  // was sitting in a variable. The trace carries what has actually been read, so it is
+  // filled the moment each thing is readable (D-110).
+  const replyAgeLimit = replyAgeLimitMinutes(t['max_reply_age_minutes']);
+  trace.limitMinutes = replyAgeLimit;
   const settings = {
     defaultLocale: String(t['default_locale'] ?? 'mn-MN'),
     promptCacheMode: String(t['prompt_cache_mode'] ?? 'off') as 'off' | '5m' | '1h',
@@ -235,7 +363,6 @@ export async function runReceptionJob(
     return unavailable('worker.tenant_timezone_missing');
   }
   const timezone = rawTimezone;
-  const replyAgeLimit = replyAgeLimitMinutes(t['max_reply_age_minutes']);
   // Per tenant, as data (§3.7.3). A salon that answers in ninety seconds and one that
   // answers on Monday want different numbers, and neither is a constant in `src/`.
   const cooldownMinutes = typeof t['human_takeover_cooldown_minutes'] === 'number'

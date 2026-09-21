@@ -13,7 +13,20 @@ import { createHash } from 'node:crypto';
 import { Client, Receiver } from '@upstash/qstash';
 import { required } from '../env.ts';
 
-export type EnqueueResult = { ok: true; messageId: string } | { ok: false; detail: string };
+/**
+ * `deduplicated` is QStash's own answer to "was this actually published?".
+ *
+ * A publish carrying a `deduplicationId` QStash already holds returns 200 with the ORIGINAL
+ * message's id and this flag set — nothing new is queued and nothing new will be delivered.
+ * It was invisible here until 2026-09-21 because the only re-publisher waited 45 minutes,
+ * far outside any dedup window. `QUEUED_GRACE_MINUTES` is 10 now (D-110), which puts a
+ * re-publish inside it, and `ok: true` alone would have the sweep alert say an event was
+ * "re-published successfully" when QStash had refused it — a second alert misstating what
+ * happened, which is the defect that lowered the grace in the first place.
+ */
+export type EnqueueResult =
+  | { ok: true; messageId: string; deduplicated: boolean }
+  | { ok: false; detail: string };
 
 /**
  * The QStash deduplication id: a hash of the identity, not the identity itself.
@@ -51,7 +64,10 @@ export async function enqueueReception(payload: {
       deduplicationId: deduplicationIdFor(payload.provider, payload.dedupKey),
       retries: 3,
     });
-    return { ok: true, messageId: res.messageId };
+    // `deduplicated` is optional in the SDK's type and absent on an ordinary publish, so
+    // an absent flag is read as "not deduplicated" — the state every publish before this
+    // change was silently assumed to be in.
+    return { ok: true, messageId: res.messageId, deduplicated: res.deduplicated === true };
   } catch (err) {
     return { ok: false, detail: err instanceof Error ? err.message : String(err) };
   }
