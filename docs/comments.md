@@ -25,7 +25,7 @@ It was asked for and it is not reachable. Four measurements, all made 2026-09-18
 | | |
 |---|---|
 | `webhook_events` | **89 rows, 82 unpurged, every one an entry with `messaging`. Zero with `changes`.** Not one comment delivery has ever arrived. |
-| `tenant_channels.subscribed_fields` | `["messages"]` on **both** Pages. `feed` is not subscribed, so Meta has never had reason to send one. |
+| `tenant_channels.subscribed_fields` | `["messages"]` on **both** Pages. `feed` is not subscribed, so Meta has never had reason to send one. **Superseded: Matrix's row was reconciled to `{messages,feed,message_echoes}` on 2026-09-21 from 86 measured `feed` deliveries. The line above claiming it "now carries `feed`" was written BEFORE that was true of the database — the column still said `{messages}` when it was written, and only the reconciliation made it accurate. Tenant #0 is still `{messages}` and correctly so.** |
 | `tenant_channels.comment_policy` | `none` on both. Even with deliveries, `decideCommentReply` refuses at its first check. |
 | `canned_responses` | No `comment_public_reply` row for either tenant. Even past the policy, the decision refuses `no_reviewed_line`. |
 

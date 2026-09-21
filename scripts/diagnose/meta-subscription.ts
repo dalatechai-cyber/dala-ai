@@ -82,10 +82,23 @@ if (ids.length === 0) {
  *
  * `tenant_channels.subscribed_fields` is the column that ought to answer this, and it is
  * READ BY NOTHING — written at provisioning and never consulted since, which is D-064's
- * shape and D-072's addendum together. Matrix's row says `{messages}` while Meta has both,
- * so reading it here would have reproduced the same blindness from a different source.
- * Until something reconciles that column against Meta, the honest input is the operator's
- * own expectation, stated per run.
+ * shape and D-072's addendum together.
+ *
+ * **Matrix's row was RECONCILED on 2026-09-21** and now reads
+ * `{messages,feed,message_echoes}`, from delivery evidence rather than from what was
+ * written to Meta: 86 `changes` entries, 219 `messaging`, 1 echo, all on page
+ * 1520409424715591 (`scripts/provision/matrix-subscribed-fields.sql`). Delivery is the
+ * stronger source, because D-043's `POST /{page-id}/subscribed_apps` returns success when
+ * the app never enabled the field, so a write can subscribe nothing while reporting that
+ * it did. Tenant #0 was deliberately left at `{messages}` — it has zero `feed` entries,
+ * and that is an absence of comments on that Page, not a disproof of subscription.
+ *
+ * THIS COMMAND STILL DOES NOT READ THE COLUMN, and the reconciliation is not a reason to
+ * start. The column is a snapshot somebody took; Meta is the thing being diagnosed. A
+ * second copy of a fact will drift again the moment a field is toggled in the console,
+ * and this is the one tool built to catch exactly that drift — seeding it from the copy
+ * is how the check stops being able to fail. The honest input remains the operator's own
+ * expectation, stated per run.
  *
  * REQUIRED, never defaulted, for D-083's reason: a default of `messages` asserts on behalf
  * of an operator who forgot, and the case it gets wrong is the one the flag exists for.
