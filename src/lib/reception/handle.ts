@@ -34,6 +34,7 @@ import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
 import { priceLineReport } from '../quality/priceLines.ts';
 import { serviceNameReport, type PricedService } from '../quality/serviceNames.ts';
+import { pricePresentation, renderQuotedRows } from '../guard/pricePresentation.ts';
 import { capToSingleMessage } from '../mn/text.ts';
 
 /** One Messenger send, in characters. */
@@ -550,6 +551,52 @@ export async function handleReception(
       detail: `renamed: ${names.altered.join(', ')}`,
       attempted: capped.text,
     });
+  }
+
+  // Price presentation, ENFORCED — and the only counter on this path that is.
+  //
+  // Founder, 2026-09-21: *"A price range built from two different services' prices must not
+  // pass"* and *"a price is always shown with its exact service name from the data"*. The
+  // measured instance is «Бүтэн будалт (дунд, урт зэргээс шалтгаалан): 176,000₮–200,000₮»:
+  // two real prices welded into a spread no service has, under a name no service has.
+  //
+  // Why this one enforces where the two above only count: a rewritten name or a crammed
+  // line is a reply that is RIGHT and badly dressed, and discarding it would be D-068. A
+  // price against the wrong service is a reply that is WRONG, and a customer acts on it.
+  //
+  // The fallback is not the generic handoff — that is D-068 in the other direction, and it
+  // lands on the question a customer asks when they are closest to booking. It is the price
+  // list's own rows for the services whose prices were quoted: `gate/pinned.ts`'s move, one
+  // table over. `answered_by` is `deterministic` because no model text survives and nothing
+  // was spent choosing it (D-064: a `deterministic_replies` hit recorded as `canned` cannot
+  // answer the first question anybody asks of the corpus).
+  //
+  // The cost is stated rather than discovered (D-077): serving the rows discards whatever
+  // else the reply said, including a clarifying question that may have been good.
+  const presentation = pricePresentation(capped.text, input.serviceNames);
+  if (presentation.violations.length > 0) {
+    const kinds = [...new Set(presentation.violations.map((v) => v.kind))].sort().join(', ');
+    const rowsText = renderQuotedRows(presentation.quoted);
+    // An EMPTY substitution must never ship. `servicesFromPrefix` always populates `rows`
+    // for a name it parsed, so this is unreachable from the live path — but "unreachable"
+    // is what every dead guard in this repository was, and the failure mode here is a
+    // customer receiving a blank message, which is worse than any wrong price. Found by a
+    // test fixture carrying `rows: []`, not by reasoning.
+    if (rowsText === '') {
+      return handoff(deps, input,
+        { code: 'outbound_price_presentation', detail: `${kinds}; no price-list rows to serve`, attempted: capped.text },
+        matched.matchedResponseKinds);
+    }
+    await deps.flag({
+      code: 'outbound_price_presentation',
+      detail: `${kinds}; served the price list's own rows for: `
+        + presentation.quoted.map((q) => q.name).join(', '),
+      attempted: capped.text,
+    });
+    const rows = await deps.draft({ body: rowsText, answeredBy: 'deterministic' });
+    return rows.ok
+      ? { kind: 'drafted', outboundId: rows.id, answeredBy: 'deterministic' }
+      : { kind: 'retry', detail: rows.detail };
   }
 
   const drafted = await deps.draft({ body: capped.text, answeredBy: 'model' });

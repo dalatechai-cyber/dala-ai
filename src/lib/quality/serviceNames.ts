@@ -69,8 +69,16 @@ export type NameReport = {
   exact: string[];
 };
 
-/** A service the price list names, with the prices rendered against it. */
-export type PricedService = { name: string; prices: readonly string[] };
+/**
+ * A service the price list names, with the prices rendered against it and the price list's
+ * OWN rows for it.
+ *
+ * `rows` exist so that anything serving a price back to a customer can serve the data's
+ * bytes rather than re-format `name` and `prices` into a second rendering — see
+ * `guard/pricePresentation.ts`. A second renderer is a second thing to keep in agreement
+ * with the compiler, and the `btrim()`/`.trim()` near-miss is what that costs.
+ */
+export type PricedService = { name: string; prices: readonly string[]; rows: readonly string[] };
 
 /** The digit groups in a price fragment, folded to their digits so `176,000` and
  *  `176 000` compare equal. Never a substring test: `20` must not match `20,000`,
@@ -140,7 +148,9 @@ export function servicesFromPrefix(promptStable: string, priceListLabel: string)
   const rest = promptStable.slice(at + heading.length);
   const next = rest.indexOf('\n=== ');
   const body = next === -1 ? rest : rest.slice(0, next);
-  const byName = new Map<string, Set<string>>();
+  const order: string[] = [];
+  const prices = new Map<string, Set<string>>();
+  const rows = new Map<string, string[]>();
   for (const line of body.split('\n')) {
     const t = line.trim();
     if (!t.startsWith('- ')) continue;
@@ -149,12 +159,16 @@ export function servicesFromPrefix(promptStable: string, priceListLabel: string)
     if (colon === -1) continue;
     const name = row.slice(0, colon).replace(/\s*\([^()]*\)\s*$/u, '').trim();
     if (name === '') continue;
-    const set = byName.get(name) ?? new Set<string>();
-    for (const p of priceTokens(row.slice(colon + 1))) set.add(p);
-    byName.set(name, set);
+    if (!prices.has(name)) { order.push(name); prices.set(name, new Set()); rows.set(name, []); }
+    for (const p of priceTokens(row.slice(colon + 1))) prices.get(name)?.add(p);
+    rows.get(name)?.push(row);
   }
-  // Code-unit sort: deterministic, no locale (D-026).
-  return [...byName.entries()]
-    .map(([name, prices]) => ({ name, prices: [...prices].sort() }))
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  // PRICE-LIST ORDER, not sorted: these rows are served to a customer, and the order the
+  // tenant wrote them in is the order that reads correctly (cheapest first, variants
+  // together). Deterministic because the prefix is (D-026) — no locale, no comparator.
+  return order.map((name) => ({
+    name,
+    prices: [...(prices.get(name) ?? [])],
+    rows: rows.get(name) ?? [],
+  }));
 }
