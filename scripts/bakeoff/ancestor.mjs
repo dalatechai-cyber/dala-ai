@@ -54,22 +54,24 @@ async function ask(message, history) {
   try {
     const reply = await generateSalonReply({ message, history });
     const text = typeof reply === 'string' ? reply : (reply?.text ?? reply?.reply ?? JSON.stringify(reply));
-    return { ok: true, text, ms: Date.now() - started };
+    return { ok: true, reply: text, ms: Date.now() - started };
   } catch (e) {
     // A failure is DATA: "the ancestor errored here" is a real comparison result, and
     // throwing would lose every reply captured before it.
-    return { ok: false, text: null, error: e instanceof Error ? e.message : String(e), ms: Date.now() - started };
+    return { ok: false, reply: null, error: e instanceof Error ? e.message : String(e), ms: Date.now() - started };
   }
 }
 
-const out = { capturedAt: new Date().toISOString(), model: 'claude-sonnet-5', singles: {}, conversations: {} };
+// No model id recorded: the ancestor chooses its own in `lib/salonBrain.js`, and a copy
+// here would be a second place to update — the drift §6.2.6 exists to prevent.
+const out = { capturedAt: new Date().toISOString(), singles: {}, conversations: {} };
 const wanted = (id) => only === null || only.split(',').includes(id);
 
 for (const c of set.cases) {
   if (!wanted(c.id)) continue;
   const r = await ask(c.text, []);
   out.singles[c.id] = { text: c.text, ...r };
-  process.stdout.write(`  ${c.id}  ${String(r.ms).padStart(6)}ms  ${r.ok ? `${r.text.length} chars` : `ERROR ${r.error}`}\n`);
+  process.stdout.write(`  ${c.id}  ${String(r.ms).padStart(6)}ms  ${r.ok ? `${r.reply.length} chars` : `ERROR ${r.error}`}\n`);
 }
 
 // The attachment cases go through the ancestor's own image shortcut, which answers WITHOUT
@@ -81,8 +83,8 @@ for (const c of set.attachmentCases) {
   const sticker = Array.isArray(c.stickerIds) && c.stickerIds.length > 0;
   out.singles[c.id] = sticker
     // The ancestor drops a sticker before any reply is built.
-    ? { text: c.text, ok: true, text_reply: null, silent: true, ms: 0 }
-    : { text: c.text, ok: true, text: buildImageResponse(), ms: 0, deterministic: true };
+    ? { text: c.text, ok: true, reply: null, silent: true, ms: 0 }
+    : { text: c.text, ok: true, reply: buildImageResponse(), ms: 0, deterministic: true };
   process.stdout.write(`  ${c.id}  deterministic (no model call, no spend)\n`);
 }
 
@@ -97,8 +99,8 @@ for (const conv of set.conversations) {
     const r = await ask(t, history);
     turns.push({ text: t, ...r });
     history.push({ role: 'user', content: t });
-    if (r.ok) history.push({ role: 'assistant', content: r.text });
-    process.stdout.write(`  ${conv.id}  ${String(r.ms).padStart(6)}ms  ${r.ok ? `${r.text.length} chars` : `ERROR ${r.error}`}\n`);
+    if (r.ok) history.push({ role: 'assistant', content: r.reply });
+    process.stdout.write(`  ${conv.id}  ${String(r.ms).padStart(6)}ms  ${r.ok ? `${r.reply.length} chars` : `ERROR ${r.error}`}\n`);
   }
   out.conversations[conv.id] = { note: conv.note, turns };
 }

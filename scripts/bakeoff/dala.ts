@@ -29,10 +29,14 @@ import { renderStablePrefix, type PromptSection } from '../../src/lib/prompt/ren
 import { renderVolatile } from '../../src/lib/reception/volatile.ts';
 import { callReception } from '../../src/lib/model/reception.ts';
 import { cannedHashOf } from '../../src/lib/prompt/sections.ts';
+import { MODEL_REGISTRY } from '../../src/config/platform.ts';
 import { SECTION_LABELS } from '../../src/lib/prompt/tenant.ts';
 
 const TZ = 'Asia/Ulaanbaatar';
-const MODEL = 'claude-sonnet-5';
+// Read from the registry rather than written here: §6.2.6 puts a model id in exactly ONE
+// file, because two copies is how a migration updates one of them and leaves the other
+// silently testing the wrong model.
+const MODEL = MODEL_REGISTRY.reception;
 const arg = (n: string): string | undefined => {
   const i = process.argv.indexOf(`--${n}`);
   return i === -1 ? undefined : process.argv[i + 1];
@@ -130,13 +134,13 @@ async function ask(text: string, attachments: readonly string[], history: { role
       } as never,
       cannedLabel: SECTION_LABELS.canned, cannedHash,
     } as never);
-    return { ok: true, text: record.body ?? null, answeredBy: record.answeredBy ?? null,
+    return { ok: true, reply: record.body ?? null, answeredBy: record.answeredBy ?? null,
       flags: record.flags, kind: (out as { kind: string }).kind, ms: Date.now() - started,
       // Carried out so real spend is computed from the API's own numbers rather than
       // estimated — the founder's ceiling is a real ceiling and an estimate is not a count.
       usage: record.usage ?? null };
   } catch (e) {
-    return { ok: false, text: null, error: e instanceof Error ? e.message : String(e), flags: record.flags, ms: Date.now() - started };
+    return { ok: false, reply: null, error: e instanceof Error ? e.message : String(e), flags: record.flags, ms: Date.now() - started };
   }
 }
 
@@ -148,13 +152,13 @@ for (const c of set.cases) {
   if (!want(c.id)) continue;
   const r = await ask(c.text, [], []);
   (out['singles'] as Record<string, unknown>)[c.id] = { text: c.text, ...r };
-  process.stdout.write(`  ${c.id}  ${String(r.ms).padStart(6)}ms  ${r.ok ? `${r.answeredBy}/${(r.text ?? '').length}ch` : `ERROR ${r.error}`}${r.flags.length ? `  [${r.flags.join(',')}]` : ''}\n`);
+  process.stdout.write(`  ${c.id}  ${String(r.ms).padStart(6)}ms  ${r.ok ? `${r.answeredBy}/${(r.reply ?? '').length}ch` : `ERROR ${r.error}`}${r.flags.length ? `  [${r.flags.join(',')}]` : ''}\n`);
 }
 for (const c of set.attachmentCases) {
   if (!want(c.id)) continue;
   const r = await ask(c.text, c.attachments ?? [], []);
   (out['singles'] as Record<string, unknown>)[c.id] = { text: c.text, attachments: c.attachments, ...r };
-  process.stdout.write(`  ${c.id}  ${String(r.ms).padStart(6)}ms  ${r.ok ? `${r.answeredBy}/${(r.text ?? '').length}ch` : `ERROR ${r.error}`}\n`);
+  process.stdout.write(`  ${c.id}  ${String(r.ms).padStart(6)}ms  ${r.ok ? `${r.answeredBy}/${(r.reply ?? '').length}ch` : `ERROR ${r.error}`}\n`);
 }
 for (const conv of set.conversations) {
   if (only !== null && !want(conv.id)) continue;
@@ -166,8 +170,8 @@ for (const conv of set.conversations) {
     history.push({ role: 'user', content: t });
     // The reply goes back into history — which is the whole point of D-111, and running
     // the thread without it would reproduce the bug inside the harness measuring it.
-    if (r.ok && r.text !== null) history.push({ role: 'assistant', content: r.text });
-    process.stdout.write(`  ${conv.id}  ${String(r.ms).padStart(6)}ms  ${r.ok ? `${r.answeredBy}/${(r.text ?? '').length}ch` : `ERROR ${r.error}`}\n`);
+    if (r.ok && r.reply !== null) history.push({ role: 'assistant', content: r.reply });
+    process.stdout.write(`  ${conv.id}  ${String(r.ms).padStart(6)}ms  ${r.ok ? `${r.answeredBy}/${(r.reply ?? '').length}ch` : `ERROR ${r.error}`}\n`);
   }
   (out['conversations'] as Record<string, unknown>)[conv.id] = { turns };
 }
