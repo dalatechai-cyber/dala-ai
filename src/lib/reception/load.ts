@@ -49,8 +49,26 @@ export type ReceptionContext = {
   cacheMode: 'off' | '5m' | '1h';
 };
 
+/**
+ * Where this function's wall-clock went, in milliseconds.
+ *
+ * `context_load` is the largest single database phase on a real turn — 533ms of the
+ * 1,667ms of database time measured on 2026-09-21 — and until now it was ONE number over
+ * two stages that behave completely differently: a single row by key, then ten queries
+ * issued together. Which of the two dominates decides whether there is anything to win
+ * here, and the coarse number cannot say. Guessing produced the wrong answer once already
+ * this week (the `generate` clause), so this is measured rather than reasoned about.
+ */
+export type LoadTimings = {
+  /** `loadLiveSnapshot`: one row, by tenant and channel. */
+  snapshot: number;
+  /** The ten config reads, issued as one `Promise.all` — so this is the SLOWEST of them,
+   *  plus whatever contention the client adds, never their sum. */
+  batch: number;
+};
+
 export type LoadOutcome =
-  | { ok: true; context: ReceptionContext }
+  | { ok: true; context: ReceptionContext; timings: LoadTimings }
   /** Any read that failed, or any state that cannot produce a safe reply. */
   | { ok: false; code: 'unavailable' | 'not_provisioned'; detail: string };
 
@@ -87,7 +105,9 @@ export async function loadReceptionContext(
   db: SupabaseClient,
   input: { tenantId: string; channel: string; settings: TenantSettings; localDate: string },
 ): Promise<LoadOutcome> {
+  const tSnapshot = Date.now();
   const snapshot = await loadLiveSnapshot(db, { tenantId: input.tenantId, channel: input.channel });
+  const snapshotMs = Date.now() - tSnapshot;
   if (!snapshot.ok) {
     // `no_live_revision` is a provisioning state, not a transient one: there are no
     // defaults to fall back to, and inventing one would be a bot answering with a prompt
@@ -97,6 +117,14 @@ export async function loadReceptionContext(
       : { ok: false, code: 'not_provisioned', detail: snapshot.detail };
   }
 
+  // NOTE for anyone about to merge this batch into the snapshot call above: none of the
+  // ten queries below reads `snapshot`. Every one keys on `input.tenantId`, the locale or
+  // the local date, all of which exist before the snapshot is issued — so the two stages
+  // are sequential by LAYOUT, not by data dependency, and could be one `Promise.all` of
+  // eleven. That is deliberately not done yet. It would make a not-provisioned tenant pay
+  // ten pointless reads, and more importantly `timings` has not yet said whether the
+  // snapshot is a meaningful share of the 533ms. Measure, then move it.
+  const tBatch = Date.now();
   const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes, detRes, contactsRes] = await Promise.all([
     db.from('disclosure_rules')
       .select('topic_key, matcher, quote_price, response_kind, deterministic_shortcircuit, provenance')
@@ -288,5 +316,9 @@ export async function loadReceptionContext(
       tenantGuard,
       cacheMode,
     },
+    // Measured across the whole function, so `batch` includes the row-shaping below it
+    // rather than the network alone. That is the honest bound: it is the time the caller
+    // actually waits, which is what the phase is for.
+    timings: { snapshot: snapshotMs, batch: Date.now() - tBatch },
   };
 }

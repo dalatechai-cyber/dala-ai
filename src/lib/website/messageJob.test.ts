@@ -132,7 +132,12 @@ function effects(db: ReturnType<typeof stubDb>, over: Partial<MessageEffects> = 
     db: db.db,
     now: NOW,
     ipSalt: 'platform-salt',
-    loadContext: async () => { db.trace.push('loadContext'); return { ok: true, context: CTX }; },
+    loadContext: async () => {
+      db.trace.push('loadContext');
+      // Zeros, not omitted: the website path has no snapshot/batch split to report and
+      // saying so explicitly is what keeps the stub honest about the real shape.
+      return { ok: true, context: CTX, timings: { snapshot: 0, batch: 0 } };
+    },
     checkGuard: async () => {
       db.trace.push('guard');
       return { ok: true, reservation: { id: 'res-1', tenantId: 't-1', surface: 'reception' } as never };
