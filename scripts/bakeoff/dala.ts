@@ -43,6 +43,10 @@ const arg = (n: string): string | undefined => {
 };
 const only = arg('only')?.split(',') ?? null;
 const tag = arg('tag') ?? 'run';
+// `--cache off` measures the UNCACHED cost of the same prompt. Every ordinary run here
+// reads a warm 1h entry, so its latency is a like-for-like comparison figure and NOT a
+// production prediction: D-072 measured 86.7% of production replies as cache MISSES.
+const cacheMode = (arg('cache') ?? '1h') as 'off' | '5m' | '1h';
 
 if (process.env['ANTHROPIC_API_KEY'] === undefined) {
   process.stderr.write('ANTHROPIC_API_KEY is not set. Nothing was called and nothing was spent.\n');
@@ -107,7 +111,7 @@ async function ask(text: string, attachments: readonly string[], history: { role
       customerMessage: text, customerAttachments: attachments, history,
       eventAt: now, now, promptStable,
       promptVolatile: renderVolatile({ now, timezone: TZ, surface: 'direct_message', hours: kb.hours, closures: [] }),
-      modelId: MODEL, cacheMode: '1h', timeoutMs: 25_000,
+      modelId: MODEL, cacheMode, timeoutMs: 25_000,
       rules: [], deterministic: [],
       historyState: { known: true, empty: history.length === 0 },
       canned: kb.canned.map((c) => ({ kind: c.kind, body: c.body, reviewedAt: APPROVED })),

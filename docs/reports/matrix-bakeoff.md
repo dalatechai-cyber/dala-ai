@@ -15,6 +15,12 @@ Generated from captured runs. Dala run `final` (2026-09-21T04:47:58.921Z); ances
 | Longest reply | **250 chars** | 480 chars | 1,020 chars |
 | Replies measured | 46 | 42 | 34 |
 
+**What these latency numbers are, exactly.** Both bots are measured on the same thing: assemble the prompt → call Anthropic → return text. For Dala that also includes the whole gate and the outbound guard. Neither figure includes its platform's database or queue work, because neither harness has one.
+
+So **3.7s vs 6.8s is a like-for-like comparison of the model path, and not a prediction of what a customer will see.** Production's 25.8s includes the webhook hop, the QStash delivery and roughly a dozen Supabase round trips that this harness stubs out. Closing the rest of that gap is a separate, still-open piece of work — it is named in the gaps below rather than claimed fixed.
+
+It is *not* a prompt-cache artifact, which was the obvious suspicion and was checked: all 44 calls in the `final` run were cache READS, so a separate run with `--cache off` measured the same prompts uncached at 2.0–4.4s against 1.8–4.9s warm. At this prefix size the cache moves cost, not latency.
+
 ## Every test message, side by side
 
 `model` = the model answered · `canned` = a reviewed row was served · a flag in brackets is an outbound-guard refusal.
@@ -378,7 +384,18 @@ On `f05`, `f11` and `c01` the ancestor **lists every price** and Dala **asks one
 
 1. **`c02`, `c03`, `c07`, `c08`, `c12` — the `suitability_*` matchers over-fire.** `suitability_lat_orh` is `["usend","oroh"]` within 40 code points, so «Office color ungu har usni ungute **usend oroh**u» — an ordinary price question — gets the suitability refusal. These are rows **you approved** as a safety rule, so I have not loosened them. They cost answerable questions the ancestor answers. Your call.
 2. **`p01`–`p03` attachments are not exercised by this harness.** `inbound/imageReply.ts` sits UPSTREAM of `handleReception`, so the harness cannot reach it. The photo path is covered by unit tests, not by this table. Stated rather than implied.
-3. **`c02` tripped `outbound_gate_label`** — the model tried to narrate a gate label and the guard killed it (D-066 doing its job). Worth knowing it still happens on Latin-script input.
+3. **Production latency is only partly explained.** The model path is 3.7s; production measured 25.8s p50. The difference is the queue hop and the worker's database round trips, which this harness stubs. `loadReceptionContext` already parallelises ten reads, so the remaining serial work is the next place to look — and until it is measured against the real deployment, the production number stays the one to quote.
+4. **`c02` tripped `outbound_gate_label`** — the model tried to narrate a gate label and the guard killed it (D-066 doing its job). Worth knowing it still happens on Latin-script input.
+
+### Comment replies — ready, and verified rather than assumed
+
+Your second goal. It was already met before tonight; what I did was check it instead of taking it on trust.
+
+- The one real comment this platform has received produced an `outbound_messages` row with `kind = 'comment_reply'`, `comment_post_id` set, and a body **byte-identical** to the reviewed `comment_public_reply` row — «Сайн байна уу! Мессеж бичээрэй, манай AI туслах шууд хариулна.»
+- `worker/comments.ts` gates on the same `canDeliver` split as the DM path: `shadow` is `{generate: true, deliver: false}`, so it drafts today and posts the moment `delivery_mode` is `live`. Nothing else is in the way.
+- It never generates text — it posts the bytes of a reviewed row and refuses when there is none — so there is no model output on the public wall to guard.
+
+**The switch is the only remaining step, and it is yours.**
 
 ### What needs you
 
