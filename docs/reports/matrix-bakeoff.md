@@ -384,8 +384,20 @@ On `f05`, `f11` and `c01` the ancestor **lists every price** and Dala **asks one
 
 1. **`c02`, `c03`, `c07`, `c08`, `c12` — the `suitability_*` matchers over-fire.** `suitability_lat_orh` is `["usend","oroh"]` within 40 code points, so «Office color ungu har usni ungute **usend oroh**u» — an ordinary price question — gets the suitability refusal. These are rows **you approved** as a safety rule, so I have not loosened them. They cost answerable questions the ancestor answers. Your call.
 2. **`p01`–`p03` attachments are not exercised by this harness.** `inbound/imageReply.ts` sits UPSTREAM of `handleReception`, so the harness cannot reach it. The photo path is covered by unit tests, not by this table. Stated rather than implied.
-3. **Production latency is only partly explained.** The model path is 3.7s; production measured 25.8s p50. The difference is the queue hop and the worker's database round trips, which this harness stubs. `loadReceptionContext` already parallelises ten reads, so the remaining serial work is the next place to look — and until it is measured against the real deployment, the production number stays the one to quote.
+3. **Production latency is only partly explained — but it is now instrumented rather than guessed at.** The model path is 3.7s; production measured 25.8s p50. The difference is the queue hop and the worker's database round trips, which this harness stubs. `loadReceptionContext` already parallelises ten reads, so the remaining serial work is the next place to look.
+
+   Every reply now logs one `reply_timing_ms` line with twelve named phases — `event_read, attempt_write, tenant_read, context_load, persist_inbound, thread_state, history_read, guard, generate, trace, claim, deliver_and_mark` — so the **first real customer turn after this deploys answers the question by measurement.** Until then the production number stays the one to quote.
+
+   Three defects in that instrument were found by re-reading it before merge, and they are worth stating because each would have sent you the wrong way: `generate` originally spanned the spend-guard RPC and the trace write as well as the model call (so a slow database would have read as a slow model); the lap was placed after the shadow early-exit (so **Matrix, the only tenant being measured, recorded every phase except the model call**); and the timing line looked complete in both cases. Fixed, with a regression test each, every one verified to fail against the old code first.
 4. **`c02` tripped `outbound_gate_label`** — the model tried to narrate a gate label and the guard killed it (D-066 doing its job). Worth knowing it still happens on Latin-script input.
+
+### One customer-visible change you should know about
+
+The typing bubble is new, and where it fires matters more than that it fires.
+
+It is gated on `deliver`, not `generate` — so **it stays off Matrix entirely while the channel is in `shadow`**, because a bubble on a Page the incumbent is answering would promise a reply this platform deliberately withholds. You will see it the moment you switch, and not before.
+
+It also sits below every exit that ends in no message at all — a message past the 15-minute reply limit, a channel with no token, a shed message. Its first version sat above those, which meant a stale replay could show a live customer «typing…» and then nothing. A bubble is a promise; the only thing left below it now is the model call it exists to cover.
 
 ### Comment replies — ready, and verified rather than assumed
 
