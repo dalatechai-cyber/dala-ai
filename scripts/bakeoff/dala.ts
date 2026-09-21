@@ -69,11 +69,57 @@ const PLATFORM: { key: string; ordinal: number }[] = [
     'sh9_instruction_disclosure'].map((key, i) => ({ key, ordinal: 100 + i })),
 ];
 const APPROVED = '2026-09-04T00:00:00Z';
-const platformSections: PromptSection[] = PLATFORM.map((b) => ({
-  layer: 'L0', key: b.key, ordinal: b.ordinal,
-  body: readFileSync(`prompt/platform/${b.key}.mn.txt`, 'utf8'),
-  reviewedAt: APPROVED, origin: 'platform',
-}));
+
+/**
+ * `--drafts` swaps in the UNSIGNED revisions from `prompt/drafts/`, so the founder can be
+ * shown what they actually produce before he signs anything.
+ *
+ * This is a measurement harness, not the reply path: nothing here can publish, and
+ * `check-mn-review.mjs` still fails the build if a file in `prompt/platform/` drifts from
+ * its signed hash. The drafts remain loaded by nothing in production.
+ *
+ * A draft file carries an explanatory header for the reviewer and then `--- THE BLOCK ---`.
+ * Only what follows that marker is prompt. A file with no marker is used whole, which is
+ * how the older drafts were written.
+ */
+const USE_DRAFTS = process.argv.includes('--drafts');
+const DRAFT_SWAPS: Record<string, string> = {
+  '00_gate_preamble': '00_gate_preamble',
+  '02_style': '02_style_rule4',
+  'sh2_price': 'sh2_price_precedence',
+};
+/** Blocks that exist ONLY as drafts, appended after the numbered gate. */
+const DRAFT_EXTRA: { key: string; file: string; ordinal: number }[] = [
+  { key: 'sh11_completeness', file: 'sh11_completeness', ordinal: 111 },
+];
+const MARKER = '--- THE BLOCK ---';
+function blockBody(path: string): string {
+  const raw = readFileSync(path, 'utf8');
+  const i = raw.indexOf(MARKER);
+  return i === -1 ? raw : raw.slice(i + MARKER.length).replace(/^\r?\n/, '');
+}
+function platformBody(key: string): string {
+  if (USE_DRAFTS && key in DRAFT_SWAPS) {
+    const f = `prompt/drafts/${DRAFT_SWAPS[key]}.mn.txt`;
+    if (existsSync(f)) return blockBody(f);
+    throw new Error(`--drafts names ${f}, which does not exist`);
+  }
+  return readFileSync(`prompt/platform/${key}.mn.txt`, 'utf8');
+}
+const platformSections: PromptSection[] = [
+  ...PLATFORM.map((b) => ({
+    layer: 'L0' as const, key: b.key, ordinal: b.ordinal,
+    body: platformBody(b.key), reviewedAt: APPROVED, origin: 'platform' as const,
+  })),
+  ...(USE_DRAFTS ? DRAFT_EXTRA.map((b) => ({
+    layer: 'L0' as const, key: b.key, ordinal: b.ordinal,
+    body: blockBody(`prompt/drafts/${b.file}.mn.txt`), reviewedAt: APPROVED, origin: 'platform' as const,
+  })) : []),
+];
+if (USE_DRAFTS) {
+  process.stderr.write(`--drafts: swapped ${Object.keys(DRAFT_SWAPS).join(', ')}; `
+    + `added ${DRAFT_EXTRA.map((d) => d.key).join(', ')}\n`);
+}
 
 const compiled = renderStablePrefix([...platformSections, ...renderTenantSections(kb, APPROVED)]);
 if (!compiled.ok) {

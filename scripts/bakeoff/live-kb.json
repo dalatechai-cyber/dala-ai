@@ -47,8 +47,16 @@
    "question": "Сүүлийн мессеж тухайн үйлчилгээ энэ хүний үсэнд тохирох эсэхийг асууж байна уу?"
   }
  ],
- "clarify": [],
- "deposits": [],
+ "clarify": [
+  {
+   "term": "Будаг",
+   "question": "Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?"
+  }
+ ],
+ "deposits": [
+  "Мастер үсчин: 20,000₮",
+  "1-р зэргийн үсчин: 10,000₮"
+ ],
  "documents": [
   {
    "title": "CICA ба CMC — эмчилгээ, хими биш",
@@ -139,6 +147,12 @@
  ],
  "staff": [
   {
+   "name": "Ананд",
+   "shortName": null,
+   "groupName": "Эрэгтэй үсчид",
+   "tier": "Мастер үсчин"
+  },
+  {
    "name": "Бадамцэцэг",
    "shortName": "Бадмаа",
    "groupName": "Эмэгтэй үсчид",
@@ -157,6 +171,12 @@
    "tier": "Маникюр мэргэжилтэн"
   },
   {
+   "name": "Мухлай",
+   "shortName": null,
+   "groupName": "Эрэгтэй үсчид",
+   "tier": "Мастер үсчин"
+  },
+  {
    "name": "Отгонжаргал",
    "shortName": null,
    "groupName": "Эмэгтэй үсчид",
@@ -169,6 +189,12 @@
    "tier": "Мастер үсчин"
   },
   {
+   "name": "Тэргэл",
+   "shortName": null,
+   "groupName": "Эрэгтэй үсчид",
+   "tier": "1-р зэрэг үсчин"
+  },
+  {
    "name": "Уянга",
    "shortName": null,
    "groupName": "Эмэгтэй үсчид",
@@ -176,14 +202,6 @@
   }
  ],
  "faqs": [
-  {
-   "question": "Үс их хуурай, хугарч гэмтсэн бол юу хийлгэх вэ?",
-   "answer": "Гэмтсэн үсэнд мастер үсчинтэй зөвлөгөө авах цаг авахыг зөвлөж байна. Мастер үсчин үсийг тань харж, тохирох нөхөн сэргээх үйлчилгээг хэлнэ."
-  },
-  {
-   "question": "Шампунь, маск зэрэг бүтээгдэхүүн зардаг уу?",
-   "answer": "Бүтээгдэхүүний мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/products.html хуудаснаас үзнэ үү."
-  },
   {
    "question": "CICA нэг удаагийн эмчилгээ хэдэн тэжээлийн тостой тэнцэх вэ?",
    "answer": "Нэг удаагийн CICA нь ойролцоогоор 30-40 удаагийн тэжээлийн тостой тэнцэнэ."
@@ -193,18 +211,22 @@
    "answer": "Тийм. Үсний үйлчилгээ болон хумсны (маникюр, педикюр) үйлчилгээ бол хоорондоо ялгаатай хоёр жагсаалт. «Будаг» гэдэг нь үсний будалт, харин хумсны «Будаг арилгалт» өөр үйлчилгээ."
   },
   {
-   "question": "Чи хэн бэ? Хүн үү, робот уу?",
-   "answer": "Би Матрикс эко салоны хуудсыг хариуцдаг хиймэл оюунтай туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр асуулт байвал асуугаарай."
+   "question": "Үс их хуурай, хугарч гэмтсэн бол юу хийлгэх вэ?",
+   "answer": "Гэмтсэн үсэнд мастер үсчинтэй зөвлөгөө авах цаг авахыг зөвлөж байна. Мастер үсчин үсийг тань харж, тохирох нөхөн сэргээх үйлчилгээг хэлнэ."
+  },
+  {
+   "question": "Шампунь, маск зэрэг бүтээгдэхүүн зардаг уу?",
+   "answer": "Бүтээгдэхүүний мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/products.html хуудаснаас үзнэ үү."
   }
  ],
  "contacts": [
   {
    "kind": "address",
-   "value": "Яармаг салбар, Мөнхада төвийн зүүн талд, Төгөлдөр Апартмент 1 давхарт"
+   "value": "Яармагийн Номин Хайпермаркетын баруун талд"
   },
   {
    "kind": "maps_url",
-   "value": "https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9"
+   "value": "https://maps.app.goo.gl/ckEXBLoq4FnxJHq16"
   },
   {
    "kind": "phone",
@@ -265,16 +287,16 @@
    "name": "CICA нөхөн сэргээх эмчилгээ",
    "variants": [
     {
-     "variantKey": "Курсээр, 1 удаагийн үнэ",
+     "variantKey": "1 удаа",
      "priceKind": "exact",
-     "priceMin": "154000.00",
+     "priceMin": "198000.00",
      "priceMax": null,
      "refusalTopic": null
     },
     {
-     "variantKey": "1 удаа",
+     "variantKey": "Курсээр, 1 удаагийн үнэ",
      "priceKind": "exact",
-     "priceMin": "198000.00",
+     "priceMin": "154000.00",
      "priceMax": null,
      "refusalTopic": null
     }
@@ -305,104 +327,6 @@
    ]
   },
   {
-   "name": "Будаг",
-   "variants": [
-    {
-     "variantKey": "Хүзүүний урт",
-     "priceKind": "exact",
-     "priceMin": "135000.00",
-     "priceMax": null,
-     "refusalTopic": null
-    },
-    {
-     "variantKey": "Далнаас доош",
-     "priceKind": "exact",
-     "priceMin": "200000.00",
-     "priceMax": null,
-     "refusalTopic": null
-    },
-    {
-     "variantKey": "Далны дээгүүр",
-     "priceKind": "exact",
-     "priceMin": "176000.00",
-     "priceMax": null,
-     "refusalTopic": null
-    }
-   ]
-  },
-  {
-   "name": "Будаг арилгалт",
-   "variants": [
-    {
-     "variantKey": "",
-     "priceKind": "exact",
-     "priceMin": "8000.00",
-     "priceMax": null,
-     "refusalTopic": null
-    }
-   ]
-  },
-  {
-   "name": "Будаггүй маникюр",
-   "variants": [
-    {
-     "variantKey": "",
-     "priceKind": "exact",
-     "priceMin": "25000.00",
-     "priceMax": null,
-     "refusalTopic": null
-    }
-   ]
-  },
-  {
-   "name": "Будаггүй педикюр",
-   "variants": [
-    {
-     "variantKey": "",
-     "priceKind": "range",
-     "priceMin": "45000.00",
-     "priceMax": "55000.00",
-     "refusalTopic": null
-    }
-   ]
-  },
-  {
-   "name": "Гарын спа",
-   "variants": [
-    {
-     "variantKey": "",
-     "priceKind": "exact",
-     "priceMin": "30000.00",
-     "priceMax": null,
-     "refusalTopic": null
-    }
-   ]
-  },
-  {
-   "name": "Гель педикюр",
-   "variants": [
-    {
-     "variantKey": "",
-     "priceKind": "range",
-     "priceMin": "75000.00",
-     "priceMax": "80000.00",
-     "refusalTopic": null
-    }
-   ]
-  },
-  {
-   "name": "Гелэн будалт",
-   "variants": [
-    {
-     "variantKey": "",
-     "priceKind": "exact",
-     "priceMin": "50000.00",
-     "priceMax": null,
-     "refusalTopic": null
-    }
-   ]
-  },
-  {
    "name": "Гоёлын засалт",
    "variants": [
     {
@@ -415,12 +339,12 @@
    ]
   },
   {
-   "name": "Дип будаг",
+   "name": "Дунд үсний будаг",
    "variants": [
     {
-     "variantKey": "",
+     "variantKey": "мөрнөөс дээш урттай үс",
      "priceKind": "exact",
-     "priceMin": "65000.00",
+     "priceMin": "176000.00",
      "priceMax": null,
      "refusalTopic": null
     }
@@ -475,6 +399,18 @@
    ]
   },
   {
+   "name": "Тэжээл",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "44000.00",
+     "priceMax": "88000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
    "name": "Тэжээлийн тос",
    "variants": [
     {
@@ -499,6 +435,18 @@
    ]
   },
   {
+   "name": "Урт үсний будаг",
+   "variants": [
+    {
+     "variantKey": "мөр давсан урттай үс",
+     "priceKind": "exact",
+     "priceMin": "200000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
    "name": "Усан хими",
    "variants": [
     {
@@ -511,19 +459,24 @@
    ]
   },
   {
-   "name": "Хиймэл хумс",
+   "name": "Үс хусах",
    "variants": [
     {
-     "variantKey": "Смарт хумс",
+     "variantKey": "",
      "priceKind": "exact",
-     "priceMin": "75000.00",
+     "priceMin": "22000.00",
      "priceMax": null,
      "refusalTopic": null
-    },
+    }
+   ]
+  },
+  {
+   "name": "Үсний угийн будаг",
+   "variants": [
     {
-     "variantKey": "Гелин хумс",
+     "variantKey": "",
      "priceKind": "exact",
-     "priceMin": "85000.00",
+     "priceMin": "135000.00",
      "priceMax": null,
      "refusalTopic": null
     }
@@ -554,42 +507,6 @@
    ]
   },
   {
-   "name": "Хумс нөхөлт",
-   "variants": [
-    {
-     "variantKey": "1 хумс",
-     "priceKind": "exact",
-     "priceMin": "5000.00",
-     "priceMax": null,
-     "refusalTopic": null
-    }
-   ]
-  },
-  {
-   "name": "Хумс салгалт",
-   "variants": [
-    {
-     "variantKey": "",
-     "priceKind": "exact",
-     "priceMin": "15000.00",
-     "priceMax": null,
-     "refusalTopic": null
-    }
-   ]
-  },
-  {
-   "name": "Хумсны гоёл",
-   "variants": [
-    {
-     "variantKey": "1 хумс",
-     "priceKind": "exact",
-     "priceMin": "5000.00",
-     "priceMax": null,
-     "refusalTopic": null
-    }
-   ]
-  },
-  {
    "name": "Хуримын засалт",
    "variants": [
     {
@@ -605,17 +522,17 @@
    "name": "Хэлбэржүүлэлт",
    "variants": [
     {
-     "variantKey": "Мастер",
-     "priceKind": "range",
-     "priceMin": "33000.00",
-     "priceMax": "50000.00",
-     "refusalTopic": null
-    },
-    {
      "variantKey": "1-р зэрэг",
      "priceKind": "exact",
      "priceMin": "33000.00",
      "priceMax": null,
+     "refusalTopic": null
+    },
+    {
+     "variantKey": "Мастер",
+     "priceKind": "range",
+     "priceMin": "33000.00",
+     "priceMax": "50000.00",
      "refusalTopic": null
     }
    ]
@@ -691,40 +608,16 @@
    "name": "Эрэгтэй тайралт",
    "variants": [
     {
-     "variantKey": "Мастер",
-     "priceKind": "exact",
-     "priceMin": "66000.00",
-     "priceMax": null,
-     "refusalTopic": null
-    },
-    {
      "variantKey": "1-р зэрэг",
      "priceKind": "exact",
      "priceMin": "49500.00",
      "priceMax": null,
      "refusalTopic": null
-    }
-   ]
-  },
-  {
-   "name": "Үндэс",
-   "variants": [
+    },
     {
-     "variantKey": "",
+     "variantKey": "Мастер",
      "priceKind": "exact",
-     "priceMin": "135000.00",
-     "priceMax": null,
-     "refusalTopic": null
-    }
-   ]
-  },
-  {
-   "name": "Үс хусах",
-   "variants": [
-    {
-     "variantKey": "",
-     "priceKind": "exact",
-     "priceMin": "22000.00",
+     "priceMin": "66000.00",
      "priceMax": null,
      "refusalTopic": null
     }
