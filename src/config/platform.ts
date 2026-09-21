@@ -22,18 +22,42 @@ import MODELS from '../../config/models.json' with { type: 'json' };
 import { usdToNano, type NanoUsd } from '../lib/money.ts';
 
 /**
- * The hard cap per tenant per day, per surface. Derived from D-004's formula on the
- * DISCOUNTED floor price, because the bundle discounts are hard floors:
+ * The hard cap per tenant per day, per surface.
  *
- *     monthly_ceiling_usd = floor_price_mnt × (1 − target_margin) / fx_mnt_per_usd
- *     ₮200,000 × 0.40 / 3,500 = $22.86/month
+ * D-004's formula gives the month; this divides it across 30.44 days with headroom for a
+ * burst day, because a salon's traffic is not flat — the measured spread was 28 to 94
+ * replies in one week (D-016):
  *
- * Divided across a 30.44-day month, with 2× headroom for a burst day, because a salon's
- * traffic is not flat — the measured spread was 28 to 94 replies in one week (D-016).
- * The MONTHLY ceiling is the real control; this daily one exists to stop a single runaway
- * day from consuming the month before anyone is awake to see the alert.
+ *     monthly_ceiling_usd = price_mnt × (1 − target_margin) / fx_mnt_per_usd
+ *
+ * ## Why 2.00 and not 1.50 (2026-09-21, the founder's call, on the eve of Matrix going live)
+ *
+ * 1.50 came from the DISCOUNTED floor, ₮200,000 × 0.40 / 3,500 = $22.86/month, ÷ 30.44 ×
+ * 2 = $1.50. The founder moved the monthly ceiling to **$28.57** on 2026-09-15 (D-072
+ * addendum) and this daily constant was never re-derived, so it went on enforcing a number
+ * the decision above it had already superseded. $28.57 ÷ 30.44 = $0.939/day, and 2×
+ * headroom is $1.88; 2.00 is 2.13× and the round number either side of it.
+ *
+ * That is the derivation. The REASON is measured, and it is that 1.50 was about to stop a
+ * real day. From Matrix's own mirror, replies and DISTINCT conversations per day, priced at
+ * D-072's $0.0406 cold and $0.0035 warm:
+ *
+ *     09-18   65 replies   26 conversations   $1.19   ← busiest measured, 79% of $1.50
+ *     09-19   40 replies   13 conversations   $0.62
+ *     09-17   18 replies    6 conversations   $0.29
+ *
+ * D-016's busiest day was 94 replies. At the 09-18 ratio that is ~38 cold starts and 56
+ * warm turns — **$1.74**, which $1.50 refuses and $2.00 clears. A first live day that stops
+ * silently is worse than the spend: `on_exhausted` still has no reader, so the degradation
+ * ladder does not run and the tenant simply goes quiet.
+ *
+ * Note what this is NOT. It is a platform default, not Matrix's number — a tenant row may
+ * still lower it and may never raise it (`effectiveDailyCeiling` takes the MINIMUM), and
+ * `PLATFORM_HARD_CAP_USD_PER_DAY` still bounds every tenant together. The MONTHLY ceiling
+ * remains the control this is supposed to protect, and it remains unbuilt: D-051 and
+ * D-072's addendum both say `monthly_ceiling_nanousd` is read by nothing.
  */
-export const SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY = 1.5;
+export const SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY = 2.0;
 
 /**
  * Across every tenant. This is the number that stands between a platform-wide bug and

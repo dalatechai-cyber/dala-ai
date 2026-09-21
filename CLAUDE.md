@@ -55,8 +55,23 @@ plausibly instead of admitting it cannot see.
 
 The consequence is large: **Reception's DM path needs no App Review.** It makes exactly one
 Graph call, `POST /{page-id}/messages`, under a permission the app already holds at
-Advanced Access. App Review is now a *comments-only* concern (D-023), and it no longer sits
-on the critical path to a first real message.
+Advanced Access.
+
+**And on 2026-09-21 the comments half went the same way: App Review was never a gate there
+either** (D-106). The founder measured it in the Graph API Explorer on `DALA_AI` —
+`pages_read_user_content`, `pages_manage_metadata` and `pages_manage_engagement` are all
+**granted with no review required**, `debug_token` shows every one `granular_scopes` →
+Matrix's Page, `feed` is subscribed, and a real comment produced `webhook_events` id 203
+and a `comment_reply` draft at 02:32:44 carrying the reviewed line. **Comments already work
+end to end in shadow.**
+
+`docs/comments.md` had called App Review "the first gate" and "the multi-week item", with
+every other row downstream of it. That was wrong for weeks, and on 2026-09-21 a session
+repeated it to the founder as the reason comments could not ship that day — **the same
+inherited-unfalsifiable-claim failure as the paragraph above, one table away from where the
+rule is written down.** The rule did not fail; nobody applied it to the neighbouring claim.
+When this repository cannot check something, the line must name the founder as its only
+source rather than state it as fact.
 
 **The Supabase project EXISTS as of 2026-09-05** — ref `tlggenaatnopnxzbkbuf`, PostgreSQL
 17.6, ap-southeast-1. Migrations `0001`–`0015` are applied through the CLI with a real

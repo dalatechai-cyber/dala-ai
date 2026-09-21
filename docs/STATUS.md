@@ -358,8 +358,12 @@ All twenty-one Mongolian blocks were signed on 2026-09-04 and are seeded by
 - **The Meta app EXISTS and DM Reception needs no App Review** (D-023, superseding D-022).
   `dalatech` holds `pages_messaging` and `public_profile` at Advanced Access. Every earlier
   statement in this repo that no Meta app existed was an unfalsifiable claim inherited and
-  repeated — see CLAUDE.md's opening. **App Review is now a comments-only track**:
-  `pages_read_user_content` + `pages_manage_engagement`, and nothing else.
+  repeated — see CLAUDE.md's opening. **And as of 2026-09-21 App Review is not a track at
+  all**: `pages_read_user_content`, `pages_manage_metadata` and `pages_manage_engagement`
+  are granted on `DALA_AI` with no review required, measured by the founder in the Graph
+  API Explorer and confirmed against the project — `feed` subscribed, a real comment
+  delivered, a `comment_reply` draft written at 02:32:44 (D-106). Items 10, 10b and 10c
+  below are RETIRED.
 - **The Data Deletion Request callback is built** (`0008`, `catalog.sql` V20), because a
   submission bounced for it costs a full cycle whatever else is in it. It records; it does
   not yet delete. §5 item 17 is why.
@@ -553,9 +557,9 @@ ever and what they said for a week.
 
 | # | Supply | Note |
 |---|---|---|
-| 10 | **App Review for `pages_read_user_content` + `pages_manage_engagement`** | Those two only. Meta makes the second *depend* on the first, so a submission naming only `pages_manage_engagement` is incomplete. Business Verification is implied done — Advanced Access cannot exist without it — which is the multi-week half already behind you |
-| 10b | **The rest of App Review's non-permission deliverables**: privacy policy URL, terms URL, app icon, public app name, use-case description | Each bounces a submission on its own. The Data Deletion Request callback — the one nothing had designed — is built; the other five are not code and nobody but you can supply them |
-| 10c | **A test Page and a test user with a real Page admin role** for the screencast | A personal profile or a Business Manager preview is a named rejection cause: Meta cannot verify the permission grant flow from one |
+| ~~10~~ | ~~App Review for `pages_read_user_content` + `pages_manage_engagement`~~ | **RETIRED 2026-09-21 (D-106).** Both are granted, with `pages_manage_metadata`, no review required. Measured on `DALA_AI` in the Graph API Explorer; `debug_token` shows every scope granular to Matrix's Page. This row asserted a multi-week blocker in front of something that already worked |
+| ~~10b~~ | ~~App Review's non-permission deliverables~~ | **RETIRED** with 10. Nothing was submitted, because nothing needed to be |
+| ~~10c~~ | ~~A test Page and a test user for the screencast~~ | **RETIRED** with 10 |
 
 ### Still owed against the database
 
