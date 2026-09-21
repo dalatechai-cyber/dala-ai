@@ -94,8 +94,10 @@ for (const f of findings) out(`  [${f.severity}] ${f.code}: ${f.detail}`);
 // The projected allow-list is PRINTED, always, and blocks nothing. D-055 and D-074 were both
 // a numeral nobody meant to approve; neither was a wrong rule, both were a list nobody read.
 const numbers = projectedAllowedNumbers(doc, now);
-out(`\nallowed_numbers would become (${numbers.length}): ${numbers.join(', ') || '(none)'}`);
-out('Every numeral the bot would be permitted to type. Read it as a list of permissions.');
+out(`\nallowed_numbers FROM THIS DOCUMENT (${numbers.length}): ${numbers.join(', ') || '(none)'}`);
+out('Every numeral this document would permit. Read it as a list of permissions.');
+out('NOT a prediction of the live list: knowledge-base, clarify and deposit rows are not in');
+out('an intake document, and they license numerals too. Matrix 2026-09-21 — 7 here, 13 live.');
 
 if (blockers.length > 0) die(`${blockers.length} blocker(s) above — nothing written`);
 
@@ -126,6 +128,70 @@ out('\n' + reviewSheet(doc, { numbers, findings, readiness }));
 
 // --------------------------------------------------------------------------
 import type { SupabaseClient } from '@supabase/supabase-js';
+
+/**
+ * What each existing row already CLAIMS about where it came from, keyed by its own key.
+ *
+ * Read before writing, so an upsert can carry a row's existing `provenance` forward rather
+ * than stamping `seeded` over it. D-020's rule is that only a person who has read a rule may
+ * call it `tenant_confirmed`; the corollary nobody had written down is that a script which
+ * cannot make that claim must not be able to WITHDRAW it either. Measured cost: re-running
+ * this on Matrix turned `photo_consultation` from `tenant_confirmed` back to `seeded`, and
+ * the only reason anybody noticed is that the next publish printed an UNCONFIRMED line.
+ *
+ * An unreadable table fails the run. Guessing `seeded` on a read error would downgrade every
+ * row at exactly the moment the evidence is missing.
+ */
+function provenanceMap(data: unknown, keyColumn: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of Array.isArray(data) ? data : []) {
+    const row = r as Record<string, unknown>;
+    out.set(String(row[keyColumn]), String(row['provenance']));
+  }
+  return out;
+}
+
+/** `out_of_scope_topics.provenance`, keyed by `topic_key`. Literal select: see the type. */
+async function topicProvenance(db: SupabaseClient, tenantId: string): Promise<Map<string, string>> {
+  const { data, error } = await db.from('out_of_scope_topics')
+    .select('topic_key, provenance').eq('tenant_id', tenantId);
+  if (error !== null) die(`out_of_scope_topics unreadable (provenance): ${error.message}`);
+  return provenanceMap(data, 'topic_key');
+}
+
+/** `service_aliases.provenance`, keyed by `alias`. */
+async function aliasProvenance(db: SupabaseClient, tenantId: string): Promise<Map<string, string>> {
+  const { data, error } = await db.from('service_aliases')
+    .select('alias, provenance').eq('tenant_id', tenantId);
+  if (error !== null) die(`service_aliases unreadable (provenance): ${error.message}`);
+  return provenanceMap(data, 'alias');
+}
+
+/**
+ * A comment rule's existing `enabled` and `provenance`, keyed by `rule_key`.
+ *
+ * `enabled` is read for a sharper reason than `provenance`. This script writes `false` on a
+ * new rule deliberately — a comment is public, permanent and screenshot-able, so switching
+ * one on is an operator reading it. Written unconditionally, that same `false` silently
+ * switches OFF every rule an operator HAS read and enabled, on the one surface where the
+ * mistake is visible to everybody. A provisioner that may not enable a rule must not be able
+ * to disable one.
+ */
+async function commentRuleState(
+  db: SupabaseClient, tenantId: string,
+): Promise<Map<string, { enabled: boolean; provenance: string }>> {
+  const { data, error } = await db.from('comment_rules')
+    .select('rule_key, enabled, provenance').eq('tenant_id', tenantId);
+  if (error !== null) die(`comment_rules unreadable (enabled/provenance): ${error.message}`);
+  const out = new Map<string, { enabled: boolean; provenance: string }>();
+  for (const r of Array.isArray(data) ? data : []) {
+    const row = r as Record<string, unknown>;
+    out.set(String(row['rule_key']), {
+      enabled: row['enabled'] === true, provenance: String(row['provenance']),
+    });
+  }
+  return out;
+}
 
 /** Write the rows, in foreign-key order, reporting each step. Throws nothing silently. */
 async function applyIntake(
@@ -207,17 +273,26 @@ async function applyIntake(
   // 4. Rules BEFORE variants: `service_variants.refusal_topic` is a foreign key into this
   //    table, so a `price_kind='none'` service inserted first is refused by the database.
   if (d.neverSay.length > 0) {
+    // A NEW row is `seeded`: the client answered a questionnaire, they did not review a
+    // matcher, and only a person who has read the rule may write `tenant_confirmed`
+    // (D-020). An EXISTING row keeps whatever it already claims.
+    //
+    // That second half was missing and it cost a real downgrade. `provenance` was written
+    // unconditionally, so re-provisioning Matrix on 2026-09-21 turned `photo_consultation`
+    // from `tenant_confirmed` back to `seeded` — a claim about what a human had read,
+    // silently withdrawn by a script that reads nothing. The file already states the
+    // principle twenty lines up, about `reviewed_by`: it is half of a signature, so it is
+    // left alone. `provenance` is the same kind of fact and was not given the same care.
+    const prior = await topicProvenance(db, id);
     const { error } = await db.from('out_of_scope_topics').upsert(
       d.neverSay.map((n) => ({
         tenant_id: id, topic_key: n.key, matcher: { stems: n.stems },
         decision_question: n.question, response_kind: n.responseKind,
-        // `seeded`, for the reason spelled out above `comment_rules` below: the client
-        // answered a questionnaire, they did not review a matcher, and only a person who
-        // has read the rule may write `tenant_confirmed` (D-020).
-        provenance: 'seeded',
+        provenance: prior.get(n.key) ?? 'seeded',
       })), { onConflict: 'tenant_id,topic_key' });
     if (error) fail('out_of_scope_topics', error.message);
-    log.push(`${d.neverSay.length} out_of_scope_topics`);
+    const kept = d.neverSay.filter((n) => prior.has(n.key)).length;
+    log.push(`${d.neverSay.length} out_of_scope_topics (${kept} kept their provenance)`);
   }
 
   // 4b. Comment rules (D-085). Which PUBLIC comments deserve a reply.
@@ -229,21 +304,31 @@ async function applyIntake(
   // guessing. `classifyComment` refuses `no_rules` until somebody does, so the tenant
   // stays silent rather than answering wrongly.
   //
-  // `provenance` is `seeded`, never `tenant_confirmed` (D-020): the client filled in a
-  // questionnaire, they did not review a matcher. Only a person who has read the rule can
-  // upgrade that, and this script is not one.
+  // `provenance` is `seeded` on a NEW row, never `tenant_confirmed` (D-020): the client
+  // filled in a questionnaire, they did not review a matcher. Only a person who has read
+  // the rule can upgrade that, and this script is not one — which is exactly why it must
+  // not write the field over an existing row either, in EITHER direction.
+  //
+  // `enabled` is the sharper half of the same mistake. Written unconditionally, a second
+  // run of this script silently switches OFF every comment rule an operator had switched
+  // on — on the surface where the business speaks under its own post. A provisioner that
+  // cannot enable a rule must not be able to disable one.
   if (d.commentRules.length > 0) {
+    const prior = await commentRuleState(db, id);
     const { error } = await db.from('comment_rules').upsert(
       d.commentRules.map((c) => ({
         tenant_id: id, rule_key: c.key, verdict: c.verdict, matcher: c.matcher,
-        enabled: false, provenance: 'seeded',
+        enabled: prior.get(c.key)?.enabled ?? false,
+        provenance: prior.get(c.key)?.provenance ?? 'seeded',
       })), { onConflict: 'tenant_id,rule_key' });
     if (error) fail('comment_rules', error.message);
-    log.push(`${d.commentRules.length} comment_rules (all disabled)`);
+    const on = d.commentRules.filter((c) => prior.get(c.key)?.enabled === true).length;
+    log.push(`${d.commentRules.length} comment_rules (${on} left enabled, the rest disabled)`);
   }
 
   // 5. Services, then their variants and aliases. `unique (tenant_id, name)` is what makes
   //    this idempotent: the same document re-run updates in place rather than duplicating.
+  const aliasProv = await aliasProvenance(db, id);
   for (const s of d.services) {
     const { data: row, error } = await db.from('services').upsert(
       { tenant_id: id, name: s.name, category: s.category, duration_minutes: s.durationMinutes },
@@ -267,7 +352,11 @@ async function applyIntake(
         // the one error a run reports: `out_of_scope_topics` is written at step 4 and this
         // at step 5, so the first refusal aborted the transaction before the second could
         // be reached. Fixing only what the log named would have failed on the next run.
-        s.aliases.map((alias) => ({ tenant_id: id, service_id: serviceId, alias, provenance: 'seeded' })),
+        //
+        // An existing alias keeps its own claim, for the reason above `out_of_scope_topics`.
+        s.aliases.map((alias) => ({
+          tenant_id: id, service_id: serviceId, alias, provenance: aliasProv.get(alias) ?? 'seeded',
+        })),
         { onConflict: 'tenant_id,alias' });
       if (aErr) fail(`service_aliases «${s.name}»`, aErr.message);
     }
