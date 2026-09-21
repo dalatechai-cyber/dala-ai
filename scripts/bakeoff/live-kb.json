@@ -1,0 +1,709 @@
+{
+ "currencySymbol": "₮",
+ "currencySymbolBefore": false,
+ "refusalTopics": [
+  {
+   "key": "children_services",
+   "question": "Хүүхдийн үйлчилгээ, хүүхдийн үнийн тухай асууж байна уу?"
+  },
+  {
+   "key": "photo_consultation",
+   "question": "Сүүлийн мессеж зураг харж зөвлөгөө өгөх тухай юу?"
+  },
+  {
+   "key": "suitability_lat_buda",
+   "question": "Сүүлийн мессеж тухайн үйлчилгээ энэ хүний үсэнд тохирох эсэхийг асууж байна уу?"
+  },
+  {
+   "key": "suitability_lat_himi",
+   "question": "Сүүлийн мессеж тухайн үйлчилгээ энэ хүний үсэнд тохирох эсэхийг асууж байна уу?"
+  },
+  {
+   "key": "suitability_lat_orh",
+   "question": "Сүүлийн мессеж тухайн үйлчилгээ энэ хүний үсэнд тохирох эсэхийг асууж байна уу?"
+  },
+  {
+   "key": "suitability_lat_songo",
+   "question": "Сүүлийн мессеж тухайн үйлчилгээ энэ хүний үсэнд тохирох эсэхийг асууж байна уу?"
+  },
+  {
+   "key": "suitability_lat_ungu",
+   "question": "Сүүлийн мессеж тухайн үйлчилгээ энэ хүний үсэнд тохирох эсэхийг асууж байна уу?"
+  },
+  {
+   "key": "suitability_lat_vsend",
+   "question": "Сүүлийн мессеж тухайн үйлчилгээ энэ хүний үсэнд тохирох эсэхийг асууж байна уу?"
+  },
+  {
+   "key": "suitability_mn_himi",
+   "question": "Сүүлийн мессеж тухайн үйлчилгээ энэ хүний үсэнд тохирох эсэхийг асууж байна уу?"
+  },
+  {
+   "key": "suitability_mn_orh",
+   "question": "Сүүлийн мессеж тухайн үйлчилгээ энэ хүний үсэнд тохирох эсэхийг асууж байна уу?"
+  },
+  {
+   "key": "suitability_mn_ungu",
+   "question": "Сүүлийн мессеж тухайн үйлчилгээ энэ хүний үсэнд тохирох эсэхийг асууж байна уу?"
+  }
+ ],
+ "clarify": [],
+ "deposits": [],
+ "documents": [
+  {
+   "title": "CICA ба CMC — эмчилгээ, хими биш",
+   "body": "CICA эмчилгээний хими гэсэн үйлчилгээ БАЙХГҮЙ. Эмчилгээний хими бол ургамлын гаралтай зөөлөн хими.\nCICA бол тусдаа сэргээх эмчилгээ. Нэг удаагийн CICA нь ойролцоогоор 50 удаагийн үсний масктай тэнцэнэ.\nCICA нь үсний гэмтсэн давхаргад ажиллана. Нэг курс нь 3 удаа, хооронд нь 3-5 хоногийн зайтай.\nCMC бол тэжээллэг тос. Меланиныг идэвхжүүлж, гялбаа нэмнэ. Будалт, химийн өмнө хийхэд сайн.\nБудалт болон мелировканд тэжээллэг найрлага ордоггүй."
+  },
+  {
+   "title": "Будалтын хориглох заалт ба боломж",
+   "body": "Хараар будсан үсийг хоёр удаагийн будалтаар бор өнгөтэй болгож болно. Бүтэн будалт, үс гэмтэхгүй.\nСорын өмнө сорилт хийж болно.\nГэмтсэн үсэнд эхлээд CICA хийж, дараа нь өнгөтэй сор хийнэ.\nЖирэмсэн үед OTG будаг хийхгүй. Гэхдээ тонирование будаг болно.\nТонирование нь үсний гадаргуун давхаргад ажиллаж, нар салхинаас хамгаална. Жирэмсэн болон харшилтай хүнд аюулгүй. 70 хувь тэжээл, 30 хувь будаг."
+  },
+  {
+   "title": "Салбарууд",
+   "body": "Матрикс эко салон нийт зургаан салбартай.\nЭнэ хуудас бол Яармаг салбар. Паранчайс бол өөр салбар.\nБусад салбарын мэдээллийг 76001888 эсвэл 80905498 дугаараар лавлана уу.\nЭнд байгаа зарим үйлчилгээ бусад салбарт байхгүй.\nОюунаа зөвхөн Яармаг салбарт ажилладаг."
+  },
+  {
+   "title": "Сор, office өнгө, омбре",
+   "body": "Энгийн сор бол малгайгаар татаж авах арга. Дараа нь өнгө оруулахгүй.\nOffice өнгө бол арга барил: 30 хувийн цайруулалт, малгай, дараа нь үндсийг сүүдэрлэж, үзүүрийг цайвар будгаар гэрэлтүүлнэ.\nOffice өнгөний будгийг фольго дээрх үсийг харж сонгоно.\nОмбре бол 70 хувийн цайруулалт."
+  },
+  {
+   "title": "Урамшуулал ба баримт",
+   "body": "Урамшууллыг зараар зарлана.\nЦахим баримтыг зөвхөн үйлчилгээнд олгоно. Бараанд цахим баримт олгохгүй."
+  },
+  {
+   "title": "Химийн үйлчилгээний төрлүүд",
+   "body": "Эмчилгээний хими нь ургамлын гаралтай, зөөлөн. Үсийг гэмтээдэггүй. 1 цаг 30 минут үргэлжилнэ.\nШулуун хими (сеттинг) нь хүчтэй бөгөөд хүн бүрд тохирохгүй.\nЭмчилгээний хими болон шулуун хими хоёр ижил долгион үүсгэдэг. Ялгаа нь хүч ба зөөлөн байдалд.\nАфро хими нь жижиг, нягт буржгар. Ихэвчлэн эрэгтэй үйлчлүүлэгчид. Хөдөлмөр их шаардана, 4-5 цаг үргэлжилнэ."
+  },
+  {
+   "title": "Химийн хориглох заалт",
+   "body": "Цайруулсан үсэнд хими хийхгүй. Уураг нь будагтай урвалд орж, барьцалддаг.\nНимгэн үс гэмтээгүй бол хими барина. Гэмтсэн үс сэгсгэр болно.\nТом долгион барихгүй.\nБудсан үс хэт цайруулаагүй, уураг нь хадгалагдсан бол хими хийж болно.\nЖирэмсэн үед будаг, хими хийхгүй. Үс цусаар дамжин шим тэжээл авдаг тул уурагт нөлөөлж болзошгүй."
+  }
+ ],
+ "canned": [
+  {
+   "kind": "assistant_identity",
+   "body": "Би Матрикс эко салоны хуудсыг хариуцдаг хиймэл оюунтай туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр асуулт байвал асуугаарай."
+  },
+  {
+   "kind": "booking_line",
+   "body": "Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой."
+  },
+  {
+   "kind": "comment_public_reply",
+   "body": "Сайн байна уу! Мессеж бичээрэй, манай AI туслах шууд хариулна."
+  },
+  {
+   "kind": "handoff",
+   "body": "Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу."
+  },
+  {
+   "kind": "image_received",
+   "body": "Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна."
+  },
+  {
+   "kind": "refusal_health",
+   "body": "Эрүүл мэндийн талаар зөвлөгөө өгөх боломжгүй. Эмчид хандахыг зөвлөж байна. Үйлчилгээний талаар асуувал баяртайгаар хариулна."
+  },
+  {
+   "kind": "refusal_no_promotion",
+   "body": "Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та 76001888 эсвэл 80905498 дугаараар лавлана уу."
+  },
+  {
+   "kind": "refusal_off_topic",
+   "body": "Уучлаарай, би тухайн асуултын талаар мэдээлэлтэй байхгүй байна. Салоны үйлчилгээ, үнэ, цагийн хуваарийн талаар асуугаарай."
+  },
+  {
+   "kind": "refusal_out_of_scope",
+   "body": "Уучлаарай, ямар үйлчилгээ, өнгө Танд тохирохыг би шийдэж өгөх боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна."
+  },
+  {
+   "kind": "refusal_price_unlisted",
+   "body": "Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу."
+  },
+  {
+   "kind": "refusal_public_channel",
+   "body": "Сайн байна уу. Энэ талаар нийтэд дэлгэрэнгүй хариулах боломжгүй. Хувийн мессеж бичвэл хариулна."
+  },
+  {
+   "kind": "refusal_staff_schedule",
+   "body": "Үсчдийн ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та 76001888 эсвэл 80905498 дугаараар лавлана уу."
+  },
+  {
+   "kind": "refusal_suitability",
+   "body": "Уучлаарай, энэ таны үсэнд тохирох эсэхийг би шийдэж өгөх боломжгүй. Манай мэргэжилтэн үсийг тань харж хэлнэ. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу."
+  },
+  {
+   "kind": "refusal_topic",
+   "body": "Уучлаарай, хүүхдийн үйлчилгээний мэдээллийг би өгөх боломжгүй. Та салоны 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу."
+  }
+ ],
+ "staff": [
+  {
+   "name": "Бадамцэцэг",
+   "shortName": "Бадмаа",
+   "groupName": "Эмэгтэй үсчид",
+   "tier": "Мастер үсчин"
+  },
+  {
+   "name": "Батзаяа",
+   "shortName": null,
+   "groupName": "Эмэгтэй үсчид",
+   "tier": "1-р зэрэг үсчин"
+  },
+  {
+   "name": "Г. Мөнхзаяа",
+   "shortName": null,
+   "groupName": "Маникюр баг",
+   "tier": "Маникюр мэргэжилтэн"
+  },
+  {
+   "name": "Отгонжаргал",
+   "shortName": null,
+   "groupName": "Эмэгтэй үсчид",
+   "tier": "1-р зэрэг үсчин"
+  },
+  {
+   "name": "Оюунсүрэн",
+   "shortName": "Оюунаа",
+   "groupName": "Эмэгтэй үсчид",
+   "tier": "Мастер үсчин"
+  },
+  {
+   "name": "Уянга",
+   "shortName": null,
+   "groupName": "Эмэгтэй үсчид",
+   "tier": "1-р зэрэг үсчин"
+  }
+ ],
+ "faqs": [],
+ "contacts": [
+  {
+   "kind": "address",
+   "value": "Яармаг салбар, Мөнхада төвийн зүүн талд, Төгөлдөр Апартмент 1 давхарт"
+  },
+  {
+   "kind": "maps_url",
+   "value": "https://maps.app.goo.gl/fHaBVwc9mFZJxYAJ9"
+  },
+  {
+   "kind": "phone",
+   "value": "76001888, 80905498"
+  }
+ ],
+ "bookingUrl": "https://www.matrixecosalon.org/",
+ "hours": [
+  {
+   "weekday": 0,
+   "opens": "11:00:00",
+   "closes": "19:00:00",
+   "closed": false
+  },
+  {
+   "weekday": 1,
+   "opens": "10:00:00",
+   "closes": "20:00:00",
+   "closed": false
+  },
+  {
+   "weekday": 2,
+   "opens": "10:00:00",
+   "closes": "20:00:00",
+   "closed": false
+  },
+  {
+   "weekday": 3,
+   "opens": "10:00:00",
+   "closes": "20:00:00",
+   "closed": false
+  },
+  {
+   "weekday": 4,
+   "opens": "10:00:00",
+   "closes": "20:00:00",
+   "closed": false
+  },
+  {
+   "weekday": 5,
+   "opens": "10:00:00",
+   "closes": "20:00:00",
+   "closed": false
+  },
+  {
+   "weekday": 6,
+   "opens": "10:00:00",
+   "closes": "20:00:00",
+   "closed": false
+  }
+ ],
+ "services": [
+  {
+   "name": "CICA нөхөн сэргээх эмчилгээ",
+   "variants": [
+    {
+     "variantKey": "Курсээр, 1 удаагийн үнэ",
+     "priceKind": "exact",
+     "priceMin": "154000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    },
+    {
+     "variantKey": "1 удаа",
+     "priceKind": "exact",
+     "priceMin": "198000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "CMC тэжээл",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "132000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Афро хими",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "430000.00",
+     "priceMax": "510000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Будаг",
+   "variants": [
+    {
+     "variantKey": "Хүзүүний урт",
+     "priceKind": "exact",
+     "priceMin": "135000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    },
+    {
+     "variantKey": "Далнаас доош",
+     "priceKind": "exact",
+     "priceMin": "200000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    },
+    {
+     "variantKey": "Далны дээгүүр",
+     "priceKind": "exact",
+     "priceMin": "176000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Будаг арилгалт",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "8000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Будаггүй маникюр",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "25000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Будаггүй педикюр",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "45000.00",
+     "priceMax": "55000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Гарын спа",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "30000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Гель педикюр",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "75000.00",
+     "priceMax": "80000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Гелэн будалт",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "50000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Гоёлын засалт",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "71500.00",
+     "priceMax": "99000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Дип будаг",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "65000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Омбре",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "500000.00",
+     "priceMax": "640000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Оффис колор",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "380000.00",
+     "priceMax": "460000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Сахал засах",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "16500.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Сор",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "120000.00",
+     "priceMax": "190000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Тэжээлийн тос",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "49500.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Угаалт",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "22000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Усан хими",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "132000.00",
+     "priceMax": "154000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Хиймэл хумс",
+   "variants": [
+    {
+     "variantKey": "Смарт хумс",
+     "priceKind": "exact",
+     "priceMin": "75000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    },
+    {
+     "variantKey": "Гелин хумс",
+     "priceKind": "exact",
+     "priceMin": "85000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Хими арчилт",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "154000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Хуйх цэвэрлэгээ",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "88000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Хумс нөхөлт",
+   "variants": [
+    {
+     "variantKey": "1 хумс",
+     "priceKind": "exact",
+     "priceMin": "5000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Хумс салгалт",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "15000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Хумсны гоёл",
+   "variants": [
+    {
+     "variantKey": "1 хумс",
+     "priceKind": "exact",
+     "priceMin": "5000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Хуримын засалт",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "154000.00",
+     "priceMax": "198000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Хэлбэржүүлэлт",
+   "variants": [
+    {
+     "variantKey": "Мастер",
+     "priceKind": "range",
+     "priceMin": "33000.00",
+     "priceMax": "50000.00",
+     "refusalTopic": null
+    },
+    {
+     "variantKey": "1-р зэрэг",
+     "priceKind": "exact",
+     "priceMin": "33000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Цайруулалт",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "430000.00",
+     "priceMax": "570000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Чёлк тайралт",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "33000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Шулуун хими",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "430000.00",
+     "priceMax": "510000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Эмчилгээний хими",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "range",
+     "priceMin": "220000.00",
+     "priceMax": "255000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Эмэгтэй тайралт",
+   "variants": [
+    {
+     "variantKey": "1-р зэрэг",
+     "priceKind": "exact",
+     "priceMin": "55000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    },
+    {
+     "variantKey": "Мастер",
+     "priceKind": "range",
+     "priceMin": "66000.00",
+     "priceMax": "88000.00",
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Эрэгтэй тайралт",
+   "variants": [
+    {
+     "variantKey": "Мастер",
+     "priceKind": "exact",
+     "priceMin": "66000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    },
+    {
+     "variantKey": "1-р зэрэг",
+     "priceKind": "exact",
+     "priceMin": "49500.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Үндэс",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "135000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  },
+  {
+   "name": "Үс хусах",
+   "variants": [
+    {
+     "variantKey": "",
+     "priceKind": "exact",
+     "priceMin": "22000.00",
+     "priceMax": null,
+     "refusalTopic": null
+    }
+   ]
+  }
+ ]
+}
