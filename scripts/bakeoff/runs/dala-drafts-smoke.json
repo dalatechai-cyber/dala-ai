@@ -1,0 +1,99 @@
+{
+  "ranAt": "2026-09-21T17:00:03.799Z",
+  "model": "claude-sonnet-5",
+  "tag": "drafts-smoke",
+  "prefixChars": 21518,
+  "allowedNumbers": [
+    "1",
+    "10,000",
+    "10:00",
+    "11:00",
+    "120,000",
+    "132,000",
+    "135,000",
+    "154,000",
+    "16,500",
+    "176,000",
+    "190,000",
+    "198,000",
+    "19:00",
+    "20,000",
+    "200,000",
+    "20:00",
+    "22,000",
+    "220,000",
+    "255,000",
+    "3",
+    "3-5",
+    "30",
+    "30-40",
+    "33,000",
+    "380,000",
+    "4-5",
+    "430,000",
+    "44,000",
+    "460,000",
+    "49,500",
+    "50,000",
+    "500,000",
+    "510,000",
+    "55,000",
+    "570,000",
+    "640,000",
+    "66,000",
+    "70",
+    "71,500",
+    "76001888",
+    "80905498",
+    "88,000",
+    "99,000"
+  ],
+  "singles": {
+    "n02": {
+      "text": "dund zergiin usend shuluun himi hedeer hiih ve",
+      "ok": true,
+      "reply": "Шулуун хими: 430,000₮–510,000₮ байна.",
+      "answeredBy": "model",
+      "flags": [],
+      "kind": "drafted",
+      "ms": 2459,
+      "usage": {
+        "input_tokens": 146,
+        "output_tokens": 26,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 15162
+      }
+    },
+    "n03": {
+      "text": "tsag zahialah",
+      "ok": true,
+      "reply": "Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.",
+      "answeredBy": "canned",
+      "flags": [],
+      "kind": "drafted",
+      "ms": 2845,
+      "usage": {
+        "input_tokens": 130,
+        "output_tokens": 76,
+        "cache_read_input_tokens": 15162,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n04": {
+      "text": "us budalt",
+      "ok": true,
+      "reply": "Сайн байна уу. Та үсээ бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?",
+      "answeredBy": "model",
+      "flags": [],
+      "kind": "drafted",
+      "ms": 2577,
+      "usage": {
+        "input_tokens": 127,
+        "output_tokens": 52,
+        "cache_read_input_tokens": 15162,
+        "cache_creation_input_tokens": 0
+      }
+    }
+  },
+  "conversations": {}
+}

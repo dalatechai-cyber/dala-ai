@@ -32,6 +32,8 @@ import { matchDeterministic, type DeterministicRule, type HistoryState } from '.
 import { checkPinnedLines } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
+import { priceLineReport } from '../quality/priceLines.ts';
+import { serviceNameReport } from '../quality/serviceNames.ts';
 import { capToSingleMessage } from '../mn/text.ts';
 
 /** One Messenger send, in characters. */
@@ -122,6 +124,15 @@ export type ReceptionInput = {
    * volatile tail. Not a skipped check: a format marker with two correct branches.
    */
   cannedHash: string | null;
+  /**
+   * The service names the tenant's price list renders, for the name-fidelity COUNTER.
+   *
+   * Derived from `promptStable` by `serviceNamesFromPrefix`, so it costs no query. Required
+   * rather than defaulted: `[]` would silently mean "this tenant sells nothing", and a
+   * caller that forgets would turn the counter off rather than fail — which is the shape
+   * `customerAttachments` already refuses for the same reason.
+   */
+  serviceNames: readonly string[];
 };
 
 export type ReceptionOutcome =
@@ -153,12 +164,44 @@ async function handoff(
   deps: ReceptionDeps,
   input: ReceptionInput,
   reason: { code: string; detail: string; attempted?: string },
+  /**
+   * Response kinds to try BEFORE the generic line, most specific first — normally
+   * `matched.matchedResponseKinds`.
+   *
+   * Founder's rule, 2026-09-21: *"When a question is refused, serve the reviewed reply
+   * for it, never the generic handoff. Customers must see the refusal line written for
+   * that question."*
+   *
+   * Measured the same day, turn 14: «dund zergiin usend shuluun himi hedeer hiih ve»
+   * fired `suitability_lat_himi`, the guard refused the model's (correct) price, and the
+   * customer got «Уучлаарай, би энэ асуултад хариулж чадахгүй байна…» — while the
+   * tenant's own reviewed `refusal_suitability` row, written for exactly that question,
+   * went unused. The generic line is what you say when you do not know what was asked;
+   * here we knew.
+   *
+   * Defaulted to `[]` rather than required, and this is the one place a default is
+   * right: every existing caller then keeps today's behaviour exactly, and the fallback
+   * is the generic line either way, so a caller that forgets loses a better sentence
+   * rather than gaining a wrong one. `canned()` already returns null for a missing OR
+   * unreviewed row, so an unreviewed specific line cannot be served by this path — it
+   * falls through to the generic one, which is the safe direction.
+   */
+  prefer: readonly string[] = [],
 ): Promise<ReceptionOutcome> {
-  const line = canned(input.canned, 'handoff');
+  let servedKind = 'handoff';
+  let line: string | null = null;
+  for (const kind of prefer) {
+    const specific = canned(input.canned, kind);
+    if (specific !== null) { line = specific; servedKind = kind; break; }
+  }
+  if (line === null) line = canned(input.canned, 'handoff');
   if (line === null) {
     return { kind: 'retry', detail: `no reviewed handoff line: cannot answer ${reason.code}` };
   }
-  await deps.flag(reason);
+  // WHICH line was served goes in the flag. Two refusals that differ only in the sentence
+  // the customer read are indistinguishable in the corpus otherwise, and "did the specific
+  // line fire?" is the only question this change can be judged by.
+  await deps.flag({ ...reason, detail: `${reason.detail} [served: ${servedKind}]` });
   const drafted = await deps.draft({ body: line, answeredBy: 'canned' });
   if (!drafted.ok) return { kind: 'retry', detail: drafted.detail };
   return { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned', refusal: reason.code };
@@ -314,10 +357,14 @@ export async function handleReception(
   //    is minutes into provisioning rather than one in service.
   if (!hasTenantData(input.promptStable)) {
     await deps.release();   // nothing was spent, so the hold goes straight back
+    // The specific line applies here too. D-033's concern is the model INVENTING a
+    // business from an empty prefix; a reviewed canned row is the tenant's own words, so
+    // serving one cannot invent anything. A day-one tenant that has written its
+    // children's-services refusal should say that, not «I can't answer this».
     return handoff(deps, input, {
       code: 'no_tenant_data',
       detail: 'the compiled prefix carries no tenant sections: the model would have nothing to answer from',
-    });
+    }, matched.matchedResponseKinds);
   }
 
   // ---- The point of no return --------------------------------------------
@@ -377,7 +424,9 @@ export async function handleReception(
   if (result.kind === 'terminal') {
     // `max_tokens` in particular may leave a truncated Mongolian half-sentence, and
     // `refusal` arrives as HTTP 200 with a plausible-looking body.
-    return handoff(deps, input, { code: `model_${result.reason}`, detail: result.detail });
+    return handoff(deps, input,
+      { code: `model_${result.reason}`, detail: result.detail },
+      matched.matchedResponseKinds);
   }
 
   // ---- Was this a pinned line, reproduced or paraphrased? ----------------
@@ -458,7 +507,9 @@ export async function handleReception(
   if (!guarded.ok) {
     // The full attempted reply goes to the Quality layer. It is never edited and never
     // sent — an edited reply is an unreviewed reply.
-    return handoff(deps, input, { code: guarded.code, detail: guarded.detail, attempted: result.text });
+    return handoff(deps, input,
+      { code: guarded.code, detail: guarded.detail, attempted: result.text },
+      matched.matchedResponseKinds);
   }
 
   // One atomic send, capped in characters. A reply with no sentence boundary in reach
@@ -466,7 +517,39 @@ export async function handleReception(
   const closing = canned(input.canned, 'closing') ?? '';
   const capped = capToSingleMessage(result.text, MAX_REPLY_CHARS, closing);
   if (capped === null) {
-    return handoff(deps, input, { code: 'outbound_length', detail: 'no sentence boundary within the cap', attempted: result.text });
+    return handoff(deps, input,
+      { code: 'outbound_length', detail: 'no sentence boundary within the cap', attempted: result.text },
+      matched.matchedResponseKinds);
+  }
+
+  // Style rule (4) compliance, COUNTED not enforced. The founder approved the rule, it is
+  // signed and published, and the model follows it intermittently — the same question
+  // listed three prices one per line in one run and crammed them onto one line in the
+  // next, on the same revision. D-065: an instruction to the model is a request until
+  // something checks it. This does not edit the reply; the content is right and only its
+  // shape is wrong, and discarding a correct answer over line breaks would be D-068 again.
+  const lines = priceLineReport(capped.text);
+  if (lines.violation) {
+    await deps.flag({
+      code: 'style_price_lines',
+      detail: `rule (4): ${lines.total} price options, ${lines.maxPerLine} on one line`,
+      attempted: capped.text,
+    });
+  }
+
+  // Service-name fidelity, COUNTED not enforced. Three instructions have failed at this
+  // (sh11's (11в), the signed (11ж), and the founder saying it in as many words), which is
+  // D-065's rule arriving for the third time today: an instruction is a request until
+  // something checks it. Enforcing would mean refusing an otherwise correct reply over a
+  // name and sending the generic handoff — D-068's mistake in a new table — so the
+  // ENFORCE-or-count decision is the founder's, and this is the rate he needs to make it.
+  const names = serviceNameReport(capped.text, input.serviceNames);
+  if (names.altered.length > 0) {
+    await deps.flag({
+      code: 'service_name_altered',
+      detail: `renamed: ${names.altered.join(', ')}`,
+      attempted: capped.text,
+    });
   }
 
   const drafted = await deps.draft({ body: capped.text, answeredBy: 'model' });

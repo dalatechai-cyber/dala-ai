@@ -3,9 +3,9 @@
   "blocks": [
     {
       "block_id": "00_gate_preamble",
-      "sha256": "517848c328f2f196e7179768f6d9a048a9924dd9e18bd0949bb95c1da96cd02e",
+      "sha256": "90a759d8d5b78ffb37960f1a6edee2d07dc35a2a493e3c65c483fc86057091f1",
       "reviewed_by": "Bilguun",
-      "reviewed_at": "2026-09-04"
+      "reviewed_at": "2026-09-21"
     },
     {
       "block_id": "01_data_marker",
@@ -15,7 +15,7 @@
     },
     {
       "block_id": "02_style",
-      "sha256": "94a2a863b0e5563f20573f7086a5656377ab9642da36fd47448937bad90d4c1c",
+      "sha256": "ddc3493e9d287874487b7acf57c410b3011f4bc84b4a35d206e859641ec9c0c7",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-21"
     },
@@ -78,6 +78,12 @@
       "sha256": "5de589c7773c49f8708859b02d849b1b9234031389a70871fde29df70d6138a6",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh11_completeness",
+      "sha256": "c7e59b76f8fca11faaf24b05f9a518b56eb49f79c3aace29dd4faaaffe443a1a",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-21"
     },
     {
       "block_id": "sh1_refusal_topics",

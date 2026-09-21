@@ -236,6 +236,21 @@ export type MatchOutcome =
       /** Topic keys that matched, for the alert and the quality flag. */
       matchedTopics: string[];
       /**
+       * The `response_kind` of every rule that fired, in the tenant's own rule order.
+       *
+       * Founder's rule, 2026-09-21: *"When a question is refused, serve the reviewed
+       * reply for it, never the generic handoff. Customers must see the refusal line
+       * written for that question."* Measured turn 14 of the same day: a suitability
+       * question was refused and the customer got «Уучлаарай, би энэ асуултад хариулж
+       * чадахгүй байна…» while the tenant's own `refusal_suitability` row — written for
+       * exactly that question — sat reviewed and unused.
+       *
+       * Order is the tenant's, not this function's: rules arrive in the caller's order
+       * and the first that fired is the most specific thing we know about the message.
+       * Duplicates are collapsed so one kind matching twice does not outrank another.
+       */
+      matchedResponseKinds: string[];
+      /**
        * Of those, the ones whose row is not `tenant_confirmed` (D-020). They fired — this
        * is the count, not a suppression list. Empty is the normal case and means every
        * refusal that ran was one the tenant stands behind.
@@ -263,6 +278,7 @@ export function matchRules(subject: MatchSubject, rules: readonly GateRule[]): M
   const matchedTopics: string[] = [];
   const unconfirmedTopics: string[] = [];
   const priceBlockingTopics: string[] = [];
+  const matchedResponseKinds: string[] = [];
   let shortCircuitKind: string | null = null;
 
   for (const rule of rules) {
@@ -278,6 +294,10 @@ export function matchRules(subject: MatchSubject, rules: readonly GateRule[]): M
     if (!isTenantConfirmed(rule.provenance)) unconfirmedTopics.push(rule.topicKey);
     if (!firedGates.includes(rule.gate)) firedGates.push(rule.gate);
     if (!rule.quotePrice) priceBlockingTopics.push(rule.topicKey);
+    // Collapsed, order preserved: the FIRST firing of a kind is what ranks it.
+    if (rule.responseKind !== '' && !matchedResponseKinds.includes(rule.responseKind)) {
+      matchedResponseKinds.push(rule.responseKind);
+    }
     // First enabled short-circuit wins; rules are supplied in the tenant's own order.
     if (rule.deterministicShortcircuit && shortCircuitKind === null) shortCircuitKind = rule.responseKind;
   }
@@ -289,6 +309,7 @@ export function matchRules(subject: MatchSubject, rules: readonly GateRule[]): M
     refusedTopicBlocksPrice: priceBlockingTopics.length > 0,
     priceBlockingTopics,
     matchedTopics,
+    matchedResponseKinds,
     unconfirmedTopics,
     shortCircuitKind,
   };

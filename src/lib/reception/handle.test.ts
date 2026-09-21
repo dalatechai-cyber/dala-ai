@@ -101,6 +101,8 @@ const base: ReceptionInput = {
   cannedLabel: 'БЭЛЭН ХАРИУЛТ',
   // The pre-D-058 format: the prefix does not carry the canned section, so the volatile
   // tail still must. Tests for the published-in-the-prefix format set it explicitly.
+  // The price list the STABLE fixture renders, so the name counter has something to check.
+  serviceNames: ['Чёлк тайралт'],
   cannedHash: null,
 };
 
@@ -723,4 +725,92 @@ test('a genuine answer still goes through the guard untouched', async () => {
   const r = await handleReception(d, { ...base });
   assert.equal(r.kind === 'drafted' && r.answeredBy, 'model');
   assert.equal(drafts[0]?.body, OK_REPLY.kind === 'ok' ? OK_REPLY.text : '');
+});
+
+// ---------------------------------------------------------------------------
+// Founder's rule, 2026-09-21: a refused question gets the line written FOR IT.
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: A REFUSED QUESTION GETS ITS OWN REVIEWED LINE, NOT THE GENERIC HANDOFF', async () => {
+  // Measured turn 14, 2026-09-21: a suitability question was refused by the guard and the
+  // customer got «Уучлаарай, би энэ асуултад хариулж чадахгүй байна…» while the tenant's
+  // own reviewed `refusal_suitability` row — written for exactly that question — sat
+  // unused. Founder: "Customers must see the refusal line written for that question."
+  //
+  // The reply quotes an unlisted price, so the guard refuses it and the fallback runs.
+  const { deps: d, drafts, flags } = deps({
+    result: { ...OK_REPLY, text: 'Хүүхдийн тайралт 99,999₮ байна.' },
+  });
+  const r = await handleReception(d, { ...base, customerMessage: 'Хүүхдийн үс хэд вэ?' });
+
+  assert.equal(r.kind, 'drafted');
+  assert.equal(drafts.at(-1)?.body, 'Хүүхдийн үйлчилгээний мэдээллийг би өгөх боломжгүй.',
+    'the children`s line, not the generic one');
+  assert.notEqual(drafts.at(-1)?.body, 'Уучлаарай, би энэ асуултад хариулж чадахгүй байна.');
+  // WHICH line was served is in the flag, or the corpus cannot tell two refusals apart.
+  assert.match(flags.at(-1)?.detail ?? '', /\[served: refusal_topic\]/);
+});
+
+test('DONE-TEST: no topic matched still gets the generic line', async () => {
+  // The generic line is what you say when you do not know what was asked. A message that
+  // fires no rule is exactly that, and must not be given some other topic's sentence.
+  const { deps: d, drafts, flags } = deps({
+    result: { ...OK_REPLY, text: 'Энэ үйлчилгээ 99,999₮ байна.' },
+  });
+  const r = await handleReception(d, { ...base, customerMessage: 'Маникюр хэд вэ?' });
+  assert.equal(r.kind, 'drafted');
+  assert.equal(drafts.at(-1)?.body, 'Уучлаарай, би энэ асуултад хариулж чадахгүй байна.');
+  assert.match(flags.at(-1)?.detail ?? '', /\[served: handoff\]/);
+});
+
+test('DONE-TEST: a rule whose line is missing REFUSES THE TENANT, it does not quietly downgrade', async () => {
+  // Written twice and wrong both times, which is the finding. It first asserted that an
+  // UNREVIEWED specific line falls through to the generic one, then that a MISSING one
+  // does. Neither happens: `refusal_topic` is a REQUIRED kind because a rule names it, so
+  // `renderCannedSection` refuses the whole tenant (`canned_response_missing`) long
+  // before any reply is drafted.
+  //
+  // So the founder's rule is enforced one layer ABOVE this fallback and more strictly
+  // than he asked: if a rule can fire, its reviewed line is guaranteed to exist, and a
+  // tenant missing one cannot answer at all rather than answering generically. The
+  // `prefer` list's fall-through is defence in depth for a kind no rule requires, not a
+  // live path. Found by running the test rather than by reasoning about the code.
+  const rows = CANNED.filter((c) => c.kind !== 'refusal_topic');
+  const { deps: d, drafts } = deps({
+    result: { ...OK_REPLY, text: 'Хүүхдийн тайралт 99,999₮ байна.' },
+  });
+  const r = await handleReception(d, {
+    ...base, customerMessage: 'Хүүхдийн үс хэд вэ?', canned: rows,
+    tenantGuard: { ...GUARD_VIEW, cannedResponses: rows.map((c) => c.body) },
+  });
+  assert.equal(r.kind, 'retry');
+  assert.match(r.kind === 'retry' ? r.detail : '', /canned_response_missing: refusal_topic/);
+  assert.equal(drafts.length, 0, 'nothing is drafted: a downgraded refusal is not served');
+});
+
+test('DONE-TEST: A RULE-(4) VIOLATION IS FLAGGED AND THE REPLY IS STILL SENT', async () => {
+  // The rule is the founder's, signed and published; compliance was measured at roughly
+  // half. This counts it so the next wording change can be judged against a rate rather
+  // than against four eyeballed replies.
+  //
+  // The reply is NOT discarded: its content is right and only its shape is wrong.
+  const { deps: d, flags, drafts } = deps({
+    result: { ...OK_REPLY, text: 'Тайралт 33,000₮, засалт 22,000₮ байна.' },
+  });
+  // Both figures must be on the allow-list or check 2 refuses the reply before the style
+  // counter is ever reached — which is what the first run of this test measured.
+  const twoPrices = { ...GUARD_VIEW, allowedNumbers: ['33,000', '22,000'] };
+  const r = await handleReception(d, { ...base, tenantGuard: twoPrices });
+  assert.equal(r.kind, 'drafted');
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'still answered by the model');
+  assert.equal(drafts.at(-1)?.body, 'Тайралт 33,000₮, засалт 22,000₮ байна.', 'unedited');
+  assert.equal(flags.some((f) => f.code === 'style_price_lines'), true);
+});
+
+test('DONE-TEST: a compliant reply is not flagged', async () => {
+  const { deps: d, flags } = deps({
+    result: { ...OK_REPLY, text: 'Тайралт: 33,000₮\nЗасалт: 22,000₮' },
+  });
+  await handleReception(d, { ...base, tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['33,000', '22,000'] } });
+  assert.equal(flags.some((f) => f.code === 'style_price_lines'), false);
 });

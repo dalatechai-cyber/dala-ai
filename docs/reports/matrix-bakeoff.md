@@ -645,3 +645,104 @@ intended.
 ### Spend
 
 **~$0.85 of the $20 ceiling.** Dala $0.7014 measured from the API's own token counts over 97 billed calls; the ancestor ~$0.147 over 42 calls (estimated — its runner was not instrumented for usage). The ancestor baseline was captured once and never re-asked; only failing cases were re-run while fixing.
+
+---
+
+# Post-fix run, 2026-09-21 17:00–17:20 UTC
+
+**Every reply below is verbatim from `scripts/bakeoff/runs/dala-drafts-*.json`.** Nothing is
+paraphrased or composed. The ancestor column is its real reply to the same message from the
+founder's 16-turn live session that afternoon (`docs/reports/matrix-real-turns.md` §5).
+
+Run through Dala's own code (`scripts/bakeoff/dala.ts --drafts`) against the real
+`claude-sonnet-5`, on the regenerated `live-kb.json` — the project's state after the
+founder's data corrections: nails retired, dye renamed, `Тэжээл` and the deposit rules
+added, `quote_price = true` on the nine suitability rows.
+
+**The three prompt blocks it runs with are UNSIGNED drafts.** They are loaded by nothing in
+production and this table is the reason they exist: the founder reads the output before he
+signs the input.
+
+## The four turns that were losses
+
+### «dund zergiin usend shuluun himi hedeer hiih ve» — the founder's own problem case
+
+| | |
+|---|---|
+| **Ancestor** | Шулуун хими үйлчилгээний үнэ: 430,000 – 510,000₮ |
+| **Dala, before** | Уучлаарай, би энэ асуултад хариулж чадахгүй байна… *(generic handoff)* |
+| **Dala, after** | **Шулуун хими: 430,000₮–510,000₮ байна.** |
+
+`model`, no flags. The model had written the correct price before the fix too — the guard
+threw it away, because a suitability rule emptied the allow-list.
+
+### «tsag zahialah»
+
+| | |
+|---|---|
+| **Ancestor** | deposit tiers, then the website and QPay |
+| **Dala, before** | the generic handoff |
+| **Dala, after** | Уучлаарай, би шууд цаг захиалж, баталгаажуулах боломжгүй байна. Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой. |
+
+Still short of the ancestor: it does not state the deposit. The rows exist now
+(`Мастер үсчин: 20,000₮`, `1-р зэргийн үсчин: 10,000₮`) and the preamble draft permits the
+deposit alongside the canned line, but the model does not reliably take it.
+
+### «CICA хими байгаа юу?»
+
+| | |
+|---|---|
+| **Dala, before** | the distinction explained correctly, then nothing — no price, no next step |
+| **Dala, after** | CICA эмчилгээний хими гэсэн үйлчилгээ байхгүй. CICA бол хими биш, тусдаа нөхөн сэргээх эмчилгээ…<br><br>CICA нөхөн сэргээх эмчилгээ (1 удаа): 198,000₮<br>Эмчилгээний хими: 220,000₮–255,000₮<br><br>Та эдгээрийн аль нэгийг хэлж байна уу? |
+
+### «Үс маань их хуурай, хугараад байна, юу хийх вэ?»
+
+| | |
+|---|---|
+| **Ancestor** | six treatments with prices, then the stylist |
+| **Dala, before** | the stylist only |
+| **Dala, after** | Үс их хуурай, хугарч гэмтсэн бол манай CICA нөхөн сэргээх эмчилгээ тохирно:<br><br>CICA (1 удаа): 198,000₮<br>CICA (Курсээр, 1 удаагийн үнэ): 154,000₮<br>Тэжээлийн тос: 49,500₮<br><br>Гэхдээ таны үсний бодит байдлыг харж… мастер үсчинтэй зөвлөгөө авах цаг захиалахыг зөвлөж байна. |
+
+Three treatments where the ancestor lists six, and the order is now right (prices first,
+stylist second). Note the tenant's own FAQ row for this question answers "see a master
+stylist" with no treatments at all, so the model was being faithful to it before — **that row
+is customer-visible Mongolian and is the founder's to reword.**
+
+## Two regressions this work introduced, and closed
+
+Recorded because they were caused by the first version of the completeness block and would
+otherwise look like they never happened.
+
+| | first draft | after |
+|---|---|---|
+| «dugaar hedve» | asked *which service's number?* instead of giving the phone | Манай утасны дугаар: 76001888 эсвэл 80905498. |
+| «Цаг захиалмаар байна, утас хэд вэ?» | booking line only; the phone half of the question lost | booking line **and** Утасны дугаар: 76001888 эсвэл 80905498. |
+
+Both came from one cause — a clarifying question replacing an answer the knowledge base
+already held — and both are covered by rules (11е) and (11ё) in the draft.
+
+## Nails
+
+`Маникюр хэд вэ?` now serves `refusal_price_unlisted`: *"I don't have price information for
+this service."* It quotes no nail price, which is the safety property, but it implies the
+salon might still do nails. **The sentence saying the salon no longer offers them is
+founder-gated and deliberately NOT inserted** — an unreviewed `canned_responses` row refuses
+the whole canned section (`renderCannedSection`) and 503s every reply for the tenant.
+
+## What the counters measured
+
+Over 29 real replies, `style_price_lines` **3 (10%)** and `outbound_gate_label` **2 (7%)**.
+
+Read the second carefully. It first looked like a regression from the new Ш11 block — two
+hits in three runs of one case — and with the attempted text captured it did **not reproduce
+once in ten further runs of that same case**. Two in thirteen is also exactly the rate D-066
+recorded on the signed blocks before Ш11 existed, so this is consistent with the
+pre-existing rate and is **not** evidence the change made it worse. It is 29 replies. Both
+hits were caught by the guard and never reached a draft.
+
+## Still not fixed, and not claimed
+
+Style rule (4) compliance remains intermittent: the same question listed three prices one
+per line in one run and asked a bare clarifying question in the next, on the same revision.
+The model also rewords the founder's service names («Дунд урттай (мөрнөөс дээш) үс» for
+«Дунд үсний будаг»). Dala does **not** yet beat the ancestor on every turn.

@@ -27,6 +27,7 @@ import { handleReception, MAX_REPLY_CHARS, type ReceptionDeps } from '../../src/
 import { renderTenantSections, type TenantKb } from '../../src/lib/prompt/tenant.ts';
 import { renderStablePrefix, type PromptSection } from '../../src/lib/prompt/render.ts';
 import { renderVolatile } from '../../src/lib/reception/volatile.ts';
+import { serviceNamesFromPrefix } from '../../src/lib/quality/serviceNames.ts';
 import { callReception } from '../../src/lib/model/reception.ts';
 import { cannedHashOf } from '../../src/lib/prompt/sections.ts';
 import { MODEL_REGISTRY } from '../../src/config/platform.ts';
@@ -67,13 +68,62 @@ const PLATFORM: { key: string; ordinal: number }[] = [
   ...['sh0_channel', 'sh1_refusal_topics', 'sh2_price', 'sh3_booking', 'sh4_staff_schedule',
     'sh5_health', 'sh6_concessions', 'sh7_abuse_offtopic', 'sh8_not_in_kb',
     'sh9_instruction_disclosure'].map((key, i) => ({ key, ordinal: 100 + i })),
+  // Signed 2026-09-21. `gateOrder` gives it 111 from the filename, after Ш9.
+  { key: 'sh11_completeness', ordinal: 111 },
 ];
 const APPROVED = '2026-09-04T00:00:00Z';
-const platformSections: PromptSection[] = PLATFORM.map((b) => ({
-  layer: 'L0', key: b.key, ordinal: b.ordinal,
-  body: readFileSync(`prompt/platform/${b.key}.mn.txt`, 'utf8'),
-  reviewedAt: APPROVED, origin: 'platform',
-}));
+
+/**
+ * `--drafts` swaps in the UNSIGNED revisions from `prompt/drafts/`, so the founder can be
+ * shown what they actually produce before he signs anything.
+ *
+ * This is a measurement harness, not the reply path: nothing here can publish, and
+ * `check-mn-review.mjs` still fails the build if a file in `prompt/platform/` drifts from
+ * its signed hash. The drafts remain loaded by nothing in production.
+ *
+ * A draft file carries an explanatory header for the reviewer and then `--- THE BLOCK ---`.
+ * Only what follows that marker is prompt. A file with no marker is used whole, which is
+ * how the older drafts were written.
+ */
+const USE_DRAFTS = process.argv.includes('--drafts');
+const DRAFT_SWAPS: Record<string, string> = {
+  // 00_gate_preamble, 02_style and sh11_completeness were signed on 2026-09-21 and are
+  // read from prompt/platform/ like any other block. Only this one is still a draft.
+  'sh2_price': 'sh2_price_precedence',
+  '00_gate_preamble': '00_gate_preamble_no_labels',
+  'sh11_completeness': 'sh11_completeness_names',
+  'sh3_booking': 'sh3_booking_deposit',
+};
+/** Blocks that exist ONLY as drafts, appended after the numbered gate. */
+const DRAFT_EXTRA: { key: string; file: string; ordinal: number }[] = [];
+const MARKER = '--- THE BLOCK ---';
+function blockBody(path: string): string {
+  const raw = readFileSync(path, 'utf8');
+  const i = raw.indexOf(MARKER);
+  return i === -1 ? raw : raw.slice(i + MARKER.length).replace(/^\r?\n/, '');
+}
+function platformBody(key: string): string {
+  if (USE_DRAFTS && key in DRAFT_SWAPS) {
+    const f = `prompt/drafts/${DRAFT_SWAPS[key]}.mn.txt`;
+    if (existsSync(f)) return blockBody(f);
+    throw new Error(`--drafts names ${f}, which does not exist`);
+  }
+  return readFileSync(`prompt/platform/${key}.mn.txt`, 'utf8');
+}
+const platformSections: PromptSection[] = [
+  ...PLATFORM.map((b) => ({
+    layer: 'L0' as const, key: b.key, ordinal: b.ordinal,
+    body: platformBody(b.key), reviewedAt: APPROVED, origin: 'platform' as const,
+  })),
+  ...(USE_DRAFTS ? DRAFT_EXTRA.map((b) => ({
+    layer: 'L0' as const, key: b.key, ordinal: b.ordinal,
+    body: blockBody(`prompt/drafts/${b.file}.mn.txt`), reviewedAt: APPROVED, origin: 'platform' as const,
+  })) : []),
+];
+if (USE_DRAFTS) {
+  process.stderr.write(`--drafts: swapped ${Object.keys(DRAFT_SWAPS).join(', ')}; `
+    + `added ${DRAFT_EXTRA.map((d) => d.key).join(', ')}\n`);
+}
 
 const compiled = renderStablePrefix([...platformSections, ...renderTenantSections(kb, APPROVED)]);
 if (!compiled.ok) {
@@ -97,13 +147,24 @@ function deps(record: { body?: string; answeredBy?: string; flags: string[]; usa
     markCalled: async () => true,
     settle: async (usage) => { record.usage = usage; return { ok: true }; },
     release: async () => {},
-    flag: async ({ code }) => { record.flags.push(code); },
+    // The CODE alone is not enough, and keeping only it was this harness's own instance
+    // of D-070: a refused reply and a clean one differ only in text the harness threw
+    // away, so `outbound_gate_label` appeared twice in a run with nothing to diagnose it
+    // from. `quality_flags` in production has carried `attempted` all along — this is the
+    // measurement rig being worse than the thing it measures.
+    flag: async (f) => {
+      record.flags.push(f.code);
+      record.flagDetail.push({ code: f.code, detail: f.detail, attempted: f.attempted });
+    },
     observe: async () => {},
   };
 }
 
 async function ask(text: string, attachments: readonly string[], history: { role: 'user' | 'assistant'; content: string }[]) {
-  const record: { body?: string; answeredBy?: string; flags: string[]; usage?: unknown } = { flags: [] };
+  const record: {
+    body?: string; answeredBy?: string; flags: string[]; usage?: unknown;
+    flagDetail: { code: string; detail?: string; attempted?: string }[];
+  } = { flags: [], flagDetail: [] };
   const now = new Date();
   const started = Date.now();
   try {
@@ -137,9 +198,10 @@ async function ask(text: string, attachments: readonly string[], history: { role
         maxReplyChars: MAX_REPLY_CHARS,
       } as never,
       cannedLabel: SECTION_LABELS.canned, cannedHash,
+      serviceNames: serviceNamesFromPrefix(promptStable, SECTION_LABELS.priceList),
     } as never);
     return { ok: true, reply: record.body ?? null, answeredBy: record.answeredBy ?? null,
-      flags: record.flags, kind: (out as { kind: string }).kind, ms: Date.now() - started,
+      flags: record.flags, flagDetail: record.flagDetail, kind: (out as { kind: string }).kind, ms: Date.now() - started,
       // Carried out so real spend is computed from the API's own numbers rather than
       // estimated — the founder's ceiling is a real ceiling and an estimate is not a count.
       usage: record.usage ?? null };

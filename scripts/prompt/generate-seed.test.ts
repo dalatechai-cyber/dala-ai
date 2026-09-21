@@ -78,6 +78,10 @@ test('the boundary gate is L0 and in wire order; the other two families are not 
     'sh0_channel', 'sh1_refusal_topics', 'sh2_price', 'sh3_booking', 'sh4_staff_schedule',
     'sh5_health', 'sh6_concessions', 'sh7_abuse_offtopic', 'sh8_not_in_kb',
     'sh9_instruction_disclosure',
+    // Ш11, signed 2026-09-21. It sorts LAST because `gateOrder` reads the filename's
+    // number (100 + 11), not the string — «sh11» before «sh2» alphabetically is exactly
+    // the trap that ordering by name would have walked into.
+    'sh11_completeness',
   ]);
 
   // `layer is null` means "customer-visible Mongolian something OTHER than the prompt

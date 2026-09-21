@@ -403,21 +403,30 @@ insert into _v select 'V22', 'the signed platform blocks are seeded, attributed,
     -- out against a database 0010 had not reached instead of reporting the very absence
     -- it exists to detect — a check that cannot fail cleanly is the same defect as a
     -- guard that under-reads its own source. Found by running it.
-    -- The thirteen SHARED gate blocks. Counting rows would have been wrong from 0018: a
+    -- The fourteen SHARED gate blocks. Counting rows would have been wrong from 0018: a
     -- per-vertical example block is a real L0 row and there is one per vertical, so the
     -- row count grows with the number of verticals while the gate does not. Restricting
-    -- to `vertical is null` keeps the tripwire exact where it matters — a fourteenth
+    -- to `vertical is null` keeps the tripwire exact where it matters — a fifteenth
     -- block shared by every tenant is still a failure — without it firing on a design
-    -- the platform now supports. `to_jsonb` for `vertical` for the same reason as `layer`
+    -- the platform now supports.
+    --
+    -- It was thirteen until 2026-09-21, and it fired exactly as intended: `sh11_completeness`
+    -- (ordinal 111) is the fourteenth, the first gate block that says what the model MUST
+    -- say rather than what it must not, and the suite went red on the commit that seeded it
+    -- while `npm test` and every guard stayed green. That is the whole point of a constant
+    -- here — a block shared by every tenant of every vertical is a platform-wide change to
+    -- what the model is told, and it must cost somebody a deliberate edit to this line.
+    -- Do not bump this number to make a red suite green: bump it only having named the new
+    -- block, as this comment names Ш11. `to_jsonb` for `vertical` for the same reason as `layer`
     -- directly below: a bare column reference does not parse on a database 0018 has not
     -- reached, and a check that cannot fail cleanly is the defect it exists to detect.
-    select 'the thirteen-block boundary gate is not seeded at L0 (found ' ||
+    select 'the fourteen-block boundary gate is not seeded at L0 (found ' ||
            (select count(*) from prompt_blocks p
              where p.scope='platform' and to_jsonb(p) ->> 'layer' = 'L0'
                and to_jsonb(p) ->> 'vertical' is null) || ' shared blocks)'
      where (select count(*) from prompt_blocks p
              where p.scope='platform' and to_jsonb(p) ->> 'layer' = 'L0'
-               and to_jsonb(p) ->> 'vertical' is null) <> 13
+               and to_jsonb(p) ->> 'vertical' is null) <> 14
     union all
     select 'the eight data-deletion status blocks are not seeded (found ' ||
            (select count(*) from prompt_blocks where scope='platform' and block_key like 'data_deletion\_%') || ')'
