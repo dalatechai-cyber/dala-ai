@@ -87,10 +87,11 @@ const APPROVED = '2026-09-04T00:00:00Z';
  */
 const USE_DRAFTS = process.argv.includes('--drafts');
 const DRAFT_SWAPS: Record<string, string> = {
-  // 00_gate_preamble, 02_style and sh11_completeness were signed on 2026-09-21 and are
-  // read from prompt/platform/ like any other block. Only this one is still a draft.
+  // 00_gate_preamble was signed on 2026-09-21 20:5x, after its no-labels revision measured
+  // 0 gate-label leaks in 96 replies against the seeded block's 6. It is read from
+  // prompt/platform/ like any other block now, so it is NOT swapped here — leaving the
+  // entry would have pointed --drafts at a file that no longer exists and thrown.
   'sh2_price': 'sh2_price_precedence',
-  '00_gate_preamble': '00_gate_preamble_no_labels',
   'sh11_completeness': 'sh11_completeness_names',
   'sh3_booking': 'sh3_booking_deposit',
 };
