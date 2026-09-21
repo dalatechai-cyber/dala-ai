@@ -444,6 +444,54 @@ last inbound event was **04:42**. **No real customer turn has exercised the new 
 Every Dala figure in this report is from the harness. The production comparison stays the
 old number until a real turn lands.
 
+### What the live window's own instruments recorded
+
+No new traffic has arrived, so instead of waiting I went back over what last night already
+produced. Two findings, one of which validates a fix that is already deployed.
+
+**1. The reply worker times out at Vercel's 60-second ceiling, about 4.5% of the time.**
+Over 24 hours: **88 invocations — 80× 200, 4× 503, 4× 504**, every 504 reading
+`Vercel Runtime Timeout Error: Task timed out after 60 seconds`. That is a far better
+description of "noticeably slower" than a p50, because it is not slowness — it is a reply
+that never arrives on that delivery.
+
+I tried to explain it and **ruled out three candidates by measurement rather than by
+argument**:
+
+| candidate | verdict |
+|---|---|
+| several messages in one entry, each costing a model call | **refuted** — every one of the 33 real deliveries carries exactly **one** `messaging` item |
+| the Anthropic SDK retrying internally | **refuted** — the client is constructed with `maxRetries: 0` |
+| an unbounded model or Graph call | **refuted** — both carry an `AbortController`: 25s for the model, 10s for a send, 3s for the bubble |
+
+That bounds the upstream work at ~35 seconds, so something else is spending the other 25.
+**The remaining candidate is that the Supabase round trips have no timeout at all** — a
+bounded-looking path with one unbounded component, which is D-064's shape one level up.
+**I have NOT changed anything on that hypothesis.** It is unverified, it is on the live reply
+path, and `reply_timing_ms` — deployed at 05:16 — answers it precisely on the first real turn.
+Guessing here is how this repository's worst bugs got written.
+
+Worth saying plainly: **the retry machinery from Problems 1 and 2 absorbed these.** Event 300
+took two 504s and was answered on the third delivery, `attempts = 3`, with no false alert.
+Without last night's work those replies would have been lost silently.
+
+**2. `RECEPTION_MAX_TOKENS = 700` was truncating real replies — and the fix is already live.**
+`quality_flags` for the window:
+
+| flag | n | what the customer got |
+|---|---|---|
+| `canned_paraphrased` | 3 | the model adapted an approved line, so D-077 served the row and **discarded the rest of the reply** |
+| `model_max_tokens` | 2 | the reply hit the 700-token ceiling and the customer got the **generic handoff** instead of an answer |
+| `inbound_dropped` | 1 | an attachment with no text |
+| `outbound_refused_topic_price` | 1 | the guard refused a numeral on a refused topic |
+
+Five of those seven are a customer being answered worse than the model managed, which is
+exactly what you described. **`model_max_tokens` is direct evidence for a change I had made
+on general grounds** — 700 → 1024, deployed in `aa3380d` — so that one is now backed by two
+real occurrences rather than by the bake-off alone. The three `canned_paraphrased` rows are
+D-077 working as designed and costing the rest of the sentence; that trade is stated in
+CLAUDE.md and is yours to revisit, not mine.
+
 ### The safety property this reverses, said plainly
 
 Complaint 3 on your list — *it claims not to know prices it has* — could only be fixed by
