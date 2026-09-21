@@ -8396,3 +8396,126 @@ shape as the defect being fixed — an alert asserting something it had not meas
 The floor on detecting an event that never reaches the worker at all is still the health
 worker's schedule, which is hourly and set in the QStash console. Making it more frequent is
 a console change and therefore the founder's; it is recommended, not done.
+
+---
+
+## D-111 — the assistant's half of the conversation never reached the model
+
+**2026-09-21. Matrix's live test: eleven typical customer messages in one thread.** The
+founder's verdict was that Dala AI was far worse than the incumbent — it re-answered every
+earlier question until the replies were walls of text, re-greeted every turn, and answered
+one message with another message's refusal.
+
+All of that is **one defect**, and it is not in the prompt.
+
+`readHistory` builds the transcript from `messages`, mapping `direction = 'outbound'` to
+`role: 'assistant'`. **Nothing has ever written an outbound row.** Measured against the live
+project: **194 inbound rows, zero outbound, platform-wide since `0001`.** The assistant's
+replies live in `outbound_messages` and were never carried across.
+
+So every multi-turn conversation arrived at Sonnet as **N consecutive `user` turns with no
+assistant turn anywhere in it.** Given a transcript of ten unanswered questions, answering
+all ten is the *correct* reading, and the model said so in as many words:
+«Асуулт олон байгаа тул нэг бүрчлэн хариулъя» — *there are many questions, let me answer
+each one*. It was describing the transcript it was handed.
+
+Measured in that thread, reply length by turn: **37 → 62 → 73 → 163 → 369 → 444 → 530 →
+634 → 860 → 1020 characters.** Each turn added one more unanswered question to re-answer.
+The re-greeting has the same cause — the model could not see that it had greeted. So does
+the "wrong message" answer: «Цаг захиалмаар байна, утас хэд вэ?» got
+«Эрүүл мэндийн талаар зөвлөгөө өгөх боломжгүй» because the hair-damage question one turn
+earlier sat in the same undifferentiated block of user turns.
+
+**This is D-064 applied to a value rather than a column** — computed, stored, and never
+carried to the one reader that needed it, which is D-083's lesson in a third place. And
+`readHistory`'s `direction === 'outbound'` branch is the dead-code half of D-064 exactly:
+a branch that exists, reads as a safety feature, and cannot fire.
+
+### Why no test caught it
+
+`persist.test.ts` fixtures manufactured `direction: 'outbound'` rows inside `messages` —
+**a shape the database has never held.** The test asserted the fixture's world, passed, and
+made the branch look exercised. That is the same failure as D-029's `db.rpc` stub answering
+`true`: a green suite saying nothing at all about the thing it appeared to cover.
+
+### The fix, and the two rules inside it
+
+History reads BOTH tables and interleaves by timestamp. Two choices are load-bearing:
+
+- **Only `sent` and `draft` outbound rows.** A `failed` or `refused` reply was never in
+  front of the customer, and replaying it would have the model build on a turn that does
+  not exist for the person it is talking to. `draft` IS included, because the mirror phase
+  produces nothing else — excluding it would reproduce the all-user transcript on exactly
+  the conversations being run to measure quality.
+- **Trim from the END.** Merging two sorted lists and taking the first N is the reflex bug,
+  and it would feed the model the start of the conversation while dropping what the
+  customer just said — worse than no history, because it looks like history.
+
+An unreadable assistant half is a **refusal, not an empty history**, for the same reason the
+inbound half already was: an empty assistant side is indistinguishable from this defect, so
+a transient hiccup must not be allowed to quietly restore it for one reply.
+
+---
+
+## D-112 — forty-two confirmed prices, and not one of them reached the model
+
+**2026-09-21, founder's call, reversing half of D-075.** In the same live thread the bot
+told a customer «сор нь мэдлэгийн санд байгаа тул хэлж чадна … надад яг тоо өгөгдөөгүй» —
+*сор is in my knowledge base so I can say it, but I was not given the number.*
+
+It was describing its own prompt accurately. `priceOf` returned `null` for `exact`, `range`
+and `from` — **the three kinds that have a figure** — so the price section rendered `- Сор`
+with the number withheld, while `service_variants` held `120,000–190,000`, `confirmed_at`
+set. Forty-two confirmed rows for Matrix; every figure suppressed.
+
+D-075's reasoning was sound and is not discarded: `allowed_numbers` is a SET, so the guard
+checks that a numeral is on the tenant's list and never that it belongs to the service being
+discussed — «Омбре 33,000₮» passes. What it traded that risk for was supposed to be
+`reception/price.ts` serving the figure from the row.
+
+**That module was built, tested, and is imported by nothing.** `decidePriceQuote` and
+`priceText` have zero callers. So the figures were suppressed on the strength of a comment
+promising a reader that did not exist — the same shape as `config/platform.ts:33` asserting
+a monthly ceiling nothing reads, and the third *built-but-never-wired* instance found in one
+night alongside `webhook_events.attempts` (D-110) and the history above.
+
+The founder's verdict, and its provenance is checkable rather than remembered: the
+overnight brief of 2026-09-21 lists «claiming not to know prices it has (dye by length,
+сор, CICA, manicure)» as complaint 3, and then names the figures under *facts every reply
+must get right* — 135k/176k/200k by length, сор 120–190k, CICA 198k a session and 154k on a
+course. An instruction to quote those entails putting them where the model can see them. So
+a bot that cannot quote the salon's own confirmed prices is worse than the wrong-service
+risk, and the incumbent has quoted them in production for months under disambiguation rules
+rather than silence.
+
+**Read that as a reversal made on an explicit instruction, not as a settled preference.**
+D-075's mechanism argument is untouched and is restated in `docs/reports/matrix-bakeoff.md`
+for the founder to re-make in daylight: the report says what is still guaranteed (the
+digits-only reduction), what is not (that a price belongs to the service asked about), and
+that declining to republish leaves the whole change inert.
+
+### Three details that decide whether this is safe
+
+- **The currency symbol goes on BOTH ends of a range.** Measured against
+  `extractNumerals`: «80,000–150,000» is ONE token, «80,000₮–150,000₮» is two. With one
+  token the allow-list holds only the fused pair, so a reply quoting either endpoint alone
+  — the ordinary way anybody answers «сор хэд вэ?» — reduces to digits that are not on the
+  list and **the guard refuses the salon's own price.** That is D-074's shape, and it would
+  have shipped invisibly.
+- **A range missing an end prints no figure at all.** A row meaning 120,000–190,000 whose
+  upper bound is unreadable must not print «120,000₮»: a real-looking price 70,000 under
+  the true one, which passes every guard because the numeral genuinely came from the
+  tenant's own row.
+- **No `toLocaleString`.** It is locale-dependent exactly as `localeCompare` is, and this
+  string lands in the compiled prefix — so the runtime's locale would decide
+  `content_hash`, i.e. the prompt-cache key (D-026).
+
+**The guarantee that survives, stated with its mechanism:** a numeral this tenant never
+published is still refused, by the digits-only reduction — not by an empty list. `150,000`
+being approved does not license `1,150,000`. Between D-075 and D-112 "a price cannot be
+quietly wrong" was true for the trivial reason that no price could be quoted at all, which
+is the same hollow footing `allowed_numbers = []` had before Stage 4.
+
+**This changes `content_hash` and needs a republish** through `scripts/publish/tenant.ts`,
+which only the founder can run — `SUPABASE_SECRET_PUBLISH` is deliberately absent here. The
+code must be deployed and pulled first (D-074's three steps: deploy, `git pull`, publish).

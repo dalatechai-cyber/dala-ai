@@ -161,6 +161,16 @@ export type WorkerEffects = {
   generateReply: (args: GenerateArgs) => Promise<ReceptionOutcome>;
   deliver: (args: DeliverArgs) => Promise<DeliverOutcome>;
   /**
+   * Show the customer the typing bubble. Cosmetic, fire-and-forget, never awaited.
+   *
+   * The incumbent has done this for months and this platform did not, which is part of why
+   * the founder measured Dala AI as "noticeably slower": a wait you can see is a different
+   * experience from a silence you cannot. It is an OUTBOUND Graph call, so it is gated on
+   * the same `canDeliver` verdict as a real send — a bubble in `shadow` would appear in
+   * front of a customer the incumbent is answering and never produce a message.
+   */
+  showTyping: (args: { tenantId: string; channelId: string; recipientId: string }) => Promise<void>;
+  /**
    * §3.9's "Quality flag" on a refusal. Best-effort by construction: it is evidence for a
    * person to read later, never a control, and a flag that cannot be written must not
    * change what the customer gets.
@@ -173,6 +183,40 @@ export type WorkerEffects = {
 };
 
 export type JobResult = { status: number; body: Record<string, unknown> };
+
+/**
+ * Where a reply's wall-clock actually goes, measured rather than reasoned about.
+ *
+ * The bake-off measured the MODEL PATH at 3.7s p50 — prompt assembly, the Anthropic call,
+ * the gate and the guard — while production measured **25.8s p50** from the inbound row to
+ * the draft. That gap is roughly twenty seconds of something, and the honest answer is that
+ * nobody knows which something: the harness stubs the database, so it cannot see it.
+ *
+ * `loadReceptionContext` already issues its ten reads in one `Promise.all`, so the obvious
+ * candidate is already done — which is exactly why guessing at the next one would be
+ * guessing. This records the real split on every reply instead, so the next production turn
+ * answers the question that a week of reasoning would not.
+ *
+ * It is a LOG LINE and nothing else: no branch reads it, no alert fires on it, and it
+ * cannot change what a customer is told. `Date.now()` rather than a high-resolution timer
+ * because the quantity of interest is seconds, and a monotonic clock would be precision
+ * about the wrong thing.
+ */
+function stopwatch(): { lap: (phase: string) => void; phases: Record<string, number> } {
+  const phases: Record<string, number> = {};
+  let last = Date.now();
+  return {
+    lap: (phase) => {
+      const nowMs = Date.now();
+      // Accumulated, not assigned: the message loop runs these phases once per message in
+      // an entry, and an entry can carry several. Overwriting would report the last
+      // message's timings as if they were the whole job's.
+      phases[phase] = (phases[phase] ?? 0) + (nowMs - last);
+      last = nowMs;
+    },
+    phases,
+  };
+}
 
 /**
  * How many times QStash delivers one reception job before abandoning it.
@@ -287,6 +331,7 @@ async function runReceptionDelivery(
   }
 
   const { db, now } = fx;
+  const clock = stopwatch();
 
   // --- The stored entry. One source, parsed once, at the point of use. -------
   const { data: event, error: eventErr } = await db
@@ -314,7 +359,9 @@ async function runReceptionDelivery(
   trace.eventId = eventId;
   trace.tenantId = tenantId;
   const priorAttempts = typeof eventRow['attempts'] === 'number' ? eventRow['attempts'] : 0;
+  clock.lap('event_read');
   const counted = await recordDeliveryAttempt(db, eventId, priorAttempts);
+  clock.lap('attempt_write');
   trace.attempts = counted.attempts;
   if (!counted.ok) fx.log('error', 'attempt_count_failed', { eventId, detail: counted.detail });
 
@@ -362,6 +409,7 @@ async function runReceptionDelivery(
     fx.log('error', 'tenant_timezone_missing', { tenantId });
     return unavailable('worker.tenant_timezone_missing');
   }
+  clock.lap('tenant_read');
   const timezone = rawTimezone;
   // Per tenant, as data (§3.7.3). A salon that answers in ninety seconds and one that
   // answers on Monday want different numbers, and neither is a constant in `src/`.
@@ -546,6 +594,7 @@ async function runReceptionDelivery(
   }
 
   const loaded = await loadReceptionContext(db, { tenantId, channel: 'facebook_page', settings, localDate });
+  clock.lap('context_load');
   if (!loaded.ok) {
     fx.log('error', 'context_unavailable', { tenantId, code: loaded.code, detail: loaded.detail });
     if (loaded.code === 'not_provisioned') {
@@ -623,7 +672,9 @@ async function runReceptionDelivery(
     // Unreadable does NOT refuse. A database blip must not mute a tenant's bot, and the
     // cost of being wrong in this direction is one reply overlapping a person, which is
     // today's behaviour in every conversation anyway.
+    clock.lap('persist_inbound');
     const threadState = await readThreadState(db, { tenantId, conversationId });
+    clock.lap('thread_state');
     if (threadState === 'unreadable') {
       fx.log('error', 'thread_state_unreadable', { tenantId, conversationId });
     } else {
@@ -740,6 +791,7 @@ async function runReceptionDelivery(
       fx.log('error', 'history_failed', { detail: history.detail });
       return unavailable('worker.history_failed');
     }
+    clock.lap('history_read');
     const priorTurns = history.value.slice(0, -1);
 
     // The chokepoint. Nothing downstream may re-implement any part of this.
@@ -765,6 +817,37 @@ async function runReceptionDelivery(
       return ok({ refused: refusal.code });
     }
 
+    clock.lap('guard');
+
+    // The bubble. Placed HERE, and the placement is the whole of its correctness.
+    //
+    // Two independent conditions, and it took both to get this right:
+    //
+    // `delivery.deliver` and not `delivery.generate` — the mirror generates and withholds,
+    // so a `shadow` channel must stay invisible on the Page. An indicator there would be
+    // shown to a customer the incumbent is answering, promising a message that never comes.
+    // Gating it on `generate` would have been the natural mistake and is the one that
+    // reaches a real person.
+    //
+    // And AFTER every exit that ends in no message at all. Its first form sat above the
+    // freshness check, the history read and the spend guard, so a replayed event past
+    // Matrix's 15-minute limit, a tenant with no token (403) and a shed message (429) each
+    // showed a customer «typing…» and then nothing. A bubble is a PROMISE of a reply; the
+    // only thing left below this line is the model call it exists to cover. It costs ~300ms
+    // of bubble latency to buy that, which is the right side of the trade: the wait being
+    // decorated is the 3-5 second generate, not the reads above it.
+    //
+    // Not awaited, and its own failures are swallowed inside the effect: a customer's reply
+    // must never wait on, or be lost to, a decoration.
+    if (delivery.deliver) {
+      void fx.showTyping({ tenantId, channelId, recipientId: message.senderId })
+        .catch((e: unknown) => {
+          fx.log('info', 'typing_indicator_failed', {
+            externalId: message.externalId, detail: e instanceof Error ? e.message : String(e),
+          });
+        });
+    }
+
     const outcome = await fx.generateReply({
       tenantId, channelId, conversationId,
       inboundExternalId: message.externalId,
@@ -780,6 +863,12 @@ async function runReceptionDelivery(
       // message leaves priorTurns empty.
       historyEmpty: priorTurns.length === 0,
     });
+    // Lapped the instant the call returns, and deliberately BEFORE the outcome is
+    // branched on. Its first form lapped below the `!delivery.deliver` early-continue, so
+    // a `shadow` tenant recorded every phase EXCEPT the model call — and shadow is Matrix,
+    // the only tenant whose latency anybody is asking about. An instrument that omits the
+    // dominant phase for the tenant being measured is worse than no instrument.
+    clock.lap('generate');
 
     if (outcome.kind === 'retry') {
       fx.log('error', 'reception_retry', { detail: outcome.detail });
@@ -807,6 +896,7 @@ async function runReceptionDelivery(
         tenantId, conversationId, messageId: stored.value.messageId, detail: traced.detail ?? '',
       });
     }
+    clock.lap('trace');
 
     if (outcome.refusal !== undefined) {
       fx.log('warn', 'answered_with_handoff', { code: outcome.refusal, conversationId });
@@ -821,6 +911,7 @@ async function runReceptionDelivery(
     }
 
     const held = await claim(db, { id: outcome.outboundId, tenantId, now });
+    clock.lap('claim');
     if (held.outcome === 'unavailable') {
       fx.log('error', 'claim_unavailable', { detail: held.detail });
       return unavailable('worker.claim_unavailable');
@@ -874,6 +965,11 @@ async function runReceptionDelivery(
   // skipped, or whose channel cannot generate, is `processed` and has produced no answer —
   // and those two facts must not be spelled the same way, which is the whole reason this
   // column stopped being written-by-nothing.
+  clock.lap('deliver_and_mark');
+  // One line per job. It answers "where did the twenty seconds go" from the next real
+  // customer turn rather than from a week of reasoning — the bake-off harness stubs the
+  // database and structurally cannot see this split.
+  fx.log('info', 'reply_timing_ms', { eventId, tenantId, ...clock.phases });
   await markEventState(db, eventId, 'processed', drafted.length > 0 ? now : undefined);
   return ok({
     eventId, drafted: drafted.length, sent: sent.length, stale: stale.length, skipped: skipSummary(skipped),

@@ -60,6 +60,16 @@ function stubDb(over: Record<string, Reply | Reply[]> = {}) {
         const r = nextReply('messages_list');
         return res({ data: r?.data ?? [], error: r?.error ?? null });
       }
+      // The assistant's half of the conversation. It lives in a DIFFERENT table, which is
+      // how it came to be missing from history for every tenant since `0001` (D-111).
+      if (rec.op === 'select' && table === 'outbound_messages') {
+        // Recorded so a test can assert the STATE FILTER was asked for. Without this the
+        // stub silently returns whatever the fixture holds and a test claiming the filter
+        // exists would pass with the filter deleted — an assertion that cannot fail.
+        ops.push(rec);
+        const r = nextReply('outbound_list');
+        return res({ data: r?.data ?? [], error: r?.error ?? null });
+      }
       const r = Array.isArray(over[table]) ? undefined : (over[table] as Reply | undefined);
       return res({ data: null, error: r?.error ?? null });
     };
@@ -269,4 +279,77 @@ test('a redacted message is SKIPPED, not sent to the model as a blank turn', asy
   ] } });
   const r = await readHistory(db, { tenantId: 't-1', conversationId: 'cv-1', limit: 10 });
   assert.deepEqual(r.ok && r.value, [{ role: 'user', content: 'Байгаа' }]);
+});
+
+// ── D-111: the assistant's half of the conversation ───────────────────────────────────
+
+test('DONE-TEST: THE ASSISTANT\'S REPLIES REACH HISTORY, FROM outbound_messages', async () => {
+  // The defect this closes was invisible for exactly one reason, and it is the reason to
+  // read this test carefully: the test ABOVE manufactures `direction: 'outbound'` rows
+  // inside `messages`, and the database has never held one. Measured against the live
+  // project on 2026-09-21: 194 inbound rows, ZERO outbound, platform-wide. So the fixture
+  // asserted a shape only the fixture produced, and the real transcript reaching the model
+  // was N consecutive USER turns with no assistant turn anywhere in it.
+  //
+  // What that did to a customer, measured in the founder's own 11-message thread: the
+  // model saw ten unanswered questions and answered all ten, every turn — replies grew
+  // 37 → 1020 characters — re-greeted each time because it could not see that it had
+  // greeted, and applied one message's refusal to another because every question sat in
+  // one undifferentiated block.
+  const { db } = stubDb({
+    messages_list: { data: [
+      { direction: 'inbound', body: 'Сор хэд вэ?', at: '2026-09-21T03:05:50Z' },
+      { direction: 'inbound', body: 'Сайн байна уу', at: '2026-09-21T03:04:00Z' },
+    ], error: null },
+    outbound_list: { data: [
+      { body: 'Сайн байна уу! Танд юугаар туслах вэ?', created_at: '2026-09-21T03:04:30Z', state: 'sent' },
+    ], error: null },
+  });
+  const r = await readHistory(db, { tenantId: 't-1', conversationId: 'cv-1', limit: 10 });
+  assert.ok(r.ok);
+  assert.deepEqual(r.value.map((t) => t.role), ['user', 'assistant', 'user'],
+    'interleaved by time, not the two tables concatenated');
+  assert.equal(r.value[1]?.content, 'Сайн байна уу! Танд юугаар туслах вэ?');
+});
+
+test('DONE-TEST: A REPLY NOBODY READ IS NOT A TURN, AND AN UNREADABLE READ IS NOT AN EMPTY ONE', async () => {
+  // Two halves of one rule. `failed` and `refused` replies were never in front of the
+  // customer, so replaying them would have the model build on a turn that does not exist
+  // for the person it is talking to — the filter is in the query, so this asserts it is
+  // ASKED for rather than trusting the stub to have withheld them.
+  const { db, ops } = stubDb({ messages_list: { data: [], error: null }, outbound_list: { data: [], error: null } });
+  await readHistory(db, { tenantId: 't-1', conversationId: 'cv-1', limit: 10 });
+  const outboundRead = ops.find((o) => o.table === 'outbound_messages');
+  const stateFilter = outboundRead?.filters.find((f) => f.startsWith('in(state'));
+  assert.ok(stateFilter !== undefined, `no state filter was asked for: ${JSON.stringify(outboundRead?.filters)}`);
+  assert.match(stateFilter, /sent/);
+  assert.match(stateFilter, /draft/);
+  assert.doesNotMatch(stateFilter, /failed|refused|indeterminate/);
+
+  // And an unreadable assistant half fails closed, exactly as the inbound half does: an
+  // empty assistant side is indistinguishable from the bug above, so a transient hiccup
+  // must not be allowed to quietly restore it for one reply.
+  const broken = stubDb({
+    messages_list: { data: [{ direction: 'inbound', body: 'сайн уу', at: '2026-09-21T03:04:00Z' }], error: null },
+    outbound_list: { data: null, error: { message: 'timeout' } },
+  });
+  const r = await readHistory(broken.db, { tenantId: 't-1', conversationId: 'cv-1', limit: 10 });
+  assert.equal(r.ok, false, 'an unreadable assistant half is a refusal, never a silent empty history');
+});
+
+test('the newest turns survive the limit, never the oldest', async () => {
+  // Merging two sorted lists and taking the FIRST n is the reflex bug here, and it would
+  // feed the model the start of the conversation while dropping what the customer just
+  // said — worse than no history at all, because it looks like history.
+  const inbound = Array.from({ length: 6 }, (_, i) => ({
+    direction: 'inbound', body: `асуулт ${i}`, at: `2026-09-21T03:0${i}:00Z`,
+  }));
+  const { db } = stubDb({
+    messages_list: { data: inbound, error: null },
+    outbound_list: { data: [{ body: 'хариу', created_at: '2026-09-21T03:05:30Z', state: 'draft' }], error: null },
+  });
+  const r = await readHistory(db, { tenantId: 't-1', conversationId: 'cv-1', limit: 3 });
+  assert.ok(r.ok);
+  assert.equal(r.value.length, 3);
+  assert.deepEqual(r.value.map((t) => t.content), ['асуулт 4', 'асуулт 5', 'хариу']);
 });

@@ -282,12 +282,87 @@ export function formatMoney(raw: string | null, symbol: string, before: boolean)
  * service exists and name it correctly; it cannot quote a figure, and `reception/price.ts`
  * serves one from the row instead.
  */
+/**
+ * A money figure, grouped in threes, WITHOUT `toLocaleString`.
+ *
+ * `Number.prototype.toLocaleString()` is locale-dependent exactly as `localeCompare` is,
+ * and this string lands in the compiled prefix — so the runtime's locale would decide
+ * `content_hash`, i.e. the prompt-cache key, which is D-026 and the reason
+ * `check-deterministic-order.mjs` exists. The separator is a literal comma because that
+ * is what the salon's own price list and the ancestor both print.
+ */
+function money(raw: string | null): string | null {
+  if (raw === null || raw === '') return null;
+  // The column is `numeric`, so PostgREST hands it back as a string like '135000.00'.
+  // Trailing minor units are dropped rather than rounded: every confirmed row is whole
+  // tugriks, and a rounded figure is a price nobody approved.
+  const digits = /^(\d+)(?:\.0*)?$/.exec(raw.trim()); // ascii-safe: a numeric column
+  if (digits === null) return null;
+  const whole = digits[1] ?? '';
+  let out = '';
+  for (let i = 0; i < whole.length; i += 1) {
+    if (i > 0 && (whole.length - i) % 3 === 0) out += ',';
+    out += whole[i];
+  }
+  return out;
+}
+
+/** `135,000₮`, or `120,000–190,000₮`, honouring the tenant's own symbol and side. */
+function withCurrency(figure: string, kb: TenantKb): string {
+  return kb.currencySymbolBefore ? `${kb.currencySymbol}${figure}` : `${figure}${kb.currencySymbol}`;
+}
+
 function priceOf(v: ServiceVariant, kb: TenantKb): string | null {
-  void kb;
-  // The three numeric kinds, collapsed to nothing. Deliberately not a placeholder like
-  // «(үнэтэй)»: a marker in the model's context is a sentence with no instruction attached,
-  // which D-082 calls an offer rather than an instruction, and the model would reach for it.
-  if (v.priceKind === 'exact' || v.priceKind === 'range' || v.priceKind === 'from') return null;
+  // ## The prices are RENDERED, and that reverses half of D-075 on the founder's call
+  //
+  // These three kinds used to collapse to `null`, so the section printed `- Сор` with no
+  // figure while `service_variants` held `120000–190000`, confirmed. Measured on 2026-09-21
+  // in Matrix's own live thread, the model described that prompt back to the customer
+  // exactly as it found it: «сор нь мэдлэгийн санд байгаа тул хэлж чадна … надад яг тоо
+  // өгөгдөөгүй» — *сор is in my knowledge base so I can say it, but I was not given the
+  // number*. Forty-two confirmed rows, not one figure reaching the model.
+  //
+  // D-075's reasoning was not wrong and is not discarded: `allowed_numbers` is a SET, so
+  // the outbound guard checks that a numeral is on the tenant's list and never that it
+  // belongs to the service being discussed — a real price against the wrong service still
+  // passes. What changed is the founder's verdict (2026-09-21): a bot that cannot quote the
+  // salon's own confirmed prices is worse than that risk, and the incumbent has quoted them
+  // in production for months under disambiguation rules rather than silence.
+  //
+  // What still protects the wrong-service case is NOT this function: it is the
+  // disambiguation the prompt does above it — «Будаг» must be resolved by length before a
+  // figure is given — plus `services/match.ts`, whose verdict is `ambiguous` rather than a
+  // silently broken tie.
+  //
+  // Only CONFIRMED rows reach here: `loadTenantKb` filters on `confirmed_at`, so an
+  // unconfirmed price cannot be printed by this change.
+  if (v.priceKind === 'exact') {
+    const only = money(v.priceMin);
+    return only === null ? null : withCurrency(only, kb);
+  }
+  if (v.priceKind === 'range') {
+    const lo = money(v.priceMin);
+    const hi = money(v.priceMax);
+    // A range missing an end is NOT printed as its other end: «120,000₮» where the row
+    // means 120,000–190,000 is a quoted price 70,000 under the real one, and the customer
+    // holds the salon to it. An unreadable range falls through to the name alone.
+    if (lo === null || hi === null) return null;
+    // The currency symbol goes on BOTH ends, and that is a guard requirement rather than a
+    // typographic choice. MEASURED against `extractNumerals`: «80,000–150,000» is ONE
+    // token, «80,000₮–150,000₮» is two. With one token the allow-list would hold
+    // `80,000–150,000` and nothing else, so a reply quoting either endpoint on its own —
+    // the ordinary way anybody answers «сор хэд вэ?» — reduces to digits that are not on
+    // the list and the guard refuses the salon's own confirmed price. That is D-074's
+    // shape exactly: a guard punishing a reply for using approved data.
+    //
+    // The separator stays an EN DASH so the pair never takes the token shape of
+    // «7741-7777», which the guard is required to read as a single numeral.
+    return `${withCurrency(lo, kb)}–${withCurrency(hi, kb)}`;
+  }
+  if (v.priceKind === 'from') {
+    const lo = money(v.priceMin);
+    return lo === null ? null : `${withCurrency(lo, kb)} (${PRICE_LABELS.from})`;
+  }
 
   if (v.priceKind === 'on_inspection') return `(${PRICE_LABELS.onInspection})`;
   if (v.priceKind === 'none') {

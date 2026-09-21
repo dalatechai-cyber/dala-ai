@@ -251,29 +251,84 @@ export type Turn = { role: 'user' | 'assistant'; content: string };
  * Redacted messages are skipped rather than sent as empty strings: a retention purge must
  * not put a blank turn in front of the model.
  */
+/**
+ * Outbound states whose body the customer could plausibly have in front of them.
+ *
+ * `sent` is unambiguous. `draft` is included because the mirror phase produces nothing
+ * else: excluding it would give every shadow tenant the all-user transcript this function
+ * exists to prevent, on exactly the conversations being run to measure quality. `failed`,
+ * `refused` and `indeterminate` are excluded — a reply nobody read is not something the
+ * assistant said, and replaying it would have the model build on a turn the customer never
+ * saw.
+ */
+const HISTORY_OUTBOUND_STATES = ['sent', 'draft'] as const;
+
 export async function readHistory(
   db: SupabaseClient,
   input: { tenantId: string; conversationId: string; limit: number },
 ): Promise<PersistOutcome<Turn[]>> {
-  const { data, error } = await db
-    .from('messages')
-    .select('direction, body, at')
-    .eq('tenant_id', input.tenantId)
-    .eq('conversation_id', input.conversationId)
-    .order('at', { ascending: false })
-    .limit(input.limit);
+  // TWO tables, because the conversation is stored in two halves and this function is the
+  // only place that has ever needed both (D-111).
+  //
+  // `messages` holds the customer; the assistant's replies live in `outbound_messages` and
+  // were NEVER mirrored back. The `direction === 'outbound'` branch below has been dead
+  // code since `0001` — measured 2026-09-21 against the live project: 194 inbound rows and
+  // zero outbound, platform-wide. So every multi-turn conversation reached the model as N
+  // consecutive USER turns with no assistant turn between them, and the model did the only
+  // sensible thing with a transcript of ten unanswered questions: it answered all ten,
+  // every turn, growing the reply each time and re-greeting because it could not see that
+  // it had greeted. It is D-064's rule applied to a VALUE rather than a column — computed,
+  // stored elsewhere, and never carried to the one reader that needed it (D-083's lesson).
+  //
+  // The reads are issued together: they are independent, and this sits on the reply path
+  // where a second serial round trip is latency a customer feels.
+  const [inbound, outbound] = await Promise.all([
+    db.from('messages')
+      .select('direction, body, at')
+      .eq('tenant_id', input.tenantId)
+      .eq('conversation_id', input.conversationId)
+      .order('at', { ascending: false })
+      .limit(input.limit),
+    db.from('outbound_messages')
+      .select('body, created_at, state')
+      .eq('tenant_id', input.tenantId)
+      .eq('conversation_id', input.conversationId)
+      .in('state', [...HISTORY_OUTBOUND_STATES])
+      .order('created_at', { ascending: false })
+      .limit(input.limit),
+  ]);
 
-  if (error) return { ok: false, detail: `history unreadable: ${error.message}` };
+  if (inbound.error) return { ok: false, detail: `history unreadable: ${inbound.error.message}` };
+  // Fails closed for the same reason the inbound half does: an empty assistant side is
+  // indistinguishable from the bug this fixes, and a hiccup must not silently restore it.
+  if (outbound.error) return { ok: false, detail: `history unreadable: ${outbound.error.message}` };
 
-  const rows = Array.isArray(data) ? data : [];
-  const turns: Turn[] = [];
-  for (const raw of rows) {
+  type Stamped = { at: number; turn: Turn };
+  const stamped: Stamped[] = [];
+
+  const push = (body: unknown, whenRaw: unknown, role: 'user' | 'assistant'): void => {
+    if (typeof body !== 'string' || body.trim() === '') return;
+    const at = typeof whenRaw === 'string' ? new Date(whenRaw).getTime() : Number.NaN;
+    // A turn with no readable timestamp cannot be ordered, and a reply placed in the wrong
+    // place is worse than one left out: it would show the assistant answering a question
+    // the customer had not asked yet.
+    if (Number.isNaN(at)) return;
+    stamped.push({ at, turn: { role, content: nfc(body) } });
+  };
+
+  for (const raw of Array.isArray(inbound.data) ? inbound.data : []) {
     const r = raw as Record<string, unknown>;
-    const body = r['body'];
-    if (typeof body !== 'string' || body.trim() === '') continue;
-    turns.push({ role: r['direction'] === 'outbound' ? 'assistant' : 'user', content: nfc(body) });
+    push(r['body'], r['at'], r['direction'] === 'outbound' ? 'assistant' : 'user');
   }
-  return { ok: true, value: turns.reverse() };
+  for (const raw of Array.isArray(outbound.data) ? outbound.data : []) {
+    const r = raw as Record<string, unknown>;
+    push(r['body'], r['created_at'], 'assistant');
+  }
+
+  // Interleaved by time, then trimmed from the END so the newest turns survive — taking
+  // the first N of a merged list would feed the model the oldest half of the conversation.
+  stamped.sort((a, b) => a.at - b.at);
+  return { ok: true, value: stamped.slice(-input.limit).map((s) => s.turn) };
 }
 
 /**

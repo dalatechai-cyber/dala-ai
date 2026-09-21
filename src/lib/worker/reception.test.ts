@@ -142,6 +142,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
   const flags: { tenantId: string; conversationId: string; code: string; detail: string }[] = [];
   const standbyAlerts: { tenantId: string; channelId: string; dayKey: string; events: number }[] = [];
   const exhausted: { tenantId: string; eventId: number; attempts: number; ageMinutes: number; limitMinutes: number | null; code: string }[] = [];
+  const typed: { tenantId: string; channelId: string; recipientId: string }[] = [];
 
   const fx: WorkerEffects = {
     db,
@@ -149,6 +150,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     verifySignature: async () => true,
     alertStandby: async (a) => { standbyAlerts.push(a); },
     alertDeliveryExhausted: async (a) => { exhausted.push(a); },
+    showTyping: async (a) => { typed.push(a); },
     graphVersionDefault: () => 'v21.0',
     generateReply: async (a) => {
       generated.push(a);
@@ -171,7 +173,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     },
     ...rest,
   };
-  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted };
+  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted, typed };
 }
 
 const run = (fx: WorkerEffects, rawBody = job(), signature: string | null = 'sig') =>
@@ -693,9 +695,16 @@ test('a handoff answer is still an answer, and it is logged as one', async () =>
 // ---------------------------------------------------------------------------
 
 test('a reply somebody else already holds or sent is skipped, not re-sent', async () => {
-  // `claim`'s CAS matches nothing, then the state read says `sent`.
+  // THREE reads of `outbound_messages` now, not two, and the first belongs to somebody
+  // else: since D-111 `readHistory` reads the assistant's own turns from this table, and
+  // it runs BEFORE the claim. Leaving it out shifted the whole queue by one and handed the
+  // claim the history's answer — the same silent off-by-one the `webhook_events` fixture
+  // above documents, in a second table. A fixture whose order drifts is a test asserting
+  // the stub rather than the code.
+  //
+  // 1. history (no prior assistant turns) · 2. claim's CAS matches nothing · 3. state says `sent`.
   const { fx, delivered, logs } = stubEffects({
-    tables: { outbound_messages: [{ data: null }, { data: { state: 'sent' } }] },
+    tables: { outbound_messages: [{ data: [] }, { data: null }, { data: { state: 'sent' } }] },
   });
   const r = await run(fx);
   assert.equal(r.status, 200);
@@ -704,10 +713,26 @@ test('a reply somebody else already holds or sent is skipped, not re-sent', asyn
 });
 
 test('an unreadable outbound row is 503, never a silent skip', async () => {
-  const { fx } = stubEffects({ tables: { outbound_messages: { error: { message: 'reset' } } } });
-  const r = await run(fx);
+  // Split in two since D-111, because this table is now read by two different callers and
+  // they refuse under different names. Collapsing them would let one regress unseen.
+  //
+  // The CLAIM's read: history answers cleanly first, then the claim cannot read.
+  const claimBroken = stubEffects({
+    tables: { outbound_messages: [{ data: [] }, { error: { message: 'reset' } }] },
+  });
+  const r = await run(claimBroken.fx);
   assert.equal(r.status, 503);
   assert.equal(r.body['error'], 'worker.claim_unavailable');
+
+  // The HISTORY's read, which comes first and fails closed for its own reason: an empty
+  // assistant half is indistinguishable from the defect D-111 fixed, so a hiccup must not
+  // quietly hand the model a transcript with no replies in it.
+  const historyBroken = stubEffects({
+    tables: { outbound_messages: { error: { message: 'reset' } } },
+  });
+  const h = await run(historyBroken.fx);
+  assert.equal(h.status, 503);
+  assert.equal(h.body['error'], 'worker.history_failed');
 });
 
 // ---------------------------------------------------------------------------
@@ -966,4 +991,115 @@ test('a delivery that SUCCEEDS never alerts, however many attempts preceded it',
   });
   assert.equal((await run(fx)).status, 200);
   assert.equal(exhausted.length, 0);
+});
+
+// ── The typing bubble, and the gate that keeps it off a mirrored Page ──────────────────
+
+test('DONE-TEST: THE TYPING BUBBLE IS GATED ON deliver, NOT ON generate', async () => {
+  // The mistake this is here to stop is one character wide and reaches a real person.
+  //
+  // A sender action is an OUTBOUND Graph call: the customer sees the bubble on the Page.
+  // In `shadow` the platform generates and withholds, while the incumbent answers that
+  // same Page — so a bubble gated on `generate` would appear in front of somebody else's
+  // customer, promise a reply, and never produce one. `delivery.generate` is true in
+  // shadow and `delivery.deliver` is not, which is the whole distinction.
+  const shadow = await stubEffects({
+    tables: { tenant_channels: { data: { id: 'ch-1', tenant_id: 't-1', external_id: '100000000000001', delivery_mode: 'shadow', token_status: 'active', status: 'active', app_slug: 'dalatech', meta_app_id: null } } },
+  });
+  await run(shadow.fx);
+  assert.deepEqual(shadow.typed, [], 'a mirrored channel must stay invisible on the Page');
+});
+
+test('a live channel shows the bubble, once, before the reply', async () => {
+  const { fx, typed, delivered } = stubEffects();
+  await run(fx);
+  assert.equal(typed.length, 1, 'exactly one bubble per customer message');
+  assert.equal(typed[0]?.channelId, 'c-1');
+  assert.ok(delivered.length >= 1, 'and the reply still goes out');
+});
+
+test('DONE-TEST: A MESSAGE THAT WILL NEVER BE ANSWERED SHOWS NO BUBBLE', async () => {
+  // A bubble is a PROMISE of a reply, so it belongs below every exit that ends in silence.
+  //
+  // The first version of this feature sat above the freshness check, the history read and
+  // the spend guard. An hour-old replay therefore showed a live customer «typing…» and
+  // then produced nothing at all — the one outcome worse than the slow reply the bubble
+  // was added to soften. Same shape as the guard whose trigger moved out from under it:
+  // the code was right where it was written and wrong where it ran.
+  const { fx, typed, delivered, logs } = stubEffects({
+    tables: { webhook_events: { data: { raw_payload: payload({ ts: NOW.getTime() - 60 * 60_000 }) } } },
+  });
+  await run(fx);
+  assert.ok(reasons(logs).includes('reply_too_late'), 'precondition: the message is stale');
+  assert.equal(delivered.length, 0, 'precondition: nothing is sent');
+  assert.deepEqual(typed, [], 'so nothing may have been promised either');
+});
+
+test('DONE-TEST: SHADOW STILL RECORDS HOW LONG THE MODEL TOOK', async () => {
+  // The instrument skipped the only tenant anybody is asking about.
+  //
+  // `clock.lap('generate')` was placed after the `!delivery.deliver` early-continue, so a
+  // shadow channel — which is Matrix, the mirror whose latency prompted this whole piece
+  // of work — logged every phase EXCEPT the model call. The reader would have seen a
+  // timing line that looked complete, summed to far less than the wall clock, and pointed
+  // at the database. An instrument that omits the dominant phase for the tenant being
+  // measured is worse than no instrument, because it is believed.
+  const shadow = stubEffects({
+    tables: { tenant_channels: { data: { id: 'ch-1', tenant_id: 't-1', external_id: '100000000000001', delivery_mode: 'shadow', token_status: 'active', status: 'active', app_slug: 'dalatech', meta_app_id: null } } },
+  });
+  await run(shadow.fx);
+  assert.ok(reasons(shadow.logs).includes('not_delivering'), 'precondition: it drafted and withheld');
+  const timing = shadow.logs.find((l) => l.event === 'reply_timing_ms');
+  assert.ok(timing !== undefined, 'a shadow run still logs its timings');
+  assert.equal(typeof timing.fields?.['generate'], 'number',
+    `the model call is the point of the line: ${JSON.stringify(timing.fields)}`);
+});
+
+test('DONE-TEST: THE SPEND GUARD AND THE TRACE WRITE ARE NOT BILLED TO THE MODEL', async () => {
+  // `generate` used to span the guard RPC, the model call and the trace write — three
+  // round trips under one name, two of them the database. If the guard were the slow
+  // thing in production, this log line would have sent the reader to the model. That is
+  // precisely the "alerted with wrong information" failure, built into the instrument
+  // meant to prevent it.
+  const { fx, logs } = stubEffects();
+  await run(fx);
+  const timing = logs.find((l) => l.event === 'reply_timing_ms');
+  assert.ok(timing !== undefined);
+  for (const phase of ['guard', 'generate', 'trace']) {
+    assert.equal(typeof timing.fields?.[phase], 'number',
+      `${phase} must be its own phase: ${JSON.stringify(timing.fields)}`);
+  }
+});
+
+test('DONE-TEST: A TYPING BUBBLE THAT THROWS NEVER COSTS THE CUSTOMER A REPLY', async () => {
+  // It is not awaited, so a rejection here would be an unhandled rejection on a lambda
+  // mid-reply rather than a handled failure. The worker catches it and carries on: a
+  // decoration must never be able to take the reply down with it.
+  const { fx, delivered, logs } = stubEffects();
+  fx.showTyping = async () => { throw new Error('graph down'); };
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(delivered.length, 1, 'the reply is unaffected');
+  assert.ok(reasons(logs).includes('typing_indicator_failed'), 'and the failure is visible');
+});
+
+test('a reply logs where its wall-clock went, and the phases do not overwrite each other', async () => {
+  // The production gap this exists to close: the bake-off measures the model path at 3.7s
+  // and production measured 25.8s from inbound row to draft. The harness stubs the
+  // database and structurally cannot see the difference, so the answer has to come from a
+  // real turn.
+  //
+  // The accumulation matters as much as the timing. One webhook entry can carry several
+  // messages and the loop runs these phases once per message — assigning instead of adding
+  // would report the LAST message's timings as if they were the whole job's, which is the
+  // kind of number that looks precise and is wrong.
+  const { fx, logs } = stubEffects();
+  await run(fx);
+  const timing = logs.find((l) => l.event === 'reply_timing_ms');
+  assert.ok(timing !== undefined, `no timing line was logged: ${JSON.stringify(reasons(logs))}`);
+  for (const phase of ['event_read', 'tenant_read', 'context_load', 'generate']) {
+    assert.equal(typeof timing.fields?.[phase], 'number', `${phase} is missing from ${JSON.stringify(timing.fields)}`);
+  }
+  // It is diagnostic only: nothing branches on it, so it cannot change what a customer is told.
+  assert.equal(timing.level, 'info');
 });

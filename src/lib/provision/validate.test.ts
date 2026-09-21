@@ -51,14 +51,19 @@ test('DONE-TEST: THE PROJECTED ALLOW-LIST IS SHOWN BEFORE IT IS LIVE', () => {
   // the list is wrong — it is that nobody looks at it. So it is always reported, never
   // blocks, and is computed with the REAL renderer rather than a second one.
   //
-  // SINCE D-075 PART 1 A PRICE IS NOT ON IT, and the preview says so by omission: prices
-  // no longer reach the compiled prefix, so they are no longer permissions the model holds.
-  // The property under test is unchanged and is the one that matters — the projection uses
-  // `renderTenantSections`, so whatever the compiler would really produce is what the
-  // operator is shown, and a second copy of the rule cannot drift from it.
+  // A CONFIRMED PRICE IS ON IT AGAIN since D-112, and showing that is the entire job of
+  // this preview. Between D-075 and D-112 prices were kept out of the compiled prefix, so
+  // this asserted their ABSENCE; the founder reversed that on 2026-09-21 after a live
+  // thread in which the bot could not quote prices it held.
+  //
+  // The property under test never changed and is the one that matters: the projection runs
+  // `renderTenantSections`, the REAL renderer, so what the operator reviews before
+  // publishing is exactly what the compiler will emit. A second copy of the rule would be
+  // free to disagree, and the direction it would disagree in is a permission nobody saw.
   const doc: IntakeDocument = { ...MINIMAL, services: [svc('Угаалт', [], '22000')] };
   const numbers = projectedAllowedNumbers(doc);
-  assert.ok(!numbers.includes('22,000'), `a price is not a permission any more: ${numbers.join(', ')}`);
+  assert.ok(numbers.includes('22,000'),
+    `a confirmed price is a permission the operator must see before it is live: ${numbers.join(', ')}`);
   const f = validateIntake(doc).find((x) => x.code === 'allowed_numbers');
   assert.ok(f && f.severity === 'advisory');
 });
