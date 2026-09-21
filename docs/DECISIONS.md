@@ -3925,6 +3925,46 @@ built), so the first firing that can work is 2026-09-15 01:00 UTC. If 09:00 Ulaa
 and no digest arrives, the schedule is what to check — not the code — and that console is not
 readable from here.
 
+### D-063 addendum, 2026-09-21 — the 180-minute threshold is MEASURED and stays
+
+D-063's addendum left one thing open in bold: *"Re-derive D-016's 60.5 before anybody picks
+a new number."* Here is the derivation, from `webhook_events` over the seven complete days
+2026-09-14 to 2026-09-20.
+
+**Volume.** Text DMs per day: 11, 20, 11, 16, 59, 37, 10 — **mean 23.4/day**. That is far
+under D-016's 60.5, and the two are NOT the same quantity: D-016 counted the ancestor's
+REPLIES from its own logs, this counts inbound text messages Dala received. They are not
+reconcilable without knowing the ancestor's replies-per-message, so neither refutes the
+other. What matters for a silence threshold is the gap distribution, not the daily total.
+
+**Gaps, open hours only** (Mon–Sat 10:00–20:00, Sun 11:00–19:00, Asia/Ulaanbaatar), 76 gaps:
+
+| p50 | p90 | p95 | max | > 180 min | > 240 min |
+|---|---|---|---|---|---|
+| 1.1 min | 114 min | **186 min** | 369 min | **4 in 7 days** | 3 |
+
+**So `DEFAULT_THRESHOLD_OPEN_MINUTES = 180` sits essentially at p95 of ordinary open-hour
+silence, and fires about 0.6 times a day.** It is well calibrated and **is not changed.**
+Loosening it to 240 removes one firing in seven days and costs an hour of time-to-detect on
+the next real outage; the eleven-day outage of D-062 is what that hour is measured against.
+
+**Why this is not the daily noise D-063 removed**, which was the live worry: the routing
+changed at the same time. This alert is `route: 'digest'` and `repeat_policy: 'on_change'`,
+so an ordinary quiet afternoon is one line in a once-a-day digest and an episode that
+resolves itself — not a Telegram critical, and not a new alert every morning. The measured
+instance at 07:00:06 on 2026-09-21 carries exactly that: `delivered: false`, `route: digest`,
+`resolved_at` null. **The threshold could only walk the noise back in if the route were
+still `now`, and it is not.**
+
+**A method note that nearly inverted the conclusion.** The first pass computed gaps over ALL
+hours and reported **17** firings in seven days, which reads as a badly miscalibrated alarm
+and argues for loosening it. That number counted overnight gaps — which the watchdog already
+excludes, as its own alert body says («…of open time with nothing»). Restricted to open
+hours the count is 4. **The wrong figure and the right one point in opposite directions**,
+and the only thing that caught it was reading the alert's own wording before trusting the
+query. Measure the thing the instrument measures, not the thing that is easy to select.
+
+
 ## D-064 — three columns the schema carried since `0001`, written by nothing
 
 **2026-09-14, found by reading Matrix's first real mirror drafts.** No migration: every
