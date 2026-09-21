@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readIntake, type IntakeDocument } from './intake.ts';
 import { assessReadiness, projectedAllowedNumbers, readinessDigestLine, validateIntake } from './validate.ts';
+import { topicMatcher } from './matchers.ts';
+import { parseMatcher } from '../gate/match.ts';
 
 const MINIMAL: IntakeDocument = {
   slug: 'test-salon',
@@ -332,4 +334,41 @@ test('DONE-TEST: A SERVICE NO TERM CAN REACH IS NAMED, AND DOES NOT VANISH WITH 
   // A two-token name clears it. The repair is a row the client supplies, not a code change.
   const longer: IntakeDocument = { ...MINIMAL, services: [svc('Сор будаг', ['сор будаг'], '120000', '190000')] };
   assert.equal(validateIntake(longer).find((x) => x.code === 'service_name_unmatchable'), undefined);
+});
+
+test('DONE-TEST: THE MATCHER THE WRITER BUILDS IS THE MATCHER THE VALIDATOR CHECKS', () => {
+  // D-108, reproduced. `apply.ts` wrote `{ stems: [...] }` with no `mode`, `parseMatcher`
+  // answered `unknown matcher mode undefined`, the gate failed closed, and every direct
+  // message for Matrix 503'd from the cutover until the row was repaired by hand.
+  //
+  // The first assertion is the outage itself: the OLD shape is refused by the same
+  // function that refused it in production. Without it this test would only prove the new
+  // shape is fine, which was never in doubt — a test that cannot fail on the old code is
+  // not a regression test.
+  assert.equal(parseMatcher({ stems: ['зураг', 'зурган', 'фото'] }).ok, false);
+  assert.equal(parseMatcher(topicMatcher(['зураг', 'зурган', 'фото'])).ok, true);
+
+  // And the validator now refuses to let such a row be written at all. A short stem is
+  // the same failure by a different route: MIN_STEM_CHARS is enforced by `parseMatcher`
+  // and was applied to service aliases only, so a 3-character topic stem passed
+  // validation, was written, and 503'd at request time exactly as the missing mode did.
+  const shortStem: IntakeDocument = {
+    ...MINIMAL,
+    sentences: { ...MINIMAL.sentences, refusal_topic: 'Уучлаарай, энэ талаар мэдээлэл өгөх боломжгүй.' },
+    neverSay: [{ key: 'photo', question: 'Зураг?', responseKind: 'refusal_topic', stems: ['зур'] }],
+  };
+  assert.ok(codes(shortStem).includes('topic_rule_matcher'));
+
+  // An unusable rule is a BLOCKER, not an advisory: `apply.ts` dies on any blocker with
+  // nothing written, which is the whole mechanism. Downgrading this severity re-opens the
+  // outage while leaving the check in place and green.
+  const f = validateIntake(shortStem).find((x) => x.code === 'topic_rule_matcher');
+  assert.equal(f?.severity, 'blocker');
+
+  // The usable case still passes, so the check cannot be satisfied by refusing everything.
+  const fine: IntakeDocument = {
+    ...shortStem,
+    neverSay: [{ key: 'photo', question: 'Зураг?', responseKind: 'refusal_topic', stems: ['зураг'] }],
+  };
+  assert.ok(!codes(fine).includes('topic_rule_matcher'));
 });

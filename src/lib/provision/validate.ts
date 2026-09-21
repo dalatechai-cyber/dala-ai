@@ -28,6 +28,7 @@ import { containsStem } from '../mn/match.ts';
 import { scriptMatcher } from '../mn/text.ts';
 import { MIN_STEM_CHARS, parseMatcher } from '../gate/match.ts';
 import type { IntakeDocument } from './intake.ts';
+import { topicMatcher } from './matchers.ts';
 
 export type Severity = 'blocker' | 'ask_client' | 'advisory';
 export type Finding = {
@@ -212,6 +213,18 @@ export function validateIntake(doc: IntakeDocument, now = new Date()): Finding[]
   // --- A topic rule that cannot fire for half the customers -------------------------------
   const primary = doc.business.locale.startsWith('mn') ? 'Cyrillic' : 'Latin';
   for (const rule of doc.neverSay) {
+    // The matcher `apply.ts` will WRITE, through the same parser that runs it at request
+    // time — not the stems the document happens to hold. The comment-rule block below has
+    // done this since it was written; topics were exempt for the worst reason, that the
+    // value did not exist until the writer built it, so there was nothing here to check.
+    // D-108: `{ stems: [...] }` with no `mode` reached production and 503'd every DM.
+    const written = parseMatcher(topicMatcher(rule.stems));
+    if (!written.ok) {
+      add('blocker', 'topic_rule_matcher',
+        `rule «${rule.key}» would be written as a matcher the request path refuses: ${written.detail}. `
+        + 'An unusable rule is not skipped — the gate fails closed, so EVERY reply for this tenant '
+        + '503s until the row is repaired (D-108).');
+    }
     if (rule.stems.length === 0) {
       add('blocker', 'rule_without_stems', `rule «${rule.key}» has no stems, so it can never fire`);
     } else if (!hasNonPrimaryScriptForm(rule.stems, primary)) {
