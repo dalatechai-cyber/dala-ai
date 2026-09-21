@@ -21,6 +21,7 @@ import { buildDeps } from '@/lib/reception/deps';
 import { deliverOutbound } from '@/lib/outbound/deliver';
 import { loadTenantSecret } from '@/lib/secrets/tenantSecret';
 import { sendCommentReply } from '@/lib/comments/send';
+import { sendSenderAction } from '@/lib/meta/send';
 import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
 import { SECTION_LABELS } from '@/lib/prompt/tenant';
@@ -96,6 +97,36 @@ function effects(now: Date): WorkerEffects {
         }),
         a,
       ),
+
+    /**
+     * The typing bubble. Cosmetic, and it must stay cosmetic.
+     *
+     * Every failure resolves quietly: no credential, no channel, a Graph refusal, a
+     * timeout. The worker does not await this, so a rejected promise here would be an
+     * unhandled rejection on a lambda mid-reply — and the thing it decorates is worth
+     * nothing next to the reply itself.
+     *
+     * The token is loaded per call rather than hoisted, for the reason in
+     * `secrets/tenantSecret.ts`: a warm lambda is reused across tenants and a cached
+     * credential is one refactor from being the wrong salon's.
+     */
+    showTyping: async ({ tenantId, channelId, recipientId }) => {
+      try {
+        const { data, error } = await db
+          .from('tenant_channels').select('external_id').eq('id', channelId).maybeSingle();
+        if (error !== null || data === null) return;
+        const pageId = String((data as Record<string, unknown>)['external_id'] ?? '');
+        if (pageId === '') return;
+        const secret = await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+        if (!secret.ok) return;
+        await sendSenderAction({
+          pageId, recipientId, token: secret.secret,
+          graphVersion: required('META_GRAPH_VERSION'), action: 'typing_on',
+        });
+      } catch {
+        // Cosmetic. There is nothing to classify and nothing a caller could do.
+      }
+    },
 
     // The public surface, on the same per-request token as the DM path. `loadTenantSecret`
     // is called per reply rather than hoisted, for the reason in secrets/tenantSecret.ts:

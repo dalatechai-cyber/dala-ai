@@ -142,6 +142,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
   const flags: { tenantId: string; conversationId: string; code: string; detail: string }[] = [];
   const standbyAlerts: { tenantId: string; channelId: string; dayKey: string; events: number }[] = [];
   const exhausted: { tenantId: string; eventId: number; attempts: number; ageMinutes: number; limitMinutes: number | null; code: string }[] = [];
+  const typed: { tenantId: string; channelId: string; recipientId: string }[] = [];
 
   const fx: WorkerEffects = {
     db,
@@ -149,6 +150,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     verifySignature: async () => true,
     alertStandby: async (a) => { standbyAlerts.push(a); },
     alertDeliveryExhausted: async (a) => { exhausted.push(a); },
+    showTyping: async (a) => { typed.push(a); },
     graphVersionDefault: () => 'v21.0',
     generateReply: async (a) => {
       generated.push(a);
@@ -171,7 +173,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     },
     ...rest,
   };
-  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted };
+  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted, typed };
 }
 
 const run = (fx: WorkerEffects, rawBody = job(), signature: string | null = 'sig') =>
@@ -989,4 +991,41 @@ test('a delivery that SUCCEEDS never alerts, however many attempts preceded it',
   });
   assert.equal((await run(fx)).status, 200);
   assert.equal(exhausted.length, 0);
+});
+
+// ── The typing bubble, and the gate that keeps it off a mirrored Page ──────────────────
+
+test('DONE-TEST: THE TYPING BUBBLE IS GATED ON deliver, NOT ON generate', async () => {
+  // The mistake this is here to stop is one character wide and reaches a real person.
+  //
+  // A sender action is an OUTBOUND Graph call: the customer sees the bubble on the Page.
+  // In `shadow` the platform generates and withholds, while the incumbent answers that
+  // same Page — so a bubble gated on `generate` would appear in front of somebody else's
+  // customer, promise a reply, and never produce one. `delivery.generate` is true in
+  // shadow and `delivery.deliver` is not, which is the whole distinction.
+  const shadow = await stubEffects({
+    tables: { tenant_channels: { data: { id: 'ch-1', tenant_id: 't-1', external_id: '100000000000001', delivery_mode: 'shadow', token_status: 'active', status: 'active', app_slug: 'dalatech', meta_app_id: null } } },
+  });
+  await run(shadow.fx);
+  assert.deepEqual(shadow.typed, [], 'a mirrored channel must stay invisible on the Page');
+});
+
+test('a live channel shows the bubble, once, before the reply', async () => {
+  const { fx, typed, delivered } = stubEffects();
+  await run(fx);
+  assert.equal(typed.length, 1, 'exactly one bubble per customer message');
+  assert.equal(typed[0]?.channelId, 'c-1');
+  assert.ok(delivered.length >= 1, 'and the reply still goes out');
+});
+
+test('DONE-TEST: A TYPING BUBBLE THAT THROWS NEVER COSTS THE CUSTOMER A REPLY', async () => {
+  // It is not awaited, so a rejection here would be an unhandled rejection on a lambda
+  // mid-reply rather than a handled failure. The worker catches it and carries on: a
+  // decoration must never be able to take the reply down with it.
+  const { fx, delivered, logs } = stubEffects();
+  fx.showTyping = async () => { throw new Error('graph down'); };
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(delivered.length, 1, 'the reply is unaffected');
+  assert.ok(reasons(logs).includes('typing_indicator_failed'), 'and the failure is visible');
 });

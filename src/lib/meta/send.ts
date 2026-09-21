@@ -74,6 +74,14 @@ export type SendOutcome =
   /** The request left and the answer never arrived. Do not re-send. Do not mark failed. */
   | { outcome: 'indeterminate'; detail: string };
 
+/**
+ * The typing bubble's own budget, far shorter than a message send's.
+ *
+ * The indicator is worthless once the reply has gone out, so a slow one is abandoned
+ * rather than left holding a socket open on a lambda trying to finish its work.
+ */
+const SENDER_ACTION_TIMEOUT_MS = 3_000;
+
 export type SendInput = {
   /** The channel's `external_id`. The literal `me` is refused. */
   pageId: string;
@@ -284,4 +292,77 @@ export async function sendMessage(input: SendInput): Promise<SendOutcome> {
     status: res.status,
     detail: `graph ${res.status} code=${code ?? '?'} subcode=${subcode ?? '?'}${trace === null ? '' : ` fbtrace=${trace}`}`,
   };
+}
+
+/**
+ * Show the customer the typing bubble while a reply is being prepared.
+ *
+ * ## Why this is here at all
+ *
+ * The incumbent has done it for months and this platform did not, and the founder named it
+ * directly after Matrix's live test: Dala AI "replied noticeably slower". Part of that gap
+ * is real latency and is fixed elsewhere — but part of it is that the ancestor tells the
+ * customer something is happening within a second, and a wait you can see is a different
+ * experience from a silence you cannot. When the incumbent has a rule we do not, that is a
+ * measured loss rather than a nice-to-have.
+ *
+ * ## Fire and forget, and never a failure
+ *
+ * `sendSenderAction` is cosmetic. It resolves `false` on every error rather than throwing,
+ * because the one thing it must never do is cost a customer their reply: a typing indicator
+ * that fails, times out, or is refused by Meta has to leave the send path exactly as it
+ * found it. The caller does not await it.
+ *
+ * Its timeout is deliberately much shorter than a message send's. The bubble is worth
+ * nothing once the reply has already gone out, so a slow one should be abandoned rather
+ * than kept alive holding a socket open on a lambda that is trying to finish.
+ *
+ * ## It is an OUTBOUND Graph call, so the delivery gate applies to it
+ *
+ * This is the part that is easy to get wrong. A typing bubble is visible to a real customer
+ * on the Page, so calling it while `delivery_mode` is `shadow` would put an indicator in
+ * front of somebody the incumbent is answering — a bubble that never produces a message,
+ * from a bot that is supposed to be invisible. The caller must pass the same eligibility
+ * check that gates `sendMessage`; this function deliberately takes a token and cannot
+ * decide that for itself.
+ */
+export async function sendSenderAction(input: {
+  pageId: string;
+  recipientId: string;
+  token: string;
+  graphVersion: string;
+  action?: 'typing_on' | 'typing_off' | 'mark_seen';
+  timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+}): Promise<boolean> {
+  // The same `me` refusal as `sendMessage`, for the same reason: `me` resolves the Page
+  // from the token, so a token/tenant mismatch would show the bubble on the wrong salon's
+  // Page instead of failing. Cosmetic does not mean unaddressed.
+  if (input.pageId === '' || input.pageId === 'me' || input.recipientId === '') return false;
+
+  const doFetch = input.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? SENDER_ACTION_TIMEOUT_MS);
+  try {
+    const res = await doFetch(
+      `https://graph.facebook.com/${input.graphVersion}/${encodeURIComponent(input.pageId)}/messages`,
+      {
+        method: 'POST',
+        headers: { authorization: `Bearer ${input.token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          recipient: { id: input.recipientId },
+          sender_action: input.action ?? 'typing_on',
+        }),
+        signal: controller.signal,
+        cache: 'no-store',
+      },
+    );
+    return res.ok;
+  } catch {
+    // Every failure is the same failure here: the customer does not see a bubble. There is
+    // nothing to classify, nothing to retry, and nothing a caller could usefully do.
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }

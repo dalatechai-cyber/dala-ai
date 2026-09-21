@@ -161,6 +161,16 @@ export type WorkerEffects = {
   generateReply: (args: GenerateArgs) => Promise<ReceptionOutcome>;
   deliver: (args: DeliverArgs) => Promise<DeliverOutcome>;
   /**
+   * Show the customer the typing bubble. Cosmetic, fire-and-forget, never awaited.
+   *
+   * The incumbent has done this for months and this platform did not, which is part of why
+   * the founder measured Dala AI as "noticeably slower": a wait you can see is a different
+   * experience from a silence you cannot. It is an OUTBOUND Graph call, so it is gated on
+   * the same `canDeliver` verdict as a real send — a bubble in `shadow` would appear in
+   * front of a customer the incumbent is answering and never produce a message.
+   */
+  showTyping: (args: { tenantId: string; channelId: string; recipientId: string }) => Promise<void>;
+  /**
    * §3.9's "Quality flag" on a refusal. Best-effort by construction: it is evidence for a
    * person to read later, never a control, and a flag that cannot be written must not
    * change what the customer gets.
@@ -711,6 +721,25 @@ async function runReceptionDelivery(
       });
       notGenerated.push(message.externalId);
       continue;
+    }
+
+    // The bubble, before the model call and NOT awaited.
+    //
+    // `delivery.deliver` and not `delivery.generate`: the mirror generates and withholds,
+    // so a `shadow` channel must stay invisible on the Page — an indicator there would be
+    // shown to a customer the incumbent is answering, promising a message that never comes.
+    // Gating it on `generate` would have been the natural mistake and is the one that
+    // reaches a real person.
+    //
+    // Not awaited, and its own failures are swallowed inside the effect: a customer's reply
+    // must never wait on, or be lost to, a decoration.
+    if (delivery.deliver) {
+      void fx.showTyping({ tenantId, channelId, recipientId: message.senderId })
+        .catch((e: unknown) => {
+          fx.log('info', 'typing_indicator_failed', {
+            externalId: message.externalId, detail: e instanceof Error ? e.message : String(e),
+          });
+        });
     }
 
     // §3.9's check 7. AFTER the message is persisted — §3.4.5's "persist everything,

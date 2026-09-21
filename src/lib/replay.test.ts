@@ -303,6 +303,7 @@ function worker(s: ReturnType<typeof store>, eventId: number) {
     verifySignature: async () => true,
     alertStandby: async () => {},
     alertDeliveryExhausted: async () => {},
+    showTyping: async () => {},
     graphVersionDefault: () => 'v21.0',
     generateReply: async (a) => {
       // The reply's dedup key comes from THE MESSAGE BEING ANSWERED, exactly as
