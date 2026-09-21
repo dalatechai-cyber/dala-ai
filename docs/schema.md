@@ -560,3 +560,31 @@ whitespace, and that is the whole test a credential passes.
 
 **Warn only.** Nothing in the platform may renew or re-authorize from these columns
 (founder, 2026-09-21).
+
+### `0036_prompt_blocks_seed`
+
+**No DDL at all.** It rewrites the `prompt_blocks` rows from the twenty-two signed files in
+`prompt/platform/*.mn.txt`. Nothing is dropped, added or narrowed; writing INSERTs by hand
+is unaffected.
+
+**It is GENERATED, never edited.** `node scripts/prompt/generate-seed.ts` writes it and
+`--check` fails when it is stale, because a hand-copied seed is a second copy of the
+platform's Mongolian and the second copy is what drifts (D-020). Two tests enforce it:
+*"the NEWEST seed migration is exactly what the signed files produce"* and *"every signed
+platform file reaches the migration, and nothing else does"*. Both went red the moment
+`02_style` was re-signed and before this file existed, which is the mechanism working.
+
+**What changed in it:** `02_style` only, on the founder's approval of style item (4),
+2026-09-21. Rule (4) now says that a service with THREE or fewer price options is answered
+with each option on **its own short line with its price**, and FOUR or more still gets one
+short clarifying question. Rule (3) had to move with it: it previously forbade
+«Жагсаалт» — lists — outright, which the new (4) would have contradicted, so it now forbids
+the MARKERS (`**`, `#`, `•`, a line-initial `-`, HTML) and says in as many words that
+breaking lines is allowed. Leaving both as they were would have been two rules with nothing
+ordering them, which is exactly the Ш2/Ш8 collision D-065 measured.
+
+**Pushing it changes no reply on its own.** The compiled prefix is what a tenant is
+answered from, so every tenant must be republished afterwards — deploy, `git pull`,
+publish, in that order (D-074). Expect every `content_hash` to move and every
+`allowed_numbers` to stay put; if a tenant's numbers move, something other than this
+changed too.
