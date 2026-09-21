@@ -1,55 +1,357 @@
 {
   "note": "Every message here is either the founder's own live test, a REAL customer message from the corpus, or a named edge case. Nothing is invented: an imagined customer message measures the imagination, not the bot.",
   "cases": [
-    { "id": "f01", "source": "founder", "text": "Сайн байна уу", "expect": "A greeting. ONE greeting, and not repeated on later turns." },
-    { "id": "f02", "source": "founder", "text": "sain bnuu", "expect": "Latin-script greeting must be understood (D-067)." },
-    { "id": "f03", "source": "founder", "text": "une hedve", "expect": "Latin 'how much'. Should ask WHICH service rather than refuse." },
-    { "id": "f04", "source": "founder", "text": "uscinii", "expect": "Latin 'the hairdresser's'. Tier question." },
-    { "id": "f05", "source": "founder", "text": "Үс будахад хэд вэ?", "expect": "MUST disambiguate by length and quote 135k / 176k / 200k." },
-    { "id": "f06", "source": "founder", "text": "Сор хэд вэ?", "expect": "MUST quote 120,000₮–190,000₮. Never 'I do not have the number'." },
-    { "id": "f07", "source": "founder", "text": "CICA хими байгаа юу?", "expect": "No such service. The real ones are «эмчилгээний хими» and «CICA нөхөн сэргээх эмчилгээ» (198k, 154k on course)." },
-    { "id": "f08", "source": "founder", "text": "Үс маань их хуурай, хугараад байна, юу хийх вэ?", "expect": "Damaged hair -> book a consultation with a master stylist. NOT a medical refusal." },
-    { "id": "f09", "source": "founder", "text": "Цаг захиалмаар байна, утас хэд вэ?", "expect": "Booking + phone. MUST be 76001888 / 80905498, never 7741-7777. Must NOT inherit the previous turn's refusal." },
-    { "id": "f10", "source": "founder", "text": "Хаана байрладаг вэ?", "expect": "Address + the Maps link." },
-    { "id": "f11", "source": "founder", "text": "Маникюр хэд вэ?", "expect": "Nail catalogue, not hair. Budaggui manicure 25,000₮ etc." },
-    { "id": "f12", "source": "founder", "text": "Будаг хэд вэ?", "expect": "AMBIGUOUS: hair dye by length vs nail «Будаг арилгалт» 8,000₮. Must disambiguate, never silently pick." },
-    { "id": "f13", "source": "founder", "text": "Мастер үсчинд орвол дээр юу?", "expect": "Must NOT recommend Мастер (founder's rule). State the tier difference neutrally." },
-    { "id": "f14", "source": "founder", "text": "Шампунь зардаг уу?", "expect": "Products -> matrixecosalon.org/products.html" },
-    { "id": "f15", "source": "founder", "text": "ci henbe", "expect": "'Who are you'. Should say it is the salon's assistant, not hand off." },
-
-    { "id": "c01", "source": "corpus", "text": "будагтай үсний уг цайруулалт хэд вэ", "expect": "Bleaching already-dyed hair. Цайруулалт 430,000₮–570,000₮." },
-    { "id": "c02", "source": "corpus", "text": "Office color ungu har usni ungute usend orohu", "expect": "Latin, office colour on black hair. Оффис колор 380,000₮–460,000₮." },
-    { "id": "c03", "source": "corpus", "text": "Хар өнгөтэй үсэнд орох уу", "expect": "Same question in Cyrillic." },
-    { "id": "c04", "source": "corpus", "text": "сайн байна уу \nүнийн мэдээлэл авья", "expect": "Multi-line greeting + price request." },
-    { "id": "c05", "source": "corpus", "text": "Hi unuudur tsag bnu", "expect": "Latin: any slots today. Booking path." },
-    { "id": "c06", "source": "corpus", "text": "Sn bnu Badmaa stylestiin dugaar hed we", "expect": "A STAFF MEMBER'S PERSONAL NUMBER. Must refuse and give the salon number instead." },
-    { "id": "c07", "source": "corpus", "text": "Budagtai usend himi hiidegv", "expect": "Chemistry on dyed hair — a real service question, not a refusal." },
-    { "id": "c08", "source": "corpus", "text": "Yag ingej budaad dolgiontoi himi hij boldoguu", "expect": "Dye + perm together." },
-    { "id": "c09", "source": "corpus", "text": "оюунаа", "expect": "A stylist's NICKNAME. The ancestor resolves nicknames; we must not say no such person." },
-    { "id": "c10", "source": "corpus", "text": "Tsagiin huwaari", "expect": "Opening hours, NOT a booking request." },
-    { "id": "c11", "source": "corpus", "text": "Hi ene uramshulal bgayu", "expect": "Any promotions. Nothing confirmed -> must not invent one." },
-    { "id": "c12", "source": "corpus", "text": "Vs zasalt buduulah", "expect": "Cut + dye. Should ask gender/tier and length." },
-
-    { "id": "e01", "source": "edge", "text": "Хүүхдийн тайралт хэд вэ?", "expect": "Children's services: NO price, salon phone only. Founder-approved rule." },
-    { "id": "e02", "source": "edge", "text": "huuhdiin us zasuulna", "expect": "Same rule in Latin script (D-067)." },
-    { "id": "e03", "source": "edge", "text": "Эмэгтэй сортой будаг хийлгэх гэсийн", "expect": "«сор» vs «Оффис колор /Сор/» — 3.2x apart and unresolvable. Must ask, never guess." },
-    { "id": "e04", "source": "edge", "text": "Тэжээл хэд вэ?", "expect": "«Тэжээлийн тос» 49,500₮ vs «CMC тэжээл» 132,000₮. Must disambiguate." },
-    { "id": "e05", "source": "edge", "text": "CICA нэг удаа хийлгэвэл хэдэн тэжээлийн тостой тэнцэх вэ?", "expect": "One CICA session is roughly 30-40 тэжээлийн тос. Must NOT say '50 masks'." }
+    {
+      "id": "f01",
+      "source": "founder",
+      "text": "Сайн байна уу",
+      "expect": "A greeting. ONE greeting, and not repeated on later turns."
+    },
+    {
+      "id": "f02",
+      "source": "founder",
+      "text": "sain bnuu",
+      "expect": "Latin-script greeting must be understood (D-067)."
+    },
+    {
+      "id": "f03",
+      "source": "founder",
+      "text": "une hedve",
+      "expect": "Latin 'how much'. Should ask WHICH service rather than refuse."
+    },
+    {
+      "id": "f04",
+      "source": "founder",
+      "text": "uscinii",
+      "expect": "Latin 'the hairdresser's'. Tier question."
+    },
+    {
+      "id": "f05",
+      "source": "founder",
+      "text": "Үс будахад хэд вэ?",
+      "expect": "MUST disambiguate by length and quote 135k / 176k / 200k."
+    },
+    {
+      "id": "f06",
+      "source": "founder",
+      "text": "Сор хэд вэ?",
+      "expect": "MUST quote 120,000₮–190,000₮. Never 'I do not have the number'."
+    },
+    {
+      "id": "f07",
+      "source": "founder",
+      "text": "CICA хими байгаа юу?",
+      "expect": "No such service. The real ones are «эмчилгээний хими» and «CICA нөхөн сэргээх эмчилгээ» (198k, 154k on course)."
+    },
+    {
+      "id": "f08",
+      "source": "founder",
+      "text": "Үс маань их хуурай, хугараад байна, юу хийх вэ?",
+      "expect": "Damaged hair -> book a consultation with a master stylist. NOT a medical refusal."
+    },
+    {
+      "id": "f09",
+      "source": "founder",
+      "text": "Цаг захиалмаар байна, утас хэд вэ?",
+      "expect": "Booking + phone. MUST be 76001888 / 80905498, never 7741-7777. Must NOT inherit the previous turn's refusal."
+    },
+    {
+      "id": "f10",
+      "source": "founder",
+      "text": "Хаана байрладаг вэ?",
+      "expect": "Address + the Maps link."
+    },
+    {
+      "id": "f11",
+      "source": "founder",
+      "text": "Маникюр хэд вэ?",
+      "expect": "Nail catalogue, not hair. Budaggui manicure 25,000₮ etc."
+    },
+    {
+      "id": "f12",
+      "source": "founder",
+      "text": "Будаг хэд вэ?",
+      "expect": "AMBIGUOUS: hair dye by length vs nail «Будаг арилгалт» 8,000₮. Must disambiguate, never silently pick."
+    },
+    {
+      "id": "f13",
+      "source": "founder",
+      "text": "Мастер үсчинд орвол дээр юу?",
+      "expect": "Must NOT recommend Мастер (founder's rule). State the tier difference neutrally."
+    },
+    {
+      "id": "f14",
+      "source": "founder",
+      "text": "Шампунь зардаг уу?",
+      "expect": "Products -> matrixecosalon.org/products.html"
+    },
+    {
+      "id": "f15",
+      "source": "founder",
+      "text": "ci henbe",
+      "expect": "'Who are you'. Should say it is the salon's assistant, not hand off."
+    },
+    {
+      "id": "c01",
+      "source": "corpus",
+      "text": "будагтай үсний уг цайруулалт хэд вэ",
+      "expect": "Bleaching already-dyed hair. Цайруулалт 430,000₮–570,000₮."
+    },
+    {
+      "id": "c02",
+      "source": "corpus",
+      "text": "Office color ungu har usni ungute usend orohu",
+      "expect": "Latin, office colour on black hair. Оффис колор 380,000₮–460,000₮."
+    },
+    {
+      "id": "c03",
+      "source": "corpus",
+      "text": "Хар өнгөтэй үсэнд орох уу",
+      "expect": "Same question in Cyrillic."
+    },
+    {
+      "id": "c04",
+      "source": "corpus",
+      "text": "сайн байна уу \nүнийн мэдээлэл авья",
+      "expect": "Multi-line greeting + price request."
+    },
+    {
+      "id": "c05",
+      "source": "corpus",
+      "text": "Hi unuudur tsag bnu",
+      "expect": "Latin: any slots today. Booking path."
+    },
+    {
+      "id": "c06",
+      "source": "corpus",
+      "text": "Sn bnu Badmaa stylestiin dugaar hed we",
+      "expect": "A STAFF MEMBER'S PERSONAL NUMBER. Must refuse and give the salon number instead."
+    },
+    {
+      "id": "c07",
+      "source": "corpus",
+      "text": "Budagtai usend himi hiidegv",
+      "expect": "Chemistry on dyed hair — a real service question, not a refusal."
+    },
+    {
+      "id": "c08",
+      "source": "corpus",
+      "text": "Yag ingej budaad dolgiontoi himi hij boldoguu",
+      "expect": "Dye + perm together."
+    },
+    {
+      "id": "c09",
+      "source": "corpus",
+      "text": "оюунаа",
+      "expect": "A stylist's NICKNAME. The ancestor resolves nicknames; we must not say no such person."
+    },
+    {
+      "id": "c10",
+      "source": "corpus",
+      "text": "Tsagiin huwaari",
+      "expect": "Opening hours, NOT a booking request."
+    },
+    {
+      "id": "c11",
+      "source": "corpus",
+      "text": "Hi ene uramshulal bgayu",
+      "expect": "Any promotions. Nothing confirmed -> must not invent one."
+    },
+    {
+      "id": "c12",
+      "source": "corpus",
+      "text": "Vs zasalt buduulah",
+      "expect": "Cut + dye. Should ask gender/tier and length."
+    },
+    {
+      "id": "e01",
+      "source": "edge",
+      "text": "Хүүхдийн тайралт хэд вэ?",
+      "expect": "Children's services: NO price, salon phone only. Founder-approved rule."
+    },
+    {
+      "id": "e02",
+      "source": "edge",
+      "text": "huuhdiin us zasuulna",
+      "expect": "Same rule in Latin script (D-067)."
+    },
+    {
+      "id": "e03",
+      "source": "edge",
+      "text": "Эмэгтэй сортой будаг хийлгэх гэсийн",
+      "expect": "«сор» vs «Оффис колор /Сор/» — 3.2x apart and unresolvable. Must ask, never guess."
+    },
+    {
+      "id": "e04",
+      "source": "edge",
+      "text": "Тэжээл хэд вэ?",
+      "expect": "«Тэжээлийн тос» 49,500₮ vs «CMC тэжээл» 132,000₮. Must disambiguate."
+    },
+    {
+      "id": "e05",
+      "source": "edge",
+      "text": "CICA нэг удаа хийлгэвэл хэдэн тэжээлийн тостой тэнцэх вэ?",
+      "expect": "One CICA session is roughly 30-40 тэжээлийн тос. Must NOT say '50 masks'."
+    },
+    {
+      "id": "pb01",
+      "source": "price-binding",
+      "text": "Сор хэд вэ?",
+      "expect": "Сор 120,000–190,000₮. Must NOT serve «Оффис колор»'s 380,000–460,000 without naming it — D-075's unrepairable collision, 3.2x apart.",
+      "priceBinding": {
+        "service": "Сор",
+        "allowedPrices": [
+          "120,000",
+          "190,000"
+        ],
+        "otherServices": [
+          {
+            "name": "Оффис колор",
+            "prices": [
+              "380,000",
+              "460,000"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "pb02",
+      "source": "price-binding",
+      "text": "Тэжээлийн тос хэд вэ?",
+      "expect": "49,500₮. Must NOT serve «CMC тэжээл»'s 132,000 without naming it — the subset collision subsetCollisions found.",
+      "priceBinding": {
+        "service": "Тэжээлийн тос",
+        "allowedPrices": [
+          "49,500"
+        ],
+        "otherServices": [
+          {
+            "name": "CMC тэжээл",
+            "prices": [
+              "132,000"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "pb03",
+      "source": "price-binding",
+      "text": "Үс будуулахад хэд вэ?",
+      "expect": "Hair dye 135,000/176,000/200,000 by length. Must NOT serve the NAIL price 50,000 — two separate catalogues (founder's fact list).",
+      "priceBinding": {
+        "service": "Будаг",
+        "allowedPrices": [
+          "135,000",
+          "176,000",
+          "200,000"
+        ],
+        "otherServices": [
+          {
+            "name": "Гелэн будалт",
+            "prices": [
+              "50,000"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "pb04",
+      "source": "price-binding",
+      "text": "Эмчилгээний хими хэд вэ?",
+      "expect": "220,000–255,000₮. Must NOT serve CICA's 198,000/154,000 — «CICA хими» does not exist and these are different services.",
+      "priceBinding": {
+        "service": "Эмчилгээний хими",
+        "allowedPrices": [
+          "220,000",
+          "255,000"
+        ],
+        "otherServices": [
+          {
+            "name": "CICA нөхөн сэргээх эмчилгээ",
+            "prices": [
+              "198,000",
+              "154,000"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "pb05",
+      "source": "price-binding",
+      "text": "Эмэгтэй үс тайруулахад хэд вэ?",
+      "expect": "55,000₮ (1-р зэрэг) or 66,000–88,000₮ (Мастер). Must NOT serve Омбре's 500,000–640,000 — D-075's own «Омбре at a haircut's price» example, inverted.",
+      "priceBinding": {
+        "service": "Эмэгтэй тайралт",
+        "allowedPrices": [
+          "55,000",
+          "66,000",
+          "88,000"
+        ],
+        "otherServices": [
+          {
+            "name": "Омбре",
+            "prices": [
+              "500,000",
+              "640,000"
+            ]
+          }
+        ]
+      }
+    }
   ],
   "attachmentCases": [
-    { "id": "p01", "source": "founder", "text": "iim bolgoj bolhu", "attachments": ["image"], "expect": "CAPTIONED photo. Must not price from a picture; must ask for the request in words." },
-    { "id": "p02", "source": "edge", "text": "", "attachments": ["image"], "expect": "Photo with no caption." },
-    { "id": "p03", "source": "edge", "text": "", "attachments": ["image", "image"], "stickerIds": ["369239263222822"], "expect": "A thumbs-up sticker, which Meta sends as TWO attachments with the first declared `image` (D-070). Must stay SILENT." }
+    {
+      "id": "p01",
+      "source": "founder",
+      "text": "iim bolgoj bolhu",
+      "attachments": [
+        "image"
+      ],
+      "expect": "CAPTIONED photo. Must not price from a picture; must ask for the request in words."
+    },
+    {
+      "id": "p02",
+      "source": "edge",
+      "text": "",
+      "attachments": [
+        "image"
+      ],
+      "expect": "Photo with no caption."
+    },
+    {
+      "id": "p03",
+      "source": "edge",
+      "text": "",
+      "attachments": [
+        "image",
+        "image"
+      ],
+      "stickerIds": [
+        "369239263222822"
+      ],
+      "expect": "A thumbs-up sticker, which Meta sends as TWO attachments with the first declared `image` (D-070). Must stay SILENT."
+    }
   ],
   "conversations": [
     {
       "id": "t01",
       "note": "The founder's own thread, in order. This is the case that produced 37 -> 1020 character replies, the re-greeting, and the booking question answered with the previous message's health refusal.",
       "turns": [
-        "Сайн байна уу", "une hedve", "Үс будахад хэд вэ?", "Сор хэд вэ?",
-        "CICA хими байгаа юу?", "Үс маань их хуурай, хугараад байна, юу хийх вэ?",
-        "Цаг захиалмаар байна, утас хэд вэ?", "Хаана байрладаг вэ?",
-        "Маникюр хэд вэ?", "Будаг хэд вэ?", "Шампунь зардаг уу?"
+        "Сайн байна уу",
+        "une hedve",
+        "Үс будахад хэд вэ?",
+        "Сор хэд вэ?",
+        "CICA хими байгаа юу?",
+        "Үс маань их хуурай, хугараад байна, юу хийх вэ?",
+        "Цаг захиалмаар байна, утас хэд вэ?",
+        "Хаана байрладаг вэ?",
+        "Маникюр хэд вэ?",
+        "Будаг хэд вэ?",
+        "Шампунь зардаг уу?"
       ]
     }
   ]
