@@ -764,25 +764,6 @@ async function runReceptionDelivery(
       continue;
     }
 
-    // The bubble, before the model call and NOT awaited.
-    //
-    // `delivery.deliver` and not `delivery.generate`: the mirror generates and withholds,
-    // so a `shadow` channel must stay invisible on the Page — an indicator there would be
-    // shown to a customer the incumbent is answering, promising a message that never comes.
-    // Gating it on `generate` would have been the natural mistake and is the one that
-    // reaches a real person.
-    //
-    // Not awaited, and its own failures are swallowed inside the effect: a customer's reply
-    // must never wait on, or be lost to, a decoration.
-    if (delivery.deliver) {
-      void fx.showTyping({ tenantId, channelId, recipientId: message.senderId })
-        .catch((e: unknown) => {
-          fx.log('info', 'typing_indicator_failed', {
-            externalId: message.externalId, detail: e instanceof Error ? e.message : String(e),
-          });
-        });
-    }
-
     // §3.9's check 7. AFTER the message is persisted — §3.4.5's "persist everything,
     // generate nothing" — and before the reservation, so a message nobody wants answered
     // costs three rows and not a reservation, a model call or a send.
@@ -836,6 +817,37 @@ async function runReceptionDelivery(
       return ok({ refused: refusal.code });
     }
 
+    clock.lap('guard');
+
+    // The bubble. Placed HERE, and the placement is the whole of its correctness.
+    //
+    // Two independent conditions, and it took both to get this right:
+    //
+    // `delivery.deliver` and not `delivery.generate` — the mirror generates and withholds,
+    // so a `shadow` channel must stay invisible on the Page. An indicator there would be
+    // shown to a customer the incumbent is answering, promising a message that never comes.
+    // Gating it on `generate` would have been the natural mistake and is the one that
+    // reaches a real person.
+    //
+    // And AFTER every exit that ends in no message at all. Its first form sat above the
+    // freshness check, the history read and the spend guard, so a replayed event past
+    // Matrix's 15-minute limit, a tenant with no token (403) and a shed message (429) each
+    // showed a customer «typing…» and then nothing. A bubble is a PROMISE of a reply; the
+    // only thing left below this line is the model call it exists to cover. It costs ~300ms
+    // of bubble latency to buy that, which is the right side of the trade: the wait being
+    // decorated is the 3-5 second generate, not the reads above it.
+    //
+    // Not awaited, and its own failures are swallowed inside the effect: a customer's reply
+    // must never wait on, or be lost to, a decoration.
+    if (delivery.deliver) {
+      void fx.showTyping({ tenantId, channelId, recipientId: message.senderId })
+        .catch((e: unknown) => {
+          fx.log('info', 'typing_indicator_failed', {
+            externalId: message.externalId, detail: e instanceof Error ? e.message : String(e),
+          });
+        });
+    }
+
     const outcome = await fx.generateReply({
       tenantId, channelId, conversationId,
       inboundExternalId: message.externalId,
@@ -851,6 +863,12 @@ async function runReceptionDelivery(
       // message leaves priorTurns empty.
       historyEmpty: priorTurns.length === 0,
     });
+    // Lapped the instant the call returns, and deliberately BEFORE the outcome is
+    // branched on. Its first form lapped below the `!delivery.deliver` early-continue, so
+    // a `shadow` tenant recorded every phase EXCEPT the model call — and shadow is Matrix,
+    // the only tenant whose latency anybody is asking about. An instrument that omits the
+    // dominant phase for the tenant being measured is worse than no instrument.
+    clock.lap('generate');
 
     if (outcome.kind === 'retry') {
       fx.log('error', 'reception_retry', { detail: outcome.detail });
@@ -878,6 +896,7 @@ async function runReceptionDelivery(
         tenantId, conversationId, messageId: stored.value.messageId, detail: traced.detail ?? '',
       });
     }
+    clock.lap('trace');
 
     if (outcome.refusal !== undefined) {
       fx.log('warn', 'answered_with_handoff', { code: outcome.refusal, conversationId });
@@ -891,7 +910,6 @@ async function runReceptionDelivery(
       continue;
     }
 
-    clock.lap('generate');
     const held = await claim(db, { id: outcome.outboundId, tenantId, now });
     clock.lap('claim');
     if (held.outcome === 'unavailable') {

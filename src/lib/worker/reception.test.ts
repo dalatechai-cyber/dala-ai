@@ -1018,6 +1018,59 @@ test('a live channel shows the bubble, once, before the reply', async () => {
   assert.ok(delivered.length >= 1, 'and the reply still goes out');
 });
 
+test('DONE-TEST: A MESSAGE THAT WILL NEVER BE ANSWERED SHOWS NO BUBBLE', async () => {
+  // A bubble is a PROMISE of a reply, so it belongs below every exit that ends in silence.
+  //
+  // The first version of this feature sat above the freshness check, the history read and
+  // the spend guard. An hour-old replay therefore showed a live customer «typing…» and
+  // then produced nothing at all — the one outcome worse than the slow reply the bubble
+  // was added to soften. Same shape as the guard whose trigger moved out from under it:
+  // the code was right where it was written and wrong where it ran.
+  const { fx, typed, delivered, logs } = stubEffects({
+    tables: { webhook_events: { data: { raw_payload: payload({ ts: NOW.getTime() - 60 * 60_000 }) } } },
+  });
+  await run(fx);
+  assert.ok(reasons(logs).includes('reply_too_late'), 'precondition: the message is stale');
+  assert.equal(delivered.length, 0, 'precondition: nothing is sent');
+  assert.deepEqual(typed, [], 'so nothing may have been promised either');
+});
+
+test('DONE-TEST: SHADOW STILL RECORDS HOW LONG THE MODEL TOOK', async () => {
+  // The instrument skipped the only tenant anybody is asking about.
+  //
+  // `clock.lap('generate')` was placed after the `!delivery.deliver` early-continue, so a
+  // shadow channel — which is Matrix, the mirror whose latency prompted this whole piece
+  // of work — logged every phase EXCEPT the model call. The reader would have seen a
+  // timing line that looked complete, summed to far less than the wall clock, and pointed
+  // at the database. An instrument that omits the dominant phase for the tenant being
+  // measured is worse than no instrument, because it is believed.
+  const shadow = stubEffects({
+    tables: { tenant_channels: { data: { id: 'ch-1', tenant_id: 't-1', external_id: '100000000000001', delivery_mode: 'shadow', token_status: 'active', status: 'active', app_slug: 'dalatech', meta_app_id: null } } },
+  });
+  await run(shadow.fx);
+  assert.ok(reasons(shadow.logs).includes('not_delivering'), 'precondition: it drafted and withheld');
+  const timing = shadow.logs.find((l) => l.event === 'reply_timing_ms');
+  assert.ok(timing !== undefined, 'a shadow run still logs its timings');
+  assert.equal(typeof timing.fields?.['generate'], 'number',
+    `the model call is the point of the line: ${JSON.stringify(timing.fields)}`);
+});
+
+test('DONE-TEST: THE SPEND GUARD AND THE TRACE WRITE ARE NOT BILLED TO THE MODEL', async () => {
+  // `generate` used to span the guard RPC, the model call and the trace write — three
+  // round trips under one name, two of them the database. If the guard were the slow
+  // thing in production, this log line would have sent the reader to the model. That is
+  // precisely the "alerted with wrong information" failure, built into the instrument
+  // meant to prevent it.
+  const { fx, logs } = stubEffects();
+  await run(fx);
+  const timing = logs.find((l) => l.event === 'reply_timing_ms');
+  assert.ok(timing !== undefined);
+  for (const phase of ['guard', 'generate', 'trace']) {
+    assert.equal(typeof timing.fields?.[phase], 'number',
+      `${phase} must be its own phase: ${JSON.stringify(timing.fields)}`);
+  }
+});
+
 test('DONE-TEST: A TYPING BUBBLE THAT THROWS NEVER COSTS THE CUSTOMER A REPLY', async () => {
   // It is not awaited, so a rejection here would be an unhandled rejection on a lambda
   // mid-reply rather than a handled failure. The worker catches it and carries on: a
