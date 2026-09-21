@@ -7951,3 +7951,93 @@ recommends a repair should be tested against the repair working**: `service_name
 shipped advice that was false at the moment it was written, and it took a founder asking for
 the corpus to find that out. Its wording now names the length the alias must clear, and says
 to read it off the corpus rather than guess.
+
+## D-106 — App Review was never the gate, and the daily cap was enforcing a superseded number
+
+**2026-09-21**, on the eve of Matrix going live. Two corrections and one mechanism, all
+measured rather than argued.
+
+### 1. App Review: granted, no review required
+
+`docs/comments.md` called App Review *"the first gate"* and *"the multi-week item"*, with
+every other row on the comment surface downstream of it. It was wrong. The founder opened
+the Graph API Explorer on `DALA_AI` and measured:
+
+* `pages_read_user_content`, `pages_manage_metadata`, `pages_manage_engagement` — **all
+  granted, no review required**
+* `debug_token` on the Page token: `pages_show_list, pages_messaging, pages_manage_metadata,
+  pages_read_user_content, pages_manage_engagement`, every one `granular_scopes` →
+  `1520409424715591`
+* `feed` subscribed on the Page object; both Pages read `feed and messages`
+* A real comment produced `webhook_events` id 203 with `has_changes: true`, and
+  `outbound_messages` wrote a `comment_reply` draft at 02:32:44 carrying the reviewed line
+
+Confirmed independently against the project before this was written: that draft exists at
+`2026-09-20 02:32:44.675`, and `has_changes` deliveries are arriving `routed` and
+`processed` as recently as 00:39 on the 21st. **Comments already work end to end in
+shadow.** STATUS.md items 10, 10b and 10c are retired.
+
+**How it survived is the part to keep.** `developers.facebook.com` is 403 through this
+environment's egress proxy, so no session could check the App Dashboard. The claim was
+written once, could not be falsified from here, was read back, and was repeated as
+established fact — including on 2026-09-21, to the founder, as the reason comments could
+not ship that day.
+
+That is the *identical* failure CLAUDE.md's opening describes about the Meta app's very
+existence, and the rule against it — *"an unfalsifiable claim in this repository is a claim
+to re-ask the founder about, not a fact to inherit"* — was already written down, one table
+away, because it had already cost something once. **The rule did not fail. Nobody applied
+it to the neighbouring claim.** A line this repository cannot check must name the founder
+as its only source, in the line itself, or it will be inherited.
+
+### 2. The daily cap was enforcing a number the founder had already superseded
+
+`SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY` was `1.5`, derived from the DISCOUNTED floor:
+₮200,000 × 0.40 / 3,500 = $22.86/month ÷ 30.44 × 2 = $1.50. The founder moved the monthly
+ceiling to **$28.57** on 2026-09-15 (D-072 addendum) and **the daily constant was never
+re-derived**, so it went on enforcing the older figure. $28.57 ÷ 30.44 = $0.939/day, 2×
+headroom is $1.88, and **2.00** is 2.13× — the founder's call, on the argument below.
+
+Measured from Matrix's own mirror, replies and DISTINCT conversations per day, priced at
+D-072's $0.0406 cold and $0.0035 warm:
+
+| day | replies | conversations | est. |
+|---|---|---|---|
+| 09-18 | 65 | 26 | **$1.19** — busiest measured, 79% of the old cap |
+| 09-19 | 40 | 13 | $0.62 |
+| 09-17 | 18 | 6 | $0.29 |
+
+D-016's busiest day was 94 replies. At 09-18's ratio that is ~38 cold starts and 56 warm
+turns: **$1.74** — which $1.50 refuses and $2.00 clears. The founder's reasoning, verbatim:
+*"A first live day that stops silently is worse than the spend."* It stops **silently**
+because `on_exhausted` still has no reader (D-051, D-072 addendum), so the §5.7 ladder does
+not run — the tenant simply goes quiet.
+
+**$2.00 is not yet the effective number for Matrix.** `effectiveDailyCeiling` takes the
+MINIMUM of the compiled cap and `tenant_budgets.daily_ceiling × surface_fractions[surface]`,
+and Matrix's row is $2.00 with `reception: 0.95` → **$1.90**. Raising the constant makes
+$1.90 bind where $1.50 did; making it literally $2.00 needs the row, which is the founder's.
+
+### 3. Cutover: the ancestor goes off FIRST, and the reason is a mechanism
+
+The founder's instinct was right and the reason is stronger than the one he gave. D-080:
+an echo moves `thread_control` to `human` **only where `delivery_mode = 'live'`**. Flip to
+live while the ancestor is still answering and every ancestor reply becomes an echo that
+marks its conversation `human` — and H11 check 4 then refuses exactly those conversations.
+Matrix has 63 conversations and **0** currently marked `human`; the wrong order would mark
+the active ones within minutes, and nothing un-marks them but the reclaim sweeper.
+
+So the cost of "both answer" is not only a customer getting two replies. It is a persistent
+state change that silences the new bot on the busiest threads, arriving through the front
+door — the same trap D-080 was written to avoid on day one.
+
+The gap in the other order is recoverable and the drafts are inert: `claim` takes an
+explicit id from the turn that created it and never scans for old rows, and
+`sweepStrandedEvents` only touches `webhook_events` in non-terminal states, of which Matrix
+has none. **The 173 unsent shadow drafts cannot be sent by any background process** — which
+is the obvious fear when flipping a tenant live with a week of drafts behind it.
+
+One warning that belongs with the order, not after it: `POST /{page-id}/subscribed_apps`
+**replaces** the field list rather than adding to it (D-043, D-062). Removing the ancestor
+must be a `DELETE` issued with the ancestor's own app token, never a re-POST from either
+side.

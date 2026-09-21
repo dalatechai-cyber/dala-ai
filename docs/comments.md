@@ -345,13 +345,44 @@ thread-level claim for a comment we deliberately did not answer, which is a new 
 
 | | Blocked on | Why it cannot be done here |
 |---|---|---|
-| **App Review** — `pages_read_user_content` + `pages_manage_engagement` | **The founder** | **This is the first gate and the table omitted it.** D-023 settled the submission as the comment delta and nothing else: `pages_read_user_content` gates the `feed` webhook field itself, and Meta makes `pages_manage_engagement` *depend on* it, so the two go together or neither. Until both are granted there is no feed to subscribe to and no way to post a reply — every other row below is downstream of this one |
+| ~~**App Review**~~ — **GRANTED, no review required** (2026-09-21) | ~~The founder~~ **done** | See the correction below. `pages_read_user_content`, `pages_manage_metadata` and `pages_manage_engagement` were all granted on `DALA_AI` without review. This row said the opposite for weeks and was wrong |
 | Subscribing `feed` | **The founder** | One Graph write on Matrix's live Page. `POST /{page-id}/subscribed_apps` **replaces** the field list rather than adding to it (D-043, D-062) — sending `feed` alone drops `messages` and takes the DM mirror offline. It must be `messages,feed`. Facebook is unreachable from this environment in any case |
 | `comment_policy` → `public_only` | **The founder** | A config row, but it is the switch that makes the surface live |
 | `comment_public_reply` | **The founder** | Customer-visible Mongolian. Neither tenant has one; the path refuses without it |
 | The stem lists | Proposable here | Stems are not customer-visible strings. The corpus suggests the first set; the salon's own vocabulary confirms it |
 
-None of these blocks building and testing the classifier, which is what the branch does —
-but note the ORDER, because the earlier draft of this table implied the feed subscription
-was step one. It is not. App Review is, it is the multi-week item, and the two Graph
-permissions it grants are what make every other row here reachable at all.
+### CORRECTION, 2026-09-21 — App Review was never the gate
+
+**The row above was wrong, and it was wrong in the most expensive direction: it made a
+thing that already worked look like a multi-week blocker.** On the night of 2026-09-20 the
+founder opened the Graph API Explorer on `DALA_AI` and measured it:
+
+* `pages_read_user_content`, `pages_manage_metadata` and `pages_manage_engagement` — all
+  **granted, no review required**
+* `debug_token` on the Page token returns `pages_show_list, pages_messaging,
+  pages_manage_metadata, pages_read_user_content, pages_manage_engagement`, every one with
+  `granular_scopes` → `1520409424715591`
+* `feed` subscribed on the Page object; both Pages read `feed and messages`
+* A real comment produced `webhook_events` id 203 with `has_changes: true`, and
+  `outbound_messages` wrote a `comment_reply` draft at 02:32:44 carrying the reviewed line
+
+Confirmed independently against the project: that `comment_reply` draft exists at
+`2026-09-20 02:32:44.675`, and `has_changes` deliveries are still arriving `routed` and
+`processed`. **Comments already work end to end in shadow.** The remaining rows below are
+real; App Review is not one of them and never was.
+
+### Why it survived, which is the part worth keeping
+
+`developers.facebook.com` is 403 through this environment's egress proxy, so no session
+could check the App Dashboard. The claim was written once, could not be falsified from
+here, and was then read back and repeated as established fact — including by a session
+that used it on 2026-09-21 to tell the founder comments could not ship that day.
+
+That is **exactly** the failure CLAUDE.md names about the Meta app itself: *"An
+unfalsifiable claim in this repository is a claim to re-ask the founder about, not a fact
+to inherit."* The rule existed, was written down after it had already cost something once,
+and was not applied to the row sitting one table away. A claim this file cannot check must
+name the founder as its only source — as this correction now does.
+
+None of the remaining rows blocks building and testing the classifier, which is what the
+branch does.
