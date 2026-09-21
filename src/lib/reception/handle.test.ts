@@ -785,3 +785,30 @@ test('DONE-TEST: a rule whose line is missing REFUSES THE TENANT, it does not qu
   assert.match(r.kind === 'retry' ? r.detail : '', /canned_response_missing: refusal_topic/);
   assert.equal(drafts.length, 0, 'nothing is drafted: a downgraded refusal is not served');
 });
+
+test('DONE-TEST: A RULE-(4) VIOLATION IS FLAGGED AND THE REPLY IS STILL SENT', async () => {
+  // The rule is the founder's, signed and published; compliance was measured at roughly
+  // half. This counts it so the next wording change can be judged against a rate rather
+  // than against four eyeballed replies.
+  //
+  // The reply is NOT discarded: its content is right and only its shape is wrong.
+  const { deps: d, flags, drafts } = deps({
+    result: { ...OK_REPLY, text: 'Тайралт 33,000₮, засалт 22,000₮ байна.' },
+  });
+  // Both figures must be on the allow-list or check 2 refuses the reply before the style
+  // counter is ever reached — which is what the first run of this test measured.
+  const twoPrices = { ...GUARD_VIEW, allowedNumbers: ['33,000', '22,000'] };
+  const r = await handleReception(d, { ...base, tenantGuard: twoPrices });
+  assert.equal(r.kind, 'drafted');
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'still answered by the model');
+  assert.equal(drafts.at(-1)?.body, 'Тайралт 33,000₮, засалт 22,000₮ байна.', 'unedited');
+  assert.equal(flags.some((f) => f.code === 'style_price_lines'), true);
+});
+
+test('DONE-TEST: a compliant reply is not flagged', async () => {
+  const { deps: d, flags } = deps({
+    result: { ...OK_REPLY, text: 'Тайралт: 33,000₮\nЗасалт: 22,000₮' },
+  });
+  await handleReception(d, { ...base, tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['33,000', '22,000'] } });
+  assert.equal(flags.some((f) => f.code === 'style_price_lines'), false);
+});

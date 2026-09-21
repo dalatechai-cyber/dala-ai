@@ -32,6 +32,7 @@ import { matchDeterministic, type DeterministicRule, type HistoryState } from '.
 import { checkPinnedLines } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
+import { priceLineReport } from '../quality/priceLines.ts';
 import { capToSingleMessage } from '../mn/text.ts';
 
 /** One Messenger send, in characters. */
@@ -509,6 +510,21 @@ export async function handleReception(
     return handoff(deps, input,
       { code: 'outbound_length', detail: 'no sentence boundary within the cap', attempted: result.text },
       matched.matchedResponseKinds);
+  }
+
+  // Style rule (4) compliance, COUNTED not enforced. The founder approved the rule, it is
+  // signed and published, and the model follows it intermittently — the same question
+  // listed three prices one per line in one run and crammed them onto one line in the
+  // next, on the same revision. D-065: an instruction to the model is a request until
+  // something checks it. This does not edit the reply; the content is right and only its
+  // shape is wrong, and discarding a correct answer over line breaks would be D-068 again.
+  const lines = priceLineReport(capped.text);
+  if (lines.violation) {
+    await deps.flag({
+      code: 'style_price_lines',
+      detail: `rule (4): ${lines.total} price options, ${lines.maxPerLine} on one line`,
+      attempted: capped.text,
+    });
   }
 
   const drafted = await deps.draft({ body: capped.text, answeredBy: 'model' });
