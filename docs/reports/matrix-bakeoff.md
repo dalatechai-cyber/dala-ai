@@ -383,7 +383,18 @@ On `f05`, `f11` and `c01` the ancestor **lists every price** and Dala **asks one
 ### Known gaps I did NOT paper over
 
 1. **`c02`, `c03`, `c07`, `c08`, `c12` — the `suitability_*` matchers over-fire.** `suitability_lat_orh` is `["usend","oroh"]` within 40 code points, so «Office color ungu har usni ungute **usend oroh**u» — an ordinary price question — gets the suitability refusal. These are rows **you approved** as a safety rule, so I have not loosened them. They cost answerable questions the ancestor answers. Your call.
-2. **`p01`–`p03` attachments are not exercised by this harness.** `inbound/imageReply.ts` sits UPSTREAM of `handleReception`, so the harness cannot reach it. The photo path is covered by unit tests, not by this table. Stated rather than implied.
+2. **`p01`–`p03` attachments are not exercised by this harness** — `inbound/imageReply.ts` sits UPSTREAM of `handleReception`, so the harness cannot reach it. The photo path is covered by unit tests, not by this table.
+
+   **The STICKER half of that gap closed itself on production traffic at 09:18:26 today**, and it is worth reading because the naive handling would have been wrong. A customer sent a thumbs-up. Meta delivered it as **two** attachments, the first declared `type: "image"`, both carrying `sticker_id 369239263222822`. The recorded flag reads:
+
+   ```json
+   { "idx": 0, "reason": "no_text", "event_id": 313,
+     "attachments": ["sticker"], "sticker_ids": ["369239263222822"] }
+   ```
+
+   **One** attachment entry, not two, and typed `sticker` rather than `image` — so it keyed on `payload.sticker_id` exactly as D-070 requires. No draft, no `messages` row, **no spend**, and the drop is visible as a `quality_flags` row rather than a `console.info`. Counting the array would have said two things arrived; trusting `type` would have called a thumbs-up a photograph and answered it.
+
+   **Still NOT exercised in production: a real photograph, and a captioned photograph.** Those are the two that matter for a salon, and neither has occurred since the deploy. Do not read this as the photo path being proven.
 3. **Production latency is only partly explained — but it is now instrumented rather than guessed at.** The model path is 3.7s; production measured 25.8s p50. The difference is the queue hop and the worker's database round trips, which this harness stubs. `loadReceptionContext` already parallelises ten reads, so the remaining serial work is the next place to look.
 
    Every reply now logs one `reply_timing_ms` line with twelve named phases — `event_read, attempt_write, tenant_read, context_load, persist_inbound, thread_state, history_read, guard, generate, trace, claim, deliver_and_mark` — so the **first real customer turn after this deploys answers the question by measurement.** Until then the production number stays the one to quote.
