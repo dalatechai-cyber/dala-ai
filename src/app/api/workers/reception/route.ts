@@ -27,6 +27,7 @@ import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform
 import { SECTION_LABELS } from '@/lib/prompt/tenant';
 import { raiseAlert } from '@/lib/alerts/alert';
 import { runReceptionJob, type WorkerEffects } from '@/lib/worker/reception';
+import { serviceNamesFromPrefix } from '@/lib/quality/serviceNames';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -81,6 +82,7 @@ function effects(now: Date): WorkerEffects {
           canned: a.ctx.canned,
           tenantGuard: a.ctx.tenantGuard,
           cannedLabel: SECTION_LABELS.canned,
+          serviceNames: serviceNamesFromPrefix(a.ctx.promptStable, SECTION_LABELS.priceList),
           cannedHash: a.ctx.cannedHash,
         },
       ),

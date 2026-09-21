@@ -27,6 +27,7 @@ import { handleReception, MAX_REPLY_CHARS, type ReceptionDeps } from '../../src/
 import { renderTenantSections, type TenantKb } from '../../src/lib/prompt/tenant.ts';
 import { renderStablePrefix, type PromptSection } from '../../src/lib/prompt/render.ts';
 import { renderVolatile } from '../../src/lib/reception/volatile.ts';
+import { serviceNamesFromPrefix } from '../../src/lib/quality/serviceNames.ts';
 import { callReception } from '../../src/lib/model/reception.ts';
 import { cannedHashOf } from '../../src/lib/prompt/sections.ts';
 import { MODEL_REGISTRY } from '../../src/config/platform.ts';
@@ -67,6 +68,8 @@ const PLATFORM: { key: string; ordinal: number }[] = [
   ...['sh0_channel', 'sh1_refusal_topics', 'sh2_price', 'sh3_booking', 'sh4_staff_schedule',
     'sh5_health', 'sh6_concessions', 'sh7_abuse_offtopic', 'sh8_not_in_kb',
     'sh9_instruction_disclosure'].map((key, i) => ({ key, ordinal: 100 + i })),
+  // Signed 2026-09-21. `gateOrder` gives it 111 from the filename, after Ш9.
+  { key: 'sh11_completeness', ordinal: 111 },
 ];
 const APPROVED = '2026-09-04T00:00:00Z';
 
@@ -84,14 +87,15 @@ const APPROVED = '2026-09-04T00:00:00Z';
  */
 const USE_DRAFTS = process.argv.includes('--drafts');
 const DRAFT_SWAPS: Record<string, string> = {
-  '00_gate_preamble': '00_gate_preamble',
-  '02_style': '02_style_rule4',
+  // 00_gate_preamble, 02_style and sh11_completeness were signed on 2026-09-21 and are
+  // read from prompt/platform/ like any other block. Only this one is still a draft.
   'sh2_price': 'sh2_price_precedence',
+  '00_gate_preamble': '00_gate_preamble_no_labels',
+  'sh11_completeness': 'sh11_completeness_names',
+  'sh3_booking': 'sh3_booking_deposit',
 };
 /** Blocks that exist ONLY as drafts, appended after the numbered gate. */
-const DRAFT_EXTRA: { key: string; file: string; ordinal: number }[] = [
-  { key: 'sh11_completeness', file: 'sh11_completeness', ordinal: 111 },
-];
+const DRAFT_EXTRA: { key: string; file: string; ordinal: number }[] = [];
 const MARKER = '--- THE BLOCK ---';
 function blockBody(path: string): string {
   const raw = readFileSync(path, 'utf8');
@@ -194,6 +198,7 @@ async function ask(text: string, attachments: readonly string[], history: { role
         maxReplyChars: MAX_REPLY_CHARS,
       } as never,
       cannedLabel: SECTION_LABELS.canned, cannedHash,
+      serviceNames: serviceNamesFromPrefix(promptStable, SECTION_LABELS.priceList),
     } as never);
     return { ok: true, reply: record.body ?? null, answeredBy: record.answeredBy ?? null,
       flags: record.flags, flagDetail: record.flagDetail, kind: (out as { kind: string }).kind, ms: Date.now() - started,

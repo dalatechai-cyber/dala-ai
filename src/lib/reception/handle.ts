@@ -33,6 +33,7 @@ import { checkPinnedLines } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
 import { priceLineReport } from '../quality/priceLines.ts';
+import { serviceNameReport } from '../quality/serviceNames.ts';
 import { capToSingleMessage } from '../mn/text.ts';
 
 /** One Messenger send, in characters. */
@@ -123,6 +124,15 @@ export type ReceptionInput = {
    * volatile tail. Not a skipped check: a format marker with two correct branches.
    */
   cannedHash: string | null;
+  /**
+   * The service names the tenant's price list renders, for the name-fidelity COUNTER.
+   *
+   * Derived from `promptStable` by `serviceNamesFromPrefix`, so it costs no query. Required
+   * rather than defaulted: `[]` would silently mean "this tenant sells nothing", and a
+   * caller that forgets would turn the counter off rather than fail — which is the shape
+   * `customerAttachments` already refuses for the same reason.
+   */
+  serviceNames: readonly string[];
 };
 
 export type ReceptionOutcome =
@@ -523,6 +533,21 @@ export async function handleReception(
     await deps.flag({
       code: 'style_price_lines',
       detail: `rule (4): ${lines.total} price options, ${lines.maxPerLine} on one line`,
+      attempted: capped.text,
+    });
+  }
+
+  // Service-name fidelity, COUNTED not enforced. Three instructions have failed at this
+  // (sh11's (11в), the signed (11ж), and the founder saying it in as many words), which is
+  // D-065's rule arriving for the third time today: an instruction is a request until
+  // something checks it. Enforcing would mean refusing an otherwise correct reply over a
+  // name and sending the generic handoff — D-068's mistake in a new table — so the
+  // ENFORCE-or-count decision is the founder's, and this is the rate he needs to make it.
+  const names = serviceNameReport(capped.text, input.serviceNames);
+  if (names.altered.length > 0) {
+    await deps.flag({
+      code: 'service_name_altered',
+      detail: `renamed: ${names.altered.join(', ')}`,
       attempted: capped.text,
     });
   }

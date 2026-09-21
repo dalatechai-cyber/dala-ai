@@ -1,0 +1,270 @@
+{
+  "ranAt": "2026-09-21T19:11:37.108Z",
+  "model": "claude-sonnet-5",
+  "tag": "final-v1",
+  "prefixChars": 23781,
+  "allowedNumbers": [
+    "1",
+    "10,000",
+    "10:00",
+    "11:00",
+    "120,000",
+    "132,000",
+    "135,000",
+    "154,000",
+    "16,500",
+    "176,000",
+    "190,000",
+    "198,000",
+    "19:00",
+    "20,000",
+    "200,000",
+    "20:00",
+    "22,000",
+    "220,000",
+    "255,000",
+    "3",
+    "3-5",
+    "30",
+    "30-40",
+    "33,000",
+    "380,000",
+    "4-5",
+    "430,000",
+    "44,000",
+    "44,000–88,000",
+    "460,000",
+    "49,500",
+    "50,000",
+    "500,000",
+    "510,000",
+    "55,000",
+    "570,000",
+    "640,000",
+    "66,000",
+    "70",
+    "71,500",
+    "76001888",
+    "80905498",
+    "88,000",
+    "99,000"
+  ],
+  "singles": {
+    "f05": {
+      "text": "Үс будахад хэд вэ?",
+      "ok": true,
+      "reply": "Будалтын үнэ урт, төрлөөс хамаарна:\n\nДунд урттай үс (мөрнөөс дээш): 176,000₮\nУрт үс (мөр давсан): 200,000₮\nҮсний угийн будаг: 135,000₮\n\nТа бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 4340,
+      "usage": {
+        "input_tokens": 136,
+        "output_tokens": 130,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 16757
+      }
+    },
+    "f06": {
+      "text": "Сор хэд вэ?",
+      "ok": true,
+      "reply": "Сор: 120,000₮–190,000₮",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 1959,
+      "usage": {
+        "input_tokens": 133,
+        "output_tokens": 18,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f09": {
+      "text": "Цаг захиалмаар байна, утас хэд вэ?",
+      "ok": true,
+      "reply": "Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.\n\nМастер үсчний урьдчилгаа төлбөр 20,000₮, 1-р зэргийн үсчний урьдчилгаа төлбөр 10,000₮ байна.\n\nХолбоо барих утас: 76001888, 80905498.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 4314,
+      "usage": {
+        "input_tokens": 145,
+        "output_tokens": 162,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f13": {
+      "text": "Мастер үсчинд орвол дээр юу?",
+      "ok": true,
+      "reply": "Уучлаарай, энэ асуултын утга тодорхойгүй байна — та мастер үсчний ямар үйлчилгээ (тайралт, будалт гэх мэт), эсвэл ямар зэрэглэлийг хэлж байгаагаа тодруулж өгвөл баяртайгаар хариулна.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 5221,
+      "usage": {
+        "input_tokens": 141,
+        "output_tokens": 114,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n01": {
+      "text": "dugaar hedve",
+      "ok": true,
+      "reply": "Танд туслахад бэлэн байна. Холбогдох дугаар: 76001888 эсвэл 80905498.",
+      "answeredBy": "model",
+      "flags": [
+        "style_price_lines"
+      ],
+      "flagDetail": [
+        {
+          "code": "style_price_lines",
+          "detail": "rule (4): 2 price options, 2 on one line",
+          "attempted": "Танд туслахад бэлэн байна. Холбогдох дугаар: 76001888 эсвэл 80905498."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 1743,
+      "usage": {
+        "input_tokens": 130,
+        "output_tokens": 43,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n02": {
+      "text": "dund zergiin usend shuluun himi hedeer hiih ve",
+      "ok": true,
+      "reply": "Шулуун хими: 430,000₮–510,000₮",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 2352,
+      "usage": {
+        "input_tokens": 146,
+        "output_tokens": 22,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n03": {
+      "text": "tsag zahialah",
+      "ok": true,
+      "reply": "Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.\n\nУрьдчилгаа төлбөрийн дүн ажилтны зэрэглэлээс хамаарна:\nМастер үсчин: 20,000₮\n1-р зэргийн үсчин: 10,000₮",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 3995,
+      "usage": {
+        "input_tokens": 130,
+        "output_tokens": 152,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n04": {
+      "text": "us budalt",
+      "ok": true,
+      "reply": "Уучлаарай, тодруулга авъя: та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 3999,
+      "usage": {
+        "input_tokens": 127,
+        "output_tokens": 55,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n05": {
+      "text": "hayag",
+      "ok": true,
+      "reply": "Манай хаяг: Яармагийн Номин Хайпермаркетын баруун талд.\nБайршлын холбоос: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 1599,
+      "usage": {
+        "input_tokens": 126,
+        "output_tokens": 74,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n06": {
+      "text": "Маникюр хэд вэ?",
+      "ok": true,
+      "reply": "Манай салон одоогоор хумсны үйлчилгээ үзүүлэхгүй байна.",
+      "answeredBy": "canned",
+      "flags": [
+        "canned_paraphrased"
+      ],
+      "flagDetail": [
+        {
+          "code": "canned_paraphrased",
+          "detail": "the reply is 0.982 of \"refusal_service_unavailable\" and is not it; served the row instead, discarding 11 of 66 characters. Attempted: Уучлаарай, манай салон одоогоор хумсны үйлчилгээ үзүүлэхгүй байна."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 2269,
+      "usage": {
+        "input_tokens": 135,
+        "output_tokens": 44,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n07": {
+      "text": "CICA хими байгаа юу?",
+      "ok": true,
+      "reply": "CICA хими гэсэн үйлчилгээ манайд байхгүй. CICA бол хими биш, харин үсний гэмтсэн давхаргад ажилладаг нөхөн сэргээх эмчилгээ бөгөөд нэг удаагийн үнэ нь 198,000₮ (курсээр 154,000₮). Та үүнийг хэлж байна уу, эсвэл химийн үйлчилгээ сонирхож байна уу?",
+      "answeredBy": "model",
+      "flags": [
+        "style_price_lines"
+      ],
+      "flagDetail": [
+        {
+          "code": "style_price_lines",
+          "detail": "rule (4): 2 price options, 2 on one line",
+          "attempted": "CICA хими гэсэн үйлчилгээ манайд байхгүй. CICA бол хими биш, харин үсний гэмтсэн давхаргад ажилладаг нөхөн сэргээх эмчилгээ бөгөөд нэг удаагийн үнэ нь 198,000₮ (курсээр 154,000₮). Та үүнийг хэлж байна уу, эсвэл химийн үйлчилгээ сонирхож байна уу?"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 5322,
+      "usage": {
+        "input_tokens": 135,
+        "output_tokens": 160,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n08": {
+      "text": "Үс маань их хуурай, хугараад байна, юу хийх вэ?",
+      "ok": true,
+      "reply": "Уучлаарай, түр хүлээгээрэй — үс их хуурай, хугарч гэмтсэн бол манайд дараах эмчилгээнүүд байна:\n\nCICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)\nТэжээлийн тос: 49,500₮\nCMC тэжээл: 132,000₮\nТэжээл: 44,000₮–88,000₮\n\nҮсэнд тань аль нь тохирохыг мастер үсчин зөвлөж өгнө. Дэлгэрэнгүй бол 76001888 эсвэл 80905498 дугаараар холбогдоно уу.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 7633,
+      "usage": {
+        "input_tokens": 150,
+        "output_tokens": 237,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    }
+  },
+  "conversations": {}
+}

@@ -1,23 +1,19 @@
-UNSIGNED DRAFT — loaded by nothing. A NEW platform block: prompt/platform/sh11_completeness.mn.txt.
+UNSIGNED DRAFT — loaded by nothing. A REVISION of prompt/platform/sh11_completeness.mn.txt,
+signed earlier today. One sub-rule (11ж) added; everything else byte-identical.
 
-WHY: the twelve signed gate blocks are ALL prohibitions — they say what the model must not
-say. Not one of them says what it MUST say. Measured 2026-09-21, four turns of sixteen lost
-to the same shape, with no guard involved in any of them:
+WHY: founder, 2026-09-21 — "Service names must be used exactly as written. It still rewrites
+«Дунд үсний будаг» as «Дунд урттай (мөрнөөс дээш) үс». That's wrong every time."
 
-  turn 4  «CICA хими байгаа юу?»          — explained the distinction correctly, then gave
-                                             neither of the two CICA prices it holds.
-  turn 5  «Үс маань хуурай, хугараад…»    — the ancestor listed SIX treatments with prices;
-                                             Dala gave only «see a master stylist».
-  turn 8  «Маникюр хэд вэ?»                — dropped a service that is in the price list.
-  turn 10 «Мастер үсчинд орвол дээр юу?»  — pivoted from dye to haircuts mid-conversation.
+Measured after the first three blocks were signed: «Дунд урттай үс: 176,000₮» and «Урт үс:
+200,000₮», dropping the «…будаг» head noun and keeping only the parenthetical. (11в) as
+signed covers the NEAREST-MATCH case — a name the customer asked for that is not on the
+list — and says nothing about how to write a name that IS on it.
 
-The safest way to not break a price rule is to say nothing about price, so a prompt made only
-of prohibitions teaches exactly that. This block is the counterweight. It names no canned key,
-so check-gate-keys has nothing to resolve.
+The stake is not tidiness: a customer books by the name they were given, and a name that is
+not the salon's name is a booking for something else.
 
-NOTE ON THE EXAMPLE: the figures below are placeholders (А/Б/В, round numbers) and are NOT any
-tenant's real prices. A platform block is read by every tenant; a constant only one tenant's
-numbers fit does not belong in one.
+The example is tenant-neutral («Нэр (тодруулга)») on purpose. A platform block is read by
+every tenant, and a constant only one tenant's names fit does not belong in one.
 
 --- THE BLOCK ---
 
@@ -37,6 +33,13 @@ numbers fit does not belong in one.
           үйлчилгээний нэрийг ЖАГСААЛТАД БИЧСЭН ЯГ ТЭР ХЭВЭЭР нь хэлж, үнийг нь хэлээд,
           «Та үүнийг хэлж байна уу?» гэж асуу. Үнэ хэлэх бүртээ аль үйлчилгээний үнэ
           болохыг ЗААВАЛ нэрлэ. Нэргүй үнэ хэлэх хориотой.
+
+    (11ж) Үйлчилгээний нэрийг «ҮНИЙН ЖАГСААЛТ»-д бичсэн ЯГ ТЭР ХЭВЭЭР нь бич — үг
+          нэмэхгүй, хасахгүй, товчлохгүй, солихгүй. Хаалтанд байгаа тодруулгыг ч хэвээр
+          нь үлдээ. Жагсаалтад «Нэр (тодруулга): үнэ» гэж байвал хариултад ч «Нэр
+          (тодруулга): үнэ» гэж бич. Нэрийг хаяад зөвхөн тодруулгыг нь үлдээх нь БУРУУ —
+          хэрэглэгч тэр нэрээр цаг захиалах тул өөр нэр хэлэх нь буруу үйлчилгээ
+          захиалахад хүргэнэ.
 
     (11е) Хэрэглэгч ХЭД ХЭДЭН зүйл асуувал БҮГДЭД нь хариул. Нэгд нь хариулаад нөгөөг
           нь орхих хориотой. Жишээ: «цаг захиалмаар байна, утас хэд вэ?» гэвэл цаг

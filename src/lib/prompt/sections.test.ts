@@ -143,7 +143,7 @@ test('a malformed row is skipped rather than sorting as NaN', async () => {
 // The real signed blocks, compiled
 // ---------------------------------------------------------------------------
 
-test('DONE-TEST: the twelve signed gate blocks compile into one prefix, in wire order', async () => {
+test('DONE-TEST: the signed gate blocks compile into one prefix, in wire order', async () => {
   // The whole point of this module, over the real text. `renderStablePrefix` had never
   // been given real sections; this is that call, with the bytes a native speaker signed.
   const { readSignedBlocks } = await import('../../../scripts/prompt/generate-seed.ts');
@@ -157,7 +157,10 @@ test('DONE-TEST: the twelve signed gate blocks compile into one prefix, in wire 
       reviewedAt: b.reviewedAt,
       origin: 'platform' as const,
     }));
-  assert.equal(sections.length, 13);
+  // Thirteen gate blocks plus 00/01/02 headers — fourteen sections. Ш11 joined on
+  // 2026-09-21; this number is asserted rather than derived so adding a block is a
+  // decision somebody makes, not a diff nobody reads.
+  assert.equal(sections.length, 14);
 
   const out = renderStablePrefix(sections);
   assert.equal(out.ok, true);
@@ -167,7 +170,7 @@ test('DONE-TEST: the twelve signed gate blocks compile into one prefix, in wire 
     '00_gate_preamble', '01_data_marker', '02_style',
     'sh0_channel', 'sh1_refusal_topics', 'sh2_price', 'sh3_booking', 'sh4_staff_schedule',
     'sh5_health', 'sh6_concessions', 'sh7_abuse_offtopic', 'sh8_not_in_kb',
-    'sh9_instruction_disclosure',
+    'sh9_instruction_disclosure', 'sh11_completeness',
   ]);
 
   // The gate preamble must come first: it is the instruction to evaluate every check,
