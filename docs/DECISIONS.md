@@ -8479,9 +8479,20 @@ promising a reader that did not exist — the same shape as `config/platform.ts:
 a monthly ceiling nothing reads, and the third *built-but-never-wired* instance found in one
 night alongside `webhook_events.attempts` (D-110) and the history above.
 
-The founder's verdict: a bot that cannot quote the salon's own confirmed prices is worse
-than the wrong-service risk, and the incumbent has quoted them in production for months
-under disambiguation rules rather than silence.
+The founder's verdict, and its provenance is checkable rather than remembered: the
+overnight brief of 2026-09-21 lists «claiming not to know prices it has (dye by length,
+сор, CICA, manicure)» as complaint 3, and then names the figures under *facts every reply
+must get right* — 135k/176k/200k by length, сор 120–190k, CICA 198k a session and 154k on a
+course. An instruction to quote those entails putting them where the model can see them. So
+a bot that cannot quote the salon's own confirmed prices is worse than the wrong-service
+risk, and the incumbent has quoted them in production for months under disambiguation rules
+rather than silence.
+
+**Read that as a reversal made on an explicit instruction, not as a settled preference.**
+D-075's mechanism argument is untouched and is restated in `docs/reports/matrix-bakeoff.md`
+for the founder to re-make in daylight: the report says what is still guaranteed (the
+digits-only reduction), what is not (that a price belongs to the service asked about), and
+that declining to republish leaves the whole change inert.
 
 ### Three details that decide whether this is safe
 

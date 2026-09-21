@@ -391,6 +391,36 @@ On `f05`, `f11` and `c01` the ancestor **lists every price** and Dala **asks one
    Three defects in that instrument were found by re-reading it before merge, and they are worth stating because each would have sent you the wrong way: `generate` originally spanned the spend-guard RPC and the trace write as well as the model call (so a slow database would have read as a slow model); the lap was placed after the shadow early-exit (so **Matrix, the only tenant being measured, recorded every phase except the model call**); and the timing line looked complete in both cases. Fixed, with a regression test each, every one verified to fail against the old code first.
 4. **`c02` tripped `outbound_gate_label`** — the model tried to narrate a gate label and the guard killed it (D-066 doing its job). Worth knowing it still happens on Latin-script input.
 
+### The safety property this reverses, said plainly
+
+Complaint 3 on your list — *it claims not to know prices it has* — could only be fixed by
+putting the confirmed figures in front of the model. **That reverses D-075, which was your
+own call on 2026-09-15**, and I would rather you re-make it in daylight than inherit it.
+
+D-075 suppressed every price for a specific reason, and the reason has not gone away:
+`allowed_numbers` is a SET, so the outbound guard checks that a numeral is on this tenant's
+list and **never that it belongs to the service being discussed.** «Омбре 33,000₮» — a
+500,000–640,000 service quoted at a haircut's price — passes every check. A real price
+against the wrong service is more plausible than an invented one, and harder to spot.
+
+What D-075 traded that risk for was `reception/price.ts` serving the figure from the row
+instead. **That module was built, tested, and is imported by nothing** — `decidePriceQuote`
+and `priceText` have zero callers. So for six days the figures were withheld on the strength
+of a replacement that did not exist, and the bot told a live customer «сор is in my knowledge
+base so I can say it, but I was not given the number», which was an accurate description of
+its own prompt.
+
+| | |
+|---|---|
+| **Still guaranteed** | A numeral this tenant never published is refused, by the digits-only reduction. `150,000` being approved does not license `1,150,000`, and `7741-7777` does not license a bare `7741`. |
+| **No longer guaranteed** | That a quoted price belongs to the service asked about. Nothing mechanical binds them. |
+| **What stands in for it** | Disambiguation, and it is measured rather than hoped for: on `e04` Dala splits «Тэжээлийн тос 49,500₮» from «CMC тэжээл 132,000₮» instead of answering one range for both, and on turn 10 it asks hair-or-nail where the ancestor assumes hair. The ancestor answers `44,000 – 88,000₮` for a service that is not on your confirmed list. |
+| **Known unfixable by a row** | «Сор» ⊂ «Оффис колор /Сор/», prices 3.2× apart, cannot be separated by any alias — the repair is a rename by the salon (D-075). |
+
+**If you would rather keep prices out of the prefix, don't republish** — the code is inert
+until you do, and `SUPABASE_SECRET_PUBLISH` is absent here precisely so that stays your
+decision.
+
 ### One customer-visible change you should know about
 
 The typing bubble is new, and where it fires matters more than that it fires.
