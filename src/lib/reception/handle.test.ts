@@ -103,6 +103,7 @@ const base: ReceptionInput = {
   // tail still must. Tests for the published-in-the-prefix format set it explicitly.
   // The price list the STABLE fixture renders, so the name counter has something to check.
   serviceNames: [{ name: 'Чёлк тайралт', prices: ['22000'], rows: [] }],
+  depositRows: [],
   cannedHash: null,
 };
 
@@ -808,6 +809,30 @@ test('DONE-TEST: A RULE-(4) VIOLATION IS FLAGGED AND THE REPLY IS STILL SENT', a
   assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'still answered by the model');
   assert.equal(drafts.at(-1)?.body, 'Тайралт 33,000₮, засалт 22,000₮ байна.', 'unedited');
   assert.equal(flags.some((f) => f.code === 'style_price_lines'), true);
+});
+
+test('DONE-TEST: A BOOKING APOLOGY IS REPLACED BY THE DEPOSIT AND THE LINK', async () => {
+  // Three instructions failed at this, the third while containing «УУЧЛАЛТ БҮҮ ГУЙ». End to
+  // end through handleReception, because a module test proves the rule and not the wiring.
+  const BOOKING = 'Та манай вэбсайтаар (https://x.test/) онлайнаар цаг захиалж болно.';
+  // The BASE canned set plus the booking line: the gate requires refusal_topic, and
+  // dropping it refuses the whole tenant as canned_response_missing before any draft.
+  const rows = [...CANNED, { kind: 'booking_line', body: BOOKING, reviewedAt: REVIEWED }];
+  const text = `Уучлаарай, би цаг захиалж чадахгүй. ${BOOKING}`;
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text } });
+  const r = await handleReception(d, {
+    ...base,
+    canned: rows,
+    tenantGuard: { ...GUARD_VIEW, cannedResponses: rows.map((c) => c.body), allowedUrls: ['https://x.test/'] },
+    depositRows: ['Мастер үсчин: 20,000₮', '1-р зэргийн үсчин: 10,000₮'],
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.equal(drafts.at(-1)?.body,
+    `Мастер үсчин: 20,000₮\n1-р зэргийн үсчин: 10,000₮\n\n${BOOKING}`,
+    'the deposit rows then the reviewed line — no new sentence anywhere');
+  const f = flags.find((x) => x.code === 'booking_apology');
+  assert.ok(f, 'counted, never silent');
+  assert.equal(f?.attempted, text, 'quality_flags keeps what the MODEL wrote');
 });
 
 test('DONE-TEST: A CROSS-SERVICE RANGE IS REPLACED BY THE PRICE LIST\'S OWN ROWS', async () => {

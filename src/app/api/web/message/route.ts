@@ -35,7 +35,7 @@ import { SECTION_LABELS } from '@/lib/prompt/tenant';
 import { required } from '@/lib/env';
 import { clientIpOf } from '@/lib/website/clientIp';
 import { runMessageJob, type MessageEffects } from '@/lib/website/messageJob';
-import { servicesFromPrefix } from '@/lib/quality/serviceNames';
+import { servicesFromPrefix, sectionRows } from '@/lib/quality/serviceNames';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -107,6 +107,7 @@ function effects(now: Date): MessageEffects {
           tenantGuard: a.ctx.tenantGuard,
           cannedLabel: SECTION_LABELS.canned,
           serviceNames: servicesFromPrefix(a.ctx.promptStable, SECTION_LABELS.priceList),
+          depositRows: sectionRows(a.ctx.promptStable, SECTION_LABELS.deposits),
           cannedHash: a.ctx.cannedHash,
         },
       ),

@@ -141,20 +141,30 @@ export function serviceNameReport(text: string, services: readonly PricedService
  * and a heading that never closes simply runs to the end of the prefix, which is correct
  * because the price list is the last thing in it or is followed by one.
  */
-export function servicesFromPrefix(promptStable: string, priceListLabel: string): PricedService[] {
-  const heading = `=== ${priceListLabel} ===`;
+/**
+ * The `- …` rows of one compiled-prefix section, verbatim and in order, dash stripped.
+ *
+ * Shared by every reader that needs a section's own bytes back — the price list and the
+ * deposit rules today. D-057's rule is why an absent heading returns `[]` rather than a
+ * guess: a tenant without that section has no rows, which is a determinate answer, not a
+ * truncated parse. The section is bounded by the NEXT heading so it can never run on into
+ * the one below it.
+ */
+export function sectionRows(promptStable: string, label: string): string[] {
+  const heading = `=== ${label} ===`;
   const at = promptStable.indexOf(heading);
   if (at === -1) return [];
   const rest = promptStable.slice(at + heading.length);
   const next = rest.indexOf('\n=== ');
   const body = next === -1 ? rest : rest.slice(0, next);
+  return body.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('- ')).map((l) => l.slice(2));
+}
+
+export function servicesFromPrefix(promptStable: string, priceListLabel: string): PricedService[] {
   const order: string[] = [];
   const prices = new Map<string, Set<string>>();
   const rows = new Map<string, string[]>();
-  for (const line of body.split('\n')) {
-    const t = line.trim();
-    if (!t.startsWith('- ')) continue;
-    const row = t.slice(2);
+  for (const row of sectionRows(promptStable, priceListLabel)) {
     const colon = row.indexOf(':');
     if (colon === -1) continue;
     const name = row.slice(0, colon).replace(/\s*\([^()]*\)\s*$/u, '').trim();

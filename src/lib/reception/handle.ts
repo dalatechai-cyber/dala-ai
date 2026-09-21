@@ -35,6 +35,7 @@ import { hasTenantData } from '../prompt/tenant.ts';
 import { priceLineReport } from '../quality/priceLines.ts';
 import { serviceNameReport, type PricedService } from '../quality/serviceNames.ts';
 import { pricePresentation, renderQuotedRows } from '../guard/pricePresentation.ts';
+import { bookingApology, renderBookingAnswer, apologyStemsFrom } from '../guard/bookingApology.ts';
 import { capToSingleMessage } from '../mn/text.ts';
 
 /** One Messenger send, in characters. */
@@ -134,6 +135,13 @@ export type ReceptionInput = {
    * `customerAttachments` already refuses for the same reason.
    */
   serviceNames: readonly PricedService[];
+  /**
+   * The tenant's «УРЬДЧИЛГАА ТӨЛБӨР» rows, verbatim from the prefix, for the booking answer
+   * the platform serves when the model opens one with an apology. Derived by `sectionRows`,
+   * so it costs no query. Empty is a real state: a tenant with no deposits gets the link
+   * alone, which is still the answer the founder asked for minus a fact it does not have.
+   */
+  depositRows: readonly string[];
 };
 
 export type ReceptionOutcome =
@@ -573,6 +581,29 @@ export async function handleReception(
   //
   // The cost is stated rather than discovered (D-077): serving the rows discards whatever
   // else the reply said, including a clarifying question that may have been good.
+  // The booking apology, ENFORCED. Three instructions have failed at this, the third while
+  // literally containing «УУЧЛАЛТ БҮҮ ГУЙ», so the founder's call is that the platform stops
+  // it rather than asking a fourth time. Runs BEFORE the price check because it is the more
+  // specific verdict: a booking reply's deposits are not service prices, so the price guard
+  // would not fire on it anyway, and reporting this one as that one would send a reader to
+  // the wrong question (D-066's re-attribution lesson).
+  const bookingLine = canned(input.canned, 'booking_line');
+  const apology = bookingApology(capped.text, bookingLine, apologyStemsFrom(input.canned));
+  if (apology.apologises) {
+    const answer = renderBookingAnswer(input.depositRows, bookingLine);
+    if (answer !== null) {
+      await deps.flag({
+        code: 'booking_apology',
+        detail: `the booking reply opened by apologising: ${apology.opening}`,
+        attempted: capped.text,
+      });
+      const served = await deps.draft({ body: answer, answeredBy: 'deterministic' });
+      return served.ok
+        ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
+        : { kind: 'retry', detail: served.detail };
+    }
+  }
+
   const presentation = pricePresentation(capped.text, input.serviceNames);
   if (presentation.violations.length > 0) {
     const kinds = [...new Set(presentation.violations.map((v) => v.kind))].sort().join(', ');
