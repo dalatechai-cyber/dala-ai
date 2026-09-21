@@ -1,0 +1,1292 @@
+{
+  "ranAt": "2026-09-21T19:37:11.893Z",
+  "model": "claude-sonnet-5",
+  "tag": "draftsfull-1",
+  "prefixChars": 23781,
+  "allowedNumbers": [
+    "1",
+    "10,000",
+    "10:00",
+    "11:00",
+    "120,000",
+    "132,000",
+    "135,000",
+    "154,000",
+    "16,500",
+    "176,000",
+    "190,000",
+    "198,000",
+    "19:00",
+    "20,000",
+    "200,000",
+    "20:00",
+    "22,000",
+    "220,000",
+    "255,000",
+    "3",
+    "3-5",
+    "30",
+    "30-40",
+    "33,000",
+    "380,000",
+    "4-5",
+    "430,000",
+    "44,000",
+    "44,000–88,000",
+    "460,000",
+    "49,500",
+    "50,000",
+    "500,000",
+    "510,000",
+    "55,000",
+    "570,000",
+    "640,000",
+    "66,000",
+    "70",
+    "71,500",
+    "76001888",
+    "80905498",
+    "88,000",
+    "99,000"
+  ],
+  "singles": {
+    "f01": {
+      "text": "Сайн байна уу",
+      "ok": true,
+      "reply": "Сайн байна уу! Матрикс эко салон Яармаг салбарт тавтай морил. Танд ямар нэг зүйл асуух зүйл байна уу — үнэ, цаг захиалга, эсвэл бусад мэдээлэл?",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 3975,
+      "usage": {
+        "input_tokens": 131,
+        "output_tokens": 90,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f02": {
+      "text": "sain bnuu",
+      "ok": true,
+      "reply": "Сайн байна уу. Матрикс эко салон танд юугаар туслах вэ?",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 1973,
+      "usage": {
+        "input_tokens": 129,
+        "output_tokens": 33,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f03": {
+      "text": "une hedve",
+      "ok": true,
+      "reply": "Уучлаарай, аль үйлчилгээний үнийг сонирхож байгаа Танаа тодруулж болох уу?",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 2971,
+      "usage": {
+        "input_tokens": 127,
+        "output_tokens": 47,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f04": {
+      "text": "uscinii",
+      "ok": true,
+      "reply": "Уучлаарай, тодруулна уу — та ямар үйлчилгээ хийлгэхийг хүсэж байгаагаа тодорхой бичиж өгнө үү? Жишээ нь тайралт, будалт, эмчилгээ гэх мэт.",
+      "answeredBy": "model",
+      "flags": [
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: CICA нөхөн сэргээх эмчилгээ, Чёлк тайралт",
+          "attempted": "Уучлаарай, тодруулна уу — та ямар үйлчилгээ хийлгэхийг хүсэж байгаагаа тодорхой бичиж өгнө үү? Жишээ нь тайралт, будалт, эмчилгээ гэх мэт."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 3716,
+      "usage": {
+        "input_tokens": 127,
+        "output_tokens": 95,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f05": {
+      "text": "Үс будахад хэд вэ?",
+      "ok": true,
+      "reply": "Будалтын үнэ нь урт болон төрлөөс хамаарна:\n\nҮсний угийн будаг: 135,000₮\nДунд үсний будаг (мөрнөөс дээш урттай): 176,000₮\nУрт үсний будаг (мөр давсан урттай): 200,000₮\n\nТа бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 4481,
+      "usage": {
+        "input_tokens": 136,
+        "output_tokens": 144,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f06": {
+      "text": "Сор хэд вэ?",
+      "ok": true,
+      "reply": "Сор: 120,000₮–190,000₮",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 1838,
+      "usage": {
+        "input_tokens": 133,
+        "output_tokens": 18,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f07": {
+      "text": "CICA хими байгаа юу?",
+      "ok": true,
+      "reply": "CICA эмчилгээний хими гэсэн үйлчилгээ байхгүй. CICA бол эмчилгээний химиэс тусдаа нөхөн сэргээх эмчилгээ бөгөөд үнэ нь:\n\nCICA (1 удаа): 198,000₮\nCICA (Курсээр, 1 удаагийн үнэ): 154,000₮",
+      "answeredBy": "model",
+      "flags": [
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: CICA нөхөн сэргээх эмчилгээ",
+          "attempted": "CICA эмчилгээний хими гэсэн үйлчилгээ байхгүй. CICA бол эмчилгээний химиэс тусдаа нөхөн сэргээх эмчилгээ бөгөөд үнэ нь:\n\nCICA (1 удаа): 198,000₮\nCICA (Курсээр, 1 удаагийн үнэ): 154,000₮"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 5420,
+      "usage": {
+        "input_tokens": 135,
+        "output_tokens": 131,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f08": {
+      "text": "Үс маань их хуурай, хугараад байна, юу хийх вэ?",
+      "ok": true,
+      "reply": "Үс тань хуурай, хугарч байгаа бол манайд дараах эмчилгээнүүд тохиромжтой:\n\nCICA нөхөн сэргээх эмчилгээ (1 удаа): 198,000₮\nCICA нөхөн сэргээх эмчилгээ (Курсээр): 154,000₮\nТэжээлийн тос: 49,500₮\nCMC тэжээл: 132,000₮\nТэжээл: 44,000₮–88,000₮\n\nТанд аль нь тохирохыг мастер үсчин үсийг тань харж зөвлөж өгөх болно.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 5218,
+      "usage": {
+        "input_tokens": 150,
+        "output_tokens": 210,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f09": {
+      "text": "Цаг захиалмаар байна, утас хэд вэ?",
+      "ok": true,
+      "reply": "Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.",
+      "answeredBy": "canned",
+      "flags": [
+        "canned_paraphrased"
+      ],
+      "flagDetail": [
+        {
+          "code": "canned_paraphrased",
+          "detail": "the reply is 0.992 of \"booking_line\" and is not it; served the row instead, discarding 149 of 271 characters. Attempted: Манай холбоо барих утас: 76001888 эсвэл 80905498.\n\nЦаг захиалгын хувьд та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой. Урьдчилгаа төлбөр нь мастер үсчинд 20,000₮, 1-р зэргийн үсчинд 10,000₮ байна."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 4487,
+      "usage": {
+        "input_tokens": 145,
+        "output_tokens": 171,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f10": {
+      "text": "Хаана байрладаг вэ?",
+      "ok": true,
+      "reply": "Манай (Яармаг) салон Яармагийн Номин Хайпермаркетын баруун талд байрладаг. Байршил: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 3071,
+      "usage": {
+        "input_tokens": 136,
+        "output_tokens": 77,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f11": {
+      "text": "Маникюр хэд вэ?",
+      "ok": true,
+      "reply": "Манай салон одоогоор хумсны үйлчилгээ үзүүлэхгүй байна.",
+      "answeredBy": "canned",
+      "flags": [
+        "canned_paraphrased"
+      ],
+      "flagDetail": [
+        {
+          "code": "canned_paraphrased",
+          "detail": "the reply is 0.982 of \"refusal_service_unavailable\" and is not it; served the row instead, discarding 11 of 66 characters. Attempted: Уучлаарай, манай салон одоогоор хумсны үйлчилгээ үзүүлэхгүй байна."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 3221,
+      "usage": {
+        "input_tokens": 135,
+        "output_tokens": 44,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f12": {
+      "text": "Будаг хэд вэ?",
+      "ok": true,
+      "reply": "Будаг нь урт болон найрлагаас хамаарч ялгаатай:\n\nҮсний угийн будаг: 135,000₮\nДунд урттай үсний будаг (мөрнөөс дээш): 176,000₮\nУрт үсний будаг (мөр давсан урттай): 200,000₮\n\nТа бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?",
+      "answeredBy": "model",
+      "flags": [
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: Дунд үсний будаг",
+          "attempted": "Будаг нь урт болон найрлагаас хамаарч ялгаатай:\n\nҮсний угийн будаг: 135,000₮\nДунд урттай үсний будаг (мөрнөөс дээш): 176,000₮\nУрт үсний будаг (мөр давсан урттай): 200,000₮\n\nТа бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 4776,
+      "usage": {
+        "input_tokens": 134,
+        "output_tokens": 145,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f13": {
+      "text": "Мастер үсчинд орвол дээр юу?",
+      "ok": true,
+      "reply": "Мастер үсчнээр захиалахад урьдчилгаа 20,000₮ авна. Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 3734,
+      "usage": {
+        "input_tokens": 141,
+        "output_tokens": 109,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f14": {
+      "text": "Шампунь зардаг уу?",
+      "ok": true,
+      "reply": "Тийм ээ, бүтээгдэхүүний мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/products.html хуудаснаас үзнэ үү.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 2466,
+      "usage": {
+        "input_tokens": 135,
+        "output_tokens": 69,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f15": {
+      "text": "ci henbe",
+      "ok": true,
+      "reply": "Уучлаарай, таны асуултыг ойлгосонгүй. Та манай үйлчилгээ, үнэ, эсвэл цагийн хуваарийн талаар асуувал баяртайгаар хариулна.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 5950,
+      "usage": {
+        "input_tokens": 128,
+        "output_tokens": 79,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "c01": {
+      "text": "будагтай үсний уг цайруулалт хэд вэ",
+      "ok": true,
+      "reply": "Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу.",
+      "answeredBy": "canned",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 3429,
+      "usage": {
+        "input_tokens": 144,
+        "output_tokens": 76,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "c02": {
+      "text": "Office color ungu har usni ungute usend orohu",
+      "ok": true,
+      "reply": "Уучлаарай, энэ таны үсэнд тохирох эсэхийг би шийдэж өгөх боломжгүй. Манай мэргэжилтэн үсийг тань харж хэлнэ. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.",
+      "answeredBy": "canned",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 4316,
+      "usage": {
+        "input_tokens": 140,
+        "output_tokens": 105,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "c03": {
+      "text": "Хар өнгөтэй үсэнд орох уу",
+      "ok": true,
+      "reply": "Хараар будсан үсийг хоёр удаагийн будалтаар бор өнгөтэй болгож болно, бүтэн будалт хийхэд үс гэмтэхгүй. Та тодруулбал, бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?",
+      "answeredBy": "model",
+      "flags": [
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: Дунд үсний будаг, Урт үсний будаг",
+          "attempted": "Хараар будсан үсийг хоёр удаагийн будалтаар бор өнгөтэй болгож болно, бүтэн будалт хийхэд үс гэмтэхгүй. Та тодруулбал, бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 4427,
+      "usage": {
+        "input_tokens": 142,
+        "output_tokens": 111,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "c04": {
+      "text": "сайн байна уу \nүнийн мэдээлэл авья",
+      "ok": true,
+      "reply": "Сайн байна уу. Ямар үйлчилгээний үнийн мэдээлэл авахыг хүсэж байна вэ? Тодорхой үйлчилгээгээ хэлж өгвөл дэлгэрэнгүй хариулъя.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 4675,
+      "usage": {
+        "input_tokens": 145,
+        "output_tokens": 91,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "c05": {
+      "text": "Hi unuudur tsag bnu",
+      "ok": true,
+      "reply": "Сайн байна уу. Одоогоор танайх (Яармаг салбар) хаалттай цагаараа явж байна — ажлын цаг: Даваа–Бямба 10:00–20:00, Ням 11:00–19:00. Цаг захиалахыг хүсвэл https://www.matrixecosalon.org/ хуудсаар онлайнаар захиалж болно.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 4826,
+      "usage": {
+        "input_tokens": 136,
+        "output_tokens": 133,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "c06": {
+      "text": "Sn bnu Badmaa stylestiin dugaar hed we",
+      "ok": true,
+      "reply": "Уучлаарай, үсчдийн хувийн утасны дугаарын мэдээллийг би өгөх боломжгүй. Та манай салонтой 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу.",
+      "answeredBy": "model",
+      "flags": [
+        "style_price_lines"
+      ],
+      "flagDetail": [
+        {
+          "code": "style_price_lines",
+          "detail": "rule (4): 2 price options, 2 on one line",
+          "attempted": "Уучлаарай, үсчдийн хувийн утасны дугаарын мэдээллийг би өгөх боломжгүй. Та манай салонтой 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 3900,
+      "usage": {
+        "input_tokens": 146,
+        "output_tokens": 87,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "c07": {
+      "text": "Budagtai usend himi hiidegv",
+      "ok": true,
+      "reply": "Хаалттай үсэнд хими хийхгүй — уураг нь будагтай урвалд орж барьцалддаггүй. Гэхдээ будсан үс хэт цайруулаагүй, уураг нь хадгалагдсан бол хими хийх боломжтой.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 4299,
+      "usage": {
+        "input_tokens": 137,
+        "output_tokens": 97,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "c08": {
+      "text": "Yag ingej budaad dolgiontoi himi hij boldoguu",
+      "ok": true,
+      "reply": "Тухайн үсэнд хими хийж болох эсэхийг зайнаас шийдэх боломжгүй байна. Манай мэргэжилтэн үсийг тань шууд харж хэлнэ. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.",
+      "answeredBy": "model",
+      "flags": [
+        "style_price_lines"
+      ],
+      "flagDetail": [
+        {
+          "code": "style_price_lines",
+          "detail": "rule (4): 2 price options, 2 on one line",
+          "attempted": "Тухайн үсэнд хими хийж болох эсэхийг зайнаас шийдэх боломжгүй байна. Манай мэргэжилтэн үсийг тань шууд харж хэлнэ. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 4839,
+      "usage": {
+        "input_tokens": 148,
+        "output_tokens": 105,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "c09": {
+      "text": "оюунаа",
+      "ok": true,
+      "reply": "Оюунаа (Оюунсүрэн) манай эмэгтэй үсчдийн баг дотор Мастер үсчин цол хадгалж, зөвхөн Яармаг салбарт ажилладаг. Түүнтэй холбоотой цаг захиалга, хуваарийн талаар дэлгэрэнгүй мэдээлэл авахыг хүсвэл 76001888 эсвэл 80905498 дугаараар холбогдоно уу.",
+      "answeredBy": "model",
+      "flags": [
+        "style_price_lines",
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "style_price_lines",
+          "detail": "rule (4): 2 price options, 2 on one line",
+          "attempted": "Оюунаа (Оюунсүрэн) манай эмэгтэй үсчдийн баг дотор Мастер үсчин цол хадгалж, зөвхөн Яармаг салбарт ажилладаг. Түүнтэй холбоотой цаг захиалга, хуваарийн талаар дэлгэрэнгүй мэдээлэл авахыг хүсвэл 76001888 эсвэл 80905498 дугаараар холбогдоно уу."
+        },
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: Эмэгтэй тайралт",
+          "attempted": "Оюунаа (Оюунсүрэн) манай эмэгтэй үсчдийн баг дотор Мастер үсчин цол хадгалж, зөвхөн Яармаг салбарт ажилладаг. Түүнтэй холбоотой цаг захиалга, хуваарийн талаар дэлгэрэнгүй мэдээлэл авахыг хүсвэл 76001888 эсвэл 80905498 дугаараар холбогдоно уу."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 4895,
+      "usage": {
+        "input_tokens": 128,
+        "output_tokens": 163,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "c10": {
+      "text": "Tsagiin huwaari",
+      "ok": true,
+      "reply": "Манай ажлын цаг:\nДаваа–Баасан: 10:00–20:00\nБямба: 10:00–20:00\nНям: 11:00–19:00",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 1765,
+      "usage": {
+        "input_tokens": 133,
+        "output_tokens": 59,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "c11": {
+      "text": "Hi ene uramshulal bgayu",
+      "ok": true,
+      "reply": "Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та 76001888 эсвэл 80905498 дугаараар лавлана уу.",
+      "answeredBy": "canned",
+      "flags": [
+        "canned_paraphrased"
+      ],
+      "flagDetail": [
+        {
+          "code": "canned_paraphrased",
+          "detail": "the reply is 0.990 of \"refusal_no_promotion\" and is not it; served the row instead, discarding 11 of 110 characters. Attempted: Уучлаарай, шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та 76001888 эсвэл 80905498 дугаараар лавлана уу."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 3265,
+      "usage": {
+        "input_tokens": 137,
+        "output_tokens": 70,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "c12": {
+      "text": "Vs zasalt buduulah",
+      "ok": true,
+      "reply": "Уучлаарай, хариулт тодорхойгүй байна — та ямар засалт (тайралт, будалт зэрэг) хийлгэхийг хүсэж байгаагаа тодруулж бичнэ үү?\n\nМөн будалтын хувьд: та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?",
+      "answeredBy": "model",
+      "flags": [
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: Дунд үсний будаг, Урт үсний будаг, Чёлк тайралт",
+          "attempted": "Уучлаарай, хариулт тодорхойгүй байна — та ямар засалт (тайралт, будалт зэрэг) хийлгэхийг хүсэж байгаагаа тодруулж бичнэ үү?\n\nМөн будалтын хувьд: та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 4824,
+      "usage": {
+        "input_tokens": 134,
+        "output_tokens": 129,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "e01": {
+      "text": "Хүүхдийн тайралт хэд вэ?",
+      "ok": true,
+      "reply": "Уучлаарай, хүүхдийн үйлчилгээний мэдээллийг би өгөх боломжгүй. Та салоны 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу.",
+      "answeredBy": "canned",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 3728,
+      "usage": {
+        "input_tokens": 142,
+        "output_tokens": 81,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "e02": {
+      "text": "huuhdiin us zasuulna",
+      "ok": true,
+      "reply": "Уучлаарай, хүүхдийн үйлчилгээний мэдээллийг би өгөх боломжгүй. Та салоны 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу.",
+      "answeredBy": "canned",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 3564,
+      "usage": {
+        "input_tokens": 135,
+        "output_tokens": 81,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "e03": {
+      "text": "Эмэгтэй сортой будаг хийлгэх гэсийн",
+      "ok": true,
+      "reply": "Тодруулъя: та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү? Мөн энэ нь \"Сор\" (120,000₮–190,000₮) уу гэдгийг тодруулна уу — учир нь сорны дараа өнгө оруулах бол Office колор (380,000₮–460,000₮) хэлбэрээр хийгддэг.",
+      "answeredBy": "model",
+      "flags": [
+        "style_price_lines",
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "style_price_lines",
+          "detail": "rule (4): 2 price options, 2 on one line",
+          "attempted": "Тодруулъя: та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү? Мөн энэ нь \"Сор\" (120,000₮–190,000₮) уу гэдгийг тодруулна уу — учир нь сорны дараа өнгө оруулах бол Office колор (380,000₮–460,000₮) хэлбэрээр хийгддэг."
+        },
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: Дунд үсний будаг, Урт үсний будаг",
+          "attempted": "Тодруулъя: та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү? Мөн энэ нь \"Сор\" (120,000₮–190,000₮) уу гэдгийг тодруулна уу — учир нь сорны дараа өнгө оруулах бол Office колор (380,000₮–460,000₮) хэлбэрээр хийгддэг."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 4549,
+      "usage": {
+        "input_tokens": 148,
+        "output_tokens": 141,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "e04": {
+      "text": "Тэжээл хэд вэ?",
+      "ok": true,
+      "reply": "Тэжээлийн үнэ 44,000₮–88,000₮ хооронд байна.",
+      "answeredBy": "model",
+      "flags": [
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: CMC тэжээл, Тэжээлийн тос",
+          "attempted": "Тэжээлийн үнэ 44,000₮–88,000₮ хооронд байна."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 2440,
+      "usage": {
+        "input_tokens": 136,
+        "output_tokens": 34,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "e05": {
+      "text": "CICA нэг удаа хийлгэвэл хэдэн тэжээлийн тостой тэнцэх вэ?",
+      "ok": true,
+      "reply": "Нэг удаагийн CICA нь ойролцоогоор 30-40 удаагийн тэжээлийн тостой тэнцэнэ.",
+      "answeredBy": "model",
+      "flags": [
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: CMC тэжээл",
+          "attempted": "Нэг удаагийн CICA нь ойролцоогоор 30-40 удаагийн тэжээлийн тостой тэнцэнэ."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 2302,
+      "usage": {
+        "input_tokens": 165,
+        "output_tokens": 53,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "pb01": {
+      "text": "Сор хэд вэ?",
+      "ok": true,
+      "reply": "Сор: 120,000₮–190,000₮",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 1677,
+      "usage": {
+        "input_tokens": 133,
+        "output_tokens": 18,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "pb02": {
+      "text": "Тэжээлийн тос хэд вэ?",
+      "ok": true,
+      "reply": "Тэжээлийн тос: 49,500₮",
+      "answeredBy": "model",
+      "flags": [
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: CMC тэжээл",
+          "attempted": "Тэжээлийн тос: 49,500₮"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 1701,
+      "usage": {
+        "input_tokens": 140,
+        "output_tokens": 19,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "pb03": {
+      "text": "Үс будуулахад хэд вэ?",
+      "ok": true,
+      "reply": "Будалт хэдэн төрөлтэй, урт болон захиалга зэргээс шалтгаалж үнэ өөр байдаг. Тодруулъя: та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?",
+      "answeredBy": "model",
+      "flags": [
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: Дунд үсний будаг, Урт үсний будаг",
+          "attempted": "Будалт хэдэн төрөлтэй, урт болон захиалга зэргээс шалтгаалж үнэ өөр байдаг. Тодруулъя: та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 3522,
+      "usage": {
+        "input_tokens": 138,
+        "output_tokens": 95,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "pb04": {
+      "text": "Эмчилгээний хими хэд вэ?",
+      "ok": true,
+      "reply": "Эмчилгээний хими: 220,000₮–255,000₮",
+      "answeredBy": "model",
+      "flags": [
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: CICA нөхөн сэргээх эмчилгээ",
+          "attempted": "Эмчилгээний хими: 220,000₮–255,000₮"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 2013,
+      "usage": {
+        "input_tokens": 140,
+        "output_tokens": 25,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "pb05": {
+      "text": "Эмэгтэй үс тайруулахад хэд вэ?",
+      "ok": true,
+      "reply": "Эмэгтэй тайралт үнэ зэрэглэлээс хамаарна:\n\n1-р зэрэг үсчин: 55,000₮\nМастер үсчин: 66,000₮–88,000₮",
+      "answeredBy": "model",
+      "flags": [
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: Чёлк тайралт",
+          "attempted": "Эмэгтэй тайралт үнэ зэрэглэлээс хамаарна:\n\n1-р зэрэг үсчин: 55,000₮\nМастер үсчин: 66,000₮–88,000₮"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 2228,
+      "usage": {
+        "input_tokens": 146,
+        "output_tokens": 75,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n01": {
+      "text": "dugaar hedve",
+      "ok": true,
+      "reply": "Утасны дугаараар холбогдох бол: 76001888 эсвэл 80905498.",
+      "answeredBy": "model",
+      "flags": [
+        "style_price_lines"
+      ],
+      "flagDetail": [
+        {
+          "code": "style_price_lines",
+          "detail": "rule (4): 2 price options, 2 on one line",
+          "attempted": "Утасны дугаараар холбогдох бол: 76001888 эсвэл 80905498."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 1916,
+      "usage": {
+        "input_tokens": 130,
+        "output_tokens": 34,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n02": {
+      "text": "dund zergiin usend shuluun himi hedeer hiih ve",
+      "ok": true,
+      "reply": "Шулуун хими: 430,000₮–510,000₮\n\nГэхдээ таны үсний уртаас, нягтаас хамаарч яг үнэ өөр байж болзошгүй тул мэргэжилтэнтэй биечлэн уулзан тодруулахыг зөвлөж байна. Утас: 76001888 эсвэл 80905498.",
+      "answeredBy": "model",
+      "flags": [
+        "style_price_lines",
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "style_price_lines",
+          "detail": "rule (4): 3 price options, 2 on one line",
+          "attempted": "Шулуун хими: 430,000₮–510,000₮\n\nГэхдээ таны үсний уртаас, нягтаас хамаарч яг үнэ өөр байж болзошгүй тул мэргэжилтэнтэй биечлэн уулзан тодруулахыг зөвлөж байна. Утас: 76001888 эсвэл 80905498."
+        },
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: Дунд үсний будаг, Урт үсний будаг, Үсний угийн будаг",
+          "attempted": "Шулуун хими: 430,000₮–510,000₮\n\nГэхдээ таны үсний уртаас, нягтаас хамаарч яг үнэ өөр байж болзошгүй тул мэргэжилтэнтэй биечлэн уулзан тодруулахыг зөвлөж байна. Утас: 76001888 эсвэл 80905498."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 4967,
+      "usage": {
+        "input_tokens": 146,
+        "output_tokens": 125,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n03": {
+      "text": "tsag zahialah",
+      "ok": true,
+      "reply": "Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.\n\nУрьдчилгаа төлбөрийн дүн ажилтны зэрэглэлээс хамаарна:\nМастер үсчин: 20,000₮\n1-р зэргийн үсчин: 10,000₮",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 4567,
+      "usage": {
+        "input_tokens": 130,
+        "output_tokens": 152,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n04": {
+      "text": "us budalt",
+      "ok": true,
+      "reply": "Уучлаарай, энэ үйлчилгээний нэр тодорхойгүй байна. Та үсний угийн будаг, дунд урттай будаг эсвэл урт урттай будгийн үнийг сонирхож байна уу?",
+      "answeredBy": "model",
+      "flags": [
+        "service_name_altered"
+      ],
+      "flagDetail": [
+        {
+          "code": "service_name_altered",
+          "detail": "renamed: Дунд үсний будаг, Урт үсний будаг",
+          "attempted": "Уучлаарай, энэ үйлчилгээний нэр тодорхойгүй байна. Та үсний угийн будаг, дунд урттай будаг эсвэл урт урттай будгийн үнийг сонирхож байна уу?"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 4175,
+      "usage": {
+        "input_tokens": 127,
+        "output_tokens": 84,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n05": {
+      "text": "hayag",
+      "ok": true,
+      "reply": "Манай салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун тал байршилтай. Байршлын холбоос: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 2721,
+      "usage": {
+        "input_tokens": 126,
+        "output_tokens": 82,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n06": {
+      "text": "Маникюр хэд вэ?",
+      "ok": true,
+      "reply": "refusal_service_unavailable шалгалт тохирч байна — маникюр/хумсны үйлчилгээ хориотой сэдвийн жагсаалтад биш, харин манай салон энэ үйлчилгээг үзүүлдэггүй тул тухайн бэлэн хариултыг өгнө.\n\nМанай салон одоогоор хумсны үйлчилгээ үзүүлэхгүй байна.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 5480,
+      "usage": {
+        "input_tokens": 135,
+        "output_tokens": 145,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n07": {
+      "text": "CICA хими байгаа юу?",
+      "ok": true,
+      "reply": "Уучлаарай, ийм үйлчилгээ байхгүй. CICA бол эмчилгээний хими биш — тусдаа нөхөн сэргээх эмчилгээ бөгөөд ургамлын гаралтай, зөөлөн хими нь тусдаа \"Эмчилгээний хими\" гэсэн үйлчилгээ юм.\n\nCICA нөхөн сэргээх эмчилгээ (1 удаа): 198,000₮\nCICA нөхөн сэргээх эмчилгээ (курсээр): 154,000₮\nЭмчилгээний хими: 220,000₮–255,000₮\n\nТа аль нэгийг нь хэлж байна уу?",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 5447,
+      "usage": {
+        "input_tokens": 135,
+        "output_tokens": 238,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n08": {
+      "text": "Үс маань их хуурай, хугараад байна, юу хийх вэ?",
+      "ok": true,
+      "reply": "Үс хуурай, хугарсан үед манайд дараах эмчилгээнүүд байна:\n\nCICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)\nТэжээлийн тос: 49,500₮\nCMC тэжээл: 132,000₮\nТэжээл: 44,000–88,000₮\n\nҮсэнд тань аль нь тохирохыг мастер үсчин зөвлөж өгнө.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 5431,
+      "usage": {
+        "input_tokens": 150,
+        "output_tokens": 166,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "p01": {
+      "text": "iim bolgoj bolhu",
+      "attachments": [
+        "image"
+      ],
+      "ok": true,
+      "reply": "Уучлаарай, юуг хэлж байгааг тодруулж бичвэл асуултад тань дэлгэрэнгүй хариулъя.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 3451,
+      "usage": {
+        "input_tokens": 134,
+        "output_tokens": 54,
+        "cache_read_input_tokens": 16757,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "p02": {
+      "text": "",
+      "attachments": [
+        "image"
+      ],
+      "ok": true,
+      "reply": "Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.",
+      "answeredBy": "canned",
+      "flags": [
+        "model_invalid_request"
+      ],
+      "flagDetail": [
+        {
+          "code": "model_invalid_request",
+          "detail": "400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.0: user messages must have non-empty content\"},\"request_id\":\"req_011CfH9nHejEyZ7a5Asokd4s\"} [served: handoff]"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 215,
+      "usage": null
+    },
+    "p03": {
+      "text": "",
+      "attachments": [
+        "image",
+        "image"
+      ],
+      "ok": true,
+      "reply": "Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.",
+      "answeredBy": "canned",
+      "flags": [
+        "model_invalid_request"
+      ],
+      "flagDetail": [
+        {
+          "code": "model_invalid_request",
+          "detail": "400 {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.0: user messages must have non-empty content\"},\"request_id\":\"req_011CfH9nJfkG3bqNjRVkeTXy\"} [served: handoff]"
+        }
+      ],
+      "kind": "drafted",
+      "ms": 248,
+      "usage": null
+    }
+  },
+  "conversations": {
+    "t01": {
+      "turns": [
+        {
+          "text": "Сайн байна уу",
+          "ok": true,
+          "reply": "Сайн байна уу! Матрикс эко салонд тавтай морил. Танд юугаар туслах вэ — үйлчилгээ, үнэ, эсвэл цаг захиалгын талаар асуух зүйл байвал бичээрэй.",
+          "answeredBy": "model",
+          "flags": [],
+          "flagDetail": [],
+          "kind": "drafted",
+          "ms": 4095,
+          "usage": {
+            "input_tokens": 131,
+            "output_tokens": 89,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        },
+        {
+          "text": "une hedve",
+          "ok": true,
+          "reply": "Та ямар үйлчилгээний үнийг мэдэхийг хүсэж байна вэ? (жишээ нь: тайралт, будалт, хими, тэжээл гэх мэт)",
+          "answeredBy": "model",
+          "flags": [
+            "service_name_altered"
+          ],
+          "flagDetail": [
+            {
+              "code": "service_name_altered",
+              "detail": "renamed: CMC тэжээл, Чёлк тайралт",
+              "attempted": "Та ямар үйлчилгээний үнийг мэдэхийг хүсэж байна вэ? (жишээ нь: тайралт, будалт, хими, тэжээл гэх мэт)"
+            }
+          ],
+          "kind": "drafted",
+          "ms": 4220,
+          "usage": {
+            "input_tokens": 226,
+            "output_tokens": 69,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        },
+        {
+          "text": "Үс будахад хэд вэ?",
+          "ok": true,
+          "reply": "Будалтын үнэ урттай холбоотой хэд хэдэн сонголттой байна. Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?\n\nХэрэв бүтэн будалт бол:\nДунд урттай (мөрнөөс дээш): 176,000₮\nУрт (мөр давсан): 200,000₮\nҮсний угийн будаг: 135,000₮",
+          "answeredBy": "model",
+          "flags": [
+            "service_name_altered"
+          ],
+          "flagDetail": [
+            {
+              "code": "service_name_altered",
+              "detail": "renamed: Дунд үсний будаг, Урт үсний будаг",
+              "attempted": "Будалтын үнэ урттай холбоотой хэд хэдэн сонголттой байна. Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?\n\nХэрэв бүтэн будалт бол:\nДунд урттай (мөрнөөс дээш): 176,000₮\nУрт (мөр давсан): 200,000₮\nҮсний угийн будаг: 135,000₮"
+            }
+          ],
+          "kind": "drafted",
+          "ms": 4088,
+          "usage": {
+            "input_tokens": 310,
+            "output_tokens": 152,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        },
+        {
+          "text": "Сор хэд вэ?",
+          "ok": true,
+          "reply": "Сор: 120,000₮–190,000₮",
+          "answeredBy": "model",
+          "flags": [],
+          "flagDetail": [],
+          "kind": "drafted",
+          "ms": 1606,
+          "usage": {
+            "input_tokens": 474,
+            "output_tokens": 18,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        },
+        {
+          "text": "CICA хими байгаа юу?",
+          "ok": true,
+          "reply": "CICA эмчилгээний хими гэсэн үйлчилгээ байхгүй. Эдгээр нь тусдаа зүйл:\n\nCICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)\nЭмчилгээний хими: 220,000₮–255,000₮",
+          "answeredBy": "model",
+          "flags": [
+            "style_price_lines"
+          ],
+          "flagDetail": [
+            {
+              "code": "style_price_lines",
+              "detail": "rule (4): 3 price options, 2 on one line",
+              "attempted": "CICA эмчилгээний хими гэсэн үйлчилгээ байхгүй. Эдгээр нь тусдаа зүйл:\n\nCICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)\nЭмчилгээний хими: 220,000₮–255,000₮"
+            }
+          ],
+          "kind": "drafted",
+          "ms": 3304,
+          "usage": {
+            "input_tokens": 506,
+            "output_tokens": 116,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        },
+        {
+          "text": "Үс маань их хуурай, хугараад байна, юу хийх вэ?",
+          "ok": true,
+          "reply": "Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:\n\nCICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)\nТэжээлийн тос: 49,500₮\nCMC тэжээл: 132,000₮\nТэжээл: 44,000–88,000₮\n\nҮсэнд тань аль нь тохирохыг мастер үсчин зөвлөж өгнө.",
+          "answeredBy": "model",
+          "flags": [],
+          "flagDetail": [],
+          "kind": "drafted",
+          "ms": 4261,
+          "usage": {
+            "input_tokens": 651,
+            "output_tokens": 167,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        },
+        {
+          "text": "Цаг захиалмаар байна, утас хэд вэ?",
+          "ok": true,
+          "reply": "Урьдчилгаа төлбөр зэрэглэлээс хамаарна:\n\nМастер үсчин: 20,000₮\n1-р зэргийн үсчин: 10,000₮\n\nТа манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой. Утасны дугаар: 76001888 эсвэл 80905498.",
+          "answeredBy": "model",
+          "flags": [],
+          "flagDetail": [],
+          "kind": "drafted",
+          "ms": 4399,
+          "usage": {
+            "input_tokens": 743,
+            "output_tokens": 166,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        },
+        {
+          "text": "Хаана байрладаг вэ?",
+          "ok": true,
+          "reply": "Манай салбар Яармагийн Номин Хайпермаркетын баруун талд байрладаг. Байршил: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16",
+          "answeredBy": "model",
+          "flags": [],
+          "flagDetail": [],
+          "kind": "drafted",
+          "ms": 3418,
+          "usage": {
+            "input_tokens": 849,
+            "output_tokens": 71,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        },
+        {
+          "text": "Маникюр хэд вэ?",
+          "ok": true,
+          "reply": "Манай салон одоогоор хумсны үйлчилгээ үзүүлэхгүй байна.",
+          "answeredBy": "canned",
+          "flags": [
+            "canned_paraphrased"
+          ],
+          "flagDetail": [
+            {
+              "code": "canned_paraphrased",
+              "detail": "the reply is 0.982 of \"refusal_service_unavailable\" and is not it; served the row instead, discarding 11 of 66 characters. Attempted: Уучлаарай, манай салон одоогоор хумсны үйлчилгээ үзүүлэхгүй байна."
+            }
+          ],
+          "kind": "drafted",
+          "ms": 3078,
+          "usage": {
+            "input_tokens": 767,
+            "output_tokens": 44,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        },
+        {
+          "text": "Будаг хэд вэ?",
+          "ok": true,
+          "reply": "Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?\n\nСонголтоор нь үнэ өөр өөр байгаа тул тодруулаад хэлье:\n\nҮсний угийн будаг: 135,000₮\nДунд урттай үс (мөрнөөс дээш): 176,000₮\nУрт үс (мөр давсан): 200,000₮",
+          "answeredBy": "model",
+          "flags": [
+            "service_name_altered"
+          ],
+          "flagDetail": [
+            {
+              "code": "service_name_altered",
+              "detail": "renamed: Дунд үсний будаг, Урт үсний будаг",
+              "attempted": "Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?\n\nСонголтоор нь үнэ өөр өөр байгаа тул тодруулаад хэлье:\n\nҮсний угийн будаг: 135,000₮\nДунд урттай үс (мөрнөөс дээш): 176,000₮\nУрт үс (мөр давсан): 200,000₮"
+            }
+          ],
+          "kind": "drafted",
+          "ms": 4640,
+          "usage": {
+            "input_tokens": 787,
+            "output_tokens": 142,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        },
+        {
+          "text": "Шампунь зардаг уу?",
+          "ok": true,
+          "reply": "Бүтээгдэхүүний мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/products.html хуудаснаас үзнэ үү.",
+          "answeredBy": "model",
+          "flags": [],
+          "flagDetail": [],
+          "kind": "drafted",
+          "ms": 3027,
+          "usage": {
+            "input_tokens": 813,
+            "output_tokens": 62,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        }
+      ]
+    },
+    "t02": {
+      "turns": [
+        {
+          "text": "Будаг хэд вэ?",
+          "ok": true,
+          "reply": "Будаг хийлгэхдээ та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?\n\nМөн урт нь мөр давсан эсэхээс хамааран үнэ өөр байдаг тул та үсний уртыг хэлж өгвөл дэлгэрэнгүй хэлье. Одоохондоо жагсаалтад байгаа сонголтуудыг хэлье:\n\nДунд урт (мөрнөөс дээш): 176,000₮\nУрт (мөр давсан): 200,000₮\nҮсний угийн будаг: 135,000₮",
+          "answeredBy": "model",
+          "flags": [
+            "service_name_altered"
+          ],
+          "flagDetail": [
+            {
+              "code": "service_name_altered",
+              "detail": "renamed: Дунд үсний будаг, Урт үсний будаг",
+              "attempted": "Будаг хийлгэхдээ та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?\n\nМөн урт нь мөр давсан эсэхээс хамааран үнэ өөр байдаг тул та үсний уртыг хэлж өгвөл дэлгэрэнгүй хэлье. Одоохондоо жагсаалтад байгаа сонголтуудыг хэлье:\n\nДунд урт (мөрнөөс дээш): 176,000₮\nУрт (мөр давсан): 200,000₮\nҮсний угийн будаг: 135,000₮"
+            }
+          ],
+          "kind": "drafted",
+          "ms": 6544,
+          "usage": {
+            "input_tokens": 134,
+            "output_tokens": 214,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        },
+        {
+          "text": "Мастер үсчинд орвол дээр юу?",
+          "ok": true,
+          "reply": "Мастер үсчинд орвол дараах эмэгтэй тайралт болон хэлбэржүүлэлтийн үнэ хамаарна:\n\nЭмэгтэй тайралт (Мастер): 66,000₮–88,000₮\nХэлбэржүүлэлт (Мастер): 33,000₮–50,000₮\n\nХэрэв та будаг хийлгэхийг хүсэж байвал урьд асуусан тодруулгыг (бүтэн будуулах уу, эсвэл угийн будаг уу) хариулж өгвөл будгийн үнийг нь хэлье.",
+          "answeredBy": "model",
+          "flags": [
+            "service_name_altered"
+          ],
+          "flagDetail": [
+            {
+              "code": "service_name_altered",
+              "detail": "renamed: Усан хими, Чёлк тайралт",
+              "attempted": "Мастер үсчинд орвол дараах эмэгтэй тайралт болон хэлбэржүүлэлтийн үнэ хамаарна:\n\nЭмэгтэй тайралт (Мастер): 66,000₮–88,000₮\nХэлбэржүүлэлт (Мастер): 33,000₮–50,000₮\n\nХэрэв та будаг хийлгэхийг хүсэж байвал урьд асуусан тодруулгыг (бүтэн будуулах уу, эсвэл угийн будаг уу) хариулж өгвөл будгийн үнийг нь хэлье."
+            }
+          ],
+          "kind": "drafted",
+          "ms": 6883,
+          "usage": {
+            "input_tokens": 368,
+            "output_tokens": 209,
+            "cache_read_input_tokens": 16757,
+            "cache_creation_input_tokens": 0
+          }
+        }
+      ]
+    }
+  }
+}

@@ -746,3 +746,53 @@ Style rule (4) compliance remains intermittent: the same question listed three p
 per line in one run and asked a bare clarifying question in the next, on the same revision.
 The model also rewords the founder's service names («Дунд урттай (мөрнөөс дээш) үс» for
 «Дунд үсний будаг»). Dala does **not** yet beat the ancestor on every turn.
+
+## 2026-09-21, 19:2x–19:4x — the signed blocks measured against the unsigned fix, 96 replies each
+
+The question this run exists to answer: **should Matrix be republished now?** A republish
+compiles from the blocks SEEDED in `prompt_blocks`, so the two arms are the seeded blocks
+(what a republish gives today) and the same set with `--drafts` (what it would give after
+the four unsigned drafts are signed). Same 48 cases, two passes each, same model, same
+tenant data.
+
+| counter | seeded — a republish today | with the drafts signed |
+|---|---|---|
+| `outbound_gate_label` | **6 (6.2%)** | **0** |
+| reply discarded, generic handoff served | **11 (11.5%)** | **5 (5.2%)** |
+| `service_name_altered` | 28 (29.2%) | 29 (30.2%) |
+| `style_price_lines` | 11 (11.5%) | 12 (12.5%) |
+| `canned_paraphrased` | 7 (7.3%) | 6 (6.2%) |
+| `outbound_price` | 1 (1.0%) | 1 (1.0%) |
+| `model_invalid_request` | 4 (4.2%) | 4 (4.2%) |
+
+Read three things off it, and only the first is good news.
+
+**`00_gate_preamble_no_labels` works and nothing else does.** The gate-label leak goes 6 → 0
+and the discarded-reply rate halves, 11 → 5. Every one of those six is a customer receiving
+the generic handoff instead of an answer, and the leaked text is this platform's own internal
+labels — «Ш0 шалгав — энэ хувийн зурвас тул хязгаарлалт хамаарахгүй. Ш1, Ш5, Ш6, Ш9
+хамаарахгүй. Ш2 хамаарна… (11д)». The numbered procedure the signing introduced is a
+procedure the model narrates back, which is why the block that says "these are internal, never
+name them" is the whole fix.
+
+**Two of the four drafts do not do what they were written to do, and the numbers say so
+plainly.** `sh11_completeness_names` was written to stop the model rewriting the founder's
+service names: 28 → 29, i.e. no effect. `sh3_booking_deposit` was written to stop the booking
+reply opening with an apology, and says «УУЧЛАЛТ БҮҮ ГУЙ» in as many words; measured over five
+runs of «tsag zahialah» with that draft ACTIVE, the reply still opens «Уучлаарай» three times
+in five. Both are D-065 again — an instruction to the model is a request until something
+checks it — and the honest conclusion is that a fourth instruction will not fix either. The
+service-name case has now had three. What worked for pinned lines was taking the job off the
+model (`gate/pinned.ts` serves the row's bytes); the analogous move here is to serve the name
+and price from `services` rather than ask for them, which is what `services/match.ts` was
+step 1 of.
+
+**Four of the 96 are the instrument, not the platform.** `p02` (uncaptioned photo) and `p03`
+(thumbs-up sticker) carry empty customer text, and the harness hands that straight to the API,
+which 400s with `user messages must have non-empty content`. In production neither reaches the
+model at all — `meta/extract.ts` skips them and `inbound/imageReply.ts` serves the reviewed
+line or stays silent (D-070, D-076). So the harness cannot currently verify the one behaviour
+those two cases exist to verify, and it reports a handoff where production is specified to be
+silent. Counted here as noise in both arms rather than quietly dropped, because a case that
+scores the same in every arm for a reason unrelated to the arm is exactly the kind of check
+this repository keeps discovering cannot fail.
