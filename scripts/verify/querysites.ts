@@ -232,8 +232,14 @@ function walk(dir: string, out: string[]): string[] {
  * with no default and the payload did not carry it. Nothing here looked at the file, so
  * the first thing that read the real schema was the founder's `--apply` against the real
  * project. A writer is checked wherever it lives, not where the runtime lives.
+ *
+ * `scripts/kek` joined on 2026-09-21 with `verify.ts`. It only READS, so it cannot repeat
+ * that failure — but it is the command an operator runs when a credential looks wrong, and
+ * a diagnostic that dies on its own bad select is worse than no diagnostic: it reports the
+ * tool's fault in the vocabulary of the thing being diagnosed. `seal.ts` has no database
+ * client at all and contributes nothing here.
  */
-export const CHECKED_ROOTS = ['src', 'scripts/publish', 'scripts/provision'] as const;
+export const CHECKED_ROOTS = ['src', 'scripts/publish', 'scripts/provision', 'scripts/kek'] as const;
 
 /** Every `.from('table')…` chain in the tree, with whatever of it resolves statically. */
 export function chainsFromSource(root: string | readonly string[] = CHECKED_ROOTS): ChainUse[] {
