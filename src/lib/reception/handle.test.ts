@@ -102,7 +102,7 @@ const base: ReceptionInput = {
   // The pre-D-058 format: the prefix does not carry the canned section, so the volatile
   // tail still must. Tests for the published-in-the-prefix format set it explicitly.
   // The price list the STABLE fixture renders, so the name counter has something to check.
-  serviceNames: ['Чёлк тайралт'],
+  serviceNames: [{ name: 'Чёлк тайралт', prices: ['22000'] }],
   cannedHash: null,
 };
 

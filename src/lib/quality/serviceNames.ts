@@ -19,61 +19,112 @@
  *
  * ## What "altered" means, asked as an exact question
  *
- * For every service the KB knows, if the reply contains the name's DISTINCTIVE HEAD — its
- * longest token — but does not contain the full name verbatim, the name was altered.
- * Following `embeddedAdaptation`'s discipline: exact questions, no similarity score.
+ * A service was renamed when the reply QUOTES ONE OF THAT SERVICE'S PRICES and does not
+ * contain its name verbatim. Both halves are exact string questions over folded text, in
+ * `embeddedAdaptation`'s discipline: no similarity score, no heuristic for distinctiveness.
  *
- * The head-token test is what keeps it from firing on a reply that simply does not mention
- * the service. «Дунд урттай үс» contains «үсний»? No — it contains «үс», a DIFFERENT token.
- * So the head is chosen as the longest token, which for «Дунд үсний будаг» is «будаг»: a
- * reply that says «будаг» and not «Дунд үсний будаг» is talking about it and renaming it.
+ * ## The version this replaces fired on ordinary Mongolian nouns, and its own docstring
+ * ## carried the counter-example
+ *
+ * It asked whether the reply contained the name's "distinctive head", defined as its
+ * LONGEST TOKEN. The prose justified that with a worked example: the head of «Дунд үсний
+ * будаг» is «будаг», so a reply saying «будаг» without the full name is renaming it.
+ *
+ * The code does not do that. Tokens «дунд»(4) «үсний»(5) «будаг»(5) tie at five, the loop
+ * keeps the first strictly-longer one, and the head is «үсний» — *of hair*. Measured
+ * 2026-09-21 by execution: `serviceNameReport('Танай үсний урт ямар вэ?', …)` reported
+ * «Дунд үсний будаг» AND «Урт үсний будаг» as renamed. That is a clarifying question about
+ * hair length, renaming nothing. «CMC тэжээл» reduced to «тэжээл», «Чёлк тайралт» to
+ * «тайралт», «CICA нөхөн сэргээх эмчилгээ» to «эмчилгээ» — four of the tenant's commonest
+ * words, each flagging any reply that used them.
+ *
+ * The cost was a number reported to the founder as evidence: 28 of 96 replies "rewrote a
+ * service name", used to argue that three prompt instructions had failed and the job had
+ * to be taken off the model. Re-measured with the price-anchored question, the genuine
+ * rate is 8 of 96. The defect is real — «Дунд урттай үс (мөрнөөс дээш): 176,000₮» for
+ * «Дунд үсний будаг» is exactly it — and it is four to five times rarer than the broken
+ * counter claimed.
+ *
+ * Note the shape rather than the arithmetic: the prose and the code each read as correct
+ * on their own, and only running the function on a sentence nobody would think to test —
+ * an innocent one — separated them. The repository's own rule, from the preflight that
+ * gated a build on a contract its caller did not implement: a rule and the code it
+ * describes have to be read TOGETHER.
+ *
+ * ## Why a price, and why only a price the service does not share
+ *
+ * A price is the tenant's own datum and cannot be a common word. A reply that quotes
+ * 176,000₮ is talking about the service that costs 176,000₮, whatever it called it. Prices
+ * shared by two or more services are dropped from the test: quoting one of those says
+ * which AMOUNT is meant and not which SERVICE, so it cannot support the claim.
  *
  * Rule 6: comparison is over NFC-folded text, code points, no `\b`, no `[a-z]`.
  */
 import { fold } from '../mn/text.ts';
 
 export type NameReport = {
-  /** KB names whose head appears while the full name does not. */
+  /** KB names a distinctive price of which the reply quoted, without the name itself. */
   altered: string[];
   /** KB names reproduced verbatim. */
   exact: string[];
 };
 
-/** The longest token of a name — its most distinctive word. */
-function head(name: string): string {
-  const parts = fold(name).split(/[\s()/,.]+/u).filter((t: string) => t !== '');
-  let best = '';
-  for (const t of parts) if ([...t].length > [...best].length) best = t;
-  return best;
+/** A service the price list names, with the prices rendered against it. */
+export type PricedService = { name: string; prices: readonly string[] };
+
+/** The digit groups in a price fragment, folded to their digits so `176,000` and
+ *  `176 000` compare equal. Never a substring test: `20` must not match `20,000`,
+ *  which is the digits-only reduction the price guarantee already rests on. */
+function priceTokens(fragment: string): string[] {
+  const out: string[] = [];
+  for (const m of fragment.matchAll(/\d[\d,\u00a0 ]*\d|\d/gu)) {
+    const digits = m[0].replace(/[^\d]/gu, '');
+    if (digits.length >= 4) out.push(digits);
+  }
+  return out;
+}
+
+/** Every digit-run in the text, reduced the same way, as a SET for exact membership. */
+function textPriceSet(text: string): Set<string> {
+  return new Set(priceTokens(text));
 }
 
 /**
- * `names` is every service name the tenant's price list renders, WITHOUT the parenthetical
- * variant: the variant is a gloss and a reply may legitimately drop it. The head noun is
- * what must survive, because that is what a customer books by.
+ * `services` is what the tenant's price list renders: a name without its parenthetical
+ * variant, and the prices shown against it. The variant is a gloss and a reply may
+ * legitimately drop it; the name is what a customer books by.
  */
-export function serviceNameReport(text: string, names: readonly string[]): NameReport {
+export function serviceNameReport(text: string, services: readonly PricedService[]): NameReport {
   const t = fold(text);
+  const said = textPriceSet(text);
+  // A price two services share cannot say which of them a reply meant.
+  const owners = new Map<string, number>();
+  for (const s of services) for (const p of new Set(s.prices)) owners.set(p, (owners.get(p) ?? 0) + 1);
+
   const altered: string[] = [];
   const exact: string[] = [];
-  for (const name of names) {
-    const folded = fold(name);
-    if (folded === '' ) continue;
-    if (t.includes(folded)) { exact.push(name); continue; }
-    const h = head(name);
-    // A one-token name has no head distinct from itself; absent means simply unmentioned.
-    if (h !== '' && h !== folded && [...h].length >= 4 && t.includes(h)) altered.push(name);
+  for (const s of services) {
+    const folded = fold(s.name);
+    if (folded === '') continue;
+    if (t.includes(folded)) { exact.push(s.name); continue; }
+    const distinctive = [...new Set(s.prices)].filter((p) => owners.get(p) === 1);
+    if (distinctive.some((p) => said.has(p))) altered.push(s.name);
   }
   // Code-unit sort: deterministic, no locale (D-026).
   return { altered: altered.sort(), exact: exact.sort() };
 }
 
 /**
- * The service names a compiled prefix's price list renders, WITHOUT their parentheticals.
+ * The services a compiled prefix's price list renders: name without its parenthetical
+ * variant, plus every price shown against that name.
  *
  * Read from the prefix rather than fetched, because the prefix is already in hand on the
  * reply path and a second query would make a COUNTER cost a round trip. The price list is
  * `- {name} ({variant}): {price}` or `- {name}: {price}`, written by `renderTenantSections`.
+ *
+ * Variants are FOLDED TOGETHER under one name on purpose: «CICA нөхөн сэргээх эмчилгээ
+ * (1 удаа)» and «… (Курсээр, 1 удаагийн үнэ)» are one service a customer books by one
+ * name, and both of their prices are evidence that a reply is talking about it.
  *
  * D-057's rule applies and is why this returns `[]` rather than guessing when the heading
  * is absent: a tenant with no price list has no names to check, which is a determinate
@@ -82,22 +133,28 @@ export function serviceNameReport(text: string, names: readonly string[]): NameR
  * and a heading that never closes simply runs to the end of the prefix, which is correct
  * because the price list is the last thing in it or is followed by one.
  */
-export function serviceNamesFromPrefix(promptStable: string, priceListLabel: string): string[] {
-  const head = `=== ${priceListLabel} ===`;
-  const at = promptStable.indexOf(head);
+export function servicesFromPrefix(promptStable: string, priceListLabel: string): PricedService[] {
+  const heading = `=== ${priceListLabel} ===`;
+  const at = promptStable.indexOf(heading);
   if (at === -1) return [];
-  const rest = promptStable.slice(at + head.length);
+  const rest = promptStable.slice(at + heading.length);
   const next = rest.indexOf('\n=== ');
   const body = next === -1 ? rest : rest.slice(0, next);
-  const names = new Set<string>();
+  const byName = new Map<string, Set<string>>();
   for (const line of body.split('\n')) {
     const t = line.trim();
     if (!t.startsWith('- ')) continue;
-    // Strip the price, then the parenthetical gloss. Both are optional.
-    const noPrice = t.slice(2).split(':')[0] ?? '';
-    const noVariant = noPrice.replace(/\s*\([^()]*\)\s*$/u, '').trim();
-    if (noVariant !== '') names.add(noVariant);
+    const row = t.slice(2);
+    const colon = row.indexOf(':');
+    if (colon === -1) continue;
+    const name = row.slice(0, colon).replace(/\s*\([^()]*\)\s*$/u, '').trim();
+    if (name === '') continue;
+    const set = byName.get(name) ?? new Set<string>();
+    for (const p of priceTokens(row.slice(colon + 1))) set.add(p);
+    byName.set(name, set);
   }
   // Code-unit sort: deterministic, no locale (D-026).
-  return [...names].sort();
+  return [...byName.entries()]
+    .map(([name, prices]) => ({ name, prices: [...prices].sort() }))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
