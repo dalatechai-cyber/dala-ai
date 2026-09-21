@@ -101,6 +101,20 @@ test('a uniquely-priced service IS identified by its price alone', () => {
   assert.equal(r.ambiguous, false);
 });
 
+test('DONE-TEST: ONE AMBIGUOUS PRICE STOPS THE WHOLE SUBSTITUTION', () => {
+  // Measured 2026-09-21, second real-model run. Substituting only the part the platform
+  // could account for served the chemical services and DELETED the answer about CICA,
+  // which is what the customer asked. All-or-nothing is the rule that prevents it.
+  const MIXED = servicesFromPrefix([
+    '=== ҮНИЙН ЖАГСААЛТ ===',
+    '- CICA нөхөн сэргээх эмчилгээ: 198,000₮',
+    '- Хуримын засалт: 198,000₮',
+    '- Шулуун хими: 430,000₮–510,000₮',
+  ].join('\n'), 'ҮНИЙН ЖАГСААЛТ');
+  const r = pricePresentation('CICA бол хими биш, 198,000₮. Химийн үйлчилгээ 430,000₮–510,000₮.', MIXED);
+  assert.equal(r.ambiguous, true, 'the shared 198,000 poisons the whole substitution');
+});
+
 test('a tenant with no price list has nothing to check', () => {
   assert.deepEqual(pricePresentation('Сор: 120,000₮', []).violations, []);
 });

@@ -93,6 +93,18 @@ export type PresentationReport = {
    * and the reply is left alone. It is loosely named and TRUE, and a true answer with an
    * imprecise name beats a list of unrelated services. This is the boundary of what the
    * mechanism can enforce, and it is stated rather than hidden.
+   *
+   * ALL-OR-NOTHING, and the second real-model run is why. A reply can mix an ambiguous
+   * price with an unambiguous one, and substituting "the part we can account for" then
+   * serves the part the customer did NOT ask about. Measured: «CICA хими байгаа юу?» was
+   * answered "CICA is not a chemical service, it costs 198,000₮ (154,000₮ by course); if
+   * you want a chemical service, there is…". The CICA prices are shared, the two chemical
+   * ones are unique, so the substitution kept ONLY the chemical services and deleted the
+   * answer to the question. Worse than the defect, again, and in a new way.
+   *
+   * So this is true whenever ANY violating price has an ambiguous owner, not only when
+   * every one does: the platform serves the whole priced answer from data, or it serves
+   * none of it and leaves the model's.
    */
   ambiguous: boolean;
 };
@@ -137,7 +149,7 @@ export function pricePresentation(text: string, services: readonly PricedService
 
   const violations: PriceViolation[] = [];
   const quotedNames = new Set<string>();
-  let ambiguousOnly = false;
+  let sawAmbiguous = false;
 
   for (const line of text.split('\n')) {
     const folded = fold(line);
@@ -163,7 +175,7 @@ export function pricePresentation(text: string, services: readonly PricedService
         violations.push({ kind: 'orphaned', price: f.digits, line: line.trim() });
         // Only a price with exactly ONE owner says which service was meant.
         if (owners.length === 1 && owners[0] !== undefined) quotedNames.add(owners[0].name);
-        else ambiguousOnly = true;
+        else sawAmbiguous = true;
       } else {
         for (const o of named) quotedNames.add(o.name);
       }
@@ -172,7 +184,7 @@ export function pricePresentation(text: string, services: readonly PricedService
 
   // Price-list order, not reply order: the rows are served as the data writes them.
   const quoted = services.filter((s) => quotedNames.has(s.name));
-  return { violations, quoted, ambiguous: ambiguousOnly && quoted.length === 0 };
+  return { violations, quoted, ambiguous: sawAmbiguous };
 }
 
 /**
