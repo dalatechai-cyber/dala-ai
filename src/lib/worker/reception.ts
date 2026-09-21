@@ -501,15 +501,30 @@ async function runReceptionDelivery(
     // with nothing recording it.
     const echoes = skipped
       .filter((sk) => sk.reason === 'echo' && sk.externalId !== null && sk.recipientId !== null)
-      .map((sk) => ({ mid: sk.externalId as string, psid: sk.recipientId as string }));
+      .map((sk) => ({
+        mid: sk.externalId as string,
+        psid: sk.recipientId as string,
+        // Which APP Meta says sent it. Without this "not one of our sends" reads as "a
+        // person typed this", and on Matrix's Page every ancestor reply is exactly that
+        // false positive — harmless only while the channel is `shadow`.
+        appId: sk.appId,
+      }));
     const handover = await recordHandover(db, {
       tenantId, channelId, ourAppId: metaAppId, entry: rawPayload, echoes,
       deliveryMode, now,
     });
-    if (handover.events > 0 || handover.changed > 0 || handover.echoTakeovers > 0) {
+    // `echoes > 0` is in this condition and the other three are not enough without it.
+    // In `shadow` an echo moves nothing, so `events`, `changed` and `echoTakeovers` are
+    // all zero for every echo this platform will see before cutover — the counter added
+    // beside them would have been unreachable for the entire mirror phase, which is the
+    // one window it exists to inform. A guard whose trigger cannot fire is this
+    // repository's most repeated defect; it is not worth committing a fresh one.
+    if (handover.events > 0 || handover.changed > 0
+        || handover.echoTakeovers > 0 || handover.echoes > 0) {
       fx.log('info', 'thread_control', {
         eventId, events: handover.events, changed: handover.changed,
         echoes: handover.echoes, echoTakeovers: handover.echoTakeovers,
+        echoesFromApp: handover.echoesFromApp, echoAppIds: handover.echoAppIds,
       });
     }
     // Never folded into zero. The delivery shape of a handover event is unverified here —

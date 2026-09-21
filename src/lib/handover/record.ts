@@ -178,6 +178,18 @@ export type HandoverOutcome = {
   echoes: number;
   /** Echoes that moved control. Always 0 unless the channel is `live`. */
   echoTakeovers: number;
+  /**
+   * Echoes Meta attributed to an APP rather than leaving unclaimed — the ancestor's
+   * replies are all of these on Matrix's Page. Counted in every delivery mode, because
+   * this is the number that says whether the `human` residue means anything, and it is
+   * the only evidence available for a direction the docs cannot be read for.
+   */
+  echoesFromApp: number;
+  /**
+   * The distinct app ids seen, sorted. An id that is neither ours nor the ancestor's is
+   * the thing worth a person looking, and folding it into a count would hide it.
+   */
+  echoAppIds: string[];
   problems: string[];
 };
 
@@ -192,8 +204,11 @@ export async function recordHandover(
   input: {
     tenantId: string; channelId: string; ourAppId: string | null;
     entry: unknown;
-    /** Echoes from `extractInboundMessages`: the `mid` and the CUSTOMER (the recipient). */
-    echoes: readonly { mid: string; psid: string }[];
+    /**
+     * Echoes from `extractInboundMessages`: the `mid`, the CUSTOMER (the recipient), and
+     * the app Meta says sent it. `appId` is what separates the ancestor from a person.
+     */
+    echoes: readonly { mid: string; psid: string; appId: string | null }[];
     /** Only `live` lets an echo move control. See this file's header. */
     deliveryMode: string;
     now: Date;
@@ -202,7 +217,8 @@ export async function recordHandover(
   const parsed = parseHandoverEvents(input.entry);
   const out: HandoverOutcome = {
     events: parsed.events.length, unrecognised: parsed.unrecognised,
-    changed: 0, echoes: input.echoes.length, echoTakeovers: 0, problems: [],
+    changed: 0, echoes: input.echoes.length, echoTakeovers: 0,
+    echoesFromApp: 0, echoAppIds: [], problems: [],
   };
 
   const move = async (psid: string, control: ThreadControl, at: Date, source: ControlSource) => {
@@ -227,12 +243,22 @@ export async function recordHandover(
     if (await move(ev.psid, control, ev.at ?? input.now, 'handover')) out.changed += 1;
   }
 
+  // The app ids are gathered OUTSIDE the `live` gate on purpose. In shadow no echo may
+  // move anything, but the whole question this counter exists to answer — is the `human`
+  // residue real, or is every echo here just the ancestor? — has to be answerable BEFORE
+  // the cutover flips the gate open. A counter that only starts recording once the risk is
+  // live is a counter that cannot inform the decision to go live.
+  out.echoAppIds = [...new Set(
+    input.echoes.map((e) => e.appId).filter((a): a is string => a !== null),
+  )].sort(); // bare sort = code-unit order, which is deterministic. No locale involved.
+
   // The echo half, and the mode gate that makes it honest.
   if (input.deliveryMode === 'live') {
     for (const echo of input.echoes) {
       const ours = await echoIsOurs(db, { tenantId: input.tenantId, mid: echo.mid });
-      const control = controlFromEcho(ours);
-      if (control === null) continue; // ours, or unreadable — either way, no conclusion
+      const { control, kind } = controlFromEcho(ours, echo.appId);
+      if (kind === 'app') out.echoesFromApp += 1;
+      if (control === null) continue; // ours, unreadable or an app — no conclusion
       if (await move(echo.psid, control, input.now, 'echo')) {
         out.changed += 1;
         out.echoTakeovers += 1;

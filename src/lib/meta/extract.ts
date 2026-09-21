@@ -82,6 +82,25 @@ export type SkippedEvent = {
    * a page id where a PSID is expected. Null on every other reason. PII, like `senderId`.
    */
   recipientId: string | null;
+  /**
+   * The Meta APP id that sent an echo, when the payload named one. Null on every other
+   * reason, and null on an echo Meta attributed to no app.
+   *
+   * ## This is the difference between "not ours" and "a person"
+   *
+   * `controlFromEcho` concluded `human` from an echo whose `mid` is not one of our sends,
+   * and on Matrix's Page that inference is false for a reason nothing in the payload used
+   * to expose: the ancestor bot answers every thread through a DIFFERENT Meta app, so
+   * every one of its replies is an echo that is not ours and is not a person either.
+   * Measured 2026-09-21 on the first real echo — `app_id 1380702870025418`, the
+   * `dalatech` app that holds the ancestor's callback, against our `1562862634970492`.
+   *
+   * PRECISION NOTE: Meta sends this as a JSON number. `JSON.parse` has already turned it
+   * into a double by the time this function runs, so an app id above 2^53 would arrive
+   * corrupted and nothing here could tell. Both ids in play are ~1.5e15, well inside the
+   * safe range; a future id near the limit is a hazard this layer cannot see.
+   */
+  appId: string | null;
   /** Attachment kinds, deduplicated — see `attachmentKinds`. Empty for a text-less skip. */
   attachments: string[];
   /** Facebook sticker asset ids, when the attachments were stickers. Not PII. */
@@ -188,6 +207,7 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
         externalId: extra.externalId ?? null,
         senderId: extra.senderId ?? null,
         recipientId: extra.recipientId ?? null,
+        appId: extra.appId ?? null,
         attachments: extra.attachments ?? [],
         stickerIds: extra.stickerIds ?? [],
       });
@@ -224,10 +244,18 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
     // `sender` on an echo is the PAGE, so the customer is the RECIPIENT. Filing the page
     // id under `senderId` would look right and resolve to no conversation.
     if (message['is_echo'] === true) {
+      // Meta sends `app_id` as a NUMBER. Both forms are accepted because the same id
+      // arrives as a string elsewhere in this payload family, and one shape silently
+      // yielding null is exactly the "absent means human" reading that must not happen.
+      const rawAppId = message['app_id'];
+      const appId = typeof rawAppId === 'string' && rawAppId.trim() !== ''
+        ? rawAppId
+        : (typeof rawAppId === 'number' && Number.isFinite(rawAppId) ? String(rawAppId) : null);
       skip('echo', {
         externalId: externalId === '' ? null : externalId,
         senderId: senderIdOf === '' ? null : senderIdOf,
         recipientId: recipientIdOf === '' ? null : recipientIdOf,
+        appId,
       });
       continue;
     }
