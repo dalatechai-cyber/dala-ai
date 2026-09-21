@@ -588,3 +588,45 @@ answered from, so every tenant must be republished afterwards — deploy, `git p
 publish, in that order (D-074). Expect every `content_hash` to move and every
 `allowed_numbers` to stay put; if a tenant's numbers move, something other than this
 changed too.
+
+### `0037_out_of_scope_quote_price`
+
+**Additive, one column, default `false`.** `out_of_scope_topics.quote_price boolean not
+null default false` — which is exactly the value `reception/load.ts` already substituted
+for the absent column, so **no tenant's behaviour changes and no reply moves by one byte**.
+What changes is that a tenant can now say otherwise.
+
+**Why.** Measured on 2026-09-21, turn 14 of Matrix's first real side-by-side. The customer
+asked «dund zergiin usend shuluun himi hedeer hiih ve»; the model answered «Шулуун хими
+430,000₮–510,000₮ байна.», which is the `Шулуун хими` row to the tögrög and is what the
+ancestor sent. `suitability_lat_himi` — `stem_sequence ["usend","himi"]`, 40 codepoints —
+fired on "…usend shuluun himi hedeer…", `quotePrice: false` set `refusedTopicBlocksPrice`,
+the guard was handed an EMPTY allow-list, and the correct answer was thrown away for the
+generic handoff.
+
+**The distinction the column expresses.** The blanket `false` is justified in
+`guard/outbound.ts` by **Ш1's** rule — on a refused topic, mention no number at all,
+because a customer who writes «Хүүхдийн үс 33,000₮ мөн үү?» has supplied the number that
+would make an echo read as confirmation. That reasoning is sound and is kept. But it is
+reasoning about Ш1, and `refusal_suitability` is **absent from `GATE_BY_RESPONSE_KIND`**,
+so it falls to `DEFAULT_GATE = 'Ш8'` — *"not in the knowledge base"* — for a service that
+IS in the knowledge base with a confirmed price. A rule written for one gate was being
+applied under a gate whose own rule does not ask for it, for want of a column.
+
+- **A refusal for want of a FACT** — `photo_consultation`. We cannot see the picture, so we
+  cannot know which service it is, so we must not price it. Stays `false`.
+- **A refusal for want of a JUDGEMENT** — `suitability_*`. The service is named and priced;
+  only whether it suits this person is unknowable. Refusing the judgement does not require
+  refusing the price.
+
+**Which rows should flip it is NOT decided here.** A price beside "I can't say whether it
+suits you" can read as an endorsement that no guard can see, so the switch is the founder's.
+D-063's addendum is why the default is the conservative one: a backfill default
+retroactively decides the semantics of every row already there, and those rows are exactly
+the ones that motivated the change.
+
+**Merge order matters (D-058).** The same PR adds `quote_price` to the `out_of_scope_topics`
+`.select()` in `reception/load.ts`. Against a project where this migration has not been
+pushed, PostgREST answers that select with a 400 and **every reply for every tenant 503s**.
+CI cannot see it — CI applies every migration in `supabase/migrations/` before it runs. Read
+`supabase_migrations.schema_migrations` and merge only after the push.

@@ -449,6 +449,7 @@ export async function handleReception(
     {
       firedGates: matched.firedGates,
       refusedTopicBlocksPrice: matched.refusedTopicBlocksPrice,
+      priceBlockingTopics: matched.priceBlockingTopics,
       customerText: input.customerMessage,
     },
     result.text,

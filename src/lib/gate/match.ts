@@ -222,6 +222,17 @@ export type MatchOutcome =
       firedGates: GateKey[];
       /** True when any matched rule forbids quoting a price. Feeds check 2b. */
       refusedTopicBlocksPrice: boolean;
+      /**
+       * WHICH rules did that, so the refusal can name them.
+       *
+       * Derived, never set independently: `refusedTopicBlocksPrice` is this array being
+       * non-empty. Two fields that can disagree about the same fact is how a flag comes
+       * to describe a cause that did not happen, and diagnosing 2026-09-21's turn 14
+       * meant reading ten rows of `out_of_scope_topics` by hand to learn which of them
+       * had emptied the allow-list — twenty minutes for a fact the guard knew and threw
+       * away.
+       */
+      priceBlockingTopics: string[];
       /** Topic keys that matched, for the alert and the quality flag. */
       matchedTopics: string[];
       /**
@@ -251,7 +262,7 @@ export function matchRules(subject: MatchSubject, rules: readonly GateRule[]): M
   const firedGates: GateKey[] = [];
   const matchedTopics: string[] = [];
   const unconfirmedTopics: string[] = [];
-  let refusedTopicBlocksPrice = false;
+  const priceBlockingTopics: string[] = [];
   let shortCircuitKind: string | null = null;
 
   for (const rule of rules) {
@@ -266,12 +277,21 @@ export function matchRules(subject: MatchSubject, rules: readonly GateRule[]): M
     // seeded rule shaped this reply", not "a seeded rule exists somewhere in the table".
     if (!isTenantConfirmed(rule.provenance)) unconfirmedTopics.push(rule.topicKey);
     if (!firedGates.includes(rule.gate)) firedGates.push(rule.gate);
-    if (!rule.quotePrice) refusedTopicBlocksPrice = true;
+    if (!rule.quotePrice) priceBlockingTopics.push(rule.topicKey);
     // First enabled short-circuit wins; rules are supplied in the tenant's own order.
     if (rule.deterministicShortcircuit && shortCircuitKind === null) shortCircuitKind = rule.responseKind;
   }
 
-  return { ok: true, firedGates, refusedTopicBlocksPrice, matchedTopics, unconfirmedTopics, shortCircuitKind };
+  return {
+    ok: true,
+    firedGates,
+    // Derived rather than tracked, so the boolean cannot outlive the reason for it.
+    refusedTopicBlocksPrice: priceBlockingTopics.length > 0,
+    priceBlockingTopics,
+    matchedTopics,
+    unconfirmedTopics,
+    shortCircuitKind,
+  };
 }
 
 export type CannedRow = { kind: string; body: string; reviewedAt: string | null };

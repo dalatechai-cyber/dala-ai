@@ -4,6 +4,16 @@ Generated from captured runs. Dala run `final` (2026-09-21T04:47:58.921Z); ances
 
 **Every Mongolian reply below is verbatim from the capture files.** Nothing is paraphrased, shortened or composed for this table — the native read is the point of the report.
 
+> **SUPERSEDED IN PART, 2026-09-21 16:30 UTC.** The "Dala in production last night" column
+> below (p50 **25.8s**, p90 51.4s, slowest 480.7s) predates the `sin1` region pin and is no
+> longer what production does. Measured on sixteen real paired turns against the live
+> ancestor: **Dala median 7.36s, ancestor 7.06s, Dala's range 5.37–8.61s against the
+> ancestor's 3.46–14.03s.** See `docs/reports/matrix-real-turns.md` §5.
+>
+> The harness comparison in this document is NOT superseded — it measures the model path
+> only (assemble → call → return) on both bots, which is still a like-for-like reading and
+> is still 3.7s vs 6.8s. What changed is the production figure it was contrasted against.
+
 ## Headline
 
 | | Dala AI (after tonight's fixes) | Ancestor | Dala in production last night |

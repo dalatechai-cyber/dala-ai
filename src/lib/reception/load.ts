@@ -88,8 +88,16 @@ function toRules(rows: unknown, quotePriceDefault: boolean): GateRule[] {
       gate: gateFor(responseKind),
       topicKey: String(r['topic_key'] ?? ''),
       matcher: r['matcher'],
-      // `out_of_scope_topics` has no quote_price column: "we cannot know" never licenses
-      // a number, so its default is false and the column's absence is not a gap.
+      // Both refusal tables carry `quote_price` since 0037; the fallback is for a
+      // database that predates it, and the default passed by both callers is `false`,
+      // which is the semantics the column's absence always had.
+      //
+      // 0037 is where the reasoning lives. In short: "we cannot know" was doing two
+      // different jobs. A topic refused for want of a FACT (we cannot see the
+      // photograph) must not carry a number. A topic refused for want of a JUDGEMENT
+      // («Шулуун хими» is priced in the KB; only its suitability is unknowable) has no
+      // such need, and blanket-refusing it threw away a correct, row-backed price on
+      // 2026-09-21.
       quotePrice: 'quote_price' in r ? r['quote_price'] === true : quotePriceDefault,
       deterministicShortcircuit: r['deterministic_shortcircuit'] === true,
       responseKind,
@@ -130,7 +138,7 @@ export async function loadReceptionContext(
       .select('topic_key, matcher, quote_price, response_kind, deterministic_shortcircuit, provenance')
       .eq('tenant_id', input.tenantId),
     db.from('out_of_scope_topics')
-      .select('topic_key, matcher, response_kind, deterministic_shortcircuit, provenance')
+      .select('topic_key, matcher, response_kind, deterministic_shortcircuit, provenance, quote_price')
       .eq('tenant_id', input.tenantId),
     db.from('canned_responses')
       .select('kind, body, reviewed_at')
