@@ -8257,3 +8257,50 @@ validates a configuration, not a system — and every edit starts a new one.**
 
 The instrument that did work was the founder sending one message himself immediately after
 the flip. Sixty seconds, one test, the whole defect. That belongs in every cutover.
+
+---
+
+## D-109 — a credential can be wrong in two unrelated ways, and length sees only one
+
+**Matrix's cutover produced both, forty minutes apart, and they look nothing alike.**
+
+| | Sealed value | `verify.ts` | Failure at send |
+|---|---|---|---|
+| First | **105 characters** | never run against it | `secret_undecryptable` |
+| Second | **242 characters** | `OPENED` | `graph 401 code=190 subcode=463` |
+
+The first was a **truncated paste**. The second was **whole, opened cleanly, and expired** —
+a short-lived Graph API Explorer token that answered `GET /{page-id}?fields=name` at 02:0x
+and was dead by 02:24.
+
+**During the incident this session inferred that the 105 characters meant "short-lived",
+and that was wrong.** It read one symptom as evidence for the other defect, and the
+founder corrected it: *"Token length tells us about truncation, not lifetime.
+`expires_at: 0` is the only acceptance test."* Two independent properties, two independent
+checks:
+
+- **Whole?** The character count, compared against a token known to be complete. This is
+  what `scripts/kek/verify.ts` prints and what its header means by "a token you know is
+  whole". It says nothing about lifetime.
+- **Long-lived?** `GET /debug_token` → **`expires_at: 0`**. Nothing else establishes it, and
+  no property of the string does.
+
+**Neither is checked by anything that runs today.** `unusableBecause` in the runtime loader
+rejects an empty secret, control characters and surrounding whitespace — that is the whole
+test. A truncated token passes it, seals, self-checks, decrypts, and fails at Graph; an
+expired one does the same. `tenant_secrets` carries no `expires_at` at all, which `0001`
+omits deliberately, so expiry is discoverable only as a 401 at send time.
+
+**The breaker did its job and should not be softened.** Three consecutive credential
+failures halted the channel — `delivery_mode = 'off'`, `token_status = 'revoked'`,
+`tenant_secrets.status = 'revoked'` — which is correct behaviour for a credential that
+cannot be used, and the founder's own verdict was *"the breaker was correct."* Note the
+recovery asymmetry that follows: `seal.ts`'s SQL restores `tenant_secrets.status` to
+`active` by itself, and the two `tenant_channels` columns do not self-repair. They must move
+together in one statement, because `live_requires_active_token` evaluates the finished row.
+
+**The follow-up is a WARNING, never a refresh** (founder, 2026-09-21). Track `expires_at`
+AND `data_access_expires_at`: a token with `expires_at: 0` still loses data access about
+ninety days after the last authorization, so "never expires" and "never needs the human
+again" are different claims. Automatic re-authorization is out of scope — the platform
+should say *this credential dies on date X* early enough to act, and nothing more.
