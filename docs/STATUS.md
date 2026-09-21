@@ -1,5 +1,38 @@
 # STATUS — what is built, what is stubbed, what has never been proven
 
+> ## ⚠ 2026-09-21 20:4x UTC — MATRIX IS IN `canned_stale` AND EVERY REPLY IS 503ing
+>
+> The tenant data was edited after seq 12 was published and the config was NOT republished,
+> so `handle.ts`'s canned-hash gate now refuses every turn. Measured, not inferred:
+>
+> * seq 12 (published 16:05:19 UTC) carries `canned_hash a3d288a9…`
+> * the live `canned_responses` rows hash to **`509d07df…`** through `cannedHashOf`, the
+>   same function the request path calls
+> * so `cannedHashOf(input.canned) !== input.cannedHash` and the turn returns
+>   `{ kind: 'retry' }` — a 503, with QStash holding the message
+>
+> **No message has hit it yet.** The newest row in `messages` is 16:22:36 UTC, about four
+> hours before the edits; every one of the founder's sixteen test turns at 16:07–16:22 was
+> answered normally (`answered_by` model or canned, `revision_id` set). The next real
+> customer message is the first one that fails. Nothing is lost while QStash retries, but
+> the mirror stops measuring, which is the point of the fourteen days.
+>
+> **The fix is a republish and only the founder can run it** — `SUPABASE_SECRET_PUBLISH` is
+> absent from the agent environment by design. Deploy, `git pull`, dry run, `--publish`.
+>
+> Two notes on how this was established, because the first attempt was wrong. Dropping the
+> one row known to be new (`refusal_service_unavailable`) does **not** reproduce
+> `a3d288a9`, and neither does dropping any pair — so at least one existing BODY was edited
+> as well, and "I added a row" was an incomplete account of the change. And the hash
+> mismatch alone was NOT treated as proof of an outage: the mismatch is a statement about
+> two hashes, and the statement about production is that sixteen real turns either side of
+> the publish were answered. Those are different claims and the second needed the
+> `messages` table, not more hashing.
+>
+> The lesson is D-071's, one table over: **a tenant-data edit and the republish that makes
+> it legal are one operation.** Editing rows and leaving the publish for later does not
+> leave the old behaviour running — it stops the tenant.
+
 **2026-09-04, last revised 2026-09-06.** Written to answer one question honestly:
 *how far is this from a real customer message, and what has to come from you?*
 
