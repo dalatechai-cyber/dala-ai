@@ -1029,3 +1029,24 @@ test('DONE-TEST: A TYPING BUBBLE THAT THROWS NEVER COSTS THE CUSTOMER A REPLY', 
   assert.equal(delivered.length, 1, 'the reply is unaffected');
   assert.ok(reasons(logs).includes('typing_indicator_failed'), 'and the failure is visible');
 });
+
+test('a reply logs where its wall-clock went, and the phases do not overwrite each other', async () => {
+  // The production gap this exists to close: the bake-off measures the model path at 3.7s
+  // and production measured 25.8s from inbound row to draft. The harness stubs the
+  // database and structurally cannot see the difference, so the answer has to come from a
+  // real turn.
+  //
+  // The accumulation matters as much as the timing. One webhook entry can carry several
+  // messages and the loop runs these phases once per message — assigning instead of adding
+  // would report the LAST message's timings as if they were the whole job's, which is the
+  // kind of number that looks precise and is wrong.
+  const { fx, logs } = stubEffects();
+  await run(fx);
+  const timing = logs.find((l) => l.event === 'reply_timing_ms');
+  assert.ok(timing !== undefined, `no timing line was logged: ${JSON.stringify(reasons(logs))}`);
+  for (const phase of ['event_read', 'tenant_read', 'context_load', 'generate']) {
+    assert.equal(typeof timing.fields?.[phase], 'number', `${phase} is missing from ${JSON.stringify(timing.fields)}`);
+  }
+  // It is diagnostic only: nothing branches on it, so it cannot change what a customer is told.
+  assert.equal(timing.level, 'info');
+});
