@@ -314,29 +314,48 @@ export const EMBEDDED_MIN_RUN = 40;
  * customer would lose the location link that followed. That is the price of exactness, and
  * the answer to a row that reads worse than what the model produced is to fix the row.
  */
-function embeddedAdaptation(candidate: string, canned: readonly CannedRow[]): PinnedVerdict {
+/**
+ * The two exact questions, over plain approved BODIES rather than over canned rows.
+ *
+ * Extracted so a second kind of approved text can ask them without a second copy of the
+ * logic drifting from this one. `faqs` was that second kind: its answers carry no
+ * `reviewed_at` of their own because, as `renderTenantSections` says, the review unit for
+ * tenant data is the REVISION — an answer only reaches the compiled prefix by being
+ * published, and publishing is the founder's act. So the review concept lives at the
+ * caller, and this function knows only about text.
+ *
+ * Returns the approved body the candidate adapted, with the run length, or null.
+ */
+export function adaptedFrom(
+  candidate: string,
+  bodies: readonly string[],
+): { body: string; run: number } | null {
   const cand = [...candidate];
-  let best: { row: CannedRow; run: number } | null = null;
-
-  for (const row of canned) {
-    if (!isPinnable(row)) continue;
-    const body = comparable(row.body);
+  let best: { body: string; run: number } | null = null;
+  for (const raw of bodies) {
+    const body = comparable(raw);
     if (body === '') continue;
     // An exact quotation is not drift. `comparable` has already folded both sides.
     if (candidate.includes(body)) continue;
-
     const chars = [...body];
     const run = longestCommonRun(cand, chars);
     if (run < EMBEDDED_MIN_RUN) continue;
     if (run / chars.length < EMBEDDED_MIN_SHARE) continue;
-    if (best === null || run > best.run) best = { row, run };
+    if (best === null || run > best.run) best = { body: raw, run };
   }
+  return best;
+}
 
-  if (best === null) return { kind: 'clean' };
+function embeddedAdaptation(candidate: string, canned: readonly CannedRow[]): PinnedVerdict {
+  const pinnable = canned.filter(isPinnable);
+  const hit = adaptedFrom(candidate, pinnable.map((r) => r.body));
+  if (hit === null) return { kind: 'clean' };
+  const row = pinnable.find((r) => r.body === hit.body);
+  if (row === undefined) return { kind: 'clean' };
   return {
     kind: 'paraphrase',
-    canonicalKind: best.row.kind,
-    canonical: best.row.body,
-    similarity: best.run / [...comparable(best.row.body)].length,
+    canonicalKind: row.kind,
+    canonical: row.body,
+    similarity: hit.run / [...comparable(row.body)].length,
   };
 }

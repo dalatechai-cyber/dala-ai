@@ -160,6 +160,36 @@ export function sectionRows(promptStable: string, label: string): string[] {
   return body.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('- ')).map((l) => l.slice(2));
 }
 
+/**
+ * The FAQ ANSWERS a compiled prefix renders, in order.
+ *
+ * `renderTenantSections` writes each FAQ as two lines — `- {question}` then the answer,
+ * indented — so `sectionRows` alone cannot read it: that returns only the dashed lines,
+ * which are the QUESTIONS. Reading the questions and calling them answers is the shape of
+ * mistake this repository keeps finding, so the parser is separate and named for what it
+ * returns.
+ *
+ * A question with no answer line beneath it is skipped rather than paired with the next
+ * question's text: an incomplete pair is not a determinate answer (D-057).
+ */
+export function faqAnswersFromPrefix(promptStable: string, faqLabel: string): string[] {
+  const heading = `=== ${faqLabel} ===`;
+  const at = promptStable.indexOf(heading);
+  if (at === -1) return [];
+  const rest = promptStable.slice(at + heading.length);
+  const next = rest.indexOf('\n=== ');
+  const lines = (next === -1 ? rest : rest.slice(0, next)).split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!(lines[i] ?? '').trim().startsWith('- ')) continue;
+    const answer = (lines[i + 1] ?? '').trim();
+    // The next line must be an answer, not the next question and not the section's end.
+    if (answer === '' || answer.startsWith('- ')) continue;
+    out.push(answer);
+  }
+  return out;
+}
+
 export function servicesFromPrefix(promptStable: string, priceListLabel: string): PricedService[] {
   const order: string[] = [];
   const prices = new Map<string, Set<string>>();

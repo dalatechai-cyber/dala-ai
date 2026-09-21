@@ -29,7 +29,7 @@ import type { Usage } from '../spend/settle.ts';
 import { kindsRequiredByRules, kindsReferencedBy, matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
 import { cannedHashOf } from '../prompt/sections.ts';
 import { matchDeterministic, type DeterministicRule, type HistoryState } from '../gate/deterministic.ts';
-import { checkPinnedLines } from '../gate/pinned.ts';
+import { checkPinnedLines, adaptedFrom } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
 import { priceLineReport } from '../quality/priceLines.ts';
@@ -142,6 +142,15 @@ export type ReceptionInput = {
    * alone, which is still the answer the founder asked for minus a fact it does not have.
    */
   depositRows: readonly string[];
+  /**
+   * The tenant's FAQ ANSWERS, verbatim from the prefix.
+   *
+   * Founder, 2026-09-21: *"Pin FAQ answers exactly like canned rows. Reviewed text is
+   * served as written."* They carry no `reviewed_at` of their own — `renderTenantSections`
+   * says why: the review unit for tenant data is the REVISION, and an answer only reaches
+   * the compiled prefix by being published. So being here IS the approval.
+   */
+  faqAnswers: readonly string[];
 };
 
 export type ReceptionOutcome =
@@ -467,6 +476,32 @@ export async function handleReception(
   // model's text is thrown away whole and the tenant's own row is served in its place,
   // exactly as the two short-circuits above do. The model keeps the job it is good at,
   // choosing which line applies, and loses the one it was measurably unreliable at.
+  // A FAQ answer is pinned exactly like a canned row, and until 2026-09-21 it was not.
+  //
+  // Measured: the model reproduced the founder's damaged-hair FAQ and inserted «үзээд» —
+  // «мастер үсчин ҮЗЭЭД зөвлөж өгнө» where the approved text says «мастер үсчин зөвлөж
+  // өгнө». Nothing caught it, because `checkPinnedLines` only ever saw `canned_responses`.
+  // That is D-065's rule reaching a table it had not reached: an approved sentence altered
+  // is an unreviewed sentence carrying an approved one's meaning, whichever table it lives
+  // in.
+  //
+  // Checked BEFORE the canned pinning so the more specific source wins attribution: a FAQ
+  // answer and a canned row can share a closing sentence, and reporting a FAQ drift as
+  // `canned_paraphrased` would send a reader to the wrong table (D-066).
+  const faqDrift = adaptedFrom(result.text, input.faqAnswers);
+  if (faqDrift !== null) {
+    await deps.flag({
+      code: 'faq_paraphrased',
+      detail: `a FAQ answer was reproduced and altered; served the published text instead `
+        + `(${faqDrift.run} characters shared)`,
+      attempted: result.text,
+    });
+    const served = await deps.draft({ body: faqDrift.body, answeredBy: 'canned' });
+    return served.ok
+      ? { kind: 'drafted', outboundId: served.id, answeredBy: 'canned' }
+      : { kind: 'retry', detail: served.detail };
+  }
+
   const pinned = checkPinnedLines(result.text, input.canned);
   if (pinned.kind !== 'clean') {
     if (pinned.kind === 'paraphrase') {

@@ -104,6 +104,7 @@ const base: ReceptionInput = {
   // The price list the STABLE fixture renders, so the name counter has something to check.
   serviceNames: [{ name: 'Чёлк тайралт', prices: ['22000'], rows: [] }],
   depositRows: [],
+  faqAnswers: [],
   cannedHash: null,
 };
 
@@ -809,6 +810,37 @@ test('DONE-TEST: A RULE-(4) VIOLATION IS FLAGGED AND THE REPLY IS STILL SENT', a
   assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'still answered by the model');
   assert.equal(drafts.at(-1)?.body, 'Тайралт 33,000₮, засалт 22,000₮ байна.', 'unedited');
   assert.equal(flags.some((f) => f.code === 'style_price_lines'), true);
+});
+
+test('DONE-TEST: AN ALTERED FAQ ANSWER IS REPLACED BY THE PUBLISHED TEXT', async () => {
+  // The measured drift: the model reproduced the founder's damaged-hair FAQ and inserted
+  // «үзээд». Nothing caught it, because pinning only ever saw canned_responses.
+  const FAQ = 'Хуурай, хугарсан үсэнд CICA нөхөн сэргээх эмчилгээ тохиромжтой. '
+    + 'Үсэнд тань аль нь тохирохыг мастер үсчин зөвлөж өгнө.';
+  const drifted = 'Хуурай, хугарсан үсэнд CICA нөхөн сэргээх эмчилгээ тохиромжтой. '
+    + 'Үсэнд тань аль нь тохирохыг мастер үсчин үзээд зөвлөж өгнө.';
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text: drifted } });
+  const r = await handleReception(d, { ...base, faqAnswers: [FAQ] });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
+  assert.equal(drafts.at(-1)?.body, FAQ, 'the PUBLISHED text, served as written');
+  const f = flags.find((x) => x.code === 'faq_paraphrased');
+  assert.ok(f, 'counted, never a silent correction');
+  assert.equal(f?.attempted, drifted, 'quality_flags keeps what the model wrote');
+});
+
+test('DONE-TEST: a FAQ answer quoted EXACTLY is not drift and is left alone', async () => {
+  const FAQ = 'Хуурай үсэнд CICA эмчилгээ тохиромжтой. Мастер үсчин зөвлөж өгнө.';
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text: FAQ } });
+  const r = await handleReception(d, { ...base, faqAnswers: [FAQ] });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'an exact quotation is not drift');
+  assert.equal(drafts.at(-1)?.body, FAQ);
+  assert.equal(flags.some((x) => x.code === 'faq_paraphrased'), false);
+});
+
+test('a reply unrelated to any FAQ is untouched', async () => {
+  const { deps: d, flags } = deps({ result: { ...OK_REPLY, text: 'Сайн байна уу.' } });
+  await handleReception(d, { ...base, faqAnswers: ['Огт өөр сэдвээр бичсэн урт хариулт байна.'] });
+  assert.equal(flags.some((x) => x.code === 'faq_paraphrased'), false);
 });
 
 test('DONE-TEST: A BOOKING APOLOGY IS REPLACED BY THE DEPOSIT AND THE LINK', async () => {

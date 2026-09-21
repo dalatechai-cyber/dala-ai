@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { serviceNameReport, servicesFromPrefix } from './serviceNames.ts';
+import { serviceNameReport, servicesFromPrefix, faqAnswersFromPrefix } from './serviceNames.ts';
 
 // Matrix's real dye names and prices, and the model's real rewrite of them, 2026-09-21.
 const SERVICES = [
@@ -103,4 +103,33 @@ test('servicesFromPrefix folds variants under one name and collects every price'
 
 test('servicesFromPrefix returns [] when the heading is absent — determinate, not truncated', () => {
   assert.deepEqual(servicesFromPrefix('=== ӨӨР ХЭСЭГ ===\n- Сор: 1,000₮', 'ҮНИЙН ЖАГСААЛТ'), []);
+});
+
+test('DONE-TEST: faqAnswersFromPrefix reads the ANSWER line, not the question', () => {
+  // renderTenantSections writes `- {question}` then the answer indented beneath it, so
+  // sectionRows — which returns only dashed lines — would return the QUESTIONS. Reading
+  // the questions and calling them answers is exactly the confusion this test pins.
+  const prefix = [
+    '=== ТҮГЭЭМЭЛ АСУУЛТ ===',
+    '- Үс маань хуурай байна, юу хийх вэ?',
+    '  CICA нөхөн сэргээх эмчилгээ: 198,000₮. Мастер үсчин зөвлөж өгнө.',
+    '- Хаана байрладаг вэ?',
+    '  Яармагийн Номин Хайпермаркетын баруун талд.',
+    '=== ДАРААГИЙН ===',
+    '- Энэ хэсэг тооцогдохгүй',
+    '  бас энэ ч тооцогдохгүй',
+  ].join('\n');
+  assert.deepEqual(faqAnswersFromPrefix(prefix, 'ТҮГЭЭМЭЛ АСУУЛТ'), [
+    'CICA нөхөн сэргээх эмчилгээ: 198,000₮. Мастер үсчин зөвлөж өгнө.',
+    'Яармагийн Номин Хайпермаркетын баруун талд.',
+  ]);
+});
+
+test('a question with no answer beneath it is skipped, never paired with the next', () => {
+  const prefix = '=== ТҮГЭЭМЭЛ АСУУЛТ ===\n- Асуулт нэг\n- Асуулт хоёр\n  Хариулт хоёр.';
+  assert.deepEqual(faqAnswersFromPrefix(prefix, 'ТҮГЭЭМЭЛ АСУУЛТ'), ['Хариулт хоёр.']);
+});
+
+test('no FAQ section means no answers', () => {
+  assert.deepEqual(faqAnswersFromPrefix('=== ӨӨР ===\n- x\n  y', 'ТҮГЭЭМЭЛ АСУУЛТ'), []);
 });
