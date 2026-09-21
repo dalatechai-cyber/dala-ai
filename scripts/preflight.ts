@@ -41,15 +41,6 @@ const CONTRACTS: Record<string, (v: string) => Verdict> = {
       ? { ok: true, note: v }
       : { ok: false, why: 'must be production | staging | preview' },
 
-  TENANT_KEK_V1: (v) => {
-    try {
-      decodeKeyMaterial(v, 'TENANT_KEK_V1');
-      return { ok: true, note: '32 bytes, base64' };
-    } catch (e) {
-      return { ok: false, why: (e as Error).message };
-    }
-  },
-
   TENANT_KEK_ACTIVE_VERSION: (v) => {
     try {
       const n = parseKekVersion(v, 'TENANT_KEK_ACTIVE_VERSION');
@@ -64,6 +55,30 @@ const CONTRACTS: Record<string, (v: string) => Verdict> = {
   META_APP_SECRETS: (v) => jsonMap('META_APP_SECRETS', v),
   META_VERIFY_TOKENS: (v) => jsonMap('META_VERIFY_TOKENS', v),
 };
+
+/**
+ * Every `TENANT_KEK_V<n>`, by PATTERN rather than by name.
+ *
+ * It was `TENANT_KEK_V1` as a literal key, which was right for exactly as long as there
+ * was one key. `TENANT_KEK_V2` is active since 2026-09-21 (D-107) and would have fallen
+ * through to "no format rule to check" — so a mistyped key that decodes to the wrong 32
+ * bytes passes the deploy and is discovered at the first send, as a row that cannot be
+ * opened. The validator is the same one `kekForVersion` uses; what changes is that it now
+ * reaches the key a new row is actually sealed under.
+ */
+function contractFor(name: string): ((v: string) => Verdict) | undefined {
+  const named = CONTRACTS[name];
+  if (named !== undefined) return named;
+  if (!/^TENANT_KEK_V\d+$/.test(name)) return undefined; // ascii-safe: an env var name
+  return (v) => {
+    try {
+      decodeKeyMaterial(v, name);
+      return { ok: true, note: '32 bytes, base64' };
+    } catch (e) {
+      return { ok: false, why: (e as Error).message };
+    }
+  };
+}
 
 function jsonMap(name: string, raw: string): Verdict {
   const prior = process.env[name];
@@ -163,7 +178,8 @@ const WHY: Record<string, string> = {
   TELEGRAM_BOT_TOKEN: 'without it every alert is recorded in `alerts` and delivered nowhere',
   TELEGRAM_ALERT_CHAT_ID: 'the same: the condition is detected, nobody is told',
   IDENTITY_PEPPER: 'person_identities.value_hash cannot be computed; inbound persistence refuses',
-  TENANT_KEK_V1: 'no credential can be sealed or opened — node scripts/kek/generate.ts',
+  TENANT_KEK_V1: 'tenant #0\'s page_token is sealed under v1 and the value cannot be recovered — its absence is permanent data loss, not a config error',
+  TENANT_KEK_V2: 'the active version since 2026-09-21: nothing new can be sealed — node scripts/kek/generate.ts',
   ANTHROPIC_API_KEY: 'no reply can be generated',
   QSTASH_TOKEN: 'the webhook cannot hand off; nothing reaches the worker',
   QSTASH_CURRENT_SIGNING_KEY: 'both keys, not one — rotation is why there are two',
@@ -197,7 +213,7 @@ for (const name of required) {
     rows.push(`  MISSING  ${name}${why === undefined ? '' : `\n           ${why}`}`);
     continue;
   }
-  const check = CONTRACTS[name] ?? HINTS[name];
+  const check = contractFor(name) ?? HINTS[name];
   if (check === undefined) {
     rows.push(`  set      ${name}  (${value.length} characters; no format rule to check)`);
     continue;

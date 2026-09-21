@@ -215,13 +215,24 @@ the crypto was never being built early at all.
 `src/lib/crypto/` and `src/lib/secrets/` are built, and `scripts/verify/secret-roundtrip.ts`
 runs the whole path against a real PostgreSQL in CI: seal, store in `bytea`, read back in
 PostgREST's hex form, decrypt through the runtime loader. What that does **not** prove, and
-must never be written as if it did: the hop is a local socket, not PostgREST, so the
-transport the runtime will actually use is still unexercised, and the KEK in CI is generated
-per run and thrown away. **Half of that changed on 2026-09-06:** a real Page token has now
-been sealed by `scripts/kek/seal.ts` into `tenant_secrets` for tenant #0, under KEK `v1`
-from the platform environment. It has never been *opened* — `last_ok_at` is null — because
-nothing has reached the send, so the read half of the round trip is still proven only over
-CI's test material.
+must never be written as if it did: the hop is a local socket, not PostgREST, so the KEK in
+CI is generated per run and thrown away. **The round trip is CLOSED against the real
+project**: tenant #0's `page_token` carries `last_ok_at = 2026-09-19 12:16:18.117+00` under
+`kek_version 1`, so the runtime loader has opened a real sealed row over real PostgREST —
+the transport CI cannot exercise. Every earlier statement here that `last_ok_at` is null and
+the read half is proven only over CI's test material was wrong, and was corrected by the
+founder on 2026-09-21 after a session repeated it.
+
+**That correction is load-bearing rather than tidy, and D-107 is why.** A row whose KEK has
+never been opened is a row you can re-seal; a row a live client depends on is not.
+`TENANT_KEK_ACTIVE_VERSION` is read at **seal time only** — `kekForVersion(row.kek_version)`
+selects the key for a READ, with no fallback and no loop over versions — so moving the active
+version to `v2` is safe for `v1` rows by construction. What is NOT safe is removing
+`TENANT_KEK_V1` from the environment once it is no longer active, and **the value cannot be
+read back out of Vercel** to put it back. The only thing standing in front of that is
+preflight requiring both names, which it does because both are **uncommented in
+`.env.example`** — a property of a text file, and the first thing a tidy-up removes. Read
+D-107 before touching either the KEK registry or that file's required block.
 
 ## The test every decision is measured against
 

@@ -8041,3 +8041,98 @@ One warning that belongs with the order, not after it: `POST /{page-id}/subscrib
 **replaces** the field list rather than adding to it (D-043, D-062). Removing the ancestor
 must be a `DELETE` issued with the ancestor's own app token, never a re-POST from either
 side.
+
+---
+
+## D-107 — `ACTIVE_VERSION` is read at seal time only, and a working KEK is a KEK you cannot read
+
+**The question, 2026-09-21, from the founder:** *"Is ACTIVE_VERSION read at decrypt time or
+only at seal time? If only at seal, this is safe today."*
+
+**Seal time only. The plan is safe.** Seal Matrix under `v2`, set
+`TENANT_KEK_ACTIVE_VERSION=v2` in Production; tenant #0's `v1` row keeps opening, because
+each row names its own version and the read path uses the row's.
+
+Verified three ways rather than from the docstring that says so:
+
+| Evidence | What it shows |
+|---|---|
+| `src/lib/secrets/tenantSecret.ts` imports `kekForVersion` and **not** `activeKek`, reads `row['kek_version']`, and calls `kekForVersion(kekVersion)` | the read path never consults the active version |
+| The only `activeKek()` caller in the repository is `scripts/kek/seal.ts:95` | the active version is reachable from exactly one place, and it is a seal |
+| `crypto/kek.test.ts` — with `TENANT_KEK_ACTIVE_VERSION: 'v2'` set, `kekForVersion(1)` still returns V1's key | pinned by a test, so a future edit that adds a fallback goes red |
+
+`kekForVersion` has **no fallback to the active version and no loop over the versions that
+exist**, which is what makes this a property rather than a coincidence: a row pointing at a
+key we do not hold is unreadable, and saying so is correct — trying V1 for a V2 row would
+turn a tamper signal into a success and make the unauthenticated `kek_version` column a
+lever.
+
+### The risk is the opposite one, and it is not the one that was asked about
+
+The safe direction is retiring a version as ACTIVE. The unsafe one is **removing its key**.
+`kekForVersion` does `required('TENANT_KEK_V' + n)`, so `TENANT_KEK_V1` must stay in the
+platform environment for as long as any row names it — which is for ever, since tenant #0's
+`page_token` is sealed under it and the runtime opens it on every send. Its `last_ok_at`
+reads `2026-09-19 12:16:18.117+00`.
+
+**And the value cannot be recovered.** Vercel redacts a secret on `env pull` and the
+dashboard will not reveal it. So `TENANT_KEK_V1` is now a value that is *working in
+production and readable by nobody*: it can be used, and it can be destroyed, and it cannot
+be copied. Deleting it is not a configuration mistake that can be undone — it is the
+permanent loss of a live client's Meta credential, recoverable only by re-running the
+Business-Settings token dance with that client.
+
+Nothing in `src/` can defend against that, because by the time the loader asks for V1 the
+deploy has already shipped. What stands in front of it:
+
+- **`scripts/preflight.ts` requires both names**, and fails the production build before
+  `next build` when either is absent. It derives its required set from the **uncommented**
+  lines of `.env.example` — so the protection is a property of a text file, and is exactly
+  what a tidy-up removes. Both names now carry a comment saying so.
+- **The KEK contract is matched by PATTERN, not by name.** It was keyed to the literal
+  `TENANT_KEK_V1`, which was right for as long as there was one key; `TENANT_KEK_V2` fell
+  through to `no format rule to check`, so a mistyped active key would have passed the
+  deploy and failed at the first send, as a row nobody could open.
+- **A test pins the whole of it** (`preflight.test.ts`, `DONE-TEST: retiring the ACTIVE
+  version does not retire the keys under it`): dropping *either* key fails, with the
+  active version at `v2`.
+- **`scripts/kek/generate.ts` no longer tells the operator to use `TENANT_KEK_V1`.** It
+  did, and an operator following our own tool's printed instruction today would have
+  written a new key over the one that opens tenant #0's live row — the precise loss
+  described above, printed as advice. It now says to use the next unused version, never to
+  overwrite an existing one, and to save the value before pasting it anywhere.
+
+### The pipeline blocker, recorded separately as the founder asked
+
+> *"An operator who can't retrieve the KEK can't provision any client. That's a pipeline
+> blocker, not a Matrix one."*
+
+Correct, and the mechanism is `scripts/kek/seal.ts` calling `activeKek()`, which reads the
+active key from **the operator's own shell** — not from Vercel, which is write-only in
+practice. Provisioning client #3 therefore requires holding the active KEK value locally.
+Today that is satisfied: the founder has V2. The day a laptop is lost it is not, and the
+only way forward is minting V3 — which seals new rows fine and makes the environment carry
+a third value that can never be read back either. **Each rotation is a one-way ratchet**,
+and the set of unrecoverable-but-load-bearing values grows by one every time.
+
+That is not the "hit by a bus" scenario D-017 weighed. It is a working operator, with full
+access to every provider account, unable to read a value his own platform is using.
+
+### Two of D-017's triggers have fired
+
+D-017 accepted single-owner risk and says not to re-raise it — *"unless one of these
+changes — each is a fact a session can check."* Stating that they fired, as it instructs,
+without re-arguing the decision:
+
+| Trigger | Fired? |
+|---|---|
+| A tenant is **live and paying** | Not yet — Matrix goes live today, and is not paying |
+| **Customer conversation data** exists in Supabase | **Yes.** Matrix's corpus is real customers' messages; it is not reproducible from the repository |
+| The **KEK is generated** and encrypts real tenant tokens | **Yes.** V1 seals tenant #0's live Page token and the runtime opens it; V2 is active |
+| A **second person** joins Dalatech | No |
+
+What changed beyond the table's own wording: it anticipated *losing* the KEK. What actually
+happened is that the KEK became **unreadable while still working**, which the mitigation
+D-017 names — provider recovery emails and codes — does not address at all, because there
+is no provider to recover it from. That is a fact for the founder, not a decision reopened
+here.
