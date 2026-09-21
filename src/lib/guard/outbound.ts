@@ -76,6 +76,15 @@ export type OutboundContext = {
    */
   refusedTopicBlocksPrice: boolean;
   /**
+   * The topic keys that set the flag above, named in the refusal so the `quality_flags`
+   * row says WHICH rule fired rather than only that one did.
+   *
+   * Optional because every existing caller predates it and a missing name must not
+   * change a verdict — the refusal still happens, it just reads `unknown rule`. It is a
+   * diagnosis, never an input to the decision.
+   */
+  priceBlockingTopics?: readonly string[];
+  /**
    * The customer's own message. A numeral THEY wrote may be echoed back when confirming
    * or asking about that same value; the model still may not introduce one of its own.
    *
@@ -475,7 +484,14 @@ export function outboundGuard(
   //     «Хүүхдийн үс 33,000₮ мөн үү?» has supplied the number that would make an echo
   //     read as confirmation of exactly the thing the topic exists to refuse.
   if (ctx.refusedTopicBlocksPrice && numeralsNotAllowed(text, []).length > 0) {
-    return refuse('outbound_refused_topic_price', 'a numeral was emitted on a topic whose rule forbids quoting a price');
+    // Name the rule. Sorted by code unit — deterministic, no locale (D-026), and the
+    // set is a handful of keys so the cost is nothing. Without this the flag says a
+    // topic rule fired and leaves the reader to find which one across two tables.
+    const named = [...(ctx.priceBlockingTopics ?? [])].sort().join(', ') || 'unknown rule';
+    return refuse(
+      'outbound_refused_topic_price',
+      `a numeral was emitted on a topic whose rule forbids quoting a price: ${named}`,
+    );
   }
 
   // 3. Concessions. A discount that is not in the knowledge base is the salon's money.

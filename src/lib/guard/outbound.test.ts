@@ -661,3 +661,36 @@ test('disclosureWindows and disclosesPrompt cannot disagree', () => {
     assert.equal(disclosesPrompt(reply, corpus, []), disclosureWindows(reply, corpus, []).length > 0);
   }
 });
+
+test('DONE-TEST: THE REFUSAL NAMES THE RULE THAT CAUSED IT', () => {
+  // 2026-09-21 turn 14: «Шулуун хими 430,000₮–510,000₮ байна.» — correct to the tögrög,
+  // matching the row and matching what the ancestor sent — was refused, and the flag
+  // named no rule. Ten rows had to be read by hand to find `suitability_lat_himi`.
+  const ctx: OutboundContext = {
+    firedGates: ['Ш8'],
+    refusedTopicBlocksPrice: true,
+    priceBlockingTopics: ['suitability_lat_himi', 'photo_consultation'],
+    customerText: '',
+  };
+  // 33,000 IS on MATRIX's allow-list, so check 2 passes and 2b is what refuses — which
+  // is exactly the live shape: on seq 12 the real tenant HAS 430,000 and 510,000, so the
+  // real turn got past check 2 too and was refused here.
+  const r = outboundGuard(MATRIX, ctx, 'Шулуун хими 33,000₮ байна.');
+  assert.equal(r.ok, false);
+  assert.equal(r.ok === false && r.code, 'outbound_refused_topic_price');
+  // Sorted by code unit: deterministic, and no locale is consulted (D-026).
+  assert.match(r.ok === false ? r.detail : '', /photo_consultation, suitability_lat_himi/);
+});
+
+test('DONE-TEST: a caller that names no rule still gets the refusal', () => {
+  // The names are a diagnosis, never an input to the verdict. A caller that omits them
+  // must not thereby get its reply approved — that would be a guard weakened by an
+  // absent field, which is the exact shape of D-064.
+  const ctx: OutboundContext = {
+    firedGates: ['Ш1'], refusedTopicBlocksPrice: true, customerText: '',
+  };
+  const r = outboundGuard(MATRIX, ctx, 'Хүүхдийн тайралт 33,000₮.');
+  assert.equal(r.ok, false);
+  assert.equal(r.ok === false && r.code, 'outbound_refused_topic_price');
+  assert.match(r.ok === false ? r.detail : '', /unknown rule/);
+});

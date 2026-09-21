@@ -431,3 +431,41 @@ test('a kind NOT on the invisible list still reaches the section, so the filter 
   const extra = [...base, { kind: 'refusal_price_unlisted', body: 'Үнийг хэлж чадахгүй' }];
   assert.notEqual(cannedSectionBody('БЭЛЭН ХАРИУЛТ', extra), cannedSectionBody('БЭЛЭН ХАРИУЛТ', base));
 });
+
+test('DONE-TEST: THE BLOCKING RULE IS NAMED, NOT JUST COUNTED', () => {
+  // 2026-09-21, turn 14. The guard refused a correct, row-backed price and the
+  // `quality_flags` row said only "a topic whose rule forbids quoting a price". Finding
+  // WHICH of ten rules had done it meant reading `out_of_scope_topics` by hand.
+  //
+  // The guard knew. It just did not say.
+  const r = matchRules({ text: 'Хүүхдийн чёлк тайралт хэд вэ?', attachments: [] }, [CHILDREN, HEALTH]);
+  assert.deepEqual(r.ok && r.priceBlockingTopics, ['children_services']);
+  assert.equal(r.ok && r.refusedTopicBlocksPrice, true);
+});
+
+test('DONE-TEST: the boolean is DERIVED from the list, so the two cannot disagree', () => {
+  // Kept as one fact with two readings rather than two fields set on the same line. A
+  // boolean that can outlive its reason is how a flag comes to describe a cause that
+  // never happened — which is the class of bug this whole file keeps finding.
+  for (const text of [
+    'Хүүхдийн чёлк тайралт хэд вэ?',   // blocks
+    'Жирэмсэн үедээ будуулж болох уу?', // fires, does not block
+    'Хэдэн цагт ажилладаг вэ?',         // fires nothing
+  ]) {
+    const r = matchRules({ text, attachments: [] }, [CHILDREN, HEALTH]);
+    assert.equal(r.ok, true);
+    assert.equal(
+      r.ok && r.refusedTopicBlocksPrice,
+      r.ok && r.priceBlockingTopics.length > 0,
+      `the flag and the reason disagree for: ${text}`,
+    );
+  }
+});
+
+test('DONE-TEST: a rule with quote_price=true never reaches the blocking list', () => {
+  // The whole point of 0037. HEALTH allows prices; a matched HEALTH rule must leave the
+  // allow-list intact, or a tenant flipping `quote_price` would change nothing.
+  const r = matchRules({ text: 'Жирэмсэн үедээ будуулж болох уу?', attachments: [] }, [CHILDREN, HEALTH]);
+  assert.deepEqual(r.ok && r.matchedTopics, ['health'], 'it did fire');
+  assert.deepEqual(r.ok && r.priceBlockingTopics, [], 'and it did not block');
+});

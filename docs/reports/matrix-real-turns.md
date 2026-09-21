@@ -5,8 +5,14 @@ this afternoon. Re-runnable: `scripts/mirror/side-by-side.sql`.
 
 This answers the founder's item 3 ("test on real traffic in shadow — compare side by side
 on real turns, not the harness") and item 4 ("production speed must beat the ancestor on
-real turns"). **It does not yet clear item 4's bar**, and the reason is sample size, not
-the numbers.
+real turns").
+
+> **§1 below is superseded by §5, added 16:30 UTC.** It was written when the corpus was a
+> single turn and says so. The founder then sent a 16-message test session and §5 is the
+> full side-by-side. The one-turn section is kept because its *method* notes — both clocks
+> from the customer's own Meta timestamp, and the two pairing defects found while building
+> it — are what make §5 trustworthy, and because deleting a superseded finding hides that
+> it was ever believed.
 
 ---
 
@@ -233,3 +239,114 @@ the two could overlap. The guard's OWN three steps stay ordered whatever happens
 identity → entitlement → budget is CLAUDE.md rule 2 and is not a performance question.
 
 The corpus fills by itself now. Re-run `scripts/mirror/side-by-side.sql`.
+
+---
+
+## 5. The 16-turn session, 2026-09-21 16:07–16:22 UTC
+
+The founder sent sixteen messages from PSID `27412596105101390` after republishing Matrix
+at **seq 12** (`content_hash bf20cbeb…`, 18,122 chars, `allowed_numbers` 50 tokens). Every
+one drew an ancestor reply, so all sixteen are paired.
+
+**Both clocks are the customer's own Meta timestamp.** The ancestor's is its echo's Meta
+timestamp — when Meta stamped the real outbound message. Dala's is `outbound_messages
+.created_at`, when the draft row was written. Dala is in `shadow` and never sends, so its
+figure **omits one `POST /{page-id}/messages` round trip**. Honest on generation,
+optimistic by one send. Stated here because §1 was nearly published with the two bots on
+different clocks, and the discrepancy was larger than the gap being reported.
+
+Verdict per turn: ✗ Dala worse · ✓ Dala better · = even. **9 worse, 3 better, 4 even.**
+
+| # | ev | Customer | Anc | Dala | | Why |
+|---|---|---|---|---|---|---|
+| 1 | 330 | «dugaar hedve» | 5.43 | 7.71 | = | same facts, Dala terser |
+| 2 | 332 | «Үс будахад хэд вэ?» | 6.45 | 8.27 | ✗ | three prices on ONE line — style rule (4) ignored; omits `Үндэс` |
+| 3 | 334 | «Сор хэд вэ?» | 3.46 | 5.37 | = | identical content |
+| 4 | 336 | «CICA хими байгаа юу?» | 7.34 | 8.61 | ✗ | explains the distinction correctly, then gives no price and no next step |
+| 5 | 338 | «Үс маань их хуурай, хугараад байна…» | 10.58 | 8.26 | ✗ | ancestor lists SIX treatments with prices; Dala gives only the deflection |
+| 6 | 340 | «Цаг захиалмаар байна, утас хэд вэ?» | 12.93 | 7.45 | ✓ | link + numbers in one turn; ancestor asks first (D-042) |
+| 7 | 342 | «Хаана байрладаг вэ?» | 5.42 | 7.40 | = | equivalent |
+| 8 | 344 | «Маникюр хэд вэ?» | 9.65 | 7.31 | ✗ | drops `Дип будаг 65,000₮`, which IS in `services`; lists 4 where (4) says ask |
+| 9 | 346 | «Будаг хэд вэ?» | 6.77 | 6.78 | ✗ | rule (4) executed perfectly; still omits `Үндэс` |
+| 10 | 348 | «Мастер үсчинд орвол дээр юу?» | 14.03 | 6.58 | ✗ | **answers a different question** — pivots to haircuts mid-dye-conversation |
+| 11 | 350 | «Шампунь зардаг уу?» | 5.47 | 6.81 | ✓ | Dala has the products URL; the ancestor gives up |
+| 12 | 352 | photo + «ийм болгож болох уу» | 9.35 | 7.61 | ✓ | keeps the customer in the thread; reworded line live, no «зураг» |
+| 13 | 354 | «us budalt» | 7.34 | 6.73 | ✗ | good format, omits `Үндэс` |
+| 14 | 356 | «dund zergiin usend shuluun himi hedeer…» | 6.45 | 6.34 | ✗ | **correct answer destroyed by the guard — see below** |
+| 15 | 358 | «tsag zahialah» | 10.14 | 6.65 | ✗ | generic handoff; Cyrillic form at #6 answered well |
+| 16 | 360 | «hayag» | 6.34 | 7.51 | = | equivalent |
+
+### Latency
+
+| | ancestor | Dala |
+|---|---|---|
+| median | 7.06s | 7.36s |
+| min–max | 3.46 – **14.03** | 5.37 – **8.61** |
+| faster on | 8 turns | 8 turns |
+
+**This supersedes the bake-off's "production 25.8s" row.** That figure predates the `sin1`
+region pin. Dala's spread is a third of the ancestor's: it loses every short reply to fixed
+overhead (Meta→webhook ~1.6s, QStash ~0.95s, ten DB phases ~1.3s) and wins every long one,
+because the ancestor's time scales with output length and Dala's does not.
+
+`reply_timing_ms` on all sixteen: `context_snapshot` 105–135ms, `context_batch` 237–375ms,
+sequential, summing to the 410–571ms `context_load`. **Merging `loadLiveSnapshot` into the
+ten-query `Promise.all` would save ~110ms of a ~7,000ms reply — 1.6%.** Measured and
+declined; the note in `reception/load.ts` can be closed. `generate` is 2,359–5,079ms,
+**55–70% of every reply**, and is the only lever that matters.
+
+### Turn 14: three defects stacked
+
+The model wrote **«Шулуун хими 430,000₮–510,000₮ байна.»** — the `Шулуун хими` row to the
+tögrög, and what the ancestor sent. `quality_flags` holds it verbatim. The customer got the
+generic handoff.
+
+1. **The matcher classifies a price question as a suitability question.**
+   `suitability_lat_himi` is `stem_sequence ["usend","himi"]` within 40 codepoints;
+   "…**usend** shuluun **himi** hedeer…" fires it. «hedeer» — *for how much* — makes this
+   unmistakably a price question and the matcher cannot see that.
+2. **The blanket price block is justified by a gate this rule does not use.**
+   `load.ts` gave every `out_of_scope_topics` row `quotePrice: false`, which empties the
+   guard's allow-list. That blanket is argued in `guard/outbound.ts` from **Ш1's** rule.
+   `refusal_suitability` is absent from `GATE_BY_RESPONSE_KIND` and falls to
+   `DEFAULT_GATE = 'Ш8'` — *"not in the knowledge base"* — for a service that is in the
+   knowledge base with a confirmed price. `0037` adds the column that lets a tenant say
+   so; **its default is `false`, so it changes no behaviour until a row is flipped.**
+3. **The fallback served the wrong refusal.** Matrix has a reviewed `refusal_suitability`
+   row — «Уучлаарай, энэ таны үсэнд тохирох эсэхийг би шийдэж өгөх боломжгүй. Манай
+   мэргэжилтэн үсийг тань харж хэлнэ…» — and the customer never saw it, because
+   `handle.ts:436` serves `handoff()` regardless of what was asked. That unconditional
+   fallback is already an open question in CLAUDE.md; this is its first measured instance.
+
+### Two data gaps the ancestor has and Dala does not
+
+Neither is a bug. Both are rows nobody has written, and both cost a turn above.
+
+- **`Тэжээл` 44,000–88,000₮ is absent from `services` entirely** (`plain_tejeel_rows = 0`).
+  The ancestor offered it at turn 5; Dala cannot.
+- **No deposit data anywhere.** `tenant_booking` is `{mode: link, booking_url,
+  handoff_fields: []}`. The ancestor quotes `Мастер: 20,000₮` / `1-р зэрэг: 10,000₮` at
+  turn 15. Ш3 instructs the model to state the relevant deposit; Matrix has none to state.
+
+### Two things checked and found NOT to be defects
+
+Recorded because both looked like findings and were reported as such in a draft of this
+document before they were checked against the prefix.
+
+- **Dala's CICA claim is sourced.** «эмчилгээний хими нь ургамлын гаралтай, зөөлөн» reads
+  like an invention; the live prefix carries «Эмчилгээний хими бол ургамлын гаралтай зөөлөн
+  хими» at offset 13,013. It is a tenant-confirmed KB note reproduced faithfully.
+- **The `20,000` in the prefix is not a deposit or a tenant constant.** It sits at offset
+  3,995 inside Ш2 as a *negative* example — «БУРУУ ЖИШЭЭ … «Хөмсөг засалт ойролцоогоор
+  20,000₮ орчим байх аа.» Яагаад буруу вэ: тийм мөр жагсаалтад байхгүй.» It is the block
+  teaching the model not to guess prices.
+
+### `allowed_numbers` moved, and that is worth a decision
+
+Seq 11 → 12 took it from **13 tokens to 50**, of which 37 are prices. Every price Dala
+quoted across all sixteen turns is correct against `service_variants` — checked
+individually, eleven of them. But D-075's guarantee is gone: `allowed_numbers` is a SET, so
+the guard asks whether a numeral is on the tenant's list and never whether it belongs to the
+service being discussed. `33,000`, `500,000` and `640,000` are all on the list now, so
+«Омбре 33,000₮» — D-075's own example, a 500,000–640,000 service at a haircut's price —
+passes every check. Sixteen correct turns are evidence about the model, not about the guard.
