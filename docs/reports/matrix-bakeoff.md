@@ -391,6 +391,59 @@ On `f05`, `f11` and `c01` the ancestor **lists every price** and Dala **asks one
    Three defects in that instrument were found by re-reading it before merge, and they are worth stating because each would have sent you the wrong way: `generate` originally spanned the spend-guard RPC and the trace write as well as the model call (so a slow database would have read as a slow model); the lap was placed after the shadow early-exit (so **Matrix, the only tenant being measured, recorded every phase except the model call**); and the timing line looked complete in both cases. Fixed, with a regression test each, every one verified to fail against the old code first.
 4. **`c02` tripped `outbound_gate_label`** — the model tried to narrate a gate label and the guard killed it (D-066 doing its job). Worth knowing it still happens on Latin-script input.
 
+### What the live project says happened last night — read this first
+
+I went to verify the deploy and found state I had not been told about. Reconstructed
+entirely from the database, and it changes how the rest of this report should be read.
+
+**Matrix was LIVE for about 38 minutes and sent 17 real replies to real customers.**
+`outbound_messages` holds 17 rows `state = 'sent'` with genuine `provider_message_id`s
+between **02:51:48 and 03:29:21 UTC**, then nothing; drafting resumed at 03:56 and the
+channel reads `shadow` again now. So **your six complaints were measured on real customer
+conversations, not on mirror drafts** — and those 17 replies were produced by the OLD code.
+
+Before that, two sends failed and every alarm worked:
+
+| when (UTC) | what | alarm |
+|---|---|---|
+| 02:10:25 | `no credential: secret_undecryptable` | `secret.undecryptable` critical + `channel.credential_failure` warn — both **delivered** |
+| 02:25:27 | `graph 401 code=190 subcode=463` — Meta says **the token expired** | `outbound.token_revoked` critical — **delivered** |
+| 02:51–03:29 | 17 successful sends after you re-sealed | — |
+| 03:00:14 | event 266 stranded | `webhook.stranded_event` critical — **delivered** (this is Problem 1's event) |
+
+**Matrix's `page_token` is now sealed under `kek_version 2`**, while tenant #0's is still
+`v1`. That makes D-107 live for the first time: two rows, two KEKs, and **removing
+`TENANT_KEK_V1` from Vercel would be permanent, unrecoverable data loss for tenant #0** —
+the value cannot be read back out. I verified the guard rather than assuming it: the
+production build at 05:16 ran `scripts/preflight.ts`, which refuses when either key is
+missing, and it passed. **Both keys are confirmed present in Vercel right now.**
+`last_ok_at = 03:28:45` proves the v2 row opens over real PostgREST.
+
+Two things I did NOT change, and one lesson:
+
+- **`tenant_channels.status` reads `authorization_error` and is stale.** Both halt paths
+  write three columns together (`status`, `delivery_mode`, `token_status`); Matrix has only
+  that one left over from the 02:10/02:25 failures, because the recovery restored the other
+  two. It is **cosmetic**: `status` is health and `delivery_mode` is cutover, they are
+  orthogonal by design, and `canDeliver` reads only the latter — so it gates nothing and the
+  mirror is drafting normally (82 events in the last 24h). I left it alone because the
+  correct value depends on facts only you have. One `update` fixes it when you want.
+- **`expires_at` being NULL does not mean a token is safe.** Matrix's row says NULL — no
+  scheduled expiry — and Meta still killed it at 02:25 with subcode 463. Problem 3's warning
+  covers *scheduled* expiry; it cannot cover revocation, and a NULL reads as "safe for ever"
+  when it means "no end date recorded". The alarm that actually caught this was the outbound
+  401 handler, after the fact.
+
+**Problems 1-3 are confirmed working on live traffic while I was in there.** The last four
+events (301-304, 03:51 to 04:42) are all `state = 'processed'` with `attempts = 1` — the
+counter from Problem 2 is populated on real deliveries, not just in tests, and nothing is
+stranded. 304 produced no draft because it carries no `message` (an echo), which is correct.
+
+**And the honest limit on everything below:** the fixes deployed at **05:16 UTC**; Matrix's
+last inbound event was **04:42**. **No real customer turn has exercised the new code yet.**
+Every Dala figure in this report is from the harness. The production comparison stays the
+old number until a real turn lands.
+
 ### The safety property this reverses, said plainly
 
 Complaint 3 on your list — *it claims not to know prices it has* — could only be fixed by
@@ -443,7 +496,7 @@ Your second goal. It was already met before tonight; what I did was check it ins
 
 | | |
 |---|---|
-| **Republish** | D-112 changes `content_hash`. Deploy, `git pull`, then `scripts/publish/tenant.ts`. `SUPABASE_SECRET_PUBLISH` is deliberately absent here, so only you can run it. |
+| **Republish** | D-112 changes `content_hash`. **The deploy is done** — `aa3380d` is live in production as of 05:16 UTC, so your steps are `git pull` then `scripts/publish/tenant.ts`. `SUPABASE_SECRET_PUBLISH` is deliberately absent here, so only you can run it. Until you do, the price change is inert. |
 | **The row changes** | Staged in `scripts/bakeoff/live-kb.json` and applied to the project as noted below. They are **inert until the republish**, which is why it was safe to stage them overnight. |
 | **`02_style` item (4)** | The one place the ancestor still wins. Signed Mongolian; your decision. |
 | **`suitability_*` matchers** | Over-firing on answerable questions. Rows you approved; I did not touch them. |
