@@ -77,14 +77,27 @@ Scored honestly:
   reduction, but the prediction said 0.5–1s and the measurement is 1.7–2.1s. Too
   optimistic.
 - **Total: beaten.** Predicted ~7s, measured 4.27s worker-internal / 6.85s end to end.
-- **`generate` must not move: THE CLAUSE FAILED, and the failure is instructive.** It moved,
-  6,011ms → 2,606ms. Pinning a region cannot speed up a call to Anthropic — if anything
-  `sin1` is *further* from it than `iad1`. Per output character the three samples read
-  **34.2, 36.2 and 57.7 ms/char** (176, 72 and 72 characters): the before/after pair at
-  34.2 and 36.2 is flat. **`generate` scales with reply length and I compared a long reply
-  to a short one.** The clause was written as though `generate` were a constant; it never
-  was, so it could not have tested what it claimed to. The right form is *generate must not
-  move per output token*, and by that form it did not.
+- **`generate` must not move: THE CLAUSE FAILED, and what it shows is that the clause was
+  untestable as written.** It moved, 6,011ms → 2,606ms. Pinning a region cannot speed up a
+  call to Anthropic — if anything `sin1` is *further* from it than `iad1` — so the region
+  is not the cause, and the clause was treating `generate` as a constant it was never shown
+  to be.
+
+  **What it is instead is not yet measured, and the samples refuse the obvious answer.**
+  Per output character the three read 34.2, 36.2 and 57.7 ms/char (176, 72 and 72
+  characters). The tempting reading is "it scales with reply length, and a long reply was
+  compared to a short one" — but events 326 and 327 are **both 72 characters** and took
+  **4,151ms and 2,606ms**, a 1.6× spread at identical length. That single pair is wider
+  than any length effect three points could establish, so **reply length is not
+  demonstrated to drive `generate`, and nothing here should be optimised on the assumption
+  that it does.** What can be said: the model call's own run-to-run variance dominates at
+  this sample size, and the region change is not visible through it either way.
+
+  The honest correction to the clause is that a prediction about `generate` needs a
+  controlled comparison — same prompt, same output length, many samples — which one turn a
+  day cannot supply. An earlier version of this report asserted the length explanation as
+  fact; it is withdrawn here rather than quietly edited, because a latency strategy built
+  on "shorter replies are faster" would have been built on three points and a coincidence.
 
 The region change is therefore worth **~11.8s per reply**, all of it database, and the
 model is untouched.
@@ -204,8 +217,19 @@ there is no p50 yet — of either bot. What can be said:
 
 - The gap on the only measured turn is **2.58s** (6.85 vs 4.27), down from roughly 35s
   before `sin1`.
-- Closing it needs the ten database round trips batched, worth up to ~1.7s, which would
-  put the two within noise.
+- The database phases (1.67s) are the part that is measured, repeatable and ours. The
+  model call is not yet separable from its own variance, so it is not a lever anybody
+  should pull on current evidence.
 - The rest is the Meta hop and the QStash hop, which both bots pay.
+
+`loadReceptionContext` and `withTenantRole` are 54% of the database time (533ms + 371ms)
+and both are now split into sub-phases in `reply_timing_ms`, so the next real turn says
+where inside them the time goes instead of leaving it to inference. Two candidate changes
+are waiting on that reading rather than being made ahead of it: `loadLiveSnapshot` runs
+sequentially before a `Promise.all` of ten queries that **do not use its result** (checked
+— every one keys on `tenantId`, the locale or the local date), so the two stages are
+sequential by layout and not by data; and the guard is independent of the config read, so
+the two could overlap. The guard's OWN three steps stay ordered whatever happens —
+identity → entitlement → budget is CLAUDE.md rule 2 and is not a performance question.
 
 The corpus fills by itself now. Re-run `scripts/mirror/side-by-side.sql`.

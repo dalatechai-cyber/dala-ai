@@ -1103,3 +1103,30 @@ test('a reply logs where its wall-clock went, and the phases do not overwrite ea
   // It is diagnostic only: nothing branches on it, so it cannot change what a customer is told.
   assert.equal(timing.level, 'info');
 });
+
+test('DONE-TEST: THE LARGEST DATABASE PHASE REPORTS ITS TWO HALVES', async () => {
+  // `context_load` was 533ms of the 1,667ms of database time on the first real turn after
+  // the region pin — the largest single phase — and it is TWO stages that behave nothing
+  // alike: one row by key, then ten queries issued together. One number over both cannot
+  // say which dominates, so it cannot say whether there is anything to win.
+  //
+  // This is here because the alternative was reasoning about it, and reasoning about an
+  // unmeasured phase is exactly what produced the `generate must not move` clause that
+  // failed the same day. An instrument nobody has watched fire is the other half of that
+  // mistake, so this asserts the fields ARRIVE rather than trusting that they will.
+  const { fx, logs } = stubEffects();
+  await run(fx);
+  const timing = logs.find((l) => l.event === 'reply_timing_ms');
+  assert.ok(timing !== undefined, `no timing line: ${JSON.stringify(reasons(logs))}`);
+  for (const half of ['context_snapshot', 'context_batch']) {
+    assert.equal(typeof timing.fields?.[half], 'number',
+      `${half} missing from ${JSON.stringify(timing.fields)}`);
+  }
+  // The halves are bounded by the whole. A split that exceeds the phase it divides is not
+  // a split, and would send a reader chasing a saving that does not exist.
+  const whole = Number(timing.fields?.['context_load']);
+  const snapshot = Number(timing.fields?.['context_snapshot']);
+  const batch = Number(timing.fields?.['context_batch']);
+  assert.ok(snapshot + batch <= whole + 1,
+    `the halves (${snapshot} + ${batch}) exceed context_load (${whole})`);
+});

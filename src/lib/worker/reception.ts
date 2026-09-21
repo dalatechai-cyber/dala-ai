@@ -52,7 +52,7 @@ import type { ReceptionOutcome } from '../reception/handle.ts';
 import type { Turn } from '../inbound/persist.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
 import type { Reservation } from '../spend/reserve.ts';
-import type { ReceptionContext } from '../reception/load.ts';
+import type { LoadTimings, ReceptionContext } from '../reception/load.ts';
 
 /**
  * The surface this worker answers on.
@@ -610,6 +610,10 @@ async function runReceptionDelivery(
 
   const loaded = await loadReceptionContext(db, { tenantId, channel: 'facebook_page', settings, localDate });
   clock.lap('context_load');
+  // Null until the context loads, and it stays null on every refusal path — see the note
+  // at the log site. `loaded.timings` only exists on the ok branch because the failure
+  // branches return before the batch is issued, so there is no split to report.
+  const contextTimings: LoadTimings | null = loaded.ok ? loaded.timings : null;
   if (!loaded.ok) {
     fx.log('error', 'context_unavailable', { tenantId, code: loaded.code, detail: loaded.detail });
     if (loaded.code === 'not_provisioned') {
@@ -984,7 +988,18 @@ async function runReceptionDelivery(
   // One line per job. It answers "where did the twenty seconds go" from the next real
   // customer turn rather than from a week of reasoning — the bake-off harness stubs the
   // database and structurally cannot see this split.
-  fx.log('info', 'reply_timing_ms', { eventId, tenantId, ...clock.phases });
+  // The two sub-phases ride alongside the twelve. `context_load` is the largest database
+  // phase and is two stages with completely different shapes; splitting it here is what
+  // lets the next real turn say whether there is anything to win, instead of another
+  // reasoned guess. Absent when the context never loaded — an unreadable split and a
+  // split of zero are different facts (D-070).
+  fx.log('info', 'reply_timing_ms', {
+    eventId, tenantId, ...clock.phases,
+    ...(contextTimings === null ? {} : {
+      context_snapshot: contextTimings.snapshot,
+      context_batch: contextTimings.batch,
+    }),
+  });
   await markEventState(db, eventId, 'processed', drafted.length > 0 ? now : undefined);
   return ok({
     eventId, drafted: drafted.length, sent: sent.length, stale: stale.length, skipped: skipSummary(skipped),
