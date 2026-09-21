@@ -37,6 +37,7 @@ import { recordDroppedInbound, skipSummary } from '../inbound/dropped.ts';
 import { draftImageReplies, planImageReplies, readImageLine } from '../inbound/imageReply.ts';
 import { recordHandover, readThreadState } from '../handover/record.ts';
 import { humanHoldsThread } from '../handover/control.ts';
+import { CREDENTIAL_FAILURE_STATUS, clearCredentialFailure } from '../channel/recover.ts';
 import { loadReceptionContext } from '../reception/load.ts';
 import { renderVolatile } from '../reception/volatile.ts';
 import type { Surface } from '../reception/volatile.ts';
@@ -444,7 +445,7 @@ async function runReceptionDelivery(
   // --- The channel: where a reply would go, and whether it may go at all. ---
   const { data: channelRow, error: channelErr } = await db
     .from('tenant_channels')
-    .select('external_id, delivery_mode, meta_app_id, graph_version_override, comment_policy, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day')
+    .select('external_id, status, delivery_mode, meta_app_id, graph_version_override, comment_policy, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day')
     .eq('id', channelId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
@@ -461,6 +462,9 @@ async function runReceptionDelivery(
   const c = channelRow as Record<string, unknown>;
   const pageId = String(c['external_id'] ?? '');
   const deliveryMode = String(c['delivery_mode'] ?? '');
+  // Read here so the recovery write at the end costs nothing on a healthy channel: the
+  // common case is `active`, and then no statement is issued at all. See `channel/recover`.
+  const channelStatus = String(c['status'] ?? '');
   const delivery = canDeliver(deliveryMode);
   // Meta's own app id, never the callback slug (D-041). Null makes every handover verdict
   // `unknown`, which changes no thread state — correct, and visibly incomplete.
@@ -976,6 +980,35 @@ async function runReceptionDelivery(
       return unavailable(`worker.send_${delivered.failure}`);
     }
     fx.log('error', 'send_terminal', { outboundId: held.id, failure: delivered.failure, detail: delivered.detail });
+  }
+
+  // --- A send that reached Meta is the only proof the credential works. ------------
+  //
+  // Founder's call, 2026-09-21: a successful send clears `tenant_channels.status`, and
+  // nothing else does. `haltChannelOutbound` has written `authorization_error` since
+  // §3.4.4 with nothing writing it back, so Matrix carried the flag from 02:25 while
+  // fourteen messages sent successfully after it — D-064's shape, inverted.
+  //
+  // Placed HERE, after both surfaces, because either can be the proof: a DM reply and a
+  // public comment reply go out on the same page token. Counting them together also makes
+  // this at most ONE statement per job rather than one per message.
+  //
+  // Gated on `channelStatus` so a healthy channel issues no statement at all — the read
+  // was free, the write would not be, and this sits on the path whose latency is the whole
+  // open question against the ancestor.
+  if (channelStatus === CREDENTIAL_FAILURE_STATUS
+      && (sent.length > 0 || (commentResult?.replied ?? 0) > 0)) {
+    const recovered = await clearCredentialFailure(db, { tenantId, channelId });
+    if (!recovered.ok) {
+      // Never fatal. The customer has the message; bookkeeping cannot be allowed to undo
+      // that or to fail the job — the same posture as `send_bookkeeping_failed` above.
+      fx.log('error', 'channel_recovery_failed', { tenantId, channelId, detail: recovered.detail });
+    } else if (recovered.cleared) {
+      fx.log('info', 'channel_recovered', {
+        tenantId, channelId, from: CREDENTIAL_FAILURE_STATUS,
+        dmSends: sent.length, commentReplies: commentResult?.replied ?? 0,
+      });
+    }
   }
 
   // Every message in the entry is accounted for.
