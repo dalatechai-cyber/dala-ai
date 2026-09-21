@@ -171,6 +171,21 @@ export function sectionRows(promptStable: string, label: string): string[] {
  *
  * A question with no answer line beneath it is skipped rather than paired with the next
  * question's text: an incomplete pair is not a determinate answer (D-057).
+ *
+ * ## An answer is every line until the next question, not the first one
+ *
+ * Found 2026-09-21 by reading the tenant's real data after the parser was written and
+ * tested. Matrix's damaged-hair answer is SIX lines — a sentence, then one treatment and
+ * price per line — and `renderTenantSections` interpolates it as `  ${answer}`, so only
+ * its FIRST line carries the indent and the rest sit flush left. A parser taking one line
+ * returned «Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:» and called it the
+ * approved answer.
+ *
+ * That is not a cosmetic truncation. This text is SERVED: a drifted reply would have been
+ * replaced by a colon-terminated fragment promising a list and delivering none — D-069's
+ * «Хаяг» over a phone number, one table over, and worse because the platform would have
+ * typed it deliberately. D-057's rule is the general form: a parser that returns the part
+ * it managed is the defect, not the fix.
  */
 export function faqAnswersFromPrefix(promptStable: string, faqLabel: string): string[] {
   const heading = `=== ${faqLabel} ===`;
@@ -182,10 +197,15 @@ export function faqAnswersFromPrefix(promptStable: string, faqLabel: string): st
   const out: string[] = [];
   for (let i = 0; i < lines.length; i += 1) {
     if (!(lines[i] ?? '').trim().startsWith('- ')) continue;
-    const answer = (lines[i + 1] ?? '').trim();
-    // The next line must be an answer, not the next question and not the section's end.
-    if (answer === '' || answer.startsWith('- ')) continue;
-    out.push(answer);
+    // Every line up to the NEXT question or the section's end. Only the first carries the
+    // renderer's indent, so trimming each and rejoining reproduces the stored answer.
+    const body: string[] = [];
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const line = (lines[j] ?? '').trim();
+      if (line.startsWith('- ')) break;
+      if (line !== '') body.push(line);
+    }
+    if (body.length > 0) out.push(body.join('\n'));
   }
   return out;
 }

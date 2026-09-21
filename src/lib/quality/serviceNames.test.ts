@@ -125,6 +125,27 @@ test('DONE-TEST: faqAnswersFromPrefix reads the ANSWER line, not the question', 
   ]);
 });
 
+test('DONE-TEST: A MULTI-LINE ANSWER IS READ WHOLE, NOT TRUNCATED TO ITS FIRST LINE', () => {
+  // Matrix's real damaged-hair answer. renderTenantSections interpolates it as `  ${answer}`
+  // so only the FIRST line is indented and the rest sit flush left. Taking one line returned
+  // a colon-terminated fragment promising a list and delivering none — and this text is
+  // SERVED to a customer when a reply drifts from it.
+  const prefix = [
+    '=== ТҮГЭЭМЭЛ АСУУЛТ ===',
+    '- Үс их хуурай, хугарч гэмтсэн бол юу хийлгэх вэ?',
+    '  Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:',
+    'CICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)',
+    'Тэжээлийн тос: 49,500₮',
+    '- Дараагийн асуулт?',
+    '  Дараагийн хариулт.',
+  ].join('\n');
+  assert.deepEqual(faqAnswersFromPrefix(prefix, 'ТҮГЭЭМЭЛ АСУУЛТ'), [
+    'Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:\n'
+      + 'CICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)\nТэжээлийн тос: 49,500₮',
+    'Дараагийн хариулт.',
+  ]);
+});
+
 test('a question with no answer beneath it is skipped, never paired with the next', () => {
   const prefix = '=== ТҮГЭЭМЭЛ АСУУЛТ ===\n- Асуулт нэг\n- Асуулт хоёр\n  Хариулт хоёр.';
   assert.deepEqual(faqAnswersFromPrefix(prefix, 'ТҮГЭЭМЭЛ АСУУЛТ'), ['Хариулт хоёр.']);
