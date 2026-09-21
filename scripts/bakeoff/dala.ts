@@ -143,13 +143,24 @@ function deps(record: { body?: string; answeredBy?: string; flags: string[]; usa
     markCalled: async () => true,
     settle: async (usage) => { record.usage = usage; return { ok: true }; },
     release: async () => {},
-    flag: async ({ code }) => { record.flags.push(code); },
+    // The CODE alone is not enough, and keeping only it was this harness's own instance
+    // of D-070: a refused reply and a clean one differ only in text the harness threw
+    // away, so `outbound_gate_label` appeared twice in a run with nothing to diagnose it
+    // from. `quality_flags` in production has carried `attempted` all along — this is the
+    // measurement rig being worse than the thing it measures.
+    flag: async (f) => {
+      record.flags.push(f.code);
+      record.flagDetail.push({ code: f.code, detail: f.detail, attempted: f.attempted });
+    },
     observe: async () => {},
   };
 }
 
 async function ask(text: string, attachments: readonly string[], history: { role: 'user' | 'assistant'; content: string }[]) {
-  const record: { body?: string; answeredBy?: string; flags: string[]; usage?: unknown } = { flags: [] };
+  const record: {
+    body?: string; answeredBy?: string; flags: string[]; usage?: unknown;
+    flagDetail: { code: string; detail?: string; attempted?: string }[];
+  } = { flags: [], flagDetail: [] };
   const now = new Date();
   const started = Date.now();
   try {
@@ -185,7 +196,7 @@ async function ask(text: string, attachments: readonly string[], history: { role
       cannedLabel: SECTION_LABELS.canned, cannedHash,
     } as never);
     return { ok: true, reply: record.body ?? null, answeredBy: record.answeredBy ?? null,
-      flags: record.flags, kind: (out as { kind: string }).kind, ms: Date.now() - started,
+      flags: record.flags, flagDetail: record.flagDetail, kind: (out as { kind: string }).kind, ms: Date.now() - started,
       // Carried out so real spend is computed from the API's own numbers rather than
       // estimated — the founder's ceiling is a real ceiling and an estimate is not a count.
       usage: record.usage ?? null };
