@@ -35,8 +35,26 @@ import Anthropic from '@anthropic-ai/sdk';
 import { nfc } from '../mn/text.ts';
 import type { Usage } from '../spend/settle.ts';
 
-/** One Messenger send's worth of Mongolian. ~1,050 tokens at 1,900 characters. */
-export const RECEPTION_MAX_TOKENS = 700;
+/**
+ * The output ceiling, matched to the ancestor's 1024 — and the gap cost a real customer.
+ *
+ * At 700 this was BELOW what the ancestor has run in production for months, and
+ * `max_tokens` is classified terminal here (correctly: the partial text is half a
+ * Mongolian sentence). So a reply that merely ran long was discarded and the customer got
+ * the handoff line instead. Measured in production 2026-09-21 08:28:45 UTC:
+ * `answered_with_handoff { code: 'model_max_tokens' }` on a live turn.
+ *
+ * Note what this is NOT a licence for. The founder's complaint the same night was replies
+ * that were TOO LONG — 1,020 characters by the eleventh turn. That had a different cause
+ * (D-111: the assistant's own turns never reached history, so the model re-answered the
+ * whole thread every time) and the fix for it is history, plus a brevity instruction in
+ * the prompt. Raising the ceiling stops a good reply being thrown away; it is not how
+ * reply length is controlled, and raising it further would not fix anything.
+ *
+ * Mongolian runs ~1.41 characters per token (D-072), so 1024 is roughly 1,450 characters
+ * — comfortably above the ancestor's measured p90 of 364.
+ */
+export const RECEPTION_MAX_TOKENS = 1024;
 
 /** Turns of history sent back. Beyond ten adds cost without adding context. */
 export const RECEPTION_HISTORY_TURNS = 10;

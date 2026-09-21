@@ -693,9 +693,16 @@ test('a handoff answer is still an answer, and it is logged as one', async () =>
 // ---------------------------------------------------------------------------
 
 test('a reply somebody else already holds or sent is skipped, not re-sent', async () => {
-  // `claim`'s CAS matches nothing, then the state read says `sent`.
+  // THREE reads of `outbound_messages` now, not two, and the first belongs to somebody
+  // else: since D-111 `readHistory` reads the assistant's own turns from this table, and
+  // it runs BEFORE the claim. Leaving it out shifted the whole queue by one and handed the
+  // claim the history's answer — the same silent off-by-one the `webhook_events` fixture
+  // above documents, in a second table. A fixture whose order drifts is a test asserting
+  // the stub rather than the code.
+  //
+  // 1. history (no prior assistant turns) · 2. claim's CAS matches nothing · 3. state says `sent`.
   const { fx, delivered, logs } = stubEffects({
-    tables: { outbound_messages: [{ data: null }, { data: { state: 'sent' } }] },
+    tables: { outbound_messages: [{ data: [] }, { data: null }, { data: { state: 'sent' } }] },
   });
   const r = await run(fx);
   assert.equal(r.status, 200);
@@ -704,10 +711,26 @@ test('a reply somebody else already holds or sent is skipped, not re-sent', asyn
 });
 
 test('an unreadable outbound row is 503, never a silent skip', async () => {
-  const { fx } = stubEffects({ tables: { outbound_messages: { error: { message: 'reset' } } } });
-  const r = await run(fx);
+  // Split in two since D-111, because this table is now read by two different callers and
+  // they refuse under different names. Collapsing them would let one regress unseen.
+  //
+  // The CLAIM's read: history answers cleanly first, then the claim cannot read.
+  const claimBroken = stubEffects({
+    tables: { outbound_messages: [{ data: [] }, { error: { message: 'reset' } }] },
+  });
+  const r = await run(claimBroken.fx);
   assert.equal(r.status, 503);
   assert.equal(r.body['error'], 'worker.claim_unavailable');
+
+  // The HISTORY's read, which comes first and fails closed for its own reason: an empty
+  // assistant half is indistinguishable from the defect D-111 fixed, so a hiccup must not
+  // quietly hand the model a transcript with no replies in it.
+  const historyBroken = stubEffects({
+    tables: { outbound_messages: { error: { message: 'reset' } } },
+  });
+  const h = await run(historyBroken.fx);
+  assert.equal(h.status, 503);
+  assert.equal(h.body['error'], 'worker.history_failed');
 });
 
 // ---------------------------------------------------------------------------

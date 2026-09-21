@@ -131,29 +131,81 @@ test('DONE-TEST: the data marker is byte-identical to the one 01_data_marker dec
 // The range-fusion concern this test was written for did not retire, it RELOCATED: the only
 // place a price becomes text now is `reception/price.ts`, and `price.test.ts` asserts it
 // there against the same trap.
-test('DONE-TEST: the price list names services and quotes no figure', () => {
+test('DONE-TEST: A CONFIRMED PRICE IS QUOTED, AND THE RANGE IS QUOTED WHOLE', () => {
+  // This test asserted the OPPOSITE until 2026-09-21, and the reversal is the founder's
+  // (D-112). What it protected was D-075: `allowed_numbers` is a set, so the guard cannot
+  // tell whether a permitted numeral belongs to the service being discussed, and the plan
+  // was for `reception/price.ts` to serve the figure from the row instead.
+  //
+  // That module was built, tested — and never called by anything. `priceOf` suppressed
+  // every figure on the strength of a comment promising a reader that did not exist, which
+  // is the same shape as `config/platform.ts:33` asserting a monthly ceiling nothing reads.
+  // Meanwhile the cost was measured in Matrix's live thread: forty-two confirmed rows and
+  // not one figure in the prompt, so the model told a customer «надад яг тоо өгөгдөөгүй».
   const prices = bodyOf(renderTenantSections(MATRIX, APPROVED), 'price_list');
-  assert.deepEqual(extractNumerals(prices).map((n) => n.digits), []);
-  // The services are still NAMED — the model must be able to say one exists and spell it
-  // correctly; what it cannot do is put a number next to it.
-  assert.match(prices, /Үс будалт/);
+  assert.match(prices, /Үс будалт/, 'the services are still named');
+  assert.ok(extractNumerals(prices).length > 0, 'and now carry figures');
 });
 
-// The inverse of what this file asserted until 2026-09-20. `allowed_numbers` no longer
-// widens with the price list, so a reply quoting a price is refused like any other numeral —
-// and that is the point: the model never holds the figure, `reception/price.ts` serves it
-// from the row, and a served line is not model text and is not guarded.
-test('DONE-TEST: a price quoted by the MODEL is refused, because it is no longer approved', () => {
-  const sections = renderTenantSections(MATRIX, APPROVED);
+test('DONE-TEST: A RANGE MISSING AN END PRINTS NO FIGURE AT ALL', () => {
+  // The dangerous half of quoting ranges. A row meaning 120,000–190,000 whose upper bound
+  // is unreadable must not print «120,000₮»: that is a real-looking price 70,000 under the
+  // true one, the customer holds the salon to it, and it passes every guard because the
+  // numeral genuinely came from the tenant's own row. The name alone is the safe answer.
+  const halfRange: TenantKb = {
+    ...EMPTY,
+    services: [{ name: 'Сор', variants: [{ variantKey: '', priceKind: 'range', priceMin: '120000.00', priceMax: null, refusalTopic: null }] }],
+  };
+  const body = bodyOf(renderTenantSections(halfRange, APPROVED), 'price_list');
+  assert.deepEqual(extractNumerals(body).map((n) => n.digits), [], body);
+  assert.match(body, /- Сор$/m);
+});
+
+test('a money figure never depends on the runtime locale', () => {
+  // `toLocaleString` is locale-dependent exactly as `localeCompare` is, and this string
+  // lands in the compiled prefix — so it would put the prompt-cache key at the mercy of
+  // the runtime's locale (D-026), the same defect the database's collation caused.
+  const kb: TenantKb = {
+    ...EMPTY,
+    services: [{ name: 'Т', variants: [{ variantKey: '', priceKind: 'exact', priceMin: '1234567.00', priceMax: null, refusalTopic: null }] }],
+  };
+  assert.match(bodyOf(renderTenantSections(kb, APPROVED), 'price_list'), /1,234,567/);
+});
+
+test('DONE-TEST: A CONFIRMED PRICE PASSES THE GUARD AND AN INVENTED ONE STILL DOES NOT', () => {
+  // The property that has to survive D-112, and the one worth stating in both directions.
+  //
+  // Until 2026-09-20 this asserted the opposite of its first half: the price list carried
+  // no figures, so `allowed_numbers` never widened and EVERY price the model wrote was
+  // refused. That was a real guarantee and it bought nothing, because the prompt held no
+  // price for the model to quote — the guard was protecting against a sentence the model
+  // could not have written. What it produced instead was «надад яг тоо өгөгдөөгүй» to a
+  // live customer about a price sitting confirmed in `service_variants`.
+  //
+  // The guarantee that matters is unchanged and is asserted below: a numeral this tenant
+  // never published is still refused. That is the digits-only reduction doing the work, not
+  // an empty list — and it is why the sentence "prices cannot be quietly wrong" must always
+  // name the mechanism behind it.
   const rendered = renderStablePrefix([
     { layer: 'L0', key: 'gate', ordinal: 0, body: 'Ш2.', reviewedAt: APPROVED, origin: 'platform' },
-    ...sections,
+    ...renderTenantSections(MATRIX, APPROVED),
   ]);
   assert.equal(rendered.ok, true);
   if (!rendered.ok) return;
   const allowed = rendered.rendered.allowedNumbers;
-  assert.deepEqual(numeralsNotAllowed('Үс будалт 80,000₮-150,000₮.', allowed), ['80,000', '150,000']);
+
+  // Both endpoints of the salon's own range, quoted the way a person quotes them.
+  assert.deepEqual(numeralsNotAllowed('Үс будалт 80,000₮-150,000₮.', allowed), []);
+  // …and each one alone, which is the case the fused single token would have refused.
+  assert.deepEqual(numeralsNotAllowed('Үс будалт 80,000₮-аас эхэлнэ.', allowed), []);
+  assert.deepEqual(numeralsNotAllowed('Чёлк тайралт 33,000₮.', allowed), []);
+
+  // A number this salon never published. Still refused, and that is the whole guarantee.
   assert.deepEqual(numeralsNotAllowed('Үс будалт 99,000₮.', allowed), ['99,000']);
+  // A plausible neighbour of a real price is refused too: the comparison is on the
+  // digits-only reduction and is deliberately not a substring test, so «150,000» being
+  // approved does not license «1,150,000».
+  assert.deepEqual(numeralsNotAllowed('Үс будалт 1,150,000₮.', allowed), ['1,150,000']);
 });
 
 test('DONE-TEST: allowed_numbers stops being empty, and holds exactly the tenant facts', () => {
@@ -163,11 +215,22 @@ test('DONE-TEST: allowed_numbers stops being empty, and holds exactly the tenant
   ]);
   assert.equal(rendered.ok, true);
   if (!rendered.ok) return;
-  // The deposit and the phone number — the tenant's non-price facts. NOT the prices, which
-  // part 1 removed, and NOT the gate's counter-example, which D-024 removed. Both exclusions
-  // are the same rule: only a fact the tenant stated may be quoted, and a price is now
-  // served from its row rather than permitted to the model.
-  assert.deepEqual(rendered.rendered.allowedNumbers, ['20,000', '7741-7777']);
+  // The deposit, the phone number, AND the confirmed prices — every numeral the tenant
+  // itself stated. Not the gate's counter-example, which D-024 removed: that exclusion is
+  // the rule that survives unchanged, because «33,000₮» inside Ш1 is the platform's
+  // wrong-answer illustration and never a fact this salon published.
+  //
+  // The prices are here again since D-112. While they were suppressed this list read
+  // `['20,000', '7741-7777']`, and that is the state in which the guard refused a reply
+  // quoting the salon's own price list — which could not happen, because the prompt held
+  // no price to quote.
+  //
+  // Note the RANGE contributes TWO tokens and not one. «80,000–150,000» is a single
+  // numeral to `extractNumerals`, so rendering it that way would put only the fused pair
+  // on the list and refuse a reply quoting either endpoint alone — which is how anybody
+  // actually answers a price question.
+  assert.deepEqual(rendered.rendered.allowedNumbers,
+    ['150,000', '20,000', '33,000', '7741-7777', '80,000']);
 });
 
 // The unreadable-price concern also relocated to `reception/price.ts`, where a value
