@@ -32,6 +32,22 @@
 > The lesson is D-071's, one table over: **a tenant-data edit and the republish that makes
 > it legal are one operation.** Editing rows and leaving the publish for later does not
 > leave the old behaviour running — it stops the tenant.
+>
+> **Update 2026-09-24 16:xx UTC — still stale, and now measured.** 29 customer messages
+> since 2026-09-21 21:00 UTC got no shadow draft; Vercel logs `canned_stale` on every refused
+> delivery. The ancestor answered every one of them (3.5–21.0 s), so no customer waited —
+> but 37 critical alerts said otherwise until D-113 (#154) stopped paging on a shadow
+> channel when the Page has already answered. The republish now expects `canned_hash
+> 21ada36b…`, not `509d07df…`: `refusal_no_promotion`'s typo was fixed (**хумдрал →
+> хямдрал**) after that number was computed, and no other row differs.
+
+> ## 2026-09-24 — the salon is now «Tara salon яармаг салбар» on its own Page
+>
+> Renamed 2026-09-22 between 03:05 and 05:39 UTC; the Office Color service was renamed TARA
+> LUMI on 2026-09-24. **Both bots deny the new name when asked about it directly** (measured
+> against the real model, D-114). The fix is one `knowledge_documents` row, drafted and
+> measured in D-114 and NOT applied: its wording, the six-branch claim it would attach to
+> TARA, and what TARA LUMI maps to are the founder's.
 
 **2026-09-04, last revised 2026-09-06.** Written to answer one question honestly:
 *how far is this from a real customer message, and what has to come from you?*

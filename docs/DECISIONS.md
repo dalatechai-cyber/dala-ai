@@ -8653,3 +8653,87 @@ instrument for that.
 `webhook.requeued` (the sweep re-publishing an event still inside the limit) is unchanged:
 it reports the platform's own floor failing, not a customer, and it fired twice in the
 period.
+
+## D-114 — the salon renamed itself on its own Page, and both bots deny it
+
+**2026-09-24. Recorded on the founder's instruction** — *"Customers are already writing «Tara
+salon». Note that for the rebrand; the bot must recognise both names."* The facts below are
+read from the project; the proposal at the end is NOT applied, for the reasons given there.
+
+### What changed, and when, from the salon's own Page
+
+- **The Page's name.** Every feed event the Page authored carries `from.name`. It reads
+  «Matrix eco salon» through 2026-09-22 03:05:35 UTC and **«Tara salon яармаг салбар»** from
+  05:39:59 UTC the same morning. Same Page id, `1520409424715591`.
+- **The announcement**, posted 05:36:53 UTC that day: «…салон маань шинэ нэртэй болж байна.
+  🤎 TARA SALON 🤎 … Matrix-ийн 20 жилийн түүхээс TARA-ийн шинэ эхлэл рүү…», signed «TARA
+  SALON · Hairstylist Oyunaa · ☎️76001888 Яармаг салбар».
+- **A service renamed too**, posted 2026-09-24 03:42:44 UTC: «✨ OFFICE COLOR → TARA LUMI ✨».
+  The price list still says «Оффис колор /Сор/» and nothing maps the new name to it.
+- **Customers already use it**: a DM on 2026-09-22, «Sainuu, tara saloninxoon, … urdichilgaa
+  awch baigaa yu?», and a comment on 2026-09-24, «Tara salon яармаг салбар yarmagtaa bizdee
+  hehe».
+
+### What each bot says, measured against the real model
+
+Eight probes (`scripts/bakeoff/tara-set.json`: two real, six constructed — no customer has
+asked about the name yet, and the finding is what happens when one does), two runs each,
+through `scripts/bakeoff/dala.ts --set … --kb …` (the production compiler, gate and guard;
+only the database stubbed) and through the ancestor's own `salonBrain.js`. About $0.36 of
+model spend:
+
+| Probe | Dala AI today | Ancestor today | Dala AI + the proposed row |
+|---|---|---|---|
+| «энэ Тара салон мөн үү?» | «Үгүй… энэ бол Тара салон биш — Матрикс эко салон» (2/2) | «Үгүй, энэ бол Matrix Eco Salon» (2/2) | «Тийм ээ… өмнө нь Матрикс эко салон нэртэй байсан манай Яармаг салбар одоо TARA SALON нэртэй боллоо» (2/2 correct) |
+| «Matrix salon neree solison uu?» | «Үгүй, нэрээ сольсонгүй» (2/2) | handoff line (2/2) | «Тийм ээ, … шинэ нэр TARA SALON … Хуучин нэр нь Matrix Eco Salon» (2/2) |
+| «Та нар Матрикс салон уу, Тара салон уу?» | Matrix only (2/2) | «"Тара салон"-ы талаар мэдээлэл надад байхгүй» (1/2) | one salon, both names (2/2) |
+| «Tara salon яармаг салбар yarmagtaa bizdee» | «Тийм ээ, энэ бол Матрикс эко салоны Яармаг салбар» / «Тийм ээ, манай хуудас бол Яармаг салбар» — never TARA | «таны асуултыг ойлгосонгүй» / «зөвхөн Matrix Eco Salon-ы мэдээллээр» | yes, TARA SALON is the Yarmag branch (2/2) |
+| the real DM above, and «Tara salon hayag haana baidag ve?» | answers the question asked (4/4) | answers the question asked (4/4) | answers the question asked (4/4) |
+
+So a name mentioned in passing does no harm today — the one real customer who used it got a
+correct deposit answer from the ancestor. **A customer who asks about the name is told the
+salon is not the salon**, by both bots, on a Page that now carries that name.
+
+### The fix is a row, not code — and it is proposed, not applied
+
+`knowledge_documents` is generic: any tenant can carry its own names there, so this is
+"client #3 fills in a config" rather than a feature. The candidate measured above:
+
+```sql
+insert into knowledge_documents (tenant_id, title, body, source)
+values ('8f2826f5-bd33-4d6c-ab70-b6c5ba7f3f06',
+        'Салоны нэр',
+        E'Шинэ нэр: TARA SALON (Tara salon яармаг салбар)\nХуучин нэр: Matrix Eco Salon (Матрикс эко салон)',
+        'Tara salon яармаг салбар Facebook хуудас, 2026-09-22');
+```
+
+It carries no digits, so `allowed_numbers` does not move — the salon's own sentence
+«Matrix-ийн 20 жилийн…» was deliberately not used, because a bare `20` on the allow-list
+licenses «20%» anywhere (D-055's shape). It changes `content_hash` and not `canned_hash`.
+
+**Not applied, for three reasons that are each the founder's:**
+
+1. Its three labels — «Салоны нэр», «Шинэ нэр», «Хуучин нэр» — are Mongolian this session
+   wrote, and the model paraphrases them to customers.
+2. **It makes a second claim false.** With the row in, «Tara salon heden salbartai ve?» was
+   answered «Tara Salon (Матрикс эко салон) нийт зургаан салбартай» in 2/2 runs: the model
+   joins the new name to «Салбарууд»'s «Матрикс эко салон нийт зургаан салбартай». The Page
+   is «Tara salon **яармаг салбар**» and the post is signed by one stylist, so whether TARA
+   SALON has six branches or one is a fact nobody here can read.
+3. **TARA LUMI.** Neither bot knows it is Office Color. One Dala run answered «Tara Lumi
+   будалт хэд вэ?» with the full-dye rows (176,000/200,000) — the price guard serving real
+   data for the wrong service, because the right service is not named in the data. The fix
+   is a `service_aliases` row pointing «TARA LUMI» at the right `services` row, which needs
+   the founder to say which row that is.
+
+### Also touched by the rebrand, and not changed
+
+- `canned_responses.assistant_identity` introduces the bot as «Матрикс эко салоны хуудсыг
+  хариуцдаг хиймэл оюунтай туслах» — reviewed, customer-visible, the founder's to reword.
+- `tenant_booking.booking_url` is `matrixecosalon.org`. Whether that domain survives the
+  rebrand is unknown here.
+- `tenants.display_name` reads "Matrix Eco Salon"; nothing in the prompt reads it (D-033).
+  The slug `matrix-eco-salon` is an identifier and is deliberately left alone.
+- **The ancestor denies the new name to live customers today.** Its knowledge is
+  `Matrix-Chatbot/config/currentClient.js`; changing it touches Matrix's live customers, so
+  it is the founder's call and was not done.
