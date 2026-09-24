@@ -32,6 +32,7 @@ import { callReception } from '../../src/lib/model/reception.ts';
 import { cannedHashOf } from '../../src/lib/prompt/sections.ts';
 import { MODEL_REGISTRY } from '../../src/config/platform.ts';
 import { SECTION_LABELS } from '../../src/lib/prompt/tenant.ts';
+import { toDeterministic, toRules } from '../../src/lib/reception/load.ts';
 
 const TZ = 'Asia/Ulaanbaatar';
 // Read from the registry rather than written here: §6.2.6 puts a model id in exactly ONE
@@ -61,6 +62,15 @@ const kb = JSON.parse(readFileSync(arg('kb') ?? 'scripts/bakeoff/live-kb.json', 
   canned: { kind: string; body: string }[];
 };
 const set = JSON.parse(readFileSync(arg('set') ?? 'scripts/bakeoff/testset.json', 'utf8'));
+
+// `--gate` carries the tenant's refusal rules and deterministic replies as dumped rows,
+// shaped by the SAME functions `reception/load.ts` uses. Without it the harness runs with
+// no gate at all, which measures a bot production never runs.
+const gateRows = arg('gate') === undefined ? null : JSON.parse(readFileSync(arg('gate') as string, 'utf8')) as {
+  disclosure?: unknown[]; outOfScope?: unknown[]; deterministic?: unknown[];
+};
+const GATE_RULES = gateRows === null ? [] : [...toRules(gateRows.disclosure ?? [], false), ...toRules(gateRows.outOfScope ?? [], false)];
+const DETERMINISTIC = gateRows === null ? [] : toDeterministic(gateRows.deterministic ?? []);
 
 // The signed platform blocks, in the order and layers `loadPromptSections` gives them.
 // Read from disk because `02_style` was proven byte-identical to its `prompt_blocks` row,
@@ -177,7 +187,7 @@ async function ask(text: string, attachments: readonly string[], history: { role
       eventAt: now, now, promptStable,
       promptVolatile: renderVolatile({ now, timezone: TZ, surface: 'direct_message', hours: kb.hours, closures: [] }),
       modelId: MODEL, cacheMode, timeoutMs: 25_000,
-      rules: [], deterministic: [],
+      rules: GATE_RULES, deterministic: DETERMINISTIC,
       historyState: { known: true, empty: history.length === 0 },
       canned: kb.canned.map((c) => ({ kind: c.kind, body: c.body, reviewedAt: APPROVED })),
       tenantGuard: {

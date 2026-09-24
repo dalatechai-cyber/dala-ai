@@ -79,7 +79,7 @@ function gateFor(responseKind: string): string {
 }
 
 /** Rows from one of the two refusal tables, normalised into `GateRule`. */
-function toRules(rows: unknown, quotePriceDefault: boolean): GateRule[] {
+export function toRules(rows: unknown, quotePriceDefault: boolean): GateRule[] {
   if (!Array.isArray(rows)) return [];
   return rows.map((raw) => {
     const r = raw as Record<string, unknown>;
@@ -104,6 +104,29 @@ function toRules(rows: unknown, quotePriceDefault: boolean): GateRule[] {
       // Raw, unread. `isTenantConfirmed` is the only thing that interprets it, so a row
       // whose column is absent — a database that predates 0011 — reads as unconfirmed
       // rather than being credited with a confirmation nobody gave.
+      provenance: r['provenance'],
+    };
+  });
+}
+
+/**
+ * `deterministic_replies` rows as the gate reads them. Exported so the bake-off harness
+ * shapes a dumped row exactly as production does, rather than a second reading of it.
+ */
+export function toDeterministic(rows: unknown): DeterministicRule[] {
+  return (Array.isArray(rows) ? rows : []).map((raw) => {
+    const r = raw as Record<string, unknown>;
+    const stems = r['stems'];
+    return {
+      intent: String(r['intent']),
+      body: String(r['body']),
+      enabled: r['enabled'] === true,
+      // An unrecognised mode falls to whole_message, the high-precision one. A typo must
+      // not silently widen a matcher into the mode that steals questions.
+      matchMode: r['match_mode'] === 'contains_stem' ? 'contains_stem' : 'whole_message',
+      stems: Array.isArray(stems) ? stems.filter((x): x is string => typeof x === 'string') : [],
+      // Absent reads as TRUE: greeting a customer mid-conversation is the worse error.
+      requiresEmptyHistory: r['requires_empty_history'] !== false,
       provenance: r['provenance'],
     };
   });
@@ -290,22 +313,7 @@ export async function loadReceptionContext(
     };
   });
 
-  const deterministic: DeterministicRule[] = (Array.isArray(detRes.data) ? detRes.data : []).map((raw) => {
-    const r = raw as Record<string, unknown>;
-    const stems = r['stems'];
-    return {
-      intent: String(r['intent']),
-      body: String(r['body']),
-      enabled: r['enabled'] === true,
-      // An unrecognised mode falls to whole_message, the high-precision one. A typo must
-      // not silently widen a matcher into the mode that steals questions.
-      matchMode: r['match_mode'] === 'contains_stem' ? 'contains_stem' : 'whole_message',
-      stems: Array.isArray(stems) ? stems.filter((x): x is string => typeof x === 'string') : [],
-      // Absent reads as TRUE: greeting a customer mid-conversation is the worse error.
-      requiresEmptyHistory: r['requires_empty_history'] !== false,
-      provenance: r['provenance'],
-    };
-  });
+  const deterministic = toDeterministic(detRes.data);
 
   return {
     ok: true,
