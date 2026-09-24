@@ -694,3 +694,19 @@ test('DONE-TEST: a caller that names no rule still gets the refusal', () => {
   assert.equal(r.ok === false && r.code, 'outbound_refused_topic_price');
   assert.match(r.ok === false ? r.detail : '', /unknown rule/);
 });
+
+test('DONE-TEST: THE CANNED SECTION HEADING IS A GATE-LABEL LEAK', () => {
+  // Measured 2026-09-21 against the real model, unflagged and on its way to a customer:
+  // «БЭЛЭН ХАРИУЛТ:\nТа манай вэбсайтаар (…) онлайнаар цаг захиалж…». Not a gate NUMBER
+  // and not a row KEY — the heading above them, which the matcher did not cover.
+  assert.equal(namesAGate('БЭЛЭН ХАРИУЛТ:\nТа манай вэбсайтаар цаг захиална уу.'), 'БЭЛЭН ХАРИУЛТ');
+  assert.equal(namesAGate('бэлэн хариулт гэж бичив'), 'БЭЛЭН ХАРИУЛТ', 'folded, per rule 6');
+});
+
+test('an ordinary heading that is also a real phrase is NOT a leak', () => {
+  // «Урьдчилгаа төлбөр» is a section heading AND what a correct booking reply says out
+  // loud. Matching every SECTION_LABELS value would refuse the tenant's approved data —
+  // D-068 and D-071 are both records of that mistake.
+  assert.equal(namesAGate('Урьдчилгаа төлбөр 20,000₮ байна.'), null);
+  assert.equal(namesAGate('Үнийн жагсаалт доор байна.'), null);
+});

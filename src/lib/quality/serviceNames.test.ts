@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { serviceNameReport, servicesFromPrefix } from './serviceNames.ts';
+import { serviceNameReport, servicesFromPrefix, faqAnswersFromPrefix } from './serviceNames.ts';
 
 // Matrix's real dye names and prices, and the model's real rewrite of them, 2026-09-21.
 const SERVICES = [
-  { name: 'Үсний угийн будаг', prices: ['135000'] },
-  { name: 'Дунд үсний будаг', prices: ['176000'] },
-  { name: 'Урт үсний будаг', prices: ['200000'] },
-  { name: 'Сор', prices: ['120000', '190000'] },
-  { name: 'Шулуун хими', prices: ['430000', '510000'] },
+  { name: 'Үсний угийн будаг', prices: ['135000'], rows: [] },
+  { name: 'Дунд үсний будаг', prices: ['176000'], rows: [] },
+  { name: 'Урт үсний будаг', prices: ['200000'], rows: [] },
+  { name: 'Сор', prices: ['120000', '190000'], rows: [] },
+  { name: 'Шулуун хими', prices: ['430000', '510000'], rows: [] },
 ];
 
 test('DONE-TEST: THE MEASURED REWRITE IS CAUGHT', () => {
@@ -27,11 +27,11 @@ test('DONE-TEST: AN INNOCENT REPLY FLAGS NOTHING — the bug this version replac
   assert.deepEqual(serviceNameReport('Танай үсний урт ямар вэ?', SERVICES).altered, []);
   // The same shape for the other three the old head test collapsed onto common words.
   assert.deepEqual(serviceNameReport('Энэ бол тусдаа нөхөн сэргээх эмчилгээ юм.',
-    [{ name: 'CICA нөхөн сэргээх эмчилгээ', prices: ['198000'] }]).altered, []);
+    [{ name: 'CICA нөхөн сэргээх эмчилгээ', prices: ['198000'], rows: [] }]).altered, []);
   assert.deepEqual(serviceNameReport('Манайд тэжээл байгаа.',
-    [{ name: 'CMC тэжээл', prices: ['132000'] }]).altered, []);
+    [{ name: 'CMC тэжээл', prices: ['132000'], rows: [] }]).altered, []);
   assert.deepEqual(serviceNameReport('Тайралт хийлгэх үү?',
-    [{ name: 'Чёлк тайралт', prices: ['22000'] }]).altered, []);
+    [{ name: 'Чёлк тайралт', prices: ['22000'], rows: [] }]).altered, []);
 });
 
 test('DONE-TEST: names written exactly are never reported', () => {
@@ -49,8 +49,8 @@ test('DONE-TEST: a service the reply never mentions is NOT an alteration', () =>
 
 test('a price two services share cannot say which one was meant', () => {
   const shared = [
-    { name: 'Эрэгтэй тайралт', prices: ['66000'] },
-    { name: 'Эмэгтэй тайралт', prices: ['66000'] },
+    { name: 'Эрэгтэй тайралт', prices: ['66000'], rows: [] },
+    { name: 'Эмэгтэй тайралт', prices: ['66000'], rows: [] },
   ];
   assert.deepEqual(serviceNameReport('Тайралт 66,000₮ байна.', shared).altered, [],
     'quoting 66,000 says which AMOUNT, not which SERVICE');
@@ -59,10 +59,10 @@ test('a price two services share cannot say which one was meant', () => {
 test('the price test is the digits-only reduction, not a substring test', () => {
   // `20` must not match `20,000` — the rule the price guarantee already rests on.
   assert.deepEqual(serviceNameReport('20 хувийн хөнгөлөлт.',
-    [{ name: 'Тонирование', prices: ['20000'] }]).altered, []);
+    [{ name: 'Тонирование', prices: ['20000'], rows: [] }]).altered, []);
   // And the separator does not matter: 176 000 is 176,000.
   assert.deepEqual(serviceNameReport('Дунд урттай үс: 176 000₮',
-    [{ name: 'Дунд үсний будаг', prices: ['176000'] }]).altered, ['Дунд үсний будаг']);
+    [{ name: 'Дунд үсний будаг', prices: ['176000'], rows: [] }]).altered, ['Дунд үсний будаг']);
 });
 
 test('a number too short to be a price is never evidence about a service', () => {
@@ -72,13 +72,13 @@ test('a number too short to be a price is never evidence about a service', () =>
   // reports «CICA курс», which is the whole class of small-number coincidences the
   // digits-only reduction exists to refuse.
   const shortPriced = servicesFromPrefix('=== ҮНИЙН ЖАГСААЛТ ===\n- CICA курс (3 удаа): 3', 'ҮНИЙН ЖАГСААЛТ');
-  assert.deepEqual(shortPriced, [{ name: 'CICA курс', prices: [] }],
+  assert.deepEqual(shortPriced, [{ name: 'CICA курс', prices: [], rows: ['CICA курс (3 удаа): 3'] }],
     'a sub-four-digit figure is not collected as a price at all');
   assert.deepEqual(serviceNameReport('Нэг курс нь 3 удаа.', shortPriced).altered, []);
 });
 
 test('matching is case- and NFC-insensitive, per rule 6', () => {
-  const r = serviceNameReport('ШУЛУУН ХИМИ: 430,000₮', [{ name: 'Шулуун хими', prices: ['430000'] }]);
+  const r = serviceNameReport('ШУЛУУН ХИМИ: 430,000₮', [{ name: 'Шулуун хими', prices: ['430000'], rows: [] }]);
   assert.deepEqual(r.exact, ['Шулуун хими']);
 });
 
@@ -93,11 +93,64 @@ test('servicesFromPrefix folds variants under one name and collects every price'
   ].join('\n');
   const got = servicesFromPrefix(prefix, 'ҮНИЙН ЖАГСААЛТ');
   assert.deepEqual(got, [
-    { name: 'CICA нөхөн сэргээх эмчилгээ', prices: ['154000', '198000'] },
-    { name: 'Сор', prices: ['120000', '190000'] },
-  ]);
+    { name: 'CICA нөхөн сэргээх эмчилгээ', prices: ['198000', '154000'], rows: [
+      'CICA нөхөн сэргээх эмчилгээ (1 удаа): 198,000₮',
+      'CICA нөхөн сэргээх эмчилгээ (Курсээр, 1 удаагийн үнэ): 154,000₮',
+    ] },
+    { name: 'Сор', prices: ['120000', '190000'], rows: ['Сор: 120,000₮–190,000₮'] },
+  ], 'price-list ORDER throughout, and the rows verbatim');
 });
 
 test('servicesFromPrefix returns [] when the heading is absent — determinate, not truncated', () => {
   assert.deepEqual(servicesFromPrefix('=== ӨӨР ХЭСЭГ ===\n- Сор: 1,000₮', 'ҮНИЙН ЖАГСААЛТ'), []);
+});
+
+test('DONE-TEST: faqAnswersFromPrefix reads the ANSWER line, not the question', () => {
+  // renderTenantSections writes `- {question}` then the answer indented beneath it, so
+  // sectionRows — which returns only dashed lines — would return the QUESTIONS. Reading
+  // the questions and calling them answers is exactly the confusion this test pins.
+  const prefix = [
+    '=== ТҮГЭЭМЭЛ АСУУЛТ ===',
+    '- Үс маань хуурай байна, юу хийх вэ?',
+    '  CICA нөхөн сэргээх эмчилгээ: 198,000₮. Мастер үсчин зөвлөж өгнө.',
+    '- Хаана байрладаг вэ?',
+    '  Яармагийн Номин Хайпермаркетын баруун талд.',
+    '=== ДАРААГИЙН ===',
+    '- Энэ хэсэг тооцогдохгүй',
+    '  бас энэ ч тооцогдохгүй',
+  ].join('\n');
+  assert.deepEqual(faqAnswersFromPrefix(prefix, 'ТҮГЭЭМЭЛ АСУУЛТ'), [
+    'CICA нөхөн сэргээх эмчилгээ: 198,000₮. Мастер үсчин зөвлөж өгнө.',
+    'Яармагийн Номин Хайпермаркетын баруун талд.',
+  ]);
+});
+
+test('DONE-TEST: A MULTI-LINE ANSWER IS READ WHOLE, NOT TRUNCATED TO ITS FIRST LINE', () => {
+  // Matrix's real damaged-hair answer. renderTenantSections interpolates it as `  ${answer}`
+  // so only the FIRST line is indented and the rest sit flush left. Taking one line returned
+  // a colon-terminated fragment promising a list and delivering none — and this text is
+  // SERVED to a customer when a reply drifts from it.
+  const prefix = [
+    '=== ТҮГЭЭМЭЛ АСУУЛТ ===',
+    '- Үс их хуурай, хугарч гэмтсэн бол юу хийлгэх вэ?',
+    '  Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:',
+    'CICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)',
+    'Тэжээлийн тос: 49,500₮',
+    '- Дараагийн асуулт?',
+    '  Дараагийн хариулт.',
+  ].join('\n');
+  assert.deepEqual(faqAnswersFromPrefix(prefix, 'ТҮГЭЭМЭЛ АСУУЛТ'), [
+    'Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:\n'
+      + 'CICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)\nТэжээлийн тос: 49,500₮',
+    'Дараагийн хариулт.',
+  ]);
+});
+
+test('a question with no answer beneath it is skipped, never paired with the next', () => {
+  const prefix = '=== ТҮГЭЭМЭЛ АСУУЛТ ===\n- Асуулт нэг\n- Асуулт хоёр\n  Хариулт хоёр.';
+  assert.deepEqual(faqAnswersFromPrefix(prefix, 'ТҮГЭЭМЭЛ АСУУЛТ'), ['Хариулт хоёр.']);
+});
+
+test('no FAQ section means no answers', () => {
+  assert.deepEqual(faqAnswersFromPrefix('=== ӨӨР ===\n- x\n  y', 'ТҮГЭЭМЭЛ АСУУЛТ'), []);
 });

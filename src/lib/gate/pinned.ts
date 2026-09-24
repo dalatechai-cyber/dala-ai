@@ -314,29 +314,90 @@ export const EMBEDDED_MIN_RUN = 40;
  * customer would lose the location link that followed. That is the price of exactness, and
  * the answer to a row that reads worse than what the model produced is to fix the row.
  */
-function embeddedAdaptation(candidate: string, canned: readonly CannedRow[]): PinnedVerdict {
+/**
+ * The two exact questions, over plain approved BODIES rather than over canned rows.
+ *
+ * Extracted so a second kind of approved text can ask them without a second copy of the
+ * logic drifting from this one. `faqs` was that second kind: its answers carry no
+ * `reviewed_at` of their own because, as `renderTenantSections` says, the review unit for
+ * tenant data is the REVISION — an answer only reaches the compiled prefix by being
+ * published, and publishing is the founder's act. So the review concept lives at the
+ * caller, and this function knows only about text.
+ *
+ * Returns the approved body the candidate adapted, with the run length, or null.
+ */
+export function adaptedFrom(
+  candidate: string,
+  bodies: readonly string[],
+): { body: string; run: number } | null {
   const cand = [...candidate];
-  let best: { row: CannedRow; run: number } | null = null;
-
-  for (const row of canned) {
-    if (!isPinnable(row)) continue;
-    const body = comparable(row.body);
+  let best: { body: string; run: number } | null = null;
+  for (const raw of bodies) {
+    const body = comparable(raw);
     if (body === '') continue;
     // An exact quotation is not drift. `comparable` has already folded both sides.
     if (candidate.includes(body)) continue;
-
     const chars = [...body];
     const run = longestCommonRun(cand, chars);
     if (run < EMBEDDED_MIN_RUN) continue;
     if (run / chars.length < EMBEDDED_MIN_SHARE) continue;
-    if (best === null || run > best.run) best = { row, run };
+    if (best === null || run > best.run) best = { body: raw, run };
   }
+  return best;
+}
 
-  if (best === null) return { kind: 'clean' };
+function embeddedAdaptation(candidate: string, canned: readonly CannedRow[]): PinnedVerdict {
+  const pinnable = canned.filter(isPinnable);
+  const hit = adaptedFrom(candidate, pinnable.map((r) => r.body));
+  if (hit === null) return { kind: 'clean' };
+  const row = pinnable.find((r) => r.body === hit.body);
+  if (row === undefined) return { kind: 'clean' };
   return {
     kind: 'paraphrase',
-    canonicalKind: best.row.kind,
-    canonical: best.row.body,
-    similarity: best.run / [...comparable(best.row.body)].length,
+    canonicalKind: row.kind,
+    canonical: row.body,
+    similarity: hit.run / [...comparable(row.body)].length,
   };
+}
+
+/**
+ * A FAQ answer reproduced and altered, compared with line breaks treated as formatting.
+ *
+ * ## Why `adaptedFrom` alone could not see the case it was built for
+ *
+ * Measured 2026-09-21 against the real model and the real row. Matrix's damaged-hair
+ * answer is 234 code points over six lines; the model reproduces it with a BLANK LINE
+ * between the intro and the list, and blank lines between groups. The longest CONTIGUOUS
+ * common run is therefore the first line alone — 55 of 234, a 0.23 share against
+ * `EMBEDDED_MIN_SHARE` of 0.6 — so a deliberately drifted copy scored exactly as clean as a
+ * faithful one. The mechanism was inert on the only FAQ the founder complained about.
+ *
+ * That is the shape this repository keeps meeting: the guard ran, looked right, and could
+ * not fire. It was caught only by asking whether a DRIFTED reply fires, rather than
+ * observing that a clean one did not — a passing observation and a working mechanism look
+ * identical from outside (D-070).
+ *
+ * ## The fix, and its exact cost
+ *
+ * Runs of whitespace collapse to one space on BOTH sides before comparison. A line break is
+ * how a reply is laid out, not what it says, and «байна:\n\nCICA» and «байна:\nCICA» are the
+ * same sentence. The cost, stated: a reply that differs from an approved answer ONLY in its
+ * line breaks is now an exact quotation rather than drift, so it is served as the model
+ * wrote it. That is the right answer — the founder's objection was a changed WORD.
+ *
+ * What is served is always the STORED answer with its own line breaks, never the collapsed
+ * form: the collapse exists to compare, never to publish.
+ */
+export function faqAdaptation(
+  reply: string,
+  answers: readonly string[],
+): { answer: string; run: number } | null {
+  const collapse = (s: string): string => s.replace(/\s+/gu, ' ').trim();
+  const flat = answers.map(collapse);
+  const hit = adaptedFrom(collapse(reply), flat);
+  if (hit === null) return null;
+  const i = flat.indexOf(hit.body);
+  const answer = i === -1 ? undefined : answers[i];
+  // Belt and braces: a body that cannot be mapped back to a stored answer is not served.
+  return answer === undefined ? null : { answer, run: hit.run };
 }

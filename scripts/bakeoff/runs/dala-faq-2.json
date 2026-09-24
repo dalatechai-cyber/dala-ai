@@ -1,0 +1,135 @@
+{
+  "ranAt": "2026-09-21T21:47:57.408Z",
+  "model": "claude-sonnet-5",
+  "tag": "faq-2",
+  "prefixChars": 22349,
+  "allowedNumbers": [
+    "1",
+    "10,000",
+    "10:00",
+    "11:00",
+    "120,000",
+    "132,000",
+    "135,000",
+    "154,000",
+    "16,500",
+    "176,000",
+    "190,000",
+    "198,000",
+    "19:00",
+    "20,000",
+    "200,000",
+    "20:00",
+    "22,000",
+    "220,000",
+    "255,000",
+    "3",
+    "3-5",
+    "30",
+    "30-40",
+    "33,000",
+    "380,000",
+    "4-5",
+    "430,000",
+    "44,000",
+    "44,000–88,000",
+    "460,000",
+    "49,500",
+    "50,000",
+    "500,000",
+    "510,000",
+    "55,000",
+    "570,000",
+    "640,000",
+    "66,000",
+    "70",
+    "71,500",
+    "76001888",
+    "80905498",
+    "88,000",
+    "99,000"
+  ],
+  "singles": {
+    "f10": {
+      "text": "Хаана байрладаг вэ?",
+      "ok": true,
+      "reply": "Манай салон Яармагийн Номин Хайпермаркетын баруун талд байрладаг. Байршил: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 2079,
+      "usage": {
+        "input_tokens": 136,
+        "output_tokens": 70,
+        "cache_read_input_tokens": 15714,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "f11": {
+      "text": "Маникюр хэд вэ?",
+      "ok": true,
+      "reply": "Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.",
+      "answeredBy": "canned",
+      "flags": [
+        "outbound_gate_label"
+      ],
+      "flagDetail": [
+        {
+          "code": "outbound_gate_label",
+          "detail": "the reply names a gate block: Ш1 [served: handoff]",
+          "attempted": "refusal_topic шалгалттай холбогдоогүй тул шалгая — маникюр бол Ш1-ийн nail_services сэдэвт хамаарна.\n\nМанай салон одоогоор хумсны үйлчилгээ үзүүлэхгүй байна."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 4141,
+      "usage": {
+        "input_tokens": 135,
+        "output_tokens": 95,
+        "cache_read_input_tokens": 15714,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n01": {
+      "text": "dugaar hedve",
+      "ok": true,
+      "reply": "Манай холбоо барих утасны дугаар: 76001888 эсвэл 80905498.",
+      "answeredBy": "model",
+      "flags": [
+        "style_price_lines"
+      ],
+      "flagDetail": [
+        {
+          "code": "style_price_lines",
+          "detail": "rule (4): 2 price options, 2 on one line",
+          "attempted": "Манай холбоо барих утасны дугаар: 76001888 эсвэл 80905498."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 1860,
+      "usage": {
+        "input_tokens": 130,
+        "output_tokens": 34,
+        "cache_read_input_tokens": 15714,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n08": {
+      "text": "Үс маань их хуурай, хугараад байна, юу хийх вэ?",
+      "ok": true,
+      "reply": "Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:\n\nCICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)\nТэжээлийн тос: 49,500₮\nCMC тэжээл: 132,000₮\nТэжээл: 44,000–88,000₮\n\nҮсэнд тань аль нь тохирохыг мастер үсчин зөвлөж өгнө.",
+      "answeredBy": "model",
+      "flags": [],
+      "flagDetail": [],
+      "kind": "drafted",
+      "ms": 2294,
+      "usage": {
+        "input_tokens": 150,
+        "output_tokens": 167,
+        "cache_read_input_tokens": 15714,
+        "cache_creation_input_tokens": 0
+      }
+    }
+  },
+  "conversations": {}
+}

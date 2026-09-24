@@ -27,7 +27,7 @@ import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform
 import { SECTION_LABELS } from '@/lib/prompt/tenant';
 import { raiseAlert } from '@/lib/alerts/alert';
 import { runReceptionJob, type WorkerEffects } from '@/lib/worker/reception';
-import { servicesFromPrefix } from '@/lib/quality/serviceNames';
+import { servicesFromPrefix, sectionRows, faqAnswersFromPrefix } from '@/lib/quality/serviceNames';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -83,6 +83,8 @@ function effects(now: Date): WorkerEffects {
           tenantGuard: a.ctx.tenantGuard,
           cannedLabel: SECTION_LABELS.canned,
           serviceNames: servicesFromPrefix(a.ctx.promptStable, SECTION_LABELS.priceList),
+          depositRows: sectionRows(a.ctx.promptStable, SECTION_LABELS.deposits),
+          faqAnswers: faqAnswersFromPrefix(a.ctx.promptStable, SECTION_LABELS.faqs),
           cannedHash: a.ctx.cannedHash,
         },
       ),

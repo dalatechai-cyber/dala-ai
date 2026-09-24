@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkPinnedLines, similarity, NEAR_COPY_MIN_SIMILARITY, EMBEDDED_MIN_RUN } from './pinned.ts';
+import { checkPinnedLines, similarity, NEAR_COPY_MIN_SIMILARITY, EMBEDDED_MIN_RUN, faqAdaptation } from './pinned.ts';
 import type { CannedRow } from './match.ts';
 
 const REVIEWED = '2026-09-07T00:00:00Z';
@@ -258,4 +258,28 @@ test('the visible row still resolves correctly, exactly and as drift', () => {
 test('an unreviewed row is still excluded, and for the same reason', () => {
   const unreviewed = { ...OOS_ROW, reviewedAt: null };
   assert.equal(checkPinnedLines(OOS_ROW.body, [unreviewed]).kind, 'clean');
+});
+
+test('DONE-TEST: A MULTI-LINE FAQ DRIFT FIRES — line breaks are formatting, not content', () => {
+  // Matrix's real damaged-hair answer, and the real shape the model returns it in: a BLANK
+  // LINE between the intro and the list. Compared contiguously that is a 0.23 share of 234
+  // characters, below EMBEDDED_MIN_SHARE — so before whitespace was collapsed a deliberately
+  // drifted copy scored exactly as clean as a faithful one, and the mechanism was inert on
+  // the only FAQ the founder complained about.
+  const STORED = 'Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:\n'
+    + 'CICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)\nТэжээлийн тос: 49,500₮\n'
+    + 'CMC тэжээл: 132,000₮\nТэжээл: 44,000–88,000₮\n'
+    + 'Үсэнд тань аль нь тохирохыг мастер үсчин зөвлөж өгнө.';
+  const asModelWrites = STORED.replace('байна:\n', 'байна:\n\n');
+  assert.equal(faqAdaptation(asModelWrites, [STORED]), null,
+    'a faithful reply that only re-wraps is an exact quotation, not drift');
+
+  const drifted = asModelWrites.replace('мастер үсчин', 'мастер үсчин үзээд');
+  const hit = faqAdaptation(drifted, [STORED]);
+  assert.ok(hit, 'one inserted word IS drift');
+  assert.equal(hit?.answer, STORED, 'and the STORED text is what gets served, line breaks and all');
+});
+
+test('a reply sharing nothing with a FAQ is clean', () => {
+  assert.equal(faqAdaptation('Сайн байна уу.', ['Огт өөр сэдвээр бичигдсэн нэлээд урт хариулт.']), null);
 });

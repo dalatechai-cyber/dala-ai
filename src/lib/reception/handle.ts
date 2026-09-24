@@ -29,11 +29,13 @@ import type { Usage } from '../spend/settle.ts';
 import { kindsRequiredByRules, kindsReferencedBy, matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
 import { cannedHashOf } from '../prompt/sections.ts';
 import { matchDeterministic, type DeterministicRule, type HistoryState } from '../gate/deterministic.ts';
-import { checkPinnedLines } from '../gate/pinned.ts';
+import { checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
 import { priceLineReport } from '../quality/priceLines.ts';
 import { serviceNameReport, type PricedService } from '../quality/serviceNames.ts';
+import { pricePresentation, renderQuotedRows } from '../guard/pricePresentation.ts';
+import { bookingApology, renderBookingAnswer, apologyStemsFrom } from '../guard/bookingApology.ts';
 import { capToSingleMessage } from '../mn/text.ts';
 
 /** One Messenger send, in characters. */
@@ -133,6 +135,22 @@ export type ReceptionInput = {
    * `customerAttachments` already refuses for the same reason.
    */
   serviceNames: readonly PricedService[];
+  /**
+   * The tenant's «УРЬДЧИЛГАА ТӨЛБӨР» rows, verbatim from the prefix, for the booking answer
+   * the platform serves when the model opens one with an apology. Derived by `sectionRows`,
+   * so it costs no query. Empty is a real state: a tenant with no deposits gets the link
+   * alone, which is still the answer the founder asked for minus a fact it does not have.
+   */
+  depositRows: readonly string[];
+  /**
+   * The tenant's FAQ ANSWERS, verbatim from the prefix.
+   *
+   * Founder, 2026-09-21: *"Pin FAQ answers exactly like canned rows. Reviewed text is
+   * served as written."* They carry no `reviewed_at` of their own — `renderTenantSections`
+   * says why: the review unit for tenant data is the REVISION, and an answer only reaches
+   * the compiled prefix by being published. So being here IS the approval.
+   */
+  faqAnswers: readonly string[];
 };
 
 export type ReceptionOutcome =
@@ -458,6 +476,32 @@ export async function handleReception(
   // model's text is thrown away whole and the tenant's own row is served in its place,
   // exactly as the two short-circuits above do. The model keeps the job it is good at,
   // choosing which line applies, and loses the one it was measurably unreliable at.
+  // A FAQ answer is pinned exactly like a canned row, and until 2026-09-21 it was not.
+  //
+  // Measured: the model reproduced the founder's damaged-hair FAQ and inserted «үзээд» —
+  // «мастер үсчин ҮЗЭЭД зөвлөж өгнө» where the approved text says «мастер үсчин зөвлөж
+  // өгнө». Nothing caught it, because `checkPinnedLines` only ever saw `canned_responses`.
+  // That is D-065's rule reaching a table it had not reached: an approved sentence altered
+  // is an unreviewed sentence carrying an approved one's meaning, whichever table it lives
+  // in.
+  //
+  // Checked BEFORE the canned pinning so the more specific source wins attribution: a FAQ
+  // answer and a canned row can share a closing sentence, and reporting a FAQ drift as
+  // `canned_paraphrased` would send a reader to the wrong table (D-066).
+  const faqDrift = faqAdaptation(result.text, input.faqAnswers);
+  if (faqDrift !== null) {
+    await deps.flag({
+      code: 'faq_paraphrased',
+      detail: `a FAQ answer was reproduced and altered; served the published text instead `
+        + `(${faqDrift.run} characters shared)`,
+      attempted: result.text,
+    });
+    const served = await deps.draft({ body: faqDrift.answer, answeredBy: 'canned' });
+    return served.ok
+      ? { kind: 'drafted', outboundId: served.id, answeredBy: 'canned' }
+      : { kind: 'retry', detail: served.detail };
+  }
+
   const pinned = checkPinnedLines(result.text, input.canned);
   if (pinned.kind !== 'clean') {
     if (pinned.kind === 'paraphrase') {
@@ -550,6 +594,89 @@ export async function handleReception(
       detail: `renamed: ${names.altered.join(', ')}`,
       attempted: capped.text,
     });
+  }
+
+  // Price presentation, ENFORCED — and the only counter on this path that is.
+  //
+  // Founder, 2026-09-21: *"A price range built from two different services' prices must not
+  // pass"* and *"a price is always shown with its exact service name from the data"*. The
+  // measured instance is «Бүтэн будалт (дунд, урт зэргээс шалтгаалан): 176,000₮–200,000₮»:
+  // two real prices welded into a spread no service has, under a name no service has.
+  //
+  // Why this one enforces where the two above only count: a rewritten name or a crammed
+  // line is a reply that is RIGHT and badly dressed, and discarding it would be D-068. A
+  // price against the wrong service is a reply that is WRONG, and a customer acts on it.
+  //
+  // The fallback is not the generic handoff — that is D-068 in the other direction, and it
+  // lands on the question a customer asks when they are closest to booking. It is the price
+  // list's own rows for the services whose prices were quoted: `gate/pinned.ts`'s move, one
+  // table over. `answered_by` is `deterministic` because no model text survives and nothing
+  // was spent choosing it (D-064: a `deterministic_replies` hit recorded as `canned` cannot
+  // answer the first question anybody asks of the corpus).
+  //
+  // The cost is stated rather than discovered (D-077): serving the rows discards whatever
+  // else the reply said, including a clarifying question that may have been good.
+  // The booking apology, ENFORCED. Three instructions have failed at this, the third while
+  // literally containing «УУЧЛАЛТ БҮҮ ГУЙ», so the founder's call is that the platform stops
+  // it rather than asking a fourth time. Runs BEFORE the price check because it is the more
+  // specific verdict: a booking reply's deposits are not service prices, so the price guard
+  // would not fire on it anyway, and reporting this one as that one would send a reader to
+  // the wrong question (D-066's re-attribution lesson).
+  const bookingLine = canned(input.canned, 'booking_line');
+  const apology = bookingApology(capped.text, bookingLine, apologyStemsFrom(input.canned));
+  if (apology.apologises) {
+    const answer = renderBookingAnswer(input.depositRows, bookingLine);
+    if (answer !== null) {
+      await deps.flag({
+        code: 'booking_apology',
+        detail: `the booking reply opened by apologising: ${apology.opening}`,
+        attempted: capped.text,
+      });
+      const served = await deps.draft({ body: answer, answeredBy: 'deterministic' });
+      return served.ok
+        ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
+        : { kind: 'retry', detail: served.detail };
+    }
+  }
+
+  const presentation = pricePresentation(capped.text, input.serviceNames);
+  if (presentation.violations.length > 0) {
+    const kinds = [...new Set(presentation.violations.map((v) => v.kind))].sort().join(', ');
+    const rowsText = renderQuotedRows(presentation.quoted);
+    // The owner is unknowable, so the platform does not guess which service to serve. The
+    // reply is loosely named and TRUE; substituting a list built from a shared price served
+    // five unrelated services on the first real-model run, which is worse than the defect.
+    if (presentation.ambiguous) {
+      await deps.flag({
+        code: 'outbound_price_presentation',
+        detail: `${kinds}; owner ambiguous, reply left as written`,
+        attempted: capped.text,
+      });
+      const asIs = await deps.draft({ body: capped.text, answeredBy: 'model' });
+      return asIs.ok
+        ? { kind: 'drafted', outboundId: asIs.id, answeredBy: 'model' }
+        : { kind: 'retry', detail: asIs.detail };
+    }
+    // An EMPTY substitution must never ship. `servicesFromPrefix` always populates `rows`
+    // for a name it parsed, so this is unreachable from the live path — but "unreachable"
+    // is what every dead guard in this repository was, and the failure mode here is a
+    // customer receiving a blank message, which is worse than any wrong price. Found by a
+    // test fixture carrying `rows: []`, not by reasoning.
+    if (rowsText === '') {
+      return handoff(deps, input,
+        { code: 'outbound_price_presentation', detail: `${kinds}; no price-list rows to serve`, attempted: capped.text },
+        matched.matchedResponseKinds);
+    }
+    await deps.flag({
+      code: 'outbound_price_presentation',
+      detail: `${kinds}; served the price list's own rows for: `
+        + presentation.quoted.map((q) => q.name).join(', '),
+      attempted: capped.text,
+    });
+    const rows = await deps.draft({ body: rowsText, answeredBy: 'deterministic' });
+    return rows.ok
+      ? { kind: 'drafted', outboundId: rows.id, answeredBy: 'deterministic' }
+      : { kind: 'retry', detail: rows.detail };
   }
 
   const drafted = await deps.draft({ body: capped.text, answeredBy: 'model' });

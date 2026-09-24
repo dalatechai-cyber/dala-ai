@@ -102,7 +102,9 @@ const base: ReceptionInput = {
   // The pre-D-058 format: the prefix does not carry the canned section, so the volatile
   // tail still must. Tests for the published-in-the-prefix format set it explicitly.
   // The price list the STABLE fixture renders, so the name counter has something to check.
-  serviceNames: [{ name: 'Чёлк тайралт', prices: ['22000'] }],
+  serviceNames: [{ name: 'Чёлк тайралт', prices: ['22000'], rows: [] }],
+  depositRows: [],
+  faqAnswers: [],
   cannedHash: null,
 };
 
@@ -800,17 +802,134 @@ test('DONE-TEST: A RULE-(4) VIOLATION IS FLAGGED AND THE REPLY IS STILL SENT', a
   // Both figures must be on the allow-list or check 2 refuses the reply before the style
   // counter is ever reached — which is what the first run of this test measured.
   const twoPrices = { ...GUARD_VIEW, allowedNumbers: ['33,000', '22,000'] };
-  const r = await handleReception(d, { ...base, tenantGuard: twoPrices });
+  // `serviceNames: []` so the PRICE-PRESENTATION guard has nothing to check: this test is
+  // about rule (4), and 22,000 is the fixture service's price, so leaving the list in
+  // would substitute the price-list rows and the test would stop measuring what it names.
+  const r = await handleReception(d, { ...base, serviceNames: [], tenantGuard: twoPrices });
   assert.equal(r.kind, 'drafted');
   assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'still answered by the model');
   assert.equal(drafts.at(-1)?.body, 'Тайралт 33,000₮, засалт 22,000₮ байна.', 'unedited');
   assert.equal(flags.some((f) => f.code === 'style_price_lines'), true);
 });
 
+test('DONE-TEST: AN ALTERED FAQ ANSWER IS REPLACED BY THE PUBLISHED TEXT', async () => {
+  // The measured drift: the model reproduced the founder's damaged-hair FAQ and inserted
+  // «үзээд». Nothing caught it, because pinning only ever saw canned_responses.
+  const FAQ = 'Хуурай, хугарсан үсэнд CICA нөхөн сэргээх эмчилгээ тохиромжтой. '
+    + 'Үсэнд тань аль нь тохирохыг мастер үсчин зөвлөж өгнө.';
+  const drifted = 'Хуурай, хугарсан үсэнд CICA нөхөн сэргээх эмчилгээ тохиромжтой. '
+    + 'Үсэнд тань аль нь тохирохыг мастер үсчин үзээд зөвлөж өгнө.';
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text: drifted } });
+  const r = await handleReception(d, { ...base, faqAnswers: [FAQ] });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
+  assert.equal(drafts.at(-1)?.body, FAQ, 'the PUBLISHED text, served as written');
+  const f = flags.find((x) => x.code === 'faq_paraphrased');
+  assert.ok(f, 'counted, never a silent correction');
+  assert.equal(f?.attempted, drifted, 'quality_flags keeps what the model wrote');
+});
+
+test('DONE-TEST: a FAQ answer quoted EXACTLY is not drift and is left alone', async () => {
+  const FAQ = 'Хуурай үсэнд CICA эмчилгээ тохиромжтой. Мастер үсчин зөвлөж өгнө.';
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text: FAQ } });
+  const r = await handleReception(d, { ...base, faqAnswers: [FAQ] });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'an exact quotation is not drift');
+  assert.equal(drafts.at(-1)?.body, FAQ);
+  assert.equal(flags.some((x) => x.code === 'faq_paraphrased'), false);
+});
+
+test('a reply unrelated to any FAQ is untouched', async () => {
+  const { deps: d, flags } = deps({ result: { ...OK_REPLY, text: 'Сайн байна уу.' } });
+  await handleReception(d, { ...base, faqAnswers: ['Огт өөр сэдвээр бичсэн урт хариулт байна.'] });
+  assert.equal(flags.some((x) => x.code === 'faq_paraphrased'), false);
+});
+
+test('DONE-TEST: A BOOKING APOLOGY IS REPLACED BY THE DEPOSIT AND THE LINK', async () => {
+  // Three instructions failed at this, the third while containing «УУЧЛАЛТ БҮҮ ГУЙ». End to
+  // end through handleReception, because a module test proves the rule and not the wiring.
+  const BOOKING = 'Та манай вэбсайтаар (https://x.test/) онлайнаар цаг захиалж болно.';
+  // The BASE canned set plus the booking line: the gate requires refusal_topic, and
+  // dropping it refuses the whole tenant as canned_response_missing before any draft.
+  const rows = [...CANNED, { kind: 'booking_line', body: BOOKING, reviewedAt: REVIEWED }];
+  const text = `Уучлаарай, би цаг захиалж чадахгүй. ${BOOKING}`;
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text } });
+  const r = await handleReception(d, {
+    ...base,
+    canned: rows,
+    tenantGuard: { ...GUARD_VIEW, cannedResponses: rows.map((c) => c.body), allowedUrls: ['https://x.test/'] },
+    depositRows: ['Мастер үсчин: 20,000₮', '1-р зэргийн үсчин: 10,000₮'],
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.equal(drafts.at(-1)?.body,
+    `Мастер үсчин: 20,000₮\n1-р зэргийн үсчин: 10,000₮\n\n${BOOKING}`,
+    'the deposit rows then the reviewed line — no new sentence anywhere');
+  const f = flags.find((x) => x.code === 'booking_apology');
+  assert.ok(f, 'counted, never silent');
+  assert.equal(f?.attempted, text, 'quality_flags keeps what the MODEL wrote');
+});
+
+test('DONE-TEST: A CROSS-SERVICE RANGE IS REPLACED BY THE PRICE LIST\'S OWN ROWS', async () => {
+  // The measured «us budalt» reply, end to end through handleReception — the module test
+  // proves the rule, this proves the WIRING, which is the half D-064 keeps finding absent.
+  const DYES = [
+    { name: 'Дунд үсний будаг', prices: ['176000'], rows: ['Дунд үсний будаг (мөрнөөс дээш урттай үс): 176,000₮'] },
+    { name: 'Урт үсний будаг', prices: ['200000'], rows: ['Урт үсний будаг (мөр давсан урттай үс): 200,000₮'] },
+  ];
+  const { deps: d, flags, drafts } = deps({
+    result: { ...OK_REPLY, text: 'Бүтэн будалт (дунд, урт зэргээс шалтгаалан): 176,000₮–200,000₮' },
+  });
+  const r = await handleReception(d, {
+    ...base,
+    serviceNames: DYES,
+    tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['176,000', '200,000'] },
+  });
+  assert.equal(r.kind, 'drafted');
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic',
+    'no model text survives, and nothing was spent choosing the rows');
+  assert.equal(drafts.at(-1)?.body,
+    'Дунд үсний будаг (мөрнөөс дээш урттай үс): 176,000₮\nУрт үсний будаг (мөр давсан урттай үс): 200,000₮',
+    'the data\'s own bytes, not a re-rendering');
+  const f = flags.find((x) => x.code === 'outbound_price_presentation');
+  assert.ok(f, 'the substitution is counted, never silent');
+  assert.match(f?.detail ?? '', /cross_service_range/);
+  assert.equal(f?.attempted, 'Бүтэн будалт (дунд, урт зэргээс шалтгаалан): 176,000₮–200,000₮',
+    'what the MODEL wrote is kept — quality_flags says that, the draft says what was served');
+});
+
+test('DONE-TEST: AN AMBIGUOUS OWNER IS COUNTED AND THE REPLY IS LEFT AS WRITTEN', async () => {
+  const SHARED = [
+    { name: 'CICA нөхөн сэргээх эмчилгээ', prices: ['198000'], rows: ['CICA нөхөн сэргээх эмчилгээ: 198,000₮'] },
+    { name: 'Хуримын засалт', prices: ['198000'], rows: ['Хуримын засалт: 198,000₮'] },
+  ];
+  const text = 'CICA бол хими биш, нэг удаа 198,000₮.';
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text } });
+  const r = await handleReception(d, {
+    ...base, serviceNames: SHARED, tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['198,000'] },
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'a true answer is not discarded');
+  assert.equal(drafts.at(-1)?.body, text, 'left exactly as written');
+  const f = flags.find((x) => x.code === 'outbound_price_presentation');
+  assert.match(f?.detail ?? '', /owner ambiguous/, 'but it is counted, never silent');
+});
+
+test('DONE-TEST: a correctly presented price is left entirely alone', async () => {
+  const DYES = [
+    { name: 'Дунд үсний будаг', prices: ['176000'], rows: ['Дунд үсний будаг: 176,000₮'] },
+  ];
+  const { deps: d, flags, drafts } = deps({
+    result: { ...OK_REPLY, text: 'Дунд үсний будаг: 176,000₮ байна.' },
+  });
+  const r = await handleReception(d, {
+    ...base, serviceNames: DYES, tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['176,000'] },
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model');
+  assert.equal(drafts.at(-1)?.body, 'Дунд үсний будаг: 176,000₮ байна.', 'unedited');
+  assert.equal(flags.some((x) => x.code === 'outbound_price_presentation'), false);
+});
+
 test('DONE-TEST: a compliant reply is not flagged', async () => {
   const { deps: d, flags } = deps({
     result: { ...OK_REPLY, text: 'Тайралт: 33,000₮\nЗасалт: 22,000₮' },
   });
-  await handleReception(d, { ...base, tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['33,000', '22,000'] } });
+  await handleReception(d, { ...base, serviceNames: [], tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['33,000', '22,000'] } });
   assert.equal(flags.some((f) => f.code === 'style_price_lines'), false);
 });

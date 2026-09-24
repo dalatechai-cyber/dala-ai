@@ -69,8 +69,16 @@ export type NameReport = {
   exact: string[];
 };
 
-/** A service the price list names, with the prices rendered against it. */
-export type PricedService = { name: string; prices: readonly string[] };
+/**
+ * A service the price list names, with the prices rendered against it and the price list's
+ * OWN rows for it.
+ *
+ * `rows` exist so that anything serving a price back to a customer can serve the data's
+ * bytes rather than re-format `name` and `prices` into a second rendering — see
+ * `guard/pricePresentation.ts`. A second renderer is a second thing to keep in agreement
+ * with the compiler, and the `btrim()`/`.trim()` near-miss is what that costs.
+ */
+export type PricedService = { name: string; prices: readonly string[]; rows: readonly string[] };
 
 /** The digit groups in a price fragment, folded to their digits so `176,000` and
  *  `176 000` compare equal. Never a substring test: `20` must not match `20,000`,
@@ -133,28 +141,94 @@ export function serviceNameReport(text: string, services: readonly PricedService
  * and a heading that never closes simply runs to the end of the prefix, which is correct
  * because the price list is the last thing in it or is followed by one.
  */
-export function servicesFromPrefix(promptStable: string, priceListLabel: string): PricedService[] {
-  const heading = `=== ${priceListLabel} ===`;
+/**
+ * The `- …` rows of one compiled-prefix section, verbatim and in order, dash stripped.
+ *
+ * Shared by every reader that needs a section's own bytes back — the price list and the
+ * deposit rules today. D-057's rule is why an absent heading returns `[]` rather than a
+ * guess: a tenant without that section has no rows, which is a determinate answer, not a
+ * truncated parse. The section is bounded by the NEXT heading so it can never run on into
+ * the one below it.
+ */
+export function sectionRows(promptStable: string, label: string): string[] {
+  const heading = `=== ${label} ===`;
   const at = promptStable.indexOf(heading);
   if (at === -1) return [];
   const rest = promptStable.slice(at + heading.length);
   const next = rest.indexOf('\n=== ');
   const body = next === -1 ? rest : rest.slice(0, next);
-  const byName = new Map<string, Set<string>>();
-  for (const line of body.split('\n')) {
-    const t = line.trim();
-    if (!t.startsWith('- ')) continue;
-    const row = t.slice(2);
+  return body.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('- ')).map((l) => l.slice(2));
+}
+
+/**
+ * The FAQ ANSWERS a compiled prefix renders, in order.
+ *
+ * `renderTenantSections` writes each FAQ as two lines — `- {question}` then the answer,
+ * indented — so `sectionRows` alone cannot read it: that returns only the dashed lines,
+ * which are the QUESTIONS. Reading the questions and calling them answers is the shape of
+ * mistake this repository keeps finding, so the parser is separate and named for what it
+ * returns.
+ *
+ * A question with no answer line beneath it is skipped rather than paired with the next
+ * question's text: an incomplete pair is not a determinate answer (D-057).
+ *
+ * ## An answer is every line until the next question, not the first one
+ *
+ * Found 2026-09-21 by reading the tenant's real data after the parser was written and
+ * tested. Matrix's damaged-hair answer is SIX lines — a sentence, then one treatment and
+ * price per line — and `renderTenantSections` interpolates it as `  ${answer}`, so only
+ * its FIRST line carries the indent and the rest sit flush left. A parser taking one line
+ * returned «Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:» and called it the
+ * approved answer.
+ *
+ * That is not a cosmetic truncation. This text is SERVED: a drifted reply would have been
+ * replaced by a colon-terminated fragment promising a list and delivering none — D-069's
+ * «Хаяг» over a phone number, one table over, and worse because the platform would have
+ * typed it deliberately. D-057's rule is the general form: a parser that returns the part
+ * it managed is the defect, not the fix.
+ */
+export function faqAnswersFromPrefix(promptStable: string, faqLabel: string): string[] {
+  const heading = `=== ${faqLabel} ===`;
+  const at = promptStable.indexOf(heading);
+  if (at === -1) return [];
+  const rest = promptStable.slice(at + heading.length);
+  const next = rest.indexOf('\n=== ');
+  const lines = (next === -1 ? rest : rest.slice(0, next)).split('\n');
+  const out: string[] = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!(lines[i] ?? '').trim().startsWith('- ')) continue;
+    // Every line up to the NEXT question or the section's end. Only the first carries the
+    // renderer's indent, so trimming each and rejoining reproduces the stored answer.
+    const body: string[] = [];
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const line = (lines[j] ?? '').trim();
+      if (line.startsWith('- ')) break;
+      if (line !== '') body.push(line);
+    }
+    if (body.length > 0) out.push(body.join('\n'));
+  }
+  return out;
+}
+
+export function servicesFromPrefix(promptStable: string, priceListLabel: string): PricedService[] {
+  const order: string[] = [];
+  const prices = new Map<string, Set<string>>();
+  const rows = new Map<string, string[]>();
+  for (const row of sectionRows(promptStable, priceListLabel)) {
     const colon = row.indexOf(':');
     if (colon === -1) continue;
     const name = row.slice(0, colon).replace(/\s*\([^()]*\)\s*$/u, '').trim();
     if (name === '') continue;
-    const set = byName.get(name) ?? new Set<string>();
-    for (const p of priceTokens(row.slice(colon + 1))) set.add(p);
-    byName.set(name, set);
+    if (!prices.has(name)) { order.push(name); prices.set(name, new Set()); rows.set(name, []); }
+    for (const p of priceTokens(row.slice(colon + 1))) prices.get(name)?.add(p);
+    rows.get(name)?.push(row);
   }
-  // Code-unit sort: deterministic, no locale (D-026).
-  return [...byName.entries()]
-    .map(([name, prices]) => ({ name, prices: [...prices].sort() }))
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  // PRICE-LIST ORDER, not sorted: these rows are served to a customer, and the order the
+  // tenant wrote them in is the order that reads correctly (cheapest first, variants
+  // together). Deterministic because the prefix is (D-026) — no locale, no comparator.
+  return order.map((name) => ({
+    name,
+    prices: [...(prices.get(name) ?? [])],
+    rows: rows.get(name) ?? [],
+  }));
 }

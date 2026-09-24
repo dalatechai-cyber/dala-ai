@@ -1,0 +1,103 @@
+{
+  "ranAt": "2026-09-21T21:39:40.876Z",
+  "model": "claude-sonnet-5",
+  "tag": "book-1",
+  "prefixChars": 22349,
+  "allowedNumbers": [
+    "1",
+    "10,000",
+    "10:00",
+    "11:00",
+    "120,000",
+    "132,000",
+    "135,000",
+    "154,000",
+    "16,500",
+    "176,000",
+    "190,000",
+    "198,000",
+    "19:00",
+    "20,000",
+    "200,000",
+    "20:00",
+    "22,000",
+    "220,000",
+    "255,000",
+    "3",
+    "3-5",
+    "30",
+    "30-40",
+    "33,000",
+    "380,000",
+    "4-5",
+    "430,000",
+    "44,000",
+    "44,000–88,000",
+    "460,000",
+    "49,500",
+    "50,000",
+    "500,000",
+    "510,000",
+    "55,000",
+    "570,000",
+    "640,000",
+    "66,000",
+    "70",
+    "71,500",
+    "76001888",
+    "80905498",
+    "88,000",
+    "99,000"
+  ],
+  "singles": {
+    "f09": {
+      "text": "Цаг захиалмаар байна, утас хэд вэ?",
+      "ok": true,
+      "reply": "Манай холбоо барих утас: 76001888 эсвэл 80905498.\n\nЦаг захиалгын тухайд: Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.",
+      "answeredBy": "model",
+      "flags": [
+        "style_price_lines"
+      ],
+      "flagDetail": [
+        {
+          "code": "style_price_lines",
+          "detail": "rule (4): 2 price options, 2 on one line",
+          "attempted": "Манай холбоо барих утас: 76001888 эсвэл 80905498.\n\nЦаг захиалгын тухайд: Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 5281,
+      "usage": {
+        "input_tokens": 145,
+        "output_tokens": 118,
+        "cache_read_input_tokens": 15714,
+        "cache_creation_input_tokens": 0
+      }
+    },
+    "n03": {
+      "text": "tsag zahialah",
+      "ok": true,
+      "reply": "Мастер үсчин: 20,000₮\n1-р зэргийн үсчин: 10,000₮\n\nТа манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.",
+      "answeredBy": "deterministic",
+      "flags": [
+        "booking_apology"
+      ],
+      "flagDetail": [
+        {
+          "code": "booking_apology",
+          "detail": "the booking reply opened by apologising: Уучлаарай, би шууд цаг захиалж чадахгүй байна",
+          "attempted": "Уучлаарай, би шууд цаг захиалж чадахгүй байна. Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой."
+        }
+      ],
+      "kind": "drafted",
+      "ms": 4731,
+      "usage": {
+        "input_tokens": 130,
+        "output_tokens": 104,
+        "cache_read_input_tokens": 15714,
+        "cache_creation_input_tokens": 0
+      }
+    }
+  },
+  "conversations": {}
+}
