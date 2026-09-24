@@ -87,37 +87,37 @@ test('a request moves nothing — it is somebody asking', () => {
 
 // --- echoes -------------------------------------------------------------------------
 
+const OUR_APP = '1562862634970492';
+const INBOX_APP = '263902037430900';
+
 test('DONE-TEST: AN UNREADABLE ECHO LOOKUP CONCLUDES NOTHING', () => {
   // Concluding `human` would silence a tenant's bot on a database blip; concluding `bot`
   // would let it talk over a receptionist. Neither is supported, so the answer is null —
   // leave the thread exactly as it was. Undetermined is a result (D-057).
-  assert.deepEqual(controlFromEcho('unreadable', null), { control: null, kind: 'unreadable' });
-  assert.deepEqual(controlFromEcho(true, null), { control: null, kind: 'ours' },
+  assert.deepEqual(controlFromEcho('unreadable', INBOX_APP, OUR_APP), { control: null, kind: 'unreadable' });
+  assert.deepEqual(controlFromEcho(true, OUR_APP, OUR_APP), { control: null, kind: 'ours' },
     'our own send changes nothing');
-  assert.deepEqual(controlFromEcho(false, null), { control: 'human', kind: 'human' },
-    'nobody claims it — the only human signal there is');
+  assert.deepEqual(controlFromEcho(false, null, OUR_APP), { control: 'human', kind: 'human' },
+    'nobody claims it');
 });
 
-test("DONE-TEST: THE ANCESTOR'S ECHO IS AN APP, NOT A PERSON", () => {
-  // The real one, measured 2026-09-21 on Matrix's Page: the ancestor answered a live
-  // customer through the `dalatech` app and Meta stamped the echo with its id. Our app is
-  // `1562862634970492`, so the `mid` is not ours and the old rule concluded `human`.
-  //
-  // What that costs is invisible until cutover. `record.ts` only acts on echoes when the
-  // channel is `live`, so today nothing moves — but the flip to `live` is precisely the
-  // moment the ancestor is still answering, and every active conversation would be marked
-  // `human` at once. Check 4 then refuses on exactly the threads worth measuring, and the
-  // symptom is a quiet afternoon (D-062), the hardest failure here to tell from working.
-  const ANCESTOR_APP = '1380702870025418';
-  assert.deepEqual(controlFromEcho(false, ANCESTOR_APP), { control: null, kind: 'app' });
+test('DONE-TEST: A REPLY TYPED IN THE PAGE INBOX IS A PERSON (event 768, live, 2026-09-24)', () => {
+  // The real echo: the founder answered a customer by hand from Matrix's Page inbox and Meta
+  // stamped it with its own inbox app. The old rule read "an app id" as "not a person", and
+  // the bot answered the customer's next message on top of the staff reply.
+  assert.deepEqual(controlFromEcho(false, INBOX_APP, OUR_APP), { control: 'human', kind: 'human' });
+});
 
-  // And an app id of OURS that we have no send recorded for is still not a person. It is
-  // an anomaly worth seeing, but `human` is a claim about a human and this is not one.
-  assert.deepEqual(controlFromEcho(false, '1562862634970492'), { control: null, kind: 'app' });
+test('DONE-TEST: ONLY OUR OWN APP IS THE BOT — EVERY OTHER SENDER IS A PERSON', () => {
+  // Our echo can outrun `markSent`, so the `mid` lookup misses; our app id still says bot.
+  assert.deepEqual(controlFromEcho(false, OUR_APP, OUR_APP), { control: null, kind: 'ours' });
+  // Any other app, the retired ancestor included, is somebody else answering this customer.
+  assert.deepEqual(controlFromEcho(false, '1380702870025418', OUR_APP), { control: 'human', kind: 'human' });
+});
 
-  // The direction that must survive the change: an unclaimed echo is still the human
-  // signal. Narrowing `human` to nothing at all would retire the detector, not fix it.
-  assert.equal(controlFromEcho(false, null).control, 'human');
+test('without our own app id, an app-stamped echo is not judged — it could be our own reply', () => {
+  assert.deepEqual(controlFromEcho(false, OUR_APP, null), { control: null, kind: 'app' });
+  assert.deepEqual(controlFromEcho(false, null, null), { control: 'human', kind: 'human' });
 });
 
 // --- H11 check 4 --------------------------------------------------------------------

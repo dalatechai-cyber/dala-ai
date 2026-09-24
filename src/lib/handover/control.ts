@@ -156,9 +156,9 @@ export type EchoKind =
   | 'ours'
   /** The lookup failed. Undetermined is a result (D-057); nothing moves. */
   | 'unreadable'
-  /** An APP sent it — ours unrecorded, or another one. Not a person, so nothing moves. */
+  /** An app sent it and we do not know our own app id, so it cannot be judged. Nothing moves. */
   | 'app'
-  /** No app is named, and it is not one of ours. The residue, and the only human signal. */
+  /** Not our send and not our app: the Page inbox, another app, or no app at all. A person. */
   | 'human';
 
 export type EchoVerdict = { control: ThreadControl | null; kind: EchoKind };
@@ -166,30 +166,28 @@ export type EchoVerdict = { control: ThreadControl | null; kind: EchoKind };
 export function controlFromEcho(
   ours: boolean | 'unreadable',
   appId: string | null,
+  ourAppId: string | null,
 ): EchoVerdict {
   if (ours === 'unreadable') return { control: null, kind: 'unreadable' };
   if (ours) return { control: null, kind: 'ours' };
 
-  // NOT ours — and this is where the old version concluded `human` and was wrong.
-  //
-  // D-080's own warning is that a detector built on "not ours" is only sound where we are
-  // the only one of us, and on Matrix's Page we are not: the ancestor bot answers every
-  // thread through the `dalatech` app while Dala AI sits in shadow. Measured on the first
-  // real echo, 2026-09-21 — `app_id 1380702870025418` against our `1562862634970492`.
-  //
-  // The shadow gate in `record.ts` is what has been standing in front of that, and it
-  // DISAPPEARS at cutover: the moment Matrix flips to `live` with the ancestor still
-  // answering, every active conversation is marked `human` and check 4 silences the bot on
-  // exactly the threads that matter. The symptom is a quiet afternoon (D-062), which is the
-  // hardest thing here to tell from working.
-  //
-  // So an echo Meta attributes to ANY app is an app's, not a person's. `human` is the
-  // residue — an echo nobody claims — which is what a receptionist typing in the Page
-  // Inbox should produce. That direction is UNVERIFIED (`developers.facebook.com` is 403
-  // through this environment's proxy), so it is deliberately the conservative way round:
-  // this errs toward missing a handover, never toward muting a tenant, and `kind` is the
-  // instrument that settles it against real traffic.
-  if (appId !== null) return { control: null, kind: 'app' };
+  // Our own app, before its send was recorded. The echo can outrun `markSent`, and Meta
+  // stamps every send through our token with our app id — measured on Matrix's first live
+  // hour, every Dala AI reply came back as `1562862634970492`. So the id alone is the bot.
+  if (appId !== null && ourAppId !== null && appId === ourAppId) return { control: null, kind: 'ours' };
+
+  // Without our own id we cannot tell our unrecorded send from anyone else's, and guessing
+  // `human` would mute a tenant on its own replies. Nothing moves; `kind` keeps it visible.
+  if (appId !== null && ourAppId === null) return { control: null, kind: 'app' };
+
+  // EVERYONE ELSE IS A PERSON (founder, 2026-09-24, measured on the live Page). A reply
+  // typed in the Page inbox arrives stamped with Meta's own inbox app, `263902037430900`,
+  // not with no app at all. The previous rule read any app id as "an app, not a person",
+  // so the salon's own staff answered event 768 and the bot answered the customer's next
+  // message on top of them (769 → 770). The rule it replaces was written while the
+  // ancestor bot was answering the same Page through a second app; that bot is
+  // unsubscribed, and a reply from any sender that is not Dala AI is somebody else
+  // speaking to this customer, which is exactly when the bot must stay quiet.
   return { control: 'human', kind: 'human' };
 }
 

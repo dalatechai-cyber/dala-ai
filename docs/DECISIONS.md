@@ -8985,3 +8985,24 @@ short and read the Page inbox afterwards.
 2. Re-subscribe the ancestor from the `dalatech` app with the fields saved in cutover step
    2. `POST /{page-id}/subscribed_apps` replaces that app's field list rather than adding
    to it (D-043), so send the whole list.
+
+## D-119 — Matrix's first live hour: a reply from the Page inbox is a person
+
+**2026-09-24, measured live on Matrix's Page after the 21:54 UTC cutover.** The founder
+answered a customer by hand from the Page inbox (event 768). Meta stamped that echo
+`app_id 263902037430900`, its own inbox app, and not "no app". The echo rule from the shadow
+phase read any app id as "an app, not a person". It was written while the ancestor answered
+the same Page through `dalatech`. So the bot answered the customer's next message on top of
+the staff reply (769 → 770).
+
+The rule now:
+
+- An echo whose `mid` is one of our sends is the bot.
+- An echo stamped with OUR app id (`tenant_channels.meta_app_id`) is also the bot. The id
+  alone decides, because an echo can outrun `markSent`. Every Dala AI reply in the first live
+  hour came back as `1562862634970492`.
+- Every other echo is a person: the inbox app, any other app, or no app at all. The thread
+  goes to `human`, and check 4 keeps the bot quiet for `human_takeover_cooldown_minutes`
+  (30 for Matrix). Each further staff reply restarts that clock.
+- With no `meta_app_id` recorded, an app-stamped echo is not judged, because it could be our
+  own reply.
