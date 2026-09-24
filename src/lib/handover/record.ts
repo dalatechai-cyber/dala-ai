@@ -256,7 +256,7 @@ export async function recordHandover(
   if (input.deliveryMode === 'live') {
     for (const echo of input.echoes) {
       const ours = await echoIsOurs(db, { tenantId: input.tenantId, mid: echo.mid });
-      const { control, kind } = controlFromEcho(ours, echo.appId);
+      const { control, kind } = controlFromEcho(ours, echo.appId, input.ourAppId);
       if (kind === 'app') out.echoesFromApp += 1;
       if (control === null) continue; // ours, unreadable or an app — no conclusion
       if (await move(echo.psid, control, input.now, 'echo')) {

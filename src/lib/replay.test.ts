@@ -239,7 +239,7 @@ function store() {
 }
 
 /** A provisioned tenant on a live channel — the state tenant #0 is actually in. */
-function provisioned() {
+function provisioned(opts: { metaAppId?: string } = {}) {
   const s = store();
   // The identity read is a join: `channel_identity` carrying an embedded `tenant_channels`.
   // Seeding the shape PostgREST returns, because the spine — not a policy — is what proves
@@ -254,7 +254,7 @@ function provisioned() {
   });
   s.seed('tenant_channels', {
     id: CHANNEL, tenant_id: TENANT, external_id: PAGE, delivery_mode: 'live',
-    graph_version_override: null, comment_policy: 'none',
+    graph_version_override: null, comment_policy: 'none', meta_app_id: opts.metaAppId ?? null,
   });
   s.seed('config_snapshots', {
     tenant_id: TENANT, revision_id: 'rev-1', channel: 'facebook_page',
@@ -550,47 +550,50 @@ test('DONE-TEST: AN ECHO IS NEVER A CUSTOMER AND NEVER DRAFTS A REPLY', async ()
   assert.equal(s.count('outbound_messages'), 1, 'the control: a real customer IS answered');
 });
 
-test("DONE-TEST: an ancestor echo does not mark a LIVE conversation as human-held", async () => {
-  // This harness seeds `delivery_mode: 'live'`, which is the strict case: it is the only
-  // mode in which an echo may move `thread_control` at all, and it is the state Matrix
-  // enters at cutover with the ancestor still answering.
-  //
-  // Wired the obvious way — "an echo whose `mid` is not ours means a person typed it" —
-  // this marks the conversation `human`, and H11 check 4 then refuses every following
-  // turn. Measured on the real echo: `app_id 1380702870025418` is the `dalatech` app that
-  // carries the ancestor, not a receptionist. Nothing here may conclude a person.
-  const s = provisioned();
+const OUR_APP = '1562862634970492';
+const INBOX_APP = 263902037430900;
 
-  // A customer first, so there IS a conversation for an echo to be attached to.
-  const first = await webhook(s, async () => ok, entry('m_c1', 'Сайн байна уу', PSID)).run();
-  assert.equal(first.outcome, 'queued');
-  const jc = worker(s, first.outcome === 'queued' ? first.eventId : 0);
-  assert.equal((await jc.run()).status, 200, jc.logs.join(' | '));
+/** An echo on this Page to this customer, stamped as Meta stamps it. */
+const echoEntry = (mid: string, text: string, appId: number) => ({
+  id: PAGE,
+  messaging: [{
+    sender: { id: PAGE }, recipient: { id: PSID },
+    timestamp: NOW.getTime() - 30_000,
+    message: { mid, text, app_id: appId, is_echo: true },
+  }],
+});
 
-  const echo = {
-    id: PAGE,
-    messaging: [{
-      sender: { id: PAGE }, recipient: { id: PSID },
-      timestamp: NOW.getTime() - 30_000,
-      message: { mid: 'm_echo_2', text: 'Танд юугаар туслах вэ?', app_id: 1380702870025418, is_echo: true },
-    }],
-  };
-  const w = await webhook(s, async () => ok, echo).run();
-  const je = worker(s, w.outcome === 'queued' ? w.eventId : 0);
-  assert.equal((await je.run()).status, 200, je.logs.join(' | '));
+async function turn(s: ReturnType<typeof provisioned>, e: unknown) {
+  const w = await webhook(s, async () => ok, e).run();
+  assert.equal(w.outcome, 'queued');
+  const j = worker(s, w.outcome === 'queued' ? w.eventId : 0);
+  assert.equal((await j.run()).status, 200, j.logs.join(' | '));
+}
 
-  const convs = s.rows('conversations');
-  assert.equal(convs.length, 1, 'one conversation');
-  assert.notEqual(convs[0]?.['thread_control'], 'human',
-    'an APP answered, not a person — marking this `human` silences the mirror at cutover');
+test('DONE-TEST: A REPLY TYPED IN THE PAGE INBOX SILENCES THE BOT ON THAT THREAD (live 768 → 769)', async () => {
+  // The live test, 2026-09-24 21:56 UTC: the founder answered a customer by hand from
+  // Matrix's Page inbox — Meta stamped the echo `app_id 263902037430900`, its inbox app —
+  // and the bot answered the customer's next message («une hedve») on top of him.
+  const s = provisioned({ metaAppId: OUR_APP });
+  await turn(s, entry('m_c1', 'sain bnuu', PSID));
+  assert.equal(s.count('outbound_messages'), 1, 'the control: a customer is answered');
 
-  // And the customer can still be answered on that thread afterwards, which is the
-  // consequence the assertion above is really about.
-  const again = await webhook(s, async () => ok, entry('m_c2', 'Хэдэн цагт вэ', PSID)).run();
-  assert.equal(again.outcome, 'queued');
-  const j2 = worker(s, again.outcome === 'queued' ? again.eventId : 0);
-  assert.equal((await j2.run()).status, 200, j2.logs.join(' | '));
-  assert.equal(s.count('outbound_messages'), 2, 'the second customer turn is still answered');
+  await turn(s, echoEntry('m_inbox_768', 'sain bnu bi ajiltan bn', INBOX_APP));
+  assert.equal(s.rows('conversations')[0]?.['thread_control'], 'human', 'a person answered this thread');
+
+  await turn(s, entry('m_c2', 'une hedve', PSID));
+  assert.equal(s.count('outbound_messages'), 1, 'the bot stays quiet while a person holds the thread');
+});
+
+test('DONE-TEST: OUR OWN ECHO NEVER SILENCES THE BOT, EVEN BEFORE THE SEND IS RECORDED', async () => {
+  // Every Dala AI reply comes back as an echo stamped with our app. The `mid` lookup can
+  // miss when the echo outruns `markSent`; the app id alone must still read as the bot.
+  const s = provisioned({ metaAppId: OUR_APP });
+  await turn(s, entry('m_c1', 'Сайн байна уу', PSID));
+  await turn(s, echoEntry('m_unrecorded', 'Сайн байна уу! Танд юугаар туслах вэ?', Number(OUR_APP)));
+  assert.notEqual(s.rows('conversations')[0]?.['thread_control'], 'human');
+  await turn(s, entry('m_c2', 'Хэдэн цагт вэ', PSID));
+  assert.equal(s.count('outbound_messages'), 2, 'the next customer turn is still answered');
 });
 
 test('the claim records HOW the delivery arrived, not just that it did', async () => {
