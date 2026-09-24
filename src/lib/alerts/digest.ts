@@ -43,6 +43,7 @@ import {
 } from './alert.ts';
 import { DROPPED_FLAG } from '../inbound/dropped.ts';
 import { CAPPED_FLAG } from '../worker/comments.ts';
+import { DRAFT_LOST_KIND } from '../health/answered.ts';
 import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
 import { tenantClock } from '../time/clock.ts';
 
@@ -137,6 +138,31 @@ export function cappedLine(c: CappedSummary): string {
     + `across ${c.posts} post${c.posts === 1 ? '' : 's'}`;
 }
 
+/**
+ * Shadow drafts the mirror lost while the Page answered the customer anyway.
+ *
+ * These are the alerts that USED to page the founder — «a human can still answer» — about
+ * customers the incumbent had already answered in seconds (founder, 2026-09-24: 37 of them
+ * in two days, *"a false alarm"*). They no longer page, so this is the only place they
+ * surface, and it must: "the mirror refuses every message" and "a quiet day" would
+ * otherwise look identical, which is how `canned_stale` went two and a half days with the
+ * false alarms as its only symptom.
+ */
+export type LostDraftsSummary = {
+  total: number;
+  /** The newest row's body, which names the refusal — e.g. `canned_stale`. */
+  latest: string | null;
+  /** The count could not be read. Never folded into zero — see `droppedLine`. */
+  unavailable: boolean;
+};
+
+export function lostDraftsLine(l: LostDraftsSummary): string {
+  if (l.unavailable) return 'shadow drafts lost (24h): UNREADABLE — alerts could not be counted';
+  if (l.total === 0) return 'No shadow drafts lost (24h)';
+  const head = `${l.total} shadow draft${l.total === 1 ? '' : 's'} lost (24h), every customer answered by the Page`;
+  return l.latest === null ? head : `${head}. Latest: ${clip(l.latest, MAX_BODY_CHARS)}`;
+}
+
 function ageOf(from: Date, now: Date): string {
   const minutes = Math.max(0, Math.round((now.getTime() - from.getTime()) / 60_000));
   if (minutes < 90) return `${minutes}m`;
@@ -163,7 +189,7 @@ export function planDigest(
   open: readonly OpenAlert[],
   input: {
     now: Date; watchdogLastRan: Date | null; channelsChecked: number;
-    dropped: DroppedSummary; capped: CappedSummary;
+    dropped: DroppedSummary; capped: CappedSummary; lostDrafts: LostDraftsSummary;
   },
 ): DigestPlan {
   const date = tenantClock(input.now, PLATFORM_TIMEZONE).date;
@@ -181,13 +207,14 @@ export function planDigest(
 
   const dropped = droppedLine(input.dropped);
   const capped = cappedLine(input.capped);
+  const lost = lostDraftsLine(input.lostDrafts);
 
   if (ranked.length === 0) {
-    return { summary: `Dala AI — ${date}\nNothing open. ${heartbeat}.\n${dropped}.\n${capped}.`, escalate: [] };
+    return { summary: `Dala AI — ${date}\nNothing open. ${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.`, escalate: [] };
   }
 
   const header = `Dala AI — ${date}\n${ranked.length} open condition${ranked.length === 1 ? '' : 's'}. `
-    + `${heartbeat}.\n${dropped}.\n${capped}.`;
+    + `${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.`;
   const lines: string[] = [];
   let used = header.length;
   let omitted = 0;
@@ -280,6 +307,30 @@ async function countCapped(db: SupabaseClient, now: Date): Promise<CappedSummary
   return { total: rows.length, posts: posts.size, unavailable: false };
 }
 
+/**
+ * Count the lost shadow drafts, degrading loudly for `countDropped`'s reason.
+ *
+ * Read from `alerts` rather than a counter of its own: the row each one raises IS the
+ * record, and a second tally would be a second thing to keep in agreement with it.
+ */
+async function countLostDrafts(db: SupabaseClient, now: Date): Promise<LostDraftsSummary> {
+  const since = new Date(now.getTime() - DROPPED_WINDOW_HOURS * 60 * 60_000).toISOString();
+  const { data, error } = await db
+    .from('alerts')
+    .select('body, at')
+    .eq('kind', DRAFT_LOST_KIND)
+    .gte('at', since)
+    .order('at', { ascending: false });
+  if (error) return { total: 0, latest: null, unavailable: true };
+  const rows = Array.isArray(data) ? data : [];
+  const first = rows[0] as Record<string, unknown> | undefined;
+  return {
+    total: rows.length,
+    latest: first === undefined ? null : String(first['body'] ?? ''),
+    unavailable: false,
+  };
+}
+
 export type DigestEffects = {
   db: SupabaseClient;
   now: Date;
@@ -323,6 +374,7 @@ export async function runDigestJob(
     channelsChecked: observed.length,
     dropped: await countDropped(effects.db, effects.now),
     capped: await countCapped(effects.db, effects.now),
+    lostDrafts: await countLostDrafts(effects.db, effects.now),
   });
 
   // ALERTS_ENABLED=false silences every path or it silences none of them — the same escape

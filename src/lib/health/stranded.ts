@@ -78,6 +78,7 @@ import { raiseAlert } from '../alerts/alert.ts';
 import { markEventState, QUEUED_STATES, UNQUEUED_STATES } from '../webhook/events.ts';
 import type { EnqueueResult } from '../queue/qstash.ts';
 import { DEFAULT_REPLY_AGE_LIMIT_MINUTES, replyAgeLimitMinutes } from '../worker/freshness.ts';
+import { DRAFT_LOST_KIND, draftLostDedupKey, routeUnansweredAlert, turnsOf } from './answered.ts';
 
 /**
  * How many events one run will handle. §3.6.3 asks for a row ceiling; this is it.
@@ -146,6 +147,12 @@ export type SweepAction =
   | 'requeue_failed'
   /** Past the reply-age limit: marked `expired_unqueued`, founder told. */
   | 'expired'
+  /**
+   * Past the limit on a channel that would not have sent our reply anyway, and the Page
+   * answered the customer: marked `expired_unqueued` and counted in the digest as a lost
+   * mirror draft, with no page — nobody was waiting (`health/answered.ts`).
+   */
+  | 'expired_answered_elsewhere'
   /** Past the limit, but the alert could not be recorded — so the row was left visible. */
   | 'expire_deferred';
 
@@ -188,7 +195,9 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
     // this query and `neverReachedQueue` are two halves of one definition, and a third
     // state added to one and not the other is a class of event nothing ever sweeps. That
     // is not hypothetical — it is exactly how `pending_enqueue` went unswept (D-040).
-    .select('id, provider, dedup_key, tenant_id, channel_id, state, received_at, attempts')
+    // `raw_payload` for the customer turns, so the expire arm can ask whether the Page
+    // already answered them. One entry per row, and at most SWEEP_LIMIT rows.
+    .select('id, provider, dedup_key, tenant_id, channel_id, state, received_at, attempts, raw_payload')
     .in('state', [...UNQUEUED_STATES, ...QUEUED_STATES])
     // `replied_at` was READ here and written by nothing until 2026-09-14, so this filter
     // could not exclude a single row: every row in the table satisfied it. Harmless only
@@ -232,6 +241,25 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
       .in('id', tenantIds);
     if (tenantErr) return { ok: false, detail: `tenants unreadable: ${tenantErr.message}` };
     for (const t of rows(tenantData)) limits.set(str(t['id']), replyAgeLimitMinutes(t['max_reply_age_minutes']));
+  }
+
+  // How each candidate's channel delivers, for the one question the expire arm now asks
+  // before paging: would our reply have been sent at all? An unreadable read is NOT a
+  // failed run, unlike the two above — it only means the question cannot be asked, and
+  // `routeUnansweredAlert` pages exactly as before when the mode is unknown.
+  const channelIds = [...new Set(candidates.map((r) => str(r['channel_id'])).filter((id) => id !== ''))];
+  const channels = new Map<string, { mode: string; appId: string | null }>();
+  if (channelIds.length > 0) {
+    const { data: channelData, error: channelErr } = await db
+      .from('tenant_channels')
+      .select('id, delivery_mode, meta_app_id')
+      .in('id', channelIds);
+    if (!channelErr) {
+      for (const ch of rows(channelData)) {
+        const appId = str(ch['meta_app_id']);
+        channels.set(str(ch['id']), { mode: str(ch['delivery_mode']), appId: appId === '' ? null : appId });
+      }
+    }
   }
 
   const swept: SweptEvent[] = [];
@@ -330,6 +358,38 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
     }
 
     // ── Past the limit: expire ──────────────────────────────────────────────────────
+    //
+    // First, was anybody actually left waiting? On a `shadow` channel our reply was never
+    // going to be sent, and the incumbent on the same Page usually answered in seconds —
+    // eight of these reached the founder as criticals in two days, every one already
+    // answered (founder, 2026-09-24: *"It's a false alarm"*).
+    const channel = channelId === null ? undefined : channels.get(channelId);
+    const route = await routeUnansweredAlert(db, {
+      tenantId, channelId,
+      deliveryMode: channel === undefined ? null : channel.mode,
+      ourAppId: channel === undefined ? null : channel.appId,
+      turns: turnsOf(raw['raw_payload']),
+    });
+    if (!route.page) {
+      const lost = await raiseAlert(db, {
+        tenantId,
+        severity: 'warn',
+        kind: DRAFT_LOST_KIND,
+        dedupKey: draftLostDedupKey(eventId),
+        route: 'digest',
+        repeat: 'daily',
+        body: `Inbound event ${eventId}: the shadow draft was lost (${fault}). The Page answered the `
+          + `customer ${Math.round(route.slowestSeconds)}s after they wrote, so nobody was waiting on Dala AI.`,
+      });
+      if (lost.outcome === 'failed') {
+        record('expire_deferred', lost.detail);
+        continue;
+      }
+      const marked = await markEventState(db, eventId, 'expired_unqueued');
+      record(marked.ok ? 'expired_answered_elsewhere' : 'expire_deferred', marked.ok ? null : marked.detail);
+      continue;
+    }
+
     // The body carries ids, never message text: since D-039 `dedup_key` is page id, entry
     // index, a digest of Meta's own ids and the app slug, and nothing a customer wrote.
     const alert = await raiseAlert(db, {
@@ -340,7 +400,8 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
       body: `Inbound event ${eventId} (${provider} ${dedupKey}) ${fault}. `
         + `State ${state}, ${Number.isFinite(ageMinutes) ? `${Math.floor(ageMinutes)} min old` : 'age unreadable'}, `
         + `past this tenant's ${limitMinutes}-minute reply limit. `
-        + `The customer was not answered; the delivery is in webhook_events.raw_payload.`,
+        + `The customer was not answered by Dala AI. `
+        + `${route.note === null ? '' : `${route.note} `}The delivery is in webhook_events.raw_payload.`,
     });
 
     // Expire only once the condition is recorded. `failed` is the one outcome where the

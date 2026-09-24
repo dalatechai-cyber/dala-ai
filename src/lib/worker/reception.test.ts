@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { RECEPTION_MAX_DELIVERIES, runReceptionJob, type DeliverArgs, type GenerateArgs, type WorkerEffects } from './reception.ts';
 import type { ReceptionOutcome } from '../reception/handle.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
+import type { ExhaustedInput } from './exhaustedAlert.ts';
 
 const TENANT = 't-1';
 const CHANNEL = 'c-1';
@@ -141,7 +142,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
   const delivered: DeliverArgs[] = [];
   const flags: { tenantId: string; conversationId: string; code: string; detail: string }[] = [];
   const standbyAlerts: { tenantId: string; channelId: string; dayKey: string; events: number }[] = [];
-  const exhausted: { tenantId: string; eventId: number; attempts: number; ageMinutes: number; limitMinutes: number | null; code: string }[] = [];
+  const exhausted: ExhaustedInput[] = [];
   const typed: { tenantId: string; channelId: string; recipientId: string }[] = [];
 
   const fx: WorkerEffects = {
@@ -976,6 +977,41 @@ test('DONE-TEST: A LIMIT THE JOB NEVER READ IS NULL, NOT THE PLATFORM DEFAULT', 
   assert.equal(exhausted.length, 1, 'still alerted — the customer is still unanswered');
   assert.equal(exhausted[0]?.limitMinutes, null, 'unknown is reported as unknown');
   assert.equal(exhausted[0]?.attempts, RECEPTION_MAX_DELIVERIES);
+});
+
+test('DONE-TEST: THE EXHAUSTION ALERT IS TOLD WHY, WHERE, AND WHO WROTE — NOT JUST A CODE', async () => {
+  // Measured 2026-09-24: the founder received «last: worker.reception_retry» 29 times while
+  // the real reason, `canned_stale`, sat in the log line beside it — and the alert could not
+  // tell a shadow channel the incumbent had answered from a live customer left waiting,
+  // because nothing told it the channel's mode or who had written. All three are carried
+  // now, and each is what `worker/exhaustedAlert.ts` needs to decide whether to page.
+  const stale = 'canned_stale: the canned lines have changed since this configuration was published';
+  const { fx, exhausted } = stubEffects({
+    generateReply: async () => ({ kind: 'retry', detail: stale }),
+    tables: {
+      webhook_events: {
+        data: {
+          raw_payload: payload(),
+          attempts: RECEPTION_MAX_DELIVERIES - 1,
+          received_at: new Date(NOW.getTime() - 2 * 60_000).toISOString(),
+        },
+        error: null,
+      },
+      tenant_channels: {
+        data: { external_id: '100000000000001', delivery_mode: 'shadow', meta_app_id: '1562862634970492' },
+        error: null,
+      },
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.body['error'], 'worker.reception_retry');
+  assert.equal(exhausted.length, 1);
+  const a = exhausted[0]!;
+  assert.equal(a.detail, stale);
+  assert.equal(a.deliveryMode, 'shadow');
+  assert.equal(a.ourAppId, '1562862634970492');
+  assert.equal(a.channelId, CHANNEL);
+  assert.deepEqual(a.turns, [{ psid: PSID, sentAt: SENT_AT }], 'the customer, on Meta\'s clock');
 });
 
 test('a delivery that SUCCEEDS never alerts, however many attempts preceded it', async () => {

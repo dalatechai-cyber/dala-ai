@@ -101,6 +101,16 @@ export type SkippedEvent = {
    * safe range; a future id near the limit is a hazard this layer cannot see.
    */
   appId: string | null;
+  /**
+   * When Meta says an ECHO was sent — its own `timestamp`, the same clock as a customer
+   * message's `sentAt`. Null on every other reason, and null on an echo with no timestamp.
+   *
+   * It exists so "did the Page answer this customer after they wrote?" can be asked on ONE
+   * clock. `webhook_events.received_at` is ours, and measuring a reply from Meta's clock on
+   * one side and ours on the other is the error `scripts/mirror/side-by-side.sql` documents:
+   * the receipt hop was 1.3–6.4 s, larger than some of the gaps being measured.
+   */
+  sentAt: Date | null;
   /** Attachment kinds, deduplicated — see `attachmentKinds`. Empty for a text-less skip. */
   attachments: string[];
   /** Facebook sticker asset ids, when the attachments were stickers. Not PII. */
@@ -208,6 +218,7 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
         senderId: extra.senderId ?? null,
         recipientId: extra.recipientId ?? null,
         appId: extra.appId ?? null,
+        sentAt: extra.sentAt ?? null,
         attachments: extra.attachments ?? [],
         stickerIds: extra.stickerIds ?? [],
       });
@@ -251,11 +262,13 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
       const appId = typeof rawAppId === 'string' && rawAppId.trim() !== ''
         ? rawAppId
         : (typeof rawAppId === 'number' && Number.isFinite(rawAppId) ? String(rawAppId) : null);
+      const echoTs = ev['timestamp'];
       skip('echo', {
         externalId: externalId === '' ? null : externalId,
         senderId: senderIdOf === '' ? null : senderIdOf,
         recipientId: recipientIdOf === '' ? null : recipientIdOf,
         appId,
+        sentAt: typeof echoTs === 'number' && Number.isFinite(echoTs) ? new Date(echoTs) : null,
       });
       continue;
     }

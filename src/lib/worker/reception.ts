@@ -54,6 +54,7 @@ import type { Turn } from '../inbound/persist.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
 import type { Reservation } from '../spend/reserve.ts';
 import type { LoadTimings, ReceptionContext } from '../reception/load.ts';
+import type { ExhaustedInput } from './exhaustedAlert.ts';
 
 /**
  * The surface this worker answers on.
@@ -143,20 +144,7 @@ export type WorkerEffects = {
    * so nothing else is coming. Raised from the worker rather than waiting for the hourly
    * sweep, which is what made D-110's customer wait 57 minutes to be noticed.
    */
-  alertDeliveryExhausted: (input: {
-    tenantId: string; eventId: number; attempts: number;
-    /** NaN when `received_at` could not be read. Never reported as a number. */
-    ageMinutes: number;
-    /**
-     * NULL when the job refused BEFORE it read the tenant row — an unreadable `tenants`
-     * row is one of the 503s that can exhaust a delivery, and on that path the platform
-     * default is not this tenant's limit. Matrix's is 15 and the default is 30, so
-     * substituting one would print a deadline twice as generous as the real one into a
-     * critical alert.
-     */
-    limitMinutes: number | null;
-    code: string;
-  }) => Promise<void>;
+  alertDeliveryExhausted: (input: ExhaustedInput) => Promise<void>;
   /** `META_GRAPH_VERSION`, read lazily so an unconfigured deployment fails at use. */
   graphVersionDefault: () => string;
   generateReply: (args: GenerateArgs) => Promise<ReceptionOutcome>;
@@ -227,9 +215,14 @@ function stopwatch(): { lap: (phase: string) => void; phases: Record<string, num
  * with. So the whole retry horizon is about three MINUTES, and the third delivery is the
  * last chance to notice that a customer is not going to be answered.
  *
- * If this is ever wrong in the safe direction — QStash delivers a fourth time — the
- * exhaustion alert has already fired on the third and is deduplicated by event id, so the
- * fourth changes nothing. Wrong in the other direction (QStash stops at two) the alert
+ * **It IS wrong in the safe direction, measured 2026-09-24**: events 731, 733, 735 and 737
+ * each got a FOURTH delivery about 33 minutes after the first (`attempts = 4`, and the
+ * fourth ran `reply_too_late`). So `retries: 3` is four deliveries. Why 266 got no fourth is
+ * NOT established — the sweep that expired it ran at 57 minutes, after a fourth at ~33 would
+ * have been due — so do not read either measurement as the rule. The third is still the right moment to
+ * alert: for Matrix's 15-minute limit the fourth arrives too late to answer anyone. The
+ * exhaustion alert fires on the third and is deduplicated by event id, so the fourth
+ * changes nothing. Wrong in the other direction (QStash stops at two) the alert
  * never fires from here and `sweepStrandedEvents` still catches it, late, as it did before.
  * Both failure modes degrade to the previous behaviour rather than to silence.
  *
@@ -265,8 +258,24 @@ type DeliveryTrace = {
   attempts: number;
   /** NaN until `received_at` is read, and left NaN if it cannot be parsed. */
   ageMinutes: number;
-  /** NULL until the TENANT's own limit is read. Never pre-filled with the default. */
+  /**
+   * NULL until the TENANT's own limit is read — an unreadable `tenants` row is one of the
+   * 503s that can exhaust a delivery, and on that path the platform default is not this
+   * tenant's limit. Matrix's is 15 and the default is 30, so substituting one would print a
+   * deadline twice as generous as the real one into a critical alert.
+   */
   limitMinutes: number | null;
+  /** What the refusing code meant this time. Null when the refusal carried no detail. */
+  detail: string | null;
+  channelId: string | null;
+  /**
+   * NULL until the channel row is read. Whether a failure left a customer waiting depends
+   * on it: in `shadow` our reply was never going to be sent (`health/answered.ts`).
+   */
+  deliveryMode: string | null;
+  ourAppId: string | null;
+  /** The customer messages in the entry, once extracted. */
+  turns: { psid: string; sentAt: Date }[];
 };
 
 export async function runReceptionJob(
@@ -276,6 +285,7 @@ export async function runReceptionJob(
   const trace: DeliveryTrace = {
     eventId: null, tenantId: null, attempts: 0,
     ageMinutes: Number.NaN, limitMinutes: null,
+    detail: null, channelId: null, deliveryMode: null, ourAppId: null, turns: [],
   };
   const result = await runReceptionDelivery(fx, request, trace);
 
@@ -291,6 +301,8 @@ export async function runReceptionJob(
       await fx.alertDeliveryExhausted({
         tenantId: trace.tenantId, eventId: trace.eventId, attempts: trace.attempts,
         ageMinutes: trace.ageMinutes, limitMinutes: trace.limitMinutes, code,
+        detail: trace.detail, channelId: trace.channelId, deliveryMode: trace.deliveryMode,
+        ourAppId: trace.ourAppId, turns: trace.turns,
       });
     } catch (e) {
       // An alert that throws must not turn a 503 into a 500: the status QStash sees decides
@@ -359,6 +371,7 @@ async function runReceptionDelivery(
   const eventRow = event as Record<string, unknown>;
   trace.eventId = eventId;
   trace.tenantId = tenantId;
+  trace.channelId = channelId;
   const priorAttempts = typeof eventRow['attempts'] === 'number' ? eventRow['attempts'] : 0;
   clock.lap('event_read');
   const counted = await recordDeliveryAttempt(db, eventId, priorAttempts);
@@ -372,6 +385,7 @@ async function runReceptionDelivery(
 
   const rawPayload = eventRow['raw_payload'];
   const { messages, skipped, standby } = extractInboundMessages(rawPayload);
+  trace.turns = messages.map((m) => ({ psid: m.senderId, sentAt: m.sentAt }));
 
   // --- Tenant settings, read once for the whole entry. ----------------------
   //
@@ -470,6 +484,8 @@ async function runReceptionDelivery(
   // `unknown`, which changes no thread state — correct, and visibly incomplete.
   const metaAppId = typeof c['meta_app_id'] === 'string' && c['meta_app_id'] !== ''
     ? String(c['meta_app_id']) : null;
+  trace.deliveryMode = deliveryMode;
+  trace.ourAppId = metaAppId;
   const override = c['graph_version_override'];
   const graphVersion = typeof override === 'string' && override !== '' ? override : fx.graphVersionDefault();
 
@@ -620,6 +636,7 @@ async function runReceptionDelivery(
   const contextTimings: LoadTimings | null = loaded.ok ? loaded.timings : null;
   if (!loaded.ok) {
     fx.log('error', 'context_unavailable', { tenantId, code: loaded.code, detail: loaded.detail });
+    trace.detail = loaded.detail;
     if (loaded.code === 'not_provisioned') {
       // Determinate: retrying cannot provision a tenant. ACK and let the operator alert
       // carry it, rather than looping QStash against a state only a human can change.
@@ -895,6 +912,10 @@ async function runReceptionDelivery(
 
     if (outcome.kind === 'retry') {
       fx.log('error', 'reception_retry', { detail: outcome.detail });
+      // Carried to the exhaustion alert, so it can say `canned_stale` rather than a code
+      // that means "something in handleReception" — the founder read that code 29 times
+      // and it never once said what to do (republish).
+      trace.detail = outcome.detail;
       return unavailable('worker.reception_retry');
     }
     if (outcome.kind === 'dropped') {

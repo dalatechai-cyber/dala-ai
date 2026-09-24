@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cappedLine, ESCALATE_AFTER_DAYS, planDigest, runDigestJob } from './digest.ts';
+import { cappedLine, ESCALATE_AFTER_DAYS, lostDraftsLine, planDigest, runDigestJob } from './digest.ts';
 import type { OpenAlert } from './alert.ts';
 
 const NOW = new Date('2026-09-14T01:00:00Z');   // 09:00 in Ulaanbaatar
@@ -18,7 +18,10 @@ function episode(over: Partial<OpenAlert> = {}): OpenAlert {
 
 const NO_DROPS = { total: 0, byKind: {}, unavailable: false };
 const NO_CAPS = { total: 0, posts: 0, unavailable: false };
-const CLEAN = { now: NOW, watchdogLastRan: RAN, channelsChecked: 2, dropped: NO_DROPS, capped: NO_CAPS };
+const NO_LOST = { total: 0, latest: null, unavailable: false };
+const CLEAN = {
+  now: NOW, watchdogLastRan: RAN, channelsChecked: 2, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST,
+};
 
 test('DONE-TEST: A CLEAN DAY STILL SENDS, AND CARRIES PROOF OF LIFE', () => {
   // A digest that stays silent when nothing is open makes silence mean two things —
@@ -34,7 +37,7 @@ test('DONE-TEST: and when the watchdog has never run, the clean day SAYS SO', ()
   // `channel_health` is upserted on every run including healthy ones, precisely so that its
   // absence is a statement. A digest reading "nothing open" over a watchdog that has never
   // executed would be the most confident wrong sentence this system could produce.
-  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS });
+  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST });
   assert.match(plan.summary, /never recorded an observation/);
   assert.doesNotMatch(plan.summary, /last ran/);
 });
@@ -258,4 +261,24 @@ test('an unreadable capped count prints UNREADABLE, never a clean day', () => {
   const line = cappedLine({ total: 0, posts: 0, unavailable: true });
   assert.match(line, /UNREADABLE/);
   assert.doesNotMatch(line, /No public comments/);
+});
+
+// ── Lost shadow drafts: the alerts that stopped paging still have to be seen ──────────
+
+test('DONE-TEST: LOST SHADOW DRAFTS ARE COUNTED, AND A CLEAN DAY SAYS ZERO', () => {
+  // These used to page the founder one by one (37 in two days, every customer already
+  // answered by the ancestor). They no longer page, so if the digest did not carry them,
+  // "the mirror refuses every message" would look exactly like a quiet day.
+  assert.match(planDigest([], CLEAN).summary, /No shadow drafts lost \(24h\)/);
+  const plan = planDigest([], {
+    ...CLEAN,
+    lostDrafts: { total: 29, latest: 'Inbound event 737: the shadow draft was lost after 3 deliveries (worker.reception_retry — canned_stale: …).', unavailable: false },
+  });
+  assert.match(plan.summary, /29 shadow drafts lost \(24h\), every customer answered by the Page/);
+  assert.match(plan.summary, /canned_stale/, 'the reason is what tells the founder to republish');
+});
+
+test('an unreadable lost-draft count prints UNREADABLE, never zero', () => {
+  assert.equal(lostDraftsLine({ total: 0, latest: null, unavailable: true }),
+    'shadow drafts lost (24h): UNREADABLE — alerts could not be counted');
 });
