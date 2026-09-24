@@ -5,7 +5,7 @@ import { imageReplyDedupKey, planImageReplies } from './imageReply.ts';
 
 const skip = (o: Partial<SkippedEvent>): SkippedEvent => ({
   reason: 'no_text', idx: 0, externalId: 'm_1', senderId: 'psid_1', recipientId: null,
-  appId: null, attachments: [], stickerIds: [], ...o,
+  appId: null, sentAt: null, attachments: [], stickerIds: [], ...o,
 });
 
 test('DONE-TEST: A THUMBS-UP IS NEVER ANSWERED, WHATEVER ITS TYPE SAYS', () => {

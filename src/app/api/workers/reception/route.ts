@@ -27,6 +27,7 @@ import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform
 import { SECTION_LABELS } from '@/lib/prompt/tenant';
 import { raiseAlert } from '@/lib/alerts/alert';
 import { runReceptionJob, type WorkerEffects } from '@/lib/worker/reception';
+import { raiseDeliveryExhausted } from '@/lib/worker/exhaustedAlert';
 import { servicesFromPrefix, sectionRows, faqAnswersFromPrefix } from '@/lib/quality/serviceNames';
 
 export const runtime = 'nodejs';
@@ -148,54 +149,14 @@ function effects(now: Date): WorkerEffects {
     },
 
     /**
-     * QStash has delivered this event for the last time and the worker refused it again.
-     *
-     * `critical` and `route: 'now'` because the subject is a customer who wrote to a live
-     * business and is not going to get an answer from us. That is weighed against the
-     * Telegram chat being shared with the people who send demo requests: this fires once
-     * per event id, has no period in its key, and cannot repeat for a condition that has
-     * not changed. `repeat: 'daily'` with no date in the key makes it an EVENT rather than
-     * an episode (D-063) — one delivery run exhausting is a thing that happened and is
-     * over, and it never resolves.
-     *
-     * The body states the delivery count AS A COUNT, which is the whole point. The alert
-     * this sits in front of said "never delivered to the worker" about an event delivered
-     * three times, because it inferred delivery history from `state`, and `state` does not
-     * record it (D-110).
+     * QStash's quick retries are spent and the worker refused every one. The decision —
+     * page the founder, or record a lost mirror draft when the Page answered the customer
+     * anyway — lives in `worker/exhaustedAlert.ts`, where a test can reach it.
      */
-    alertDeliveryExhausted: async ({ tenantId, eventId, attempts, ageMinutes, limitMinutes, code }) => {
-      const age = Number.isFinite(ageMinutes) ? Math.floor(ageMinutes) : null;
-      // Every arm below is reachable only from values that were actually READ. A NaN age or
-      // a limit the job never got to is reported as unknown rather than substituted: this
-      // alert exists because the last one asserted something it had not measured, and the
-      // platform default (30) is twice Matrix's real limit (15), so a substitution here
-      // would print a deadline that is wrong in the generous direction.
-      const outcome = limitMinutes === null
-        ? 'This delivery failed before the tenant\'s reply limit could be read, so how long a human '
-          + 'has is UNKNOWN from here — read tenants.max_reply_age_minutes. Assume little time.'
-        : age === null
-          ? `Age unreadable, so whether this is still inside the tenant's ${limitMinutes}-minute reply `
-            + 'limit is unknown; a human reply now beats a late bot reply.'
-          : age < limitMinutes
-            ? `A human can still answer: about ${limitMinutes - age} min left of this tenant's ${limitMinutes}-minute reply limit.`
-            : `Past this tenant's ${limitMinutes}-minute reply limit; a human reply now beats a late bot reply.`;
-      const res = await raiseAlert(db, {
-        tenantId,
-        severity: 'critical',
-        kind: 'webhook.delivery_exhausted',
-        dedupKey: `delivery_exhausted:${eventId}`,
-        // Passed rather than defaulted. Both happen to be the defaults today, and this
-        // alert's whole character — one Telegram message, once, never resolving — would
-        // change silently if either default moved.
-        route: 'now',
-        repeat: 'daily',
-        body: `Inbound event ${eventId} was delivered to the worker ${attempts} time(s) and refused every time `
-          + `(last: ${code}). QStash has no retries left, so nothing else will pick it up. `
-          + `${age === null ? 'Age unreadable' : `${age} min old`}. ${outcome} `
-          + 'The delivery is in webhook_events.raw_payload.',
-      });
-      if (res.outcome === 'failed') {
-        console.error('[worker] delivery_exhausted_alert_failed', { eventId, detail: res.detail });
+    alertDeliveryExhausted: async (input) => {
+      const outcome = await raiseDeliveryExhausted(db, input);
+      if (outcome === 'alert_failed') {
+        console.error('[worker] delivery_exhausted_alert_failed', { eventId: input.eventId });
       }
     },
 

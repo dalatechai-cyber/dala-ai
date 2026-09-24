@@ -57,7 +57,7 @@ function stub(over: Record<string, { data?: unknown; error?: unknown } | { data?
     reads.push(rec);
     const chain: Record<string, unknown> = {};
     chain['select'] = () => chain;
-    for (const op of ['eq', 'neq', 'in', 'is', 'lt'] as const) {
+    for (const op of ['eq', 'neq', 'in', 'is', 'lt', 'gte'] as const) {
       chain[op] = (col: string, val: unknown) => (rec.filters.push(`${op}:${col}=${JSON.stringify(val)}`), chain);
     }
     chain['order'] = () => chain;
@@ -492,4 +492,80 @@ test('a never-QUEUED event is still reported as never queued, whatever attempts 
   assert.ok((await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue })).ok);
   assert.match(String(writes.find((w) => w.table === 'alerts')?.patch['body'] ?? ''),
     /was claimed and never queued/);
+});
+
+// ── A shadow channel whose customer the Page already answered ──────────────────────────
+
+const PAGE = '1520409424715591';
+const CUSTOMER_AT = new Date(minutesAgo(57)).getTime();
+const customerEntry = {
+  id: PAGE, time: CUSTOMER_AT,
+  messaging: [{ sender: { id: 'psid-2186' }, recipient: { id: PAGE }, timestamp: CUSTOMER_AT, message: { mid: 'm_in', text: 'Сайн байна уу' } }],
+};
+const ancestorEcho = (at: number) => ({
+  raw_payload: {
+    id: PAGE, time: at,
+    messaging: [{
+      sender: { id: PAGE }, recipient: { id: 'psid-2186' }, timestamp: at,
+      message: { mid: 'm_echo', is_echo: true, app_id: 1380702870025418, text: 'Сайн байна уу!' },
+    }],
+  },
+});
+const stranded = { ...EVENT, state: 'pending_enqueue', received_at: minutesAgo(57), attempts: 3, raw_payload: customerEntry };
+const SHADOW_CHANNEL = { data: [{ id: 'ch-1', delivery_mode: 'shadow', meta_app_id: '1562862634970492' }], error: null };
+
+test('DONE-TEST: SHADOW, AND THE ANCESTOR ANSWERED IN 5s — NO CRITICAL, ONE DIGEST ROW', async () => {
+  // Eight of these reached the founder as criticals between 2026-09-21 and 09-24, each
+  // «The customer was not answered», each about a customer the incumbent had answered.
+  const q = queue();
+  const { db, writes } = stub({
+    webhook_events: [
+      { data: [stranded], error: null },                       // the candidates
+      { data: [ancestorEcho(CUSTOMER_AT + 5_000)], error: null }, // the echo scan
+      { data: null, error: null },                               // markEventState
+    ],
+    tenants: TENANT_30,
+    tenant_channels: SHADOW_CHANNEL,
+    alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.ok(r.ok);
+  assert.equal(r.swept[0]?.action, 'expired_answered_elsewhere');
+  const alerts = writes.filter((w) => w.table === 'alerts' && w.op === 'insert');
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0]!.patch['kind'], 'mirror.draft_lost');
+  assert.equal(alerts[0]!.patch['route'], 'digest');
+  assert.notEqual(alerts[0]!.patch['severity'], 'critical');
+  const expired = writes.find((w) => w.table === 'webhook_events' && w.op === 'update');
+  assert.equal(expired?.patch['state'], 'expired_unqueued', 'the event is still retired, exactly as before');
+});
+
+test('DONE-TEST: SHADOW WITH NO REPLY FROM THE PAGE STILL PAGES — THE INCUMBENT MAY BE DOWN', async () => {
+  const q = queue();
+  const { db, writes } = stub({
+    webhook_events: [{ data: [stranded], error: null }, { data: [], error: null }, { data: null, error: null }],
+    tenants: TENANT_30,
+    tenant_channels: SHADOW_CHANNEL,
+    alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.ok(r.ok);
+  assert.equal(r.swept[0]?.action, 'expired');
+  const alert = writes.find((w) => w.table === 'alerts' && w.op === 'insert');
+  assert.equal(alert?.patch['kind'], 'webhook.stranded_event');
+  assert.equal(alert?.patch['severity'], 'critical');
+  assert.match(String(alert?.patch['body']), /incumbent may not have answered/);
+});
+
+test('an unreadable channel read pages exactly as before rather than failing the sweep', async () => {
+  const q = queue();
+  const { db, writes } = stub({
+    webhook_events: [{ data: [stranded], error: null }, { data: null, error: null }],
+    tenants: TENANT_30,
+    tenant_channels: { data: null, error: { message: 'timeout' } },
+    alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.ok(r.ok, 'the channel mode is a refinement; losing it must not stop the sweep');
+  assert.equal(writes.find((w) => w.table === 'alerts' && w.op === 'insert')?.patch['kind'], 'webhook.stranded_event');
 });

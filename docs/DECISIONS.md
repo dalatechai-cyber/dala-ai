@@ -8592,3 +8592,64 @@ is the same hollow footing `allowed_numbers = []` had before Stage 4.
 **This changes `content_hash` and needs a republish** through `scripts/publish/tenant.ts`,
 which only the founder can run — `SUPABASE_SECRET_PUBLISH` is deliberately absent here. The
 code must be deployed and pulled first (D-074's three steps: deploy, `git pull`, publish).
+
+## D-113 — in shadow, a customer the incumbent answered is not a customer left waiting
+
+**2026-09-24, founder's call.** *"In shadow mode, if the ancestor has already answered the
+customer, don't send a 'human can still answer' alert. It's a false alarm, and I got 44 of
+them."*
+
+### What happened, measured
+
+Matrix sat in `canned_stale` from the data edit after seq 12 until it was republished: the
+canned rows no longer matched the snapshot's `canned_hash`, so `handle.ts` returned `retry`
+for every message and QStash exhausted on each one. Vercel's logs carry
+`canned_stale: the canned lines have changed since this configuration was published` on
+every refused delivery of 731, 733, 735 and 737. Between 2026-09-21 and 09-24 that produced
+**29 `webhook.delivery_exhausted` and 8 `webhook.stranded_event` criticals** — every one
+`route: 'now'`, into the Telegram chat that also carries customers' demo requests, every one
+saying a human could still answer.
+
+Replayed against `webhook_events` (read-only, message text stripped): **the ancestor had
+answered all 29 exhausted events before the alert fired, in 3.5–21.0 s by Meta's clock, and
+7 of the 8 stranded ones.** The eighth, event 266, predates the `message_echoes`
+subscription, so there is no evidence either way — and it would still page.
+
+### The rule
+
+`health/answered.ts`: an unanswered-customer alert pages the founder unless BOTH hold —
+
+1. the channel would not have sent our reply anyway (`canDeliver(mode).deliver` is false,
+   i.e. `shadow`); and
+2. every customer message in the event has a later echo from the Page to that customer, not
+   from our own app, on **Meta's clock on both sides** (the echo's `timestamp` is carried
+   through `extract.ts` for exactly this).
+
+When both hold, the event is recorded as `mirror.draft_lost` (`warn`, `route: 'digest'`)
+and the 09:00 digest carries one line — `N shadow drafts lost (24h), every customer
+answered by the Page. Latest: …` — naming the refusal. **Silencing them entirely was the
+wrong fix and was not taken**: `canned_stale` ran for two and a half days with those false
+alarms as its only symptom, and "the mirror refuses every message" must not read like a
+quiet day. `live` is untouched and never consults the echoes; an unknown mode, an unreadable
+or truncated scan, or a turn with no timestamp all page exactly as before.
+
+### Two things the fix found on the way
+
+- **The alert said the wrong code.** It printed `last: worker.reception_retry` 29 times;
+  the reason that told the founder what to do — republish — was only in the log line beside
+  it. The refusal's detail now travels with the trace into the alert body.
+- **"QStash has no retries left" was false.** 731/733/735/737 each got a FOURTH delivery at
+  about 33 minutes (`attempts = 4`, the fourth ran `reply_too_late`). The alert still fires
+  on the third — for a 15-minute limit the fourth is too late — but the body now states the
+  measurement instead of the claim. Why event 266 got no fourth is not established.
+
+### What "answered" means, and does not
+
+The Page sent this customer something after they wrote. Not that it addressed the message:
+two messages seconds apart and one reply count both. For *is somebody left waiting?* that is
+the right evidence; it is not a quality judgement, and the side-by-side remains the
+instrument for that.
+
+`webhook.requeued` (the sweep re-publishing an event still inside the limit) is unchanged:
+it reports the platform's own floor failing, not a customer, and it fired twice in the
+period.
