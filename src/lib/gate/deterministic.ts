@@ -34,8 +34,8 @@
  * Both are prefix or substring matching where whole-message matching was needed, which is
  * why `whole_message` is the default and the only mode a greeting may use.
  */
-import { containsStem, coversMessage, wholeMessageMatches } from '../mn/match.ts';
-import { cpLength } from '../mn/text.ts';
+import { containsStem, coversMessage, wholeMessageKey, wholeMessageMatches } from '../mn/match.ts';
+import { cpLength, fold } from '../mn/text.ts';
 import { isTenantConfirmed } from '../provenance.ts';
 import { MIN_STEM_CHARS } from './match.ts';
 
@@ -49,7 +49,7 @@ export type DeterministicRule = {
    * topics fired on this message. The gate decides what the message is about; this row only
    * says what to add when it is.
    */
-  matchMode: 'whole_message' | 'contains_stem' | 'covers_message' | 'on_topic';
+  matchMode: 'whole_message' | 'contains_stem' | 'covers_message' | 'on_topic' | 'on_correction';
   stems: readonly string[];
   /**
    * `covers_message` only: whole words that may sit beside a stem (`0041`). Every word of
@@ -182,6 +182,9 @@ export function matchDeterministic(
   };
 
   for (const rule of rules) {
+    // Never an answer to a message: it replaces a repeated reply after the fact
+    // (`correctionFor`), so it has nothing to say before the reply exists.
+    if (rule.matchMode === 'on_correction') continue;
     if (!rule.enabled) { skipped.push({ intent: rule.intent, reason: 'disabled' }); continue; }
     if (rule.stems.length === 0) { skipped.push({ intent: rule.intent, reason: 'no_stems' }); continue; }
 
@@ -250,3 +253,45 @@ export function composeQuoted(
   const body = hit.body.trim();
   return body === '' ? rows.join('\n') : `${rows.join('\n')}\n\n${body}`;
 }
+
+/**
+ * The tenant's clarifying line when the customer is correcting the bot and the reply about
+ * to be sent repeats the previous one — or null, and the reply goes out as it is.
+ *
+ * Founder, 2026-09-24, live: *"when the customer says the bot misunderstood, it must not
+ * repeat the same answer."* Measured: «us bish usnii himi» was answered with the same price
+ * as the turn it was correcting. Two conditions, both required. The customer's message
+ * carries one of the row's correction words, because a customer re-asking in other words
+ * is owed the same answer again. And the reply says what the last one said — the same text
+ * once folded, or exactly the same prices — because a correction that the new reply
+ * already acts on is fine to send.
+ */
+export function correctionFor(
+  rules: readonly DeterministicRule[],
+  customerMessage: string,
+  reply: string,
+  previousReply: string | null,
+): DeterministicRule | null {
+  if (previousReply === null) return null;
+  const rule = rules.find((r) => r.matchMode === 'on_correction' && r.enabled
+    && isTenantConfirmed(r.provenance) && r.body.trim() !== '');
+  if (rule === undefined) return null;
+  // `containsStem` folds the text and takes the stem as given, so the stem is folded here.
+  if (!rule.stems.some((st) => st.trim() !== '' && containsStem(customerMessage, fold(st)))) return null;
+  return repeatsReply(reply, previousReply) ? rule : null;
+}
+
+/** Digit runs of four or more, reduced to digits: the prices a reply quotes, never «1-р». */
+function priceAmounts(text: string): string[] {
+  return [...text.matchAll(/\d[\d,  ]*\d/gu)].map((m) => m[0].replace(/[^\d]/gu, '')).filter((d) => d.length >= 4);
+}
+
+/** The same text once folded, or exactly the same non-empty set of prices. */
+export function repeatsReply(reply: string, previous: string): boolean {
+  const squash = (t: string) => wholeMessageKey(t);
+  if (squash(reply) !== '' && squash(reply) === squash(previous)) return true;
+  const a = new Set(priceAmounts(reply));
+  const b = new Set(priceAmounts(previous));
+  return a.size > 0 && a.size === b.size && [...a].every((x) => b.has(x));
+}
+

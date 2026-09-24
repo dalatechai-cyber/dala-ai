@@ -9006,3 +9006,28 @@ The rule now:
   (30 for Matrix). Each further staff reply restarts that clock.
 - With no `meta_app_id` recorded, an app-stamped echo is not judged, because it could be our
   own reply.
+
+### D-119, continued: the rest of the first live hour
+
+- **«usnii himi» is hair perm in general** (771). The model read «usnii» as «Усан» and quoted
+  Усан хими. Neither the Latin `service_aliases` nor the suitability rows were involved. Both
+  771 and 773 were plain model replies, and aliases are read only for suitability price
+  lists. The new `perm_types` row (`covers_message` on «himi/хими») lists Усан, Эмчилгээний,
+  Шулуун and Афро хими from the price list, then asks which. A name that says which perm,
+  such as «usan himi» or «Эмчилгээний хими», is not covered, and the model answers it.
+- **A correction is never answered with the answer it corrects** (773 → 774). `0043` adds
+  `match_mode = 'on_correction'`. The row's `stems` are the tenant's correction words, and
+  its body replaces any reply that repeats the previous one on a turn carrying one of those
+  words. "Repeats" means the same text once folded, or exactly the same prices. A customer
+  re-asking in other words still gets the same answer, because that turn has no correction
+  word.
+- **Who are you / who made you** (775, 777) are exact-phrase rows carrying the founder's lines.
+  `covers_message` would not do, because its anchors must be at least four letters, and
+  «хэн», «hen» and «cmg» are three.
+- **«Матрикс»** reached a customer through the reviewed canned line `assistant_identity`,
+  which the model served for «ci henbe». The two rows above now answer those questions before
+  the model is called. The canned line itself needs rewording, and a canned edit makes every
+  reply return 503 until the next republish, so it is left to the founder as UPDATE +
+  republish.
+- **The Tara lines**: `tara_name` covers «tnah … salonu». The Latin greeting row no longer
+  requires an empty history, so «sain bnuu» mid-conversation gets «Tara Salon-д тавтай морил».
