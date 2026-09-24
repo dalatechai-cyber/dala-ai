@@ -5,7 +5,7 @@ import { cannedHashOf } from '../prompt/sections.ts';
 import { renderStablePrefix } from '../prompt/render.ts';
 import { renderTenantSections } from '../prompt/tenant.ts';
 import { DAY_ONE_KB } from '../prompt/tenantKb.fixtures.ts';
-import { handleReception, type ReceptionDeps, type ReceptionInput } from './handle.ts';
+import { handleReception, PRICE_VIOLATION_FLAG, type ReceptionDeps, type ReceptionInput } from './handle.ts';
 import type { CallOutcome } from '../model/reception.ts';
 import type { GateRule } from '../gate/match.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
@@ -909,6 +909,44 @@ test('DONE-TEST: AN AMBIGUOUS OWNER IS COUNTED AND THE REPLY IS LEFT AS WRITTEN'
   assert.equal(drafts.at(-1)?.body, text, 'left exactly as written');
   const f = flags.find((x) => x.code === 'outbound_price_presentation');
   assert.match(f?.detail ?? '', /owner ambiguous/, 'but it is counted, never silent');
+});
+
+test('DONE-TEST: A PRICE VIOLATION IS COUNTED EVEN WHEN ANOTHER PATH REPLACES THE REPLY', async () => {
+  // Founder, 2026-09-24: "Count every violation." A FAQ drift is served before the price
+  // guard runs, so until now a misplaced price inside it was never counted anywhere.
+  const DYES = [
+    { name: 'Дунд үсний будаг', prices: ['176000'], rows: ['Дунд үсний будаг: 176,000₮'] },
+  ];
+  const FAQ = 'Хуурай, хугарсан үсэнд CICA нөхөн сэргээх эмчилгээ тохиромжтой. '
+    + 'Үсэнд тань аль нь тохирохыг мастер үсчин зөвлөж өгнө.';
+  const drifted = 'Хуурай, хугарсан үсэнд CICA нөхөн сэргээх эмчилгээ тохиромжтой. '
+    + 'Үсэнд тань аль нь тохирохыг мастер үсчин үзээд зөвлөж өгнө. Будаг 176,000₮.';
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text: drifted } });
+  await handleReception(d, {
+    ...base, faqAnswers: [FAQ], serviceNames: DYES, tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['176,000'] },
+  });
+  assert.equal(drafts.at(-1)?.body, FAQ, 'the FAQ path still serves the published answer');
+  const f = flags.find((x) => x.code === PRICE_VIOLATION_FLAG);
+  assert.ok(f, 'the misplaced price in the model text is counted anyway');
+  assert.match(f?.detail ?? '', /^1 violation\(s\): orphaned/);
+  assert.equal(f?.attempted, drifted);
+});
+
+test('the counter fires alongside the guard on an ordinary violation, and not on a clean reply', async () => {
+  const DYES = [
+    { name: 'Дунд үсний будаг', prices: ['176000'], rows: ['Дунд үсний будаг: 176,000₮'] },
+    { name: 'Урт үсний будаг', prices: ['200000'], rows: ['Урт үсний будаг: 200,000₮'] },
+  ];
+  const bad = await (async () => {
+    const { deps: d, flags } = deps({ result: { ...OK_REPLY, text: 'Будалт 176,000₮–200,000₮' } });
+    await handleReception(d, { ...base, serviceNames: DYES, tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['176,000', '200,000'] } });
+    return flags;
+  })();
+  assert.ok(bad.some((x) => x.code === PRICE_VIOLATION_FLAG));
+  assert.ok(bad.some((x) => x.code === 'outbound_price_presentation'));
+  const { deps: d, flags } = deps({ result: { ...OK_REPLY, text: 'Дунд үсний будаг: 176,000₮ байна.' } });
+  await handleReception(d, { ...base, serviceNames: DYES, tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['176,000'] } });
+  assert.equal(flags.some((x) => x.code === PRICE_VIOLATION_FLAG), false);
 });
 
 test('DONE-TEST: a correctly presented price is left entirely alone', async () => {

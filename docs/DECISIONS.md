@@ -8737,3 +8737,32 @@ licenses «20%» anywhere (D-055's shape). It changes `content_hash` and not `ca
 - **The ancestor denies the new name to live customers today.** Its knowledge is
   `Matrix-Chatbot/config/currentClient.js`; changing it touches Matrix's live customers, so
   it is the founder's call and was not done.
+
+## D-115 — seq 13: the Tara line is live, prices stay in the prompt and every violation is counted
+
+**2026-09-24, founder's calls, after republishing Matrix as seq 13 (`content_hash 62d3d914…`,
+`canned_hash 21ada36b…`).**
+
+- **Decision 3 is deferred, not dropped.** *"Keep prices in the prompt, with the guard. Count
+  every violation, and I'll decide after Дали is live."* The guard only counted replies that
+  reached it; a reply replaced earlier (FAQ answer, pinned line, booking answer) skipped it.
+  `handle.ts` now writes `quality_flags.price_violation_seen` once per model reply whose OWN
+  text breaks the price-presentation rule, whatever is then served. Count them with
+  `select count(*) from quality_flags where flag = 'price_violation_seen'`.
+- **The bot must never deny the name.** The founder's reviewed line — «Тийм, манай салон одоо
+  Tara Salon нэртэй болсон. Шинэ мэдээллийг удахгүй хүргэнэ.» — is a `deterministic_replies`
+  row (`tara_rebrand`, `tenant_confirmed`), served whole before any model call when a message
+  mentions Tara or asks about the name, location or branches. Stems: `tara тара нэрээ neree
+  хаяг hayag байрш bairsh байрла bairla хаана haana салбар salbar`. That table is read per
+  request and is not part of the snapshot, so it needed no republish and cannot make
+  `canned_hash` stale. On the 236 real inbound messages on record, 17 carry one of those
+  words. Its cost is stated: a message that mixes a trigger with another question («tara
+  saloninxoon … urdichilgaa awch baigaa yu?», «байршил хаана вэ … хэд вэ») gets only the
+  line, and an address question no longer gets the Maps link. Prices, addresses and links
+  are unchanged until the salon sends new details; TARA LUMI is left alone.
+- **Tara Salon's branches are named by location.** «Tara salon яармаг салбар» is Tara Salon,
+  Yarmag branch — one branch today, a second coming. D-114's six-branch question is answered;
+  its proposed knowledge-base row is superseded by the line above.
+- `scripts/bakeoff/dala.ts --gate` runs the tenant's real refusal rules and deterministic
+  rows, shaped by `reception/load.ts`'s own `toRules`/`toDeterministic`. Without it the
+  harness measured a bot with no gate.

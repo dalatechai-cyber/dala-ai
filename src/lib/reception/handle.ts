@@ -35,6 +35,12 @@ import { hasTenantData } from '../prompt/tenant.ts';
 import { priceLineReport } from '../quality/priceLines.ts';
 import { serviceNameReport, type PricedService } from '../quality/serviceNames.ts';
 import { pricePresentation, renderQuotedRows } from '../guard/pricePresentation.ts';
+
+/**
+ * One `quality_flags` row per model reply whose text broke the price-presentation rule,
+ * whatever was then served. The count decision 3 is waiting on (D-115).
+ */
+export const PRICE_VIOLATION_FLAG = 'price_violation_seen';
 import { bookingApology, renderBookingAnswer, apologyStemsFrom } from '../guard/bookingApology.ts';
 import { capToSingleMessage } from '../mn/text.ts';
 
@@ -488,6 +494,24 @@ export async function handleReception(
   // Checked BEFORE the canned pinning so the more specific source wins attribution: a FAQ
   // answer and a canned row can share a closing sentence, and reporting a FAQ drift as
   // `canned_paraphrased` would send a reader to the wrong table (D-066).
+  // EVERY price violation in what the model wrote is counted, whichever path the reply
+  // then takes. Founder, 2026-09-24, on decision 3: *"Keep prices in the prompt, with the
+  // guard. Count every violation, and I'll decide after Дали is live."* The guard below
+  // only sees replies that reach it — a reply replaced by a FAQ answer, a pinned line or
+  // the booking answer skips it, and a violation in that model text went uncounted. The
+  // decision is about how often the MODEL misplaces a price, not about what was served,
+  // so the count is taken here, on the model's own text, once per reply.
+  const seenPrices = pricePresentation(result.text, input.serviceNames);
+  if (seenPrices.violations.length > 0) {
+    await deps.flag({
+      code: PRICE_VIOLATION_FLAG,
+      detail: `${seenPrices.violations.length} violation(s): `
+        + [...new Set(seenPrices.violations.map((v) => v.kind))].sort().join(', ')
+        + (seenPrices.ambiguous ? '; owner ambiguous' : ''),
+      attempted: result.text,
+    });
+  }
+
   const faqDrift = faqAdaptation(result.text, input.faqAnswers);
   if (faqDrift !== null) {
     await deps.flag({
