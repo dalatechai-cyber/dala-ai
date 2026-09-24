@@ -842,7 +842,15 @@ export async function handleReception(
   let groundedPrices: string | null = null;
   if (matched.grounded !== null) {
     const refusal = canned(input.canned, matched.grounded.kind);
+    // ANY refusal row counts, not only this rule's own: c03 «Хар өнгөтэй үсэнд орох уу» was
+    // answered with the photo-consultation refusal word for word, and a check that knew only
+    // `refusal_suitability` let it through with no price. The exception is a row another rule
+    // that fired on this message points at — that refusal was asked for, and stands.
+    const others = matched.matchedResponseKinds.filter((k) => k !== matched.grounded?.kind);
+    const refusalRow = pinned.kind !== 'clean'
+      && (pinned.canonicalKind === 'handoff' || pinned.canonicalKind.startsWith('refusal_'));
     const refused = (pinned.kind !== 'clean' && pinned.canonicalKind === matched.grounded.kind)
+      || (refusalRow && !others.includes(pinned.canonicalKind))
       || (refusal !== null && fold(result.text).includes(fold(refusal)));
     const unsupported = ungroundedSentences(result.text, tenantRegion(input.promptStable, SECTION_LABELS.dataMarker));
     if (refused || unsupported.length > 0) {

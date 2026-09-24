@@ -52,7 +52,7 @@ const DOC = 'Будсан үс хэт цайруулаагүй, уураг нь 
 const STABLE = `GATE\n=== ${SECTION_LABELS.dataMarker} ===\n=== ҮНИЙН ЖАГСААЛТ ===\n`
   + Object.values(ROWS).map((r) => `- ${r}`).join('\n') + `\n=== ТАНИЛЦУУЛГА ===\n${DOC}`
   // Since D-058 the reviewed lines are IN the prefix, so a refusal row is the tenant's own words.
-  + `\n=== БЭЛЭН ХАРИУЛТ ===\n- refusal_suitability: ${SUITABILITY}`;
+  + `\n=== БЭЛЭН ХАРИУЛТ ===\n` + CANNED.filter((c) => c.kind !== 'image_received').map((c) => `- ${c.kind}: ${c.body}`).join('\n');
 
 const ALIASES = [
   { name: 'Эмчилгээний хими', alias: 'himi' }, { name: 'Үсний угийн будаг', alias: 'өнгө' },
@@ -73,7 +73,7 @@ const DYE: DeterministicRule = {
   stems: ['будаг', 'будуул'], coverWords: ['үс', 'хэд', 'вэ'], placement: 'replace',
   quoteServices: ['Үсний угийн будаг', 'Дунд үсний будаг', 'Урт үсний будаг'],
 };
-const STYLIST = 'Таны үсэнд юу тохирохыг үсчин үзээд шийднэ.';
+const STYLIST = 'Үсэнд тань аль нь тохирохыг мастер үсчин зөвлөж өгнө.';
 const STYLIST_ROW: DeterministicRule = {
   ...confirmed, intent: 'suitability_stylist', body: STYLIST, matchMode: 'on_topic',
   stems: ['suitability_lat_orh'], coverWords: [], placement: 'append', quoteServices: [],
@@ -311,6 +311,26 @@ test('4 DONE-TEST: «Хар өнгөтэй үсэнд орох уу» FINDS THE 
   const t = run(SUITABILITY);
   await handleReception(t.deps, { ...base, customerMessage: 'Хар өнгөтэй usend orohu' });
   assert.equal(t.drafts[0]?.body, `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${STYLIST}`, 'the aliased service leads its kind');
+});
+
+test('4 DONE-TEST: A SUITABILITY QUESTION ANSWERED WITH ANOTHER REFUSAL ROW STILL GETS THE PRICES', async () => {
+  // c03, second full run: the model answered with a different approved refusal, exactly.
+  for (const reply of [UNLISTED, CANNED[0]?.body ?? '']) {
+    const t = run(reply);
+    await handleReception(t.deps, { ...base, customerMessage: 'Хар өнгөтэй usend orohu' });
+    assert.equal(t.drafts[0]?.body, `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${STYLIST}`, reply);
+  }
+});
+
+test('4: a refusal row that another fired rule points at stands', async () => {
+  const OTHER: GateRule = {
+    gate: 'Ш1', topicKey: 'keratin', matcher: { mode: 'contains_stem', stems: ['кератин'] },
+    quotePrice: false, deterministicShortcircuit: false, responseKind: 'refusal_price_unlisted',
+    provenance: 'tenant_confirmed', groundedOnly: false,
+  };
+  const t = run(UNLISTED);
+  await handleReception(t.deps, { ...base, rules: [SUIT, OTHER], customerMessage: 'кератин өнгөтэй usend orohu' });
+  assert.equal(t.drafts[0]?.body, UNLISTED);
 });
 
 test('2 DONE-TEST: A REFUSED REPLY QUOTING THE BOOKING LINE WHOLE SERVES THAT LINE, WITH THE DEPOSITS', async () => {
