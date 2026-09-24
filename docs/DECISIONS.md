@@ -8892,3 +8892,96 @@ Both new customer-visible lines, the `stylist_tier` body and the stylist line, w
 by the founder on 2026-09-24 in the wording above. The two `deterministic_replies` rows are
 read per request and took effect when written. The FAQ answer and the tier document are in
 the prefix, and they reach the model with the same republish.
+
+## D-118 — every customer-facing wording in the comparison is approved; Matrix's cutover audit
+
+**2026-09-24, founder:** *"I approve every customer-facing wording in the comparison."* That
+covers every line a customer can receive in the round-3 comparison and the five live seq 14
+turns: the `deterministic_replies` bodies (`greeting`, `dye_prices`, `photo_send`,
+`stylist_tier`, `suitability_stylist`, `tara_name`, `tara_rebrand`), the reviewed
+`canned_responses`, the FAQ answers, and the knowledge-base documents the model quotes
+(«Салбарууд», «Мастер ба 1-р зэргийн үсчин»). The rows already say so: all seven reply rows
+are `tenant_confirmed`, no canned line is unreviewed, and every FAQ is `tenant_confirmed`.
+This entry is the record of who approved them and when.
+
+### Readiness for `live`, read from production on 2026-09-24
+
+Nothing was switched. The audit is the founder's pre-cutover list.
+
+1. **Caching: ready.** In the last 7 days, 131 of Matrix's 152 real turns read the prefix
+   from cache. A cached reply averaged $0.0041 and an uncached one $0.0443. Seq 14's prefix
+   is 16,354 tokens, and its first two model turns cost $0.067 uncached and $0.0061 cached.
+   The spend guard reserves `RECEPTION_REPLY_ESTIMATE` = $0.041 per reply, so an uncached
+   reply now settles above its reservation. That is a money question, and it is left for
+   the founder.
+2. **Sending: ready in code, not proven on today's bytes.** `channel/recover.ts` moves
+   `authorization_error → active` on the first send that returns a `provider_message_id`,
+   and only then. Meta last accepted this credential on 2026-09-21 at 03:28:45 (17 real
+   sends between 02:51 and 03:29). Nothing has used it since, and a re-seal does not reset
+   `last_ok_at`. Before cutover, run `scripts/kek/verify.ts` and
+   `GET /1520409424715591/subscribed_apps`.
+3. **Typing bubble: ready.** It is gated on `delivery.deliver` (live only). It runs after
+   every exit that ends in no reply, and it is never awaited.
+4. **Our own echoes: ready, with one open item.** An echo is ours if its `mid` matches a
+   recorded `provider_message_id`, and an echo carrying any app id counts as "an app, not a
+   person". Neither path can mark a thread `human`. Echoes never become customer messages:
+   the ten events of the seq 14 test produced five drafts. The open item: no echo of our
+   own send exists in production yet (echoes were subscribed at 14:55 on 09-21, after the
+   17 sends). It is also unverified whether a person typing in the Page Inbox pauses the
+   bot: all 51 echoes on record carry the ancestor's app id.
+5. **Alerts and breaker: ready.**
+   - A rate limit or a 5xx is retried by QStash, then raises one critical
+     `delivery_exhausted`. That alert is suppressed only when someone other than us
+     answered the customer.
+   - A revoked token halts the channel, with one critical alert that has no period.
+   - A reply that may or may not have arrived is parked, with one warning. It is never
+     re-sent.
+   - Three consecutive credential failures halt the channel.
+   - The 15-minute rule (`max_reply_age_minutes = 15`): a message older than 15 minutes by
+     Meta's clock is not answered and gets a `reply_too_late` flag, not a page. A stranded
+     event younger than 15 minutes is re-queued; an older one is expired and paged.
+   - The silence verdicts go to the digest only. Today's `no_messages` was a quiet Page:
+     the ancestor's echoes stop in the same window.
+6. **Comments: not ready as configured.** Comment replies follow `delivery_mode`, and
+   Matrix's `comment_policy` is `public_only`, so switching the channel live would also
+   post comment replies. Set `comment_policy = 'none'` in the same statement.
+7. **Token: ready.** `expires_at` is null (the token never expires).
+   `data_access_expires_at` is 2026-12-20 00:00 UTC. The hourly health job puts a warning
+   in the digest from 2026-11-20 (30 days) and pages from 2026-12-13 (7 days).
+8. **Cutover order: correct, with two additions.** See below.
+
+### Cutover, in order
+
+1. Run `scripts/kek/verify.ts --tenant matrix-eco-salon --channel 1520409424715591 --kind
+   page_token`.
+2. Run `GET /1520409424715591/subscribed_apps` and save the `dalatech` app's
+   `subscribed_fields`.
+3. Unsubscribe the ancestor. Do it from the `dalatech` app (1380702870025418), with its own
+   dashboard or its own token. **Never with the token sealed for Dala AI**: a DELETE removes
+   the CALLING app's subscription, so it would unsubscribe `DALA_AI` (1562862634970492).
+4. Repeat step 2. `DALA_AI` must still be subscribed to `messages`, `message_echoes` and
+   `feed`.
+5. Switch Dala AI live:
+
+   ```sql
+   update tenant_channels set delivery_mode = 'live', comment_policy = 'none'
+    where id = '1fb6d543-3e14-4f42-ab9e-fd39cbc09cd5';
+   ```
+
+   The CHECKs pass (`token_status = 'active'`, `name_confirmed_at` is set).
+
+A message that arrives between steps 3 and 5 is drafted and never sent, so keep that gap
+short and read the Page inbox afterwards.
+
+### Rollback, if a live reply is wrong
+
+1. Stop sending. The next job reads the new mode, and drafts continue:
+
+   ```sql
+   update tenant_channels set delivery_mode = 'shadow'
+    where id = '1fb6d543-3e14-4f42-ab9e-fd39cbc09cd5';
+   ```
+
+2. Re-subscribe the ancestor from the `dalatech` app with the fields saved in cutover step
+   2. `POST /{page-id}/subscribed_apps` replaces that app's field list rather than adding
+   to it (D-043), so send the whole list.
