@@ -8844,8 +8844,10 @@ tenant in `src/`.
   авахаа хэлбэл үнийг нь хэлье.» Its cover words exclude «хэд», «цаг», «хэн» and «байна», so
   «Мастер хэд вэ», «Мастерт цаг авъя» and «Мастер үсчин хэн бэ» still reach the model. The
   knowledge base gains «Мастер ба 1-р зэргийн үсчин», which says the same thing. The
-  suitability stylist line said «мастер үсчин зөвлөж өгнө» — the tier word, in the sentence
-  that must not favour a tier — and now reads «Таны үсэнд юу тохирохыг үсчин үзээд шийднэ.»
+  suitability stylist line «Үсэнд тань аль нь тохирохыг мастер үсчин зөвлөж өгнө.» is the
+  founder's own sentence, from his damaged-hair FAQ. It was briefly reworded here to drop the
+  tier word, and then put back: an unreviewed rewording of an approved line is exactly what
+  D-065 forbids. Whether «мастер үсчин» there reads as the tier is his call.
 - **4 — a «can it be done» question gets prices, then «the stylist decides».** `0042` adds
   `match_mode = 'on_topic'`: the row fires when any of its `stems` is a gate topic that
   fired, so `suitability_stylist` is appended to every suitability answer. When the reply is
@@ -8853,7 +8855,11 @@ tenant in `src/`.
   quoted, else `relevantRows` over the customer's message, then over the reply. A grounded
   reply that quotes no price keeps its words, and the rows the CUSTOMER named are composed
   after it (`suitability_prices_added`); c07, the founder's own example, is exactly this. Only
-  when there are no rows to give is the refusal line served.
+  when there are no rows to give is the refusal line served. "Refused" means ANY reviewed
+  refusal row, not only the rule's own: on the full run c03 was answered with the
+  photo-consultation refusal word for word, and a check that knew only `refusal_suitability`
+  served it with no price. A row that another rule firing on the same message points at still
+  stands, because that refusal was asked for.
 
   `relevantRows` finds a listed name or a `service_aliases` alias whole in the text, then adds
   every listed service of the same KIND (the same last word, head-final): «himi» → every
@@ -8881,5 +8887,5 @@ decision questions and the deposit order. The deterministic rows and aliases are
 every request and are already live in shadow. No `canned_responses` row changed, so there is
 no `canned_stale` window.
 
-Wording the founder has not yet read in this form: the `stylist_tier` body and the reworded
-`suitability_stylist` line. Both are customer-visible, and both are in the comparison.
+Wording the founder has not yet read in this form: the `stylist_tier` body. It is
+customer-visible, and it is in the comparison.
