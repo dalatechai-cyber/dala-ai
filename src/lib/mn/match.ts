@@ -182,6 +182,29 @@ export function wholeMessageKey(text: string): string {
 }
 
 /**
+ * Is this message ABOUT the stems and nothing else?
+ *
+ * True when some word starts with one of `stems`, and EVERY word either starts with one
+ * of `stems` or is exactly one of `coverWords`. The two lists are matched differently on
+ * purpose. A stem is a prefix, so «тара» reaches «Тарагийн» and «будуул» reaches
+ * «будуулахад» without a morphological analyser (the rule `containsStem` states). A cover
+ * word is WHOLE, because it only ever says "this word may sit beside the topic": a prefix
+ * «та» would cover «тайралт», and a haircut question would be read as a question about
+ * the name.
+ *
+ * Words are the reduced form's space-separated runs — punctuation, symbols and emoji are
+ * already gone — so «Tara salon мөн үү?» is four words and the question mark is none.
+ */
+export function coversMessage(text: string, stems: readonly string[], coverWords: readonly string[]): boolean {
+  const words = wholeMessageKey(text).split(' ').filter((w) => w !== '');
+  if (words.length === 0) return false;
+  const anchors = stems.map((st) => fold(st)).filter((st) => st !== '');
+  const cover = new Set(coverWords.map((w) => wholeMessageKey(w)).filter((w) => w !== ''));
+  const isAnchor = (w: string): boolean => anchors.some((a) => w.startsWith(a));
+  return words.some(isAnchor) && words.every((w) => isAnchor(w) || cover.has(w));
+}
+
+/**
  * Exact set membership over the reduced form. High precision, low recall, on purpose: a
  * missed greeting costs one cheap model call, and the model handles it perfectly. A
  * stolen question costs a customer (§6.8 rule 4).

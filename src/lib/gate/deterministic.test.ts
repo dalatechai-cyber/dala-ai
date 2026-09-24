@@ -1,18 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchDeterministic, type DeterministicRule, type HistoryState } from './deterministic.ts';
+import { composeQuoted, matchDeterministic, withAppended, type DeterministicRule, type HistoryState } from './deterministic.ts';
 
 const GREETING: DeterministicRule = {
   intent: 'greeting', body: 'Сайн байна уу! Танд юугаар туслах вэ?',
   enabled: true, matchMode: 'whole_message',
   stems: ['сайн байна уу', 'сайн байцгаана уу', 'байна уу'],
-  requiresEmptyHistory: true, provenance: 'tenant_confirmed',
+  coverWords: [], placement: 'replace' as const, quoteServices: [], requiresEmptyHistory: true, provenance: 'tenant_confirmed',
 };
 const LOCATION: DeterministicRule = {
   intent: 'location', body: 'Бид Сүхбаатар дүүрэгт байрладаг.',
   enabled: true, matchMode: 'contains_stem',
   stems: ['хаана байрлад', 'байршил'],
-  requiresEmptyHistory: false, provenance: 'tenant_confirmed',
+  coverWords: [], placement: 'replace' as const, quoteServices: [], requiresEmptyHistory: false, provenance: 'tenant_confirmed',
 };
 
 const FIRST: HistoryState = { known: true, empty: true };
@@ -132,7 +132,7 @@ test('every rule that could have fired and did not is reported', () => {
 });
 
 test('no rules at all is a clean miss, not an error', () => {
-  assert.deepEqual(matchDeterministic('юу ч', [], FIRST), { hit: null, skipped: [], suppressed: [] });
+  assert.deepEqual(matchDeterministic('юу ч', [], FIRST), { hit: null, appends: [], skipped: [], suppressed: [] });
 });
 
 // ---------------------------------------------------------------------------
@@ -181,4 +181,100 @@ test('a confirmed rule fires and reports nothing suppressed', () => {
   const r = matchDeterministic('Сайн байна уу', [GREETING], FIRST);
   assert.equal(r.hit?.intent, 'greeting');
   assert.deepEqual(r.suppressed, []);
+});
+
+// ---------------------------------------------------------------------------
+// 0041 — append rows, covers_message, quote_services (founder, 2026-09-24)
+// ---------------------------------------------------------------------------
+
+const TARA_LINE = 'Тийм, манай салон одоо Tara Salon нэртэй болсон. Шинэ мэдээллийг удахгүй хүргэнэ.';
+const TARA_NAME: DeterministicRule = {
+  intent: 'tara_name', body: TARA_LINE, enabled: true, matchMode: 'covers_message',
+  stems: ['tara', 'тара', 'матрикс', 'matrix', 'нэрээ', 'neree'],
+  coverWords: ['сайн', 'байна', 'уу', 'үү', 'энэ', 'салон', 'salon', 'мөн', 'та', 'нар', 'solison', 'uu'],
+  placement: 'replace', quoteServices: [], requiresEmptyHistory: false, provenance: 'tenant_confirmed',
+};
+const TARA_APPEND: DeterministicRule = {
+  intent: 'tara_rebrand', body: TARA_LINE, enabled: true, matchMode: 'contains_stem',
+  stems: ['tara', 'тара', 'хаяг', 'hayag', 'хаана', 'haana', 'байрш', 'байрла', 'салбар'],
+  coverWords: [], placement: 'append', quoteServices: [], requiresEmptyHistory: false, provenance: 'tenant_confirmed',
+};
+const DYE: DeterministicRule = {
+  intent: 'dye_prices', body: 'Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?', enabled: true,
+  matchMode: 'covers_message', stems: ['будаг', 'будуул', 'будах', 'будал', 'budag', 'buduul', 'budal'],
+  coverWords: ['үс', 'us', 'хэд', 'hed', 'вэ', 've', 'үнэ'],
+  placement: 'replace', quoteServices: ['Үсний угийн будаг', 'Дунд үсний будаг', 'Урт үсний будаг'],
+  requiresEmptyHistory: false, provenance: 'tenant_confirmed',
+};
+const ANY: HistoryState = { known: true, empty: false };
+
+test('DONE-TEST: A QUESTION ONLY ABOUT THE NAME GETS THE LINE ON ITS OWN', () => {
+  for (const m of ['Сайн байна уу, энэ Тара салон мөн үү?', 'Matrix salon neree solison uu?', 'Та нар Матрикс салон уу, Тара салон уу?']) {
+    const r = matchDeterministic(m, [TARA_NAME, TARA_APPEND], ANY);
+    assert.equal(r.hit?.intent, 'tara_name', m);
+  }
+});
+
+test('DONE-TEST: ANY OTHER WORD MEANS IT IS NOT ONLY ABOUT THE NAME — THE LINE IS APPENDED', () => {
+  // f10, n05, r01, r02, r04: the answer is produced as normal and the line goes at the end.
+  for (const m of ['Хаана байрладаг вэ?', 'hayag', 'Tara salon hayag haana baidag ve?',
+    'Tara salon яармаг салбар yarmagtaa bizdee hehe', 'Sainuu, tara saloninxoon, urdichilgaa awch baigaa yu?']) {
+    const r = matchDeterministic(m, [TARA_NAME, TARA_APPEND], ANY);
+    assert.equal(r.hit, null, `${m} must not be answered by the line alone`);
+    assert.deepEqual(r.appends.map((a) => a.intent), ['tara_rebrand'], m);
+  }
+});
+
+test('a cover word is WHOLE: «та» does not cover «тайралт»', () => {
+  const r = matchDeterministic('Тара салон тайралт', [TARA_NAME], ANY);
+  assert.equal(r.hit, null, 'a haircut question is not a question about the name');
+});
+
+test('a covers_message row does not fire on a message carrying a picture', () => {
+  const r = matchDeterministic('Будаг хэд вэ?', [DYE], ANY, { hasAttachment: true });
+  assert.equal(r.hit, null);
+  assert.deepEqual(r.skipped, [{ intent: 'dye_prices', reason: 'has_attachment' }]);
+});
+
+test('DONE-TEST: «Үс будуулахад хэд вэ?» IS THE COLOUR ROW; «Сор хэд вэ?» IS NOT', () => {
+  assert.equal(matchDeterministic('Үс будуулахад хэд вэ?', [DYE], ANY).hit?.intent, 'dye_prices');
+  assert.equal(matchDeterministic('Будаг хэд вэ?', [DYE], ANY).hit?.intent, 'dye_prices');
+  assert.equal(matchDeterministic('us budalt', [DYE], ANY).hit?.intent, 'dye_prices');
+  assert.equal(matchDeterministic('Сор хэд вэ?', [DYE], ANY).hit, null);
+  assert.equal(matchDeterministic('Эмэгтэй сортой будаг хийлгэх гэсийн', [DYE], ANY).hit, null);
+  assert.equal(matchDeterministic('будагтай үсний уг цайруулалт хэд вэ', [DYE], ANY).hit, null);
+});
+
+test('an unconfirmed append row is withheld and reported, like any other', () => {
+  const r = matchDeterministic('hayag', [{ ...TARA_APPEND, provenance: 'seeded' }], ANY);
+  assert.deepEqual(r.appends, []);
+  assert.deepEqual(r.suppressed, ['tara_rebrand']);
+});
+
+const PRICE_LIST = [
+  { name: 'Дунд үсний будаг', rows: ['Дунд үсний будаг (мөрнөөс дээш урттай үс): 176,000₮'] },
+  { name: 'Урт үсний будаг', rows: ['Урт үсний будаг (мөр давсан урттай үс): 200,000₮'] },
+  { name: 'Үсний угийн будаг', rows: ['Үсний угийн будаг: 135,000₮'] },
+];
+
+test('DONE-TEST: QUOTED ROWS COME FROM THE PRICE LIST IN THE ROW\'S ORDER, THEN THE QUESTION', () => {
+  assert.equal(composeQuoted(DYE, PRICE_LIST), [
+    'Үсний угийн будаг: 135,000₮',
+    'Дунд үсний будаг (мөрнөөс дээш урттай үс): 176,000₮',
+    'Урт үсний будаг (мөр давсан урттай үс): 200,000₮',
+    '',
+    'Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?',
+  ].join('\n'));
+});
+
+test('a service missing from the price list means the row does not answer', () => {
+  assert.equal(composeQuoted(DYE, PRICE_LIST.slice(0, 2)), null);
+});
+
+test('withAppended adds at the end, moves a copy the model wrote first, never doubles', () => {
+  const hit = [{ intent: 't', body: TARA_LINE, quoteServices: [] }];
+  assert.equal(withAppended('Хаяг: Яармаг.', hit), `Хаяг: Яармаг.\n\n${TARA_LINE}`);
+  assert.equal(withAppended(`${TARA_LINE}\n\nХаяг: Яармаг.`, hit), `Хаяг: Яармаг.\n\n${TARA_LINE}`);
+  assert.equal(withAppended(TARA_LINE, hit), TARA_LINE);
+  assert.equal(withAppended('x', []), 'x');
 });

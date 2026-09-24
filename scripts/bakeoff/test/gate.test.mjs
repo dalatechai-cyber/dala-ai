@@ -24,8 +24,8 @@ const PREFIX = `
 Утас: +976 7741 7777
 === ҮНИЙН ЖАГСААЛТ ===
 Эмэгтэй тайралт (1-р зэрэг): 55,000₮
-Гарын спа: 30,000₮
-Будаггүй маникюр: 25,000₮
+Угаалт: 22,000₮
+Сахал засах: 16,500₮
 === УРЬДЧИЛГАА ТӨЛБӨРИЙН ДҮРЭМ ===
 Мастер үсчин: 20,000₮ урьдчилгаа
 1-р зэргийн үсчин: 10,000₮ урьдчилгаа
@@ -52,8 +52,8 @@ test('real prices stay grounded', () => {
   // in the prefix (systemPromptBuilder.js:148 in the real one) and must never flag.
   for (const r of [
     'Мастер үсчинд цаг авахад 20,000₮ урьдчилгаа шаардлагатай.',
-    'Гарын спа 30,000₮.',
-    'Будаггүй маникюр 25,000₮.',
+    'Угаалт 22,000₮.',
+    'Сахал засах 16,500₮.',
   ]) assert.deepEqual(ungrounded(r), [], `false positive on: ${r}`);
 });
 
@@ -64,13 +64,13 @@ test('genuinely invented figures are caught', () => {
 
 test('KNOWN LIMIT: a real price quoted for the wrong service is NOT caught', () => {
   // The gate asks whether a number appears in the prefix, not whether it is the
-  // right number for the question. A children's haircut quoted at 30,000₮ passes,
-  // because 30,000₮ is a genuine price — for a hand spa.
+  // right number for the question. A children's haircut quoted at 22,000₮ passes,
+  // because 22,000₮ is a genuine price — for a wash.
   //
   // This is the price-by-inference failure the ancestor produced, and it is why
   // price_unlisted carries the stricter no-number-at-all rule instead of relying on
   // this gate. Pinned so the limit is not mistaken for coverage.
-  assert.deepEqual(ungrounded('Хүүхдийн тайралт 30,000₮.'), []);
-  assert.equal(noNumberAtAll('Хүүхдийн тайралт 30,000₮.'), false, 'the stricter rule must catch it');
+  assert.deepEqual(ungrounded('Хүүхдийн тайралт 22,000₮.'), []);
+  assert.equal(noNumberAtAll('Хүүхдийн тайралт 22,000₮.'), false, 'the stricter rule must catch it');
   assert.equal(noNumberAtAll('Уучлаарай, та 7741-7777 руу залгана уу.'), true);
 });

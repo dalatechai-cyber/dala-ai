@@ -28,7 +28,15 @@ import { isStale } from '../model/reception.ts';
 import type { Usage } from '../spend/settle.ts';
 import { kindsRequiredByRules, kindsReferencedBy, matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
 import { cannedHashOf } from '../prompt/sections.ts';
-import { matchDeterministic, type DeterministicRule, type HistoryState } from '../gate/deterministic.ts';
+import {
+  composeQuoted, matchDeterministic, withAppended, type DeterministicRule, type HistoryState,
+} from '../gate/deterministic.ts';
+import { isTenantConfirmed } from '../provenance.ts';
+import { appendedNotice } from './volatile.ts';
+import { tenantRegion, ungroundedSentences } from '../guard/grounding.ts';
+import { refusalMarkerFrom, unwarrantedApology } from '../guard/apology.ts';
+import { fold } from '../mn/text.ts';
+import { SECTION_LABELS } from '../prompt/tenant.ts';
 import { checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
@@ -174,6 +182,60 @@ function canned(rows: readonly CannedRow[], kind: string): string | null {
 }
 
 /**
+ * The tenant's "set" rows: a confirmed, enabled `replace` row that quotes two or more
+ * price-list services (`0041`). Its `quote_services` order and its body are the tenant's
+ * own presentation of that set — Matrix's colour rows, root first, then the founder's
+ * question — so wherever the platform serves those prices FROM DATA, it serves them this
+ * way. Founder, 2026-09-24: *"…then my question, also when served from data."*
+ */
+/** A set is two or more services; one service quoted is a price, not a choice to ask about. */
+const MIN_SET_SERVICES = 2;
+
+function setRows(rules: readonly DeterministicRule[]): DeterministicRule[] {
+  return rules.filter((r) => r.enabled && r.placement === 'replace' && r.quoteServices.length >= MIN_SET_SERVICES
+    && isTenantConfirmed(r.provenance));
+}
+
+/** The set row covering every quoted service, when at least two of its services are quoted. */
+function setRowFor(rules: readonly DeterministicRule[], quoted: readonly { name: string }[]): DeterministicRule | null {
+  if (quoted.length < MIN_SET_SERVICES) return null;
+  return setRows(rules).find((r) => quoted.every((q) => r.quoteServices.includes(q.name))) ?? null;
+}
+
+/**
+ * Does the reply already list the set's services in the row's order and then ask its
+ * question? A reply that does is left exactly as written.
+ */
+function inSetOrder(text: string, row: DeterministicRule): boolean {
+  const f = fold(text);
+  let at = -1;
+  for (const name of row.quoteServices) {
+    const i = f.indexOf(fold(name));
+    if (i <= at) return false;
+    at = i;
+  }
+  const q = row.body.trim();
+  return q === '' || f.indexOf(fold(q), at) > at;
+}
+
+/**
+ * The prices this reply quoted, served from the price list rather than as the model wrote
+ * them: the set row when one covers them, else the rows themselves. Null when the owner of
+ * a price is unknowable or nothing was quoted — the platform then does not guess.
+ */
+function dataAnswer(text: string, input: ReceptionInput): string | null {
+  const p = pricePresentation(text, input.serviceNames);
+  if (p.ambiguous || p.quoted.length === 0) return null;
+  const row = setRowFor(input.deterministic, p.quoted);
+  if (row !== null) {
+    const composed = composeQuoted(row, input.serviceNames);
+    if (composed !== null) return composed;
+  }
+  const rows = renderQuotedRows(p.quoted);
+  return rows === '' ? null : rows;
+}
+
+/**
  * Fall back to the tenant's handoff line.
  *
  * Used for every outcome where the model's own text must not be sent: a safety refusal, a
@@ -314,7 +376,17 @@ export async function handleReception(
   //    It runs AFTER the review gate on purpose: a deterministic reply is still a
   //    customer-visible sentence, and an unreviewed one must not ship just because no
   //    model was involved in choosing it.
-  const shortcut = matchDeterministic(input.customerMessage, input.deterministic, input.historyState);
+  const shortcut = matchDeterministic(input.customerMessage, input.deterministic, input.historyState,
+    { hasAttachment: input.customerAttachments.length > 0 });
+  // `append` rows (`0041`): whatever is served from here on, their bodies go at the END.
+  // Founder, 2026-09-24: *"The Tara line must never replace an answer. Only a question about
+  // the name gets the line on its own."* Every draft below goes through `d`, handoff
+  // included, so no path can serve an answer without the line or the line without an answer.
+  const appends = shortcut.appends;
+  const d: ReceptionDeps = appends.length === 0 ? deps : {
+    ...deps,
+    draft: (x) => deps.draft({ ...x, body: withAppended(x.body, appends) }),
+  };
   // The other direction of the same rule: this row MATCHED and was withheld, because its
   // body would have been sent to the customer verbatim. The model answers instead, at the
   // cost of one call — and the flag is the only trace that a provisioned answer existed and
@@ -325,7 +397,17 @@ export async function handleReception(
       detail: `matched but withheld pending tenant confirmation: ${shortcut.suppressed.join(', ')}`,
     });
   }
-  if (shortcut.hit !== null) {
+  // A row that quotes prices renders them from the compiled price list. If one of its
+  // services is not on the list, the row does not answer and the model does — with a flag,
+  // because a set row that silently stopped firing is a dead row nobody can see.
+  const shortcutBody = shortcut.hit === null ? null : composeQuoted(shortcut.hit, input.serviceNames);
+  if (shortcut.hit !== null && shortcutBody === null) {
+    await deps.flag({
+      code: 'deterministic_reply_unresolved',
+      detail: `${shortcut.hit.intent} names a service the price list does not carry: ${shortcut.hit.quoteServices.join(', ')}`,
+    });
+  }
+  if (shortcut.hit !== null && shortcutBody !== null) {
     await deps.release();   // nothing was spent, so the hold goes straight back
     // `deterministic`, not `canned`. `0001`'s CHECK has carried both values since the
     // schema was written and nothing had ever used the distinction: a `deterministic_replies`
@@ -333,7 +415,7 @@ export async function handleReception(
     // a different amount to serve (this path spends nothing at all). Recording both as
     // `canned` would make the mirror's corpus unable to answer the first question anybody
     // asks of it — how often did a row answer without the model.
-    const drafted = await deps.draft({ body: shortcut.hit.body, answeredBy: 'deterministic' });
+    const drafted = await d.draft({ body: shortcutBody, answeredBy: 'deterministic' });
     return drafted.ok
       ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'deterministic' }
       : { kind: 'retry', detail: drafted.detail };
@@ -348,7 +430,7 @@ export async function handleReception(
       return { kind: 'retry', detail: `short-circuit names ${matched.shortCircuitKind}, which is missing or unreviewed` };
     }
     await deps.release();   // nothing was spent, so the hold goes straight back
-    const drafted = await deps.draft({ body: line, answeredBy: 'canned' });
+    const drafted = await d.draft({ body: line, answeredBy: 'canned' });
     return drafted.ok
       ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned' }
       : { kind: 'retry', detail: drafted.detail };
@@ -385,7 +467,7 @@ export async function handleReception(
     // business from an empty prefix; a reviewed canned row is the tenant's own words, so
     // serving one cannot invent anything. A day-one tenant that has written its
     // children's-services refusal should say that, not «I can't answer this».
-    return handoff(deps, input, {
+    return handoff(d, input, {
       code: 'no_tenant_data',
       detail: 'the compiled prefix carries no tenant sections: the model would have nothing to answer from',
     }, matched.matchedResponseKinds);
@@ -402,6 +484,12 @@ export async function handleReception(
     return { kind: 'retry', detail: 'could not mark the reservation called' };
   }
 
+  // The lines an `append` row will add, so the model does not contradict them — per
+  // request, in L4, never in the cached prefix: they depend on this customer's message.
+  const volatile = appends.length === 0
+    ? input.promptVolatile
+    : `${input.promptVolatile}\n${appendedNotice(appends.map((a) => a.body))}`;
+
   const result = await deps.callModel({
     modelId: input.modelId,
     promptStable: input.promptStable,
@@ -409,8 +497,8 @@ export async function handleReception(
     // the move, in which case it is still appended here. ~1,000 tokens per reply that used
     // to be paid at full input rate for text that only changes at publish.
     promptVolatile: input.cannedHash === null
-      ? `${input.promptVolatile}\n${section.body}`.trim()
-      : input.promptVolatile,
+      ? `${volatile}\n${section.body}`.trim()
+      : volatile,
     cacheMode: input.cacheMode,
     history: input.history,
     customerMessage: input.customerMessage,
@@ -448,7 +536,7 @@ export async function handleReception(
   if (result.kind === 'terminal') {
     // `max_tokens` in particular may leave a truncated Mongolian half-sentence, and
     // `refusal` arrives as HTTP 200 with a plausible-looking body.
-    return handoff(deps, input,
+    return handoff(d, input,
       { code: `model_${result.reason}`, detail: result.detail },
       matched.matchedResponseKinds);
   }
@@ -520,7 +608,7 @@ export async function handleReception(
         + `(${faqDrift.run} characters shared)`,
       attempted: result.text,
     });
-    const served = await deps.draft({ body: faqDrift.answer, answeredBy: 'canned' });
+    const served = await d.draft({ body: faqDrift.answer, answeredBy: 'canned' });
     return served.ok
       ? { kind: 'drafted', outboundId: served.id, answeredBy: 'canned' }
       : { kind: 'retry', detail: served.detail };
@@ -553,10 +641,39 @@ export async function handleReception(
           + `Attempted: ${result.text}`,
       });
     }
-    const drafted = await deps.draft({ body: pinned.canonical, answeredBy: 'canned' });
+    const drafted = await d.draft({ body: pinned.canonical, answeredBy: 'canned' });
     return drafted.ok
       ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned' }
       : { kind: 'retry', detail: drafted.detail };
+  }
+
+  // ---- Advice the tenant's data does not give (`grounded_only`, 0041) -----
+  //
+  // Founder, 2026-09-24: *"If that isn't in the salon's knowledge base, it must not say
+  // it."* Only where a rule the tenant marked `grounded_only` fired — Matrix's suitability
+  // rules — because that is where the model gives advice, and ordinary connective prose is
+  // in no document either. The refusal line written for the question is served instead,
+  // opened by the price rows the reply quoted when the rule allows a price: the customer
+  // asked about a service the salon sells, and its price is a fact the salon wrote.
+  if (matched.grounded !== null) {
+    const unsupported = ungroundedSentences(result.text, tenantRegion(input.promptStable, SECTION_LABELS.dataMarker));
+    const refusal = canned(input.canned, matched.grounded.kind);
+    if (unsupported.length > 0 && refusal !== null) {
+      const prices = matched.grounded.quotePrice ? dataAnswer(result.text, input) : null;
+      await deps.flag({
+        code: 'advice_ungrounded',
+        detail: `${unsupported.length} sentence(s) in no tenant row; served ${matched.grounded.kind}`
+          + `${prices === null ? '' : ' with the quoted price rows'}: ${unsupported[0] ?? ''}`,
+        attempted: result.text,
+      });
+      const served = await d.draft({
+        body: prices === null ? refusal : `${prices}\n\n${refusal}`,
+        answeredBy: prices === null ? 'canned' : 'deterministic',
+      });
+      return served.ok
+        ? { kind: 'drafted', outboundId: served.id, answeredBy: prices === null ? 'canned' : 'deterministic' }
+        : { kind: 'retry', detail: served.detail };
+    }
   }
 
   // ---- The guard, then the draft ------------------------------------------
@@ -573,9 +690,30 @@ export async function handleReception(
   );
 
   if (!guarded.ok) {
+    // A gate label or a forbidden phrasing in a PRICED answer: the prices are still facts,
+    // and the generic handoff is the one reply that answers nothing. Founder, 2026-09-24:
+    // «Үс будуулахад хэд вэ?» *"must never get the generic handoff or leak a label"* — the
+    // model had written the three colour rows correctly under «Ш2-т хамаарах…», and the
+    // customer got «Уучлаарай, би энэ асуултад хариулж чадахгүй байна». The rows are served
+    // from the price list, never the model's text. Only these two codes: every other
+    // refusal is about the numbers themselves, or about a topic that must carry none.
+    if (guarded.code === 'outbound_gate_label' || guarded.code === 'outbound_forbidden') {
+      const fromData = dataAnswer(result.text, input);
+      if (fromData !== null) {
+        await deps.flag({
+          code: guarded.code,
+          detail: `${guarded.detail} [served: the quoted prices from the price list]`,
+          attempted: result.text,
+        });
+        const served = await d.draft({ body: fromData, answeredBy: 'deterministic' });
+        return served.ok
+          ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
+          : { kind: 'retry', detail: served.detail };
+      }
+    }
     // The full attempted reply goes to the Quality layer. It is never edited and never
     // sent — an edited reply is an unreviewed reply.
-    return handoff(deps, input,
+    return handoff(d, input,
       { code: guarded.code, detail: guarded.detail, attempted: result.text },
       matched.matchedResponseKinds);
   }
@@ -585,7 +723,7 @@ export async function handleReception(
   const closing = canned(input.canned, 'closing') ?? '';
   const capped = capToSingleMessage(result.text, MAX_REPLY_CHARS, closing);
   if (capped === null) {
-    return handoff(deps, input,
+    return handoff(d, input,
       { code: 'outbound_length', detail: 'no sentence boundary within the cap', attempted: result.text },
       matched.matchedResponseKinds);
   }
@@ -656,7 +794,7 @@ export async function handleReception(
         detail: `the booking reply opened by apologising: ${apology.opening}`,
         attempted: capped.text,
       });
-      const served = await deps.draft({ body: answer, answeredBy: 'deterministic' });
+      const served = await d.draft({ body: answer, answeredBy: 'deterministic' });
       return served.ok
         ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
         : { kind: 'retry', detail: served.detail };
@@ -676,7 +814,7 @@ export async function handleReception(
         detail: `${kinds}; owner ambiguous, reply left as written`,
         attempted: capped.text,
       });
-      const asIs = await deps.draft({ body: capped.text, answeredBy: 'model' });
+      const asIs = await d.draft({ body: capped.text, answeredBy: 'model' });
       return asIs.ok
         ? { kind: 'drafted', outboundId: asIs.id, answeredBy: 'model' }
         : { kind: 'retry', detail: asIs.detail };
@@ -687,23 +825,73 @@ export async function handleReception(
     // customer receiving a blank message, which is worse than any wrong price. Found by a
     // test fixture carrying `rows: []`, not by reasoning.
     if (rowsText === '') {
-      return handoff(deps, input,
+      return handoff(d, input,
         { code: 'outbound_price_presentation', detail: `${kinds}; no price-list rows to serve`, attempted: capped.text },
         matched.matchedResponseKinds);
     }
+    // A set the tenant presents as one — Matrix's colour rows — is served in the tenant's
+    // order with its question, not in price-list order without it.
+    const setRow = setRowFor(input.deterministic, presentation.quoted);
+    const setBody = setRow === null ? null : composeQuoted(setRow, input.serviceNames);
     await deps.flag({
       code: 'outbound_price_presentation',
       detail: `${kinds}; served the price list's own rows for: `
-        + presentation.quoted.map((q) => q.name).join(', '),
+        + presentation.quoted.map((q) => q.name).join(', ')
+        + (setRow === null || setBody === null ? '' : ` [as ${setRow.intent}]`),
       attempted: capped.text,
     });
-    const rows = await deps.draft({ body: rowsText, answeredBy: 'deterministic' });
+    const rows = await d.draft({ body: setBody ?? rowsText, answeredBy: 'deterministic' });
     return rows.ok
       ? { kind: 'drafted', outboundId: rows.id, answeredBy: 'deterministic' }
       : { kind: 'retry', detail: rows.detail };
   }
 
-  const drafted = await deps.draft({ body: capped.text, answeredBy: 'model' });
+  // A correct set answer in the wrong order, or without its question. Founder, 2026-09-24:
+  // *"«Үсний угийн будаг» first, then Дунд, then Урт, then my question."* Measured the same
+  // day: «Будаг хэд вэ?» got the question FIRST and the rows in price-list order, with no
+  // violation for the guard above to see. A reply already in the tenant's order is left
+  // exactly as written; only one that is not is served as the set row.
+  if (!presentation.ambiguous) {
+    const setRow = setRowFor(input.deterministic, presentation.quoted);
+    if (setRow !== null && !inSetOrder(capped.text, setRow)) {
+      const setBody = composeQuoted(setRow, input.serviceNames);
+      if (setBody !== null) {
+        await deps.flag({ code: 'set_presentation', detail: `served ${setRow.intent} in the tenant's order`, attempted: capped.text });
+        const served = await d.draft({ body: setBody, answeredBy: 'deterministic' });
+        return served.ok
+          ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
+          : { kind: 'retry', detail: served.detail };
+      }
+    }
+    // The set's question under a price that is NOT in the set: «Сор хэд вэ?» was answered
+    // with Сор's price and then «Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх
+    // үү?» — a question about colouring put to somebody who asked about Сор. The quoted
+    // rows are served without it.
+    const stray = setRows(input.deterministic).find((r) => r.body.trim() !== ''
+      && fold(capped.text).includes(fold(r.body.trim()))
+      && presentation.quoted.length !== 0
+      && presentation.quoted.every((q) => !r.quoteServices.includes(q.name)));
+    if (stray !== undefined) {
+      const rowsOnly = renderQuotedRows(presentation.quoted);
+      if (rowsOnly !== '') {
+        await deps.flag({ code: 'set_question_stray', detail: `${stray.intent}'s question under ${presentation.quoted.map((q) => q.name).join(', ')}`, attempted: capped.text });
+        const served = await d.draft({ body: rowsOnly, answeredBy: 'deterministic' });
+        return served.ok
+          ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
+          : { kind: 'retry', detail: served.detail };
+      }
+    }
+  }
+
+  // «Уучлаарай» only when the reply refuses something (see `guard/apology.ts`).
+  const apologyStems = apologyStemsFrom(input.canned);
+  const sorry = unwarrantedApology(capped.text, apologyStems, refusalMarkerFrom(input.canned, apologyStems),
+    matched.matchedResponseKinds.length > 0);
+  if (sorry.strip) {
+    await deps.flag({ code: 'apology_removed', detail: `opened with «${sorry.removed}» and refused nothing`, attempted: capped.text });
+  }
+
+  const drafted = await d.draft({ body: sorry.strip ? sorry.text : capped.text, answeredBy: 'model' });
   return drafted.ok
     ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'model' }
     : { kind: 'retry', detail: drafted.detail };

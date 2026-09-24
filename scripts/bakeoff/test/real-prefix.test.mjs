@@ -18,8 +18,8 @@ test('the figures the gate tests rely on are really in the ancestor prefix',
     const prefix = await buildMatrixPrefix(ancestor);
     // If any of these stops being true, the synthetic fixture has drifted from
     // production and the gate tests are reasoning about a prefix that no longer
-    // exists.
-    for (const s of ['20,000', '30,000', '25,000'])
+    // exists. (The nail prices it used to name went with the nail services, 2026-09-24.)
+    for (const s of ['20,000', '22,000', '16,500'])
       assert.ok(prefix.includes(s), `real prefix no longer contains ${s}`);
 
     // The salon's phone is read from the ancestor's OWN config rather than

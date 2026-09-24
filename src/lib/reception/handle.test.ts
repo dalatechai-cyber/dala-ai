@@ -510,7 +510,7 @@ test('a reservation that cannot be marked called never reaches the provider', as
 const GREET = {
   intent: 'greeting', body: 'Сайн байна уу! Танд юугаар туслах вэ?',
   enabled: true, matchMode: 'whole_message' as const,
-  stems: ['сайн байна уу'], requiresEmptyHistory: true, provenance: 'tenant_confirmed',
+  stems: ['сайн байна уу'], coverWords: [], placement: 'replace' as const, quoteServices: [], requiresEmptyHistory: true, provenance: 'tenant_confirmed',
 };
 
 test('a greeting is answered from a row with NO model call, and the hold goes back', async () => {
@@ -667,7 +667,7 @@ test('DONE-TEST: a withheld deterministic reply falls to the MODEL, and is flagg
     deterministic: [{
       intent: 'greeting', body: 'Сайн байна уу! Танд юугаар туслах вэ?',
       enabled: true, matchMode: 'whole_message' as const,
-      stems: ['сайн байна уу'], requiresEmptyHistory: true, provenance: 'seeded',
+      stems: ['сайн байна уу'], coverWords: [], placement: 'replace' as const, quoteServices: [], requiresEmptyHistory: true, provenance: 'seeded',
     }],
   });
   assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'the model answered instead');

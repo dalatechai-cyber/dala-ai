@@ -1,7 +1,7 @@
 /**
  * Run DALA AI over the same test set, through its own real code.
  *
- *     ANTHROPIC_API_KEY=… node scripts/bakeoff/dala.ts [--only f06,f12] [--tag after-fix]
+ *     ANTHROPIC_API_KEY=… node scripts/bakeoff/dala.ts [--only f06,f12] [--tag after-fix] [--now <ISO instant>]
  *
  * ## What is real here, and what is substituted
  *
@@ -45,6 +45,8 @@ const arg = (n: string): string | undefined => {
 };
 const only = arg('only')?.split(',') ?? null;
 const tag = arg('tag') ?? 'run';
+const NOW = arg('now');
+if (NOW !== undefined && Number.isNaN(new Date(NOW).getTime())) throw new Error(`--now ${NOW} is not a date`);
 // `--cache off` measures the UNCACHED cost of the same prompt. Every ordinary run here
 // reads a warm 1h entry, so its latency is a like-for-like comparison figure and NOT a
 // production prediction: D-072 measured 86.7% of production replies as cache MISSES.
@@ -179,7 +181,11 @@ async function ask(text: string, attachments: readonly string[], history: { role
     body?: string; answeredBy?: string; flags: string[]; usage?: unknown;
     flagDetail: { code: string; detail?: string; attempted?: string }[];
   } = { flags: [], flagDetail: [] };
-  const now = new Date();
+  // `--now 2026-09-24T14:00:00+08:00` answers as though the customer wrote then. The first
+  // comparison ran at 01:10 Ulaanbaatar and c05 («unuudur tsag bnu») was — correctly — told
+  // the salon was closed; the founder read it as a timezone bug. Production passes the real
+  // request instant and the tenant's own timezone to the same `renderVolatile`.
+  const now = NOW === undefined ? new Date() : new Date(NOW);
   const started = Date.now();
   try {
     const out = await handleReception(deps(record), {

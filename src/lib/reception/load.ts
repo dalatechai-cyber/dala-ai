@@ -100,6 +100,9 @@ export function toRules(rows: unknown, quotePriceDefault: boolean): GateRule[] {
       // 2026-09-21.
       quotePrice: 'quote_price' in r ? r['quote_price'] === true : quotePriceDefault,
       deterministicShortcircuit: r['deterministic_shortcircuit'] === true,
+      // `0041`. Only `out_of_scope_topics` carries it; a disclosure row reads as false,
+      // which is the behaviour before the column existed.
+      groundedOnly: r['grounded_only'] === true,
       responseKind,
       // Raw, unread. `isTenantConfirmed` is the only thing that interprets it, so a row
       // whose column is absent — a database that predates 0011 — reads as unconfirmed
@@ -113,6 +116,10 @@ export function toRules(rows: unknown, quotePriceDefault: boolean): GateRule[] {
  * `deterministic_replies` rows as the gate reads them. Exported so the bake-off harness
  * shapes a dumped row exactly as production does, rather than a second reading of it.
  */
+function strings(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+}
+
 export function toDeterministic(rows: unknown): DeterministicRule[] {
   return (Array.isArray(rows) ? rows : []).map((raw) => {
     const r = raw as Record<string, unknown>;
@@ -123,8 +130,14 @@ export function toDeterministic(rows: unknown): DeterministicRule[] {
       enabled: r['enabled'] === true,
       // An unrecognised mode falls to whole_message, the high-precision one. A typo must
       // not silently widen a matcher into the mode that steals questions.
-      matchMode: r['match_mode'] === 'contains_stem' ? 'contains_stem' : 'whole_message',
-      stems: Array.isArray(stems) ? stems.filter((x): x is string => typeof x === 'string') : [],
+      matchMode: r['match_mode'] === 'contains_stem' || r['match_mode'] === 'covers_message'
+        ? r['match_mode']
+        : 'whole_message',
+      stems: strings(stems),
+      coverWords: strings(r['cover_words']),
+      // Absent or unknown reads as `replace`, which is what every row was before `0041`.
+      placement: r['placement'] === 'append' ? 'append' : 'replace',
+      quoteServices: strings(r['quote_services']),
       // Absent reads as TRUE: greeting a customer mid-conversation is the worse error.
       requiresEmptyHistory: r['requires_empty_history'] !== false,
       provenance: r['provenance'],
@@ -161,7 +174,7 @@ export async function loadReceptionContext(
       .select('topic_key, matcher, quote_price, response_kind, deterministic_shortcircuit, provenance')
       .eq('tenant_id', input.tenantId),
     db.from('out_of_scope_topics')
-      .select('topic_key, matcher, response_kind, deterministic_shortcircuit, provenance, quote_price')
+      .select('topic_key, matcher, response_kind, deterministic_shortcircuit, provenance, quote_price, grounded_only')
       .eq('tenant_id', input.tenantId),
     db.from('canned_responses')
       .select('kind, body, reviewed_at')
@@ -184,7 +197,7 @@ export async function loadReceptionContext(
       .eq('tenant_id', input.tenantId)
       .gte('ends_on', input.localDate),
     db.from('deterministic_replies')
-      .select('intent, body, enabled, match_mode, stems, requires_empty_history, provenance')
+      .select('intent, body, enabled, match_mode, stems, cover_words, placement, quote_services, requires_empty_history, provenance')
       .eq('tenant_id', input.tenantId),
     // Read for `allowedUrls` only. The section body itself is compiled at publish time by
     // `prompt/sections.ts`; this is the request-path half, because the URL guard runs
