@@ -22,8 +22,8 @@
  * `MIN_RUN_CP` or more characters that occur verbatim in the tenant's data. Runs, because
  * D-077's rule is that the mechanism deciding whether approved text is present asks exact
  * questions; coverage rather than one longest run, because the model joins two sentences
- * of a document with «учир нь» and that is still the document. c07's second sentence is
- * about 70% covered; c02's first is under a third.
+ * of a document with «учир нь» and that is still the document. c07's sentences are 1.00
+ * and 0.89 covered; c02's first is 0.34.
  *
  * The corpus is the tenant region of the compiled prefix — everything after the data
  * marker — so a sentence cannot be grounded by the platform's own gate blocks, which are
@@ -35,7 +35,21 @@
 import { fold } from '../mn/text.ts';
 
 export const MIN_RUN_CP = 12;
-export const MIN_COVERAGE = 0.5;
+/**
+ * Four-fifths of every judged sentence must be the tenant's own words.
+ *
+ * It was one half, and the second real-model run beat it: asked whether Оффис колор suits
+ * dark hair, the model copied the salon's definition of Оффис колор and ended the same
+ * sentence «…арга бөгөөд хараар будсан үсэнд ч хийх боломжтой» — can be done on hair dyed
+ * black too. That claim is in no row; «хараар будсан үс» IS, from a different document
+ * about turning black-dyed hair brown, so the clause was covered piecewise at 0.74. A
+ * lexical check cannot tell two true facts from the false claim assembled out of them, so
+ * on a turn where the tenant has asked for grounding it accepts only what is near-verbatim:
+ * the salon's own sentences, lightly joined (c07's «…хийхгүй, учир нь уураг нь…» is 0.89).
+ * The cost is stated, not discovered: a faithful PARAPHRASE of the knowledge base now gets
+ * the refusal line instead — safe, and less helpful.
+ */
+export const MIN_COVERAGE = 0.8;
 export const MIN_SENTENCE_CP = 12;
 
 function squash(s: string): string {
