@@ -7,6 +7,8 @@ const KB = `=== ТАНИЛЦУУЛГА ===
 - Химийн хориглох заалт
 Цайруулсан үсэнд хими хийхгүй. Уураг нь будагтай урвалд орж, барьцалддаг.
 Будсан үс хэт цайруулаагүй, уураг нь хадгалагдсан бол хими хийж болно.
+- Будалтын хориглох заалт ба боломж
+Хараар будсан үсийг хоёр удаагийн будалтаар бор өнгөтэй болгож болно.
 - Сор, Оффис колор, омбре
 Оффис колор бол арга барил: 30 хувийн цайруулалт, малгай, дараа нь үндсийг сүүдэрлэж, үзүүрийг цайвар будгаар гэрэлтүүлнэ.
 === ҮНИЙН ЖАГСААЛТ ===
@@ -22,6 +24,14 @@ test('DONE-TEST: c07 IS THE SALON\'S OWN DOCUMENT, SO IT STANDS', () => {
 test('DONE-TEST: c02 SAYS SOMETHING NO ROW SAYS, AND IS CAUGHT', () => {
   // Real reply, 2026-09-24, to «Office color ungu har usni ungute usend orohu».
   const reply = 'Оффис колор нь харанхуй/хар үсэнд хийхэд тохирдог арга бөгөөд үнэ нь 380,000₮–460,000₮ байна.';
+  assert.equal(ungroundedSentences(reply, KB).length, 1);
+});
+
+test('DONE-TEST: A FALSE CLAIM ASSEMBLED FROM TWO TRUE ROWS IS CAUGHT', () => {
+  // Second real-model run, 2026-09-24: the salon's definition of Оффис колор, then a clause
+  // borrowing «хараар будсан үс» from a different document. 0.74 covered.
+  const reply = 'Оффис колор бол 30 хувийн цайруулалт хийж, малгайгаар татаад, үндсийг сүүдэрлэж, '
+    + 'үзүүрийг цайвар будгаар гэрэлтүүлэх арга бөгөөд хараар будсан үсэнд ч хийх боломжтой.';
   assert.equal(ungroundedSentences(reply, KB).length, 1);
 });
 

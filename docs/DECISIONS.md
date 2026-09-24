@@ -8796,10 +8796,13 @@ point is a row or a check on the model's text; nothing names a tenant in `src/`.
   instant.
 - **B6 — advice must be in the data.** `out_of_scope_topics.grounded_only` (`0041`), set on
   the nine suitability rules. When one fires, each sentence of the reply must be at least
-  half covered by 12-character runs of the tenant's own region of the prefix; otherwise the
-  rule's refusal is served, opened by the quoted price rows when the rule allows a price.
-  c07 is the salon's document «Химийн хориглох заалт» nearly word for word and stands; c02
-  («Оффис колор нь харанхуй/хар үсэнд … тохирдог») is in no row and is replaced.
+  four-fifths covered by 12-character runs of the tenant's own region of the prefix;
+  otherwise the rule's refusal is served, opened by the quoted price rows when the rule
+  allows a price. c07 is the salon's document «Химийн хориглох заалт» nearly word for word
+  (1.00, 0.89) and stands; c02 («Оффис колор нь харанхуй/хар үсэнд … тохирдог», 0.34) is
+  replaced. The bar was one half until the second real-model run assembled a false claim
+  out of two true rows at 0.74 («…арга бөгөөд хараар будсан үсэнд ч хийх боломжтой»); the
+  cost of four-fifths is that a faithful paraphrase of the knowledge base gets the refusal.
 - **B7 — «Уучлаарай» only when refusing.** A model reply that opens with the tenant's
   apology word (read from its handoff row) and carries no word ending in what all its
   refusal rows share (read from the rows: «гүй») loses that word, and it is flagged
