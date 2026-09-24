@@ -69,6 +69,7 @@ function effects(now: Date): WorkerEffects {
         {
           customerMessage: a.customerMessage,
           customerAttachments: a.customerAttachments,
+          customerSentPhoto: a.customerSentPhoto,
           history: a.history,
           eventAt: a.eventAt,
           now,
@@ -84,6 +85,7 @@ function effects(now: Date): WorkerEffects {
           tenantGuard: a.ctx.tenantGuard,
           cannedLabel: SECTION_LABELS.canned,
           serviceNames: servicesFromPrefix(a.ctx.promptStable, SECTION_LABELS.priceList),
+          serviceAliases: a.ctx.serviceAliases,
           depositRows: sectionRows(a.ctx.promptStable, SECTION_LABELS.deposits),
           faqAnswers: faqAnswersFromPrefix(a.ctx.promptStable, SECTION_LABELS.faqs),
           cannedHash: a.ctx.cannedHash,

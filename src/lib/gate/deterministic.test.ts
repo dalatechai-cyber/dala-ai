@@ -278,3 +278,13 @@ test('withAppended adds at the end, moves a copy the model wrote first, never do
   assert.equal(withAppended(TARA_LINE, hit), TARA_LINE);
   assert.equal(withAppended('x', []), 'x');
 });
+
+test('0042: an on_topic row fires when its gate topic fired, and never on the words', () => {
+  const row: DeterministicRule = {
+    intent: 'stylist', body: 'x', enabled: true, matchMode: 'on_topic', stems: ['suitability_mn_orh'],
+    coverWords: [], placement: 'append', quoteServices: [], requiresEmptyHistory: false, provenance: 'tenant_confirmed',
+  };
+  assert.deepEqual(matchDeterministic('suitability_mn_orh', [row], ANY).appends, [], 'the topic key typed as text is not the topic');
+  const r = matchDeterministic('Хар өнгөтэй үсэнд орох уу', [row], ANY, { hasAttachment: false, topics: ['suitability_mn_orh'] });
+  assert.deepEqual(r.appends.map((a) => [a.intent, a.onTopic]), [['stylist', true]]);
+});

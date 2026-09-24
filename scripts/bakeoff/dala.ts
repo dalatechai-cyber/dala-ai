@@ -72,6 +72,8 @@ const gateRows = arg('gate') === undefined ? null : JSON.parse(readFileSync(arg(
   disclosure?: unknown[]; outOfScope?: unknown[]; deterministic?: unknown[];
   /** `forbidden_phrasings` rows (tenant and platform), `{ gate, stems }`, keyed by gate as `load.ts` keys them. */
   phrasings?: { gate: string; stems: string[] }[];
+  /** `service_aliases` joined to the service's name, `{ name, alias }`, as `load.ts` shapes them. */
+  aliases?: { name: string; alias: string }[];
 };
 const PHRASINGS: Record<string, string[][]> = {};
 for (const p of gateRows?.phrasings ?? []) (PHRASINGS[p.gate] ??= []).push(p.stems);
@@ -193,7 +195,7 @@ async function ask(text: string, attachments: readonly string[], history: { role
   const started = Date.now();
   try {
     const out = await handleReception(deps(record), {
-      customerMessage: text, customerAttachments: attachments, history,
+      customerMessage: text, customerAttachments: attachments, customerSentPhoto: attachments.includes('image'), history,
       eventAt: now, now, promptStable,
       promptVolatile: renderVolatile({ now, timezone: TZ, surface: 'direct_message', hours: kb.hours, closures: [] }),
       modelId: MODEL, cacheMode, timeoutMs: 25_000,
@@ -225,6 +227,7 @@ async function ask(text: string, attachments: readonly string[], history: { role
       serviceNames: servicesFromPrefix(promptStable, SECTION_LABELS.priceList),
       depositRows: sectionRows(promptStable, SECTION_LABELS.deposits),
       faqAnswers: faqAnswersFromPrefix(promptStable, SECTION_LABELS.faqs),
+      serviceAliases: gateRows?.aliases ?? [],
     } as never);
     return { ok: true, reply: record.body ?? null, answeredBy: record.answeredBy ?? null,
       flags: record.flags, flagDetail: record.flagDetail, kind: (out as { kind: string }).kind, ms: Date.now() - started,

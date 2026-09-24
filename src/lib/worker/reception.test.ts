@@ -844,6 +844,7 @@ test('A CAPTIONED PHOTOGRAPH REACHES THE GATE AS AN ATTACHMENT, AND IS COUNTED',
 
   assert.equal(r.status, 200);
   assert.deepEqual(generated[0]?.customerAttachments, ['image'], 'the gate is told a picture is there');
+  assert.equal(generated[0]?.customerSentPhoto, true, 'a captioned photograph is a photograph');
   const captioned = flags.find((f) => f.code === 'inbound_captioned_attachment');
   assert.ok(captioned, `expected the flag; got ${JSON.stringify(flags.map((f) => f.code))}`);
   assert.equal(captioned?.tenantId, TENANT, 'quality_flags.tenant_id is NOT NULL');
@@ -875,6 +876,31 @@ test('a STICKER sent with text is not counted as a photograph', async () => {
   assert.equal(flags.some((f) => f.code === 'inbound_captioned_attachment'), false, 'a thumbs-up is not a photograph');
   // The kinds still reach the gate — a tenant rule may legitimately want to see them.
   assert.ok((generated[0]?.customerAttachments ?? []).length > 0);
+  assert.equal(generated[0]?.customerSentPhoto, false, 'and it is never answered as a photograph');
+});
+
+test('a photograph sent WITH a sticker is not answered as a photograph (any sticker id means filler)', async () => {
+  // `attachmentKinds` already reports a sticker as «sticker», so «image» here is a real
+  // image — but imageReply's rule is that ANY sticker id makes the message filler, and the
+  // captioned path keeps the same rule rather than a second one.
+  const { fx, generated } = stubEffects({
+    tables: {
+      webhook_events: {
+        data: {
+          raw_payload: payload({
+            text: 'за',
+            attachments: [
+              { type: 'image', payload: { url: 'https://example.invalid/p.jpg' } },
+              { type: 'sticker', payload: { sticker_id: 369239263222822 } },
+            ],
+          }),
+        },
+      },
+    },
+  });
+  await run(fx);
+  assert.ok(generated[0]?.customerAttachments.includes('image'));
+  assert.equal(generated[0]?.customerSentPhoto, false);
 });
 
 test('an ordinary text message is neither flagged nor given attachments', async () => {
@@ -882,6 +908,7 @@ test('an ordinary text message is neither flagged nor given attachments', async 
   const r = await run(fx);
   assert.equal(r.status, 200);
   assert.deepEqual(generated[0]?.customerAttachments, []);
+  assert.equal(generated[0]?.customerSentPhoto, false);
   assert.equal(flags.some((f) => f.code === 'inbound_captioned_attachment'), false);
 });
 

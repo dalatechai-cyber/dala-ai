@@ -104,6 +104,8 @@ export type GenerateArgs = {
   customerMessage: string;
   /** Attachment kinds on the customer's message, for the gate (D-083). */
   customerAttachments: readonly string[];
+  /** A photograph and not a sticker (D-070) — the kinds alone cannot say which. */
+  customerSentPhoto: boolean;
   history: readonly Turn[];
   eventAt: Date;
   promptVolatile: string;
@@ -894,6 +896,9 @@ async function runReceptionDelivery(
       reservation: guard.reservation,
       customerMessage: message.text,
       customerAttachments: message.attachments,
+      // A sticker arrives declaring `image` (D-070), so the kinds cannot answer this; the
+      // payload's sticker ids can. The kinds still go to the gate unchanged.
+      customerSentPhoto: message.attachments.includes('image') && message.stickerIds.length === 0,
       history: priorTurns,
       eventAt,
       promptVolatile,

@@ -92,6 +92,7 @@ function effects(now: Date): MessageEffects {
           // required rather than defaulted precisely so a caller cannot forget it and have
           // "no attachment" asserted on its behalf (D-083).
           customerAttachments: [],
+          customerSentPhoto: false,
           history: a.history,
           eventAt: a.eventAt,
           now,
@@ -107,6 +108,7 @@ function effects(now: Date): MessageEffects {
           tenantGuard: a.ctx.tenantGuard,
           cannedLabel: SECTION_LABELS.canned,
           serviceNames: servicesFromPrefix(a.ctx.promptStable, SECTION_LABELS.priceList),
+          serviceAliases: a.ctx.serviceAliases,
           depositRows: sectionRows(a.ctx.promptStable, SECTION_LABELS.deposits),
           faqAnswers: faqAnswersFromPrefix(a.ctx.promptStable, SECTION_LABELS.faqs),
           cannedHash: a.ctx.cannedHash,

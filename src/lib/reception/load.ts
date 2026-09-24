@@ -44,6 +44,13 @@ export type ReceptionContext = {
   contentHash: string;
   rules: GateRule[];
   deterministic: DeterministicRule[];
+  /**
+   * `service_aliases`, as the service NAME each points at. Read for one purpose: finding the
+   * services a suitability question is about when the customer wrote «himi» or «budaad»
+   * rather than a listed name (`handle.ts`, D-117). An alias of a service that is not on the
+   * price list simply finds nothing there.
+   */
+  serviceAliases: { name: string; alias: string }[];
   canned: CannedRow[];
   tenantGuard: TenantGuardView;
   cacheMode: 'off' | '5m' | '1h';
@@ -130,7 +137,7 @@ export function toDeterministic(rows: unknown): DeterministicRule[] {
       enabled: r['enabled'] === true,
       // An unrecognised mode falls to whole_message, the high-precision one. A typo must
       // not silently widen a matcher into the mode that steals questions.
-      matchMode: r['match_mode'] === 'contains_stem' || r['match_mode'] === 'covers_message'
+      matchMode: r['match_mode'] === 'contains_stem' || r['match_mode'] === 'covers_message' || r['match_mode'] === 'on_topic'
         ? r['match_mode']
         : 'whole_message',
       stems: strings(stems),
@@ -169,7 +176,7 @@ export async function loadReceptionContext(
   // ten pointless reads, and more importantly `timings` has not yet said whether the
   // snapshot is a meaningful share of the 533ms. Measure, then move it.
   const tBatch = Date.now();
-  const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes, detRes, contactsRes] = await Promise.all([
+  const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes, detRes, contactsRes, aliasRes] = await Promise.all([
     db.from('disclosure_rules')
       .select('topic_key, matcher, quote_price, response_kind, deterministic_shortcircuit, provenance')
       .eq('tenant_id', input.tenantId),
@@ -181,7 +188,7 @@ export async function loadReceptionContext(
       .eq('tenant_id', input.tenantId)
       .eq('locale', input.settings.defaultLocale),
     db.from('tenant_booking').select('booking_url').eq('tenant_id', input.tenantId),
-    db.from('services').select('name').eq('tenant_id', input.tenantId),
+    db.from('services').select('id, name').eq('tenant_id', input.tenantId),
     // Platform-wide rows carry tenant_id null and apply to everyone; a tenant's own rows
     // are added to them, never instead of them.
     db.from('forbidden_phrasings')
@@ -203,13 +210,14 @@ export async function loadReceptionContext(
     // `prompt/sections.ts`; this is the request-path half, because the URL guard runs
     // against what the model just wrote rather than against the snapshot.
     db.from('contact_points').select('kind, value').eq('tenant_id', input.tenantId),
+    db.from('service_aliases').select('service_id, alias').eq('tenant_id', input.tenantId),
   ]);
 
   for (const [name, res] of [
     ['disclosure_rules', disclosure], ['out_of_scope_topics', outOfScope],
     ['canned_responses', canned], ['tenant_booking', booking], ['services', services],
     ['forbidden_phrasings', phrasings], ['business_hours', hoursRes], ['tenant_closures', closuresRes],
-    ['deterministic_replies', detRes], ['contact_points', contactsRes],
+    ['deterministic_replies', detRes], ['contact_points', contactsRes], ['service_aliases', aliasRes],
   ] as const) {
     if (res.error) return { ok: false, code: 'unavailable', detail: `${name} unreadable: ${res.error.message}` };
   }
@@ -328,11 +336,23 @@ export async function loadReceptionContext(
 
   const deterministic = toDeterministic(detRes.data);
 
+  const nameById = new Map((Array.isArray(services.data) ? services.data : []).map((raw) => {
+    const r = raw as Record<string, unknown>;
+    return [String(r['id'] ?? ''), String(r['name'] ?? '')] as const;
+  }));
+  const serviceAliases = (Array.isArray(aliasRes.data) ? aliasRes.data : []).flatMap((raw) => {
+    const r = raw as Record<string, unknown>;
+    const name = nameById.get(String(r['service_id'] ?? ''));
+    const alias = String(r['alias'] ?? '');
+    return name === undefined || name === '' || alias === '' ? [] : [{ name, alias }];
+  });
+
   return {
     ok: true,
     context: {
       promptStable: snapshot.snapshot.promptStable,
       deterministic,
+      serviceAliases,
       hours,
       closures,
       allowedNumbers: snapshot.snapshot.allowedNumbers,
