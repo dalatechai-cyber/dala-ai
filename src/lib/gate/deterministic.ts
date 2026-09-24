@@ -34,7 +34,7 @@
  * Both are prefix or substring matching where whole-message matching was needed, which is
  * why `whole_message` is the default and the only mode a greeting may use.
  */
-import { containsStem, wholeMessageMatches } from '../mn/match.ts';
+import { containsStem, coversMessage, wholeMessageMatches } from '../mn/match.ts';
 import { cpLength } from '../mn/text.ts';
 import { isTenantConfirmed } from '../provenance.ts';
 import { MIN_STEM_CHARS } from './match.ts';
@@ -44,8 +44,28 @@ export type DeterministicRule = {
   /** The sentence to send. Tenant data, and subject to the same review as any other. */
   body: string;
   enabled: boolean;
-  matchMode: 'whole_message' | 'contains_stem';
+  matchMode: 'whole_message' | 'contains_stem' | 'covers_message';
   stems: readonly string[];
+  /**
+   * `covers_message` only: whole words that may sit beside a stem (`0041`). Every word of
+   * the message must be a stem hit or one of these, which is what lets a row answer a
+   * question that is ONLY about its topic — «Энэ Тара салон мөн үү?» — and stay silent for
+   * «Tara salon hayag haana baidag ve?», which is about the address.
+   */
+  coverWords: readonly string[];
+  /**
+   * `replace` answers with this row and nothing else — every row before `0041`.
+   * `append` never answers on its own: the reply is produced as it would have been, and
+   * the body is added at the END. Founder, 2026-09-24: *"The Tara line must never replace
+   * an answer."*
+   */
+  placement: 'replace' | 'append';
+  /**
+   * Price-list service names whose rows open the reply, in THIS order, before `body`
+   * (`0041`). Empty for a row that is its body alone. The rows are read from the compiled
+   * price list at request time, so this table never holds a price.
+   */
+  quoteServices: readonly string[];
   requiresEmptyHistory: boolean;
   /**
    * `provenance`, raw as the row holds it (D-020). Required and undefaulted, as the column
@@ -74,13 +94,24 @@ export type DeterministicRule = {
  */
 export type HistoryState = { known: true; empty: boolean } | { known: false };
 
-export type DeterministicHit = { intent: string; body: string };
+export type DeterministicHit = { intent: string; body: string; quoteServices: readonly string[] };
 
 /** Why a rule did not fire. Reported so an operator can see a dead row. */
-export type SkipReason = 'disabled' | 'no_stems' | 'stem_too_short' | 'history_not_empty' | 'history_unknown' | 'no_match';
+export type SkipReason =
+  | 'disabled' | 'no_stems' | 'stem_too_short' | 'history_not_empty' | 'history_unknown' | 'no_match'
+  /** A `covers_message` row reads the words, and a message carrying a picture is not only
+   *  its words — «зураг» with a photograph attached is not a question about sending one. */
+  | 'has_attachment';
 
 export type DeterministicOutcome = {
+  /** The `replace` row that answers this message, or null. */
   hit: DeterministicHit | null;
+  /**
+   * Every `append` row that matched, in rule order. Never an answer on its own: the caller
+   * adds each body at the end of whatever it serves. Collected even when `hit` is set, and
+   * a body the reply already ends with is not added twice (`withAppended`).
+   */
+  appends: DeterministicHit[];
   /** One entry per rule that could have fired and did not, with the reason. */
   skipped: { intent: string; reason: SkipReason }[];
   /**
@@ -97,9 +128,12 @@ export function matchDeterministic(
   text: string,
   rules: readonly DeterministicRule[],
   history: HistoryState,
+  opts: { hasAttachment: boolean } = { hasAttachment: false },
 ): DeterministicOutcome {
   const skipped: { intent: string; reason: SkipReason }[] = [];
   const suppressed: string[] = [];
+  const appends: DeterministicHit[] = [];
+  let hit: DeterministicHit | null = null;
 
   /**
    * A match, resolved against the row's provenance.
@@ -109,9 +143,24 @@ export function matchDeterministic(
    * this row would have answered.
    */
   const answer = (rule: DeterministicRule): DeterministicHit | null => {
-    if (isTenantConfirmed(rule.provenance)) return { intent: rule.intent, body: rule.body };
+    if (isTenantConfirmed(rule.provenance)) return { intent: rule.intent, body: rule.body, quoteServices: rule.quoteServices };
     suppressed.push(rule.intent);
     return null;
+  };
+
+  /** Did this rule's matcher fire? `null` means it was skipped, with the reason recorded. */
+  const fires = (rule: DeterministicRule): boolean | null => {
+    if (rule.matchMode === 'whole_message') return wholeMessageMatches(text, rule.stems);
+    // `contains_stem` and `covers_message` carry the gate matcher's over-matching risk on
+    // their stems, so they carry its floor. A rule below it is SKIPPED rather than refusing
+    // everything: here a bad rule costs a model call, not a disarmed refusal.
+    const short = rule.stems.filter((s) => cpLength(s) < MIN_STEM_CHARS);
+    if (short.length > 0) { skipped.push({ intent: rule.intent, reason: 'stem_too_short' }); return null; }
+    if (rule.matchMode === 'covers_message') {
+      if (opts.hasAttachment) { skipped.push({ intent: rule.intent, reason: 'has_attachment' }); return null; }
+      return coversMessage(text, rule.stems, rule.coverWords);
+    }
+    return rule.stems.some((stem) => containsStem(text, stem));
   };
 
   for (const rule of rules) {
@@ -125,29 +174,61 @@ export function matchDeterministic(
       if (!history.empty) { skipped.push({ intent: rule.intent, reason: 'history_not_empty' }); continue; }
     }
 
-    if (rule.matchMode === 'whole_message') {
-      if (wholeMessageMatches(text, rule.stems)) {
-        const hit = answer(rule);
-        if (hit !== null) return { hit, skipped, suppressed };
-        continue;
-      }
-      skipped.push({ intent: rule.intent, reason: 'no_match' });
-      continue;
-    }
+    const fired = fires(rule);
+    if (fired === null) continue;
+    if (!fired) { skipped.push({ intent: rule.intent, reason: 'no_match' }); continue; }
 
-    // `contains_stem` carries the same over-matching risk as the gate's matcher, so it
-    // carries the same floor. A rule below it is SKIPPED rather than refusing everything:
-    // here a bad rule costs a model call, not a disarmed refusal.
-    const short = rule.stems.filter((s) => cpLength(s) < MIN_STEM_CHARS);
-    if (short.length > 0) { skipped.push({ intent: rule.intent, reason: 'stem_too_short' }); continue; }
-
-    if (rule.stems.some((stem) => containsStem(text, stem))) {
-      const hit = answer(rule);
-      if (hit !== null) return { hit, skipped, suppressed };
-      continue;
+    // The FIRST replace row answers, as before. Every rule is still evaluated, because an
+    // append row later in the list must be collected whatever answered.
+    if (rule.placement === 'append') {
+      const a = answer(rule);
+      if (a !== null) appends.push(a);
+    } else if (hit === null) {
+      hit = answer(rule);
     }
-    skipped.push({ intent: rule.intent, reason: 'no_match' });
   }
 
-  return { hit: null, skipped, suppressed };
+  return { hit, appends, skipped, suppressed };
+}
+
+/**
+ * A reply with the `append` bodies added at the END.
+ *
+ * A body the model already wrote somewhere else in the reply is MOVED to the end rather
+ * than sent twice. That is not an edit of the model's words: the only text removed is a
+ * byte-exact copy of the tenant's own reviewed line, and it goes back one place later. A
+ * reply that is nothing BUT the body stays the body.
+ */
+export function withAppended(reply: string, appends: readonly DeterministicHit[]): string {
+  let out = reply.trim();
+  for (const a of appends) {
+    const line = a.body.trim();
+    if (line === '') continue;
+    const rest = out.split(line).map((part) => part.trim()).filter((part) => part !== '').join('\n\n');
+    out = rest === '' ? line : `${rest}\n\n${line}`;
+  }
+  return out;
+}
+
+/**
+ * The rows a `quote_services` hit opens with, then its body.
+ *
+ * Returns null — the row does not answer — when ANY named service is missing from the
+ * compiled price list. Half a price list under a question about the whole of it is worse
+ * than the model's answer, and a service renamed in `services` must not quietly drop out
+ * of the reply that lists it.
+ */
+export function composeQuoted(
+  hit: { body: string; quoteServices: readonly string[] },
+  priceList: readonly { name: string; rows: readonly string[] }[],
+): string | null {
+  if (hit.quoteServices.length === 0) return hit.body;
+  const rows: string[] = [];
+  for (const name of hit.quoteServices) {
+    const entry = priceList.find((p) => p.name === name);
+    if (entry === undefined || entry.rows.length === 0) return null;
+    rows.push(...entry.rows);
+  }
+  const body = hit.body.trim();
+  return body === '' ? rows.join('\n') : `${rows.join('\n')}\n\n${body}`;
 }

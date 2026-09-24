@@ -118,6 +118,15 @@ export type GateRule = {
   quotePrice: boolean;
   /** Off by default, per topic per tenant, until a precision run says otherwise. */
   deterministicShortcircuit: boolean;
+  /**
+   * `out_of_scope_topics.grounded_only` (`0041`). When this rule fires, the reply may say
+   * only what the tenant's own data says; anything else is replaced by `responseKind`.
+   *
+   * Optional, and absent means false: that is the behaviour before the column existed and
+   * the direction in which a construction site that forgot it is harmless — the rule still
+   * fires and still selects its refusal, it simply does not police the model's grounding.
+   */
+  groundedOnly?: boolean;
   /** The canned kind whose sentence answers this topic. */
   responseKind: string;
   /**
@@ -261,6 +270,12 @@ export type MatchOutcome =
        * rule has `deterministic_shortcircuit` explicitly enabled.
        */
       shortCircuitKind: string | null;
+      /**
+       * The first fired `grounded_only` rule: the refusal to serve when the model's reply
+       * says something the tenant's data does not, and whether that refusal may carry the
+       * price rows the reply quoted. Null when no such rule fired.
+       */
+      grounded: { kind: string; quotePrice: boolean } | null;
     }
   /** A rule could not be parsed. The caller must 503; it must not answer. */
   | { ok: false; detail: string };
@@ -280,6 +295,7 @@ export function matchRules(subject: MatchSubject, rules: readonly GateRule[]): M
   const priceBlockingTopics: string[] = [];
   const matchedResponseKinds: string[] = [];
   let shortCircuitKind: string | null = null;
+  let grounded: { kind: string; quotePrice: boolean } | null = null;
 
   for (const rule of rules) {
     const parsed = parseMatcher(rule.matcher);
@@ -300,6 +316,9 @@ export function matchRules(subject: MatchSubject, rules: readonly GateRule[]): M
     }
     // First enabled short-circuit wins; rules are supplied in the tenant's own order.
     if (rule.deterministicShortcircuit && shortCircuitKind === null) shortCircuitKind = rule.responseKind;
+    if (rule.groundedOnly === true && grounded === null && rule.responseKind !== '') {
+      grounded = { kind: rule.responseKind, quotePrice: rule.quotePrice };
+    }
   }
 
   return {
@@ -312,6 +331,7 @@ export function matchRules(subject: MatchSubject, rules: readonly GateRule[]): M
     matchedResponseKinds,
     unconfirmedTopics,
     shortCircuitKind,
+    grounded,
   };
 }
 

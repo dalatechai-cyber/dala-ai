@@ -101,7 +101,25 @@ const LABELS = {
   open: 'НЭЭЛТТЭЙ',
   shut: 'ХААЛТТАЙ',
   closure: 'ТУХАЙН ХУГАЦААНЫ МЭДЭГДЭЛ',
+  /** An `append` row that matched this message (`0041`): the platform adds it at the end. */
+  appended: 'ХАРИУЛТЫН ТӨГСГӨЛД АВТОМАТААР НЭМЭГДЭХ МӨР',
 } as const;
+
+/**
+ * Tell the model which tenant lines the platform will add at the end of this reply.
+ *
+ * Without it the model answers «Tara salon hayag?» knowing nothing of the rebrand, and the
+ * appended «Тийм, манай салон одоо Tara Salon нэртэй болсон» can land under a reply that
+ * contradicts it. The line is quoted VERBATIM, like the closure notice above, and the
+ * label says the platform adds it — so the model neither contradicts it nor retypes it.
+ * If it retypes it anyway, `withAppended` moves the copy to the end rather than sending
+ * it twice.
+ *
+ * Per request, like everything in this file: it depends on the customer's message.
+ */
+export function appendedNotice(lines: readonly string[]): string {
+  return lines.map((l) => `${LABELS.appended}: ${nfc(l.trim())}`).join('\n');
+}
 
 /**
  * How each surface is described to the model.

@@ -8766,3 +8766,52 @@ licenses «20%» anywhere (D-055's shape). It changes `content_hash` and not `ca
 - `scripts/bakeoff/dala.ts --gate` runs the tenant's real refusal rules and deterministic
   rows, shaped by `reception/load.ts`'s own `toRules`/`toDeterministic`. Without it the
   harness measured a bot with no gate.
+
+## D-116 — a row can add to an answer, and the salon's own data decides what the model may say
+
+**2026-09-24, the founder's eight-point list after reading the seq 13 comparison.** Every
+point is a row or a check on the model's text; nothing names a tenant in `src/`.
+
+- **B1 — the Tara line never replaces an answer.** `0041` gives `deterministic_replies` a
+  `placement`. `tara_rebrand` is now `append`: the reply is produced as normal and the line
+  goes at the END, on every path including the handoff, and the model is told in L4 that it
+  is coming so it does not contradict it. Only a message that is ONLY about the name gets
+  the line alone — the new `tara_name` row, `match_mode = 'covers_message'`, which fires
+  when every word is a name stem or one of its whole `cover_words`. «Tara salon hayag haana
+  baidag ve?» has «hayag», so it is an address question with the line appended.
+- **B2/B3 — colour prices from data, in the founder's order, then his question.** The
+  `dye_prices` row quotes `quote_services` («Үсний угийн будаг», «Дунд…», «Урт…») from the
+  compiled price list — the prices live in one place — then the founder's question. It
+  answers «Үс будуулахад хэд вэ?» before any model call. Where the model does answer, a
+  reply quoting those services in another order, or under a leaked gate label, or as a
+  presentation violation, is served as the same row. The question under a price that is
+  not in the set («Сор хэд вэ?») is dropped by serving the quoted rows alone.
+- **B4 — never "Мастер is better".** Tenant `forbidden_phrasings` under Ш2 (always on):
+  `мастер…илүү`, `туршлага…илүү`, `мастер…туршлага`, `чанар…илүү`. None matches the salon's
+  own documents, FAQs or canned lines; a neutral «аль нь илүү сайн гэж хэлэх боломжгүй»
+  does not match. A refused reply that quoted prices is served those prices from data.
+- **B5 — the clock is Ulaanbaatar's.** The worker renders L4 from `tenants.timezone`
+  (`Asia/Ulaanbaatar` for Matrix) at the real request instant. The seq 13 run was at 01:11
+  UB, so c05's "closed now" was correct. `dala.ts --now` runs the comparison at a chosen
+  instant.
+- **B6 — advice must be in the data.** `out_of_scope_topics.grounded_only` (`0041`), set on
+  the nine suitability rules. When one fires, each sentence of the reply must be at least
+  half covered by 12-character runs of the tenant's own region of the prefix; otherwise the
+  rule's refusal is served, opened by the quoted price rows when the rule allows a price.
+  c07 is the salon's document «Химийн хориглох заалт» nearly word for word and stands; c02
+  («Оффис колор нь харанхуй/хар үсэнд … тохирдог») is in no row and is replaced.
+- **B7 — «Уучлаарай» only when refusing.** A model reply that opens with the tenant's
+  apology word (read from its handoff row) and carries no word ending in what all its
+  refusal rows share (read from the rows: «гүй») loses that word, and it is flagged
+  `apology_removed`. A reply on a turn where a refusal rule fired keeps it. «Оффис колор»:
+  the salon document said «Office өнгө» and the model copied it; the document now says
+  «Оффис колор» — a knowledge-base edit, so it reaches the model on the next republish.
+- **B8 — photos.** `photo_consultation` gains `zurag zurgan foto` and is `tenant_confirmed`.
+  The new `photo_send` row answers «зураг явуулж болох уу?» with «Тийм, зургаа явуулаарай.»
+  plus the reviewed «Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.»
+  `covers_message` never fires on a message that carries a picture.
+
+Found while verifying the ancestor for the same list: `salonBrain.js` sends no `thinking`
+parameter (D-014), and on 25 real-model turns one reply stopped mid-word and one came back
+empty. The ancestor now disables thinking and never sends a `max_tokens` stop
+(Matrix-Chatbot#37). D-014's "not patched upstream" is superseded for that one line.
