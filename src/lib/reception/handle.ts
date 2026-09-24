@@ -29,7 +29,7 @@ import type { Usage } from '../spend/settle.ts';
 import { kindsRequiredByRules, kindsReferencedBy, matchRules, renderCannedSection, type CannedRow, type GateRule } from '../gate/match.ts';
 import { cannedHashOf } from '../prompt/sections.ts';
 import {
-  composeQuoted, matchDeterministic, withAppended, type DeterministicRule, type HistoryState,
+  composeQuoted, correctionFor, matchDeterministic, withAppended, type DeterministicRule, type HistoryState,
 } from '../gate/deterministic.ts';
 import { isTenantConfirmed } from '../provenance.ts';
 import { appendedNotice } from './volatile.ts';
@@ -549,15 +549,24 @@ export async function handleReception(
   // included, so no path can serve an answer without the line or the line without an answer.
   const appends = shortcut.appends;
   const bookingRow = canned(input.canned, 'booking_line');
+  const previousReply = [...input.history].reverse().find((h) => h.role === 'assistant')?.content ?? null;
   const d: ReceptionDeps = {
     ...deps,
-    draft: (x) => deps.draft({
-      ...x,
+    draft: async (x) => {
       // A topic append («the stylist decides») is not added to a reviewed line: the refusal
       // it would follow already says it, in the tenant's own words.
-      body: withAppended(withDeposits(x.body, bookingRow, input.depositRows),
-        x.answeredBy === 'canned' ? appends.filter((a) => a.onTopic !== true) : appends),
-    }),
+      const body = withAppended(withDeposits(x.body, bookingRow, input.depositRows),
+        x.answeredBy === 'canned' ? appends.filter((a) => a.onTopic !== true) : appends);
+      // A correction answered with the same reply is not sent (founder, 2026-09-24, live:
+      // «us bish usnii himi» got «Буруу ойлголоо. Усан хими 132,000₮–154,000₮» — the same
+      // answer it was correcting). Every path ends here, so no path can repeat itself.
+      const correction = correctionFor(input.deterministic, input.customerMessage, body, previousReply);
+      if (correction !== null) {
+        await deps.flag({ code: 'correction_repeat_blocked', detail: `served ${correction.intent}`, attempted: body });
+        return deps.draft({ ...x, body: correction.body, answeredBy: 'deterministic' });
+      }
+      return deps.draft({ ...x, body });
+    },
   };
   // The other direction of the same rule: this row MATCHED and was withheld, because its
   // body would have been sent to the customer verbatim. The model answers instead, at the

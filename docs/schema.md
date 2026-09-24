@@ -659,6 +659,14 @@ drafts and the replies they produced.
 **Pushing it changes no reply on its own** — the compiled prefix is what a tenant is
 answered from, so every tenant needs republishing afterwards (deploy, `git pull`, publish).
 
+### `0043_on_correction_replies`
+
+**Additive.** `deterministic_match_mode_known` gains `on_correction`. Such a row never
+answers a message. Its `stems` are the tenant's correction words, and its `body` is sent in
+place of a reply that repeats the previous one on a turn carrying one of those words.
+"Repeats" means the same text once folded, or exactly the same prices. Every draft path goes
+through the check, so no path can answer a correction with the answer it corrects. D-119.
+
 ### `0042_on_topic_replies`
 
 **Additive.** `deterministic_match_mode_known` gains `on_topic`: `stems` then holds gate

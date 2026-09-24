@@ -138,6 +138,7 @@ export function toDeterministic(rows: unknown): DeterministicRule[] {
       // An unrecognised mode falls to whole_message, the high-precision one. A typo must
       // not silently widen a matcher into the mode that steals questions.
       matchMode: r['match_mode'] === 'contains_stem' || r['match_mode'] === 'covers_message' || r['match_mode'] === 'on_topic'
+        || r['match_mode'] === 'on_correction'
         ? r['match_mode']
         : 'whole_message',
       stems: strings(stems),

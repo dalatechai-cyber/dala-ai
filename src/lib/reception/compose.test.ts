@@ -86,7 +86,7 @@ const SUIT: GateRule = {
 
 const GUARD: TenantGuardView = {
   primaryScript: 'Cyrillic', allowedUrls: [],
-  allowedNumbers: ['135,000', '176,000', '200,000', '120,000', '190,000', '380,000', '460,000', '220,000', '255,000', '20,000', '10,000', '1'],
+  allowedNumbers: ['135,000', '176,000', '200,000', '120,000', '190,000', '380,000', '460,000', '220,000', '255,000', '132,000', '154,000', '20,000', '10,000', '1'],
   kbHasPromotion: false, concessionStems: [], forbiddenStemSeqs: { 'Ш2': [['мастер', 'илүү']] },
   promptCorpus: '', cannedResponses: CANNED.map((c) => c.body), scriptShareExclusions: [], maxReplyChars: 1900,
 };
@@ -349,3 +349,44 @@ test('2: a refused reply quoting the IMAGE line is not answered with it — no p
   await handleReception(t.deps, { ...base, customerMessage: 'iim bolgoj bolhu' });
   assert.equal(t.drafts[0]?.body, CANNED[0]?.body);
 });
+
+// --- A correction is never answered with the same reply (live, 2026-09-24, 773 → 774) ------
+
+const CLARIFY = 'Уучлаарай, би буруу ойлгосон байна. Та юу асууж байгаагаа арай дэлгэрэнгүй бичнэ үү?';
+const CORRECTION: DeterministicRule = {
+  ...confirmed, intent: 'correction_clarify', body: CLARIFY, matchMode: 'on_correction',
+  stems: ['bish', 'буруу'], coverWords: [], placement: 'replace', quoteServices: [],
+};
+const corrected = (history: ReceptionInput['history']) => ({
+  ...base, deterministic: [...base.deterministic, CORRECTION], history,
+});
+const WATER_TURN: ReceptionInput['history'] = [
+  { role: 'user', content: 'usnii himi' }, { role: 'assistant', content: `Усны хими ${ROWS.usan.slice(ROWS.usan.indexOf(':') + 2)} байна.` },
+];
+
+test('3 DONE-TEST: A CORRECTION ANSWERED WITH THE SAME PRICES GETS THE CLARIFYING LINE, NOT THE REPEAT', async () => {
+  const t = run(`Буруу ойлголоо. ${ROWS.usan} байна.`);
+  await handleReception(t.deps, { ...corrected(WATER_TURN), customerMessage: 'us bish usnii himi' });
+  assert.deepEqual(t.drafts, [{ body: CLARIFY, answeredBy: 'deterministic' }]);
+  assert.ok(t.flags.includes('correction_repeat_blocked'));
+});
+
+test('3: a customer re-asking in other words is owed the same answer again', async () => {
+  const t = run(`${ROWS.usan} байна.`);
+  await handleReception(t.deps, { ...corrected(WATER_TURN), customerMessage: 'usan himi hed ve' });
+  assert.equal(t.drafts[0]?.body, `${ROWS.usan} байна.`);
+});
+
+test('3: a correction the new reply acts on is sent as written', async () => {
+  const t = run(`${ROWS.emch} байна.`);
+  await handleReception(t.deps, { ...corrected(WATER_TURN), customerMessage: 'us bish usnii himi' });
+  assert.equal(t.drafts[0]?.body, `${ROWS.emch} байна.`);
+});
+
+test('3: the correction row never answers a message by itself', async () => {
+  const t = run('Тийм, тодруулж хэлнэ үү.');
+  await handleReception(t.deps, { ...corrected([]), customerMessage: 'bish' });
+  assert.equal(t.requests.length, 1, 'the model is asked');
+  assert.notEqual(t.drafts[0]?.body, CLARIFY);
+});
+
