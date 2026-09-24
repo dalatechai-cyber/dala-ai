@@ -32,6 +32,14 @@ test('DONE-TEST: A CLARIFYING QUESTION LOSES ITS APOLOGY', () => {
   assert.ok(b.strip && b.text === 'Тодруулж болох уу? Та бүтэн будуулах уу?');
 });
 
+test('only the sentence the apology opens decides: «дэлгэрэнгүй» later on is not a refusal', () => {
+  // f07, real reply 2026-09-24.
+  const m = refusalMarkerFrom(CANNED, STEMS);
+  const r = unwarrantedApology('Уучлаарай, тодруулъя — CICA гэдэг нь эмчилгээний хими биш, харин тусдаа эмчилгээ юм. '
+    + 'Хэрэв та хими сонирхож байгаа бол хэлээрэй, дэлгэрэнгүй хэлье.', STEMS, m, false);
+  assert.ok(r.strip && r.text.startsWith('Тодруулъя — CICA'));
+});
+
 test('DONE-TEST: A REFUSAL KEEPS IT', () => {
   const m = refusalMarkerFrom(CANNED, STEMS);
   // c06, real reply: refusing a stylist's personal number.

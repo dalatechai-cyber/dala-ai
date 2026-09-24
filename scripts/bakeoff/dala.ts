@@ -70,7 +70,11 @@ const set = JSON.parse(readFileSync(arg('set') ?? 'scripts/bakeoff/testset.json'
 // no gate at all, which measures a bot production never runs.
 const gateRows = arg('gate') === undefined ? null : JSON.parse(readFileSync(arg('gate') as string, 'utf8')) as {
   disclosure?: unknown[]; outOfScope?: unknown[]; deterministic?: unknown[];
+  /** `forbidden_phrasings` rows (tenant and platform), `{ gate, stems }`, keyed by gate as `load.ts` keys them. */
+  phrasings?: { gate: string; stems: string[] }[];
 };
+const PHRASINGS: Record<string, string[][]> = {};
+for (const p of gateRows?.phrasings ?? []) (PHRASINGS[p.gate] ??= []).push(p.stems);
 const GATE_RULES = gateRows === null ? [] : [...toRules(gateRows.disclosure ?? [], false), ...toRules(gateRows.outOfScope ?? [], false)];
 const DETERMINISTIC = gateRows === null ? [] : toDeterministic(gateRows.deterministic ?? []);
 
@@ -208,7 +212,7 @@ async function ask(text: string, attachments: readonly string[], history: { role
         allowedNumbers,
         kbHasPromotion: false,
         concessionStems: [],
-        forbiddenStemSeqs: {},
+        forbiddenStemSeqs: PHRASINGS,
         // THE GATE only, not the whole prefix (D-084): the platform blocks are the prompt a
         // disclosure would leak; the tenant's own knowledge base is the material the bot
         // exists to relay.

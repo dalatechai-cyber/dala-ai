@@ -100,7 +100,12 @@ export function unwarrantedApology(
   // The apology must be a WORD: «Уучлаарайгаа» is not «Уучлаарай».
   const next = cps[stemLen] ?? '';
   if (/[\p{L}\p{N}]/u.test(next)) return { strip: false };
-  if (words(reply).some((w) => w !== stem && w.endsWith(fold(marker)))) return { strip: false };
+  // The apology belongs to the sentence it opens, so that sentence is what must refuse.
+  // Measured: «Уучлаарай, тодруулъя — CICA гэдэг нь … хими биш…» ends two sentences later on
+  // «дэлгэрэнгүй хэлье» — "I'll tell you in detail", an adjective that merely ENDS like the
+  // negative — and a whole-reply test kept an apology for a reply that refused nothing.
+  const opening = text.split(/[.!?\n]/u)[0] ?? '';
+  if (words(opening).some((w) => w !== stem && w.endsWith(fold(marker)))) return { strip: false };
 
   let k = stemLen;
   while (k < cps.length && /[\s\p{P}]/u.test(cps[k] ?? '')) k += 1;
