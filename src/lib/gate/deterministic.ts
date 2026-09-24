@@ -44,7 +44,12 @@ export type DeterministicRule = {
   /** The sentence to send. Tenant data, and subject to the same review as any other. */
   body: string;
   enabled: boolean;
-  matchMode: 'whole_message' | 'contains_stem' | 'covers_message';
+  /**
+   * `on_topic` (`0042`): `stems` are gate `topic_key`s, and the row fires when one of those
+   * topics fired on this message. The gate decides what the message is about; this row only
+   * says what to add when it is.
+   */
+  matchMode: 'whole_message' | 'contains_stem' | 'covers_message' | 'on_topic';
   stems: readonly string[];
   /**
    * `covers_message` only: whole words that may sit beside a stem (`0041`). Every word of
@@ -94,7 +99,13 @@ export type DeterministicRule = {
  */
 export type HistoryState = { known: true; empty: boolean } | { known: false };
 
-export type DeterministicHit = { intent: string; body: string; quoteServices: readonly string[] };
+export type DeterministicHit = {
+  intent: string;
+  body: string;
+  quoteServices: readonly string[];
+  /** Fired by a gate topic, not by the words (`on_topic`). Not added to a refusal line. */
+  onTopic?: boolean;
+};
 
 /** Why a rule did not fire. Reported so an operator can see a dead row. */
 export type SkipReason =
@@ -128,7 +139,7 @@ export function matchDeterministic(
   text: string,
   rules: readonly DeterministicRule[],
   history: HistoryState,
-  opts: { hasAttachment: boolean } = { hasAttachment: false },
+  opts: { hasAttachment: boolean; topics?: readonly string[] } = { hasAttachment: false },
 ): DeterministicOutcome {
   const skipped: { intent: string; reason: SkipReason }[] = [];
   const suppressed: string[] = [];
@@ -143,7 +154,12 @@ export function matchDeterministic(
    * this row would have answered.
    */
   const answer = (rule: DeterministicRule): DeterministicHit | null => {
-    if (isTenantConfirmed(rule.provenance)) return { intent: rule.intent, body: rule.body, quoteServices: rule.quoteServices };
+    if (isTenantConfirmed(rule.provenance)) {
+      return {
+        intent: rule.intent, body: rule.body, quoteServices: rule.quoteServices,
+        ...(rule.matchMode === 'on_topic' ? { onTopic: true } : {}),
+      };
+    }
     suppressed.push(rule.intent);
     return null;
   };
@@ -151,6 +167,8 @@ export function matchDeterministic(
   /** Did this rule's matcher fire? `null` means it was skipped, with the reason recorded. */
   const fires = (rule: DeterministicRule): boolean | null => {
     if (rule.matchMode === 'whole_message') return wholeMessageMatches(text, rule.stems);
+    // Topic keys are identifiers the gate emitted, not customer text, so no stem floor.
+    if (rule.matchMode === 'on_topic') return rule.stems.some((k) => (opts.topics ?? []).includes(k));
     // `contains_stem` and `covers_message` carry the gate matcher's over-matching risk on
     // their stems, so they carry its floor. A rule below it is SKIPPED rather than refusing
     // everything: here a bad rule costs a model call, not a disarmed refusal.

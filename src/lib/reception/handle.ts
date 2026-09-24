@@ -37,6 +37,9 @@ import { tenantRegion, ungroundedSentences } from '../guard/grounding.ts';
 import { refusalMarkerFrom, unwarrantedApology } from '../guard/apology.ts';
 import { fold } from '../mn/text.ts';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
+import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '../services/match.ts';
+import { containsStem, findStem } from '../mn/match.ts';
+import { IMAGE_REPLY_KIND } from '../inbound/imageReply.ts';
 import { checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
@@ -108,6 +111,13 @@ export type ReceptionInput = {
    * A new caller that does not know should not compile.
    */
   customerAttachments: readonly string[];
+  /**
+   * The customer sent a PHOTOGRAPH — an `image` attachment with no sticker id. Separate from
+   * the kinds because a sticker declares `image` too (D-070), and a thumbs-up answered with
+   * «I cannot see pictures» is worse than silence. Required, like the kinds, so a caller
+   * cannot have "no photo" asserted on its behalf.
+   */
+  customerSentPhoto: boolean;
   history: readonly { role: 'user' | 'assistant'; content: string }[];
   eventAt: Date;
   now: Date;
@@ -149,6 +159,8 @@ export type ReceptionInput = {
    * `customerAttachments` already refuses for the same reason.
    */
   serviceNames: readonly PricedService[];
+  /** `service_aliases` by service name (D-117). Required: `[]` is a real state, and says so. */
+  serviceAliases: readonly { name: string; alias: string }[];
   /**
    * The tenant's «УРЬДЧИЛГАА ТӨЛБӨР» rows, verbatim from the prefix, for the booking answer
    * the platform serves when the model opens one with an apology. Derived by `sectionRows`,
@@ -233,6 +245,159 @@ function dataAnswer(text: string, input: ReceptionInput): string | null {
   }
   const rows = renderQuotedRows(p.quoted);
   return rows === '' ? null : rows;
+}
+
+/**
+ * The price-list rows of every service the customer's message NAMES, or null.
+ *
+ * Founder, 2026-09-24: «будагтай үсний уг цайруулалт хэд вэ» got «энэ үйлчилгээний үнийн
+ * мэдээлэл надад байхгүй» — no price — while «Цайруулалт: 430,000₮–570,000₮» is on the list.
+ * Repeated on the real model it refused on the OLD configuration too, and once quoted
+ * Оффис колор for it instead: the model reads «уг цайруулалт» as a service that is not
+ * listed. `matchService` asks the exact question: does every word of a listed name occur in
+ * the message? «Цайруулалт» does; «Үсний угийн будаг» does not, «угийн» being absent.
+ *
+ * `unique` and `family` only — a family is D-102's answer, the named service and the longer
+ * names containing it. Peers and vague matches are not evidence of which service was meant.
+ */
+function rowsNamedByCustomer(message: string, input: ReceptionInput): string | null {
+  const entries = entriesFrom(input.serviceNames.map((s) => ({ id: s.name, name: s.name })), []);
+  const m = matchService(message, entries);
+  const names = m.verdict === 'unique' ? [m.match.name]
+    : m.verdict === 'family' ? m.family.map((f) => f.name)
+      : [];
+  const rows = input.serviceNames.filter((s) => names.includes(s.name)).flatMap((s) => [...s.rows]);
+  return rows.length === 0 ? null : rows.join('\n');
+}
+
+/**
+ * The price-list rows that mention a word of the customer's message, whole services at a
+ * time, or null.
+ *
+ * For a question about a TIER rather than a service — «Мастер үсчин илүү сайн уу?» — no
+ * service is named, and the tier is written into the price list's own rows («Эмэгтэй
+ * тайралт (Мастер): …»). Serving every row of each service that mentions it shows both
+ * tiers side by side, which is the neutral answer: the difference is the level and the
+ * price. Used only where the model's own reply cannot be sent; words shorter than the
+ * gate's stem floor are ignored, because a short word matches everything.
+ */
+function rowsMentioningCustomerWords(message: string, input: ReceptionInput): string | null {
+  // Folded here: `containsStem` folds the TEXT and takes the stem as given.
+  const words = fold(message).split(/[^\p{L}\p{N}]+/u).filter((w) => [...w].length >= MIN_WORD_CP);
+  const services = input.serviceNames.filter((s) => s.rows.some((row) => words.some((w) => containsStem(row, w))));
+  const rows = services.flatMap((s) => [...s.rows]);
+  return rows.length === 0 ? null : rows.join('\n');
+}
+/**
+ * The longest reviewed canned row the reply contains whole, or null.
+ *
+ * Whole and exact after folding, never similar: D-077's rule for anything deciding whether an
+ * approved sentence is present. The image line is excluded — it answers a picture, and a
+ * text reply that happens to contain it was not answering one.
+ */
+function quotedRow(text: string, rows: readonly CannedRow[]): CannedRow | null {
+  const reply = fold(text);
+  const hits = rows.filter((r) => {
+    const body = fold(r.body).trim();
+    return r.reviewedAt !== null && r.kind !== IMAGE_REPLY_KIND && body !== '' && reply.includes(body);
+  });
+  // Longest first; a tie is broken by kind so two runs cannot disagree (D-026).
+  hits.sort((a, b) => ([...b.body].length - [...a.body].length) || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
+  return hits[0] ?? null;
+}
+
+/** The gate's stem floor, for the same reason: a three-letter word is in every other row. */
+const MIN_WORD_CP = 4;
+
+/** A service name's last word — its kind, in a head-final language: «Усан хими» is a хими. */
+function headOf(name: string): string {
+  const tokens = termTokens(name);
+  const head = tokens[tokens.length - 1] ?? '';
+  return [...head].length >= MIN_WORD_CP ? head : '';
+}
+
+/**
+ * The price-list rows a suitability question is about, or null.
+ *
+ * Founder, 2026-09-24: *"list the relevant services with prices, then say the stylist
+ * decides."* The customer writes «Budagtai usend himi hiidegv» and the model, told the
+ * answer is the stylist's, often quotes no price at all — so the services are found here:
+ * any listed service whose name, or one of whose `service_aliases`, occurs whole in the
+ * text, and then every listed service of the same KIND (the same last word). «himi» is an
+ * alias of «Эмчилгээний хими»; its kind is «хими»; the answer lists all four «… хими»
+ * services, which is what a person would. «Хими арчилт» is an «арчилт», and is not listed.
+ *
+ * `texts` is a priority list, not a pool: the first text that names anything decides.
+ * Pooled, the model's own advice chose rows — c07's reply said «хэт цайруулсан бол…», an
+ * alias of «Цайруулалт» matched it, and a question about perming dyed hair was answered
+ * with the price of bleaching. The customer's words come first; the reply is consulted only
+ * when they name nothing.
+ *
+ * Kinds in the order the text first mentions them, the service it named leading its kind,
+ * then the rest of the kind in price-list order — so «budaad … himi» lists the colour rows
+ * before the perm rows, «Үсний угийн будаг» first among them as the salon orders it. Rows
+ * verbatim: nothing here writes a price, it only chooses rows.
+ */
+function relevantRows(texts: readonly string[], input: ReceptionInput): string | null {
+  const listed = new Set(input.serviceNames.map((s) => s.name));
+  const terms = [
+    ...input.serviceNames.map((s) => ({ name: s.name, term: s.name })),
+    ...input.serviceAliases.filter((a) => listed.has(a.name)).map((a) => ({ name: a.name, term: a.alias })),
+  ].map((t) => ({ name: t.name, term: toTerm(t.term) })).filter((t) => termIsSpecific(t.term));
+  for (const text of texts) {
+    const folded = fold(text);
+    // Where each named service is first mentioned, in code points; a term counts only whole.
+    const at = new Map<string, number>();
+    for (const t of terms) {
+      const starts = t.term.tokens.map((tok) => findStem(folded, tok)[0]?.startCp);
+      if (starts.some((p) => p === undefined)) continue;
+      const pos = Math.min(...(starts as number[]));
+      at.set(t.name, Math.min(at.get(t.name) ?? pos, pos));
+    }
+    if (at.size === 0) continue;
+    const named = [...at.entries()]
+      .sort((a, b) => (a[1] - b[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+      .map(([name]) => name);
+    const order: string[] = [];
+    for (const name of named) {
+      if (!order.includes(name)) order.push(name);
+      const kind = headOf(name);
+      if (kind === '') continue;
+      for (const s of input.serviceNames) if (headOf(s.name) === kind && !order.includes(s.name)) order.push(s.name);
+    }
+    const rows = order.flatMap((name) => [...(input.serviceNames.find((s) => s.name === name)?.rows ?? [])]);
+    if (rows.length > 0) return rows.join('\n');
+  }
+  return null;
+}
+
+/** Digit runs of four or more, reduced to digits — the amounts in a row, never «1-р». */
+function amounts(text: string): string[] {
+  return [...text.matchAll(/\d[\d,  ]*\d/gu)].map((m) => m[0].replace(/[^\d]/gu, '')).filter((d) => d.length >= 4);
+}
+
+/**
+ * A reply carrying the booking link without the deposits gets the deposits, just above it.
+ *
+ * Founder, 2026-09-24: *"«tsag zahialah» … must state Мастер 20,000₮ / 1-р зэрэг 10,000₮ plus
+ * the booking link."* It did on seq 13, and on the next three runs it did not: once the
+ * model wrote the booking line alone, once the pinned-line check served the booking row in
+ * place of a reply that had named one deposit, once the model prefixed a pleasantry. Three
+ * paths, one fact missing. So the rule sits where every path ends — the draft — and is a
+ * property of the text: the reviewed booking line present, some deposit amount absent.
+ * The rows are the compiled «УРЬДЧИЛГАА ТӨЛБӨР» section's own, verbatim; nothing is
+ * reworded, and a reply that already states every deposit is left exactly as written.
+ */
+function withDeposits(body: string, bookingLine: string | null, depositRows: readonly string[]): string {
+  if (bookingLine === null || depositRows.length === 0) return body;
+  const line = bookingLine.trim();
+  const at = body.indexOf(line);
+  if (at === -1) return body;
+  const have = new Set(amounts(body));
+  if (depositRows.every((r) => amounts(r).every((a) => have.has(a)))) return body;
+  const before = body.slice(0, at).trimEnd();
+  const block = depositRows.map((r) => r.trim()).join('\n');
+  return `${before === '' ? '' : `${before}\n\n`}${block}\n\n${body.slice(at)}`;
 }
 
 /**
@@ -377,15 +542,22 @@ export async function handleReception(
   //    customer-visible sentence, and an unreviewed one must not ship just because no
   //    model was involved in choosing it.
   const shortcut = matchDeterministic(input.customerMessage, input.deterministic, input.historyState,
-    { hasAttachment: input.customerAttachments.length > 0 });
+    { hasAttachment: input.customerAttachments.length > 0, topics: matched.matchedTopics });
   // `append` rows (`0041`): whatever is served from here on, their bodies go at the END.
   // Founder, 2026-09-24: *"The Tara line must never replace an answer. Only a question about
   // the name gets the line on its own."* Every draft below goes through `d`, handoff
   // included, so no path can serve an answer without the line or the line without an answer.
   const appends = shortcut.appends;
-  const d: ReceptionDeps = appends.length === 0 ? deps : {
+  const bookingRow = canned(input.canned, 'booking_line');
+  const d: ReceptionDeps = {
     ...deps,
-    draft: (x) => deps.draft({ ...x, body: withAppended(x.body, appends) }),
+    draft: (x) => deps.draft({
+      ...x,
+      // A topic append («the stylist decides») is not added to a reviewed line: the refusal
+      // it would follow already says it, in the tenant's own words.
+      body: withAppended(withDeposits(x.body, bookingRow, input.depositRows),
+        x.answeredBy === 'canned' ? appends.filter((a) => a.onTopic !== true) : appends),
+    }),
   };
   // The other direction of the same rule: this row MATCHED and was withheld, because its
   // body would have been sent to the customer verbatim. The model answers instead, at the
@@ -397,6 +569,25 @@ export async function handleReception(
       detail: `matched but withheld pending tenant confirmation: ${shortcut.suppressed.join(', ')}`,
     });
   }
+  // A PHOTOGRAPH, captioned or not, gets the tenant's image line (founder, 2026-09-24: *"A
+  // photo with any caption gets the photo line. Key on the attachment, not on the word
+  // «зураг»."*). A photo with no caption was already answered this way by
+  // `inbound/imageReply.ts` before it reached here; a captioned one came down to the model,
+  // which cannot see it and answered the words alone — «iim bolgoj bolhu», *can you make it
+  // like this*, is a question about the picture. `customerSentPhoto` excludes stickers, so a
+  // thumbs-up with a word beside it is not a photograph (D-070). A tenant with no reviewed
+  // image line keeps today's behaviour: the model answers the words.
+  if (input.customerSentPhoto) {
+    const imageLine = canned(input.canned, IMAGE_REPLY_KIND);
+    if (imageLine !== null) {
+      await deps.release();
+      const drafted = await d.draft({ body: imageLine, answeredBy: 'canned' });
+      return drafted.ok
+        ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned' }
+        : { kind: 'retry', detail: drafted.detail };
+    }
+  }
+
   // A row that quotes prices renders them from the compiled price list. If one of its
   // services is not on the list, the row does not answer and the model does — with a flag,
   // because a set row that silently stopped firing is a dead row nobody can see.
@@ -615,6 +806,81 @@ export async function handleReception(
   }
 
   const pinned = checkPinnedLines(result.text, input.canned);
+
+  // «No price for this» when the customer NAMED a listed service is wrong, and the list's
+  // own rows are served instead (see `rowsNamedByCustomer`). Never on a turn where a refusal
+  // rule blocks prices: there, «no price» is the rule working.
+  const unlistedRow = canned(input.canned, 'refusal_price_unlisted');
+  const saysUnlisted = pinned.kind !== 'clean' ? pinned.canonicalKind === 'refusal_price_unlisted'
+    : unlistedRow !== null && fold(result.text).includes(fold(unlistedRow));
+  if (saysUnlisted && !matched.refusedTopicBlocksPrice) {
+    const named = rowsNamedByCustomer(input.customerMessage, input);
+    if (named !== null) {
+      await deps.flag({ code: 'price_unlisted_overridden', detail: 'the customer named a listed service', attempted: result.text });
+      const served = await d.draft({ body: named, answeredBy: 'deterministic' });
+      return served.ok
+        ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
+        : { kind: 'retry', detail: served.detail };
+    }
+  }
+
+  // ---- Suitability questions (`grounded_only`, 0041) ----------------------
+  //
+  // Founder, 2026-09-24: *"When a customer asks whether a service can be done (dyed hair plus
+  // perm, colour on black hair), list the relevant services with prices, then say the
+  // stylist decides what suits their hair. Refuse only when the answer would be advice the
+  // salon's data doesn't contain."*
+  //
+  // A reply is sent as written only when every judged sentence is the tenant's own words
+  // (`guard/grounding.ts`) and it is not the rule's refusal. Otherwise the answer is the
+  // prices — the ones the reply quoted, else the services the customer named — served from
+  // the price list; the tenant's `on_topic` append row then adds «the stylist decides».
+  // Only when there are no prices at all is the refusal line served, and only for advice:
+  // the model refusing by itself falls through to the pinned-line check as before.
+  // Set when a grounded answer to a «can it be done» question quoted no price: the rows the
+  // customer's own words name, composed after the reply (see the end of this function).
+  let groundedPrices: string | null = null;
+  if (matched.grounded !== null) {
+    const refusal = canned(input.canned, matched.grounded.kind);
+    const refused = (pinned.kind !== 'clean' && pinned.canonicalKind === matched.grounded.kind)
+      || (refusal !== null && fold(result.text).includes(fold(refusal)));
+    const unsupported = ungroundedSentences(result.text, tenantRegion(input.promptStable, SECTION_LABELS.dataMarker));
+    if (refused || unsupported.length > 0) {
+      const prices = matched.grounded.quotePrice
+        ? dataAnswer(result.text, input) ?? relevantRows([input.customerMessage, result.text], input)
+        : null;
+      if (prices !== null) {
+        await deps.flag({
+          code: 'suitability_prices_served',
+          detail: `${refused ? 'the reply refused' : `${unsupported.length} sentence(s) in no tenant row`}; served the prices`,
+          attempted: result.text,
+        });
+        const served = await d.draft({ body: prices, answeredBy: 'deterministic' });
+        return served.ok
+          ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
+          : { kind: 'retry', detail: served.detail };
+      }
+      if (!refused && refusal !== null) {
+        await deps.flag({
+          code: 'advice_ungrounded',
+          detail: `${unsupported.length} sentence(s) in no tenant row; served ${matched.grounded.kind}: ${unsupported[0] ?? ''}`,
+          attempted: result.text,
+        });
+        const served = await d.draft({ body: refusal, answeredBy: 'canned' });
+        return served.ok
+          ? { kind: 'drafted', outboundId: served.id, answeredBy: 'canned' }
+          : { kind: 'retry', detail: served.detail };
+      }
+    } else if (matched.grounded.quotePrice && dataAnswer(result.text, input) === null) {
+      // The salon's own words, and no price. c07 «Budagtai usend himi hiidegv» — the
+      // founder's own example of the question — was answered from «Химийн хориглох заалт»
+      // exactly, and named no service's price. The answer stands; the prices the customer's
+      // words point at are added after it. The CUSTOMER'S words only: that document says
+      // «цайруулаагүй», and the reply is not evidence of which service was asked about.
+      groundedPrices = relevantRows([input.customerMessage], input);
+    }
+  }
+
   if (pinned.kind !== 'clean') {
     if (pinned.kind === 'paraphrase') {
       // Corrected AND counted. A paraphrase that is quietly fixed is a paraphrase nobody
@@ -647,35 +913,6 @@ export async function handleReception(
       : { kind: 'retry', detail: drafted.detail };
   }
 
-  // ---- Advice the tenant's data does not give (`grounded_only`, 0041) -----
-  //
-  // Founder, 2026-09-24: *"If that isn't in the salon's knowledge base, it must not say
-  // it."* Only where a rule the tenant marked `grounded_only` fired — Matrix's suitability
-  // rules — because that is where the model gives advice, and ordinary connective prose is
-  // in no document either. The refusal line written for the question is served instead,
-  // opened by the price rows the reply quoted when the rule allows a price: the customer
-  // asked about a service the salon sells, and its price is a fact the salon wrote.
-  if (matched.grounded !== null) {
-    const unsupported = ungroundedSentences(result.text, tenantRegion(input.promptStable, SECTION_LABELS.dataMarker));
-    const refusal = canned(input.canned, matched.grounded.kind);
-    if (unsupported.length > 0 && refusal !== null) {
-      const prices = matched.grounded.quotePrice ? dataAnswer(result.text, input) : null;
-      await deps.flag({
-        code: 'advice_ungrounded',
-        detail: `${unsupported.length} sentence(s) in no tenant row; served ${matched.grounded.kind}`
-          + `${prices === null ? '' : ' with the quoted price rows'}: ${unsupported[0] ?? ''}`,
-        attempted: result.text,
-      });
-      const served = await d.draft({
-        body: prices === null ? refusal : `${prices}\n\n${refusal}`,
-        answeredBy: prices === null ? 'canned' : 'deterministic',
-      });
-      return served.ok
-        ? { kind: 'drafted', outboundId: served.id, answeredBy: prices === null ? 'canned' : 'deterministic' }
-        : { kind: 'retry', detail: served.detail };
-    }
-  }
-
   // ---- The guard, then the draft ------------------------------------------
 
   const guarded = outboundGuard(
@@ -698,14 +935,36 @@ export async function handleReception(
     // from the price list, never the model's text. Only these two codes: every other
     // refusal is about the numbers themselves, or about a topic that must carry none.
     if (guarded.code === 'outbound_gate_label' || guarded.code === 'outbound_forbidden') {
+      // Founder, 2026-09-24: *"never answer with an unrelated line."* The generic handoff IS
+      // one, to «Мастер үсчин илүү сайн уу?». So the prices the reply quoted, else the rows
+      // the customer's own words point at — for a tier question, both tiers side by side.
       const fromData = dataAnswer(result.text, input);
-      if (fromData !== null) {
+      // A reviewed row the reply quotes whole is the answer the model chose, in bytes somebody
+      // approved. Measured on «tsag zahialah»: «Ш3 хамааралтай тул booking_line бэлэн
+      // хариултыг ашиглав.» and then the booking line, exact — the label refused it and the
+      // customer got the handoff instead of the link. The row is served alone; the deposits
+      // then follow it as they follow every booking line (`withDeposits`).
+      const quoted = fromData === null ? quotedRow(result.text, input.canned) : null;
+      if (quoted !== null) {
         await deps.flag({
           code: guarded.code,
-          detail: `${guarded.detail} [served: the quoted prices from the price list]`,
+          detail: `${guarded.detail} [served: quoted row ${quoted.kind}]`,
           attempted: result.text,
         });
-        const served = await d.draft({ body: fromData, answeredBy: 'deterministic' });
+        const served = await d.draft({ body: quoted.body, answeredBy: 'canned' });
+        return served.ok
+          ? { kind: 'drafted', outboundId: served.id, answeredBy: 'canned' }
+          : { kind: 'retry', detail: served.detail };
+      }
+      const fromWords = fromData
+        ?? (guarded.code === 'outbound_forbidden' ? rowsMentioningCustomerWords(input.customerMessage, input) : null);
+      if (fromWords !== null) {
+        await deps.flag({
+          code: guarded.code,
+          detail: `${guarded.detail} [served: price-list rows]`,
+          attempted: result.text,
+        });
+        const served = await d.draft({ body: fromWords, answeredBy: 'deterministic' });
         return served.ok
           ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
           : { kind: 'retry', detail: served.detail };
@@ -891,7 +1150,15 @@ export async function handleReception(
     await deps.flag({ code: 'apology_removed', detail: `opened with «${sorry.removed}» and refused nothing`, attempted: capped.text });
   }
 
-  const drafted = await d.draft({ body: sorry.strip ? sorry.text : capped.text, answeredBy: 'model' });
+  const reply = sorry.strip ? sorry.text : capped.text;
+  // Composed, never edited: the model's reply byte for byte, then rows from the price list —
+  // `withAppended`'s move. Not when the two together would pass the one-message cap.
+  const withPrices = groundedPrices === null ? null : `${reply.trimEnd()}\n\n${groundedPrices}`;
+  const body = withPrices !== null && [...withPrices].length <= MAX_REPLY_CHARS ? withPrices : reply;
+  if (body !== reply) {
+    await deps.flag({ code: 'suitability_prices_added', detail: 'a grounded answer quoted no price; the named rows follow it', attempted: capped.text });
+  }
+  const drafted = await d.draft({ body, answeredBy: 'model' });
   return drafted.ok
     ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'model' }
     : { kind: 'retry', detail: drafted.detail };

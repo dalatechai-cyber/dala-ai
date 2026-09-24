@@ -659,6 +659,15 @@ drafts and the replies they produced.
 **Pushing it changes no reply on its own** — the compiled prefix is what a tenant is
 answered from, so every tenant needs republishing afterwards (deploy, `git pull`, publish).
 
+### `0042_on_topic_replies`
+
+**Additive.** `deterministic_match_mode_known` gains `on_topic`: `stems` then holds gate
+`topic_key`s, and the row fires when one of those topics fired on the message. Used with
+`placement = 'append'` to add a line after the answer to a question the gate classified —
+Matrix's «Үсэнд тань аль нь тохирохыг мастер үсчин зөвлөж өгнө.» after a suitability
+question. An `on_topic` append is not added to a reviewed refusal line, which already says
+it. D-117.
+
 ### `0041_reply_composition`
 
 **Additive.** Three columns on `deterministic_replies`, one on `out_of_scope_topics`, and

@@ -8818,3 +8818,68 @@ Found while verifying the ancestor for the same list: `salonBrain.js` sends no `
 parameter (D-014), and on 25 real-model turns one reply stopped mid-word and one came back
 empty. The ancestor now disables thinking and never sends a `max_tokens` stop
 (Matrix-Chatbot#37). D-014's "not patched upstream" is superseded for that one line.
+
+## D-117 — the customer's words choose the rows, and a refused reply keeps the approved line it quoted
+
+**2026-09-24, the founder's second eight-point list, after reading every row of the D-116
+run.** As in D-116, each point is a row or a check on the model's text; nothing names a
+tenant in `src/`.
+
+- **1 — «будагтай үсний уг цайруулалт хэд вэ» said there was no price.** It happens on the
+  OLD configuration too, so it is the model rather than D-116: it reads «уг цайруулалт» as a
+  service the list does not carry. When the reply is `refusal_price_unlisted` and
+  `matchService` finds a listed name whole in the message (`unique` or `family` only), that
+  service's rows are served instead (`price_unlisted_overridden`).
+- **2 — «tsag zahialah» lost the deposits.** They went missing on three different paths, so
+  the fix sits where every path ends: any draft carrying the reviewed booking line without
+  every deposit amount gets the compiled deposit rows just above it (`withDeposits`).
+  `deposit_rules` now lists Мастер first. The same probe also found a fourth path: the model
+  wrote «Ш3 хамааралтай тул booking_line…», then the booking line exactly, and the gate
+  label sent the customer the handoff. A refused reply that contains a reviewed canned row
+  WHOLE is now served that row (`quotedRow`: exact after folding, longest wins, never the
+  image line). A reviewed row is bytes somebody approved, and the model chose it.
+- **3 — Мастер questions are answered neutrally.** A `stylist_tier` row
+  (`covers_message`, anchored on «мастер/master»): «Мастер болон 1-р зэргийн үсчний ялгаа нь
+  зэрэглэл ба үнэ. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ
+  авахаа хэлбэл үнийг нь хэлье.» Its cover words exclude «хэд», «цаг», «хэн» and «байна», so
+  «Мастер хэд вэ», «Мастерт цаг авъя» and «Мастер үсчин хэн бэ» still reach the model. The
+  knowledge base gains «Мастер ба 1-р зэргийн үсчин», which says the same thing. The
+  suitability stylist line said «мастер үсчин зөвлөж өгнө» — the tier word, in the sentence
+  that must not favour a tier — and now reads «Таны үсэнд юу тохирохыг үсчин үзээд шийднэ.»
+- **4 — a «can it be done» question gets prices, then «the stylist decides».** `0042` adds
+  `match_mode = 'on_topic'`: the row fires when any of its `stems` is a gate topic that
+  fired, so `suitability_stylist` is appended to every suitability answer. When the reply is
+  refused or ungrounded (D-116's check), the answer is the price rows: first any rows the reply
+  quoted, else `relevantRows` over the customer's message, then over the reply. A grounded
+  reply that quotes no price keeps its words, and the rows the CUSTOMER named are composed
+  after it (`suitability_prices_added`); c07, the founder's own example, is exactly this. Only
+  when there are no rows to give is the refusal line served.
+
+  `relevantRows` finds a listed name or a `service_aliases` alias whole in the text, then adds
+  every listed service of the same KIND (the same last word, head-final): «himi» → every
+  «… хими», but not «Хими арчилт». Two things the first real-model probe got wrong, both
+  fixed: the texts were POOLED, so the model's own advice picked rows («хэт цайруулсан» →
+  «Цайруулалт» for a perm question), and the order was code-point order. The texts are now a
+  priority list, and the kinds come in the order the customer mentions them, with the named
+  service first («budaad … himi» → the colour rows, «Үсний угийн будаг» first, then the perm
+  rows). Thirteen `inferred` aliases were written for «хими/himi», the dye verbs, and
+  «өнгө/ungu/ongo/ungo». The existing «buda/budag/budal» point at the inactive «Будаг» and were
+  left alone. The knowledge-base document «Үсэнд тохирох эсэх» was deleted: the model quoted it
+  as grounds to refuse more often.
+- **5 — a photo with any caption gets the photo line.** Keyed on the attachment:
+  `customerSentPhoto` is true when the message carries an `image` and no sticker id (a sticker
+  arrives as an `image` too, D-070). It is served before any model call, whatever the words.
+- **6 — «Салбарууд»**: one branch today, Яармаг, and a second coming. Knowledge base, so it
+  reaches the model on the next republish.
+- **7 — greeting** is the `greeting` row: «Сайн байна уу! Tara Salon-д тавтай морил. Танд
+  юугаар туслах вэ?», on an empty history only.
+- **8 — `photo_consultation` is `tenant_confirmed`.**
+
+**Republish once, after this merges.** It covers everything in the prefix: «Оффис колор»,
+«Салбарууд», the tier document, the removed suitability document, the narrowed suitability
+decision questions and the deposit order. The deterministic rows and aliases are read on
+every request and are already live in shadow. No `canned_responses` row changed, so there is
+no `canned_stale` window.
+
+Wording the founder has not yet read in this form: the `stylist_tier` body and the reworded
+`suitability_stylist` line. Both are customer-visible, and both are in the comparison.
