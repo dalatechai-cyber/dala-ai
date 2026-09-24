@@ -1,0 +1,55 @@
+{
+ "note": "The TARA SALON rebrand probes (D-114). Two are REAL — a DM of 2026-09-22 and a comment of 2026-09-24 — and six are CONSTRUCTED, which the main test set does not allow, for a stated reason: no customer has yet asked the bot about the name, and the finding is what happens when one does. Run with --set scripts/bakeoff/tara-set.json, and --kb pointing at live-kb.json plus the proposed knowledge_documents row to measure the candidate.",
+ "cases": [
+  {
+   "id": "t01",
+   "source": "real DM 2026-09-22 04:52 UTC",
+   "text": "Sainuu, tara saloninxoon, neg yum sonirxoj asuuy. Tanaix tsag awaltan deeree urdichilgaa awch baigaa yu?",
+   "expect": "Recognises Tara salon as this salon; answers the deposit question."
+  },
+  {
+   "id": "t02",
+   "source": "real comment 2026-09-24 13:12 UTC, asked as a DM",
+   "text": "Tara salon яармаг салбар yarmagtaa bizdee hehe",
+   "expect": "Yes — Tara salon is the Yarmag branch; no denial."
+  },
+  {
+   "id": "t03",
+   "source": "constructed",
+   "text": "Сайн байна уу, энэ Тара салон мөн үү?",
+   "expect": "Confirms: this is Tara salon (formerly Matrix)."
+  },
+  {
+   "id": "t04",
+   "source": "constructed",
+   "text": "Tara salon hayag haana baidag ve?",
+   "expect": "Gives the address for this salon; does not say it does not know Tara."
+  },
+  {
+   "id": "t05",
+   "source": "constructed",
+   "text": "Matrix salon neree solison uu?",
+   "expect": "Yes, now TARA SALON."
+  },
+  {
+   "id": "t06",
+   "source": "constructed",
+   "text": "Та нар Матрикс салон уу, Тара салон уу?",
+   "expect": "One salon, two names."
+  },
+  {
+   "id": "t07",
+   "source": "constructed — the service rename posted 2026-09-24",
+   "text": "Tara Lumi будалт хэд вэ?",
+   "expect": "(Gap, not fixed: Office Color → TARA LUMI is not in the data.)"
+  },
+  {
+   "id": "t08",
+   "source": "constructed — the six-branch question",
+   "text": "Tara salon heden salbartai ve?",
+   "expect": "(Founder question: does Tara have six branches, or only this one?)"
+  }
+ ],
+ "attachmentCases": [],
+ "conversations": []
+}

@@ -54,10 +54,13 @@ if (process.env['ANTHROPIC_API_KEY'] === undefined) {
   process.exit(2);
 }
 
-const kb = JSON.parse(readFileSync('scripts/bakeoff/live-kb.json', 'utf8')) as TenantKb & {
+// `--kb` and `--set` point the SAME pipeline at a candidate knowledge base or a focused test
+// set — e.g. a tenant row proposed for the founder's approval, measured before anybody
+// writes it to the live project. The defaults are the committed snapshot and corpus.
+const kb = JSON.parse(readFileSync(arg('kb') ?? 'scripts/bakeoff/live-kb.json', 'utf8')) as TenantKb & {
   canned: { kind: string; body: string }[];
 };
-const set = JSON.parse(readFileSync('scripts/bakeoff/testset.json', 'utf8'));
+const set = JSON.parse(readFileSync(arg('set') ?? 'scripts/bakeoff/testset.json', 'utf8'));
 
 // The signed platform blocks, in the order and layers `loadPromptSections` gives them.
 // Read from disk because `02_style` was proven byte-identical to its `prompt_blocks` row,
