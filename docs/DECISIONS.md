@@ -8840,14 +8840,15 @@ tenant in `src/`.
   image line). A reviewed row is bytes somebody approved, and the model chose it.
 - **3 — Мастер questions are answered neutrally.** A `stylist_tier` row
   (`covers_message`, anchored on «мастер/master»): «Мастер болон 1-р зэргийн үсчний ялгаа нь
-  зэрэглэл ба үнэ. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ
-  авахаа хэлбэл үнийг нь хэлье.» Its cover words exclude «хэд», «цаг», «хэн» and «байна», so
+  зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар
+  үйлчилгээ авахаа хэлбэл үнийг нь хэлье.» — the founder's wording, approved 2026-09-24. Its cover words exclude «хэд», «цаг», «хэн» and «байна», so
   «Мастер хэд вэ», «Мастерт цаг авъя» and «Мастер үсчин хэн бэ» still reach the model. The
   knowledge base gains «Мастер ба 1-р зэргийн үсчин», which says the same thing. The
-  suitability stylist line «Үсэнд тань аль нь тохирохыг мастер үсчин зөвлөж өгнө.» is the
-  founder's own sentence, from his damaged-hair FAQ. It was briefly reworded here to drop the
-  tier word, and then put back: an unreviewed rewording of an approved line is exactly what
-  D-065 forbids. Whether «мастер үсчин» there reads as the tier is his call.
+  suitability stylist line was the founder's own sentence from his damaged-hair FAQ,
+  «…мастер үсчин зөвлөж өгнө». It was briefly reworded here to drop the tier word, then put
+  back, because an unreviewed rewording of an approved line is exactly what D-065 forbids.
+  The founder then changed it himself, in both places: «Үсэнд тань аль нь тохирохыг манай
+  үсчин зөвлөж өгнө.» The tier document's first line now matches the approved tier answer.
 - **4 — a «can it be done» question gets prices, then «the stylist decides».** `0042` adds
   `match_mode = 'on_topic'`: the row fires when any of its `stems` is a gate topic that
   fired, so `suitability_stylist` is appended to every suitability answer. When the reply is
@@ -8887,5 +8888,7 @@ decision questions and the deposit order. The deterministic rows and aliases are
 every request and are already live in shadow. No `canned_responses` row changed, so there is
 no `canned_stale` window.
 
-Wording the founder has not yet read in this form: the `stylist_tier` body. It is
-customer-visible, and it is in the comparison.
+Both new customer-visible lines, the `stylist_tier` body and the stylist line, were approved
+by the founder on 2026-09-24 in the wording above. The two `deterministic_replies` rows are
+read per request and took effect when written. The FAQ answer and the tier document are in
+the prefix, and they reach the model with the same republish.
