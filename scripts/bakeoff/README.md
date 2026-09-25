@@ -144,3 +144,37 @@ The decision is commercial, not technical: at the D-004 floor price the allowabl
 ₮80,000 ≈ $22.86/month, and the arm that clears the 60% margin at the volume a *successful*
 salon produces is the one that ships. Record the outcome in D-009 and only then set the
 ceilings.
+
+## A second model in the seat: `arms.ts` (Egune vs Sonnet 5)
+
+`arms.ts` answers a tenant's whole test set through `gateTenant` — the D-120 gate the
+production build runs — so the prompt, deterministic rows, pinned lines and every guard are
+production's own, and ONLY the model seat changes between arms. The tenant's live rows come
+from `tara-live.json`, a read-only dump served by `fixtureDb.ts` (writes throw), and the run
+refuses to start unless the dumped `prompt_stable` hashes to its snapshot's `content_hash`.
+
+```bash
+EGUNE_API_KEY=…     node scripts/bakeoff/arms.ts --arm egune  --tag night1 [--egune-model egune1-14b]
+ANTHROPIC_API_KEY=… node scripts/bakeoff/arms.ts --arm sonnet --tag night1
+node scripts/bakeoff/compare.mjs --a sonnet-night1 --b egune-night1 [--b-usd-in X --b-usd-out Y] > report.md
+```
+
+Or, with both keys as repository secrets, run the **Bake-off arms (Egune vs Sonnet 5)**
+workflow from the Actions tab; the report lands in the run summary. `api.egune.com` is not
+reachable from the Claude Code cloud environment unless it is added to that environment's
+allowed domains.
+
+The set: every active `reply_cases` row (judged against the founder's expected answer),
+`testset.json`'s cases and conversations (replies fed back as history), and
+`tara-set.json`. `testset.json`'s attachment cases are left out — the runner is text-only.
+Only the prompt and these messages are sent to a model; the two personal names in the set
+(«Badmaa», «оюунаа») are staff names already in Tara's prompt.
+
+Re-dump `tara-live.json` after any republish (the hash check will refuse a stale one):
+one `select jsonb_build_object(…)` over the tables `reception/load.ts` and
+`replycases/run.ts` read, with `tenants` pruned to the six columns they use.
+
+`egune.ts` is the only Egune code, and nothing in `src/` imports it. Egune's pricing, context
+window and data terms were not readable from here (every official page is behind the egress
+proxy); the wire shape comes from the official `egune` npm SDK. `compare.mjs` computes
+Egune's cost only when a price is passed in.

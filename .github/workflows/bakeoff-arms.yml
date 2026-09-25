@@ -1,0 +1,72 @@
+# Runs the Reception bake-off with two models in the model seat — Egune and the incumbent
+# Sonnet 5 — over Tara Salon's live prompt and full test set, and writes the side-by-side
+# report to this run's summary. Manual only: every run spends real money on both providers
+# (Sonnet 5 about $1; Egune's price is not published).
+#
+# Needs two repository secrets: EGUNE_API_KEY and ANTHROPIC_API_KEY. A missing one fails its
+# step before anything is called. Production is not touched: scripts/bakeoff/ is imported by
+# nothing in src/, and the tenant's rows are served from scripts/bakeoff/tara-live.json by a
+# read-only fixture.
+name: Bake-off arms (Egune vs Sonnet 5)
+
+on:
+  workflow_dispatch:
+    inputs:
+      egune_model:
+        description: Egune model id (the "Egune models" step lists what the key can use)
+        default: egune1-14b
+      egune_usd_in:
+        description: Egune price per MILLION input tokens in USD, if known (blank = cost not computed)
+        required: false
+      egune_usd_out:
+        description: Egune price per MILLION output tokens in USD, if known
+        required: false
+
+jobs:
+  arms:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+
+      - name: Egune models
+        env:
+          EGUNE_API_KEY: ${{ secrets.EGUNE_API_KEY }}
+        run: |
+          test -n "$EGUNE_API_KEY" || { echo "EGUNE_API_KEY secret is not set"; exit 2; }
+          curl -sS -m 30 -H "Authorization: Bearer $EGUNE_API_KEY" https://api.egune.com/v1/models | jq -r '.data[]?.id // .'
+
+      - name: Egune arm
+        env:
+          EGUNE_API_KEY: ${{ secrets.EGUNE_API_KEY }}
+          EGUNE_MODEL: ${{ inputs.egune_model }}
+        run: node scripts/bakeoff/arms.ts --arm egune --tag ci --egune-model "$EGUNE_MODEL"
+
+      - name: Sonnet 5 arm
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node scripts/bakeoff/arms.ts --arm sonnet --tag ci
+
+      - name: Compare
+        env:
+          USD_IN: ${{ inputs.egune_usd_in }}
+          USD_OUT: ${{ inputs.egune_usd_out }}
+        run: |
+          set -- --a sonnet-ci --b egune-ci
+          if [ -n "$USD_IN" ] && [ -n "$USD_OUT" ]; then set -- "$@" --b-usd-in "$USD_IN" --b-usd-out "$USD_OUT"; fi
+          node scripts/bakeoff/compare.mjs "$@" > bakeoff-report.md
+          cat bakeoff-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bakeoff-arms
+          path: |
+            scripts/bakeoff/runs/egune-ci.json
+            scripts/bakeoff/runs/sonnet-ci.json
+            bakeoff-report.md
+          if-no-files-found: warn
