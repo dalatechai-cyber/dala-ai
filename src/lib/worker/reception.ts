@@ -160,7 +160,11 @@ export type WorkerEffects = {
    * the same `canDeliver` verdict as a real send — a bubble in `shadow` would appear in
    * front of a customer the incumbent is answering and never produce a message.
    */
-  showTyping: (args: { tenantId: string; channelId: string; recipientId: string }) => Promise<void>;
+  showTyping: (args: {
+    tenantId: string; channelId: string; recipientId: string;
+    /** Default `typing_on`. `typing_off` clears a bubble that landed after its reply (D-124). */
+    action?: 'typing_on' | 'typing_off';
+  }) => Promise<void>;
   /**
    * §3.9's "Quality flag" on a refusal. Best-effort by construction: it is evidence for a
    * person to read later, never a control, and a flag that cannot be written must not
@@ -178,7 +182,7 @@ export type WorkerEffects = {
 
 export type JobResult = { status: number; body: Record<string, unknown> };
 
-/** The longest a reply waits for its own typing bubble to reach Meta first (D-124). */
+/** How long, AFTER a reply is sent, the worker waits on a late bubble before clearing it (D-124). */
 export const TYPING_WAIT_MS = 1_500;
 
 /** Resolve when `p` settles or after `ms`, whichever is first; never rejects, never lingers. */
@@ -943,11 +947,15 @@ async function runReceptionDelivery(
     // Not awaited, and its own failures are swallowed inside the effect: a customer's reply
     // must never wait on, or be lost to, a decoration.
     //
-    // AWAITED BEFORE THE SEND, bounded (D-124). A reply that needs no model is ready ~150ms
-    // after this line and the bubble's own request takes longer than that, so un-awaited it
-    // could reach Meta AFTER the reply — a «typing…» under an answer already given, for up to
-    // twenty seconds. The send therefore waits for the bubble to finish, but never more than
-    // `TYPING_WAIT_MS`: a model reply takes seconds, so the wait there is always zero.
+    // THE REPLY NEVER WAITS FOR IT, AND A LATE BUBBLE IS CLEARED (D-124). A reply that
+    // needs no model is ready ~150ms after this line and the bubble's own request takes
+    // longer (measured live: 1.2s cold), so it can reach Meta AFTER the reply and hang
+    // «typing…» under an answer already given, for up to twenty seconds. Waiting for it
+    // before sending fixed that and cost every no-model reply the bubble's round trip — the
+    // speed this same change bought. So the reply goes first; if its bubble had not landed
+    // by then, `typing_off` follows once it does. A model reply takes seconds, so its bubble
+    // has always landed and nothing extra is sent.
+    let typingSettled = false;
     const typing: Promise<void> | null = delivery.deliver
       ? fx.showTyping({ tenantId, channelId, recipientId: message.senderId })
         .catch((e: unknown) => {
@@ -955,6 +963,7 @@ async function runReceptionDelivery(
             externalId: message.externalId, detail: e instanceof Error ? e.message : String(e),
           });
         })
+        .finally(() => { typingSettled = true; })
       : null;
 
     const outcome = await fx.generateReply({
@@ -1045,8 +1054,8 @@ async function runReceptionDelivery(
       continue;
     }
 
-    if (typing !== null) await settleWithin(typing, TYPING_WAIT_MS);
-    clock.lap('typing_wait');
+    // Read BEFORE the send: the question is whether the bubble could still land after it.
+    const typingLate = typing !== null && !typingSettled;
 
     const delivered = await fx.deliver({
       tenantId, channelId, pageId,
@@ -1059,6 +1068,17 @@ async function runReceptionDelivery(
       attempts: held.attempts,
       graphVersion,
     });
+
+    if (typingLate && typing !== null) {
+      // After the send, so it costs the customer nothing. Bounded, and swallowed: it is a
+      // decoration, and the lambda must not hang on it.
+      await settleWithin(typing, TYPING_WAIT_MS);
+      await settleWithin(
+        fx.showTyping({ tenantId, channelId, recipientId: message.senderId, action: 'typing_off' }).catch(() => {}),
+        TYPING_WAIT_MS,
+      );
+      fx.log('info', 'typing_cleared_after_reply', { externalId: message.externalId });
+    }
 
     if (delivered.outcome === 'sent') {
       sent.push(held.id);

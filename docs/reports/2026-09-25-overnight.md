@@ -3,16 +3,26 @@
 For the founder. Covers the overnight brief. Written at 2026-09-25 ~03:40 UTC (11:40
 Ulaanbaatar) and updated at the end of the session (see the last section).
 
+## First: your 09:00 digest is not running
+
+**No call to `/api/workers/digest` appears in the production logs since at least Sep 22**
+(the oldest the log search reaches), while health and purge run every hour. The digest is
+what sends the morning report, including the D-120 flaw report — so the schedule has not
+delivered one in that time. The schedule lives in the QStash console, which I cannot read
+from here, and changing a QStash schedule is yours. Please check that a schedule exists for
+`https://api.dalatech.online/api/workers/digest` at `0 1 * * *` UTC. The code is deployed
+and was not changed tonight apart from the two new flaw checks.
+
 ## At a glance
 
 | Goal | State |
 |---|---|
 | 1. Comment replies in shadow | **Done, running in shadow on Matrix.** Nothing is posted. 8 of the 42 real comments on record would have been answered |
-| 2. Watch live DMs | **No real customer DM since the cutover test turns** (last one 22:19 UTC). Nothing to fix |
-| 3. Speed | **Built and deployed**, ≈0.45 s off every no-model reply. **The "after" number still needs one real turn** |
+| 2. Watch live DMs | **One real customer conversation** (04:55 UTC). Correct facts; one wording issue proposed below. No bug to fix |
+| 3. Speed | **Built and deployed.** The reply context now loads fully in parallel (measured live: 0 ms waited). **No no-model reply has arrived yet, so the clean before/after for that case is still open** |
 | 4. Flaw report gap | **Done.** «ci henbe» is now flagged twice (old name + internal instructions) |
 | 5. Tara rebrand, two branches | **Done, merged and deployed** (PR #169). Inert until a second branch is entered. No price, address or link changed |
-| 6. Typing bubble from live logs | **Not confirmed yet** — there has been no live reply since the logging went in. Found and fixed a real ordering bug on the way |
+| 6. Typing bubble from live logs | **Confirmed on a live reply** at 04:55 UTC: `typing_indicator { outcome: 'sent', ms: 1197 }`. Found and fixed an ordering bug on the way, without adding latency (#171) |
 | Spend | **$0.0349** model spend since the cutover (your 7 test turns). This session called the model zero times |
 
 PRs: [#168](https://github.com/dalatechai-cyber/dala-ai/pull/168) (goals 1, 3, 4, 6 — merged
@@ -84,22 +94,33 @@ it happens.
 
 ## 2. Live DMs overnight
 
-**Every real conversation since the 21:54 UTC cutover:** only your 8 test turns
-(21:54–22:19 UTC, one conversation). D-119 and D-120 already cover what went wrong in them;
-all six cases from that night pass the reply-case gate (6/6 in tonight's production build).
-**No real customer has written since 22:19 UTC** (checked at 03:28 UTC and again at the end).
-The only webhook since was a reaction at 01:26.
+**Every real conversation since the 21:54 UTC cutover:**
 
-Is the silence a fault? The watchdog reads `healthy` (webhooks inside its 3-hour open-time
-window), feed deliveries are still arriving, and previous mornings were just as sparse (0–6
-messages an hour before noon). So nothing points to a broken subscription, but I cannot
-prove from here that none is broken. If it is still silent past 14:00 Ulaanbaatar, run
-`scripts/diagnose/meta-subscription.ts` (D-062).
+1. **Your 8 test turns**, 21:54–22:19 UTC, one conversation. D-119 and D-120 already cover what
+   went wrong in them; all six cases from that night pass the reply-case gate (6/6 in
+   tonight's production builds).
+2. **One real customer, 04:55 UTC (12:55 Ulaanbaatar):** «Яармаг салбарын утсыг өгөөч» — *give
+   me the Yarmag branch's phone*. Sent 9.9 s after the customer pressed send (a model turn, on a
+   cold lambda):
+   > Утасны дугаар: 76001888 эсвэл 80905498.
+   >
+   > Тийм, манай салон одоо Tara Salon нэртэй болсон. Шинэ мэдээллийг удахгүй хүргэнэ.
 
-Found by re-reading the history with the new flaw check (goal 4): 21 replies from before the
+   - **The phone numbers are right** — both are the `contact_points` row.
+   - **The second paragraph is your `tara_rebrand` row** (placement `append`), which fires on any
+     message containing «салбар», «хаяг», «хаана», «байршил»… It is configured behaviour and
+     approved wording, so I did not change it. But as an append it opens with «Тийм,» (*Yes,*)
+     to a question nobody asked. Proposed wording is below.
+   - A counter (`style_price_lines`) read the two phone numbers as two prices on one line. It
+     only counts and never changed the reply; it is noise in the flaw data, not a customer issue.
+
+Nothing else arrived: no DM and no comment between 01:26 and 04:55 UTC. The silence watchdog
+stayed `healthy` the whole time, and that turn shows the subscription is working.
+
+Found by re-reading history with the new flaw check (goal 4): 21 replies from before the
 rebrand greeted as «Матрикс эко салон», including the **live 09-21 03:28 reply** «Сайн байна
-уу! Матрикс эко салон танд юугаар туслах вэ?». The current prefix no longer says Матрикс
-anywhere except inside the website URL, so this is history, not a live bug.
+уу! Матрикс эко салон танд юугаар туслах вэ?». The current prefix says Матрикс nowhere except
+inside the website URL, so this is history, not a live bug.
 
 ## 3. Speed — no-model replies
 
@@ -122,9 +143,14 @@ anywhere except inside the website URL, so this is history, not a live bug.
 - the platform spend-counter seed runs with the ceiling read (−~50 ms). No money logic
   changed: the reservation and charge are the same statements in the same order.
 
-**Expected ≈0.45 s faster. After: not measured yet** — no real turn has arrived since the
-deploy at 03:24 UTC. The next one's `reply_timing_ms` log line will show it: `context_load`
-should be near 0 and `attempt_write` should absorb the tenant and channel reads.
+**After, measured on the one live turn since the deploy** (04:55 UTC, a model turn):
+`context_load: 0` — the ten context reads finished entirely inside the time spent storing
+the message, which is the ~450 ms the change was for. `attempt_write: 134` now covers the
+attempt, tenant and channel reads together (previously 50 + 65 + ~60 in a row). That turn was
+the first request on a fresh deployment, so its storage and event reads were cold (747 ms and
+363 ms against ~205 and ~70 warm). The overall worker time is therefore not a fair
+comparison, and **the clean before/after for a no-model reply still needs one warm no-model
+turn.** The next `reply_timing_ms` line with a small `generate` gives it.
 
 **Not cut, on purpose:** the queue hop (durability), the Meta send, and running the spend
 guard in parallel with the history read (it would hold a reservation for a turn that can
@@ -163,14 +189,17 @@ How to add the second branch when the salon sends it: the exact rows are in D-12
 ## 6. Typing bubble
 
 Nothing recorded whether it worked — the effect swallowed every outcome. It now logs
-`typing_indicator` with its outcome and duration. **Unconfirmed on live traffic**, because no
-live reply has gone out since 03:24 UTC.
+`typing_indicator` with its outcome and duration. **Confirmed on the live reply at 04:55 UTC:
+`typing_indicator { outcome: 'sent', ms: 1197 }`**, and the reply was sent after it
+(`typing_wait: 0` — the bubble had finished long before the model did).
 
-**A real bug found on the way:** for a reply that needs no model, the reply was ready about
-150 ms after the bubble was requested, and the bubble was not awaited. So the bubble could
-reach Meta AFTER the answer and hang «typing…» under it for up to 20 s. The send now waits
-for the bubble, at most 1.5 s. For a model reply the wait is 0; for a no-model reply it is at
-most ~200 ms, which the speed work above more than covers.
+**A real bug found on the way:** for a reply that needs no model, the reply is ready about
+150 ms after the bubble is requested, and the bubble was not awaited. So it could reach Meta
+AFTER the answer and hang «typing…» under it for up to 20 s. My first fix made the send wait
+for the bubble. The live 1.2 s bubble showed that this would cost every no-model reply more
+than the speed work saves, so I replaced it (#171): **the reply never waits.** If its bubble
+has not landed yet when the reply goes out, a `typing_off` follows once it lands. For a model
+reply the bubble has always landed first, and nothing extra is sent.
 
 ## Wording waiting for your native read
 
@@ -181,7 +210,11 @@ most ~200 ms, which the speed work above more than covers.
 2. **New prompt headings the model reads** (not customer-facing, but Mongolian):
    «=== САЛБАРУУД ===», «=== ХОЛБОО БАРИХ — {салбар} ===», «=== БАЙГУУЛЛАГЫН АЖЛЫН ЦАГ — {салбар} ===»,
    «=== ҮНИЙН ЖАГСААЛТ — {салбар} ===».
-3. No new wording came out of live DMs overnight: there were none.
+3. **The `tara_rebrand` append** (served after every branch/address/location question): today
+   «Тийм, манай салон одоо Tara Salon нэртэй болсон. Шинэ мэдээллийг удахгүй хүргэнэ.»
+   Proposed for the APPEND only (the `tara_name` answer can keep «Тийм,», because there it
+   answers a question): «Манай салон одоо Tara Salon нэртэй болсон. Шинэ мэдээллийг удахгүй
+   хүргэнэ.» It is a deterministic row, so it is live on UPDATE, with no republish.
 
 ## Spend
 
@@ -198,6 +231,12 @@ most ~200 ms, which the speed work above more than covers.
   «Салбарууд» document says one branch, the handoff line lists phones, and `booking_line` has
   the old domain. Edit them and republish together, or every reply returns 503 `canned_stale`.
 
-## End-of-session update
+## End-of-session update (05:20 UTC)
 
-(filled in below at the end of the session)
+- #168, #169, #171 and this report are merged and deployed; every production build passed
+  preflight and the reply-case gate (6/6).
+- Migrations `0045`, `0046`, `0047` are applied to the project; the ledger reads 47 rows.
+  All are additive, plus one CHECK widened.
+- Matrix's comments are in shadow with 40 rules, both lines reviewed, and a cap of 20.
+- Still open: the no-model before/after number (needs one warm no-model turn), the Graph
+  reads on a first real comment, and the digest schedule at the top of this file.
