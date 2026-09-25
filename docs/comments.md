@@ -1,5 +1,12 @@
 # Which comments deserve a reply
 
+> **2026-09-25, D-122.** Comments now have their own `comment_delivery_mode` switch, send the
+> public line AND a private message (`comment_policy = 'both'`), allow one reply per person
+> per post, read tags and the post's age from Graph, and alert the founder on a complaint.
+> The per-post cap of 1 described below was written before the per-person rule; see D-122.
+> The rules are the salon template in `scripts/provision/templates/`, tested against every
+> real comment in `comments/salonRules.test.ts`.
+
 The design for the comment classifier, proposed before it is built, per the founder:
 
 > Most of a salon's comments are «гоё», tags and emoji; answering all is noise, answering

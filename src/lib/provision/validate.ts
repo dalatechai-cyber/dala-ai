@@ -26,7 +26,7 @@ import { renderTenantSections, type ServiceVariant, type TenantKb } from '../pro
 import { entriesFrom, subsetCollisions, termIsSpecific, toTerm } from '../services/match.ts';
 import { containsStem } from '../mn/match.ts';
 import { scriptMatcher } from '../mn/text.ts';
-import { MIN_STEM_CHARS, parseMatcher } from '../gate/match.ts';
+import { MIN_STEM_CHARS, matcherTerms, parseMatcher } from '../gate/match.ts';
 import type { IntakeDocument } from './intake.ts';
 import { topicMatcher } from './matchers.ts';
 
@@ -262,10 +262,7 @@ export function validateIntake(doc: IntakeDocument, now = new Date()): Finding[]
       continue;
     }
     // Stems only; `has_attachment` kinds are Meta's identifiers and never customer text.
-    const stems = parsed.spec.mode === 'contains_stem' ? parsed.spec.stems
-      : parsed.spec.mode === 'stem_sequence' ? parsed.spec.stems
-      : parsed.spec.mode === 'whole_message' ? parsed.spec.phrases
-      : [];
+    const stems = matcherTerms(parsed.spec);
     if (stems.length > 0 && !hasNonPrimaryScriptForm([...stems], primary)) {
       add('ask_client', 'comment_rule_no_latin',
         `comment rule «${rule.key}» has only ${primary} stems. 52% of the measured corpus carries no `

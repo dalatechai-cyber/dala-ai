@@ -327,6 +327,9 @@ function worker(s: ReturnType<typeof store>, eventId: number) {
     },
     flagQuality: async () => {},
     replyToComment: async () => { throw new Error('the DM path must never reach the comment surface'); },
+    sendPrivateReply: async () => { throw new Error('the DM path must never reach the comment surface'); },
+    lookupComment: async () => { throw new Error('the DM path must never reach the comment surface'); },
+    alertComplaint: async () => { throw new Error('the DM path must never reach the comment surface'); },
     log: (level, event, fields) => { logs.push(`${level}:${event} ${JSON.stringify(fields ?? {})}`); },
   };
   return {

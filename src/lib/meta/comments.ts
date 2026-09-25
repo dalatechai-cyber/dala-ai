@@ -51,6 +51,11 @@ export type InboundComment = {
    * the parent's id.
    */
   threadId: string;
+  /**
+   * `value.post.permalink_url` when Meta sent it (it does on every comment on record), for
+   * the link in a complaint alert. Null when absent — never guessed.
+   */
+  postPermalink: string | null;
 };
 
 export type CommentExtractResult = { comments: InboundComment[]; skipped: CommentSkipReason[] };
@@ -69,6 +74,13 @@ function asRecord(v: unknown): Record<string, unknown> | null {
  */
 function secondsToDate(v: unknown): Date {
   return typeof v === 'number' && Number.isFinite(v) ? new Date(v * 1000) : new Date(NaN);
+}
+
+/** An https permalink from `value.post`, or null. Anything else is not a link we will print. */
+function permalinkOf(post: unknown): string | null {
+  const p = asRecord(post);
+  const url = p === null ? null : p['permalink_url'];
+  return typeof url === 'string' && url.startsWith('https://') ? url : null;
 }
 
 /**
@@ -170,6 +182,7 @@ export function extractComments(entry: unknown, pageExternalId: string): Comment
       text,
       createdAt: secondsToDate(value['created_time']),
       threadId,
+      postPermalink: permalinkOf(value['post']),
     });
   }
 

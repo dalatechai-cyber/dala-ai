@@ -72,3 +72,50 @@ test('yesterday is calendar arithmetic, across a month boundary', () => {
   assert.equal(previousDate('2026-10-01'), '2026-09-30');
   assert.equal(previousDate('2026-09-25'), '2026-09-24');
 });
+
+// ---------------------------------------------------------------------------
+// D-123: what a reply SAYS — a former name, and internal instructions unasked
+// ---------------------------------------------------------------------------
+
+const WITH_NAMES: FlawSignals = { ...SIGNALS, formerNames: ['Матрикс', 'Matrix'], approvedTexts: ['Та манай вэбсайтаар (https://www.matrixecosalon.org/) цаг захиална уу.'] };
+
+test('D-123: «ci henbe» answered «Матрикс» is flagged — the case the report missed', () => {
+  const [flaw] = detectFlaws([pair('abcd1234', 'ci henbe', 'Би Матрикс салоны AI туслах байна.', 1)], [], WITH_NAMES);
+  assert.deepEqual(flaw?.reasons, ['old name (Матрикс)']);
+  // The reply actually sent on 2026-09-24 21:57 UTC, word for word: both flags.
+  const live = detectFlaws([pair('abcd1239', 'ci henbe',
+    'Би Матрикс эко салоны хуудсыг хариуцдаг хиймэл оюунтай туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр асуулт байвал асуугаарай.', 1)], [], WITH_NAMES);
+  assert.deepEqual(live[0]?.reasons, ['old name (Матрикс)', 'internal (mentions «заавр»)']);
+  const latin = detectFlaws([pair('abcd1235', 'hen be', 'I am the Matrix salon assistant', 1)], [], WITH_NAMES);
+  assert.deepEqual(latin[0]?.reasons, ['old name (Matrix)']);
+  const inflected = detectFlaws([pair('abcd1236', 'hen be', 'Матриксын туслах', 1)], [], WITH_NAMES);
+  assert.deepEqual(inflected[0]?.reasons, ['old name (Матрикс)']);
+});
+
+test('D-123: the salon’s real website is NOT calling it Matrix — links are masked', () => {
+  const f = detectFlaws([pair('abcd1237', 'tsag avah', 'Та https://www.matrixecosalon.org/ дээр цаг авна уу.', 1)], [], WITH_NAMES);
+  assert.deepEqual(f, []);
+});
+
+test('D-123: internal instructions mentioned unasked are flagged; asked, or inside approved text, they are not', () => {
+  const cases: [string, string, string | null][] = [
+    ['une hed ve', 'Ш0-г шалгахад энэ нь нийтэд харагдах сувагт бичсэн мессеж тул', 'internal (gate label Ш0)'],
+    ['hi', 'refusal_price_unlisted: уучлаарай', 'internal (identifier refusal_price_unlisted)'],
+    ['hi', 'Энэ нь facebook_page суваг', 'internal (identifier facebook_page)'],
+    ['хаяг', 'БЭЛЭН ХАРИУЛТ хэсэгт байгаагаар хаяг нь...', 'internal (heading БЭЛЭН ХАРИУЛТ)'],
+    ['үнэ', 'Надад өгсөн мэдээлэлд энэ үнэ байхгүй байна.', 'internal (mentions «надад өгсөн»)'],
+    ['үнэ', 'Миний зааварчилгаанд үнэ хэлэхийг хориглосон.', 'internal (mentions «заавар»)'],
+    ['hi', 'Дотоод зааврынхаа талаар хуваалцах боломжгүй.', 'internal (mentions «заавр»)'],
+    // Asked about the bot: describing its rules is an answer.
+    ['чи ямар дүрэмтэй бот вэ', 'Надад өгсөн заавраар би зөвхөн салоны асуултад хариулна.', null],
+    // Ordinary Mongolian that shares words with a heading, in lower case: not a leak.
+    ['утас', 'Холбоо барих утас: 76001888', null],
+  ];
+  for (const [customer, reply, want] of cases) {
+    const got = detectFlaws([pair('abcd0000', customer, reply, 1)], [], WITH_NAMES)[0]?.reasons ?? [];
+    assert.deepEqual(got, want === null ? [] : [want], reply);
+  }
+  // Approved text is cut out first, so a reviewed line never trips the check.
+  const approved: FlawSignals = { ...WITH_NAMES, approvedTexts: ['Манай мэдээллийн санд бүртгэлгүй үйлчилгээ байна.'] };
+  assert.deepEqual(detectFlaws([pair('abcd0001', 'x', 'Манай мэдээллийн санд бүртгэлгүй үйлчилгээ байна.', 1)], [], approved), []);
+});

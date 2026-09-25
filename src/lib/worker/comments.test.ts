@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runCommentJob, type CommentEffects, type CommentJobInput } from './comments.ts';
+import { commentLink, privateReplyDedupKey, runCommentJob, type CommentEffects, type CommentJobInput, type PrivateReplyOutcome } from './comments.ts';
+import type { CommentLookup } from '../comments/lookup.ts';
 import type { CommentSendOutcome } from '../comments/send.ts';
 
 const TENANT = 't-1';
@@ -61,6 +62,10 @@ type OutboundStub = {
   existing?: Reply;
   /** Rows the per-post counter returns: one per prior reply, carrying `comment_post_id`. */
   posts?: Reply;
+  /** Rows the per-person reader returns: prior replies carrying `comment_from_id` (D-122). */
+  persons?: Reply;
+  /** The resume path's read of this comment's own row (`id, state`). */
+  pending?: Reply;
   /** `draftOnce`'s duplicate path: the row somebody else already wrote. */
   reread?: Reply;
   /** `claim`'s why-did-the-CAS-miss read. */
@@ -84,9 +89,11 @@ function stubDb(over: Record<string, Reply> = {}, outbound: OutboundStub = {}) {
       if (rec.op === 'update') return outbound.claim ?? { data: { id: 'om-1', body: LINE, attempts: 0 }, error: null };
       // Three different readers now, distinguished by what they SELECT rather than by
       // call order — the same reason the stub stopped being a positional queue.
+      if ((rec.cols ?? '').includes('comment_from_id')) return outbound.persons ?? { data: [], error: null };
       if ((rec.cols ?? '').includes('comment_post_id')) return outbound.posts ?? { data: [], error: null };
       if ((rec.cols ?? '').includes('attempts')) return outbound.reread ?? { data: null, error: null };
       if (rec.cols === 'state') return outbound.state ?? { data: null, error: null };
+      if (rec.cols === 'id, state') return outbound.pending ?? { data: null, error: null };
       return outbound.existing ?? { data: [], error: null };
     }
     return over[table] ?? DEFAULTS[table] ?? { data: null, error: null };
@@ -125,16 +132,23 @@ const baseInput: CommentJobInput = {
   tenantId: TENANT,
   channelId: CHANNEL,
   pageExternalId: PAGE,
-  deliveryMode: 'live',
+  commentMode: 'live',
+  tokenStatus: 'active',
   graphVersion: 'v21.0',
   locale: 'mn-MN',
   config: { policy: 'public_only', maxPostAgeDays: 30, ignoreCommenterIds: [], repliesPerPostPerDay: 1 },
   rawPayload: entry([comment()]),
 };
 
-function stubFx(over: { tables?: Record<string, Reply>; outbound?: OutboundStub; send?: CommentSendOutcome } = {}) {
+function stubFx(over: {
+  tables?: Record<string, Reply>; outbound?: OutboundStub; send?: CommentSendOutcome;
+  privateSend?: PrivateReplyOutcome; lookup?: CommentLookup;
+} = {}) {
   const { db, ops } = stubDb(over.tables ?? {}, over.outbound ?? {});
   const posted: { commentId: string; body: string; tenantId: string }[] = [];
+  const privates: { commentId: string; body: string; pageId: string }[] = [];
+  const lookups: string[] = [];
+  const complaints: { commentId: string; text: string; link: string }[] = [];
   const logs: string[] = [];
   const fx: CommentEffects = {
     db,
@@ -143,9 +157,18 @@ function stubFx(over: { tables?: Record<string, Reply>; outbound?: OutboundStub;
       posted.push({ commentId: a.commentId, body: a.body, tenantId: a.tenantId });
       return over.send ?? { outcome: 'sent', providerCommentId: `${a.commentId}_r1` };
     },
+    sendPrivateReply: async (a) => {
+      privates.push({ commentId: a.commentId, body: a.body, pageId: a.pageId });
+      return over.privateSend ?? { outcome: 'sent', providerMessageId: `m_${a.commentId}` };
+    },
+    lookupComment: async (a) => {
+      lookups.push(a.commentId);
+      return over.lookup ?? { tagsPerson: false, postCreatedAt: new Date(NOW.getTime() - 86_400_000), problems: [] };
+    },
+    alertComplaint: async (a) => { complaints.push({ commentId: a.commentId, text: a.text, link: a.link }); },
     log: (_l, e) => logs.push(e),
   };
-  return { fx, ops, posted, logs };
+  return { fx, ops, posted, privates, lookups, complaints, logs };
 }
 
 const run = (over: Parameters<typeof stubFx>[0] = {}, input: Partial<CommentJobInput> = {}) => {
@@ -200,7 +223,8 @@ test('DONE-TEST: two comments in ONE thread, arriving together, get one reply', 
   const { posted, result } = run({}, {
     rawPayload: entry([
       comment({ comment_id: `${PAGE}_c1` }),
-      comment({ comment_id: `${PAGE}_c2`, parent_id: `${PAGE}_c1` }),
+      // A DIFFERENT person, or the per-person rule (D-122) would catch it first.
+      comment({ comment_id: `${PAGE}_c2`, parent_id: `${PAGE}_c1`, from: { id: 'customer_2', name: 'Сараа' } }),
     ]),
   });
   const r = await result;
@@ -225,7 +249,7 @@ test('DONE-TEST: A SHADOW CHANNEL DRAFTS AND POSTS NOTHING', async () => {
   // The fourteen days of withheld DM drafts that found D-066's gate-label leak, D-068's
   // discarded booking reply and D-069's «Хаяг» label had no equivalent on the one surface
   // where a mistake is public, permanent and screenshot-able.
-  const { posted, ops, result } = run({}, { deliveryMode: 'shadow' });
+  const { posted, ops, result } = run({}, { commentMode: 'shadow' });
   const r = await result;
 
   assert.equal(posted.length, 0, 'nothing reaches the wall');
@@ -246,7 +270,7 @@ test('DONE-TEST: AN OFF CHANNEL DRAFTS NOTHING EITHER — generate is the other 
   // `off`, `halted` and an unrecognised mode make no decision at all, because generating
   // for a channel that cannot receive it is what `delivery.generate` is false about.
   for (const mode of ['off', 'halted', 'nonsense_mode']) {
-    const { posted, ops, result } = run({}, { deliveryMode: mode });
+    const { posted, ops, result } = run({}, { commentMode: mode });
     const r = await result;
     assert.equal(posted.length, 0, mode);
     assert.equal(r.drafted, 0, mode);
@@ -262,7 +286,7 @@ test('a shadow run still exercises the per-post cap rather than stubbing it', as
   // post already at its allowance drafts nothing further even while mirroring.
   const { ops, result } = run(
     { outbound: { posts: { data: [{ comment_post_id: `${PAGE}_p1` }], error: null } } },
-    { deliveryMode: 'shadow' },
+    { commentMode: 'shadow' },
   );
   const r = await result;
   assert.equal(r.drafted, 0);
@@ -419,7 +443,7 @@ test('DONE-TEST: the count is a rolling 24-HOUR window, not everything ever post
   // took, and it silently switches the feature off after the first busy week.
   const { ops, result } = run();
   await result;
-  const counter = ops.find((o) => o.table === 'outbound_messages' && (o.cols ?? '').includes('comment_post_id'));
+  const counter = ops.find((o) => o.table === 'outbound_messages' && o.cols === 'comment_post_id');
   assert.equal(
     counter?.filters['gte:created_at'],
     new Date(NOW.getTime() - 24 * 60 * 60 * 1000).toISOString(),
@@ -661,4 +685,231 @@ test('thread_already_answered stays a counter and writes no row', async () => {
   const r = await result;
   assert.equal(r.refused['thread_already_answered'], 1, 'the case under test actually fired');
   assert.equal(ops.filter((o) => o.table === 'quality_flags').length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// D-122: the comment switch, both lines, one per person, tags, post age, complaints
+// ---------------------------------------------------------------------------
+
+const BOTH = { ...baseInput.config, policy: 'both' };
+const PRIVATE_LINE = 'Сайн байна уу! Би Tara Salon-ы AI туслах байна. Хүссэн зүйлээ асуугаарай.';
+const withPrivateLine: Record<string, Reply> = {
+  // The stub answers every canned read with one row; a real read is per kind. Good enough
+  // to prove both are required; the kinds themselves are asserted from the ops.
+  canned_responses: { data: { body: LINE, reviewed_at: '2026-09-25T00:00:00Z' }, error: null },
+};
+
+test('D-122: policy both, live — the public line AND the private message go, each once', async () => {
+  const { posted, privates, ops, result } = run({ tables: withPrivateLine }, { config: BOTH });
+  const r = await result;
+  assert.equal(r.replied, 1);
+  assert.equal(r.privateSent, 1);
+  assert.equal(posted.length, 1);
+  assert.equal(privates.length, 1);
+  assert.equal(privates[0]?.commentId, `${PAGE}_c1`, 'the private reply is addressed by COMMENT');
+  assert.equal(privates[0]?.pageId, PAGE, 'on the explicit Page, never /me');
+  const inserts = ops.filter((o) => o.table === 'outbound_messages' && o.op === 'insert');
+  assert.deepEqual(inserts.map((i) => i.patch?.['kind']), ['comment_reply', 'private_reply']);
+  assert.equal(inserts[1]?.patch?.['dedup_key'], privateReplyDedupKey(`${PAGE}_p1`, 'customer_1'));
+  for (const i of inserts) {
+    assert.equal(i.patch?.['comment_from_id'], 'customer_1', 'who it answers, so the person rule can count it');
+    assert.equal(i.patch?.['comment_post_id'], `${PAGE}_p1`);
+  }
+  // Both canned kinds were read.
+  const kinds = ops.filter((o) => o.table === 'canned_responses').map((o) => o.filters['eq:kind']);
+  assert.deepEqual(kinds.sort(), ['comment_private_reply', 'comment_public_reply']);
+});
+
+test('D-122: comments in SHADOW draft both rows and send nothing, while the lookup still runs', async () => {
+  const { posted, privates, lookups, ops, result } = run({ tables: withPrivateLine }, { config: BOTH, commentMode: 'shadow' });
+  const r = await result;
+  assert.equal(posted.length + privates.length, 0, 'nothing leaves');
+  assert.equal(r.drafted, 1);
+  assert.equal(r.privateDrafted, 1);
+  assert.equal(lookups.length, 1, 'shadow exercises the tag and post-age read, so it is measured before live');
+  assert.equal(ops.some((o) => o.table === 'outbound_messages' && o.op === 'update'), false, 'never claimed');
+});
+
+test('D-122: the comment switch is independent of the DM switch, and live needs an active token', async () => {
+  // The job no longer reads the DM mode at all; a DM-live channel with comments off is off.
+  const off = await run({}, { commentMode: 'off' }).result;
+  assert.equal(off.refused['not_generating'], 1);
+  for (const tokenStatus of ['revoked', 'error', '']) {
+    const { posted, result } = run({}, { commentMode: 'live', tokenStatus });
+    const r = await result;
+    assert.equal(posted.length, 0, tokenStatus);
+    assert.equal(r.refused['not_generating'], 1, tokenStatus);
+  }
+});
+
+test('D-122: a comment that tags a PERSON gets nothing, even when it asks a price', async () => {
+  const { posted, privates, ops, result } = run(
+    { tables: withPrivateLine, lookup: { tagsPerson: true, postCreatedAt: NOW, problems: [] } },
+    { config: BOTH },
+  );
+  const r = await result;
+  assert.equal(posted.length + privates.length, 0);
+  assert.equal(r.refused['comment_tags_person'], 1);
+  assert.equal(ops.some((o) => o.table === 'outbound_messages' && o.op === 'insert'), false, 'not even a draft');
+});
+
+test('D-122: an unreadable lookup refuses; a post older than the window refuses', async () => {
+  const unknown = await run({ lookup: { tagsPerson: null, postCreatedAt: null, problems: ['graph 500'] } }).result;
+  assert.equal(unknown.refused['comment_lookup_unknown'], 1);
+  assert.equal(unknown.replied, 0);
+  const old = await run({ lookup: { tagsPerson: false, postCreatedAt: new Date('2022-01-01T00:00:00Z'), problems: [] } }).result;
+  assert.equal(old.refused['post_too_old'], 1);
+  assert.equal(old.replied, 0);
+});
+
+test('D-122: praise costs no Graph read — the lookup is only for a comment worth answering', async () => {
+  const { lookups, result } = run({}, { rawPayload: entry([comment({ message: 'Ямар гоёнуу баярлалаа' })]) });
+  const r = await result;
+  assert.equal(lookups.length, 0);
+  assert.equal(r.refused['comment_not_worth_reply'], 1);
+});
+
+test('D-122: one reply per person per post — a second comment by the same person, same entry', async () => {
+  const { posted, result } = run({}, {
+    rawPayload: entry([
+      comment({ comment_id: `${PAGE}_c1` }),
+      comment({ comment_id: `${PAGE}_c7`, message: 'Хэдэн төгрөг вэ?' }),
+    ]),
+    config: { ...baseInput.config, repliesPerPostPerDay: 10 },
+  });
+  const r = await result;
+  assert.equal(posted.length, 1);
+  assert.equal(r.refused['person_already_answered'], 1);
+});
+
+test('D-122: one reply per person per post — answered on an earlier delivery', async () => {
+  const { posted, result } = run({
+    outbound: { persons: { data: [{ comment_post_id: `${PAGE}_p1`, comment_from_id: 'customer_1' }], error: null } },
+  });
+  const r = await result;
+  assert.equal(posted.length, 0);
+  assert.equal(r.refused['person_already_answered'], 1);
+});
+
+test('D-122: the same person on a DIFFERENT post is answered', async () => {
+  const { posted, result } = run({
+    outbound: { persons: { data: [{ comment_post_id: `${PAGE}_p9`, comment_from_id: 'customer_1' }], error: null } },
+  });
+  await result;
+  assert.equal(posted.length, 1);
+});
+
+test('D-122: a complaint posts nothing and alerts the founder with the link — in shadow too', async () => {
+  for (const commentMode of ['live', 'shadow']) {
+    const { posted, complaints, lookups, result } = run({}, {
+      commentMode,
+      rawPayload: entry([comment({
+        message: 'Утсаа авахгүй юм аа',
+        post: { permalink_url: 'https://www.facebook.com/reel/111/' },
+      })]),
+    });
+    const r = await result;
+    assert.equal(posted.length, 0, commentMode);
+    assert.equal(r.refused['comment_escalated'], 1, commentMode);
+    assert.equal(complaints.length, 1, commentMode);
+    assert.equal(complaints[0]?.link, 'https://www.facebook.com/reel/111/?comment_id=c1', commentMode);
+    assert.equal(complaints[0]?.text, 'Утсаа авахгүй юм аа');
+    assert.equal(lookups.length, 0, 'no Graph read for a comment nobody will answer');
+  }
+});
+
+test('D-122: a failing complaint alert never fails the job', async () => {
+  const s = stubFx();
+  s.fx.alertComplaint = async () => { throw new Error('telegram down'); };
+  const r = await runCommentJob(s.fx, { ...baseInput, rawPayload: entry([comment({ message: 'Утсаа авахгүй' })]) });
+  assert.equal(r.retry, false);
+  assert.ok(s.logs.includes('comment_complaint_alert_failed'));
+});
+
+test('D-122: the complaint link — permalink when Meta sent one, the post id otherwise', () => {
+  assert.equal(
+    commentLink({ commentId: '139_174', postId: '152_139', postPermalink: null }),
+    'https://www.facebook.com/152_139?comment_id=174',
+  );
+  assert.equal(
+    commentLink({ commentId: '139_174', postId: '152_139', postPermalink: 'https://www.facebook.com/x?y=1' }),
+    'https://www.facebook.com/x?y=1&comment_id=174',
+  );
+});
+
+test('D-122: a retryable private-reply failure retries the job; a public success is not re-sent', async () => {
+  const { posted, result } = run(
+    { tables: withPrivateLine, privateSend: { outcome: 'failed', retryable: true, failure: 'rate_limited', detail: '613' } },
+    { config: BOTH },
+  );
+  const r = await result;
+  assert.equal(r.retry, true);
+  assert.equal(r.replied, 1, 'the public line went out and is marked sent');
+  assert.equal(posted.length, 1);
+});
+
+test('D-122: an indeterminate private reply is parked, never retried', async () => {
+  const { result } = run(
+    { tables: withPrivateLine, privateSend: { outcome: 'indeterminate', detail: 'timeout' } },
+    { config: BOTH },
+  );
+  const r = await result;
+  assert.equal(r.retry, false);
+  assert.equal(r.refused['private_indeterminate'], 1);
+});
+
+test('D-122: a retried job FINISHES what it started — a pending private message is sent, a sent line is not', async () => {
+  // The case "a row exists" hid: the public line went out, the private message failed and
+  // the job 503'd. On the redelivery the person reads as answered. Without the resume step
+  // the private message was never sent.
+  const { posted, privates, result } = run({
+    tables: withPrivateLine,
+    outbound: {
+      persons: { data: [{ comment_post_id: `${PAGE}_p1`, comment_from_id: 'customer_1' }], error: null },
+      pending: { data: { id: 'om-9', state: 'failed' }, error: null },
+    },
+  }, { config: BOTH });
+  const r = await result;
+  assert.equal(r.refused['person_already_answered'], 1);
+  assert.equal(privates.length, 1, 'the private message waiting in `failed` goes out');
+  assert.equal(r.privateSent, 1);
+  // The stub answers both kinds with the same pending row, so the public one is resumed too;
+  // a `sent` row would read as not pending — asserted next.
+  assert.equal(posted.length, 1);
+});
+
+test('D-122: nothing is resumed when the rows were sent, or when comments are in shadow', async () => {
+  const sent = await run({
+    tables: withPrivateLine,
+    outbound: {
+      persons: { data: [{ comment_post_id: `${PAGE}_p1`, comment_from_id: 'customer_1' }], error: null },
+      pending: { data: { id: 'om-9', state: 'sent' }, error: null },
+    },
+  }, { config: BOTH });
+  const r1 = await sent.result;
+  assert.equal(sent.posted.length + sent.privates.length, 0);
+  assert.equal(r1.replied + r1.privateSent, 0);
+  const shadow = run({
+    tables: withPrivateLine,
+    outbound: {
+      persons: { data: [{ comment_post_id: `${PAGE}_p1`, comment_from_id: 'customer_1' }], error: null },
+      pending: { data: { id: 'om-9', state: 'failed' }, error: null },
+    },
+  }, { config: BOTH, commentMode: 'shadow' });
+  await shadow.result;
+  assert.equal(shadow.posted.length + shadow.privates.length, 0, 'shadow never sends, resumed or not');
+});
+
+test('D-122: a resumed reply still passes the tag check for the comment in hand', async () => {
+  const { posted, privates, result } = run({
+    tables: withPrivateLine,
+    lookup: { tagsPerson: true, postCreatedAt: NOW, problems: [] },
+    outbound: {
+      persons: { data: [{ comment_post_id: `${PAGE}_p1`, comment_from_id: 'customer_1' }], error: null },
+      pending: { data: { id: 'om-9', state: 'draft' }, error: null },
+    },
+  }, { config: BOTH });
+  const r = await result;
+  assert.equal(posted.length + privates.length, 0);
+  assert.equal(r.refused['comment_tags_person'], 1);
 });

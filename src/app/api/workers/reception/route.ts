@@ -21,7 +21,9 @@ import { buildDeps } from '@/lib/reception/deps';
 import { deliverOutbound } from '@/lib/outbound/deliver';
 import { loadTenantSecret } from '@/lib/secrets/tenantSecret';
 import { sendCommentReply } from '@/lib/comments/send';
-import { sendSenderAction } from '@/lib/meta/send';
+import { sendMessage, sendSenderAction } from '@/lib/meta/send';
+import { lookupComment } from '@/lib/comments/lookup';
+import { raiseCommentComplaint } from '@/lib/comments/complaint';
 import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
 import { SECTION_LABELS } from '@/lib/prompt/tenant';
@@ -119,21 +121,26 @@ function effects(now: Date): WorkerEffects {
      * credential is one refactor from being the wrong salon's.
      */
     showTyping: async ({ tenantId, channelId, recipientId }) => {
+      // One line per bubble, so the live logs can say whether it was shown (D-124): until
+      // this line nothing recorded the outcome, and "the bubble works" could not be read
+      // from production at all.
+      const started = Date.now();
+      let outcome = 'sent';
       try {
         const { data, error } = await db
           .from('tenant_channels').select('external_id').eq('id', channelId).maybeSingle();
-        if (error !== null || data === null) return;
-        const pageId = String((data as Record<string, unknown>)['external_id'] ?? '');
-        if (pageId === '') return;
-        const secret = await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
-        if (!secret.ok) return;
-        await sendSenderAction({
+        const pageId = error !== null || data === null ? '' : String((data as Record<string, unknown>)['external_id'] ?? '');
+        const secret = pageId === '' ? null : await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+        const ok = secret === null || !secret.ok ? false : await sendSenderAction({
           pageId, recipientId, token: secret.secret,
           graphVersion: required('META_GRAPH_VERSION'), action: 'typing_on',
         });
+        outcome = pageId === '' ? 'no_channel' : secret === null || !secret.ok ? 'no_credential' : ok ? 'sent' : 'refused';
       } catch {
         // Cosmetic. There is nothing to classify and nothing a caller could do.
+        outcome = 'threw';
       }
+      console.info('[worker] typing_indicator', { outcome, ms: Date.now() - started });
     },
 
     // The public surface, on the same per-request token as the DM path. `loadTenantSecret`
@@ -149,6 +156,32 @@ function effects(now: Date): WorkerEffects {
         };
       }
       return sendCommentReply({ commentId, body, token: secret.secret, graphVersion });
+    },
+
+    // The private message to a commenter (D-122): the Messenger send, addressed by comment.
+    sendPrivateReply: async ({ tenantId, channelId, pageId, commentId, body, graphVersion }) => {
+      const secret = await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+      if (!secret.ok) {
+        return { outcome: 'failed', retryable: secret.retryable, failure: 'unknown', detail: `no credential: ${secret.code}` };
+      }
+      const sent = await sendMessage({
+        pageId, recipientId: '', recipientCommentId: commentId, text: body, token: secret.secret, graphVersion,
+      });
+      return sent.outcome === 'sent' ? { outcome: 'sent', providerMessageId: sent.providerMessageId } : sent;
+    },
+
+    // Tags and post age (D-122). An unloadable credential is two unknowns, which refuse.
+    lookupComment: async ({ tenantId, channelId, pageId, commentId, postId, graphVersion }) => {
+      const secret = await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+      if (!secret.ok) return { tagsPerson: null, postCreatedAt: null, problems: [`no credential: ${secret.code}`] };
+      return lookupComment({ commentId, postId, pageId, token: secret.secret, graphVersion });
+    },
+
+    alertComplaint: async (input) => {
+      const outcome = await raiseCommentComplaint(db, input);
+      if (outcome.outcome === 'failed' || outcome.outcome === 'recorded_undelivered') {
+        console.error('[worker] comment_complaint_alert_undelivered', { commentId: input.commentId, ...outcome });
+      }
     },
 
     /**

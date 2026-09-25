@@ -171,9 +171,25 @@ export type WorkerEffects = {
   log: (level: 'info' | 'warn' | 'error', event: string, fields?: Record<string, unknown>) => void;
   /** The public-comment surface. Its own effects, because it is its own surface. */
   replyToComment: CommentEffects['replyToComment'];
+  sendPrivateReply: CommentEffects['sendPrivateReply'];
+  lookupComment: CommentEffects['lookupComment'];
+  alertComplaint: CommentEffects['alertComplaint'];
 };
 
 export type JobResult = { status: number; body: Record<string, unknown> };
+
+/** The longest a reply waits for its own typing bubble to reach Meta first (D-124). */
+export const TYPING_WAIT_MS = 1_500;
+
+/** Resolve when `p` settles or after `ms`, whichever is first; never rejects, never lingers. */
+async function settleWithin(p: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    p.then(() => undefined, () => undefined),
+    new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); }),
+  ]);
+  if (timer !== undefined) clearTimeout(timer);
+}
 
 /**
  * Where a reply's wall-clock actually goes, measured rather than reasoned about.
@@ -376,7 +392,24 @@ async function runReceptionDelivery(
   trace.channelId = channelId;
   const priorAttempts = typeof eventRow['attempts'] === 'number' ? eventRow['attempts'] : 0;
   clock.lap('event_read');
-  const counted = await recordDeliveryAttempt(db, eventId, priorAttempts);
+  // Three independent round trips, issued together (speed, D-124): the attempt counter,
+  // the tenant's settings and the channel. None depends on another, and each result is
+  // still EVALUATED in the order the code below always used, so every refusal fires exactly
+  // where it did — only the waiting overlaps. Measured live: ~180ms sequential.
+  const [counted, tenantRead, channelRead] = await Promise.all([
+    recordDeliveryAttempt(db, eventId, priorAttempts),
+    db
+      .from('tenants')
+      .select('default_locale, prompt_cache_mode, timezone, max_reply_age_minutes, human_takeover_cooldown_minutes')
+      .eq('id', tenantId)
+      .maybeSingle(),
+    db
+      .from('tenant_channels')
+      .select('external_id, status, delivery_mode, token_status, meta_app_id, graph_version_override, comment_policy, comment_delivery_mode, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day')
+      .eq('id', channelId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle(),
+  ]);
   clock.lap('attempt_write');
   trace.attempts = counted.attempts;
   if (!counted.ok) fx.log('error', 'attempt_count_failed', { eventId, detail: counted.detail });
@@ -397,11 +430,7 @@ async function runReceptionDelivery(
   // every other refusal in this function treats a read it cannot complete as undetermined,
   // and a redelivery costs nothing while a mis-keyed alert either fires twice a day or
   // goes quiet for one.
-  const { data: tenantRow, error: tenantErr } = await db
-    .from('tenants')
-    .select('default_locale, prompt_cache_mode, timezone, max_reply_age_minutes, human_takeover_cooldown_minutes')
-    .eq('id', tenantId)
-    .maybeSingle();
+  const { data: tenantRow, error: tenantErr } = tenantRead;
   if (tenantErr || tenantRow === null) {
     fx.log('error', 'tenant_unreadable', { tenantId, detail: tenantErr?.message });
     return unavailable('worker.tenant_unreadable');
@@ -436,6 +465,16 @@ async function runReceptionDelivery(
   // on is computed here rather than in SQL's `current_date`, which is the server's.
   const localDate = tenantClock(now, timezone).date;
 
+  // Started NOW, awaited in the message loop (D-124). Only when there is a message to
+  // answer: an echo or a comment-only entry must not cost the ten context reads. Never
+  // rejects — a throw becomes the same `unavailable` the loader returns for a failed read —
+  // because a job that returns early never awaits it, and an unhandled rejection on a warm
+  // lambda would outlive this request.
+  const startContext = (): Promise<Awaited<ReturnType<typeof loadReceptionContext>>> =>
+    loadReceptionContext(db, { tenantId, channel: 'facebook_page', settings, localDate })
+      .catch((e: unknown) => ({ ok: false as const, code: 'unavailable' as const, detail: `context load threw: ${e instanceof Error ? e.message : String(e)}` }));
+  const contextPromise = messages.length > 0 ? startContext() : null;
+
   // --- Secondary receiver (§3.7). Never a drop. -----------------------------
   //
   // Meta put these messages in `entry.standby` rather than `entry.messaging`, which means
@@ -459,12 +498,7 @@ async function runReceptionDelivery(
   }
 
   // --- The channel: where a reply would go, and whether it may go at all. ---
-  const { data: channelRow, error: channelErr } = await db
-    .from('tenant_channels')
-    .select('external_id, status, delivery_mode, meta_app_id, graph_version_override, comment_policy, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day')
-    .eq('id', channelId)
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
+  const { data: channelRow, error: channelErr } = channelRead;
   if (channelErr) {
     fx.log('error', 'channel_unreadable', { tenantId, channelId, detail: channelErr.message });
     return unavailable('worker.channel_unreadable');
@@ -594,15 +628,28 @@ async function runReceptionDelivery(
 
   // --- The public surface. A `feed` entry has no `messaging`, so this is where a
   // comments-only event is handled; a `messages` entry yields no comments and skips it.
+  //
+  // Gated on the COMMENT switch (D-122), which is independent of the DM `delivery_mode`: a
+  // channel can be live for DMs and shadow for comments. `off` (the default for every
+  // channel) and `comment_policy = 'none'` both skip the job entirely, so a DM-only channel
+  // pays nothing for the `feed` firehose.
   let commentResult: CommentJobResult | null = null;
-  if (String(c['comment_policy'] ?? 'none') !== 'none') {
+  const commentMode = String(c['comment_delivery_mode'] ?? 'off');
+  if (String(c['comment_policy'] ?? 'none') !== 'none' && commentMode !== 'off') {
     commentResult = await runCommentJob(
-      { db, now, replyToComment: fx.replyToComment, log: fx.log },
+      {
+        db, now, log: fx.log,
+        replyToComment: fx.replyToComment,
+        sendPrivateReply: fx.sendPrivateReply,
+        lookupComment: fx.lookupComment,
+        alertComplaint: fx.alertComplaint,
+      },
       {
         tenantId,
         channelId,
         pageExternalId: pageId,
-        deliveryMode: String(c['delivery_mode'] ?? ''),
+        commentMode,
+        tokenStatus: String(c['token_status'] ?? ''),
         graphVersion,
         locale: settings.defaultLocale,
         config: {
@@ -630,34 +677,14 @@ async function runReceptionDelivery(
     return ok({ eventId, skipped: skipSummary(skipped), ...(commentResult === null ? {} : { comments: commentResult }) });
   }
 
-  const loaded = await loadReceptionContext(db, { tenantId, channel: 'facebook_page', settings, localDate });
-  clock.lap('context_load');
-  // Null until the context loads, and it stays null on every refusal path — see the note
-  // at the log site. `loaded.timings` only exists on the ok branch because the failure
-  // branches return before the batch is issued, so there is no split to report.
-  const contextTimings: LoadTimings | null = loaded.ok ? loaded.timings : null;
-  if (!loaded.ok) {
-    fx.log('error', 'context_unavailable', { tenantId, code: loaded.code, detail: loaded.detail });
-    trace.detail = loaded.detail;
-    if (loaded.code === 'not_provisioned') {
-      // Determinate: retrying cannot provision a tenant. ACK and let the operator alert
-      // carry it, rather than looping QStash against a state only a human can change.
-      await markEventState(db, eventId, 'blocked_no_token');
-      return ok({ refused: loaded.code });
-    }
-    return unavailable(loaded.code);
-  }
-  const ctx = loaded.context;
-
-  /**
-   * L4, the volatile tail. Its own `system` block with no `cache_control`, which is what
-   * makes the ancestor's trap structurally unavailable: it concatenates its closure
-   * section onto the cached base prompt, so anything date-shaped added there invalidates
-   * every entry, silently, and the bill roughly triples.
-   */
-  const promptVolatile = renderVolatile({
-    now, timezone, surface: RECEPTION_SURFACE, hours: ctx.hours, closures: ctx.closures,
-  });
+  // The reply's context was started before the comment surface ran (D-124) and is awaited
+  // inside the loop, just before the first thing that needs it, so its ~450ms overlaps the
+  // inbound persistence instead of preceding it. Every failure below is handled exactly as
+  // before; the one difference is that the customer's message is now STORED before a
+  // context failure refuses the job, which is §3.4.5's "persist everything" and is safe on
+  // the retry, because persistence is idempotent and `findReplyFor` still decides.
+  let ready: { ctx: ReceptionContext; promptVolatile: ReturnType<typeof renderVolatile> } | null = null;
+  let contextTimings: LoadTimings | null = null;
 
   // --- One message, one reservation, one reply. -----------------------------
   const drafted: string[] = [];
@@ -824,6 +851,39 @@ async function runReceptionDelivery(
       continue;
     }
 
+    if (ready === null) {
+      const loaded = await (contextPromise ?? startContext());
+      clock.lap('context_load');
+      // Null until the context loads, and it stays null on every refusal path — see the note
+      // at the log site. `loaded.timings` only exists on the ok branch because the failure
+      // branches return before the batch is issued, so there is no split to report.
+      contextTimings = loaded.ok ? loaded.timings : null;
+      if (!loaded.ok) {
+        fx.log('error', 'context_unavailable', { tenantId, code: loaded.code, detail: loaded.detail });
+        trace.detail = loaded.detail;
+        if (loaded.code === 'not_provisioned') {
+          // Determinate: retrying cannot provision a tenant. ACK and let the operator alert
+          // carry it, rather than looping QStash against a state only a human can change.
+          await markEventState(db, eventId, 'blocked_no_token');
+          return ok({ refused: loaded.code });
+        }
+        return unavailable(loaded.code);
+      }
+      /**
+       * L4, the volatile tail. Its own `system` block with no `cache_control`, which is what
+       * makes the ancestor's trap structurally unavailable: it concatenates its closure
+       * section onto the cached base prompt, so anything date-shaped added there invalidates
+       * every entry, silently, and the bill roughly triples.
+       */
+      ready = {
+        ctx: loaded.context,
+        promptVolatile: renderVolatile({
+          now, timezone, surface: RECEPTION_SURFACE, hours: loaded.context.hours, closures: loaded.context.closures,
+        }),
+      };
+    }
+    const { ctx, promptVolatile } = ready;
+
     // History is read AFTER storing, so the turn just received is not also passed as
     // history — the model would otherwise see the question twice.
     const history = await readHistory(db, { tenantId, conversationId, limit: RECEPTION_HISTORY_TURNS + 1 });
@@ -881,14 +941,20 @@ async function runReceptionDelivery(
     //
     // Not awaited, and its own failures are swallowed inside the effect: a customer's reply
     // must never wait on, or be lost to, a decoration.
-    if (delivery.deliver) {
-      void fx.showTyping({ tenantId, channelId, recipientId: message.senderId })
+    //
+    // AWAITED BEFORE THE SEND, bounded (D-124). A reply that needs no model is ready ~150ms
+    // after this line and the bubble's own request takes longer than that, so un-awaited it
+    // could reach Meta AFTER the reply — a «typing…» under an answer already given, for up to
+    // twenty seconds. The send therefore waits for the bubble to finish, but never more than
+    // `TYPING_WAIT_MS`: a model reply takes seconds, so the wait there is always zero.
+    const typing: Promise<void> | null = delivery.deliver
+      ? fx.showTyping({ tenantId, channelId, recipientId: message.senderId })
         .catch((e: unknown) => {
           fx.log('info', 'typing_indicator_failed', {
             externalId: message.externalId, detail: e instanceof Error ? e.message : String(e),
           });
-        });
-    }
+        })
+      : null;
 
     const outcome = await fx.generateReply({
       tenantId, channelId, conversationId,
@@ -933,33 +999,39 @@ async function runReceptionDelivery(
     // the reply already exists, so a trace that cannot be written is evidence lost, and
     // refusing over it — or 503-ing into a retry that would re-drive an already-drafted
     // event — would be worse. Same posture as `flagQuality`, for the same reason.
-    const traced = await traceAnswer(db, {
+    //
+    // Issued together with the claim (D-124): the trace is bookkeeping on the customer's
+    // row and the claim is the step before the send, and neither reads the other. A shadow
+    // channel has no claim, so it awaits the trace alone.
+    const tracing = traceAnswer(db, {
       tenantId,
       messageId: stored.value.messageId,
       answeredBy: outcome.answeredBy,
       revisionId: ctx.revisionId,
       promptHash: ctx.contentHash,
     });
-    if (!traced.ok) {
-      fx.log('error', 'trace_failed', {
-        tenantId, conversationId, messageId: stored.value.messageId, detail: traced.detail ?? '',
-      });
-    }
-    clock.lap('trace');
 
     if (outcome.refusal !== undefined) {
       fx.log('warn', 'answered_with_handoff', { code: outcome.refusal, conversationId });
     }
 
     // --- H14: claim the draft and put it on the wire. ---------------------
-    if (!delivery.deliver) {
+    const [traced, held] = await Promise.all([
+      tracing,
+      delivery.deliver ? claim(db, { id: outcome.outboundId, tenantId, now }) : Promise.resolve(null),
+    ]);
+    if (!traced.ok) {
+      fx.log('error', 'trace_failed', {
+        tenantId, conversationId, messageId: stored.value.messageId, detail: traced.detail ?? '',
+      });
+    }
+    clock.lap('trace');
+    if (held === null || !delivery.deliver) {
       // Generated and deliberately not sent. The row stays `draft`, so the day the
       // channel goes live it is claimable rather than lost.
-      fx.log('info', 'not_delivering', { tenantId, channelId, detail: delivery.detail });
+      fx.log('info', 'not_delivering', { tenantId, channelId, detail: delivery.deliver ? '' : delivery.detail });
       continue;
     }
-
-    const held = await claim(db, { id: outcome.outboundId, tenantId, now });
     clock.lap('claim');
     if (held.outcome === 'unavailable') {
       fx.log('error', 'claim_unavailable', { detail: held.detail });
@@ -971,6 +1043,9 @@ async function runReceptionDelivery(
       fx.log('info', 'not_ours', { outboundId: outcome.outboundId, outcome: held.outcome });
       continue;
     }
+
+    if (typing !== null) await settleWithin(typing, TYPING_WAIT_MS);
+    clock.lap('typing_wait');
 
     const delivered = await fx.deliver({
       tenantId, channelId, pageId,

@@ -163,7 +163,18 @@ export async function reserve(
 ): Promise<ReserveOutcome> {
   if (input.estimate < 0n) return { outcome: 'unavailable', detail: 'negative estimate' };
 
-  const ceiling = await effectiveDailyCeiling(db, input.tenantId, input.surface);
+  // The platform's own day, for the reason `dayTargets` gives: a shared cap cannot have a
+  // per-tenant period or it is not shared.
+  //
+  // Its seed does not depend on the tenant's ceiling, so it is issued TOGETHER with the
+  // ceiling read (D-124, one round trip saved on every reply). Seeding is an idempotent
+  // insert-if-absent of a ceiling that is compiled in code; it moves no money and reserves
+  // nothing. Both results are checked, in the old order, before anything is held.
+  const platformDay = dayKey(input.now, PLATFORM_TIMEZONE);
+  const [ceiling, platformSeeded] = await Promise.all([
+    effectiveDailyCeiling(db, input.tenantId, input.surface),
+    ensureCounter(db, 'platform', 'platform', input.surface, 'day', platformDay, CAPS.platformPerDay),
+  ]);
   if (!ceiling.ok) return { outcome: 'unavailable', detail: ceiling.detail };
 
   // A surface budgeted at zero refuses here, before anything else happens. Analytics and
@@ -174,12 +185,6 @@ export async function reserve(
   const tenantDay = dayKey(input.now, input.timezone);
   const seeded = await ensureCounter(db, 'tenant', input.tenantId, input.surface, 'day', tenantDay, ceiling.ceiling);
   if (!seeded.ok) return { outcome: 'unavailable', detail: seeded.detail };
-
-  // The platform's own day, for the reason `dayTargets` gives: a shared cap cannot have a
-  // per-tenant period or it is not shared.
-  const platformDay = dayKey(input.now, PLATFORM_TIMEZONE);
-  const platformSeeded = await ensureCounter(
-    db, 'platform', 'platform', input.surface, 'day', platformDay, CAPS.platformPerDay);
   if (!platformSeeded.ok) return { outcome: 'unavailable', detail: platformSeeded.detail };
 
   // The reservation row first, so there is evidence even if the counter update fails.

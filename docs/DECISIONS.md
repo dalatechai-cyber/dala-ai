@@ -9174,3 +9174,136 @@ and handed over the public half. `overrideKeys.ts` now lists one Ed25519 key, id
 `33e1d9160edf3173` (the first 16 hex of the SHA-256 of its SPKI bytes). The private half never
 left the founder's machine, and nothing here can mint a token with it. A test now fails CI if
 any registered entry is not an Ed25519 public key, or appears twice.
+## D-122 — comments get their own switch, both lines, one reply per person per post
+
+**Founder, 2026-09-25 (overnight brief):** comments run in shadow with their own off / shadow /
+live switch, independent of DMs, which stay live. Reply only to a comment that asks something
+or wants information; never to praise, emoji, stickers, tags between friends, jokes or the
+Page's own comments; at most one reply per person per post. A complaint gets no reply and a
+Telegram alert with the link. The reply is the public line «Сайн байна уу! Манай хуудас руу
+мессеж бичвэл дэлгэрэнгүй хариулъя 😊» plus, at the same time, the private message «Сайн байна
+уу! Би Tara Salon-ы AI туслах байна. Хүссэн зүйлээ асуугаарай.» Both wordings are the founder's
+and approved. Comments do not go live until he switches them.
+
+**The switch.** `0045` adds `tenant_channels.comment_delivery_mode` (`off` default). The
+comment job runs only when it is not `off` and `comment_policy` is not `none`, and it reads
+this switch, never the DM `delivery_mode` (`canDeliverComments`). `live` posts only while
+`token_status = 'active'`: both halts write the token status, so a halted channel stops
+posting publicly without `halt.ts` naming one more column in the statement that must never
+fail.
+
+**Both lines.** `comment_policy` `both` and `private_only` are built. The private message is
+`POST /{page-id}/messages` with `recipient.comment_id` and no `messaging_type` (Meta's
+private reply). The public row and the private row are both drafted before either is sent;
+each has its own claim, so a refused public line never withholds the private one. "Both" with
+either line unreviewed sends neither: half of "both" is a different policy. When the customer
+answers the private message it arrives as an ordinary DM and is answered as one.
+
+**One reply per person per post.** `outbound_messages.comment_from_id` records who a comment
+row answers. The rule is read from it (no time window) and, for the private message, enforced
+by the unique index through the key `pr:{post}:{from}`. The per-thread rule stays.
+
+**Tags and the post's age are read from Graph**, because the webhook does not carry them —
+measured: 72 real comment deliveries, none with `message_tags`; a tag arrives only as a name
+in the text. `comments/lookup.ts` reads `message_tags` on the comment and `created_time` on
+the post, only for a comment already decided worth answering. A tag of anyone but the Page
+refuses (`comment_tags_person`); a post older than `comment_max_post_age_days` refuses
+(`post_too_old`, closing §3.8.2 rule 5, which docs/comments.md called a precondition for
+live); anything unreadable refuses (`comment_lookup_unknown`). This path cannot be exercised
+from this environment (graph.facebook.com is unreachable here), so its first real run is in
+production, in shadow.
+
+**Complaints** keep the `comment_escalated` flag row and now also raise a `comment.complaint`
+alert (`once` per comment, route `now`) with the comment's text and a link built from
+`value.post.permalink_url` plus `comment_id`. Raised in shadow too: nothing is posted either
+way, and a complaint is no less real because the bot is rehearsing. The link format is
+Facebook's documented share form and is unverified from here.
+
+**The classifier stays rows.** The shared matcher language gains four modes: `has_word`
+(whole words, which is what makes «ib», «pm», «хэд», «вэ» safe below the stem floor; `?` and
+emoji are tested as symbols), `ends_with` (a fused question particle, «арилдагуу»), `all_of`
+and `not` (only inside `all_of`, nesting at most three). `scripts/provision/templates/
+comment_rules.salon.json` is a vertical template of 40 rules; `scripts/provision/comment-rules.ts
+<slug>` prints the SQL that installs it (upsert and enable; every other rule of the tenant
+disabled, not deleted). Every reply rule excludes laughter; the generic service question also
+excludes praise, which is what keeps «Ямар гоё будаг вэ» (an exclamation) silent while «Энэ
+ямар будаг вэ» is answered.
+
+**Tested, permanently** (`comments/salonRules.test.ts` over `salonCorpus.fixtures.ts`): all 42
+real comments (33 with text, 9 stickers/photos; the Page's own 30 are skipped before any rule),
+and at least 30 written examples each of question, praise, tag, emoji, complaint, joke and
+Latin-typed — zero replies to praise or tags, asserted as a count. The first version of the
+rules was then probed with 52 comments it had not been tuned on; five misses and three false
+alarms were fixed and every probe was added to the corpus.
+
+**Known and left:** a bare service noun («Үс будуулах», «Usnii emchilgee») is silent. It is
+probably a request, and on the DM surface it is answered; on the wall, precision is kept over
+recall until the shadow list says how often it happens. «Муу» alone escalates; «муу биш» does not.
+
+## D-123 — the morning report reads what a reply says: former names and internal instructions
+
+**Founder, 2026-09-25:** the morning report missed «ci henbe», where the bot called the salon
+«Матрикс». Flag any reply that calls the salon Матрикс / Matrix, and any reply that mentions
+internal instructions unasked.
+
+Every earlier signal in `quality/flaws.ts` reads the SHAPE of a conversation — a correction, a
+repeat, a handoff, a refusal. None reads what the reply says, so a wrong name went through.
+`quality/leaks.ts` adds two content checks, both reported in the morning report, neither
+enforced at send time:
+
+- **`old name (…)`** — the reply uses one of `tenants.former_names` (`0046`). Rows, not code:
+  the next business to rebrand fills in a column. Links are masked first, because
+  `matrixecosalon.org` is still the salon's real website and quoting it is not calling the
+  salon Matrix. Matrix's row: `{Матрикс, Matrix}`.
+- **`internal (…)`** — a gate label («Ш0»), an internal identifier (`refusal_public_channel`,
+  `facebook_page`), a section heading copied in capitals («БЭЛЭН ХАРИУЛТ»), `===`, or words
+  describing the bot's instructions or the data it was given («заавар»/«заавр», «дотоод»,
+  «надад өгсөн», «мэдээллийн сан», «тухайн байгууллагын мэдээлэл»…). Approved text (reviewed
+  lines, enabled deterministic replies) is cut out first. When the customer asked about the
+  bot, its rules or its instructions, it is not flagged.
+
+**Measured against the 201 replies on record** (10 days, drafts and sent): 23 flagged, every
+one a true positive on reading — 21 greet as «Матрикс эко салон» (shadow-era drafts before the
+rebrand, plus the live 03:28 reply on 09-21), one draft named `refusal_public_channel` to a
+customer, one said «Тухайн байгууллагын мэдээллийн санд…». The live «ci henbe» reply of
+2026-09-24 21:57 is flagged twice: «Матрикс» and «Дотоод зааврынхаа талаар…». The first form
+of the check missed the second flag — «заавар» drops its vowel when inflected — and the
+stem list now carries both.
+
+## D-124 — a reply that needs no model: where the 3.5 seconds went, and the typing bubble's order
+
+**Founder, 2026-09-25:** replies that need no model call still wait about 3.5 s. Find where
+the time goes and cut it without weakening any guard; measure before and after on live
+traffic. And confirm the typing bubble shows on live replies, from real logs.
+
+**Measured before** (the seven live turns of 2026-09-24 21:54–21:58, `webhook_events` →
+`outbound_messages`, plus each job's `reply_timing_ms`): Meta → our webhook 0.6–1.7 s;
+webhook → worker start ~0.9 s (the webhook route and the QStash hop); the worker's reads
+before the reply ~1.25 s, every one sequential — event 70, attempt count 50, tenant 65,
+channel ~60, context 450, inbound persistence 205, thread state 50, history 60, guard 300;
+a row-answered reply 110–170 ms; trace 50, claim 50; the Graph send ~600 ms. A no-model reply
+therefore lands ≈3.8 s after the customer pressed send.
+
+**Cut, with every refusal evaluated in the same order as before:**
+- the attempt counter, the tenant row and the channel row are read together;
+- the reply context (ten reads, ~450 ms) starts as soon as the tenant is known and is
+  awaited just before the history read, so it overlaps the inbound persistence and thread
+  check. The one ordering change: the customer's message is now stored before a context
+  failure refuses the job — which is "persist everything" and is safe on the retry, since
+  persistence is idempotent and `findReplyFor` still decides whether to answer;
+- the answer trace is written together with the claim;
+- in `spend/reserve`, the platform counter's seed (an idempotent insert of a ceiling that is
+  compiled in code; no money moves) is issued with the ceiling read. The charge itself —
+  the reservation row and `reserve_spend_all` — is unchanged and still last.
+
+Expected ≈0.45 s off the worker; the after-measurement is the next live no-model turns
+(`reply_timing_ms`: `context_load` should read near zero, `attempt_write` should absorb the
+tenant and channel reads).
+
+**The typing bubble had no instrument.** `showTyping` swallowed every outcome, so "it shows"
+could not be read from production at all; it now logs `typing_indicator` with its outcome
+and duration. And it was fired without awaiting: for a reply that needs no model, the reply
+is ready ~150 ms later while the bubble's own request takes longer, so the bubble could reach
+Meta AFTER the answer and hang «typing…» under it. The send now waits for the bubble, at most
+1.5 s (`TYPING_WAIT_MS`); for a model reply the wait is zero because the bubble finished
+seconds earlier.

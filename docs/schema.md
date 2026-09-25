@@ -659,6 +659,34 @@ drafts and the replies they produced.
 **Pushing it changes no reply on its own** — the compiled prefix is what a tenant is
 answered from, so every tenant needs republishing afterwards (deploy, `git pull`, publish).
 
+### `0046_tenant_former_names`
+
+**Additive.** `tenants.former_names text[] not null default '{}'` — names the business no
+longer uses. The morning flaw report flags a sent reply that uses one (links masked first, so
+the salon's own website address is not a hit). D-123.
+
+### `0045_comment_delivery_mode`
+
+**Additive, plus one CHECK widened.** Comments get their own switch (D-122).
+
+- **`tenant_channels.comment_delivery_mode`** — `off` / `shadow` / `live`, default `off`,
+  independent of `delivery_mode` (DMs). `shadow` drafts every public reply and private
+  message and sends none; `live` sends only while `token_status = 'active'` (checked in
+  `channel/delivery.ts`'s `canDeliverComments`). `comment_policy` still says WHAT is sent:
+  `public_only`, `private_only` or `both`. The comment job runs only when the policy is not
+  `none` AND this is not `off`.
+- **`outbound_messages.comment_from_id`** — the commenter a `comment_reply` or
+  `private_reply` answers; "one reply per person per post" is counted from it. A CHECK keeps it
+  null on every other kind, and `comment_post_id_only_on_comment_replies` is widened to allow
+  `private_reply` as well (no existing row can fail the wider check).
+- **`canned_response_kinds`** gains `comment_private_reply`, which is in
+  `MODEL_INVISIBLE_KINDS`: its row never enters the compiled prefix and never moves
+  `canned_hash`. **Deploy the code that lists it BEFORE inserting the row** — the other order
+  moves the request-side hash and 503s every DM reply until a republish.
+
+A private reply's `dedup_key` is `pr:{post_id}:{from_id}`, so the unique index
+`outbound_messages_dedup` enforces one private message per person per post.
+
 ### `0044_flaw_loop`
 
 **Additive.** Two tables and two functions, for the flaw loop (D-120).

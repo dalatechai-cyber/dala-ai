@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { canDeliver } from './delivery.ts';
+import { canDeliver, canDeliverComments } from './delivery.ts';
 
 test('only `live` delivers', () => {
   assert.deepEqual(canDeliver('live'), { deliver: true, generate: true });
@@ -69,5 +69,21 @@ test('every mode the schema permits is named here', () => {
     assert.equal(typeof canDeliver(String(mode)).deliver, 'boolean');
     // A fifth mode must also have a deliberate answer to "does this spend money?".
     assert.equal(typeof canDeliver(String(mode)).generate, 'boolean');
+  }
+});
+
+test('D-122: the comment switch — shadow drafts, live posts only on an active token, anything else is off', () => {
+  assert.deepEqual(canDeliverComments('live', 'active'), { deliver: true, generate: true });
+  const shadow = canDeliverComments('shadow', 'revoked');
+  assert.equal(shadow.generate, true);
+  assert.equal(shadow.deliver, false);
+  for (const token of ['revoked', 'error', 'expired', '']) {
+    const v = canDeliverComments('live', token);
+    assert.equal(v.deliver, false, token);
+    assert.equal(v.generate, false, token);
+  }
+  for (const mode of ['off', '', 'LIVE', 'public_only', 'shadow_routing']) {
+    const v = canDeliverComments(mode, 'active');
+    assert.equal(v.deliver || v.generate, false, mode);
   }
 });

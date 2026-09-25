@@ -85,8 +85,14 @@ const SENDER_ACTION_TIMEOUT_MS = 3_000;
 export type SendInput = {
   /** The channel's `external_id`. The literal `me` is refused. */
   pageId: string;
-  /** The customer's PSID. */
+  /** The customer's PSID. Empty when `recipientCommentId` is set instead. */
   recipientId: string;
+  /**
+   * A PRIVATE REPLY to a public comment (D-122): Meta resolves the commenter from the
+   * comment id and opens a Messenger thread with them. Exactly one of this and
+   * `recipientId` may be set. Meta allows one per comment, within seven days of it.
+   */
+  recipientCommentId?: string;
   text: string;
   token: string;
   graphVersion: string;
@@ -190,8 +196,12 @@ export async function sendMessage(input: SendInput): Promise<SendOutcome> {
       detail: "refusing to send to '/me/messages': the page id must be explicit",
     };
   }
-  if (input.recipientId === '') {
-    return { outcome: 'failed', failure: 'unknown', retryable: false, code: null, subcode: null, status: null, detail: 'no recipient' };
+  const commentId = input.recipientCommentId ?? '';
+  if ((input.recipientId === '') === (commentId === '')) {
+    return {
+      outcome: 'failed', failure: 'unknown', retryable: false, code: null, subcode: null, status: null,
+      detail: input.recipientId === '' ? 'no recipient' : 'both a PSID and a comment id; a send has exactly one recipient',
+    };
   }
   if (input.text === '') {
     return { outcome: 'failed', failure: 'unknown', retryable: false, code: null, subcode: null, status: null, detail: 'refusing to send an empty message' };
@@ -211,13 +221,17 @@ export async function sendMessage(input: SendInput): Promise<SendOutcome> {
         authorization: `Bearer ${input.token}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({
-        // RESPONSE is the reply-inside-the-window type. The window itself is checked by
-        // the eligibility gate before this is reached; Meta checks it again.
-        messaging_type: 'RESPONSE',
-        recipient: { id: input.recipientId },
-        message: { text: input.text },
-      }),
+      body: JSON.stringify(commentId !== ''
+        // A private reply names the COMMENT, and carries no messaging_type: it is not a
+        // reply inside a 24-hour window, it is Meta's own one-per-comment channel.
+        ? { recipient: { comment_id: commentId }, message: { text: input.text } }
+        : {
+          // RESPONSE is the reply-inside-the-window type. The window itself is checked by
+          // the eligibility gate before this is reached; Meta checks it again.
+          messaging_type: 'RESPONSE',
+          recipient: { id: input.recipientId },
+          message: { text: input.text },
+        }),
       signal: controller.signal,
       // Belt and braces with the shared clients' policy: nothing here is cacheable, and a
       // cached POST would be a re-send.
