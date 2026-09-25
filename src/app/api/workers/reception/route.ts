@@ -121,7 +121,7 @@ function effects(now: Date): WorkerEffects {
      * `secrets/tenantSecret.ts`: a warm lambda is reused across tenants and a cached
      * credential is one refactor from being the wrong salon's.
      */
-    showTyping: async ({ tenantId, channelId, recipientId }) => {
+    showTyping: async ({ tenantId, channelId, recipientId, action }) => {
       // One line per bubble, so the live logs can say whether it was shown (D-124): until
       // this line nothing recorded the outcome, and "the bubble works" could not be read
       // from production at all.
@@ -134,14 +134,14 @@ function effects(now: Date): WorkerEffects {
         const secret = pageId === '' ? null : await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
         const ok = secret === null || !secret.ok ? false : await sendSenderAction({
           pageId, recipientId, token: secret.secret,
-          graphVersion: required('META_GRAPH_VERSION'), action: 'typing_on',
+          graphVersion: required('META_GRAPH_VERSION'), action: action ?? 'typing_on',
         });
         outcome = pageId === '' ? 'no_channel' : secret === null || !secret.ok ? 'no_credential' : ok ? 'sent' : 'refused';
       } catch {
         // Cosmetic. There is nothing to classify and nothing a caller could do.
         outcome = 'threw';
       }
-      console.info('[worker] typing_indicator', { outcome, ms: Date.now() - started });
+      console.info('[worker] typing_indicator', { action: action ?? 'typing_on', outcome, ms: Date.now() - started });
     },
 
     // The public surface, on the same per-request token as the DM path. `loadTenantSecret`

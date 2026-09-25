@@ -9304,9 +9304,14 @@ tenant and channel reads).
 could not be read from production at all; it now logs `typing_indicator` with its outcome
 and duration. And it was fired without awaiting: for a reply that needs no model, the reply
 is ready ~150 ms later while the bubble's own request takes longer, so the bubble could reach
-Meta AFTER the answer and hang «typing…» under it. The send now waits for the bubble, at most
-1.5 s (`TYPING_WAIT_MS`); for a model reply the wait is zero because the bubble finished
-seconds earlier.
+Meta AFTER the answer and hang «typing…» under it. The first fix made the send wait for the
+bubble; measured live, the bubble took 1.2 s on a cold lambda, so that would have cost every
+no-model reply the round trip the rest of this change saves. The shipped rule: **the reply
+never waits.** If its bubble had not landed when the reply went out, `typing_off` is sent
+once it lands (bounded by `TYPING_WAIT_MS`, 1.5 s, after the send). A model reply's bubble has
+always landed, so nothing extra is sent. **Confirmed live** at 2026-09-25 04:55 UTC:
+`typing_indicator { outcome: 'sent', ms: 1197 }`, and the context load overlapped completely
+(`context_load: 0`).
 ## D-125 — a tenant with two branches: ask which one, never guess, and change nothing for one
 
 **2026-09-25. Built, not applied, not published.** Matrix is becoming Tara Salon and will

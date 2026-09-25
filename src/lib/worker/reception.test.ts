@@ -1246,25 +1246,52 @@ test('D-122: comments in SHADOW run on a DM-live channel, and read the comment s
   assert.equal(comments.privateSent, 0);
 });
 
-test('D-124: the typing bubble reaches Meta BEFORE the reply, never after it', async () => {
-  // A reply that needs no model is ready before the bubble's own request returns; un-awaited,
-  // the bubble could land after the answer and hang «typing…» under it.
+test('D-124: the reply never waits for its bubble; a bubble that lands late is cleared after it', async () => {
+  // A reply that needs no model is ready before the bubble's own request returns. Waiting
+  // for the bubble cost every such reply its round trip; not clearing it could hang
+  // «typing…» under the answer. The reply goes first, then typing_off.
   const order: string[] = [];
-  const { fx } = stubEffects();
+  const { fx, logs } = stubEffects();
   const realDeliver = fx.deliver;
-  fx.showTyping = async () => { await new Promise((r) => setTimeout(r, 40)); order.push('typing'); };
+  fx.showTyping = async (a) => {
+    if (a.action === 'typing_off') { order.push('typing_off'); return; }
+    await new Promise((r) => setTimeout(r, 40));
+    order.push('typing_on');
+  };
   fx.deliver = async (a) => { order.push('deliver'); return realDeliver(a); };
   const r = await run(fx);
   assert.equal(r.status, 200);
-  assert.deepEqual(order, ['typing', 'deliver']);
+  assert.deepEqual(order, ['deliver', 'typing_on', 'typing_off']);
+  assert.ok(reasons(logs).includes('typing_cleared_after_reply'));
 });
 
-test('D-124: a bubble that never answers delays the reply by at most TYPING_WAIT_MS', async () => {
+test('D-124: a bubble that landed before the reply is left alone — no typing_off', async () => {
+  const order: string[] = [];
+  const { fx, logs } = stubEffects();
+  const realDeliver = fx.deliver;
+  fx.showTyping = async (a) => { order.push(a.action ?? 'typing_on'); };
+  // A model-like reply: the bubble has long landed by the time it is ready.
+  const realGenerate = fx.generateReply;
+  fx.generateReply = (async (...args: Parameters<typeof fx.generateReply>) => {
+    await new Promise((r) => setTimeout(r, 20));
+    return realGenerate(...args);
+  }) as typeof fx.generateReply;
+  fx.deliver = async (a) => { order.push('deliver'); return realDeliver(a); };
+  await run(fx);
+  assert.deepEqual(order, ['typing_on', 'deliver']);
+  assert.ok(!reasons(logs).includes('typing_cleared_after_reply'));
+});
+
+test('D-124: a bubble that never answers never delays the reply, and the job still ends', async () => {
   const { fx, delivered } = stubEffects();
-  fx.showTyping = () => new Promise<void>(() => {});
+  let sentAt = 0;
+  const realDeliver = fx.deliver;
+  fx.deliver = async (a) => { sentAt = Date.now(); return realDeliver(a); };
+  fx.showTyping = (a) => (a.action === 'typing_off' ? Promise.resolve() : new Promise<void>(() => {}));
   const t0 = Date.now();
   const r = await run(fx);
   assert.equal(r.status, 200);
   assert.equal(delivered.length, 1);
-  assert.ok(Date.now() - t0 < TYPING_WAIT_MS + 1_000, `took ${Date.now() - t0}ms`);
+  assert.ok(sentAt - t0 < 500, `the reply waited ${sentAt - t0}ms for its bubble`);
+  assert.ok(Date.now() - t0 < 2 * TYPING_WAIT_MS + 1_000, `the job took ${Date.now() - t0}ms`);
 });
