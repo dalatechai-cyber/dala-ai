@@ -659,6 +659,30 @@ drafts and the replies they produced.
 **Pushing it changes no reply on its own** — the compiled prefix is what a tenant is
 answered from, so every tenant needs republishing afterwards (deploy, `git pull`, publish).
 
+### `0044_flaw_loop`
+
+**Additive.** Two tables and two functions, for the flaw loop (D-120).
+
+- **`reply_cases`** — a reply the founder marked wrong, kept as a permanent test: the
+  customer's message, the ten turns before it, and the right answer (`expected_body`, or
+  `must_include` / `must_not_include` for an answer the model words; at least one is
+  required). `scripts/replycases/gate.ts` replays every `active` case before a publish and in
+  the production build, and either one stops on a failing case. Nothing deletes a case;
+  `active = false` is a person's decision.
+- **`spellings`** — Latin spellings customers use for the tenant's Mongolian words, grown
+  every morning from real messages. `settled` (the tenant's data allows one word) and
+  `confirmed` (the founder's) are applied to matching; `ask` goes to the founder in the
+  morning report; `rejected` is a no. `latin` is one word, or two when only the neighbour
+  settles it.
+- **`mark_reply_wrong(ref, expected, note)`** — `ref` is the id prefix the morning report
+  prints; it copies the customer's message and history into a new case and returns its id.
+- **`set_spelling(slug, latin, cyrillic)`** — a word confirms the spelling, null rejects it.
+
+Server-owned like `comment_rules`: RLS forced, restrictive no-client write policies,
+`ops.tenant_scope` and `ops.table_security_class` rows, nothing for `anon` or
+`authenticated`, all for `service_role`. Both functions are `security definer` with a pinned
+`search_path` and executable by `service_role` only.
+
 ### `0043_on_correction_replies`
 
 **Additive.** `deterministic_match_mode_known` gains `on_correction`. Such a row never

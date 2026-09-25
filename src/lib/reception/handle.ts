@@ -54,6 +54,8 @@ import { pricePresentation, renderQuotedRows } from '../guard/pricePresentation.
 export const PRICE_VIOLATION_FLAG = 'price_violation_seen';
 import { bookingApology, renderBookingAnswer, apologyStemsFrom } from '../guard/bookingApology.ts';
 import { capToSingleMessage } from '../mn/text.ts';
+import { respell, type Spelling } from '../mn/latin.ts';
+import { checkFacts, factSourceFrom } from '../guard/facts.ts';
 
 /** One Messenger send, in characters. */
 export const MAX_REPLY_CHARS = 1900;
@@ -177,6 +179,13 @@ export type ReceptionInput = {
    * the compiled prefix by being published. So being here IS the approval.
    */
   faqAnswers: readonly string[];
+  /**
+   * The tenant's settled and confirmed Latin spellings (`spellings`, D-120). The gate and the
+   * deterministic rows match against the message AND against it with these words replaced,
+   * so «huuhdiin» reaches the children's rule once the list knows «хүүхдийн». Required:
+   * `[]` is a real state — a tenant whose list is empty — and a caller must say so.
+   */
+  spellings: readonly Spelling[];
 };
 
 export type ReceptionOutcome =
@@ -474,7 +483,12 @@ export async function handleReception(
   // 2. Which gates fired. An unparseable matcher refuses the whole match rather than
   //    being skipped — a silently disarmed refusal is the failure this platform keeps
   //    finding.
-  const matched = matchRules({ text: input.customerMessage, attachments: input.customerAttachments }, input.rules);
+  // The customer's words with the tenant's known Latin spellings replaced, as a SECOND text
+  // every matcher also tries (D-120). Never shown to the model and never instead of the
+  // original: a spelling can add a match, it cannot hide what the customer wrote.
+  const respelled = respell(input.customerMessage, input.spellings);
+  const matched = matchRules(
+    { text: input.customerMessage, attachments: input.customerAttachments, respelled }, input.rules);
   if (!matched.ok) {
     await deps.release();
     return { kind: 'retry', detail: `matcher unusable: ${matched.detail}` };
@@ -542,7 +556,7 @@ export async function handleReception(
   //    customer-visible sentence, and an unreviewed one must not ship just because no
   //    model was involved in choosing it.
   const shortcut = matchDeterministic(input.customerMessage, input.deterministic, input.historyState,
-    { hasAttachment: input.customerAttachments.length > 0, topics: matched.matchedTopics });
+    { hasAttachment: input.customerAttachments.length > 0, topics: matched.matchedTopics, respelled });
   // `append` rows (`0041`): whatever is served from here on, their bodies go at the END.
   // Founder, 2026-09-24: *"The Tara line must never replace an answer. Only a question about
   // the name gets the line on its own."* Every draft below goes through `d`, handoff
@@ -550,9 +564,46 @@ export async function handleReception(
   const appends = shortcut.appends;
   const bookingRow = canned(input.canned, 'booking_line');
   const previousReply = [...input.history].reverse().find((h) => h.role === 'assistant')?.content ?? null;
+  // Prices, the address, phone numbers, hours and deposits come from the data, never from
+  // the model's wording (founder, 2026-09-24; `guard/facts.ts`). Checked HERE, where every
+  // draft passes, so no path the model's text can take reaches a customer unchecked.
+  const facts = factSourceFrom(
+    input.promptStable,
+    { priceList: SECTION_LABELS.priceList, deposits: SECTION_LABELS.deposits, hours: SECTION_LABELS.hours, contacts: SECTION_LABELS.contacts },
+    [
+      ...input.canned.filter((c) => c.reviewedAt !== null).map((c) => c.body),
+      ...input.faqAnswers,
+      ...input.deterministic.filter((r) => r.enabled).map((r) => r.body),
+      ...input.depositRows,
+      // L4's own lines — today's hours, a closure notice — are data rendered per request.
+      ...input.promptVolatile.split('\n'),
+    ],
+  );
+  // Price rows a set row covers are served the tenant's way — its order, then its question
+  // (founder, 2026-09-24: *"…then my question, also when served from data."*). Any other
+  // line in the answer keeps the served text as it was.
+  const asSet = (served: string): string => {
+    const lines = served.split('\n');
+    const quoted = input.serviceNames.filter((sv) => sv.rows.some((r) => lines.includes(r)));
+    const covered = lines.every((l) => quoted.some((sv) => sv.rows.includes(l)));
+    const row = covered ? setRowFor(input.deterministic, quoted) : null;
+    return (row === null ? null : composeQuoted(row, input.serviceNames)) ?? served;
+  };
   const d: ReceptionDeps = {
     ...deps,
-    draft: async (x) => {
+    draft: async (x0) => {
+      let x = x0;
+      if (x.answeredBy === 'model') {
+        const fact = checkFacts(x.body, facts, input.customerMessage);
+        if (fact.restated) {
+          await deps.flag({ code: 'fact_restated', detail: fact.detail, attempted: x.body });
+          // A price no row can be shown to own gets the handoff line: the answer with no
+          // facts in it. Never the model's wording, and never a guessed row.
+          const served = fact.served === null ? canned(input.canned, 'handoff') : asSet(fact.served);
+          if (served === null) return { ok: false, detail: 'fact_restated: no row to serve and no handoff line' };
+          x = { ...x, body: served, answeredBy: fact.served === null ? 'canned' : 'deterministic' };
+        }
+      }
       // A topic append («the stylist decides») is not added to a reviewed line: the refusal
       // it would follow already says it, in the tenant's own words.
       const body = withAppended(withDeposits(x.body, bookingRow, input.depositRows),

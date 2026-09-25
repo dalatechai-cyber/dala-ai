@@ -46,6 +46,7 @@ import { CAPPED_FLAG } from '../worker/comments.ts';
 import { DRAFT_LOST_KIND } from '../health/answered.ts';
 import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
 import { tenantClock } from '../time/clock.ts';
+import { buildFlawReport } from '../quality/flaws.ts';
 
 /**
  * How long an open `critical` may go unmentioned before it gets its own message again.
@@ -335,6 +336,8 @@ export type DigestEffects = {
   db: SupabaseClient;
   now: Date;
   verifySignature: (rawBody: string, signature: string | null) => Promise<boolean>;
+  /** The flaw report's text (D-120). Injected for tests; the route uses `buildFlawReport`. */
+  flawReport?: (db: SupabaseClient, now: Date) => Promise<string>;
 };
 
 export type DigestJobResult = { status: number; body: Record<string, unknown> };
@@ -405,13 +408,26 @@ export async function runDigestJob(
   }
   const stamped = await markNotified(effects.db, notified, effects.now);
 
+  // The flaw report is its own message (D-120): yesterday's real conversations that look
+  // wrong, one list the founder reads and marks from. After the digest, so a failure here
+  // can never cost the digest; and never silent — a report that could not be built says so.
+  let flawText: string;
+  try {
+    flawText = await (effects.flawReport ?? buildFlawReport)(effects.db, effects.now);
+  } catch (err) {
+    flawText = `Flaws\n\nflaw report UNREADABLE — ${err instanceof Error ? err.message : String(err)}`;
+  }
+  const flaws = await sendTelegram(flawText);
+
   return {
     status: 200,
     body: {
       open: episodes.open.length,
       escalated: notified.length,
       sent: summarySent,
+      flaws_sent: flaws.ok,
       ...(summarySent ? {} : { summary_detail: sent.ok ? '' : sent.detail }),
+      ...(flaws.ok ? {} : { flaws_detail: flaws.detail }),
       ...(stamped.ok ? {} : { stamp_detail: stamped.detail ?? '' }),
     },
   };

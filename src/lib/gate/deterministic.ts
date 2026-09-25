@@ -139,8 +139,13 @@ export function matchDeterministic(
   text: string,
   rules: readonly DeterministicRule[],
   history: HistoryState,
-  opts: { hasAttachment: boolean; topics?: readonly string[] } = { hasAttachment: false },
+  opts: {
+    hasAttachment: boolean; topics?: readonly string[];
+    /** The message with known Latin spellings replaced (D-120); a row fires on either text. */
+    respelled?: string | null;
+  } = { hasAttachment: false },
 ): DeterministicOutcome {
+  const texts = opts.respelled === undefined || opts.respelled === null ? [text] : [text, opts.respelled];
   const skipped: { intent: string; reason: SkipReason }[] = [];
   const suppressed: string[] = [];
   const appends: DeterministicHit[] = [];
@@ -166,7 +171,7 @@ export function matchDeterministic(
 
   /** Did this rule's matcher fire? `null` means it was skipped, with the reason recorded. */
   const fires = (rule: DeterministicRule): boolean | null => {
-    if (rule.matchMode === 'whole_message') return wholeMessageMatches(text, rule.stems);
+    if (rule.matchMode === 'whole_message') return texts.some((t) => wholeMessageMatches(t, rule.stems));
     // Topic keys are identifiers the gate emitted, not customer text, so no stem floor.
     if (rule.matchMode === 'on_topic') return rule.stems.some((k) => (opts.topics ?? []).includes(k));
     // `contains_stem` and `covers_message` carry the gate matcher's over-matching risk on
@@ -176,9 +181,9 @@ export function matchDeterministic(
     if (short.length > 0) { skipped.push({ intent: rule.intent, reason: 'stem_too_short' }); return null; }
     if (rule.matchMode === 'covers_message') {
       if (opts.hasAttachment) { skipped.push({ intent: rule.intent, reason: 'has_attachment' }); return null; }
-      return coversMessage(text, rule.stems, rule.coverWords);
+      return texts.some((t) => coversMessage(t, rule.stems, rule.coverWords));
     }
-    return rule.stems.some((stem) => containsStem(text, stem));
+    return texts.some((t) => rule.stems.some((stem) => containsStem(t, stem)));
   };
 
   for (const rule of rules) {

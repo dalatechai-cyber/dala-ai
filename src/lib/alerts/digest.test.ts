@@ -282,3 +282,39 @@ test('an unreadable lost-draft count prints UNREADABLE, never zero', () => {
   assert.equal(lostDraftsLine({ total: 0, latest: null, unavailable: true }),
     'shadow drafts lost (24h): UNREADABLE — alerts could not be counted');
 });
+
+// --- the flaw report (D-120) --------------------------------------------------
+
+test('DONE-TEST: THE FLAW REPORT GOES OUT AS ITS OWN MESSAGE AFTER THE DIGEST, AND A BROKEN ONE SAYS SO', async () => {
+  const sent: string[] = [];
+  const realFetch = globalThis.fetch;
+  const env = { ...process.env };
+  process.env['ALERTS_ENABLED'] = 'true';
+  process.env['TELEGRAM_BOT_TOKEN'] = 'test-token';
+  process.env['TELEGRAM_ALERT_CHAT_ID'] = '1';
+  globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+    sent.push(String(JSON.parse(init?.body ?? '{}').text));
+    return new Response(JSON.stringify({ result: { message_id: sent.length } }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const ok = await runDigestJob(
+      { db: jobDb(), now: NOW, verifySignature: async () => true, flawReport: async () => 'Flaws\n\nMatrix — 1 of 2 replies looks wrong.' },
+      { rawBody: '{}', signature: 'sig' },
+    );
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body['flaws_sent'], true);
+    assert.equal(sent.length, 2, 'the digest, then the flaw report');
+    assert.match(sent[1] ?? '', /^Flaws/);
+
+    sent.length = 0;
+    const broken = await runDigestJob(
+      { db: jobDb(), now: NOW, verifySignature: async () => true, flawReport: async () => { throw new Error('reset'); } },
+      { rawBody: '{}', signature: 'sig' },
+    );
+    assert.equal(broken.status, 200, 'a broken flaw report never costs the digest');
+    assert.match(sent[1] ?? '', /flaw report UNREADABLE — reset/);
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = env;
+  }
+});

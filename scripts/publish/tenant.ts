@@ -41,6 +41,8 @@ import { comparePlatformBlocks, type LiveBlock } from '../prompt/blockset.ts';
 import { loadLiveSnapshot } from '../../src/lib/prompt/publish.ts';
 import { supabasePublish } from '../../src/lib/supabase/clients.ts';
 import { SECTION_LABELS } from '../../src/lib/prompt/tenant.ts';
+import { gateTenant, renderGate } from '../../src/lib/replycases/run.ts';
+import { callReception } from '../../src/lib/model/reception.ts';
 
 function die(message: string): never {
   process.stderr.write(`publish: ${message}\n`);
@@ -172,6 +174,28 @@ if (!hasMarker) {
 if (before !== null && before.contentHash === rendered.contentHash) {
   process.stdout.write('\nThe compiled prefix is byte-identical to the live one. Nothing to publish.\n');
   process.exit(0);
+}
+
+// ---- every reply the founder marked wrong, against THIS prefix (D-120) --------
+// Founder, 2026-09-24: *"No publish … that touches replies can go out unless every test
+// passes, including all past failures."* The cases are answered by `handleReception` over
+// the prefix just compiled, not the live one, so what is judged is what would go live. A
+// case that reaches the model needs ANTHROPIC_API_KEY in this shell; without it that case
+// FAILS rather than being skipped.
+const modelKey = process.env['ANTHROPIC_API_KEY'] ?? '';
+const gate = await gateTenant(db, {
+  slug, now,
+  callModel: modelKey === '' ? null : (req) => callReception(req, modelKey),
+  compiled: {
+    promptStable: rendered.promptStable, allowedNumbers: rendered.allowedNumbers,
+    cannedHash: compiled.cannedHash, promptGate: rendered.promptGate,
+  },
+});
+const verdict = renderGate([gate]);
+process.stdout.write(`\n${verdict.text}\n`);
+if (!gate.ok || !verdict.pass) {
+  die(`reply cases fail against this configuration, so it ${doPublish ? 'was NOT published' : 'cannot be published'}.\n`
+    + 'Fix the rows (or the case, if the expected answer itself is wrong), then run again.');
 }
 
 if (!doPublish) {

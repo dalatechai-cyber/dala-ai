@@ -205,6 +205,15 @@ export function maskUrls(text: string): string {
 }
 
 /**
+ * `maskUrls`, keeping every other character where it was: each link becomes spaces of its
+ * own length. For a caller that finds positions in the masked text and reads them back in
+ * the original — `guard/facts.ts` orders what it serves by where the reply said it.
+ */
+export function blankUrls(text: string): string {
+  return text.replace(new RegExp(URL_RUN.source, URL_RUN.flags), (m) => ' '.repeat(m.length));
+}
+
+/**
  * A comparable form for allow-list membership.
  *
  * Returns `null` when the URL cannot be parsed — and the caller must treat that as a

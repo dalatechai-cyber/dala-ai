@@ -15,6 +15,8 @@ import type { TenantGuardView } from '../guard/outbound.ts';
 import { MAX_REPLY_CHARS } from './handle.ts';
 import type { BusinessHours, Closure } from './volatile.ts';
 import { canonicalizeUrl } from '../mn/extract.ts';
+import type { Spelling } from '../mn/latin.ts';
+import { appliedSpellings } from '../quality/spellings.ts';
 
 export type TenantSettings = {
   defaultLocale: string;
@@ -51,6 +53,8 @@ export type ReceptionContext = {
    * price list simply finds nothing there.
    */
   serviceAliases: { name: string; alias: string }[];
+  /** `spellings` that are `settled` or `confirmed` (D-120): what the gate also matches against. */
+  spellings: Spelling[];
   canned: CannedRow[];
   tenantGuard: TenantGuardView;
   cacheMode: 'off' | '5m' | '1h';
@@ -177,7 +181,7 @@ export async function loadReceptionContext(
   // ten pointless reads, and more importantly `timings` has not yet said whether the
   // snapshot is a meaningful share of the 533ms. Measure, then move it.
   const tBatch = Date.now();
-  const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes, detRes, contactsRes, aliasRes] = await Promise.all([
+  const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes, detRes, contactsRes, aliasRes, spellRes] = await Promise.all([
     db.from('disclosure_rules')
       .select('topic_key, matcher, quote_price, response_kind, deterministic_shortcircuit, provenance')
       .eq('tenant_id', input.tenantId),
@@ -212,6 +216,10 @@ export async function loadReceptionContext(
     // against what the model just wrote rather than against the snapshot.
     db.from('contact_points').select('kind, value').eq('tenant_id', input.tenantId),
     db.from('service_aliases').select('service_id, alias').eq('tenant_id', input.tenantId),
+    // Only what matching applies. An `ask` row is a question for the founder, and a
+    // `rejected` one is his no — neither may change what fires.
+    db.from('spellings').select('latin, cyrillic, status').eq('tenant_id', input.tenantId)
+      .in('status', ['settled', 'confirmed']),
   ]);
 
   for (const [name, res] of [
@@ -219,6 +227,7 @@ export async function loadReceptionContext(
     ['canned_responses', canned], ['tenant_booking', booking], ['services', services],
     ['forbidden_phrasings', phrasings], ['business_hours', hoursRes], ['tenant_closures', closuresRes],
     ['deterministic_replies', detRes], ['contact_points', contactsRes], ['service_aliases', aliasRes],
+    ['spellings', spellRes],
   ] as const) {
     if (res.error) return { ok: false, code: 'unavailable', detail: `${name} unreadable: ${res.error.message}` };
   }
@@ -348,12 +357,18 @@ export async function loadReceptionContext(
     return name === undefined || name === '' || alias === '' ? [] : [{ name, alias }];
   });
 
+  const spellings = appliedSpellings((Array.isArray(spellRes.data) ? spellRes.data : []).map((raw) => {
+    const r = raw as Record<string, unknown>;
+    return { latin: String(r['latin'] ?? ''), cyrillic: String(r['cyrillic'] ?? ''), status: String(r['status'] ?? '') };
+  }).filter((r) => r.latin !== '' && r.cyrillic !== ''));
+
   return {
     ok: true,
     context: {
       promptStable: snapshot.snapshot.promptStable,
       deterministic,
       serviceAliases,
+      spellings,
       hours,
       closures,
       allowedNumbers: snapshot.snapshot.allowedNumbers,

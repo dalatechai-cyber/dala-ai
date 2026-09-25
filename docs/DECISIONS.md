@@ -9031,3 +9031,87 @@ The rule now:
   republish.
 - **The Tara lines**: `tara_name` covers «tnah … salonu». The Latin greeting row no longer
   requires an empty history, so «sain bnuu» mid-conversation gets «Tara Salon-д тавтай морил».
+
+## D-120 — the flaw loop: yesterday's wrong replies, permanent tests, spellings, facts from data
+
+Founder, 2026-09-24, on Matrix's first live night: *"Build the flaw loop for Matrix."* Five
+parts, and each is data or a property of the text, never a per-tenant code path.
+
+**1. The morning report** (`quality/flaws.ts`, sent by the 09:00 digest job as its own
+message; no QStash change). One section per live tenant, for the tenant's yesterday. It lists
+real, **sent** replies where:
+- the customer's next message carried one of the tenant's correction words (its
+  `on_correction` row's stems);
+- the customer asked the same thing again;
+- the reply held the reviewed handoff or a `refusal_*` line;
+- the reply opened with the tenant's apology word and refused in its own words;
+- the reply said it did not understand.
+
+Each item shows the customer's message, the bot's reply and an 8-character ref. A clean day
+still sends one line per tenant, and an unreadable tenant is printed UNREADABLE, never zero.
+Previewed against the live night: 5 of 7 sent replies flagged, the same five the founder
+found by hand. «ci henbe» (the old Матрикс line) is not caught, because nothing in its text
+is a flaw signal.
+
+**2. Marking a reply wrong makes it a test** (`0044`). In the SQL editor:
+`select mark_reply_wrong('<ref>', '<the right reply>');`. This copies the customer's message
+and the ten turns before it into `reply_cases`, so the case outlives retention. Nothing
+deletes a case. `active = false` is the only way to retire one, and it is a person's decision.
+
+**3. Nothing goes out unless every case passes.** `replycases/run.ts` answers each case
+through `handleReception` over the tenant's live configuration, with the real model when a
+case reaches it. Drafts are recorded, not written, and nothing is sent. It runs in two places:
+- in `scripts/publish/tenant.ts`, against the prefix about to be published. A failing case
+  stops the publish, including in a dry run;
+- in the Vercel production build, as `scripts/replycases/gate.ts` after preflight
+  (`vercel.json`). A failing case fails the build, so the live deployment is not replaced.
+
+A case that cannot be checked is a failure. That covers a table that cannot be read, a
+configuration that will not load, and a case that needs the model with no key given. CI
+cannot hold this gate, because it has no live database; the production build is where
+"merge" becomes "goes out". Seeded with the six live failures of 2026-09-24 (766, «usnii
+himi», 774, 775, 777, «sain bnuu»). All six are answered by rows, need no model, and pass
+against the live configuration. A mutation that switches off `perm_types` and puts «Матрикс»
+back fails three of them.
+
+**Consequences, stated rather than discovered:**
+- A newly marked case blocks every publish and production deploy until it passes. The fix is
+  usually a row, which is live without a deploy. A code fix passes the gate in its own build.
+- The build now depends on the live database and, for model-reaching cases, on Anthropic.
+  Either being down fails the deploy, which is the fail-closed direction.
+- The build reads with `SUPABASE_SECRET_WORKER`, which production already holds. No new
+  credential was provisioned.
+
+**4. The Latin-spelling list grows by itself** (`mn/latin.ts`, `quality/spellings.ts`,
+`spellings`). Every morning, each unknown Latin word from yesterday's customer messages is
+compared with the words in the tenant's own text, through a deliberately lossy key. The key
+treats ү/у/ө/о as one letter, ы/ий/и/ь as one, and ц/ч as one (Latin `c`).
+- One word fits: `settled`.
+- Several words fit, and one is the stem of the rest («хими», «химий»): `settled` to the stem.
+- Several different words fit: the neighbouring word is tried. A pair the tenant's text
+  contains settles the TWO-word row, and the single word goes to `ask` in the report with a
+  one-line `set_spelling` for the founder.
+- No word fits: nothing is written.
+
+`settled` and `confirmed` rows are applied to matching as a SECOND text: every gate and
+deterministic matcher also tries the message with those words replaced. The model never sees
+the replacement, and it cannot hide what the customer wrote. On the live night «usnii» meets
+only «үсний» in Matrix's text, because «усны» appears nowhere in it, so it settles rather
+than asks. «huuhdiin» → «хүүхдийн» makes the children's rule fire on Latin (D-067).
+
+**5. Prices, the address, phone numbers, hours and deposits come from the data**
+(`guard/facts.ts`, checked in the draft wrapper, where every model draft passes). An amount of
+a fact row outside approved text is a restatement, and the reply is replaced by the rows
+themselves. Approved text is: a fact row quoted whole, a reviewed line, a FAQ answer, a
+deterministic reply, today's L4 line, or a contact value on its own. Twelve characters of the
+address outside a verbatim quote counts too. A range names one row. A price row must be
+corroborated by its range partner or by a word of its service's name in the reply or the
+question. Otherwise the handoff line is served, never a guess. Hours are served as the whole
+week. Set rows are served in the tenant's order with its question. Audited on four days of
+Matrix's real model replies: 7 of 41 restate a fact. Six get the right rows, including three
+where the model had relabelled root dye «хүзүүний урт». One, a manicure price from a
+superseded list, gets the handoff. The cost is D-077's: the rest of that reply goes.
+
+**Also measured: the inbox handover works live.** At 22:19:51 UTC, event 779 (an echo not from
+our app) set Matrix's thread to `human`. Event 780, the customer's «une hedve» two seconds
+later, was not answered, and was flagged `human_has_thread; 30 minute(s) of cooldown left`.
