@@ -879,6 +879,7 @@ async function runReceptionDelivery(
         ctx: loaded.context,
         promptVolatile: renderVolatile({
           now, timezone, surface: RECEPTION_SURFACE, hours: loaded.context.hours, closures: loaded.context.closures,
+          branches: loaded.context.branches,
         }),
       };
     }

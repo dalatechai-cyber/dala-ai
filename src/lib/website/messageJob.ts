@@ -279,7 +279,7 @@ export async function runMessageJob(effects: MessageEffects, req: MessageRequest
   const ctx = loaded.context;
 
   const promptVolatile = renderVolatile({
-    now, timezone, surface: WEB_SURFACE, hours: ctx.hours, closures: ctx.closures,
+    now, timezone, surface: WEB_SURFACE, hours: ctx.hours, closures: ctx.closures, branches: ctx.branches,
   });
 
   // --- 7. Persist the visitor's turn. ---------------------------------------

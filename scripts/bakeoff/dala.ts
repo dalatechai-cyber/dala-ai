@@ -199,7 +199,8 @@ async function ask(text: string, attachments: readonly string[], history: { role
     const out = await handleReception(deps(record), {
       customerMessage: text, customerAttachments: attachments, customerSentPhoto: attachments.includes('image'), history,
       eventAt: now, now, promptStable,
-      promptVolatile: renderVolatile({ now, timezone: TZ, surface: 'direct_message', hours: kb.hours, closures: [] }),
+      // No branch rows are dumped for the bake-off, so it runs as one location (D-125).
+      promptVolatile: renderVolatile({ now, timezone: TZ, surface: 'direct_message', hours: kb.hours, closures: [], branches: [] }),
       modelId: MODEL, cacheMode, timeoutMs: 25_000,
       rules: GATE_RULES, deterministic: DETERMINISTIC,
       historyState: { known: true, empty: history.length === 0 },
@@ -231,6 +232,7 @@ async function ask(text: string, attachments: readonly string[], history: { role
       faqAnswers: faqAnswersFromPrefix(promptStable, SECTION_LABELS.faqs),
       serviceAliases: gateRows?.aliases ?? [],
       spellings: gateRows?.spellings ?? [],
+      branches: [],
     } as never);
     return { ok: true, reply: record.body ?? null, answeredBy: record.answeredBy ?? null,
       flags: record.flags, flagDetail: record.flagDetail, kind: (out as { kind: string }).kind, ms: Date.now() - started,

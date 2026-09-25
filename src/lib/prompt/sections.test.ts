@@ -304,7 +304,7 @@ test('a fully confirmed tenant reports nothing unconfirmed', async () => {
     },
   );
   const out = await compileStablePrefix(db, { tenantId: TENANT, approvedAt: APPROVED });
-  assert.deepEqual(out.ok && out.unconfirmed, { faqsExcluded: [], refusalTopicsUnconfirmed: [] });
+  assert.deepEqual(out.ok && out.unconfirmed, { faqsExcluded: [], refusalTopicsUnconfirmed: [], branchesExcluded: [] });
 });
 
 test('the loader ASKS for provenance — a select that forgets it excludes everything', async () => {
