@@ -180,3 +180,19 @@ test('an approved line naming every staff member corroborates none of them (2026
   assert.equal(q03.restated && q03.served,
     'Вира — Бизнес аналитик (Нэг удаагийн суурилуулалт): 150,000₮\nВира — Бизнес аналитик (Сарын төлбөр): 150,000₮');
 });
+
+test('a «Name — Role» row is owned by its NAME: a role word sharing four letters with «харин» does not tie (2026-09-26, x03)', () => {
+  const prefix = [
+    '=== ҮНИЙН ЖАГСААЛТ ===',
+    '- Вира — Бизнес аналитик (Сарын төлбөр): 150,000₮',
+    '- Дали — Хүлээн авагч (Сарын төлбөр): 250,000₮',
+    '- Нова — Харилцагчийн менежер (Сарын төлбөр): 150,000₮',
+  ].join('\n');
+  const r = checkFacts('Харин сарын төлбөрийг хэлье.\nДали сарын төлбөр: 250,000₮\nВира сарын төлбөр: 150,000₮',
+    factSourceFrom(prefix, LABELS, []), 'Дали, Вира хоёрыг авбал сард нийт хэд болох вэ?');
+  assert.equal(r.restated && r.served,
+    'Дали — Хүлээн авагч (Сарын төлбөр): 250,000₮\nВира — Бизнес аналитик (Сарын төлбөр): 150,000₮');
+  // No name written, only the role: the role still decides.
+  const role = checkFacts('Харилцагчийн менежерийн сарын төлбөр 150,000₮.', factSourceFrom(prefix, LABELS, []), '');
+  assert.equal(role.restated && role.served, 'Нова — Харилцагчийн менежер (Сарын төлбөр): 150,000₮');
+});
