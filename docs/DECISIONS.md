@@ -9612,3 +9612,34 @@ header names it.
   check (D-122 addendum) therefore protects the seconds before a send and every later resend,
   not the typical 28-minute staff reply; the founder accepts that. Comments went live the same
   evening.
+
+**Addendum, 2026-09-26 — tenant #0's own Page (DalaTech) gets comment replies (founder).**
+
+- Rules are `scripts/provision/templates/comment_rules.software.json` (29, installed with
+  `comment-rules.ts dalatech --template software`; `scripts/provision/dalatech-comment-rules.sql`
+  is what was applied). The salon template's complaint, price, location, booking, info, praise,
+  laughter and greeting rules carry over unchanged — none names a salon service. Its service
+  questions become questions about the products, plus `any_question_mark` (any «?» that is not
+  praise, a laugh or a bare greeting). `ad_keyword` answers the words of the company's own ads,
+  «Message» and «combo» (and «мессеж», «комбо»), whatever sits beside them: `reply` outranks
+  `ignore`. Only a complaint outranks it, and a complaint is escalated, never answered.
+- Channel `cc5e2748…`: `comment_policy = both`, cap 20 per post per day, and posts up to 365
+  days old — ads run on posts older than Matrix's 30 days. Held in `shadow` until the private
+  line is approved; `both` refuses to send either line while one is unreviewed.
+- **No comment has ever reached this platform from that Page**: zero `feed` events since
+  2026-09-06, against 18 DM events. The app's `feed` subscription for Page `863503883522801`
+  is missing, and nothing can go live until it exists. `POST /{page-id}/subscribed_apps`
+  REPLACES the field list (D-043), so it must name `messages` and `feed` together.
+
+**Business Suite automations and the "a person replied" rule — not measurable yet, and why it
+matters.** An echo not sent by Dala AI's own app counts as a person (`controlFromEcho`), and a
+staff reply typed in the Page inbox arrives stamped `263902037430900`. Whether Meta's automated
+messages (instant reply, comment-to-message) carry that same id could not be settled: in every
+stored delivery on both Pages there is no automation echo at all, and Meta's documentation is
+unreachable from here. What the code already guarantees: an automated DM to someone who has
+never written to the Page attaches to no conversation (`conversationForPsid` → null) and moves
+nothing, so the comment-to-message automation cannot silence Dali for a new contact. What it
+cannot rule out: an automation echo into an EXISTING conversation, stamped with the inbox's id,
+would read as a person — 30 minutes of silence, and the pre-send check would drop a reply in
+flight. The measurement is one test comment while the automation is still on; the echo's
+`app_id` answers it.
