@@ -9450,7 +9450,12 @@ select b.tenant_id, b.id, v.id, 'exact', <price>, null, now()
   join service_variants v on v.tenant_id = s.tenant_id and v.service_id = s.id and v.variant_key = '<variant key or empty>'
  where b.tenant_id = '8f2826f5-bd33-4d6c-ab70-b6c5ba7f3f06' and b.name = '<name> салбар';
 
--- 5. The founder's approved question (after choosing the wording in the draft).
+-- 5. The founder's approved question. CHOSEN 2026-09-25: Proposal A of the draft, with
+--    «асууж байна вэ»; the second branch's name (and «уу»/«үү» after it) comes from the founder
+--    when the branch is added:
+--    «Та манай аль салбарын талаар асууж байна вэ? Яармаг салбар уу, эсвэл <second branch> уу?»
+--    («уу» follows the last word's vowels: after «салбар» it stays «уу»; after a name ending
+--    in front vowels it becomes «үү»).
 insert into canned_responses (tenant_id, kind, locale, body, reviewed_by, reviewed_at)
 values ('8f2826f5-bd33-4d6c-ab70-b6c5ba7f3f06', 'clarify_branch', 'mn-MN', '<approved sentence>', '<name>', now());
 ```

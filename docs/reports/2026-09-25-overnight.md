@@ -225,8 +225,9 @@ reply the bubble has always landed first, and nothing extra is sent.
 
 ## Things only you can do
 
-- ~~Approve the per-post cap of 20~~ — approved 2026-09-25. Choose the `clarify_branch`
-  wording (needed only once a second branch exists).
+- ~~Approve the per-post cap of 20~~ — approved 2026-09-25. ~~Choose the `clarify_branch`
+  wording~~ — Proposal A with «асууж байна вэ», chosen 2026-09-25; inserted when the second
+  branch's name arrives.
 - Switch comments live when you're ready (checklist in §1).
 - The pre-rebrand items from D-114/D-125 still apply when the new data arrives: the
   «Салбарууд» document says one branch, the handoff line lists phones, and `booking_line` has

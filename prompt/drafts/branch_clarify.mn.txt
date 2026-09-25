@@ -14,6 +14,13 @@
 #
 # Written by a session, not a native speaker. The founder's call, as every customer-facing
 # line is. Two proposals; pick one, or write a third.
+#
+# CHOSEN 2026-09-25 by the founder: Proposal A, with «асууж байна вэ». Not inserted yet:
+# it is complete only once the second branch's name is known, which the founder will send
+# when that branch is added. Then replace {ХОЁР ДАХЬ САЛБАР} with the name as the salon
+# writes it, pick «уу» or «үү» by that word's vowels (question 3 below), and insert the row
+# with reviewed_at — step 5 of D-125's checklist. Proposal B is kept only as the record of
+# what was considered.
 
 # ---- Proposal A: names the branches (my recommendation) --------------------------------
 # The customer answers with a word the platform can recognise, because the question hands
