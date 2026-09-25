@@ -230,6 +230,27 @@ function nameWords(row: string): string[] {
   return name.split(/[^\p{L}\p{N}]+/u).filter((w) => w !== '');
 }
 
+/** The words of a price row's variant parenthetical: «(Сарын төлбөр)» → сарын, төлбөр. */
+function variantWords(row: string): string[] {
+  const m = /\(([^()]*)\)\s*$/u.exec(fold(row.slice(0, Math.max(0, row.indexOf(':')))));
+  return m === null ? [] : (m[1] ?? '').split(/[^\p{L}\p{N}]+/u).filter((w) => w !== '');
+}
+
+/** The clause holding [at, end): out to the nearest line or sentence break, or a comma
+ * that is not a thousands separator. */
+function clauseAround(text: string, at: number, end: number): string {
+  const isBreak = (i: number): boolean => {
+    const c = text[i] ?? '';
+    if (c === '\n' || c === ';' || c === '!' || c === '?') return true;
+    return (c === '.' || c === ',') && !/\p{Nd}/u.test(text[i + 1] ?? '');
+  };
+  let from = at;
+  while (from > 0 && !isBreak(from - 1)) from -= 1;
+  let to = end;
+  while (to < text.length && !isBreak(to)) to += 1;
+  return text.slice(from, to);
+}
+
 /**
  * Words share a stem when their first four code points agree: «будаг», «будалт» and
  * «будахад» are one word to a customer. The same floor the gate puts on a stem.
@@ -249,6 +270,13 @@ export function checkFacts(reply: string, source: FactSource, customerMessage = 
   for (const v of source.verbatim) masked = blank(masked, v);
   for (const v of source.standalone) masked = blank(masked, v);
   masked = blankUrls(masked);
+  let nameText = text;
+  for (const q of source.quotable) {
+    for (const line of [q, ...q.split('\n')]) {
+      const f = fold(line).trim();
+      if ([...f].length >= 4) nameText = blank(nameText, f);
+    }
+  }
 
   type Hit = { at: number; rows: FactRow[]; what: string };
   const hits: Hit[] = [];
@@ -302,15 +330,34 @@ export function checkFacts(reply: string, source: FactSource, customerMessage = 
     // A name word of four or more code points matches by stem («будаг» ~ «будалтын»); a
     // shorter one («Сор») only whole. Among owners, the ones with the most name words
     // present win: «Хими арчилт хэд вэ?» names both of its words and only one of «Усан хими».
-    const seen = [...wordsOf(text), ...wordsOf(customerMessage)];
+    //
+    // The reply's words are read with its quoted approved LINES blanked: a line the tenant
+    // wrote is not the model saying whose price this is. DalaTech's coming-soon line names
+    // Вира, Эхо, Нова and Ора in one sentence, and a reply that carried it corroborated
+    // every one of them — «Эхо минутаар хэдээр…» was served Ора's 250,000₮ beside Эхо's, and
+    // «Дали, Вира хоёр…» nine rows (the test set, 2026-09-26, q05 and x03).
+    const seen = [...wordsOf(nameText), ...wordsOf(customerMessage)];
     const stems = new Set(seen.filter((w) => [...w].length >= CORROBORATE_CP).map(stemOf));
     const whole = new Set(seen);
-    const score = (r: FactRow): number => nameWords(r.text)
-      .filter((w) => ([...w].length >= CORROBORATE_CP ? stems.has(stemOf(w)) : whole.has(w))).length
+    const hit = (w: string): boolean => ([...w].length >= CORROBORATE_CP ? stems.has(stemOf(w)) : whole.has(w));
+    const score = (r: FactRow): number => nameWords(r.text).filter(hit).length
       + (source.aliases?.[rowName(r.text)] ?? []).filter((a) => whole.has(a)).length;
     const priced = owners.filter((r) => r.section === 'price');
     const best = Math.max(0, ...priced.map(score));
-    const corroborated = narrowedByPartner ? priced : priced.filter((r) => best > 0 && score(r) === best);
+    let corroborated = narrowedByPartner ? priced : priced.filter((r) => best > 0 && score(r) === best);
+    // One service's rows tied on its name are told apart by the variant the reply wrote:
+    // «Вира сарын төлбөр 150,000₮» is the monthly row, not the setup row that shares the
+    // amount. Nothing written about a variant keeps them all, as before.
+    // Read in the amount's own clause only: a list that writes both variants on two lines
+    // must not have both amounts drawn to whichever variant has more words.
+    if (corroborated.length > 1) {
+      const clause = wordsOf(clauseAround(nameText, a.at, a.end));
+      const near = new Set(clause.filter((w) => [...w].length >= CORROBORATE_CP).map(stemOf));
+      const variant = (r: FactRow): number => variantWords(r.text)
+        .filter((w) => ([...w].length >= CORROBORATE_CP ? near.has(stemOf(w)) : clause.includes(w))).length;
+      const top = Math.max(...corroborated.map(variant));
+      if (top > 0) corroborated = corroborated.filter((r) => variant(r) === top);
+    }
     if (priced.length > 0 && corroborated.length === 0) {
       hits.push({ at: a.at, rows: [], what: `${a.digits} (whose?)` });
       continue;

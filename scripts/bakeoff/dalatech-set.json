@@ -247,8 +247,9 @@
   {
    "id": "m03", "category": "payment", "source": "constructed",
    "text": "qpay-eer tulj bolhuu",
-   "expect": "Not in the data: the team answers. No invented yes.",
-   "must_include": ["хамт олон"]
+   "expect": "Not in the data: the team answers. No invented yes — QPay is not in DalaTech's data, and «Тийм ээ, QPay-ээр төлбөр хийх боломжтой» passed this case on 2026-09-26.",
+   "must_include": ["хамт олон"],
+   "must_not_include": ["Тийм ээ", "QPay-ээр төлбөр хийх боломжтой", "QPay-ээр төлөх боломжтой", "QPay-ээр төлж болно"]
   },
   {
    "id": "e01", "category": "demo", "source": "constructed",
