@@ -178,3 +178,70 @@ one `select jsonb_build_object(…)` over the tables `reception/load.ts` and
 window and data terms were not readable from here (every official page is behind the egress
 proxy); the wire shape comes from the official `egune` npm SDK. `compare.mjs` computes
 Egune's cost only when a price is passed in.
+
+## Tenant #0's test set: `testset.ts` (DalaTech)
+
+`dalatech-set.json` is ~50 customer messages for DalaTech's Page — Cyrillic and Latin-typed
+Mongolian, English, jokes, a complaint, a prompt injection, five multi-turn conversations —
+each with a one-line expected behaviour and machine-checkable assertions. The SAME file is the
+source of the tenant's permanent `reply_cases` rows, so the replies the founder reads are the
+replies the gate will judge: same message, same history, same assertions.
+
+**One command** answers the whole set through `gateTenant` — the gate the production build
+runs, over the tenant's LIVE rows — and writes the capture and the report:
+
+```bash
+npm install   # once, on a fresh checkout
+ANTHROPIC_API_KEY=… NEXT_PUBLIC_SUPABASE_URL=… SUPABASE_SECRET_WORKER=… \
+  node scripts/bakeoff/testset.ts --tag first-read
+# → scripts/bakeoff/runs/testset-dalatech-first-read.json and docs/reports/dalatech-testset.md
+```
+
+`SUPABASE_SECRET_PUBLISH` works in place of the worker key. Nothing is written to the
+database (`reply_cases` is served from memory by `replycases/overlay.ts`, and every write or
+`rpc` throws) and nothing is sent. The run refuses unless the live prompt hashes to its own
+`content_hash`, and the report says so if the live prompt changed mid-run.
+
+**Cost.** Tenant #0's `prompt_cache_mode` is `off` and its prefix is ~20k characters
+(~14k tokens), so a model call is roughly $0.03 at the registry's Sonnet 5 prices; the 49
+cases that reach the model cost about **$1.50**. `--max-calls` (default 80) bounds it. The
+report totals the real spend from each call's own usage.
+
+Useful flags: `--only i01,x03` · `--now 2026-09-26T14:00:00+08:00` (default: today 14:00
+Ulaanbaatar) · `--dump <file>` (a `fixtureDb` dump instead of the live project) · `--no-model`
+(no key: row-answered cases are judged, the rest are UNCHECKED — useful to check the
+plumbing, never the read). `node scripts/bakeoff/testset-report.ts --run <capture>`
+re-renders the report from a capture without answering anything again.
+
+**The order, and none of it may be skipped:**
+
+1. **Insert the cases, inactive.** `scripts/provision/dalatech-reply-cases.sql` in the SQL
+   editor. Every row goes in with `active = false`, so nothing gates a deploy yet. It is
+   rerunnable: a case whose `dalatech-testset:<id>` note already exists is skipped.
+2. **Run** the command above.
+3. **The founder reads** every reply in `docs/reports/dalatech-testset.md`.
+4. **Activate** with the one statement the report prints at the end — it names only the
+   cases that PASSED. `scripts/provision/dalatech-reply-cases-activate.sql` switches on every
+   case and is right only when the report says every case passed. **An active case that
+   fails blocks every production build and every publish** (D-120), so a case is switched on
+   only after it has passed once and been read.
+
+Changing a case: edit `dalatech-set.json`, then `node scripts/replycases/sql.ts --set
+scripts/bakeoff/dalatech-set.json` regenerates both SQL files; `scripts/replycases/set.test.ts`
+fails when the committed SQL differs from what the set generates. The insert never
+overwrites an existing row, so a changed case that is already a row is updated by hand.
+
+**What the assertions can and cannot say.** `must_include` / `must_not_include` are the gate's
+own substring checks (`judge()`, case-insensitive, NFC). They cannot express "no invented
+digits" or "Mongolian Cyrillic" — production's outbound guard enforces the first, and the
+report adds a report-only allow-list and script check under **Also noted**, which never
+changes a verdict. A model-answered case can pass once and fail on a later run: the model
+varies. Prefer activating cases whose assertions only a wrong answer can trip.
+
+### Reading a production gate run instead
+
+`REPLY_GATE_PRINT=1 node scripts/replycases/gate.ts --slug dalatech` prints every ACTIVE
+case's customer message and reply verbatim before the summary, so once the cases are on, any
+gate run — including the production build's — can be the source for a later read. It never
+changes the exit code. It is off by default because a case marked from a real conversation
+carries a real customer's words, and a build log has more readers than the founder.

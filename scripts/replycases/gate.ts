@@ -20,13 +20,18 @@
  * wrongly, and only after a Telegram alert has been delivered. Tokens are minted with
  * `scripts/replycases/override.ts` on the founder's machine.
  *
+ * `REPLY_GATE_PRINT=1` additionally prints each case's customer message and reply verbatim,
+ * before the summary — so a run through the production path can be the source for a native
+ * read. It never changes the exit code. Off by default: a marked case carries a real
+ * customer's words, and a build log has more readers than the founder.
+ *
  * `ANTHROPIC_API_KEY` is optional: a case answered before the model (most of them — they are
  * deterministic rows) needs no key, and a case that does reach the model FAILS without one
  * rather than being skipped. Keys are read from the environment, never from an argument,
  * and nothing here prints one.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { findingsOf, gateTenant, renderGate, type TenantGate } from '../../src/lib/replycases/run.ts';
+import { findingsOf, gateTenant, renderGate, renderReplies, type TenantGate } from '../../src/lib/replycases/run.ts';
 import { decide } from '../../src/lib/replycases/override.ts';
 import { FOUNDER_OVERRIDE_KEYS } from '../../src/lib/replycases/overrideKeys.ts';
 import { sendTelegram } from '../../src/lib/alerts/alert.ts';
@@ -88,6 +93,9 @@ const ran = await within(GATE_TIMEOUT_MS, check().catch((err: unknown) => ({
   gates: [] as TenantGate[], setup: [`the check threw: ${err instanceof Error ? err.message : String(err)}`],
 })), () => ({ gates: [] as TenantGate[], setup: [`timed out after ${GATE_TIMEOUT_MS / 1000}s: the database or the model did not answer`] }));
 
+// `REPLY_GATE_PRINT=1` also prints every case's reply verbatim, for a native read. It is
+// output only: the verdict below is computed from `ran` exactly as without it.
+if (process.env['REPLY_GATE_PRINT'] === '1') process.stdout.write(renderReplies(ran.gates));
 if (ran.gates.length > 0) process.stdout.write(`${renderGate(ran.gates).text}\n`);
 if (ran.gates.length === 0 && ran.setup.length === 0) process.stdout.write('reply-cases: no active cases.\n');
 const found = findingsOf(ran.gates);

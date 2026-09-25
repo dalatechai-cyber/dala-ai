@@ -60,6 +60,8 @@ export type CaseResult = {
    * emergency override (D-121) treats the two differently, so they are never merged.
    */
   outcome: 'pass' | 'wrong' | 'unchecked';
+  /** What the customer wrote, so a printed reply can be read beside it (`renderReplies`). */
+  message?: string;
   reply: string | null;
   answeredBy: string | null;
   /** Empty when it passed. */
@@ -229,10 +231,12 @@ export async function runCases(input: {
       });
       const why = out.kind === 'drafted' ? judge(c, record.body) : [`the reply path answered ${out.kind}: ${out.kind === 'retry' ? out.detail : out.reason}`];
       const outcome = why.length === 0 ? 'pass' : out.kind === 'drafted' ? 'wrong' : 'unchecked';
-      results.push({ id: c.id, pass: why.length === 0, outcome, reply: record.body, answeredBy: record.answeredBy, why, flags: record.flags });
+      results.push({
+        id: c.id, pass: why.length === 0, outcome, message: c.customerMessage, reply: record.body, answeredBy: record.answeredBy, why, flags: record.flags,
+      });
     } catch (err) {
       results.push({
-        id: c.id, pass: false, outcome: 'unchecked', reply: null, answeredBy: null, flags: record.flags,
+        id: c.id, pass: false, outcome: 'unchecked', message: c.customerMessage, reply: null, answeredBy: null, flags: record.flags,
         why: [err instanceof NeedsModel ? err.message : `threw: ${err instanceof Error ? err.message : String(err)}`],
       });
     }
@@ -332,4 +336,28 @@ export function renderGate(gates: readonly TenantGate[]): { text: string; pass: 
     for (const f of failed) lines.push(`  case ${f.id} FAILS: ${f.why.join('; ')}`);
   }
   return { text: lines.join('\n'), pass };
+}
+
+/**
+ * Every case's reply, VERBATIM, for a person to read — never a verdict. Pure.
+ *
+ * `scripts/replycases/gate.ts` prints this only when `REPLY_GATE_PRINT=1`, so a run through
+ * the production path can double as the source for a native read. Off by default because a
+ * case copied by `mark_reply_wrong` carries a real customer's words, and a build log is read
+ * by more people than the founder. Nothing here changes what passes: `renderGate` and
+ * `findingsOf` are the verdict, and they do not read this.
+ */
+export function renderReplies(gates: readonly TenantGate[]): string {
+  const lines: string[] = [];
+  const indent = (s: string): string => s.replace(/\r?\n/gu, '\n            ');
+  for (const g of gates) {
+    if (!g.ok) continue;
+    for (const r of g.results) {
+      lines.push(`${g.slug} case ${r.id} — ${r.outcome.toUpperCase()}${r.answeredBy === null ? '' : ` (${r.answeredBy})`}`);
+      lines.push(`  customer: ${indent(r.message ?? '(not recorded)')}`);
+      lines.push(`  reply:    ${indent(r.reply ?? '(no reply was drafted)')}`);
+      if (r.flags.length > 0) lines.push(`  flags:    ${r.flags.join(', ')}`);
+    }
+  }
+  return lines.length === 0 ? '' : `${lines.join('\n')}\n`;
 }
