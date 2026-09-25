@@ -36,6 +36,8 @@ import { REPLY_REMINDERS, appendedNotice } from './volatile.ts';
 import { tenantRegion, ungroundedSentences } from '../guard/grounding.ts';
 import { refusalMarkerFrom, unwarrantedApology } from '../guard/apology.ts';
 import { fold } from '../mn/text.ts';
+import type { CommentRule } from '../comments/classify.ts';
+import { isComplaint } from '../sales/nextStep.ts';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
 import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '../services/match.ts';
 import { containsStem, findStem } from '../mn/match.ts';
@@ -162,6 +164,11 @@ export type ReceptionInput = {
    * so a caller cannot forget it silently; null keeps the generic handoff line.
    */
   fallbackLine: string | null;
+  /**
+   * The tenant's complaint rows (`ReceptionContext.complaintRules`). Required for the same
+   * reason as `fallbackLine`; `[]` means no message is read as a complaint.
+   */
+  complaintRules: readonly CommentRule[];
   /**
    * The service names the tenant's price list renders, for the name-fidelity COUNTER.
    *
@@ -597,8 +604,8 @@ export async function handleReception(
   //    It runs AFTER the review gate on purpose: a deterministic reply is still a
   //    customer-visible sentence, and an unreviewed one must not ship just because no
   //    model was involved in choosing it.
-  const shortcut = matchDeterministic(input.customerMessage, input.deterministic, input.historyState,
-    { hasAttachment: input.customerAttachments.length > 0, attachments: input.customerAttachments, topics: matched.matchedTopics, respelled });
+  const matchOpts = { hasAttachment: input.customerAttachments.length > 0, attachments: input.customerAttachments, topics: matched.matchedTopics, respelled };
+  const shortcut = matchDeterministic(input.customerMessage, input.deterministic, input.historyState, matchOpts);
   // `append` rows (`0041`): whatever is served from here on, their bodies go at the END.
   // Founder, 2026-09-24: *"The Tara line must never replace an answer. Only a question about
   // the name gets the line on its own."* Every draft below goes through `d`, handoff
@@ -709,8 +716,17 @@ export async function handleReception(
       }
       // A topic append («the stylist decides») is not added to a reviewed line: the refusal
       // it would follow already says it, in the tenant's own words.
-      const body = withAppended(withDeposits(x.body, bookingRow, input.depositRows),
-        x.answeredBy === 'canned' ? appends.filter((a) => a.onTopic !== true) : appends);
+      // Append rows that read the REPLY (`in_reply`) can only be judged now that there is
+      // one (founder, 2026-09-26: whenever a coming-soon staff member comes up, prices
+      // included, the reply says so). A line the reply already carries is not added again.
+      const own = x.answeredBy === 'canned' ? appends.filter((a) => a.onTopic !== true) : appends;
+      const onReply = matchDeterministic(input.customerMessage, input.deterministic, input.historyState,
+        { ...matchOpts, reply: x.body }).appends
+        // Only rows the message alone did not fire: the rest were already judged above,
+        // including an on-topic line deliberately left off a reviewed refusal.
+        .filter((a) => a.body.trim() !== '' && !appends.some((b) => b.intent === a.intent || b.body.trim() === a.body.trim())
+          && !fold(x.body).includes(fold(a.body.trim())));
+      const body = withAppended(withDeposits(x.body, bookingRow, input.depositRows), [...own, ...onReply]);
       // A correction answered with the same reply is not sent (founder, 2026-09-24, live:
       // «us bish usnii himi» got «Буруу ойлголоо. Усан хими 132,000₮–154,000₮» — the same
       // answer it was correcting). Every path ends here, so no path can repeat itself.
@@ -1325,8 +1341,11 @@ export async function handleReception(
 
   // «Уучлаарай» only when the reply refuses something (see `guard/apology.ts`).
   const apologyStems = apologyStemsFrom(input.canned);
+  // A complaint keeps its apology (founder, 2026-09-26), by the tenant's own complaint rows:
+  // «…3 хоног хүлээлээ. Ямар муу үйлчилгээ вэ» lost «Уучлаарай» and was left opening on
+  // «Хариу удсанд тань.», half a sentence.
   const sorry = unwarrantedApology(capped.text, apologyStems, refusalMarkerFrom(input.canned, apologyStems),
-    matched.matchedResponseKinds.length > 0);
+    matched.matchedResponseKinds.length > 0 || isComplaint(input.customerMessage, input.complaintRules, respelled));
   if (sorry.strip) {
     await deps.flag({ code: 'apology_removed', detail: `opened with «${sorry.removed}» and refused nothing`, attempted: capped.text });
   }

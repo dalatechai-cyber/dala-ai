@@ -101,7 +101,16 @@ export type MatcherSpec =
    * The member does NOT fire. Only admissible inside `all_of`: on its own it fires on
    * almost every message, which is the unanchored matcher rule 6 forbids.
    */
-  | { mode: 'not'; matcher: MatcherSpec };
+  | { mode: 'not'; matcher: MatcherSpec }
+  /**
+   * The member fires on the REPLY about to be sent, not on the customer's message
+   * (founder, 2026-09-26: *"whenever Эхо, Вира, Нова or Ора comes up, including with
+   * prices, the reply must say it's not built yet"*). «Утсаар ярьдаг AI ажилтан байгаа юу?»
+   * names none of them, and its answer — Эхо's price rows — does. Only a deterministic
+   * `append` row is ever evaluated with a reply (`MatchSubject.reply`); everywhere else
+   * there is none yet, and this never fires.
+   */
+  | { mode: 'in_reply'; matcher: MatcherSpec };
 
 /** How deep `all_of` / `not` may nest. Deeper than this is a rule nobody can review. */
 export const MAX_MATCHER_DEPTH = 3;
@@ -134,6 +143,12 @@ export type MatchSubject = {
    * on EITHER text: the spelling can only add a match, never hide what the customer wrote.
    */
   respelled?: string | null;
+  /**
+   * The reply about to be sent, for an `in_reply` member. Absent or null before a reply
+   * exists — every caller but the deterministic append pass — and `in_reply` then does not
+   * fire.
+   */
+  reply?: string | null;
 };
 
 export type GateRule = {
@@ -266,6 +281,13 @@ function parseMatcherAt(raw: unknown, depth: number): ParseResult {
     return { ok: true, spec: { mode: 'ends_with', endings: endings as string[] } };
   }
 
+  if (mode === 'in_reply') {
+    if (depth >= MAX_MATCHER_DEPTH) return { ok: false, detail: `matchers nest deeper than ${MAX_MATCHER_DEPTH}` };
+    const inner = parseMatcherAt(o['matcher'], depth + 1);
+    if (!inner.ok) return { ok: false, detail: `in_reply: ${inner.detail}` };
+    return { ok: true, spec: { mode: 'in_reply', matcher: inner.spec } };
+  }
+
   if (mode === 'all_of' || mode === 'not') {
     if (depth >= MAX_MATCHER_DEPTH) return { ok: false, detail: `matchers nest deeper than ${MAX_MATCHER_DEPTH}` };
     if (mode === 'not') {
@@ -307,6 +329,7 @@ export function matcherTerms(spec: MatcherSpec): string[] {
     case 'has_attachment': return [];
     case 'all_of': return spec.matchers.flatMap(matcherTerms);
     case 'not': return matcherTerms(spec.matcher);
+    case 'in_reply': return matcherTerms(spec.matcher);
   }
 }
 
@@ -315,6 +338,11 @@ export function matcherFires(subject: MatchSubject, spec: MatcherSpec): boolean 
   if (spec.mode === 'has_attachment') return subject.attachments.some((a) => spec.kinds.includes(a));
   if (spec.mode === 'all_of') return spec.matchers.every((m) => matcherFires(subject, m));
   if (spec.mode === 'not') return !matcherFires(subject, spec.matcher);
+  if (spec.mode === 'in_reply') {
+    const reply = subject.reply;
+    return reply !== undefined && reply !== null && reply.trim() !== ''
+      && matcherFires({ text: reply, attachments: [], respelled: null }, spec.matcher);
+  }
   const texts = subject.respelled === undefined || subject.respelled === null
     ? [subject.text] : [subject.text, subject.respelled];
   return texts.some((text) => {

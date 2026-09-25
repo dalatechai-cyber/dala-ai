@@ -227,6 +227,7 @@ export async function runCases(input: {
         faqAnswers: faqAnswersFromPrefix(ctx.promptStable, SECTION_LABELS.faqs),
         cannedHash: ctx.cannedHash,
         fallbackLine: ctx.fallbackLine,
+        complaintRules: ctx.complaintRules,
         spellings: ctx.spellings,
         branches: ctx.branches,
       });

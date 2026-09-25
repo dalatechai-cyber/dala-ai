@@ -230,6 +230,13 @@ function nameWords(row: string): string[] {
   return name.split(/[^\p{L}\p{N}]+/u).filter((w) => w !== '');
 }
 
+/** The words of a price row's NAME: before « — » when the name carries a role after it. */
+function nameHead(row: string): string[] {
+  const name = fold(row.slice(0, Math.max(0, row.indexOf(':')))).replace(/\s*\([^()]*\)\s*$/u, '');
+  const dash = name.indexOf(' — ');
+  return (dash === -1 ? name : name.slice(0, dash)).split(/[^\p{L}\p{N}]+/u).filter((w) => w !== '');
+}
+
 /** The words of a price row's variant parenthetical: «(Сарын төлбөр)» → сарын, төлбөр. */
 function variantWords(row: string): string[] {
   const m = /\(([^()]*)\)\s*$/u.exec(fold(row.slice(0, Math.max(0, row.indexOf(':')))));
@@ -340,11 +347,20 @@ export function checkFacts(reply: string, source: FactSource, customerMessage = 
     const stems = new Set(seen.filter((w) => [...w].length >= CORROBORATE_CP).map(stemOf));
     const whole = new Set(seen);
     const hit = (w: string): boolean => ([...w].length >= CORROBORATE_CP ? stems.has(stemOf(w)) : whole.has(w));
+    // A name written «Name — Role» is its NAME first: the role words only decide when no
+    // name was written. «…харин сарын төлбөрийн…» — "however" — shares four letters with
+    // Нова's «Харилцагчийн менежер», and tied Нова with the Вира the reply named, so a
+    // «Дали, Вира хоёр…» question was served Нова's price (the test set, 2026-09-26, x03).
+    // A name with no dash is all name, exactly as before.
+    const head = (r: FactRow): number => nameHead(r.text).filter(hit).length
+      + (source.aliases?.[rowName(r.text)] ?? []).filter((a) => whole.has(a)).length;
     const score = (r: FactRow): number => nameWords(r.text).filter(hit).length
       + (source.aliases?.[rowName(r.text)] ?? []).filter((a) => whole.has(a)).length;
     const priced = owners.filter((r) => r.section === 'price');
-    const best = Math.max(0, ...priced.map(score));
-    let corroborated = narrowedByPartner ? priced : priced.filter((r) => best > 0 && score(r) === best);
+    const bestHead = Math.max(0, ...priced.map(head));
+    const byName = bestHead > 0 ? priced.filter((r) => head(r) === bestHead) : priced;
+    const best = Math.max(0, ...byName.map(score));
+    let corroborated = narrowedByPartner ? priced : byName.filter((r) => best > 0 && score(r) === best);
     // One service's rows tied on its name are told apart by the variant the reply wrote:
     // «Вира сарын төлбөр 150,000₮» is the monthly row, not the setup row that shares the
     // amount. Nothing written about a variant keeps them all, as before.

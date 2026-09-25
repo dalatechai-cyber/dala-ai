@@ -4,17 +4,15 @@
 # the report — every reply word for word, with its flags — to this run's log and summary.
 #
 # It spends real money (Sonnet 5, about $1.50 a run, capped by --max-calls 80), so it runs
-# only on purpose: by hand, or when a push to a branch other than main changes
-# scripts/bakeoff/runs/testset-ci-request.txt. Needs the ANTHROPIC_API_KEY repository secret.
+# only by hand (workflow_dispatch). It used to run on a push touching a request file, and
+# resetting a branch to main after a merge counted as such a push: one run nobody asked for
+# (2026-09-26). Needs the ANTHROPIC_API_KEY repository secret.
 # Nothing is written anywhere: the dump is served by a read-only fixture, and testset.ts
 # refuses a dump whose prompt does not hash to its own content_hash.
 name: Test set (DalaTech)
 
 on:
   workflow_dispatch:
-  push:
-    branches-ignore: [main]
-    paths: ['scripts/bakeoff/runs/testset-ci-request.txt']
 
 jobs:
   testset:

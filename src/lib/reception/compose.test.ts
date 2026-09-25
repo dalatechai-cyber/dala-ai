@@ -113,7 +113,7 @@ const base: ReceptionInput = {
   eventAt: new Date('2026-09-24T05:00:00Z'), now: new Date('2026-09-24T05:00:05Z'),
   promptStable: STABLE, promptVolatile: 'VOLATILE', modelId: 'm', cacheMode: '1h', timeoutMs: 25_000,
   rules: [SUIT], deterministic: [TARA_NAME, TARA_APPEND, DYE, STYLIST_ROW], historyState: { known: true, empty: false },
-  canned: CANNED, tenantGuard: GUARD, cannedLabel: 'БЭЛЭН ХАРИУЛТ', cannedHash: null, fallbackLine: null,
+  canned: CANNED, tenantGuard: GUARD, cannedLabel: 'БЭЛЭН ХАРИУЛТ', cannedHash: null, fallbackLine: null, complaintRules: [],
   serviceNames: SERVICES, serviceAliases: ALIASES, depositRows: DEPOSITS, faqAnswers: [], spellings: [], branches: [],
 };
 
@@ -390,3 +390,46 @@ test('3: the correction row never answers a message by itself', async () => {
   assert.notEqual(t.drafts[0]?.body, CLARIFY);
 });
 
+
+// ---- Founder, 2026-09-26: complaints keep the apology; coming-soon staff in the reply ----
+
+const COMPLAINT_RULES = [{
+  ruleKey: 'complaint_bad', verdict: 'escalate' as const,
+  matcher: { mode: 'all_of', matchers: [{ mode: 'has_word', words: ['муу'] }, { mode: 'not', matcher: { mode: 'has_word', words: ['биш'] } }] },
+}];
+const SORRY = 'Уучлаарай, хариу удсанд тань. Мессежээ энд бичиж үлдээвэл хамт олон маань тантай холбогдоно.';
+const COMPLAINT = 'Та нар хариу өгөхгүй юм аа, гурав хоног хүлээлээ. Ямар муу үйлчилгээ вэ';
+
+test('DONE-TEST: A COMPLAINT KEEPS ITS «Уучлаарай» — by the tenant\'s own complaint rows (r01)', async () => {
+  const t = run(SORRY);
+  await handleReception(t.deps, { ...base, customerMessage: COMPLAINT, complaintRules: COMPLAINT_RULES });
+  assert.equal(t.drafts[0]?.body, SORRY);
+  assert.ok(!t.flags.includes('apology_removed'));
+  // The control: without the rows, the same reply loses it — the half sentence the founder read.
+  const c = run(SORRY);
+  await handleReception(c.deps, { ...base, customerMessage: COMPLAINT });
+  assert.ok(c.drafts[0]?.body.startsWith('Хариу удсанд тань.'));
+  assert.ok(c.flags.includes('apology_removed'));
+});
+
+const SOON = 'Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.';
+const SOON_IN_REPLY: DeterministicRule = {
+  ...confirmed, intent: 'coming_soon_in_reply', body: SOON, matchMode: 'matcher', stems: [], coverWords: [],
+  placement: 'append', quoteServices: [],
+  matcher: { mode: 'in_reply', matcher: { mode: 'has_word', words: ['эхо', 'эхог', 'вира'] } },
+};
+
+test('DONE-TEST: A REPLY NAMING A COMING-SOON STAFF MEMBER GETS THE STATUS LINE, THOUGH THE CUSTOMER NAMED NONE (s04)', async () => {
+  const t = run('Утсаар ярьдаг ажилтан бол Эхо.');
+  await handleReception(t.deps, { ...base, customerMessage: 'Утсаар ярьдаг AI ажилтан байгаа юу?', deterministic: [SOON_IN_REPLY] });
+  assert.equal(t.drafts[0]?.body, `Утсаар ярьдаг ажилтан бол Эхо.\n\n${SOON}`);
+});
+
+test('a reply that names none of them, or already carries the line, is left as it is', async () => {
+  const none = run('Манай вэбсайт ажлын өдрүүдэд бэлэн болно.');
+  await handleReception(none.deps, { ...base, customerMessage: 'vebsait hed honogt', deterministic: [SOON_IN_REPLY] });
+  assert.equal(none.drafts[0]?.body, 'Манай вэбсайт ажлын өдрүүдэд бэлэн болно.');
+  const has = run(`Эхо удахгүй. ${SOON} Бусад нь бэлэн.`);
+  await handleReception(has.deps, { ...base, customerMessage: 'eho?', deterministic: [SOON_IN_REPLY] });
+  assert.equal(has.drafts[0]?.body, `Эхо удахгүй. ${SOON} Бусад нь бэлэн.`);
+});

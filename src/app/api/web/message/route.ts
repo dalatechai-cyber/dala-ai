@@ -116,6 +116,7 @@ function effects(now: Date): MessageEffects {
           branches: a.ctx.branches,
           cannedHash: a.ctx.cannedHash,
           fallbackLine: a.ctx.fallbackLine,
+          complaintRules: a.ctx.complaintRules,
         },
       ),
 
