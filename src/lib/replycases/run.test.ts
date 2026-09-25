@@ -77,6 +77,6 @@ test('a publish is judged against the prefix it is about to publish, not the liv
 
 test('the summary fails when any case fails, or when a tenant could not be checked', () => {
   assert.equal(renderGate([{ ok: true, slug: 's', results: [] }]).pass, true);
-  assert.equal(renderGate([{ ok: true, slug: 's', results: [{ id: 1, pass: false, reply: null, answeredBy: null, why: ['x'], flags: [] }] }]).pass, false);
+  assert.equal(renderGate([{ ok: true, slug: 's', results: [{ id: 1, pass: false, outcome: 'wrong', reply: null, answeredBy: null, why: ['x'], flags: [] }] }]).pass, false);
   assert.equal(renderGate([{ ok: false, slug: 's', detail: 'reply_cases unreadable' }]).pass, false);
 });

@@ -9115,3 +9115,56 @@ superseded list, gets the handoff. The cost is D-077's: the rest of that reply g
 **Also measured: the inbox handover works live.** At 22:19:51 UTC, event 779 (an echo not from
 our app) set Matrix's thread to `human`. Event 780, the customer's «une hedve» two seconds
 later, was not answered, and was flagged `human_has_thread; 30 minute(s) of cooldown left`.
+
+## D-121 — two wordings approved; the founder's emergency override for the reply-case gate
+
+**Approved by the founder, 2026-09-25.** These are the two customer-facing lines D-119
+introduced as my wording:
+- `perm_types` question: «Та аль химийг хийлгэх вэ?»
+- `correction_clarify`: «Уучлаарай, би буруу ойлгосон байна. Та юу асууж байгаагаа арай
+  дэлгэрэнгүй бичнэ үү?»
+
+Read back from the live `deterministic_replies` rows the same day: both bodies are
+byte-identical to the approved text, and both rows are `tenant_confirmed`. No row changed.
+
+**The override** (founder: *"for when the database or Anthropic is down and I need a hotfix
+deployed. Only I can use it, it's logged, and it sends me a Telegram alert every time it's
+used."*). The code is `replycases/override.ts`; the founder's tool is
+`scripts/replycases/override.ts`.
+
+- **Only the founder can use it.** An override is a token signed with an Ed25519 private key.
+  `override.ts keygen` creates that key on the founder's machine and writes it with mode
+  0600. The build verifies the token against the public keys in `overrideKeys.ts`. That list
+  is **empty**, so nobody can override until the founder runs keygen and has its public half
+  committed. Without the private key no one can mint a token, this session included.
+- **One commit, one window.** The token names the commit (`VERCEL_GIT_COMMIT_SHA`) and lives
+  at most 24 hours (default 6). Left in the Vercel environment, it does nothing for the next
+  deploy. Edited after signing, or signed by another key, it is refused, and the refusal says
+  why.
+- **Outages only.** It lets through cases that could not be checked: a table that cannot be
+  read, a configuration that does not load, a reply path that asks for a retry (the model or
+  the database unavailable), or the whole check passing 180 seconds. A case checked and
+  answered **wrongly** still fails the build, override or not. `runCases` now labels each
+  result `wrong` or `unchecked` so the two are never merged.
+- **Every use is announced, or it does not count.** The Telegram alert (commit, reason, what
+  could not be checked, key id, expiry) is sent **before** the override applies. If Telegram
+  does not accept it, the override is refused.
+- **Logged.** The build log carries a banner with the same lines. An `alerts` row
+  (`deploy.gate_override`, critical, `once`) is written when the database answers, with a
+  10-second bound. It is best effort, because the database being down is one reason the
+  override exists.
+
+How to use it:
+1. `node scripts/replycases/override.ts sign --sha <commit> --reason "…"`.
+2. Put the printed token in Vercel as `REPLY_GATE_OVERRIDE` (Production).
+3. Redeploy that commit.
+4. Remove the variable afterwards.
+
+The publish script is not covered, because a publish needs the database anyway.
+
+Verified: unit tests cover each branch (the founder's token passes and alerts once; a
+stranger's key, another commit, an expired or edited token and no token are all refused; a
+wrong answer is never overridden; no alert means no override). The real gate script was run
+against an unreachable database: without a token it exits 2 and names what it could not
+check. A token from an unregistered key is refused, exit 2. The success path has not run
+against real Telegram, because that would post into the shared chat.
