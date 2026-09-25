@@ -70,9 +70,9 @@ export const ADDRESS_OVERLAP_CP = 12;
  * «430 мянга» is 430000, «10 цаг» is 1000, and «430 000» (a space as thousands separator)
  * is one amount, not two.
  */
-export function amountsIn(text: string): { digits: string; at: number }[] {
+export function amountsIn(text: string): { digits: string; at: number; end: number }[] {
   const t = nfc(text).replace(/(\p{Nd}) (?=\p{Nd}{3}(?!\p{Nd}))/gu, '$1 ');
-  const out: { digits: string; at: number }[] = [];
+  const out: { digits: string; at: number; end: number }[] = [];
   for (const m of t.matchAll(/\p{Nd}(?:[\p{Nd},.:  ]*\p{Nd})?/gu)) {
     const raw = m[0];
     const at = m.index ?? 0;
@@ -80,9 +80,16 @@ export function amountsIn(text: string): { digits: string; at: number }[] {
     const after = fold(t.slice(at + raw.length, at + raw.length + 8)).trimStart();
     if (after.startsWith('мянга')) digits = `${digits}000`;
     else if (digits.length <= 2 && !raw.includes(':') && after.startsWith('цаг')) digits = `${digits.padStart(2, '0')}00`;
-    if (digits.length >= 4 || raw.includes(':')) out.push({ digits, at });
+    if (digits.length >= 4 || raw.includes(':')) out.push({ digits, at, end: at + raw.length });
   }
   return out;
+}
+
+/** Are `a` and `b` the two ends of one written range: only currency, space and a dash between? */
+function isRangeOf(text: string, a: { at: number; end: number }, b: { at: number; end: number }): boolean {
+  const [first, second] = a.at < b.at ? [a, b] : [b, a];
+  if (first.end > second.at) return false;
+  return /^[\s\u00a0₮]*[-–—][\s\u00a0₮]*$/u.test(text.slice(first.end, second.at));
 }
 
 function valueOf(row: string): string {
@@ -197,10 +204,12 @@ export function checkFacts(reply: string, source: FactSource, customerMessage = 
     if (owners.length === 0) continue;
     let narrowedByPartner = false;
     if (owners.length > 1) {
-      // The other amounts on the same line: a range names one row, not two.
-      const lineStart = masked.lastIndexOf('\n', a.at) + 1;
-      const lineEnd = masked.indexOf('\n', a.at) === -1 ? masked.length : masked.indexOf('\n', a.at);
-      const partners = amounts.filter((b) => b.at >= lineStart && b.at < lineEnd && b !== a).map((b) => b.digits);
+      // The other end of a RANGE: a range names one row, not two. Only an amount written as
+      // the other end of «A–B» counts. Two prices on one line are not a range: «CICA … 198,000₮
+      // (курсээр 154,000₮)» is two rows of one service, and reading it as a range served
+      // «Хуримын засалт: 154,000₮–198,000₮» — the one row holding both numbers — to a CICA
+      // question (the 2026-09-25 bake-off, both models). It then skipped the name check below.
+      const partners = amounts.filter((b) => b !== a && isRangeOf(masked, a, b)).map((b) => b.digits);
       const byPartner = owners.filter((r) => partners.some((p) => r.amounts.includes(p)));
       if (byPartner.length > 0) { owners = byPartner; narrowedByPartner = true; }
     }

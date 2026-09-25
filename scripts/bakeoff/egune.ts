@@ -40,8 +40,13 @@ import { nfc } from '../../src/lib/mn/text.ts';
 import { RECEPTION_HISTORY_TURNS, RECEPTION_MAX_TOKENS, type CallOutcome, type ReceptionRequest } from '../../src/lib/model/reception.ts';
 
 export const EGUNE_BASE_URL = 'https://api.egune.com/v1';
-/** The one model id the official SDK's README names. `GET /v1/models` is the authority. */
-export const EGUNE_DEFAULT_MODEL = 'egune1-14b';
+/**
+ * What `GET /v1/models` lists for the founder's key (2026-09-25): `egune-nano`, and nothing
+ * else. The official SDK README's `egune1-14b` answered every call with HTTP 503 "No available
+ * servers for the requested model" — the first bake-off run measured nothing because of it.
+ * `GET /v1/models` is the authority; the workflow prints it first for exactly this reason.
+ */
+export const EGUNE_DEFAULT_MODEL = 'egune-nano';
 
 export type EguneOptions = {
   model: string;

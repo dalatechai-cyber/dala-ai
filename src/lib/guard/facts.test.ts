@@ -75,3 +75,21 @@ test('DONE-TEST: A PRICE NO ROW CAN BE SHOWN TO OWN IS REFUSED, NOT GUESSED', ()
   const named = checkFacts('Энэ 154 мянга.', SRC, 'Хими арчилт хэд вэ?');
   assert.equal(named.restated && named.served, 'Хими арчилт: 154,000₮');
 });
+
+test('DONE-TEST: TWO PRICES ON ONE LINE ARE NOT A RANGE — a CICA answer is never served «Хуримын засалт»', () => {
+  // The 2026-09-25 bake-off, both models, live prompt seq 15: the reply named CICA and its
+  // two prices; the one row holding BOTH numbers was the wedding styling range, and reading
+  // the pair as a range served it to a customer who asked about CICA.
+  const src = factSourceFrom([
+    '=== ҮНИЙН ЖАГСААЛТ ===', '- CICA нөхөн сэргээх эмчилгээ (1 удаа): 198,000₮',
+    '- CICA нөхөн сэргээх эмчилгээ (Курсээр, 1 удаагийн үнэ): 154,000₮',
+    '- Хуримын засалт: 154,000₮–198,000₮', '- Эмчилгээний хими: 220,000₮–255,000₮',
+  ].join('\n'), LABELS, []);
+  const r = checkFacts('CICA нэртэй хими гэсэн үйлчилгээ манайд байхгүй. CICA бол хими биш, харин үсний нөхөн сэргээх эмчилгээ бөгөөд үнэ нь 198,000₮ (курсээр 154,000₮) байна.', src, 'CICA хими байгаа юу?');
+  assert.equal(r.restated, true);
+  assert.equal(r.restated && r.served,
+    'CICA нөхөн сэргээх эмчилгээ (1 удаа): 198,000₮\nCICA нөхөн сэргээх эмчилгээ (Курсээр, 1 удаагийн үнэ): 154,000₮');
+  // A range written as one still names its one row.
+  const w = checkFacts('Хуримын засалт 154,000₮–198,000₮ байна.', src);
+  assert.equal(w.restated && w.served, 'Хуримын засалт: 154,000₮–198,000₮');
+});
