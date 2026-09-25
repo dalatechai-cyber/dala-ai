@@ -59,4 +59,8 @@ values ('919e21d4-224d-44b3-bb62-273caa6237ce', 5000000000, 2110000000,
 update canned_responses set reviewed_by = 'founder'
 where tenant_id = '919e21d4-224d-44b3-bb62-273caa6237ce' and kind = 'comment_public_reply' and reviewed_by is null;
 
+-- 7. FAQ 4 (founder, later the same evening). FAQ 6's discounts confirmed as they stand.
+update faqs set answer = 'AI ажилтан 1–2 долоо хоногт ажиллаж эхэлнэ.'
+where tenant_id = '919e21d4-224d-44b3-bb62-273caa6237ce' and answer = 'AI ажилтан 3–5 хоногт ажиллаж эхэлнэ.';
+
 commit;
