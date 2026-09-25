@@ -145,3 +145,19 @@ Three things for you to decide:
 
 My earlier plan said "I seal the secret". That was wrong: sealing needs the KEK, which this
 environment does not have. You run step 2.
+
+## 6. Applied 2026-09-25, on the founder's approval
+
+Written in one transaction (`scripts/provision/tenant0-approved-2026-09-25.sql`) and read back:
+
+- The 12 price rows of §3, exact and confirmed, with their 15 aliases. There is no row for
+  Эхо's per-minute charge and none for the 900,000₮ comparison.
+- `price_overview` gains one line, live on write: «Вэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.»
+- `address` «Улаанбаатар, Монгол»; `tenant_domains` `dalatech-chatbot.vercel.app` (verified).
+- `tenant_budgets`: daily `2110000000`, so Reception gets $2.00 a day. Monthly carries over
+  at $5; nothing reads it.
+- `comment_public_reply`: `reviewed_by = founder`.
+- Unchanged: FAQ 4 («3–5 хоногт») and FAQ 6 (the discounts). Their choice was left blank.
+- `reply_cases` #9: «үнэ хэд вэ» → the new `price_overview` body.
+
+Everything except `price_overview` reaches a customer only when tenant #0 is republished.
