@@ -33,6 +33,38 @@
  */
 import type { SendFailure, SendInput, SendOutcome } from '../meta/send.ts';
 import type { SecretOutcome } from '../secrets/tenantSecret.ts';
+import type { RepeatPolicy } from '../alerts/alert.ts';
+
+/**
+ * What `deliverOutbound` asks the alert binding for. No route: this module reads no
+ * environment, so it says what KIND of alert it is and the binding picks the route.
+ *
+ *  - `repeat` — the policy, when it is not the default.
+ *  - `quiet`  — nobody has to act on it at once. The binding routes it with `quietRoute()`,
+ *    which is `now` today and the daily report under DAILY_REPORT_V2 (D-128).
+ */
+export type DeliverAlert = {
+  severity: 'warn' | 'critical';
+  kind: string;
+  dedupKey: string;
+  body: string;
+  repeat?: RepeatPolicy;
+  quiet?: boolean;
+};
+
+/**
+ * The credential episodes a delivery can open for one tenant and channel. A send that goes
+ * out is evidence against every one of them, so the success path closes all four (D-128).
+ * Built here, beside the raises, so the keys a resolve names are the keys a raise wrote.
+ */
+export function credentialEpisodeKeys(tenantId: string, channelId: string): string[] {
+  return [
+    `secret.kek_unavailable:${tenantId}`,
+    `secret.undecryptable:${tenantId}:${channelId}`,
+    `outbound.token_revoked:${tenantId}:${channelId}`,
+    `outbound.channel_permission_error:${tenantId}:${channelId}`,
+  ];
+}
 
 export type DeliverInput = {
   tenantId: string;
@@ -60,7 +92,12 @@ export type DeliverDeps = {
   recordSecretError: (code: number | null) => Promise<{ ok: boolean; detail?: string }>;
   /** Graph 190 only: mark the secret revoked and stop delivery on the channel. */
   revokeCredential: (code: number) => Promise<{ ok: boolean; detail?: string }>;
-  alert: (input: { severity: 'warn' | 'critical'; kind: string; dedupKey: string; body: string }) => Promise<unknown>;
+  alert: (input: DeliverAlert) => Promise<unknown>;
+  /**
+   * Close any open credential episode under these exact keys. Called after a send that
+   * went out; bookkeeping, so its failure is reported and never undoes the send.
+   */
+  resolveAlerts: (dedupKeys: readonly string[]) => Promise<{ ok: boolean; detail?: string }>;
   /**
    * A credential failure happened. The breaker (D-036) decides whether this channel has
    * failed often enough to stop drafting, and whether the platform-wide cap is holding
@@ -101,11 +138,16 @@ export async function deliverOutbound(deps: DeliverDeps, input: DeliverInput): P
     if (secret.code === 'kek_unavailable') {
       // Not one tenant. Every row sealed under that KEK version, and the fix is a
       // deployment rather than a row, so it is critical and carries no tenant period.
+      //
+      // An EPISODE (`on_change`), closed by the next send that goes out. It was a dateless
+      // `daily` key until 2026-09-25, which is "once in the life of the project": a KEK
+      // lost, restored and lost again was silent the second time (the inventory, B8).
       await deps.alert({
         severity: 'critical',
         kind: 'secret.kek_unavailable',
         dedupKey: `secret.kek_unavailable:${input.tenantId}`,
         body: `The KEK for tenant ${input.tenantId}'s credential is unavailable: ${secret.detail}`,
+        repeat: 'on_change',
       });
     } else if (secret.code === 'secret_undecryptable') {
       await deps.alert({
@@ -113,6 +155,7 @@ export async function deliverOutbound(deps: DeliverDeps, input: DeliverInput): P
         kind: 'secret.undecryptable',
         dedupKey: `secret.undecryptable:${input.tenantId}:${input.channelId}`,
         body: `Tenant ${input.tenantId} channel ${input.channelId}: the stored credential will not decrypt. ${secret.detail}`,
+        repeat: 'on_change',
       });
     }
     // After the alert and after the row is marked, because the breaker reads that row: the
@@ -142,6 +185,8 @@ export async function deliverOutbound(deps: DeliverDeps, input: DeliverInput): P
       kind: 'outbound.reply_indeterminate',
       dedupKey: `outbound.reply_indeterminate:${input.outboundId}`,
       body: `Tenant ${input.tenantId}: a reply may or may not have been delivered. ${sent.detail}`,
+      // Nothing to act on from the message alone — it names no conversation (inventory B10).
+      quiet: true,
     });
     return { outcome: 'indeterminate', detail: sent.detail };
   }
@@ -150,9 +195,13 @@ export async function deliverOutbound(deps: DeliverDeps, input: DeliverInput): P
     // First, and its failure does not undo the send.
     const marked = await deps.markSent(sent.providerMessageId);
     const ok = await deps.recordSecretOk();
+    // A send that went out is the evidence every credential episode for this channel is
+    // waiting for, so they close here and the next failure pages again.
+    const cleared = await deps.resolveAlerts(credentialEpisodeKeys(input.tenantId, input.channelId));
     const bookkeeping = [
       marked.ok ? null : `markSent: ${marked.detail ?? 'failed'}`,
       ok.ok ? null : `recordSecretOk: ${ok.detail ?? 'failed'}`,
+      cleared.ok ? null : `resolveAlerts: ${cleared.detail ?? 'failed'}`,
     ]
       .filter((s): s is string => s !== null)
       .join('; ');
@@ -179,8 +228,10 @@ export async function deliverOutbound(deps: DeliverDeps, input: DeliverInput): P
       kind: `outbound.${sent.failure}`,
       // No period in the key. This stays true until somebody re-provisions the channel,
       // and repeating it daily would add noise to an outage rather than information —
-      // the same reasoning `model_not_found` uses in health.ts.
+      // the same reasoning `model_not_found` uses in health.ts. An episode, so the first
+      // send after the re-seal closes it and a second revocation pages again (B6).
       dedupKey: `outbound.${sent.failure}:${input.tenantId}:${input.channelId}`,
+      repeat: 'on_change',
       body:
         sent.failure === 'token_revoked'
           ? `Tenant ${input.tenantId}: Meta rejected the page token (${sent.detail}). Outbound on channel ${input.channelId} is halted; inbound is still being persisted.`

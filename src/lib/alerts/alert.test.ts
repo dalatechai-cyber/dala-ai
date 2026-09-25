@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openEpisodes, raiseAlert, resolveOpenAlerts, spendDedupKey } from './alert.ts';
+import {
+  dailyReportV2, openEpisodes, quietRoute, raiseAlert, resolveEpisodes, resolveOpenAlerts, spendDedupKey,
+} from './alert.ts';
 
 /** In-memory alerts table with the dedup semantics the real one has. */
 function stubDb() {
@@ -127,6 +129,7 @@ function episodeDb() {
       let openOnly = false;
       let repeat: string | null = null;
       let ids: number[] | null = null;
+      let keys: string[] | null = null;
       let inserted: { id: number } | null = null;
       let patch: Record<string, unknown> | null = null;
 
@@ -135,7 +138,8 @@ function episodeDb() {
         && (prefix === null || r.dedup_key.startsWith(prefix))
         && (!openOnly || r.resolved_at === null)
         && (repeat === null || r.repeat_policy === repeat)
-        && (ids === null || ids.includes(r.id));
+        && (ids === null || ids.includes(r.id))
+        && (keys === null || keys.includes(r.dedup_key));
 
       chain['select'] = () => chain;
       chain['order'] = () => chain;
@@ -151,7 +155,10 @@ function episodeDb() {
         return chain;
       };
       chain['like'] = (_col: string, val: string) => { prefix = val.replace(/%$/, ''); return chain; };
-      chain['in'] = (_col: string, vals: readonly unknown[]) => { ids = vals.map(Number); return chain; };
+      chain['in'] = (col: string, vals: readonly unknown[]) => {
+        if (col === 'dedup_key') keys = vals.map(String); else ids = vals.map(Number);
+        return chain;
+      };
       chain['insert'] = (row: Record<string, unknown>) => {
         const created: Row = {
           id: nextId++, dedup_key: String(row['dedup_key']), kind: String(row['kind']),
@@ -172,12 +179,14 @@ function episodeDb() {
       };
       chain['then'] = (res: (v: unknown) => unknown) => {
         if (patch !== null) {
-          for (const r of rows.filter(matches)) {
+          const hit = rows.filter(matches);
+          for (const r of hit) {
             if ('resolved_at' in patch) r.resolved_at = String(patch['resolved_at']);
             if ('notified_at' in patch) r.notified_at = String(patch['notified_at']);
             if ('delivered' in patch) r.delivered = patch['delivered'] === true;
           }
-          return res({ data: null, error: null });
+          // `update(…).select('id')` answers with the rows it changed, as PostgREST does.
+          return res({ data: hit.map((r) => ({ id: r.id })), error: null });
         }
         return res({ data: rows.filter(matches), error: null });
       };
@@ -271,4 +280,118 @@ test('DONE-TEST: a digest route records the row and sends NOTHING', async () => 
   assert.equal(rows.length, 1);
   assert.equal(rows[0]?.notified_at, null, 'nobody has been told, so the 3-day clock runs from `at`');
   process.env['ALERTS_ENABLED'] = 'false';
+});
+
+// --------------------------------------------------------------------------
+// D-128: once-ever criticals become episodes, and quiet warnings can wait for 09:00.
+// --------------------------------------------------------------------------
+
+/** A legacy row, as `0025`'s default and every pre-2026-09-25 caller left it. */
+function legacyRow(rows: Row[], over: Partial<Row>): void {
+  rows.push({
+    id: 900 + rows.length, dedup_key: 'model_not_found:claude-sonnet-5', kind: 'model.not_found',
+    severity: 'critical', body: 'old', route: 'now', repeat_policy: 'daily', resolved_at: null,
+    notified_at: null, at: '2026-09-01T00:00:00.000Z', tenant_id: null, delivered: true, ...over,
+  });
+}
+
+test('DONE-TEST: A LEGACY EVENT ROW UNDER THE SAME KEY NEVER GAGS AN ON_CHANGE EPISODE', async () => {
+  // `model_not_found:{id}` was a `daily` row under a dateless key. Its `resolved_at` is null
+  // for ever, because nothing resolves an event — so an `on_change` check that did not read
+  // the policy would find it "open" and stay silent for good: the once-ever bug, surviving
+  // the fix through the rows it left behind.
+  process.env['ALERTS_ENABLED'] = 'false';
+  const { db, rows } = episodeDb();
+  legacyRow(rows, {});
+  const res = await raiseAlert(db, {
+    tenantId: null, severity: 'critical', kind: 'model.not_found',
+    dedupKey: 'model_not_found:claude-sonnet-5', body: 'new', route: 'now', repeat: 'on_change',
+  });
+  assert.equal(res.outcome, 'recorded_undelivered');
+  assert.equal(rows.length, 2);
+  assert.equal(rows[1]?.repeat_policy, 'on_change');
+});
+
+test('DONE-TEST: AN ON_CHANGE CRITICAL ROUTED NOW PAGES AT OPEN, HOLDS, AND PAGES AGAIN AFTER A RESOLVE', async () => {
+  const sent: string[] = [];
+  const realFetch = globalThis.fetch;
+  const env = { ...process.env };
+  process.env['ALERTS_ENABLED'] = 'true';
+  process.env['TELEGRAM_BOT_TOKEN'] = 'test-token';
+  process.env['TELEGRAM_ALERT_CHAT_ID'] = '1';
+  globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+    sent.push(String(JSON.parse(init?.body ?? '{}').text));
+    return new Response(JSON.stringify({ result: { message_id: sent.length } }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const { db, rows } = episodeDb();
+    const input = {
+      tenantId: null, severity: 'critical' as const, kind: 'model.not_found',
+      dedupKey: 'model_not_found:claude-sonnet-5', body: 'claude-sonnet-5 returned 404',
+      route: 'now' as const, repeat: 'on_change' as const,
+    };
+    assert.equal((await raiseAlert(db, input)).outcome, 'sent');
+    assert.equal(sent.length, 1, 'the first occurrence pages immediately');
+    assert.match(sent[0] ?? '', /^🔴 claude-sonnet-5 returned 404/);
+    assert.ok(rows[0]?.notified_at !== null, 'the three-day clock starts at the page');
+
+    assert.equal((await raiseAlert(db, input)).outcome, 'suppressed_duplicate');
+    assert.equal(sent.length, 1, 'while it holds, it is silent');
+
+    const closed = await resolveEpisodes(db, { dedupKeys: [input.dedupKey], now: new Date('2026-09-25T00:00:00Z') });
+    assert.deepEqual(closed, { ok: true, resolved: 1 });
+
+    assert.equal((await raiseAlert(db, input)).outcome, 'sent');
+    assert.equal(sent.length, 2, 'a recurrence after recovery is a new page');
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = env;
+  }
+});
+
+test('resolveEpisodes closes only OPEN ON_CHANGE rows under exactly the given keys', async () => {
+  process.env['ALERTS_ENABLED'] = 'false';
+  const { db, rows } = episodeDb();
+  await raiseAlert(db, { ...EPISODE, dedupKey: 'model_not_found:a', kind: 'model.not_found' });
+  await raiseAlert(db, { ...EPISODE, dedupKey: 'model_not_found:ab', kind: 'model.not_found' });
+  legacyRow(rows, { dedup_key: 'model_not_found:a' });
+
+  const r = await resolveEpisodes(db, { dedupKeys: ['model_not_found:a'], now: new Date('2026-09-25T00:00:00Z') });
+  assert.deepEqual(r, { ok: true, resolved: 1 });
+  assert.equal(rows.find((x) => x.dedup_key === 'model_not_found:a' && x.repeat_policy === 'on_change')?.resolved_at,
+    '2026-09-25T00:00:00.000Z');
+  assert.equal(rows.find((x) => x.dedup_key === 'model_not_found:ab')?.resolved_at, null, 'exact key, never a prefix');
+  assert.equal(rows.find((x) => x.repeat_policy === 'daily')?.resolved_at, null, 'an event is never "resolved"');
+
+  assert.deepEqual(await resolveEpisodes(db, { dedupKeys: [], now: new Date() }), { ok: true, resolved: 0 });
+});
+
+test('resolveOpenAlerts keeps EVERY key in exceptKeys', async () => {
+  process.env['ALERTS_ENABLED'] = 'false';
+  const { db, rows } = episodeDb();
+  for (const k of ['secret_expiring:t:page_token:expires_at:warn', 'secret_expiring:t:page_token:data_access_expires_at:critical',
+    'secret_expiring:t:page_token:data_access_expires_at:warn']) {
+    await raiseAlert(db, { ...EPISODE, kind: 'secret.expiring', dedupKey: k });
+  }
+  const closed = await resolveOpenAlerts(db, {
+    keyPrefix: 'secret_expiring:',
+    exceptKeys: ['secret_expiring:t:page_token:expires_at:warn', 'secret_expiring:t:page_token:data_access_expires_at:critical'],
+    now: new Date('2026-09-25T00:00:00Z'),
+  });
+  assert.deepEqual(closed.ok ? closed.resolved.map((a) => a.dedupKey) : null,
+    ['secret_expiring:t:page_token:data_access_expires_at:warn']);
+  assert.equal(rows.filter((r) => r.resolved_at === null).length, 2);
+});
+
+test('DONE-TEST: quietRoute is now unless DAILY_REPORT_V2 is exactly "true"', () => {
+  const saved = process.env['DAILY_REPORT_V2'];
+  try {
+    for (const [v, route] of [[undefined, 'now'], ['', 'now'], ['false', 'now'], ['TRUE', 'now'], ['1', 'now'], ['true', 'digest']] as const) {
+      if (v === undefined) delete process.env['DAILY_REPORT_V2']; else process.env['DAILY_REPORT_V2'] = v;
+      assert.equal(quietRoute(), route, `DAILY_REPORT_V2=${String(v)}`);
+      assert.equal(dailyReportV2(), route === 'digest');
+    }
+  } finally {
+    if (saved === undefined) delete process.env['DAILY_REPORT_V2']; else process.env['DAILY_REPORT_V2'] = saved;
+  }
 });

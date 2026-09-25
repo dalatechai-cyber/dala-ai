@@ -147,3 +147,53 @@ test('DONE-TEST: retiring the ACTIVE version does not retire the keys under it',
     assert.match(out, new RegExp(`MISSING\\s+${retired}`), retired);
   }
 });
+
+// ---------------------------------------------------------------------------
+// D-128: the merged daily report's variables are OPTIONAL, with one conditional rule.
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: none of the daily-report variables is required — unset passes', () => {
+  const { status, out } = preflight(COMPLETE);
+  assert.equal(status, 0, out);
+  for (const name of ['DAILY_REPORT_V2', 'DAILY_REPORT_SECRET', 'DAILY_REPORT_SECTION_URL']) {
+    assert.doesNotMatch(out, new RegExp(`MISSING\\s+${name}\\b`), name);
+  }
+});
+
+test('DONE-TEST: DAILY_REPORT_V2=true WITHOUT DAILY_REPORT_SECRET FAILS, and names why', () => {
+  const { status, out } = preflight({ ...COMPLETE, DAILY_REPORT_V2: 'true' });
+  assert.equal(status, 1, out);
+  assert.match(out, /MISSING\s+DAILY_REPORT_SECRET/);
+  assert.match(out, /required because DAILY_REPORT_V2=true/);
+});
+
+test('DAILY_REPORT_V2=true with the secret passes, and the secret is never printed', () => {
+  const secret = 'CANARYdailyreportLLLLLLLL';
+  const { status, out } = preflight({ ...COMPLETE, DAILY_REPORT_V2: 'true', DAILY_REPORT_SECRET: secret });
+  assert.equal(status, 0, out);
+  assert.match(out, /ok\s+DAILY_REPORT_SECRET\s+\(25 characters; required because DAILY_REPORT_V2=true\)/);
+  assert.ok(!out.includes('CANARY'));
+  // An OPTIONAL variable that is set is doing its job; it is not "not yet read by anything".
+  assert.doesNotMatch(out, /not yet read by anything:.*DAILY_REPORT_V2/);
+});
+
+test('DAILY_REPORT_V2=false needs no secret', () => {
+  const { status, out } = preflight({ ...COMPLETE, DAILY_REPORT_V2: 'false' });
+  assert.equal(status, 0, out);
+});
+
+test('a DAILY_REPORT_V2 that is neither true nor false is refused — it would read as off, silently', () => {
+  for (const v of ['TRUE', '1', 'yes']) {
+    const { status, out } = preflight({ ...COMPLETE, DAILY_REPORT_V2: v, DAILY_REPORT_SECRET: 'x' });
+    assert.equal(status, 1, `${v}: ${out}`);
+    assert.match(out, /BAD\s+DAILY_REPORT_V2/);
+  }
+});
+
+test('DAILY_REPORT_SECTION_URL, when set, must be https — the bearer goes there', () => {
+  const bad = preflight({ ...COMPLETE, DAILY_REPORT_SECTION_URL: 'http://app.example/section' });
+  assert.equal(bad.status, 1, bad.out);
+  assert.match(bad.out, /BAD\s+DAILY_REPORT_SECTION_URL/);
+  const good = preflight({ ...COMPLETE, DAILY_REPORT_SECTION_URL: 'https://app.example/section' });
+  assert.equal(good.status, 0, good.out);
+});

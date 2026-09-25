@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   alertCacheCold, alertModelRetired, alertModelSwapped,
-  CACHE_WINDOW, checkCacheHealth, checkServedModel,
+  CACHE_WINDOW, checkCacheHealth, checkServedModel, modelNotFoundKey,
 } from './health.ts';
 
 // The SEND is suppressed, never the row — so these tests still prove the condition was
@@ -17,7 +17,7 @@ function ledgerDb(rows: unknown, error: unknown = null) {
     // alert look like a duplicate and never reaches the insert at all.
     const rec = { op: 'select' };
     const chain: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'order', 'limit']) chain[m] = () => chain;
+    for (const m of ['select', 'eq', 'is', 'order', 'limit']) chain[m] = () => chain;
     chain['insert'] = (patch: Record<string, unknown>) => { rec.op = 'insert'; captured.push(patch); return chain; };
     chain['update'] = () => { rec.op = 'update'; return chain; };
     chain['maybeSingle'] = async () => {
@@ -139,12 +139,36 @@ test('a retired model is CRITICAL and carries no tenant — it is every tenant',
   assert.equal(captured[0]?.['tenant_id'], null);
 });
 
-test('the retired-model dedup key carries NO period — it is an event, not a condition', async () => {
-  // Repeating it daily would add noise to an outage rather than information. It stays
-  // true until somebody changes the registry.
+test('the retired-model dedup key carries NO period — and it is an EPISODE, not a once-ever event', async () => {
+  // Repeating it daily would add noise to an outage rather than information. But a dateless
+  // `daily` key fires once in the life of the project (the 2026-09-25 inventory, B4), so it
+  // is `on_change`: it pages at once, holds while true, and a clean call on the id closes it.
   const { db, captured } = ledgerDb([]);
   await alertModelRetired(db, { modelId: 'claude-sonnet-5', detail: '404' });
   assert.equal(String(captured[0]?.['dedup_key']), 'model_not_found:claude-sonnet-5');
+  assert.equal(captured[0]?.['dedup_key'], modelNotFoundKey('claude-sonnet-5'), 'one builder for raise and resolve');
+  assert.equal(captured[0]?.['repeat_policy'], 'on_change');
+  assert.equal(captured[0]?.['route'], 'now');
+});
+
+test('DONE-TEST: cache-cold and model-swap wait for the daily report under DAILY_REPORT_V2, and only then', async () => {
+  const saved = process.env['DAILY_REPORT_V2'];
+  try {
+    for (const [flag, want] of [[undefined, 'now'], ['true', 'digest']] as const) {
+      if (flag === undefined) delete process.env['DAILY_REPORT_V2']; else process.env['DAILY_REPORT_V2'] = flag;
+      const cold = ledgerDb([]);
+      await alertCacheCold(cold.db, { tenantId: 't-1', surface: 'reception', dayKey: '2026-09-04', sample: 10 });
+      assert.equal(cold.captured[0]?.['route'], want);
+      const swap = ledgerDb([]);
+      await alertModelSwapped(swap.db, { tenantId: 't-1', requested: 'a', served: 'b', dayKey: '2026-09-04' });
+      assert.equal(swap.captured[0]?.['route'], want);
+      const gone = ledgerDb([]);
+      await alertModelRetired(gone.db, { modelId: 'x', detail: '404' });
+      assert.equal(gone.captured[0]?.['route'], 'now', 'a retired model is never demoted');
+    }
+  } finally {
+    if (saved === undefined) delete process.env['DAILY_REPORT_V2']; else process.env['DAILY_REPORT_V2'] = saved;
+  }
 });
 
 test('it says never to fall back, because that is the tempting wrong fix', async () => {

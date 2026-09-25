@@ -84,7 +84,7 @@ test('DONE-TEST: THE CAP HOLDS THE SECOND HALT IN THE HOUR', () => {
 type Reply = { data?: unknown; error?: unknown };
 
 function stub(over: { recent?: Attempt[]; halts?: number; failingChannels?: string[]; errors?: Record<string, string> } = {}) {
-  const alerts: { severity: string; kind: string; dedupKey: string; body: string }[] = [];
+  const alerts: { severity: string; kind: string; dedupKey: string; body: string; quiet?: boolean }[] = [];
   const logs: { level: string; event: string }[] = [];
   const writes: { table: string; patch: Record<string, unknown> }[] = [];
   let scan = 0;
@@ -118,7 +118,7 @@ function stub(over: { recent?: Attempt[]; halts?: number; failingChannels?: stri
     alerts, logs, writes, scans: () => scan,
     db: { from } as never,
     deps: {
-      alert: async (a: { severity: 'warn' | 'critical'; kind: string; dedupKey: string; body: string }) => { alerts.push(a); },
+      alert: async (a: { severity: 'warn' | 'critical'; kind: string; dedupKey: string; body: string; quiet?: boolean }) => { alerts.push(a); },
       log: (level: 'info' | 'warn' | 'error', event: string) => { logs.push({ level, event }); },
     },
   };
@@ -215,4 +215,20 @@ test('the interval and the threshold are platform constants, not per-tenant knob
   // that would justify a different number for anybody.
   assert.equal(CREDENTIAL_FAILURES_BEFORE_HALT, 3);
   assert.equal(HALT_INTERVAL_MINUTES, 60);
+});
+
+// D-128: below the halt nothing has stopped yet, so the warning may wait for the daily
+// report; the halt and the mass-revocation alarm never do.
+test('DONE-TEST: only the below-threshold warning is QUIET; the halt and the suppressed halt page', async () => {
+  const below = stub({ recent: [fail('token_missing')] });
+  await run(below, 'token_missing');
+  assert.equal(below.alerts[0]?.quiet, true);
+
+  const halted = stub({ recent: [fail('a'), fail('b'), fail('c')] });
+  await run(halted);
+  assert.notEqual(halted.alerts[0]?.quiet, true, 'a stopped channel pages');
+
+  const held = stub({ recent: [fail('a'), fail('b'), fail('c')], halts: 1, failingChannels: ['ch-1', 'ch-2'] });
+  await run(held);
+  assert.notEqual(held.alerts[0]?.quiet, true, 'the mass-revocation alarm pages');
 });

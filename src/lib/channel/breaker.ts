@@ -144,7 +144,8 @@ const RECENT_ATTEMPTS = 12;
 const FAILING_SCAN_LIMIT = 500;
 
 export type BreakerDeps = {
-  alert: (input: { severity: 'warn' | 'critical'; kind: string; dedupKey: string; body: string }) => Promise<unknown>;
+  /** `quiet`: nobody must act at once, so the binding may route it to the daily report (D-128). */
+  alert: (input: { severity: 'warn' | 'critical'; kind: string; dedupKey: string; body: string; quiet?: boolean }) => Promise<unknown>;
   log: (level: 'info' | 'warn' | 'error', event: string, fields?: Record<string, unknown>) => void;
 };
 
@@ -218,6 +219,9 @@ export async function runCredentialBreaker(
         dedupKey: `channel_credential_failure:${input.channelId}:${input.now.toISOString().slice(0, 10)}`,
         body: `Channel ${input.channelId}: credential failure (${input.code}), ${decision.streak} in a row. `
           + `Drafting stops at ${CREDENTIAL_FAILURES_BEFORE_HALT}.`,
+        // Below the halt nothing has stopped yet, and the halt pages on its own (critical,
+        // `now`) — so this is the daily report's under DAILY_REPORT_V2 (inventory B7).
+        quiet: true,
       });
     }
     return decision;
