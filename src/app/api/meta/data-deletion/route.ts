@@ -27,7 +27,7 @@ import { NextResponse } from 'next/server';
 import { verifySignedRequest } from '@/lib/meta/signedRequest';
 import { recordErasureRequest } from '@/lib/privacy/erasure';
 import { supabasePrivacy } from '@/lib/supabase/clients';
-import { raiseAlert } from '@/lib/alerts/alert';
+import { quietRoute, raiseAlert } from '@/lib/alerts/alert';
 import { required } from '@/lib/env';
 
 // node:crypto is unavailable on the edge runtime.
@@ -122,6 +122,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       severity: 'warn',
       kind: 'privacy.erasure_requested',
       dedupKey: `privacy.erasure_requested:${day}`,
+      // A legal record, and nothing can be done with it yet (the body says so): the daily
+      // report under DAILY_REPORT_V2 (inventory E6). The row is the obligation either way.
+      route: quietRoute(),
       body:
         `Data deletion request(s) received today (${day}). They are RECORDED, not fulfilled: ` +
         `Meta sends an app-scoped id and we store page-scoped ids. ` +

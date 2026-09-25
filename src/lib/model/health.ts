@@ -22,7 +22,7 @@
  * could drift — and it needs no new table.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { raiseAlert, type AlertOutcome } from '../alerts/alert.ts';
+import { quietRoute, raiseAlert, resolveEpisodes, type AlertOutcome } from '../alerts/alert.ts';
 
 /**
  * How many recent calls must ALL be cache-cold before this is a problem.
@@ -96,6 +96,9 @@ export async function alertCacheCold(
     severity: 'warn',
     kind: 'model.cache_cold_run',
     dedupKey: `cache_cold:${input.tenantId}:${input.surface}:${input.dayKey}`,
+    // A bill, not an outage, and it trips on a quiet tenant with nothing broken (the
+    // 2026-09-25 inventory, B5): the daily report under DAILY_REPORT_V2, `now` otherwise.
+    route: quietRoute(),
     body:
       `The last ${input.sample} ${input.surface} calls all read ZERO cached tokens. ` +
       `Prompt caching appears to have stopped. This is not an error and nothing will fail — ` +
@@ -133,6 +136,8 @@ export async function alertModelSwapped(
     severity: 'warn',
     kind: 'model.served_differs',
     dedupKey: `model_swap:${input.requested}:${input.served}:${input.dayKey}`,
+    // Worth investigating, not worth waking for: every reply still went out.
+    route: quietRoute(),
     body:
       `Requested ${input.requested}, served ${input.served}. A silent model swap changes ` +
       `the Mongolian quality with nothing visible changing, which is why this is an alert ` +
@@ -140,13 +145,21 @@ export async function alertModelSwapped(
   });
 }
 
+/** The retired-model episode's key. One builder, so the raise and the resolve cannot drift. */
+export function modelNotFoundKey(modelId: string): string {
+  return `model_not_found:${modelId}`;
+}
+
 /**
  * Raise the retired-model alarm. **Critical**: every tenant on this model is now answering
  * with the pinned handoff line, and no amount of retrying will change it.
  *
- * The dedup key carries no period. This one is not a recurring condition to be re-noticed
- * daily — it is a single event that stays true until somebody changes the registry, and
- * repeating it every day would add noise to an outage rather than information.
+ * The dedup key carries no period: repeating it every day would add noise to an outage
+ * rather than information. But it is an EPISODE (`on_change`), not a once-ever event — it
+ * was `daily` under a dateless key until 2026-09-25, which made it fire once in the life of
+ * the project, so a model id that returned, was fixed, and returned again a month later
+ * would have been silent the second time (the 2026-09-25 inventory, B4). A call on the same
+ * id that succeeds closes it (`resolveModelRetired`), and the next 404 pages again.
  */
 export async function alertModelRetired(
   db: SupabaseClient,
@@ -156,10 +169,26 @@ export async function alertModelRetired(
     tenantId: null,
     severity: 'critical',
     kind: 'model.not_found',
-    dedupKey: `model_not_found:${input.modelId}`,
+    dedupKey: modelNotFoundKey(input.modelId),
+    route: 'now',
+    repeat: 'on_change',
     body:
       `${input.modelId} returned 404. EVERY tenant on this model is now answering with the ` +
       `pinned handoff line. Never fall back to another model — a silent swap changes the ` +
       `Mongolian quality invisibly. Update config/models.json. Detail: ${input.detail}`,
   });
+}
+
+/**
+ * A call on `modelId` succeeded, so a retired-model episode for it is over.
+ *
+ * Runs on every successful reply, which is why it is `resolveEpisodes` — one conditional
+ * UPDATE over the partial open-key index, zero rows on every ordinary day — and not a read
+ * followed by a write, nor a module-scope flag remembering that nothing was open.
+ */
+export async function resolveModelRetired(
+  db: SupabaseClient,
+  input: { modelId: string; now: Date },
+): Promise<{ ok: true; resolved: number } | { ok: false; detail: string }> {
+  return resolveEpisodes(db, { dedupKeys: [modelNotFoundKey(input.modelId)], now: input.now });
 }

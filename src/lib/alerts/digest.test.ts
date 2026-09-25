@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cappedLine, ESCALATE_AFTER_DAYS, lostDraftsLine, planDigest, reportWindow, runDigestJob } from './digest.ts';
+import {
+  cappedLine, composeDailyReport, DAILY_REPORT_LIMIT, DEFAULT_APP_SECTION_URL, ESCALATE_AFTER_DAYS, fetchAppSection,
+  lostDraftsLine, planDigest, renderYesterday, reportWindow, runDigestJob, SECTION_JOIN, type ReportSection,
+} from './digest.ts';
 import type { OpenAlert } from './alert.ts';
 
 const NOW = new Date('2026-09-14T01:00:00Z');   // 09:00 in Ulaanbaatar
@@ -319,8 +322,8 @@ test('DONE-TEST: THE FLAW REPORT GOES OUT AS ITS OWN MESSAGE AFTER THE DIGEST, A
   }
 });
 
-// The schedule moved from 09:00 to 00:05 Ulaanbaatar (founder, 2026-09-25). Either way the
-// digest reports the Ulaanbaatar calendar day that has just ended, 00:00 to 00:00.
+// The schedule is `0 1 * * *` UTC, 09:00 Ulaanbaatar (D-128); a 00:05 run was discussed on
+// 2026-09-25. Either way the digest reports the Ulaanbaatar calendar day that has just ended.
 test('the report window is the Ulaanbaatar day that just ended, at 00:05 and at 09:00 alike', () => {
   // 2026-09-25 16:05 UTC is 2026-09-26 00:05 in Ulaanbaatar.
   assert.deepEqual(reportWindow(new Date('2026-09-25T16:05:00Z')), {
@@ -330,4 +333,318 @@ test('the report window is the Ulaanbaatar day that just ended, at 00:05 and at 
   assert.equal(reportWindow(new Date('2026-09-26T01:00:00Z')).date, '2026-09-25');
   // One minute before local midnight is still the day before.
   assert.equal(reportWindow(new Date('2026-09-25T15:59:00Z')).date, '2026-09-24');
+});
+
+// ═══ D-128: the credential warning is shown, and the merged daily report ═══════════════
+
+const WARN_ROW = {
+  id: 11, tenant_id: 't-1', severity: 'warn', kind: 'secret.expiring',
+  dedup_key: 'secret_expiring:t-1:page_token:data_access_expires_at:warn',
+  body: 'Credential page_token for tenant t-1: data access lapses in 24 day(s). Re-authorize and re-seal before then.',
+  at: '2026-09-10T00:00:00Z', notified_at: null,
+};
+
+test('DONE-TEST: THE 30-DAY CREDENTIAL WARNING IS IN THE DIGEST — written AND shown', () => {
+  // Until 2026-09-25 it was a `daily` row routed to a digest that lists only on_change
+  // episodes, so it was recorded and shown to nobody (the inventory, B9). As an on_change
+  // episode it is an open condition every morning until the credential is re-sealed.
+  const plan = planDigest([episode({
+    id: 11, severity: 'warn', kind: 'secret.expiring', dedupKey: WARN_ROW.dedup_key, body: WARN_ROW.body,
+    at: new Date(WARN_ROW.at), notifiedAt: null,
+  })], CLEAN);
+  assert.match(plan.summary, /1 open condition/);
+  assert.match(plan.summary, /🟠 secret\.expiring · 4d/);
+  assert.match(plan.summary, /data access lapses in 24 day\(s\)/);
+  assert.equal(plan.escalate.length, 0, 'a warning never re-escalates');
+});
+
+/** Every Telegram send, captured; and a run's env restored afterwards. */
+async function withTelegram<T>(
+  env: Record<string, string | undefined>,
+  body: (sent: string[]) => Promise<T>,
+  fail: (n: number) => boolean = () => false,
+): Promise<T> {
+  const sent: string[] = [];
+  const realFetch = globalThis.fetch;
+  const saved = { ...process.env };
+  process.env['ALERTS_ENABLED'] = 'true';
+  process.env['TELEGRAM_BOT_TOKEN'] = 'test-token';
+  process.env['TELEGRAM_ALERT_CHAT_ID'] = '1';
+  for (const [k, v] of Object.entries(env)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  globalThis.fetch = (async (url: unknown, init?: { body?: string }) => {
+    if (!String(url).startsWith('https://api.telegram.org/')) throw new Error(`unexpected fetch ${String(url)}`);
+    sent.push(String(JSON.parse(init?.body ?? '{}').text));
+    if (fail(sent.length)) return new Response('no', { status: 500 });
+    return new Response(JSON.stringify({ result: { message_id: sent.length } }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    return await body(sent);
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env = saved;
+  }
+}
+
+/**
+ * An `alerts` table that answers each of the digest's reads by what it filters on, and
+ * records every read and write. `open` answers the episode read, `yesterday` the section-C
+ * read, `lost` the draft-lost count.
+ */
+function reportDb(over: { open?: unknown[]; yesterday?: unknown[]; yesterdayError?: string; lost?: unknown[] } = {}) {
+  const reads: string[][] = [];
+  const updates: { patch: Record<string, unknown>; filters: string[] }[] = [];
+  const from = (table: string) => {
+    const filters: string[] = [];
+    let patch: Record<string, unknown> | null = null;
+    const chain: Record<string, unknown> = {};
+    for (const m of ['select', 'eq', 'neq', 'is', 'like', 'in', 'order', 'limit', 'gte', 'lt', 'contains']) {
+      chain[m] = (...args: unknown[]) => { filters.push(`${m}:${args.map((a) => JSON.stringify(a)).join(',')}`); return chain; };
+    }
+    chain['update'] = (p: Record<string, unknown>) => { patch = p; return chain; };
+    chain['then'] = (res: (v: unknown) => unknown) => {
+      if (patch !== null) { updates.push({ patch, filters }); return res({ data: null, error: null }); }
+      if (table === 'alerts') reads.push(filters);
+      const has = (f: string) => filters.includes(f);
+      if (table === 'channel_health') return res({ data: [{ observed_at: RAN.toISOString() }], error: null });
+      if (table !== 'alerts') return res({ data: [], error: null });
+      if (has('eq:"route","digest"')) {
+        return res(over.yesterdayError === undefined
+          ? { data: over.yesterday ?? [], error: null }
+          : { data: null, error: { message: over.yesterdayError } });
+      }
+      if (has(`eq:"kind","${'mirror.draft_lost'}"`)) return res({ data: over.lost ?? [], error: null });
+      return res({ data: over.open ?? [], error: null });
+    };
+    return chain;
+  };
+  return { db: { from } as never, reads, updates };
+}
+
+const STALE_CRITICAL = {
+  id: 5, tenant_id: 't-1', severity: 'critical', kind: 'channel.no_messages',
+  dedup_key: 'channel_silence:ch-1:no_messages', body: 'Page 1: no messages for 9h',
+  at: '2026-09-09T00:00:00Z', notified_at: '2026-09-09T00:00:00Z',
+};
+const FLAWS = async () => 'Flaws\n\nMatrix — 2026-09-13: 1 of 2 replies looks wrong.';
+const APP_OK = async () => ({ ok: true as const, text: 'DalaTech — лидүүд (өчигдөр)\nШинэ: 1' });
+
+test('DONE-TEST: WITHOUT DAILY_REPORT_V2 NOTHING CHANGES — summary, STILL OPEN, flaws, three messages', async () => {
+  await withTelegram({ DAILY_REPORT_V2: undefined, DAILY_REPORT_SECRET: 'x' }, async (sent) => {
+    let appAsked = false;
+    const { db, updates } = reportDb({ open: [STALE_CRITICAL] });
+    const r = await runDigestJob({
+      db, now: NOW, verifySignature: async () => true, flawReport: FLAWS,
+      appSection: async () => { appAsked = true; return { ok: true, text: 'x' }; },
+    }, { rawBody: '{}', signature: 'sig' });
+    assert.equal(r.status, 200);
+    assert.equal(sent.length, 3, sent.join('\n---\n'));
+    assert.match(sent[0] ?? '', /^Dala AI — /);
+    assert.match(sent[1] ?? '', /^🔴 STILL OPEN after 5d: /);
+    assert.match(sent[2] ?? '', /^Flaws/);
+    assert.equal(appAsked, false, 'the app section is not fetched without the flag');
+    assert.deepEqual(Object.keys(r.body).sort(), ['escalated', 'flaws_sent', 'open', 'sent']);
+    assert.equal(updates.filter((u) => 'notified_at' in u.patch).length, 1);
+  });
+});
+
+test('DONE-TEST: UNDER DAILY_REPORT_V2 IT IS ONE MESSAGE — app, digest with STILL OPEN, Yesterday, flaws', async () => {
+  await withTelegram({ DAILY_REPORT_V2: 'true' }, async (sent) => {
+    const { db, updates } = reportDb({
+      open: [STALE_CRITICAL, WARN_ROW],
+      yesterday: [
+        { kind: 'model.cache_cold_run', severity: 'warn', body: 'second cold run', at: '2026-09-13T10:00:00Z' },
+        { kind: 'model.cache_cold_run', severity: 'warn', body: 'first cold run', at: '2026-09-13T03:00:00Z' },
+        { kind: 'channel.recovered', severity: 'info', body: 'Page 1: recovered — channel.no_messages is clear.', at: '2026-09-13T08:00:00Z' },
+      ],
+    });
+    const r = await runDigestJob(
+      { db, now: NOW, verifySignature: async () => true, flawReport: FLAWS, appSection: APP_OK },
+      { rawBody: '{}', signature: 'sig' },
+    );
+    assert.equal(r.status, 200);
+    assert.equal(sent.length, 1, 'one report, not four kinds of message');
+    const text = sent[0] ?? '';
+    const parts = text.split(SECTION_JOIN);
+    assert.equal(parts.length, 4, text);
+    assert.match(parts[0] ?? '', /^DalaTech — лидүүд \(өчигдөр\)/);
+    assert.match(parts[1] ?? '', /^Dala AI — /);
+    assert.match(parts[1] ?? '', /🟠 secret\.expiring/, 'the credential warning is an open condition');
+    assert.match(parts[1] ?? '', /\n🔴 STILL OPEN after 5d: Page 1: no messages for 9h$/, 'escalation is a line in B');
+    assert.match(parts[2] ?? '', /^Yesterday \(2026-09-13\)/);
+    assert.match(parts[2] ?? '', /🟠 model\.cache_cold_run ×2 — second cold run/);
+    assert.match(parts[2] ?? '', /ℹ️ channel\.recovered ×1 — Page 1: recovered/);
+    assert.match(parts[3] ?? '', /^Flaws/);
+    assert.doesNotMatch(text, /\(1\/1\)/, 'no part counter on a report that fits');
+    // The three-day cadence is unchanged: the escalated row's clock moves when B is delivered.
+    const stamp = updates.find((u) => 'notified_at' in u.patch);
+    assert.ok(stamp?.filters.some((f) => f === 'in:"id",[5]'), JSON.stringify(stamp));
+    assert.equal(r.body['escalated'], 1);
+    assert.equal(r.body['messages'], 1);
+    assert.equal(r.body['app_section'], 'ok');
+    assert.equal(r.body['sent'], true);
+  });
+});
+
+test('DONE-TEST: «Yesterday» reads only demoted EVENTS of the report day, never episodes or lost drafts', async () => {
+  await withTelegram({ DAILY_REPORT_V2: 'true' }, async () => {
+    const { db, reads } = reportDb();
+    await runDigestJob({ db, now: NOW, verifySignature: async () => true, flawReport: FLAWS, appSection: APP_OK },
+      { rawBody: '{}', signature: 'sig' });
+    const q = reads.find((f) => f.includes('eq:"route","digest"'));
+    assert.ok(q, 'section C read the alerts table');
+    assert.ok(q.includes('neq:"repeat_policy","on_change"'), 'episodes are section B\'s');
+    assert.ok(q.includes('neq:"kind","mirror.draft_lost"'), 'lost drafts have their own counted line');
+    const w = reportWindow(NOW);
+    assert.ok(q.includes(`gte:"at","${w.since}"`) && q.includes(`lt:"at","${w.until}"`), JSON.stringify(q));
+  });
+});
+
+test('an unreadable «Yesterday» says UNREADABLE and the report still goes', async () => {
+  await withTelegram({ DAILY_REPORT_V2: 'true' }, async (sent) => {
+    const { db } = reportDb({ yesterdayError: 'connection reset' });
+    const r = await runDigestJob({ db, now: NOW, verifySignature: async () => true, flawReport: FLAWS, appSection: APP_OK },
+      { rawBody: '{}', signature: 'sig' });
+    assert.equal(r.status, 200);
+    assert.match(sent[0] ?? '', /Yesterday \(2026-09-13\): UNREADABLE — alerts could not be read \(connection reset\)/);
+  });
+});
+
+test('DONE-TEST: an app section that could not be read is a LINE in the report, never an absence', async () => {
+  await withTelegram({ DAILY_REPORT_V2: 'true', DAILY_REPORT_SECRET: undefined }, async (sent) => {
+    const { db } = reportDb();
+    // No `appSection` injected: the real fetcher runs, finds no secret, and says so.
+    const r = await runDigestJob({ db, now: NOW, verifySignature: async () => true, flawReport: FLAWS },
+      { rawBody: '{}', signature: 'sig' });
+    assert.equal(r.body['app_section'], 'unreadable');
+    assert.match(sent[0] ?? '', /^DalaTech app section UNREADABLE — DAILY_REPORT_SECRET is not set/);
+  });
+});
+
+test('a report part that fails to send stamps NO escalation, so it is due again tomorrow', async () => {
+  await withTelegram({ DAILY_REPORT_V2: 'true' }, async (sent) => {
+    const { db, updates } = reportDb({ open: [STALE_CRITICAL] });
+    const r = await runDigestJob({ db, now: NOW, verifySignature: async () => true, flawReport: FLAWS, appSection: APP_OK },
+      { rawBody: '{}', signature: 'sig' });
+    assert.equal(sent.length, 1);
+    assert.equal(r.body['sent'], false);
+    assert.equal(r.body['escalated'], 0);
+    assert.match(String(r.body['send_detail']), /telegram 500/);
+    assert.equal(updates.filter((u) => 'notified_at' in u.patch).length, 0);
+  }, () => true);
+});
+
+// --- section C, pure ---------------------------------------------------------
+
+test('«Yesterday» groups by kind: mark, count, and the LATEST body, clipped to 160', () => {
+  const long = 'x'.repeat(400);
+  const text = renderYesterday({ ok: true, truncated: false, rows: [
+    { kind: 'webhook.requeued', severity: 'warn', body: 'old', at: new Date('2026-09-13T01:00:00Z') },
+    { kind: 'webhook.requeued', severity: 'warn', body: long, at: new Date('2026-09-13T05:00:00Z') },
+    { kind: 'privacy.erasure_requested', severity: 'warn', body: 'Data deletion request(s) received today', at: new Date('2026-09-13T02:00:00Z') },
+  ] }, '2026-09-13');
+  const lines = text.split('\n');
+  assert.equal(lines[0], 'Yesterday (2026-09-13) — 3 recorded for this report, not paged:');
+  assert.equal(lines[1], `🟠 webhook.requeued ×2 — ${'x'.repeat(159)}…`, 'count first, then the newest body');
+  assert.equal(lines[2], '🟠 privacy.erasure_requested ×1 — Data deletion request(s) received today');
+});
+
+test('an empty «Yesterday» says so, and a truncated one says it was cut', () => {
+  assert.equal(renderYesterday({ ok: true, rows: [], truncated: false }, '2026-09-13'),
+    'Yesterday (2026-09-13): nothing was held back for this report.');
+  const cut = renderYesterday({ ok: true, truncated: true, rows: [
+    { kind: 'k', severity: 'info', body: 'b', at: new Date('2026-09-13T01:00:00Z') },
+  ] }, '2026-09-13');
+  assert.match(cut, /only the newest 1 rows were read/);
+});
+
+// --- the layout, pure ----------------------------------------------------------
+
+const sec = (name: ReportSection['name'], lines: number, width = 60): ReportSection =>
+  ({ name, text: Array.from({ length: lines }, (_, i) => `${name} line ${i} ${'ж'.repeat(width)}`).join('\n') });
+
+test('a report that fits is one message with no part counter', () => {
+  const out = composeDailyReport([sec('app', 2), sec('digest', 2), sec('yesterday', 1), sec('flaws', 3)]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0]?.text.split(SECTION_JOIN).length, 4);
+});
+
+test('DONE-TEST: A LONG REPORT SPLITS AT SECTION BOUNDARIES, (1/2) (2/2), EVERY PART UNDER THE LIMIT', () => {
+  const sections = [sec('app', 20), sec('digest', 20), sec('yesterday', 20), sec('flaws', 20)];
+  const out = composeDailyReport(sections);
+  assert.ok(out.length >= 2);
+  out.forEach((m, i) => {
+    assert.ok(m.text.length <= DAILY_REPORT_LIMIT, `part ${i + 1} is ${m.text.length}`);
+    assert.ok(m.text.endsWith(`\n(${i + 1}/${out.length})`), m.text.slice(-12));
+  });
+  // Every original line survives whole, in order: nothing was cut inside a line.
+  const body = out.map((m) => m.text.replace(/\n\(\d+\/\d+\)$/, '')).join(SECTION_JOIN);
+  const want = sections.flatMap((s) => s.text.split('\n'));
+  assert.deepEqual(body.split('\n').filter((l) => want.includes(l)), want);
+  // Each section fits a message on its own here, so every part must START at a section's
+  // first line: the cut fell on a boundary, and no section is spread across two parts.
+  for (const m of out) assert.ok(m.text.startsWith(`${m.sections[0]} line 0 `), m.text.slice(0, 30));
+  assert.deepEqual(out.flatMap((m) => m.sections), ['app', 'digest', 'yesterday', 'flaws']);
+});
+
+test('a single section longer than a message is cut between LINES, never inside one', () => {
+  const big = sec('flaws', 120);
+  const out = composeDailyReport([sec('app', 1), big]);
+  assert.ok(out.length >= 3);
+  for (const m of out) assert.ok(m.text.length <= DAILY_REPORT_LIMIT);
+  const lines = out.flatMap((m) => m.text.replace(/\n\(\d+\/\d+\)$/, '').split('\n'));
+  for (const l of big.text.split('\n')) assert.ok(lines.includes(l), `line lost or cut: ${l.slice(0, 20)}`);
+});
+
+// --- section A, the fetch --------------------------------------------------------
+
+async function appWith(env: Record<string, string | undefined>, impl: typeof fetch) {
+  const saved = { ...process.env };
+  for (const [k, v] of Object.entries(env)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  try { return await fetchAppSection(impl); } finally { process.env = saved; }
+}
+
+const SECRET = 'CANARY-daily-report-secret';
+
+test('DONE-TEST: the app section is fetched with the bearer, no-store, and returns its text verbatim (NFC)', async () => {
+  const seen: { url: string; init: RequestInit | undefined }[] = [];
+  const decomposed = 'Шинэ: 1 · Сонгосон: 1 — Й'.normalize('NFD');
+  const r = await appWith({ DAILY_REPORT_SECRET: SECRET, DAILY_REPORT_SECTION_URL: undefined }, (async (url: unknown, init?: RequestInit) => {
+    seen.push({ url: String(url), init });
+    return new Response(JSON.stringify({ ok: true, generatedAt: '2026-09-26T00:59:00Z', text: decomposed, counts: {} }), { status: 200 });
+  }) as typeof fetch);
+  assert.deepEqual(r, { ok: true, text: decomposed.normalize('NFC') });
+  assert.equal(seen[0]?.url, DEFAULT_APP_SECTION_URL);
+  assert.equal((seen[0]?.init?.headers as Record<string, string>)['authorization'], `Bearer ${SECRET}`);
+  assert.equal(seen[0]?.init?.cache, 'no-store');
+  assert.ok(seen[0]?.init?.signal instanceof AbortSignal, 'bounded by a timeout');
+});
+
+test('DAILY_REPORT_SECTION_URL overrides the endpoint', async () => {
+  let asked = '';
+  await appWith({ DAILY_REPORT_SECRET: SECRET, DAILY_REPORT_SECTION_URL: 'https://staging.example/section' }, (async (url: unknown) => {
+    asked = String(url);
+    return new Response(JSON.stringify({ ok: true, text: 't' }), { status: 200 });
+  }) as typeof fetch);
+  assert.equal(asked, 'https://staging.example/section');
+});
+
+test('DONE-TEST: EVERY FAILURE IS AN UNREADABLE LINE WITH ITS REASON, AND NONE CARRIES THE SECRET', async () => {
+  const timeout = Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+  const cases: [string, Record<string, string | undefined>, typeof fetch][] = [
+    ['DAILY_REPORT_SECRET is not set', { DAILY_REPORT_SECRET: undefined }, (async () => { throw new Error('must not be called'); }) as typeof fetch],
+    ['HTTP 401', { DAILY_REPORT_SECRET: SECRET }, (async () => new Response('no', { status: 401 })) as typeof fetch],
+    ['HTTP 302', { DAILY_REPORT_SECRET: SECRET }, (async () => new Response(null, { status: 302, headers: { location: 'https://x' } })) as typeof fetch],
+    ['no answer within 8s', { DAILY_REPORT_SECRET: SECRET }, (async () => { throw timeout; }) as typeof fetch],
+    ['the response was not JSON', { DAILY_REPORT_SECRET: SECRET }, (async () => new Response('<html>', { status: 200 })) as typeof fetch],
+    ['the response was not { ok: true, text }', { DAILY_REPORT_SECRET: SECRET }, (async () => new Response(JSON.stringify({ ok: false, text: 'x' }), { status: 200 })) as typeof fetch],
+    ['the response was not { ok: true, text }', { DAILY_REPORT_SECRET: SECRET }, (async () => new Response(JSON.stringify({ ok: true }), { status: 200 })) as typeof fetch],
+    ['the section text was empty', { DAILY_REPORT_SECRET: SECRET }, (async () => new Response(JSON.stringify({ ok: true, text: '  ' }), { status: 200 })) as typeof fetch],
+    ['request failed (ECONNREFUSED)', { DAILY_REPORT_SECRET: SECRET }, (async () => { throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } }); }) as typeof fetch],
+  ];
+  for (const [reason, env, impl] of cases) {
+    const r = await appWith(env, impl);
+    assert.equal(r.ok, false, reason);
+    assert.equal(r.text, `DalaTech app section UNREADABLE — ${reason}`);
+    assert.ok(!r.text.includes('CANARY'), 'the secret never reaches the report');
+  }
 });

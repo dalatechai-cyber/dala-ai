@@ -192,14 +192,18 @@ const WHY: Record<string, string> = {
 
 const src = readFileSync('.env.example', 'utf8');
 const required: string[] = [];
+// Marked `# pending:` — documented, and read by nothing yet. Commented-out names WITHOUT the
+// marker are OPTIONAL: read by code when set, required by nothing. The two used to share one
+// list, so setting an optional variable (DAILY_REPORT_V2, ALERTS_ENABLED) was reported as
+// "not yet read by anything" — a false sentence about a variable that is doing its job.
 const pending: string[] = [];
 for (const line of src.split('\n')) {
   const m = /^\s*(#?)\s*([A-Z][A-Z0-9_]*)\s*=/.exec(line);
   if (m === null) continue;
   const commented = m[1] === '#';
   const name = m[2] as string;
-  if (/#\s*pending:/.test(line) || commented) pending.push(name);
-  else required.push(name);
+  if (/#\s*pending:/.test(line)) pending.push(name);
+  else if (!commented) required.push(name);
 }
 
 let failures = 0;
@@ -224,6 +228,44 @@ for (const name of required) {
   } else {
     failures += 1;
     rows.push(`  BAD      ${name}\n           ${verdict.why}`);
+  }
+}
+
+// ---- Optional variables whose VALUE makes another one required -------------------------
+//
+// DAILY_REPORT_V2 is optional and stays so (D-128): unset is the old digest exactly. But
+// `true` without DAILY_REPORT_SECRET is a report whose DalaTech section reads UNREADABLE
+// every morning, and a value that is neither `true` nor `false` — `TRUE`, `1`, `yes` — is
+// read as OFF by `dailyReportV2()`, silently. Both are refused here rather than discovered
+// at 09:00.
+const reportV2 = process.env['DAILY_REPORT_V2'];
+if (present(reportV2)) {
+  if (reportV2 !== 'true' && reportV2 !== 'false') {
+    failures += 1;
+    rows.push('  BAD      DAILY_REPORT_V2\n           must be exactly true or false — any other value is read as off, silently');
+  } else {
+    rows.push(`  ok       DAILY_REPORT_V2  (${reportV2})`);
+    if (reportV2 === 'true') {
+      const secret = process.env['DAILY_REPORT_SECRET'];
+      if (!present(secret)) {
+        failures += 1;
+        rows.push('  MISSING  DAILY_REPORT_SECRET\n           required because DAILY_REPORT_V2=true: '
+          + "without it the report's DalaTech app section reads UNREADABLE every morning");
+      } else {
+        rows.push(`  ok       DAILY_REPORT_SECRET  (${secret.length} characters; required because DAILY_REPORT_V2=true)`);
+      }
+    }
+  }
+}
+const sectionUrl = process.env['DAILY_REPORT_SECTION_URL'];
+if (present(sectionUrl)) {
+  let url: URL | null = null;
+  try { url = new URL(sectionUrl); } catch { url = null; }
+  if (url === null || url.protocol !== 'https:') {
+    failures += 1;
+    rows.push('  BAD      DAILY_REPORT_SECTION_URL\n           must be an https URL — the report sends its bearer secret there');
+  } else {
+    rows.push(`  ok       DAILY_REPORT_SECTION_URL  (${url.origin})`);
   }
 }
 

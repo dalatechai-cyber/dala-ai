@@ -32,7 +32,7 @@
  * recorded and never paged.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { raiseAlert, resolveOpenAlerts } from '../alerts/alert.ts';
+import { quietRoute, raiseAlert, resolveOpenAlerts } from '../alerts/alert.ts';
 import { diagnoseChannel, type ChannelDiagnosis } from './channel.ts';
 import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import { MAX_LOOKBACK_DAYS } from './silence.ts';
@@ -299,7 +299,10 @@ async function record(
         // and it must never become a standing item in the digest.
         dedupKey: `channel_recovered:${episode.id}`,
         body: `Page ${input.externalId}: recovered — ${episode.kind} is clear.`,
-        route: 'now',
+        // The fault it closes went to the digest (founder, 2026-09-20), so an immediate
+        // «recovered» is usually news of an outage nobody was told about (inventory B12).
+        // Under DAILY_REPORT_V2 the recovery joins it in the daily report.
+        route: quietRoute(),
         repeat: 'once',
       });
     }

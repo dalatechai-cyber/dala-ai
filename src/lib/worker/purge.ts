@@ -35,7 +35,7 @@
  * due — which is the exact ambiguity `audit_log` and this branch exist to remove.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { raiseAlert } from '../alerts/alert.ts';
+import { quietRoute, raiseAlert } from '../alerts/alert.ts';
 import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
 import { tenantClock } from '../time/clock.ts';
 
@@ -112,6 +112,8 @@ export async function runPurgeJob(
       severity: 'warn',
       kind: 'retention.purge_backlog',
       dedupKey: `purge_backlog:${dayKey}`,
+      // Investigate, not an emergency: the next run keeps purging (inventory B11).
+      route: quietRoute(),
       body:
         `The retention purge hit its per-run ceiling of ${counts.max_rows} rows `
         + `(nulled ${counts.payloads_purged} payloads, deleted ${counts.rows_deleted} rows, `

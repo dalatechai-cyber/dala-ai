@@ -30,6 +30,15 @@
  * One line a day is not what trained anybody to ignore Telegram. Six criticals about one
  * unchanged condition were.
  *
+ * ## DAILY_REPORT_V2: one report instead of three kinds of message (D-128)
+ *
+ * With `DAILY_REPORT_V2=true` the run sends ONE report — dalatech-app's section, this digest
+ * with its STILL-OPEN lines folded in, «Yesterday» (the warnings `quietRoute()` held back),
+ * and the flaw report — cut into `(1/2)`, `(2/2)` only when Telegram's limit forces it.
+ * Unset, the run is exactly what it was: the summary, then each STILL-OPEN message, then the
+ * flaw report. `alert.ts`'s `dailyReportV2()` is the one reader of the flag, so the alerts it
+ * demotes and the section that shows them are switched together or not at all.
+ *
  * ## Nothing here decides what is broken
  *
  * The digest reads `alerts`. It does not re-run the watchdog, re-check a channel, or form
@@ -39,8 +48,9 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  markNotified, openEpisodes, sendTelegram, severityMark, type OpenAlert,
+  dailyReportV2, markNotified, openEpisodes, sendTelegram, severityMark, type OpenAlert, type Severity,
 } from './alert.ts';
+import { nfc } from '../mn/text.ts';
 import { DROPPED_FLAG } from '../inbound/dropped.ts';
 import { CAPPED_FLAG } from '../worker/comments.ts';
 import { DRAFT_LOST_KIND } from '../health/answered.ts';
@@ -243,11 +253,14 @@ export function planDigest(
 
 /**
  * The day the digest reports: the Ulaanbaatar calendar day before the one it runs in, from
- * its 00:00 to the next 00:00 (founder, 2026-09-25). The schedule moved from 09:00 to 00:05
- * Ulaanbaatar; a rolling 24 hours would then have been "the day that just ended" only by
- * the accident of the run time, and a late QStash delivery would have shifted it. A calendar
- * day is the same day whenever the run lands inside the next one — and it is the day the
- * flaw report already uses (`quality/flaws.ts`, `previousDate`).
+ * its 00:00 to the next 00:00 (founder, 2026-09-25). A rolling 24 hours would be "the day
+ * that just ended" only by the accident of the run time, and a late QStash delivery would
+ * shift it. A calendar day is the same day whenever the run lands inside the next one — and
+ * it is the day the flaw report already uses (`quality/flaws.ts`, `previousDate`).
+ *
+ * The schedule is ONE QStash schedule at `0 1 * * *` UTC, 09:00 Ulaanbaatar (D-128). A 00:05
+ * schedule was discussed the same day; if both exist the report arrives twice, and only the
+ * QStash console can show that.
  */
 export function reportWindow(now: Date): { date: string; since: string; until: string } {
   const date = previousDate(tenantClock(now, PLATFORM_TIMEZONE).date);
@@ -352,12 +365,215 @@ async function countLostDrafts(db: SupabaseClient, now: Date): Promise<LostDraft
   };
 }
 
+// ─── The merged daily report (DAILY_REPORT_V2, D-128) ───────────────────────────────────
+
+/**
+ * Telegram refuses a message over 4096 characters. The report is cut below that, at section
+ * boundaries, and measured in UTF-16 units (`.length`), which is what Telegram counts and is
+ * never fewer than the code points: an emoji costs two here, so the error is on the safe side.
+ */
+export const DAILY_REPORT_LIMIT = 3900;
+
+/** Between sections: a blank line, a thin rule, a blank line. */
+export const SECTION_JOIN = '\n\n──────────\n\n';
+
+export const APP_SECTION_TIMEOUT_MS = 8_000;
+
+/** dalatech-app's endpoint. Overridable by DAILY_REPORT_SECTION_URL; the SECRET never is. */
+export const DEFAULT_APP_SECTION_URL = 'https://app.dalatech.online/api/daily-report-section';
+
+/** Rows the «Yesterday» read takes. One more is asked for, so a cut is SAID, not hidden. */
+export const YESTERDAY_ROW_LIMIT = 500;
+const YESTERDAY_BODY_CHARS = 160;
+
+export type ReportSectionName = 'app' | 'digest' | 'yesterday' | 'flaws';
+export type ReportSection = { name: ReportSectionName; text: string };
+export type ReportMessage = { text: string; sections: ReportSectionName[] };
+
+export type AppSection = { ok: true; text: string } | { ok: false; text: string; detail: string };
+
+/**
+ * Section A: the DalaTech app's own lines (leads, follow-ups), fetched from dalatech-app.
+ *
+ * Never silently absent. Every way this can fail — no secret, a non-200, a redirect, a
+ * timeout, a body that is not the agreed JSON — becomes one line in the report naming the
+ * reason, because a morning report that quietly drops the leads reads exactly like a morning
+ * with no leads. The same rule `droppedLine` states for a counter.
+ *
+ * The secret is sent as a bearer header and appears nowhere else: not in the reason, not in
+ * a log. A redirect is not followed (`manual`) — an answer that moved is reported as its
+ * status rather than chased with the credential attached.
+ */
+export async function fetchAppSection(fetchImpl: typeof fetch = fetch): Promise<AppSection> {
+  const unreadable = (detail: string): AppSection =>
+    ({ ok: false, detail, text: `DalaTech app section UNREADABLE — ${detail}` });
+  const secret = process.env['DAILY_REPORT_SECRET'];
+  if (secret === undefined || secret.trim() === '') return unreadable('DAILY_REPORT_SECRET is not set');
+  const url = process.env['DAILY_REPORT_SECTION_URL'] || DEFAULT_APP_SECTION_URL;
+  const timedOut = (err: unknown): boolean =>
+    err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+  const within = `no answer within ${APP_SECTION_TIMEOUT_MS / 1000}s`;
+
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${secret}`, accept: 'application/json' },
+      cache: 'no-store',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(APP_SECTION_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (timedOut(err)) return unreadable(within);
+    const cause = err instanceof Error ? (err as Error & { cause?: { code?: unknown } }).cause : undefined;
+    const code = typeof cause?.code === 'string' ? ` (${cause.code})` : '';
+    return unreadable(`request failed${code}`);
+  }
+  if (res.status !== 200) return unreadable(`HTTP ${res.status}`);
+
+  let payload: unknown;
+  try {
+    payload = await res.json();
+  } catch (err) {
+    return unreadable(timedOut(err) ? within : 'the response was not JSON');
+  }
+  const p = payload !== null && typeof payload === 'object' ? payload as Record<string, unknown> : {};
+  const text = p['text'];
+  if (p['ok'] !== true || typeof text !== 'string') return unreadable('the response was not { ok: true, text }');
+  // An input boundary like any other: NFC on the way in (CLAUDE.md rule 6).
+  const clean = nfc(text).trim();
+  if (clean === '') return unreadable('the section text was empty');
+  return { ok: true, text: clean };
+}
+
+/** One demoted alert, as the «Yesterday» section reads it. */
+export type YesterdayRow = { kind: string; severity: Severity; body: string; at: Date };
+
+export type YesterdaySummary =
+  | { ok: true; rows: YesterdayRow[]; truncated: boolean }
+  | { ok: false; detail: string };
+
+const SEVERITY_RANK: Record<Severity, number> = { critical: 0, warn: 1, info: 2 };
+
+/**
+ * Section C. Every alert of the report's day that was recorded for the report instead of
+ * sent — `route = 'digest'`, and an EVENT rather than an episode (episodes are listed as
+ * open conditions in section B already). Grouped by kind, because two cache-cold rows are
+ * one fact twice, not two facts. `mirror.draft_lost` is left out: it has its own counted
+ * line in section B.
+ */
+export function renderYesterday(y: YesterdaySummary, date: string): string {
+  if (!y.ok) return `Yesterday (${date}): UNREADABLE — ${y.detail}`;
+  if (y.rows.length === 0) return `Yesterday (${date}): nothing was held back for this report.`;
+
+  const groups = new Map<string, { n: number; latest: YesterdayRow; severity: Severity }>();
+  for (const r of y.rows) {
+    const g = groups.get(r.kind);
+    if (g === undefined) { groups.set(r.kind, { n: 1, latest: r, severity: r.severity }); continue; }
+    g.n += 1;
+    if (r.at.getTime() > g.latest.at.getTime()) g.latest = r;
+    if (SEVERITY_RANK[r.severity] < SEVERITY_RANK[g.severity]) g.severity = r.severity;
+  }
+  // Severity, then count, then kind by code point — never by locale (D-026).
+  const lines = [...groups.entries()]
+    .sort(([ka, a], [kb, b]) => (SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity])
+      || (b.n - a.n) || (ka < kb ? -1 : ka > kb ? 1 : 0))
+    .map(([kind, g]) => `${severityMark(g.severity)} ${kind} ×${g.n} — ${clip(g.latest.body, YESTERDAY_BODY_CHARS)}`);
+  const head = `Yesterday (${date}) — ${y.rows.length} recorded for this report, not paged:`;
+  const tail = y.truncated ? [`…and more: only the newest ${y.rows.length} rows were read.`] : [];
+  return [head, ...lines, ...tail].join('\n');
+}
+
+/** Read section C's rows. An unreadable read is SAID in the section, never shown as empty. */
+async function readYesterday(db: SupabaseClient, now: Date): Promise<YesterdaySummary> {
+  const { since, until } = reportWindow(now);
+  const { data, error } = await db
+    .from('alerts')
+    .select('kind, severity, body, at')
+    .eq('route', 'digest')
+    .neq('repeat_policy', 'on_change')
+    .neq('kind', DRAFT_LOST_KIND)
+    .gte('at', since)
+    .lt('at', until)
+    .order('at', { ascending: false })
+    .limit(YESTERDAY_ROW_LIMIT + 1);
+  if (error) return { ok: false, detail: `alerts could not be read (${error.message})` };
+  const raw = Array.isArray(data) ? data as Record<string, unknown>[] : [];
+  const rows = raw.slice(0, YESTERDAY_ROW_LIMIT).map((r) => ({
+    kind: String(r['kind'] ?? ''),
+    severity: (['critical', 'warn', 'info'].includes(String(r['severity'])) ? String(r['severity']) : 'warn') as Severity,
+    body: String(r['body'] ?? ''),
+    at: new Date(String(r['at'] ?? '')),
+  }));
+  return { ok: true, rows, truncated: raw.length > YESTERDAY_ROW_LIMIT };
+}
+
+/**
+ * Lay the sections out as Telegram messages. Pure.
+ *
+ * One message when it fits. Otherwise it is cut at SECTION boundaries, and every message
+ * ends in `(i/n)`. A section too long for one message on its own is cut between lines; a
+ * single line longer than a whole message — which only an outside section could produce,
+ * since every body here is clipped — is the one place a line is divided, because the
+ * alternative is a message Telegram refuses outright and a report that never arrives.
+ */
+export function composeDailyReport(
+  sections: readonly ReportSection[],
+  limit: number = DAILY_REPORT_LIMIT,
+): ReportMessage[] {
+  const whole = sections.map((x) => x.text).join(SECTION_JOIN);
+  if (whole.length <= limit) return [{ text: whole, sections: sections.map((x) => x.name) }];
+
+  // Room for "\n(nn/nn)" on every part.
+  const budget = limit - 8;
+  const pieces: ReportSection[] = [];
+  for (const sec of sections) {
+    if (sec.text.length <= budget) { pieces.push(sec); continue; }
+    let chunk = '';
+    const flush = () => { if (chunk !== '') { pieces.push({ name: sec.name, text: chunk }); chunk = ''; } };
+    for (const line of sec.text.split('\n')) {
+      const parts: string[] = [];
+      if (line.length <= budget) parts.push(line);
+      else {
+        // Code points, so a surrogate pair is never split into mojibake.
+        let part = '';
+        for (const cp of line) {
+          if (part.length + cp.length > budget) { parts.push(part); part = ''; }
+          part += cp;
+        }
+        if (part !== '') parts.push(part);
+      }
+      for (const part of parts) {
+        const next = chunk === '' ? part : `${chunk}\n${part}`;
+        if (next.length > budget) { flush(); chunk = part; } else chunk = next;
+      }
+    }
+    flush();
+  }
+
+  const out: { texts: string[]; sections: ReportSectionName[]; len: number }[] = [];
+  for (const piece of pieces) {
+    const cur = out[out.length - 1];
+    const glue = cur === undefined ? '' : cur.sections[cur.sections.length - 1] === piece.name ? '\n' : SECTION_JOIN;
+    if (cur !== undefined && cur.len + glue.length + piece.text.length <= budget) {
+      cur.texts.push(glue, piece.text);
+      cur.len += glue.length + piece.text.length;
+      if (!cur.sections.includes(piece.name)) cur.sections.push(piece.name);
+    } else {
+      out.push({ texts: [piece.text], sections: [piece.name], len: piece.text.length });
+    }
+  }
+  return out.map((m, i) => ({ text: `${m.texts.join('')}\n(${i + 1}/${out.length})`, sections: m.sections }));
+}
+
 export type DigestEffects = {
   db: SupabaseClient;
   now: Date;
   verifySignature: (rawBody: string, signature: string | null) => Promise<boolean>;
   /** The flaw report's text (D-120). Injected for tests; the route uses `buildFlawReport`. */
   flawReport?: (db: SupabaseClient, now: Date) => Promise<string>;
+  /** Section A under DAILY_REPORT_V2. Injected for tests; the route uses `fetchAppSection`. */
+  appSection?: () => Promise<AppSection>;
 };
 
 export type DigestJobResult = { status: number; body: Record<string, unknown> };
@@ -409,6 +625,10 @@ export async function runDigestJob(
     };
   }
 
+  // One report instead of three kinds of message (D-128). Unset, everything below this line
+  // runs exactly as it did — the same messages, in the same order, with the same body.
+  if (dailyReportV2()) return sendDailyReport(effects, plan, episodes.open.length);
+
   const sent = await sendTelegram(plan.summary);
   // NOT a 503. The conditions were read correctly and the row state is unchanged; retrying
   // the whole job would re-send the digest to anyone it did reach. The failure is reported
@@ -448,6 +668,81 @@ export async function runDigestJob(
       flaws_sent: flaws.ok,
       ...(summarySent ? {} : { summary_detail: sent.ok ? '' : sent.detail }),
       ...(flaws.ok ? {} : { flaws_detail: flaws.detail }),
+      ...(stamped.ok ? {} : { stamp_detail: stamped.detail ?? '' }),
+    },
+  };
+}
+
+/**
+ * The merged report's text, from what the run has read. Pure — and the one renderer, so
+ * `scripts/alerts/sample-daily-report.ts` shows exactly what production would send.
+ */
+export function renderDailyReport(input: {
+  app: string; plan: DigestPlan; yesterday: YesterdaySummary; flawText: string; now: Date;
+}): ReportMessage[] {
+  const escalations = input.plan.escalate.map(
+    (a) => `${severityMark(a.severity)} STILL OPEN after ${ageOf(a.at, input.now)}: ${clip(a.body, MAX_BODY_CHARS)}`,
+  );
+  const digest = escalations.length === 0 ? input.plan.summary : `${input.plan.summary}\n\n${escalations.join('\n')}`;
+  return composeDailyReport([
+    { name: 'app', text: input.app },
+    { name: 'digest', text: digest },
+    { name: 'yesterday', text: renderYesterday(input.yesterday, reportWindow(input.now).date) },
+    { name: 'flaws', text: input.flawText },
+  ]);
+}
+
+/**
+ * DAILY_REPORT_V2: the digest, the demoted warnings, the flaw report and dalatech-app's
+ * section as ONE report (A app · B digest with its STILL-OPEN lines · C Yesterday · D flaws),
+ * split only when Telegram's limit forces it.
+ *
+ * The three-day re-escalation keeps its cadence: an escalated episode's `notified_at` moves
+ * exactly when the message carrying section B reached Telegram, as the separate STILL-OPEN
+ * messages did before. A part that failed is reported in the body and stamps nothing, so an
+ * escalation nobody received is due again tomorrow rather than restarted.
+ */
+async function sendDailyReport(
+  effects: DigestEffects,
+  plan: DigestPlan,
+  open: number,
+): Promise<DigestJobResult> {
+  const app = await (effects.appSection ?? (() => fetchAppSection()))();
+  const yesterday = await readYesterday(effects.db, effects.now);
+
+  let flawText: string;
+  try {
+    flawText = await (effects.flawReport ?? buildFlawReport)(effects.db, effects.now);
+  } catch (err) {
+    flawText = `Flaws\n\nflaw report UNREADABLE — ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  const messages = renderDailyReport({ app: app.text, plan, yesterday, flawText, now: effects.now });
+
+  const failures: string[] = [];
+  const delivered: boolean[] = [];
+  for (const m of messages) {
+    const r = await sendTelegram(m.text);
+    delivered.push(r.ok);
+    if (!r.ok) failures.push(r.detail);
+  }
+  const reached = (name: ReportSectionName): boolean =>
+    messages.every((m, i) => !m.sections.includes(name) || delivered[i] === true);
+
+  const notified = reached('digest') ? plan.escalate.map((a) => a.id) : [];
+  const stamped = await markNotified(effects.db, notified, effects.now);
+
+  return {
+    status: 200,
+    body: {
+      open,
+      escalated: notified.length,
+      sent: failures.length === 0,
+      messages: messages.length,
+      messages_sent: delivered.filter(Boolean).length,
+      app_section: app.ok ? 'ok' : 'unreadable',
+      flaws_sent: reached('flaws'),
+      ...(failures.length === 0 ? {} : { send_detail: failures.join('; ') }),
       ...(stamped.ok ? {} : { stamp_detail: stamped.detail ?? '' }),
     },
   };

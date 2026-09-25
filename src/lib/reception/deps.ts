@@ -10,7 +10,9 @@ import { required } from '../env.ts';
 import { callReception } from '../model/reception.ts';
 import { draftOnce, replyDedupKey } from '../outbound/claim.ts';
 import { markCalled, release, type Reservation } from '../spend/reserve.ts';
-import { alertCacheCold, alertModelRetired, alertModelSwapped, checkCacheHealth, checkServedModel } from '../model/health.ts';
+import {
+  alertCacheCold, alertModelRetired, alertModelSwapped, checkCacheHealth, checkServedModel, resolveModelRetired,
+} from '../model/health.ts';
 import { dayKey } from '../spend/periods.ts';
 import { settle, type Usage } from '../spend/settle.ts';
 import type { ReceptionDeps } from './handle.ts';
@@ -92,12 +94,38 @@ export function buildDeps(input: DepsInput): ReceptionDeps {
         return;   // A retired model makes every other signal meaningless.
       }
 
+      // A call on this id answered, so a retired-model episode for it is over and the next
+      // 404 must page again (D-128). Only on a clean answer — the narrowest reading of "a call
+      // on that id succeeded". Best-effort like everything here: a failed resolve leaves the
+      // episode open (the digest keeps listing it), which is the safe direction. Issued now
+      // and awaited beside the cache read below, so it adds a statement per reply but no
+      // serial round trip — this runs before the reply is drafted.
+      const clearing = terminalReason === undefined
+        ? resolveModelRetired(db, { modelId: requestedModel, now }).then((cleared) => {
+          if (!cleared.ok) {
+            console.warn('[reception] model_episode_unresolvable', { modelId: requestedModel, detail: cleared.detail });
+          } else if (cleared.resolved > 0) {
+            console.info('[reception] model_episode_resolved', { modelId: requestedModel, resolved: cleared.resolved });
+          }
+        }, (err: unknown) => {
+          // In flight while the swap alert is awaited, so a rejection here must be handled
+          // here: unhandled, Node would take the process down mid-reply. A thrown resolve is
+          // the same outcome as a refused one — the episode stays open.
+          console.warn('[reception] model_episode_unresolvable', {
+            modelId: requestedModel, detail: err instanceof Error ? err.message : String(err),
+          });
+        })
+        : Promise.resolve();
+
       const served = checkServedModel(requestedModel, servedModel);
       if (served.verdict === 'swapped') {
         await alertModelSwapped(db, { tenantId, requested: served.requested, served: served.served, dayKey: period });
       }
 
-      const cache = await checkCacheHealth(db, { tenantId, surface: 'reception', cacheMode: input.cacheMode });
+      const [cache] = await Promise.all([
+        checkCacheHealth(db, { tenantId, surface: 'reception', cacheMode: input.cacheMode }),
+        clearing,
+      ]);
       if (cache.verdict === 'cold_run') {
         await alertCacheCold(db, { tenantId, surface: 'reception', dayKey: period, sample: cache.sample });
       } else if (cache.verdict === 'unavailable') {

@@ -40,7 +40,7 @@
  * when it knows nothing is the shape D-070 is named for.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { raiseAlert } from '../alerts/alert.ts';
+import { raiseAlert, resolveOpenAlerts } from '../alerts/alert.ts';
 
 /**
  * How long before a lapse is worth a line in the daily digest.
@@ -145,28 +145,48 @@ export async function checkSecretExpiry(
   return { ok: true, checked: rows.length, unknown, findings };
 }
 
+/** Every expiry episode's key starts with this. */
+const EXPIRY_KEY_PREFIX = 'secret_expiring:';
+
+/** One builder, so the raise and the resolve name the same key. */
+export function expiryDedupKey(f: Pick<ExpiryFinding, 'tenantId' | 'kind' | 'clock' | 'severity'>): string {
+  return `${EXPIRY_KEY_PREFIX}${f.tenantId}:${f.kind}:${f.clock}:${f.severity}`;
+}
+
 /**
- * Raise one alert per finding.
+ * Raise one alert per finding, and close every episode that is no longer a finding.
  *
- * The dedup key carries the clock and NO period, so the alert is one standing condition per
- * credential per clock rather than a daily drumbeat — D-063's rule, applied to a fact that
- * persists rather than recurs. `repeat: 'on_change'` would make it an episode needing a
- * resolve; `daily` under a key with no date lets `alreadyRaised` suppress it until the
- * condition's own wording changes, which is what happens when it crosses into `now`.
+ * ## Episodes, not once-ever events (D-128)
+ *
+ * The dedup key carries the clock and NO period, so a standing condition is one alert rather
+ * than a daily drumbeat — D-063's rule. Until 2026-09-25 that was spelled `daily` under a
+ * dateless key, which is "once in the life of the project": a credential re-sealed and then
+ * run down again a quarter later was silent the second time, and the 30-day warning, routed
+ * to a digest that lists only `on_change` rows, was written and shown nowhere at all (the
+ * 2026-09-25 inventory, B9). Both severities are `on_change` now. The warning is an open
+ * episode the daily digest lists every morning until it clears; the critical pages once and
+ * then re-escalates every three days while it holds.
+ *
+ * ## Resolution is by re-evaluation, and needs the WHOLE set
+ *
+ * This runs hourly over every `active`/`rotating` credential, so the findings passed in are
+ * the complete truth for this run: any open `secret_expiring:` episode whose key is not
+ * among them has stopped being classified that way — re-sealed with a later date, crossed
+ * from warn into critical (the warn closes as the critical opens), or no longer live. The
+ * caller must therefore pass the findings of a read that SUCCEEDED; `runHealthJob` 503s
+ * before reaching here otherwise, and an unreadable table must never read as "all clear".
+ *
+ * A credential whose clocks were re-sealed as NULL closes too — it is no longer known to be
+ * expiring — and is counted in `unknown` by `checkSecretExpiry`, never passed over.
  */
 export async function raiseExpiryAlerts(
   db: SupabaseClient,
   findings: readonly ExpiryFinding[],
-): Promise<{ raised: number; failed: number }> {
+  input: { now: Date },
+): Promise<{ raised: number; failed: number; resolved: number; resolveFailed: boolean }> {
   let raised = 0;
   let failed = 0;
   for (const f of findings) {
-    const clockName = f.clock === 'expires_at' ? 'token expiry' : 'data access';
-    const when = Number.isNaN(f.daysLeft)
-      ? 'carries an UNREADABLE date'
-      : f.daysLeft < 0
-        ? `lapsed ${Math.abs(f.daysLeft)} day(s) ago`
-        : `lapses in ${f.daysLeft} day(s)`;
     const res = await raiseAlert(db, {
       tenantId: f.tenantId,
       severity: f.severity,
@@ -174,14 +194,38 @@ export async function raiseExpiryAlerts(
       // The severity is in the key on purpose: crossing from the 30-day note into the
       // 7-day message is a DIFFERENT condition, and without it the earlier suppression
       // would swallow the one that matters.
-      dedupKey: `secret_expiring:${f.tenantId}:${f.kind}:${f.clock}:${f.severity}`,
+      dedupKey: expiryDedupKey(f),
       route: f.route,
-      body: `Credential ${f.kind} for tenant ${f.tenantId}: ${clockName} ${when}. `
-        + 'Re-authorize and re-seal before then — nothing here renews it automatically. '
-        + '`debug_token` gives both clocks; `scripts/kek/seal.ts` records them.',
+      repeat: 'on_change',
+      body: expiryAlertBody(f),
     });
     if (res.outcome === 'failed') failed += 1;
     else raised += 1;
   }
-  return { raised, failed };
+
+  const closed = await resolveOpenAlerts(db, {
+    keyPrefix: EXPIRY_KEY_PREFIX,
+    exceptKeys: findings.map(expiryDedupKey),
+    now: input.now,
+  });
+  if (!closed.ok) {
+    // Left open, which the digest keeps listing: the safe direction. Reported, not thrown —
+    // the raises above already happened and a 503 would re-run them for nothing.
+    console.error('[health] could not resolve expiry episodes', { detail: closed.detail });
+    return { raised, failed, resolved: 0, resolveFailed: true };
+  }
+  return { raised, failed, resolved: closed.resolved.length, resolveFailed: false };
+}
+
+/** The alert's words. Exported so a rendered sample shows the sentence a finding produces. */
+export function expiryAlertBody(f: ExpiryFinding): string {
+  const clockName = f.clock === 'expires_at' ? 'token expiry' : 'data access';
+  const when = Number.isNaN(f.daysLeft)
+    ? 'carries an UNREADABLE date'
+    : f.daysLeft < 0
+      ? `lapsed ${Math.abs(f.daysLeft)} day(s) ago`
+      : `lapses in ${f.daysLeft} day(s)`;
+  return `Credential ${f.kind} for tenant ${f.tenantId}: ${clockName} ${when}. `
+    + 'Re-authorize and re-seal before then — nothing here renews it automatically. '
+    + '`debug_token` gives both clocks; `scripts/kek/seal.ts` records them.';
 }

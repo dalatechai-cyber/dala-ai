@@ -66,3 +66,59 @@ test('with no clock supplied it uses the real one, never the job start', async (
   assert.ok(written >= before, 'a real clock, read now');
   assert.ok(written > JOB_START.getTime(), 'and not the job clock it replaced');
 });
+
+// ---------------------------------------------------------------------------
+// D-128: the alert binding, and the resolve on a successful send
+// ---------------------------------------------------------------------------
+
+/** Records every call on `alerts` as `method(args)`, and every insert's row. */
+function alertsDb() {
+  const ops: string[] = [];
+  const inserts: Record<string, unknown>[] = [];
+  const from = (table: string) => {
+    const chain: Record<string, unknown> = {};
+    let inserted = false;
+    for (const m of ['select', 'eq', 'is', 'in', 'limit', 'update', 'order', 'like']) {
+      chain[m] = (...args: unknown[]) => { ops.push(`${table}.${m}(${JSON.stringify(args)})`); return chain; };
+    }
+    chain['insert'] = (row: Record<string, unknown>) => { inserts.push(row); inserted = true; return chain; };
+    chain['maybeSingle'] = async () => ({ data: inserted ? { id: 1 } : null, error: null });
+    chain['then'] = (res: (v: unknown) => unknown) => res({ data: [{ id: 7 }], error: null });
+    return chain;
+  };
+  return { db: { from } as never, ops, inserts };
+}
+
+test('DONE-TEST: a QUIET delivery alert is routed by DAILY_REPORT_V2, and only a quiet one', async () => {
+  const saved = { v2: process.env['DAILY_REPORT_V2'], alerts: process.env['ALERTS_ENABLED'] };
+  process.env['ALERTS_ENABLED'] = 'false';
+  try {
+    for (const [flag, want] of [[undefined, 'now'], ['true', 'digest'], ['false', 'now'], ['TRUE', 'now']] as const) {
+      if (flag === undefined) delete process.env['DAILY_REPORT_V2']; else process.env['DAILY_REPORT_V2'] = flag;
+      const { db, inserts } = alertsDb();
+      const d = deps(db);
+      await d.alert({ severity: 'warn', kind: 'outbound.reply_indeterminate', dedupKey: 'k1', body: 'b', quiet: true });
+      await d.alert({ severity: 'critical', kind: 'outbound.token_revoked', dedupKey: 'k2', body: 'b', repeat: 'on_change' });
+      assert.equal(inserts[0]?.['route'], want, `quiet under DAILY_REPORT_V2=${String(flag)}`);
+      assert.equal(inserts[1]?.['route'], 'now', 'a critical is never demoted');
+      assert.equal(inserts[1]?.['repeat_policy'], 'on_change');
+      assert.equal(inserts[0]?.['repeat_policy'], 'daily', 'no repeat given keeps the default');
+    }
+  } finally {
+    if (saved.v2 === undefined) delete process.env['DAILY_REPORT_V2']; else process.env['DAILY_REPORT_V2'] = saved.v2;
+    if (saved.alerts === undefined) delete process.env['ALERTS_ENABLED']; else process.env['ALERTS_ENABLED'] = saved.alerts;
+  }
+});
+
+test('resolveAlerts is ONE conditional update over open on_change rows with exactly those keys', async () => {
+  const { db, ops } = alertsDb();
+  const r = await deps(db, () => SEND_MOMENT).resolveAlerts(['a:1', 'b:2']);
+  assert.deepEqual(r, { ok: true });
+  assert.deepEqual(ops, [
+    `alerts.update(${JSON.stringify([{ resolved_at: SEND_MOMENT.toISOString() }])})`,
+    `alerts.in(${JSON.stringify(['dedup_key', ['a:1', 'b:2']])})`,
+    `alerts.is(${JSON.stringify(['resolved_at', null])})`,
+    `alerts.eq(${JSON.stringify(['repeat_policy', 'on_change'])})`,
+    `alerts.select(${JSON.stringify(['id'])})`,
+  ]);
+});
