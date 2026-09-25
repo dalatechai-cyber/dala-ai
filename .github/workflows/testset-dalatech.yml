@@ -1,0 +1,47 @@
+# Answers DalaTech's test set (scripts/bakeoff/dalatech-set.json) with the real model over the
+# live configuration dumped in scripts/bakeoff/dalatech-live.json, through the production gate
+# (`gateTenant`: the real loader, deterministic rows, pinned lines and every guard), and prints
+# the report — every reply word for word, with its flags — to this run's log and summary.
+#
+# It spends real money (Sonnet 5, about $1.50 a run, capped by --max-calls 80), so it runs
+# only on purpose: by hand, or when a push to a branch other than main changes
+# scripts/bakeoff/runs/testset-ci-request.txt. Needs the ANTHROPIC_API_KEY repository secret.
+# Nothing is written anywhere: the dump is served by a read-only fixture, and testset.ts
+# refuses a dump whose prompt does not hash to its own content_hash.
+name: Test set (DalaTech)
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+    paths: ['scripts/bakeoff/runs/testset-ci-request.txt']
+
+jobs:
+  testset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - name: Answer the set
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          test -n "$ANTHROPIC_API_KEY" || { echo "ANTHROPIC_API_KEY secret is not set"; exit 2; }
+          node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --tag ci
+      - name: Report
+        if: always()
+        run: |
+          cat docs/reports/dalatech-testset.md
+          cat docs/reports/dalatech-testset.md >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testset-dalatech
+          path: |
+            scripts/bakeoff/runs/testset-dalatech-ci.json
+            docs/reports/dalatech-testset.md
+          if-no-files-found: warn
