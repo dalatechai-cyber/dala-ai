@@ -214,6 +214,7 @@ export async function runCases(input: {
         timeoutMs: RECEPTION_UPSTREAM_TIMEOUT_MS,
         rules: ctx.rules,
         deterministic: ctx.deterministic,
+        days: ctx.days,
         historyState: { known: true, empty: c.history.length === 0 },
         canned: ctx.canned,
         tenantGuard: ctx.tenantGuard,

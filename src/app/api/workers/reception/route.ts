@@ -82,6 +82,7 @@ function effects(now: Date): WorkerEffects {
           timeoutMs: RECEPTION_UPSTREAM_TIMEOUT_MS,
           rules: a.ctx.rules,
           deterministic: a.ctx.deterministic,
+          days: a.ctx.days,
           historyState: { known: true, empty: a.historyEmpty },
           canned: a.ctx.canned,
           tenantGuard: a.ctx.tenantGuard,

@@ -36,6 +36,7 @@ import { ensureContact, ensurePerson, openConversation, readHistory, recordInbou
 import { recordDroppedInbound, skipSummary } from '../inbound/dropped.ts';
 import { draftImageReplies, planImageReplies, readImageLine } from '../inbound/imageReply.ts';
 import { recordHandover, readThreadState } from '../handover/record.ts';
+import { personRepliedSince } from '../handover/presend.ts';
 import { humanHoldsThread } from '../handover/control.ts';
 import { CREDENTIAL_FAILURE_STATUS, clearCredentialFailure } from '../channel/recover.ts';
 import { loadReceptionContext } from '../reception/load.ts';
@@ -44,7 +45,7 @@ import type { Surface } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
 import { RECEPTION_HISTORY_TURNS } from '../model/reception.ts';
 import { withTenantRole } from '../guard/withTenantRole.ts';
-import { claim, findReplyFor, replyDedupKey } from '../outbound/claim.ts';
+import { claim, findReplyFor, markRefused, replyDedupKey } from '../outbound/claim.ts';
 import { markEventState, recordDeliveryAttempt } from '../webhook/events.ts';
 import { usdToNano } from '../money.ts';
 import { isFresh, replyAgeLimitMinutes } from './freshness.ts';
@@ -1026,9 +1027,19 @@ async function runReceptionDelivery(
     }
 
     // --- H14: claim the draft and put it on the wire. ---------------------
-    const [traced, held] = await Promise.all([
+    //
+    // Beside the claim: has a person replied since this message arrived (founder,
+    // 2026-09-25)? Check 4 asked before generating, and the model takes seconds — a
+    // receptionist who answers inside them is invisible to it. Read concurrently so it costs
+    // the send nothing, and as late as the send path allows.
+    const [traced, held, spoke] = await Promise.all([
       tracing,
       delivery.deliver ? claim(db, { id: outcome.outboundId, tenantId, now }) : Promise.resolve(null),
+      delivery.deliver
+        ? personRepliedSince(db, {
+          tenantId, channelId, conversationId, psid: message.senderId, eventId, since: eventAt, ourAppId: metaAppId,
+        }).catch((e: unknown) => ({ replied: 'unreadable' as const, detail: e instanceof Error ? e.message : String(e) }))
+        : Promise.resolve(null),
     ]);
     if (!traced.ok) {
       fx.log('error', 'trace_failed', {
@@ -1052,6 +1063,31 @@ async function runReceptionDelivery(
       // somebody else's business; neither is an error.
       fx.log('info', 'not_ours', { outboundId: outcome.outboundId, outcome: held.outcome });
       continue;
+    }
+
+    if (spoke !== null && spoke.replied === true) {
+      // A person answered while we generated. Ours is dropped — `refused`, which is
+      // terminal, so no redelivery re-sends it (`findReplyFor` reads it as answered) — and
+      // counted, because a reply the bot chose not to send is otherwise a quiet afternoon.
+      const refused = await markRefused(db, { id: held.id, tenantId, reason: 'human_replied_before_send' });
+      if (!refused.ok) {
+        // Not sent either way: the row stays `sending`, which nothing re-claims (`CLAIMABLE`
+        // is draft and failed), and a redelivery finds it and skips. So no retry — a 503
+        // would only re-run the entry to reach the same place. Logged, because a row left
+        // `sending` is a row whose true state the table no longer says.
+        fx.log('error', 'human_replied_refuse_failed', { outboundId: held.id, detail: refused.detail });
+      }
+      fx.log('info', 'human_replied_before_send', { tenantId, conversationId, outboundId: held.id, via: spoke.via });
+      await fx.flagQuality({
+        tenantId, conversationId, code: 'human_replied_before_send',
+        detail: `reply not sent: ${spoke.detail}`,
+      });
+      continue;
+    }
+    if (spoke !== null && spoke.replied === 'unreadable') {
+      // Sent anyway, as check 4 does on an unreadable thread: a read failure must not mute a
+      // tenant. Logged so a run of these is visible.
+      fx.log('error', 'human_reply_check_unreadable', { tenantId, conversationId, detail: spoke.detail });
     }
 
     // Read BEFORE the send: the question is whether the bubble could still land after it.

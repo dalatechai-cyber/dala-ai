@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cappedLine, ESCALATE_AFTER_DAYS, lostDraftsLine, planDigest, runDigestJob } from './digest.ts';
+import { cappedLine, ESCALATE_AFTER_DAYS, lostDraftsLine, planDigest, reportWindow, runDigestJob } from './digest.ts';
 import type { OpenAlert } from './alert.ts';
 
 const NOW = new Date('2026-09-14T01:00:00Z');   // 09:00 in Ulaanbaatar
@@ -96,7 +96,7 @@ function jobDb(over: {
   return {
     from: (table: string) => {
       const chain: Record<string, unknown> = {};
-      const methods = ['select', 'eq', 'is', 'like', 'in', 'order', 'limit', 'update', 'insert', 'gte', 'contains'];
+      const methods = ['select', 'eq', 'is', 'like', 'in', 'order', 'limit', 'update', 'insert', 'gte', 'lt', 'contains'];
       for (const m of methods) chain[m] = () => chain;
       chain['then'] = (res: (v: unknown) => unknown) => res(
         table === 'alerts'
@@ -157,7 +157,7 @@ test('DONE-TEST: THE CLEAN DAY SAYS ZERO DROPPED RATHER THAN SAYING NOTHING', ()
   // finds nothing cannot be told from a counter that has stopped — and this one exists
   // because three dropped deliveries went unseen for a day.
   const plan = planDigest([], CLEAN);
-  assert.match(plan.summary, /No inbound events dropped \(24h\)/);
+  assert.match(plan.summary, /No inbound events dropped \(yesterday\)/);
 });
 
 test('DONE-TEST: AN UNREADABLE COUNT PRINTS UNREADABLE, NEVER ZERO', () => {
@@ -173,7 +173,7 @@ test('DONE-TEST: THE LINE NAMES THE KIND, BECAUSE A STICKER AND A PHOTO ARE DIFF
   // identical whether they were thumbs-ups (right to drop) or photographs of the colour a
   // customer wanted (the most valuable message a salon gets).
   const sticker = planDigest([], { ...CLEAN, dropped: { total: 3, byKind: { sticker: 3 }, unavailable: false } });
-  assert.match(sticker.summary, /3 inbound dropped unanswered \(24h\): sticker ×3/);
+  assert.match(sticker.summary, /3 inbound dropped unanswered \(yesterday\): sticker ×3/);
 
   const photos = planDigest([], { ...CLEAN, dropped: { total: 3, byKind: { image: 3 }, unavailable: false } });
   assert.match(photos.summary, /image ×3/);
@@ -234,7 +234,7 @@ test('the job counts dropped events by kind out of quality_flags', async () => {
 // quiet when it finds nothing is indistinguishable from one that has stopped, and this
 // counter exists because a capped comment was invisible for a whole night.
 test('the capped clause is on every digest, clean days included', () => {
-  assert.match(planDigest([], CLEAN).summary, /No public comments capped \(24h\)/);
+  assert.match(planDigest([], CLEAN).summary, /No public comments capped \(yesterday\)/);
 });
 
 // Total and distinct posts answer different questions. Six on ONE post is the cap working
@@ -243,15 +243,15 @@ test('the capped clause is on every digest, clean days included', () => {
 test('capped counts name the posts as well as the comments', () => {
   assert.equal(
     cappedLine({ total: 6, posts: 1, unavailable: false }),
-    '6 public comments silenced by the per-post cap (24h), across 1 post',
+    '6 public comments silenced by the per-post cap (yesterday), across 1 post',
   );
   assert.equal(
     cappedLine({ total: 6, posts: 6, unavailable: false }),
-    '6 public comments silenced by the per-post cap (24h), across 6 posts',
+    '6 public comments silenced by the per-post cap (yesterday), across 6 posts',
   );
   assert.equal(
     cappedLine({ total: 1, posts: 1, unavailable: false }),
-    '1 public comment silenced by the per-post cap (24h), across 1 post',
+    '1 public comment silenced by the per-post cap (yesterday), across 1 post',
   );
 });
 
@@ -269,18 +269,18 @@ test('DONE-TEST: LOST SHADOW DRAFTS ARE COUNTED, AND A CLEAN DAY SAYS ZERO', () 
   // These used to page the founder one by one (37 in two days, every customer already
   // answered by the ancestor). They no longer page, so if the digest did not carry them,
   // "the mirror refuses every message" would look exactly like a quiet day.
-  assert.match(planDigest([], CLEAN).summary, /No shadow drafts lost \(24h\)/);
+  assert.match(planDigest([], CLEAN).summary, /No shadow drafts lost \(yesterday\)/);
   const plan = planDigest([], {
     ...CLEAN,
     lostDrafts: { total: 29, latest: 'Inbound event 737: the shadow draft was lost after 3 deliveries (worker.reception_retry — canned_stale: …).', unavailable: false },
   });
-  assert.match(plan.summary, /29 shadow drafts lost \(24h\), every customer answered by the Page/);
+  assert.match(plan.summary, /29 shadow drafts lost \(yesterday\), every customer answered by the Page/);
   assert.match(plan.summary, /canned_stale/, 'the reason is what tells the founder to republish');
 });
 
 test('an unreadable lost-draft count prints UNREADABLE, never zero', () => {
   assert.equal(lostDraftsLine({ total: 0, latest: null, unavailable: true }),
-    'shadow drafts lost (24h): UNREADABLE — alerts could not be counted');
+    'shadow drafts lost (yesterday): UNREADABLE — alerts could not be counted');
 });
 
 // --- the flaw report (D-120) --------------------------------------------------
@@ -317,4 +317,17 @@ test('DONE-TEST: THE FLAW REPORT GOES OUT AS ITS OWN MESSAGE AFTER THE DIGEST, A
     globalThis.fetch = realFetch;
     process.env = env;
   }
+});
+
+// The schedule moved from 09:00 to 00:05 Ulaanbaatar (founder, 2026-09-25). Either way the
+// digest reports the Ulaanbaatar calendar day that has just ended, 00:00 to 00:00.
+test('the report window is the Ulaanbaatar day that just ended, at 00:05 and at 09:00 alike', () => {
+  // 2026-09-25 16:05 UTC is 2026-09-26 00:05 in Ulaanbaatar.
+  assert.deepEqual(reportWindow(new Date('2026-09-25T16:05:00Z')), {
+    date: '2026-09-25', since: '2026-09-24T16:00:00.000Z', until: '2026-09-25T16:00:00.000Z',
+  });
+  // The old 01:00 UTC run (09:00 Ulaanbaatar on the 26th) reports the same day.
+  assert.equal(reportWindow(new Date('2026-09-26T01:00:00Z')).date, '2026-09-25');
+  // One minute before local midnight is still the day before.
+  assert.equal(reportWindow(new Date('2026-09-25T15:59:00Z')).date, '2026-09-24');
 });

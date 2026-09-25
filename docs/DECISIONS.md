@@ -9468,3 +9468,70 @@ handoff line's phone numbers. Those are tenant text and are served as written. T
 domain is a tenant-wide edit (`tenant_booking.booking_url`, `contact_points.website`) and
 the `booking_line` canned row carries the old URL: a canned edit makes every reply 503 with
 `canned_stale` until the republish (D-058), so edit and republish together.
+
+## D-126 — tomorrow's hours as one day, the holiday line, and a person who replies while the bot is writing
+
+**2026-09-25, founder, from three live DM flaws.**
+
+**1. «Hi margaash tanaih ajilahu» got the whole week.** The model had answered it right —
+«Тийм ээ, маргааш манай салон 10:00–20:00 цагийн хооронд ажиллана» (`quality_flags` 153) —
+and `guard/facts.ts` (D-120) refused hours in the model's own words and served the only hours
+it had, all seven days. The founder's answer is one day: «Маргааш (Бямба) 10:00–20:00
+ажиллана.» Two layers now give it:
+
+- **A row, no model.** `0048` lets a `deterministic_replies` row use the gate's own matcher
+  (`match_mode = 'matcher'`), because this needs two words together — *tomorrow* AND
+  *working / closed / holiday* — and no existing mode could say "and". The body is the
+  tenant's sentence with two slots, «Маргааш ({tomorrow.day}) {tomorrow.hours} ажиллана.»,
+  filled per request from `business_hours` on the tenant's clock (`reception/daySlots.ts`).
+  The row is **withheld** — the model answers — when tomorrow has no hours, is closed, falls
+  in a `tenant_closures` range, or the tenant lists two or more branches. It stays silent on a
+  message that also asks a price, a booking or an address. The vocabulary is
+  `scripts/provision/templates/day_hours.salon.json`, tested as written.
+- **The guard, when the model answers anyway.** Hours restated about ONE day — «маргааш»,
+  «өнөөдөр» or exactly one weekday name in the model's words — are served as that day: the
+  tenant's tomorrow sentence when it has one, otherwise that day's hours row. Only when the
+  amount really is that day's; «маргааш» over the wrong day's hours keeps the week.
+
+**2. «Margaash automashingvi bvh niitiin amraltiin udur ym bn» got the PRICE refusal.** The
+model wrote a sensible holiday refusal; `gate/pinned.ts` scored it 0.754 of
+`refusal_price_unlisted` — same frame, different subject — and served the price row
+(`quality_flags` 154). The founder's answer: that day's regular hours plus «Баярын өдрийн
+цагийг 76001888 дугаараас лавлана уу.» The tomorrow row fires on holiday words too, and a
+second row (`holiday_hours_note`, `append`) adds the holiday line to whatever is served, so a
+holiday question without a day still gets it. «Баярлалаа» never does: the words are whole
+words, not the stem «баяр».
+
+**Open, not fixed:** the pinned-line mechanism will still serve a topic-specific refusal to a
+different topic that shares its frame. D-077's rule is that an adapted approved line is drift
+and the row is served; serving the WRONG row is worse than the drift. Proposal: when the
+adaptation replaced the row's own subject words, serve the handoff line instead of the row.
+The founder's call.
+
+**Both are permanent cases** (`reply_cases`), judged by what must and must not appear —
+the right answer names tomorrow, so it changes with the day the gate runs on. A closure day
+tomorrow makes the first one fall to the model; that is the row doing its job.
+
+**3. A person who replies while the bot is writing wins.** H11 check 4 asks before generating,
+and the model takes seconds. `handover/presend.ts` asks again beside the claim, immediately
+before a live send: `thread_control` set to `human` at or after the customer's message, OR an
+echo to this customer stored after the customer's own event and not sent by our app — read
+straight from `webhook_events`, so a staff reply counts before its own job has run (0.17 ms,
+primary key and a jsonb containment filter). If so, our reply is marked `refused`
+(`human_replied_before_send`, terminal, so no redelivery sends it) and flagged. An unreadable
+check SENDS and logs, as check 4 does. What it cannot see is a reply Meta has not delivered
+to us yet.
+
+**The case the founder cited was not this race, and it matters for trusting the fix.** In
+conversation 63a52c70 the customer wrote at 14:16:41 and our reply went at 14:16:58; the
+first staff reply to that customer was «Болноо» at 14:17:27, after ours. The 14:16:57 staff
+echo («Манай салбар ажилна») went to a DIFFERENT customer — conversation a70ce9fe, three hours
+after the holiday question. So on 25 Sept the staff answered on top of the bot, not the bot on
+top of the staff; the re-check would not have changed that turn. From the first staff echo on,
+the bot stayed silent in 63a52c70, as check 4 is meant to make it.
+
+**The digest reports the Ulaanbaatar day that just ended** (founder moving it to `5 16 * * *`
+UTC, 00:05 Ulaanbaatar). The flaw report already used the calendar day (`previousDate` on the
+tenant's clock). The three counters used a rolling 24 hours, which is "yesterday" only by the
+accident of the run time; they now count 00:00–00:00 of that day (`reportWindow`), and the
+header names it.

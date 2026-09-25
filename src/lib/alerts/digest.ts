@@ -45,8 +45,8 @@ import { DROPPED_FLAG } from '../inbound/dropped.ts';
 import { CAPPED_FLAG } from '../worker/comments.ts';
 import { DRAFT_LOST_KIND } from '../health/answered.ts';
 import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
-import { tenantClock } from '../time/clock.ts';
-import { buildFlawReport } from '../quality/flaws.ts';
+import { localDayStart, tenantClock } from '../time/clock.ts';
+import { buildFlawReport, previousDate } from '../quality/flaws.ts';
 
 /**
  * How long an open `critical` may go unmentioned before it gets its own message again.
@@ -95,15 +95,15 @@ export type DroppedSummary = {
  * has stopped, and this one was built precisely because a silent drop went unseen.
  */
 export function droppedLine(d: DroppedSummary): string {
-  if (d.unavailable) return 'inbound dropped (24h): UNREADABLE — quality_flags could not be counted';
-  if (d.total === 0) return 'No inbound events dropped (24h)';
+  if (d.unavailable) return 'inbound dropped (yesterday): UNREADABLE — quality_flags could not be counted';
+  if (d.total === 0) return 'No inbound events dropped (yesterday)';
   // Count descending, then by code point. NOT `localeCompare`: this string is assembled on
   // whatever runtime Vercel gives us, and D-026's rule is that ordering never depends on a
   // locale. `check-deterministic-order.mjs` fails the build on the other spelling.
   const parts = Object.entries(d.byKind)
     .sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
     .map(([kind, n]) => `${kind} ×${n}`);
-  return `${d.total} inbound dropped unanswered (24h): ${parts.join(', ')}`;
+  return `${d.total} inbound dropped unanswered (yesterday): ${parts.join(', ')}`;
 }
 
 /**
@@ -133,9 +133,9 @@ export type CappedSummary = {
  * comment was invisible for the whole of the rehearsal's first night.
  */
 export function cappedLine(c: CappedSummary): string {
-  if (c.unavailable) return 'comments capped (24h): UNREADABLE — quality_flags could not be counted';
-  if (c.total === 0) return 'No public comments capped (24h)';
-  return `${c.total} public comment${c.total === 1 ? '' : 's'} silenced by the per-post cap (24h), `
+  if (c.unavailable) return 'comments capped (yesterday): UNREADABLE — quality_flags could not be counted';
+  if (c.total === 0) return 'No public comments capped (yesterday)';
+  return `${c.total} public comment${c.total === 1 ? '' : 's'} silenced by the per-post cap (yesterday), `
     + `across ${c.posts} post${c.posts === 1 ? '' : 's'}`;
 }
 
@@ -158,9 +158,9 @@ export type LostDraftsSummary = {
 };
 
 export function lostDraftsLine(l: LostDraftsSummary): string {
-  if (l.unavailable) return 'shadow drafts lost (24h): UNREADABLE — alerts could not be counted';
-  if (l.total === 0) return 'No shadow drafts lost (24h)';
-  const head = `${l.total} shadow draft${l.total === 1 ? '' : 's'} lost (24h), every customer answered by the Page`;
+  if (l.unavailable) return 'shadow drafts lost (yesterday): UNREADABLE — alerts could not be counted';
+  if (l.total === 0) return 'No shadow drafts lost (yesterday)';
+  const head = `${l.total} shadow draft${l.total === 1 ? '' : 's'} lost (yesterday), every customer answered by the Page`;
   return l.latest === null ? head : `${head}. Latest: ${clip(l.latest, MAX_BODY_CHARS)}`;
 }
 
@@ -193,7 +193,9 @@ export function planDigest(
     dropped: DroppedSummary; capped: CappedSummary; lostDrafts: LostDraftsSummary;
   },
 ): DigestPlan {
-  const date = tenantClock(input.now, PLATFORM_TIMEZONE).date;
+  // The Ulaanbaatar day the counts and the flaw report cover — the one that has just ended
+  // (`reportWindow`). The open conditions below are as of now.
+  const date = reportWindow(input.now).date;
   const ranked = [...open].sort((a, b) => {
     const bySeverity = (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9);
     return bySeverity !== 0 ? bySeverity : a.at.getTime() - b.at.getTime();
@@ -239,8 +241,23 @@ export function planDigest(
   return { summary: `${header}${lines.join('')}${tail}`, escalate };
 }
 
-/** How far back the dropped-inbound count reaches. The digest is daily, so the window is. */
-export const DROPPED_WINDOW_HOURS = 24;
+/**
+ * The day the digest reports: the Ulaanbaatar calendar day before the one it runs in, from
+ * its 00:00 to the next 00:00 (founder, 2026-09-25). The schedule moved from 09:00 to 00:05
+ * Ulaanbaatar; a rolling 24 hours would then have been "the day that just ended" only by
+ * the accident of the run time, and a late QStash delivery would have shifted it. A calendar
+ * day is the same day whenever the run lands inside the next one — and it is the day the
+ * flaw report already uses (`quality/flaws.ts`, `previousDate`).
+ */
+export function reportWindow(now: Date): { date: string; since: string; until: string } {
+  const date = previousDate(tenantClock(now, PLATFORM_TIMEZONE).date);
+  const today = tenantClock(now, PLATFORM_TIMEZONE).date;
+  return {
+    date,
+    since: localDayStart(date, PLATFORM_TIMEZONE).toISOString(),
+    until: localDayStart(today, PLATFORM_TIMEZONE).toISOString(),
+  };
+}
 
 /**
  * Count the inbound events nobody answered, by kind, over the last day.
@@ -258,12 +275,13 @@ export const DROPPED_WINDOW_HOURS = 24;
  * the thing meant to make drops visible — is the mistake worth naming.
  */
 async function countDropped(db: SupabaseClient, now: Date): Promise<DroppedSummary> {
-  const since = new Date(now.getTime() - DROPPED_WINDOW_HOURS * 60 * 60_000).toISOString();
+  const { since, until } = reportWindow(now);
   const { data, error } = await db
     .from('quality_flags')
     .select('detail')
     .eq('flag', DROPPED_FLAG)
-    .gte('at', since);
+    .gte('at', since)
+    .lt('at', until);
   if (error) return { total: 0, byKind: {}, unavailable: true };
 
   const rows = Array.isArray(data) ? data : [];
@@ -287,12 +305,13 @@ async function countDropped(db: SupabaseClient, now: Date): Promise<DroppedSumma
  * failed" is the defect this clause exists to remove, rebuilt inside it.
  */
 async function countCapped(db: SupabaseClient, now: Date): Promise<CappedSummary> {
-  const since = new Date(now.getTime() - DROPPED_WINDOW_HOURS * 60 * 60_000).toISOString();
+  const { since, until } = reportWindow(now);
   const { data, error } = await db
     .from('quality_flags')
     .select('detail')
     .eq('flag', CAPPED_FLAG)
-    .gte('at', since);
+    .gte('at', since)
+    .lt('at', until);
   if (error) return { total: 0, posts: 0, unavailable: true };
 
   const rows = Array.isArray(data) ? data : [];
@@ -315,12 +334,13 @@ async function countCapped(db: SupabaseClient, now: Date): Promise<CappedSummary
  * record, and a second tally would be a second thing to keep in agreement with it.
  */
 async function countLostDrafts(db: SupabaseClient, now: Date): Promise<LostDraftsSummary> {
-  const since = new Date(now.getTime() - DROPPED_WINDOW_HOURS * 60 * 60_000).toISOString();
+  const { since, until } = reportWindow(now);
   const { data, error } = await db
     .from('alerts')
     .select('body, at')
     .eq('kind', DRAFT_LOST_KIND)
     .gte('at', since)
+    .lt('at', until)
     .order('at', { ascending: false });
   if (error) return { total: 0, latest: null, unavailable: true };
   const rows = Array.isArray(data) ? data : [];

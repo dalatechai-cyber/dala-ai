@@ -68,9 +68,13 @@ function stubDb(over: Record<string, Reply | Reply[]> = {}) {
     const rec = { table, op: 'select' } as (typeof ops)[number];
     ops.push(rec);
     const chain: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'in', 'is', 'or', 'lt', 'gte', 'order', 'limit']) {
+    for (const m of ['select', 'eq', 'in', 'is', 'or', 'lt', 'gt', 'gte', 'order', 'limit']) {
       chain[m] = () => chain;
     }
+    // A jsonb containment read is its own queue (`<table>:contains`), so the pre-send echo
+    // scan can be steered without disturbing the event read on the same table.
+    let key = table;
+    chain['contains'] = () => { key = `${table}:contains`; rec.op = 'contains'; return chain; };
     for (const m of ['insert', 'update', 'upsert'] as const) {
       chain[m] = (patch: Record<string, unknown>) => {
         rec.op = m;
@@ -78,9 +82,9 @@ function stubDb(over: Record<string, Reply | Reply[]> = {}) {
         return chain;
       };
     }
-    chain['maybeSingle'] = async () => next(table);
-    chain['single'] = async () => next(table);
-    chain['then'] = (res: (v: unknown) => unknown) => res(next(table));
+    chain['maybeSingle'] = async () => next(key);
+    chain['single'] = async () => next(key);
+    chain['then'] = (res: (v: unknown) => unknown) => res(next(key));
     return chain;
   };
   // `reserve_spend` is an RPC, not a table: the CAS on the counter has to be one statement.
@@ -106,6 +110,7 @@ const TENANT_SETTINGS = {
 
 const DEFAULTS: Record<string, Reply> = {
   webhook_events: { data: { raw_payload: payload() }, error: null },
+  'webhook_events:contains': { data: [], error: null },
   tenant_channels: {
     data: { external_id: '100000000000001', delivery_mode: 'live', graph_version_override: null },
     error: null,
@@ -1295,3 +1300,69 @@ test('D-124: a bubble that never answers never delays the reply, and the job sti
   assert.ok(sentAt - t0 < 500, `the reply waited ${sentAt - t0}ms for its bubble`);
   assert.ok(Date.now() - t0 < 2 * TYPING_WAIT_MS + 1_000, `the job took ${Date.now() - t0}ms`);
 });
+
+// ---------------------------------------------------------------------------
+// A person replied while the model was generating (founder, 2026-09-25)
+// ---------------------------------------------------------------------------
+const LIVE_WITH_APP = {
+  external_id: '100000000000001', delivery_mode: 'live', graph_version_override: null, meta_app_id: '1562862634970492',
+};
+
+const STAFF_ECHO = {
+  id: EVENT_ID + 1,
+  raw_payload: {
+    id: '100000000000001',
+    messaging: [{
+      sender: { id: '100000000000001' }, recipient: { id: PSID },
+      // Meta's own Page-inbox app: a person typing (`controlFromEcho`).
+      message: { mid: 'm_staff', text: 'Манай салбар ажиллана', app_id: 263902037430900, is_echo: true },
+    }],
+  },
+};
+
+test('DONE-TEST: A PERSON WHO REPLIED WHILE WE GENERATED WINS — ours is refused, not sent', async () => {
+  const { fx, ops, delivered, flags, logs } = stubEffects({
+    tables: {
+      'webhook_events:contains': { data: [STAFF_ECHO], error: null },
+      // Our own app id is what lets an app-stamped echo be judged at all (`controlFromEcho`).
+      tenant_channels: { data: { ...LIVE_WITH_APP }, error: null },
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(delivered.length, 0, 'nothing reaches Meta');
+  assert.equal(r.body['sent'], 0);
+  const refused = ops.find((o) => o.table === 'outbound_messages' && o.op === 'update' && o.patch?.['state'] === 'refused');
+  assert.equal(refused?.patch?.['refused_reason'], 'human_replied_before_send', 'terminal, so no redelivery re-sends it');
+  assert.deepEqual(flags.map((f) => f.code), ['human_replied_before_send']);
+  assert.ok(reasons(logs).includes('human_replied_before_send'));
+});
+
+test('our OWN echo, or a reply to somebody else, does not stop the send', async () => {
+  const ours = structuredClone(STAFF_ECHO);
+  (ours.raw_payload.messaging[0]!.message as Record<string, unknown>)['app_id'] = 1562862634970492;
+  const { fx, delivered } = stubEffects({
+    tables: {
+      'webhook_events:contains': { data: [ours], error: null },
+      tenant_channels: { data: { ...LIVE_WITH_APP }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 1);
+});
+
+test('an unreadable re-check SENDS and logs it — a read failure never mutes a tenant', async () => {
+  const { fx, delivered, logs } = stubEffects({ tables: { 'webhook_events:contains': { data: null, error: { message: 'reset' } } } });
+  await run(fx);
+  assert.equal(delivered.length, 1);
+  assert.ok(reasons(logs).includes('human_reply_check_unreadable'));
+});
+
+test('a shadow channel never runs the re-check: nothing is sent to protect', async () => {
+  const { fx, ops } = stubEffects({
+    tables: { tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'shadow', graph_version_override: null }, error: null } },
+  });
+  await run(fx);
+  assert.equal(ops.some((o) => o.op === 'contains'), false);
+});
+

@@ -9,7 +9,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { DEFAULT_GATE, GATE_BY_RESPONSE_KIND, scriptForLocale } from '../../config/platform.ts';
 import { loadLiveSnapshot } from '../prompt/publish.ts';
-import type { CannedRow, GateRule } from '../gate/match.ts';
+import { parseMatcher, type CannedRow, type GateRule } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
 import { MAX_REPLY_CHARS } from './handle.ts';
@@ -18,6 +18,7 @@ import { canonicalizeUrl } from '../mn/extract.ts';
 import type { Spelling } from '../mn/latin.ts';
 import { appliedSpellings } from '../quality/spellings.ts';
 import { branchNamesFromPrefix } from '../branches/branches.ts';
+import { hasTomorrowSlot, nextLocalDate, renderTomorrowSlots } from './daySlots.ts';
 import { loadBranchContext, type BranchContext } from '../branches/load.ts';
 
 export type TenantSettings = {
@@ -48,6 +49,11 @@ export type ReceptionContext = {
   contentHash: string;
   rules: GateRule[];
   deterministic: DeterministicRule[];
+  /**
+   * Today's and tomorrow's weekday on the tenant's clock (0 = Sunday), and which of the two a
+   * closure covers, for the facts guard (D-126).
+   */
+  days: { today: number; tomorrow: number; closed: number[] } | null;
   /**
    * `service_aliases`, as the service NAME each points at. Read for one purpose: finding the
    * services a suitability question is about when the customer wrote «himi» or «budaad»
@@ -139,6 +145,41 @@ function strings(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 }
 
+/** Today's and tomorrow's weekday from the tenant's local date; null when it does not parse. */
+export function daysOf(
+  localDate: string, closures: readonly Closure[],
+): { today: number; tomorrow: number; closed: number[] } | null {
+  const next = nextLocalDate(localDate);
+  if (next === null) return null;
+  const today = (next.weekday + 6) % 7;
+  const covered = (date: string) => closures.some((c) => c.startsOn <= date && date <= c.endsOn);
+  return {
+    today, tomorrow: next.weekday,
+    closed: [...(covered(localDate) ? [today] : []), ...(covered(next.date) ? [next.weekday] : [])],
+  };
+}
+
+function matcherOf(raw: unknown) {
+  const parsed = parseMatcher(raw);
+  return parsed.ok ? parsed.spec : null;
+}
+
+/**
+ * Fill the `{tomorrow.*}` slots for this request (D-126). A row whose slots cannot be filled
+ * truthfully today — no hours tomorrow, a closure, two branches — is withheld (`enabled`
+ * false), so it cannot answer and the model does. Rows without slots pass through untouched.
+ */
+export function withDaySlots(
+  rules: readonly DeterministicRule[],
+  input: { localDate: string; hours: readonly BusinessHours[]; closures: readonly Closure[]; branchCount: number },
+): DeterministicRule[] {
+  return rules.map((rule) => {
+    if (!hasTomorrowSlot(rule.body)) return rule;
+    const body = renderTomorrowSlots(rule.body, input);
+    return body === null ? { ...rule, enabled: false } : { ...rule, body, tomorrowSlots: true };
+  });
+}
+
 export function toDeterministic(rows: unknown): DeterministicRule[] {
   return (Array.isArray(rows) ? rows : []).map((raw) => {
     const r = raw as Record<string, unknown>;
@@ -150,9 +191,11 @@ export function toDeterministic(rows: unknown): DeterministicRule[] {
       // An unrecognised mode falls to whole_message, the high-precision one. A typo must
       // not silently widen a matcher into the mode that steals questions.
       matchMode: r['match_mode'] === 'contains_stem' || r['match_mode'] === 'covers_message' || r['match_mode'] === 'on_topic'
-        || r['match_mode'] === 'on_correction'
+        || r['match_mode'] === 'on_correction' || r['match_mode'] === 'matcher'
         ? r['match_mode']
         : 'whole_message',
+      // Parsed once, here. Unparseable is null and the row never fires (`bad_matcher`).
+      matcher: r['match_mode'] === 'matcher' ? matcherOf(r['matcher']) : null,
       stems: strings(stems),
       coverWords: strings(r['cover_words']),
       // Absent or unknown reads as `replace`, which is what every row was before `0041`.
@@ -235,7 +278,7 @@ export async function loadReceptionContext(
       .eq('tenant_id', input.tenantId)
       .gte('ends_on', input.localDate),
     db.from('deterministic_replies')
-      .select('intent, body, enabled, match_mode, stems, cover_words, placement, quote_services, requires_empty_history, provenance')
+      .select('intent, body, enabled, match_mode, stems, cover_words, placement, quote_services, requires_empty_history, provenance, matcher')
       .eq('tenant_id', input.tenantId),
     // Read for `allowedUrls` only. The section body itself is compiled at publish time by
     // `prompt/sections.ts`; this is the request-path half, because the URL guard runs
@@ -379,7 +422,9 @@ export async function loadReceptionContext(
     };
   });
 
-  const deterministic = toDeterministic(detRes.data);
+  const deterministic = withDaySlots(toDeterministic(detRes.data), {
+    localDate: input.localDate, hours, closures, branchCount: branches.length,
+  });
 
   const nameById = new Map((Array.isArray(services.data) ? services.data : []).map((raw) => {
     const r = raw as Record<string, unknown>;
@@ -402,6 +447,7 @@ export async function loadReceptionContext(
     context: {
       promptStable: snapshot.snapshot.promptStable,
       deterministic,
+      days: daysOf(input.localDate, closures),
       serviceAliases,
       spellings,
       branches,
