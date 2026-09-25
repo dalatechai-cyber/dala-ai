@@ -9780,3 +9780,75 @@ consumes it.
 - **l04 and v05 answer from the approved callback line, with no model call.** A pre-registration request (`preregister_callback`), and paying without an advance or in instalments (`terms_callback`), are `contains_stem` rows. Their body is read from the reviewed sales callback row. The coming-soon rows still append the status line.
 - **QPay in the founder's words:** «Бүх төлбөрийг, үүнд сарын төлбөр багтана, QPay-ээр төлөх боломжтой.» It reaches customers at the next publish.
 - The record is `scripts/provision/dalatech-decisions-2026-09-26c.sql`.
+
+## D-128 — Telegram cleanup: once-ever criticals become episodes, one 09:00 report
+
+**Founder-approved from `docs/reports/2026-09-25-telegram-inventory.md`** (§4, "Fix while
+there" and "Merge into one daily report").
+
+**Once-ever criticals are episodes now.** Five keys had no period and were `daily`. So
+after the first row they could never fire again:
+
+- `model_not_found:{id}`
+- `secret.kek_unavailable:{tenant}`
+- `secret.undecryptable:{tenant}:{channel}`
+- `outbound.{token_revoked|channel_permission_error}:{tenant}:{channel}`
+- `secret_expiring:…`
+
+All are `on_change`. Each closes when its condition clears:
+
+- `model_not_found` closes on the next clean call on that id. `resolveEpisodes` runs one
+  conditional UPDATE per reply, on the partial open-key index. There is no cache.
+- The four credential keys close on the next send that goes out for that tenant and channel.
+- `secret_expiring` warn and critical close when the hourly health run no longer classifies
+  the credential that way. That covers a re-seal, a warn becoming critical, and a credential
+  that is no longer live.
+
+A recurrence opens a new episode and pages again. The three-day STILL OPEN re-escalation now
+covers these criticals too.
+
+`alreadyRaised` for `on_change` now reads only `on_change` rows. Without that, the old `daily`
+rows under the same keys would gag the new episodes for ever. **Expect one page per condition
+that is still true when this deploys**, because the old rows no longer suppress it. Nothing on
+the project was read to count them.
+
+**The 30-day credential warning is finally shown.** It was written to a digest that lists
+only `on_change` rows. As an episode, it is an open condition every morning until it clears.
+
+**`DAILY_REPORT_V2=true`** switches two things together. `alerts/alert.ts`'s
+`dailyReportV2()` is the only reader.
+
+1. **Non-actionable warnings go to the daily report** (`quietRoute()`):
+   - a re-publish that worked (both REFUSED variants still page)
+   - `model_swap` and `cache_cold`
+   - `channel.credential_failure` below the halt
+   - `outbound.reply_indeterminate`
+   - `purge_backlog`
+   - `channel.recovered`
+   - `privacy.erasure_requested`
+2. **The digest sends ONE report**, in this order:
+   - A: dalatech-app's section, fetched with `DAILY_REPORT_SECRET`. On any failure it prints
+     an `UNREADABLE — reason` line.
+   - B: the digest, with STILL OPEN as lines. `notified_at` moves only when B's message was
+     delivered.
+   - C: «Yesterday», the held-back events grouped by kind.
+   - D: the flaw report.
+
+   The report is split into `(1/2)`, `(2/2)` at section boundaries above 3,900 characters.
+
+Unset, today's behaviour and message count are unchanged, which the tests pin.
+
+**Schedule: one QStash schedule, `0 1 * * *` UTC (09:00 Ulaanbaatar).** If a 00:05
+(`5 16 * * *`) schedule exists, the founder must delete it. The QStash console is the only
+place that shows it.
+
+**Preflight** requires none of the three variables. It refuses `DAILY_REPORT_V2=true` without
+`DAILY_REPORT_SECRET`, any value other than `true`/`false`, and a non-https
+`DAILY_REPORT_SECTION_URL`.
+
+**Not done:**
+- Tenant names instead of raw ids in alert bodies.
+- Everything in the inventory outside dala-ai.
+
+A resolved critical is closed without a message; the resolve is logged and `resolved_at` is
+the record.

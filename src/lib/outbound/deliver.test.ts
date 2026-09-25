@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { deliverOutbound, type DeliverDeps, type DeliverInput } from './deliver.ts';
+import { credentialEpisodeKeys, deliverOutbound, type DeliverAlert, type DeliverDeps, type DeliverInput } from './deliver.ts';
 import type { SendOutcome } from '../meta/send.ts';
 import type { SecretOutcome } from '../secrets/tenantSecret.ts';
 
@@ -22,7 +22,8 @@ const okSecret: SecretOutcome = { ok: true, secret: TOKEN, kekVersion: 1, status
 /** Records every effect in order, so "what did this outcome cost" is checkable as a list. */
 function stubDeps(over: { secret?: SecretOutcome; send?: SendOutcome } = {}) {
   const calls: string[] = [];
-  const alerts: { severity: string; kind: string; dedupKey: string; body: string }[] = [];
+  const alerts: DeliverAlert[] = [];
+  const resolved: string[][] = [];
   const sends: unknown[] = [];
   const breakerCodes: string[] = [];
   const deps: DeliverDeps = {
@@ -68,8 +69,13 @@ function stubDeps(over: { secret?: SecretOutcome; send?: SendOutcome } = {}) {
       alerts.push(a);
       return null;
     },
+    resolveAlerts: async (keys) => {
+      calls.push('resolveAlerts');
+      resolved.push([...keys]);
+      return { ok: true };
+    },
   };
-  return { deps, calls, alerts, sends, breakerCodes };
+  return { deps, calls, alerts, sends, breakerCodes, resolved };
 }
 
 const failed = (over: Partial<Extract<SendOutcome, { outcome: 'failed' }>>): SendOutcome => ({
@@ -91,7 +97,7 @@ test('a delivered reply is marked sent and the credential is marked healthy', as
   const { deps, calls, sends } = stubDeps();
   const out = await deliverOutbound(deps, input);
   assert.equal(out.outcome, 'sent');
-  assert.deepEqual(calls, ['loadSecret', 'send', 'markSent(mid.1)', 'recordSecretOk']);
+  assert.deepEqual(calls, ['loadSecret', 'send', 'markSent(mid.1)', 'recordSecretOk', 'resolveAlerts']);
   // The STORED body, on the tenant's own token, to an explicit page id.
   assert.deepEqual(sends[0], {
     pageId: input.pageId,
@@ -299,4 +305,66 @@ test('no outcome ever puts the token in a recorded reason', async () => {
       assert.doesNotMatch(line, new RegExp(TOKEN), line);
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// D-128: credential alerts are EPISODES, and a send that works closes them
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: EVERY CREDENTIAL CRITICAL IS AN EPISODE, NOT A ONCE-EVER KEY', async () => {
+  // Until 2026-09-25 these were `daily` rows under keys with no period — once in the life of
+  // the project. A token revoked, re-sealed and revoked again was silent the second time.
+  const cases: { secret?: SecretOutcome; send?: SendOutcome; kind: string }[] = [
+    { secret: { ok: false, code: 'kek_unavailable', retryable: false, detail: 'kek' }, kind: 'secret.kek_unavailable' },
+    { secret: { ok: false, code: 'secret_undecryptable', retryable: false, detail: 'aead' }, kind: 'secret.undecryptable' },
+    { send: failed({ failure: 'token_revoked', code: 190 }), kind: 'outbound.token_revoked' },
+    { send: failed({ failure: 'channel_permission_error', code: 200 }), kind: 'outbound.channel_permission_error' },
+  ];
+  for (const c of cases) {
+    const { deps, alerts } = stubDeps({ ...(c.secret ? { secret: c.secret } : {}), ...(c.send ? { send: c.send } : {}) });
+    await deliverOutbound(deps, input);
+    const a = alerts.find((x) => x.kind === c.kind);
+    assert.equal(a?.repeat, 'on_change', c.kind);
+    assert.equal(a?.severity, 'critical', c.kind);
+    assert.notEqual(a?.quiet, true, `${c.kind} must page immediately`);
+    // The key a resolve names is the key the raise wrote.
+    assert.ok(credentialEpisodeKeys('t-1', 'c-1').includes(a?.dedupKey ?? ''), `${c.kind}: ${a?.dedupKey}`);
+  }
+});
+
+test('DONE-TEST: A SEND THAT GOES OUT CLOSES ALL FOUR CREDENTIAL EPISODES FOR THE CHANNEL', async () => {
+  const { deps, resolved } = stubDeps();
+  const out = await deliverOutbound(deps, input);
+  assert.equal(out.outcome, 'sent');
+  assert.deepEqual(resolved, [[
+    'secret.kek_unavailable:t-1',
+    'secret.undecryptable:t-1:c-1',
+    'outbound.token_revoked:t-1:c-1',
+    'outbound.channel_permission_error:t-1:c-1',
+  ]]);
+});
+
+test('a failed send closes nothing', async () => {
+  for (const send of [failed({ failure: 'token_revoked', code: 190 }), { outcome: 'indeterminate', detail: 't' } as SendOutcome]) {
+    const { deps, resolved } = stubDeps({ send });
+    await deliverOutbound(deps, input);
+    assert.deepEqual(resolved, []);
+  }
+  const { deps, resolved } = stubDeps({ secret: { ok: false, code: 'kek_unavailable', retryable: false, detail: 'k' } });
+  await deliverOutbound(deps, input);
+  assert.deepEqual(resolved, []);
+});
+
+test('a resolve that fails is bookkeeping: the reply is still sent, and the failure is said', async () => {
+  const { deps } = stubDeps();
+  deps.resolveAlerts = async () => ({ ok: false, detail: 'alerts unwritable' });
+  const out = await deliverOutbound(deps, input);
+  assert.equal(out.outcome, 'sent');
+  assert.match(out.outcome === 'sent' ? (out.bookkeeping ?? '') : '', /resolveAlerts: alerts unwritable/);
+});
+
+test('an indeterminate send is a QUIET warning — the binding may send it to the daily report', async () => {
+  const { deps, alerts } = stubDeps({ send: { outcome: 'indeterminate', detail: 'timeout' } });
+  await deliverOutbound(deps, input);
+  assert.equal(alerts[0]?.quiet, true);
 });

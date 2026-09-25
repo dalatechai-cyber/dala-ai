@@ -124,11 +124,49 @@ async function alreadyRaised(
   repeat: RepeatPolicy,
 ): Promise<boolean | 'error'> {
   const base = db.from('alerts').select('id').eq('dedup_key', dedupKey);
-  const { data, error } = await (repeat === 'on_change' ? base.is('resolved_at', null) : base)
+  // `on_change` asks about open EPISODES, so it reads only `on_change` rows. Without the
+  // policy filter, an EVENT row carrying the same key — whose `resolved_at` is null for
+  // ever, because nothing resolves an event — reads as an episode that never closes, and
+  // the condition is silent for good. That is not hypothetical: `model_not_found:{id}`,
+  // `secret.undecryptable:…` and `outbound.token_revoked:…` were `daily` rows under keys
+  // with no period until 2026-09-25, and every such row on the project would otherwise
+  // gag the very recurrence the move to `on_change` exists to report. D-063's addendum is
+  // the same trap from the other side: a backfill default decides which rows a new rule
+  // can reach.
+  const { data, error } = await (repeat === 'on_change'
+    ? base.is('resolved_at', null).eq('repeat_policy', 'on_change')
+    : base)
     .limit(1)
     .maybeSingle();
   if (error) return 'error';
   return data !== null;
+}
+
+/**
+ * The route for a warning nobody has to act on at once (D-128).
+ *
+ * `now` unless `DAILY_REPORT_V2 === 'true'`, when it is `digest` and the merged daily
+ * report's «Yesterday» section is where a human meets it. One reader of the flag, here,
+ * rather than an env read at every call site — so switching it is one variable and
+ * reverting it is deleting that variable. Anything other than the exact string `true`
+ * is today's behaviour; preflight refuses a value that is neither `true` nor `false`, so a
+ * `TRUE` that silently means "off" cannot reach production.
+ *
+ * Only for warnings that are NOT a person's cue to act. A refused re-publish, a halted
+ * channel or a customer left unanswered stays `now` whatever this says.
+ */
+export function quietRoute(): AlertRoute {
+  return dailyReportV2() ? 'digest' : 'now';
+}
+
+/**
+ * Is the merged daily report switched on? The ONE reader of `DAILY_REPORT_V2`, shared by
+ * `quietRoute` and the digest, so the alerts it demotes and the section that shows them can
+ * never be switched separately — demoting without the section would record warnings nobody
+ * is shown.
+ */
+export function dailyReportV2(): boolean {
+  return process.env['DAILY_REPORT_V2'] === 'true';
 }
 
 /** The mark a severity wears in Telegram. One place, so a digest line matches an alert. */
@@ -270,7 +308,12 @@ export async function openEpisodes(
  */
 export async function resolveOpenAlerts(
   db: SupabaseClient,
-  input: { keyPrefix: string; exceptKey?: string; now: Date },
+  input: {
+    keyPrefix: string; exceptKey?: string;
+    /** Every key still true, for a caller that re-evaluates a whole family at once. */
+    exceptKeys?: readonly string[];
+    now: Date;
+  },
 ): Promise<{ ok: true; resolved: OpenAlert[] } | { ok: false; detail: string }> {
   const { data, error } = await db
     .from('alerts')
@@ -280,9 +323,13 @@ export async function resolveOpenAlerts(
     .eq('repeat_policy', 'on_change');
   if (error) return { ok: false, detail: `alerts unreadable: ${error.message}` };
 
+  const keep = new Set(input.exceptKeys ?? []);
+  if (input.exceptKey !== undefined) keep.add(input.exceptKey);
   const open = (Array.isArray(data) ? data : [])
     .map((r) => toOpenAlert(r as Record<string, unknown>))
-    .filter((a) => a.dedupKey !== input.exceptKey);
+    // A LIKE prefix is a pattern, not a literal — `_` matches any one character — so the
+    // prefix is re-checked here as a plain string before anything is closed.
+    .filter((a) => a.dedupKey.startsWith(input.keyPrefix) && !keep.has(a.dedupKey));
   if (open.length === 0) return { ok: true, resolved: [] };
 
   const { error: updateErr } = await db
@@ -291,6 +338,36 @@ export async function resolveOpenAlerts(
     .in('id', open.map((a) => a.id));
   if (updateErr) return { ok: false, detail: `alerts not resolvable: ${updateErr.message}` };
   return { ok: true, resolved: open };
+}
+
+/**
+ * Close the open episodes under these EXACT keys, in one statement.
+ *
+ * For a success path that runs on every reply or every send — `model_not_found` cleared by
+ * a call that worked, a credential episode cleared by a send that went out. It is one
+ * conditional UPDATE, not a read-then-write: on the ordinary day nothing is open, the
+ * partial index `alerts_open_by_key` answers it, and zero rows change. No module-scope
+ * "is anything open?" cache stands in front of it — a warm lambda serves every tenant
+ * (CLAUDE.md rule 7's reasoning), and a cache that went stale would keep an episode open
+ * after the fault had cleared, which is the silence this exists to end.
+ *
+ * Returns how many it closed, so a caller can log a recovery rather than perform it
+ * invisibly.
+ */
+export async function resolveEpisodes(
+  db: SupabaseClient,
+  input: { dedupKeys: readonly string[]; now: Date },
+): Promise<{ ok: true; resolved: number } | { ok: false; detail: string }> {
+  if (input.dedupKeys.length === 0) return { ok: true, resolved: 0 };
+  const { data, error } = await db
+    .from('alerts')
+    .update({ resolved_at: input.now.toISOString() })
+    .in('dedup_key', [...input.dedupKeys])
+    .is('resolved_at', null)
+    .eq('repeat_policy', 'on_change')
+    .select('id');
+  if (error) return { ok: false, detail: `alerts not resolvable: ${error.message}` };
+  return { ok: true, resolved: Array.isArray(data) ? data.length : 0 };
 }
 
 /** Move `notified_at` on rows a human has just been paged about again. */

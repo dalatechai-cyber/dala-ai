@@ -375,3 +375,40 @@ test('the recovery still pages, so a demoted fault never becomes a silent one', 
     assert.equal(recovery.patch['repeat_policy'], 'once');
   }
 });
+
+// D-128. Under DAILY_REPORT_V2 the recovery joins its fault in the daily report — the fault
+// was digest-routed already (founder, 2026-09-20), so an immediate «recovered» was mostly
+// news of an outage nobody had been told about. It is still RECORDED, and the report's
+// «Yesterday» section lists it with the fault's name in its body, so it is never silent.
+test('DONE-TEST: under DAILY_REPORT_V2 the recovery is routed to the daily report; unset, it pages as before', async () => {
+  const saved = process.env['DAILY_REPORT_V2'];
+  const recoveryRoute = async () => {
+    const { db, writes } = stub({
+      webhook_events: { data: [{ received_at: FRESH }], error: null },
+      conversations: { data: [{ last_message_at: FRESH }], error: null },
+      alerts: [
+        { data: [{
+          id: 42, tenant_id: 't-1', severity: 'critical', kind: 'channel.no_webhooks',
+          dedup_key: 'channel_silence:ch-1:no_webhooks', body: 'Page 100000000000001: dead',
+          at: '2026-09-01T00:00:00Z', notified_at: '2026-09-01T00:00:00Z',
+        }], error: null },
+        { data: null, error: null },
+        { data: null, error: null },
+        { data: { id: 99 }, error: null },
+      ],
+    });
+    await runSilenceWatch(db, { now: NOW });
+    const recovery = writes.find((w) => w.table === 'alerts' && w.op === 'insert');
+    assert.equal(recovery?.patch['kind'], 'channel.recovered');
+    assert.equal(recovery?.patch['repeat_policy'], 'once', 'an event, so the report lists it under «Yesterday»');
+    return recovery?.patch['route'];
+  };
+  try {
+    process.env['DAILY_REPORT_V2'] = 'true';
+    assert.equal(await recoveryRoute(), 'digest');
+    delete process.env['DAILY_REPORT_V2'];
+    assert.equal(await recoveryRoute(), 'now');
+  } finally {
+    if (saved === undefined) delete process.env['DAILY_REPORT_V2']; else process.env['DAILY_REPORT_V2'] = saved;
+  }
+});

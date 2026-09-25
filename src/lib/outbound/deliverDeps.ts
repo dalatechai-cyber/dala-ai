@@ -14,10 +14,10 @@ import { MESSENGER_SEND_UNIT_COST } from '../../config/platform.ts';
 import { haltChannelOutbound } from '../channel/halt.ts';
 import { runCredentialBreaker } from '../channel/breaker.ts';
 import { sendMessage } from '../meta/send.ts';
-import { raiseAlert } from '../alerts/alert.ts';
+import { quietRoute, raiseAlert, resolveEpisodes } from '../alerts/alert.ts';
 import { loadTenantSecret, recordSecretError, recordSecretOk, revokeSecret, type SecretRef } from '../secrets/tenantSecret.ts';
 import { markFailed, markIndeterminate, markSent } from './claim.ts';
-import type { DeliverDeps } from './deliver.ts';
+import type { DeliverAlert, DeliverDeps } from './deliver.ts';
 
 export type DeliverDepsInput = {
   db: SupabaseClient;
@@ -48,6 +48,14 @@ export function buildDeliverDeps(input: DeliverDepsInput): DeliverDeps {
   const clock = input.clock ?? (() => new Date());
   const ref: SecretRef = { tenantId, channelId, kind: 'page_token' };
   const scope = { id: outboundId, tenantId };
+
+  // One binding for the delivery's alerts and the breaker's, so `quiet` means the same
+  // thing on both paths: routed by `quietRoute()`, the single reader of DAILY_REPORT_V2.
+  const alert = (a: DeliverAlert) => raiseAlert(db, {
+    tenantId, severity: a.severity, kind: a.kind, dedupKey: a.dedupKey, body: a.body,
+    route: a.quiet === true ? quietRoute() : 'now',
+    ...(a.repeat === undefined ? {} : { repeat: a.repeat }),
+  });
 
   return {
     loadSecret: () => loadTenantSecret(db, ref),
@@ -87,7 +95,15 @@ export function buildDeliverDeps(input: DeliverDepsInput): DeliverDeps {
       };
     },
 
-    alert: (a) => raiseAlert(db, { tenantId, severity: a.severity, kind: a.kind, dedupKey: a.dedupKey, body: a.body }),
+    alert,
+
+    // `clock()`: the recovery is observed now, after the Graph call returned.
+    resolveAlerts: async (keys) => {
+      const r = await resolveEpisodes(db, { dedupKeys: keys, now: clock() });
+      if (!r.ok) return { ok: false, detail: r.detail };
+      if (r.resolved > 0) console.info('[deliver] credential_episode_resolved', { tenantId, channelId, resolved: r.resolved });
+      return { ok: true };
+    },
 
     /**
      * Best-effort by construction. The customer's message has already failed to send and
@@ -98,7 +114,7 @@ export function buildDeliverDeps(input: DeliverDepsInput): DeliverDeps {
       const decision = await runCredentialBreaker(
         db,
         {
-          alert: (a) => raiseAlert(db, { tenantId, severity: a.severity, kind: a.kind, dedupKey: a.dedupKey, body: a.body }),
+          alert,
           log: (level, event, fields) => console[level](`[breaker] ${event}`, fields ?? {}),
         },
         { tenantId, channelId, code, now },

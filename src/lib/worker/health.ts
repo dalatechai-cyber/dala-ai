@@ -65,7 +65,7 @@ export async function runHealthJob(
   // token with forty minutes left.
   const expiry = await checkSecretExpiry(effects.db, { now: effects.now });
   if (!expiry.ok) return { status: 503, body: { error: 'unavailable', detail: expiry.detail } };
-  const expiryAlerts = await raiseExpiryAlerts(effects.db, expiry.findings);
+  const expiryAlerts = await raiseExpiryAlerts(effects.db, expiry.findings, { now: effects.now });
 
   // The counts, not the verdicts: this body goes to QStash's delivery log, and a channel's
   // health belongs in `channel_health` and the alert rather than in a queue receipt.
@@ -87,6 +87,9 @@ export async function runHealthJob(
       secrets: {
         checked: expiry.checked, unknown: expiry.unknown,
         expiring: expiry.findings.length, alerted: expiryAlerts.raised, alert_failures: expiryAlerts.failed,
+        // Episodes closed because the credential stopped being classified that way (D-128),
+        // and whether that close could be written — both counts, like the rest.
+        resolved: expiryAlerts.resolved, resolve_failures: expiryAlerts.resolveFailed ? 1 : 0,
       },
     },
   };

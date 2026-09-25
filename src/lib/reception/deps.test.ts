@@ -79,3 +79,51 @@ test('and prices a cached read normally when nothing was written', async () => {
   assert.equal(r.ok, true);
   assert.equal(rows.find((x) => x['__table'] === 'spend_ledger')?.['cost_nanousd'], 4_000_000);
 });
+
+// ── D-128: a clean answer on a model id closes its retired-model episode ─────────────
+
+/** Records every statement on `alerts` as a list of `method(args)` calls, one list per `from`. */
+function alertsStub() {
+  const statements: string[][] = [];
+  const from = (table: string) => {
+    const ops: string[] = [];
+    if (table === 'alerts') statements.push(ops);
+    const chain: Record<string, unknown> = {};
+    for (const m of ['select', 'order', 'limit', 'eq', 'is', 'in', 'update', 'insert']) {
+      chain[m] = (...args: unknown[]) => { ops.push(`${m}(${JSON.stringify(args)})`); return chain; };
+    }
+    chain['maybeSingle'] = async () => ({ data: null, error: null });
+    chain['then'] = (res: (v: unknown) => unknown) => res({ data: [], error: null });
+    return chain;
+  };
+  return { db: { from, rpc: async () => ({ data: null, error: null }) } as never, statements };
+}
+
+test('DONE-TEST: A SUCCESSFUL CALL RESOLVES THE MODEL EPISODE IN ONE CONDITIONAL UPDATE', async () => {
+  // Before 2026-09-25 a retired-model alert fired once in the life of the project. Now the
+  // next clean answer on the same id closes the episode, so the next 404 pages again.
+  const { db, statements } = alertsStub();
+  await depsFor('1h', db).observe({ requestedModel: 'claude-sonnet-5', servedModel: 'claude-sonnet-5' });
+  assert.equal(statements.length, 1, 'exactly one statement on alerts per clean reply');
+  assert.deepEqual(statements[0], [
+    `update(${JSON.stringify([{ resolved_at: '2026-09-07T04:00:00.000Z' }])})`,
+    `in(${JSON.stringify(['dedup_key', ['model_not_found:claude-sonnet-5']])})`,
+    `is(${JSON.stringify(['resolved_at', null])})`,
+    `eq(${JSON.stringify(['repeat_policy', 'on_change'])})`,
+    `select(${JSON.stringify(['id'])})`,
+  ]);
+});
+
+test('a terminal outcome resolves nothing; a 404 raises the episode instead', async () => {
+  process.env['ALERTS_ENABLED'] = 'false';
+  const refused = alertsStub();
+  await depsFor('1h', refused.db).observe({ requestedModel: 'claude-sonnet-5', servedModel: '', terminalReason: 'refusal' });
+  assert.ok(refused.statements.every((ops) => !ops.some((o) => o.startsWith('update('))), 'no resolve on a terminal');
+
+  const gone = alertsStub();
+  await depsFor('1h', gone.db).observe({ requestedModel: 'claude-sonnet-5', servedModel: '', terminalReason: 'model_not_found' });
+  const insert = gone.statements.flat().find((o) => o.startsWith('insert('));
+  assert.match(insert ?? '', /"dedup_key":"model_not_found:claude-sonnet-5"/);
+  assert.match(insert ?? '', /"repeat_policy":"on_change"/);
+  assert.ok(!gone.statements.flat().some((o) => o.startsWith('update([{"resolved_at"')), 'a 404 never closes its own episode');
+});

@@ -508,6 +508,16 @@ unsigned GET returns 405 with `x-matched-path: /api/workers/digest`); the first 
 can work is 2026-09-15 01:00 UTC. The QStash console is not readable from here, so if 09:00
 Ulaanbaatar passes with no digest, check the schedule rather than the code.
 
+**Since D-128 (2026-09-25) no critical is "once ever".** `model_not_found`,
+`secret.kek_unavailable`, `secret.undecryptable`, `outbound.token_revoked` and
+`channel_permission_error`, and `secret_expiring` are `on_change` episodes, each closed by
+the observation that it cleared: a clean call, a send that went out, an hourly run that no
+longer classifies the credential that way. A key with no period under `daily` or `once` is
+silent for ever after its first row, so ask what closes it before you choose. The digest runs
+on ONE QStash schedule, `0 1 * * *` UTC. `DAILY_REPORT_V2=true` (with `DAILY_REPORT_SECRET`)
+merges it into one report and moves non-actionable warnings there via `quietRoute()`. Unset,
+nothing changes.
+
 **The first `on_change` episode fired at 08:00:08 UTC on 2026-09-14 and was exactly right in
 mechanism and wrong in inference** (D-063 addendum). The row carries `repeat_policy
 = 'on_change'`, `resolved_at` null, a dedup key with NO date, and `notified_at` — the whole

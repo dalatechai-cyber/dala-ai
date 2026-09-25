@@ -74,7 +74,7 @@
  * acquiring the defect it exists to detect. Both reads refuse the whole run instead.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { raiseAlert } from '../alerts/alert.ts';
+import { quietRoute, raiseAlert } from '../alerts/alert.ts';
 import { markEventState, QUEUED_STATES, UNQUEUED_STATES } from '../webhook/events.ts';
 import type { EnqueueResult } from '../queue/qstash.ts';
 import { DEFAULT_REPLY_AGE_LIMIT_MINUTES, replyAgeLimitMinutes } from '../worker/freshness.ts';
@@ -329,6 +329,9 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
       // rescue would report a customer as saved who is not. The state is still advanced,
       // because `pending_enqueue` is exactly true of a row QStash holds a message for.
       let outcome: string;
+      // Read off the branch, not off `outcome`'s wording, so rephrasing a sentence cannot
+      // move an alert between Telegram and the daily report.
+      let rescued = false;
       if (!again.ok) {
         // The row is left exactly as it was, so the next run tries again. Marking it
         // anything else would retire an event that never reached the queue.
@@ -343,13 +346,19 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
         const marked = await markEventState(db, eventId, 'pending_enqueue');
         record('requeued', marked.ok ? null : `state not advanced: ${marked.detail ?? ''}`);
         outcome = 'successfully';
+        rescued = true;
       }
       // §3.6.3: alert whenever anything is found. A rescue means the primary floor failed.
+      //
+      // A rescue that WORKED asks nothing of anybody, so under DAILY_REPORT_V2 it goes to
+      // the daily report (inventory B2). Both REFUSED outcomes stay `now`: there the
+      // customer is still waiting and somebody has to look.
       await raiseAlert(db, {
         tenantId,
         severity: 'warn',
         kind: 'webhook.requeued',
         dedupKey: `requeued_event:${eventId}`,
+        route: rescued ? quietRoute() : 'now',
         body: `Inbound event ${eventId} (${provider} ${dedupKey}) ${fault}; `
           + `re-published ${outcome}. `
           + `State was ${state}, ${Math.floor(ageMinutes)} min old.`,

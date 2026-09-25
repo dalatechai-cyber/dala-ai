@@ -92,7 +92,7 @@ test('the body carries counts, never the verdicts themselves', async () => {
   // credential kind into a third party's delivery log for no gain.
   const secrets = r.body['secrets'] as Record<string, unknown>;
   assert.deepEqual(Object.keys(secrets).sort(),
-    ['alert_failures', 'alerted', 'checked', 'expiring', 'unknown']);
+    ['alert_failures', 'alerted', 'checked', 'expiring', 'resolve_failures', 'resolved', 'unknown']);
   for (const [k, v] of Object.entries(secrets)) assert.equal(typeof v, 'number', `${k} is a count`);
 });
 

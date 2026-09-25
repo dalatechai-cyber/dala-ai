@@ -569,3 +569,32 @@ test('an unreadable channel read pages exactly as before rather than failing the
   assert.ok(r.ok, 'the channel mode is a refinement; losing it must not stop the sweep');
   assert.equal(writes.find((w) => w.table === 'alerts' && w.op === 'insert')?.patch['kind'], 'webhook.stranded_event');
 });
+
+// ── D-128: a rescue that worked waits for the daily report; a refused one never does ────
+
+test('DONE-TEST: UNDER DAILY_REPORT_V2 A SUCCESSFUL RESCUE GOES TO THE REPORT, BOTH REFUSALS STILL PAGE', async () => {
+  const saved = process.env['DAILY_REPORT_V2'];
+  const run = async (result: EnqueueResult) => {
+    const { db, writes } = stub({
+      webhook_events: [
+        { data: [{ ...EVENT, state: 'pending_enqueue', received_at: minutesAgo(12), attempts: 1 }], error: null },
+        { data: null, error: null },
+      ],
+      tenants: TENANT_30,
+      alerts: ALERT_OK,
+    });
+    await sweepStrandedEvents(db, { now: NOW, enqueue: queue(result).enqueue });
+    return writes.find((w) => w.table === 'alerts' && w.op === 'insert')?.patch['route'];
+  };
+  try {
+    process.env['DAILY_REPORT_V2'] = 'true';
+    assert.equal(await run({ ok: true, messageId: 'm', deduplicated: false }), 'digest', 'rescued: nothing to do');
+    assert.equal(await run({ ok: true, messageId: 'm', deduplicated: true }), 'now', 'REFUSED THE DUPLICATE still pages');
+    assert.equal(await run({ ok: false, detail: 'qstash 500' }), 'now', 'REFUSED still pages');
+
+    delete process.env['DAILY_REPORT_V2'];
+    assert.equal(await run({ ok: true, messageId: 'm', deduplicated: false }), 'now', 'unset: exactly as before');
+  } finally {
+    if (saved === undefined) delete process.env['DAILY_REPORT_V2']; else process.env['DAILY_REPORT_V2'] = saved;
+  }
+});

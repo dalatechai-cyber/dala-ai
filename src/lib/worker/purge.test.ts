@@ -185,3 +185,21 @@ test('DONE-TEST: THE THREE COUNTS ARE REPORTED SEPARATELY, never summed', async 
   assert.equal(res.body['rows_deleted'], 2);
   assert.equal(res.body['bodies_redacted'], 3);
 });
+
+// D-128: a backlog is worth investigating, not waking for — the next run keeps purging.
+test('DONE-TEST: the backlog warning goes to the daily report under DAILY_REPORT_V2, and pages when unset', async () => {
+  const saved = process.env['DAILY_REPORT_V2'];
+  try {
+    process.env['DAILY_REPORT_V2'] = 'true';
+    const v2 = effects({ data: { ...ok, ceiling_hit: true } });
+    await run(v2.fx);
+    assert.equal(v2.alerts[0]!['route'], 'digest');
+
+    delete process.env['DAILY_REPORT_V2'];
+    const before = effects({ data: { ...ok, ceiling_hit: true } });
+    await run(before.fx);
+    assert.equal(before.alerts[0]!['route'], 'now');
+  } finally {
+    if (saved === undefined) delete process.env['DAILY_REPORT_V2']; else process.env['DAILY_REPORT_V2'] = saved;
+  }
+});
