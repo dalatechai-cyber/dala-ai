@@ -410,7 +410,7 @@ async function runReceptionDelivery(
       .maybeSingle(),
     db
       .from('tenant_channels')
-      .select('external_id, status, delivery_mode, token_status, meta_app_id, graph_version_override, comment_policy, comment_delivery_mode, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day')
+      .select('external_id, status, delivery_mode, token_status, meta_app_id, graph_version_override, comment_policy, comment_delivery_mode, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day, automation_texts')
       .eq('id', channelId)
       .eq('tenant_id', tenantId)
       .maybeSingle(),
@@ -525,6 +525,9 @@ async function runReceptionDelivery(
   // `unknown`, which changes no thread state — correct, and visibly incomplete.
   const metaAppId = typeof c['meta_app_id'] === 'string' && c['meta_app_id'] !== ''
     ? String(c['meta_app_id']) : null;
+  // The Page's own Meta automations: their messages are not a person (D-126 addendum).
+  const automationTexts = Array.isArray(c['automation_texts'])
+    ? (c['automation_texts'] as unknown[]).filter((t): t is string => typeof t === 'string') : [];
   trace.deliveryMode = deliveryMode;
   trace.ourAppId = metaAppId;
   const override = c['graph_version_override'];
@@ -569,10 +572,11 @@ async function runReceptionDelivery(
         // person typed this", and on Matrix's Page every ancestor reply is exactly that
         // false positive — harmless only while the channel is `shadow`.
         appId: sk.appId,
+        text: sk.echoText ?? null,
       }));
     const handover = await recordHandover(db, {
       tenantId, channelId, ourAppId: metaAppId, entry: rawPayload, echoes,
-      deliveryMode, now,
+      automationTexts, deliveryMode, now,
     });
     // `echoes > 0` is in this condition and the other three are not enough without it.
     // In `shadow` an echo moves nothing, so `events`, `changed` and `echoTakeovers` are
@@ -653,6 +657,7 @@ async function runReceptionDelivery(
         tenantId,
         channelId,
         pageExternalId: pageId,
+        automationTexts,
         commentMode,
         tokenStatus: String(c['token_status'] ?? ''),
         graphVersion,
@@ -1038,6 +1043,7 @@ async function runReceptionDelivery(
       delivery.deliver
         ? personRepliedSince(db, {
           tenantId, channelId, conversationId, psid: message.senderId, eventId, since: eventAt, ourAppId: metaAppId,
+          automationTexts,
         }).catch((e: unknown) => ({ replied: 'unreadable' as const, detail: e instanceof Error ? e.message : String(e) }))
         : Promise.resolve(null),
     ]);

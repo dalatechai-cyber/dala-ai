@@ -9643,3 +9643,23 @@ cannot rule out: an automation echo into an EXISTING conversation, stamped with 
 would read as a person — 30 minutes of silence, and the pre-send check would drop a reply in
 flight. The measurement is one test comment while the automation is still on; the echo's
 `app_id` answers it.
+
+**Addendum, 2026-09-26 — automations are not people, and the bot never discusses its own
+instructions unasked (founder).**
+
+- **Measured**: a test comment «message» on DalaTech's Page produced Meta Business Suite's
+  public auto-reply «chat bicnuu» (created in the same second) and an automated DM «sn bnuu»
+  8.6 s later, whose echo carried app id `263902037430900` — the id a staff reply typed in the
+  Page inbox carries — and no other distinguishing field. It marked the founder's own
+  conversation `human` (19:19:46) and the auto-reply read as staff answering the comment.
+- **The fix is rows**: `tenant_channels.automation_texts` (`0050`). An echo or a Page comment
+  whose text is one of them (NFC, whitespace collapsed, case folded; exact — a looser match would
+  let a person's «Болноо» pass as an automation) moves nothing and is not staff. DalaTech's
+  channel lists the two measured texts. Any automation whose text changes must be updated there.
+- **Never the bot's own instructions unless asked**: a model reply that talks about its
+  instructions — «промпт», «дотоод заавар», «зааврынхаа», a gate label, an identifier, a section
+  heading — is replaced by the handoff line and flagged `internal_instruction_blocked`. Narrower
+  than the morning report's `internalMentionIn`, which also counts «тохиргоо» and «мэдээллийн
+  сан», words DalaTech's answers about its product legitimately use.
+- DalaTech's approved private comment message and "who are you" answer are rows
+  (`comment_private_reply`, `deterministic_replies.assistant_who`); reply case pins the latter.

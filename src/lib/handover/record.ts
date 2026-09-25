@@ -26,6 +26,7 @@
  * mode, and it does not depend on us being the one who sends.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isAutomationText } from './automation.ts';
 import {
   controlAfter, controlFromEcho, parseHandoverEvents,
   type HandoverEvent, type ThreadControl, type ThreadState,
@@ -190,6 +191,8 @@ export type HandoverOutcome = {
    * the thing worth a person looking, and folding it into a count would hide it.
    */
   echoAppIds: string[];
+  /** Echoes whose text is one of the Page's automations: counted, and moved nothing. */
+  echoesFromAutomation: number;
   problems: string[];
 };
 
@@ -208,7 +211,9 @@ export async function recordHandover(
      * Echoes from `extractInboundMessages`: the `mid`, the CUSTOMER (the recipient), and
      * the app Meta says sent it. `appId` is what separates the ancestor from a person.
      */
-    echoes: readonly { mid: string; psid: string; appId: string | null }[];
+    echoes: readonly { mid: string; psid: string; appId: string | null; text?: string | null }[];
+    /** `tenant_channels.automation_texts`: an echo with one of these texts is not a person. */
+    automationTexts?: readonly string[];
     /** Only `live` lets an echo move control. See this file's header. */
     deliveryMode: string;
     now: Date;
@@ -218,7 +223,7 @@ export async function recordHandover(
   const out: HandoverOutcome = {
     events: parsed.events.length, unrecognised: parsed.unrecognised,
     changed: 0, echoes: input.echoes.length, echoTakeovers: 0,
-    echoesFromApp: 0, echoAppIds: [], problems: [],
+    echoesFromApp: 0, echoAppIds: [], echoesFromAutomation: 0, problems: [],
   };
 
   const move = async (psid: string, control: ThreadControl, at: Date, source: ControlSource) => {
@@ -256,8 +261,10 @@ export async function recordHandover(
   if (input.deliveryMode === 'live') {
     for (const echo of input.echoes) {
       const ours = await echoIsOurs(db, { tenantId: input.tenantId, mid: echo.mid });
-      const { control, kind } = controlFromEcho(ours, echo.appId, input.ourAppId);
+      const { control, kind } = controlFromEcho(ours, echo.appId, input.ourAppId,
+        isAutomationText(echo.text, input.automationTexts ?? []));
       if (kind === 'app') out.echoesFromApp += 1;
+      if (kind === 'automation') out.echoesFromAutomation += 1;
       if (control === null) continue; // ours, unreadable or an app — no conclusion
       if (await move(echo.psid, control, input.now, 'echo')) {
         out.changed += 1;

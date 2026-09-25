@@ -159,7 +159,12 @@ export type EchoKind =
   /** An app sent it and we do not know our own app id, so it cannot be judged. Nothing moves. */
   | 'app'
   /** Not our send and not our app: the Page inbox, another app, or no app at all. A person. */
-  | 'human';
+  | 'human'
+  /**
+   * The text is one of the Page's own Meta automations (`tenant_channels.automation_texts`).
+   * Nothing moves: an automation is not a person (D-126 addendum).
+   */
+  | 'automation';
 
 export type EchoVerdict = { control: ThreadControl | null; kind: EchoKind };
 
@@ -167,9 +172,14 @@ export function controlFromEcho(
   ours: boolean | 'unreadable',
   appId: string | null,
   ourAppId: string | null,
+  /** The echo's text is one of the Page's automations (`handover/automation.ts`). */
+  automated = false,
 ): EchoVerdict {
   if (ours === 'unreadable') return { control: null, kind: 'unreadable' };
   if (ours) return { control: null, kind: 'ours' };
+  // Meta's automated DM carries the inbox's own app id, so without its text it reads as a
+  // person typing (measured 2026-09-26). Checked before the app-id rules for that reason.
+  if (automated) return { control: null, kind: 'automation' };
 
   // Our own app, before its send was recorded. The echo can outrun `markSent`, and Meta
   // stamps every send through our token with our app id — measured on Matrix's first live

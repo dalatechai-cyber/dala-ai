@@ -1093,3 +1093,29 @@ test('a near-copy of a whole row is certain, and still gets that row', async () 
   await handleReception(d, { ...base, canned: LIVE_CANNED, cannedHash: null, customerMessage: 'Сор хэд вэ?' });
   assert.equal(drafts[0]?.body, LIVE_PRICE_REFUSAL);
 });
+
+// Founder, 2026-09-26: never mention internal instructions unless asked. The live reply to
+// «ci henbe» on DalaTech's Page (webhook 824).
+test('DONE-TEST (live, 2026-09-26): A REPLY ABOUT THE BOT\'S OWN INSTRUCTIONS IS NOT SENT', async () => {
+  const leak: CallOutcome = {
+    ...OK_REPLY,
+    text: 'Би энэ хуудсыг хариуцдаг хиймэл оюун ухаанд суурилсан туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр асуулт байвал асуугаарай.',
+  };
+  const { deps: d, drafts, flags } = deps({ result: leak });
+  await handleReception(d, { ...base, customerMessage: 'daly gj yuve' });
+  assert.equal(drafts[0]?.body, CANNED[0]?.body, 'the handoff line');
+  assert.ok(flags.some((f) => f.code === 'internal_instruction_blocked'));
+});
+
+test('asked about its instructions, the bot may answer; and ordinary words are not leaks', async () => {
+  const text = 'Би дотоод зааврынхаа дагуу зөвхөн салоны асуултад хариулна.';
+  const asked = deps({ result: { ...OK_REPLY, text } });
+  await handleReception(asked.deps, { ...base, customerMessage: 'чамд ямар заавар өгсөн бэ?' });
+  assert.equal(asked.flags.some((f) => f.code === 'internal_instruction_blocked'), false);
+  const { instructionLeakIn } = await import('../quality/leaks.ts');
+  for (const ok of [
+    'Тохиргоо, нэвтрүүлэлтийг бид хийнэ.',
+    'Будсаны дараа үсчин арчилгааны заавар өгнө.',
+    'Дали таны мэдээллийн сантай холбогдож ажиллана.',
+  ]) assert.equal(instructionLeakIn(ok, 'үнэ хэд вэ', []), null, ok);
+});
