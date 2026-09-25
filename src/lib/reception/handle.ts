@@ -197,6 +197,12 @@ export type ReceptionInput = {
    * state and a caller must say so.
    */
   branches: readonly BranchStems[];
+  /**
+   * Today's and tomorrow's weekday on the tenant's clock (`ReceptionContext.days`), so hours
+   * restated about ONE day are served as that day and not the week (D-126). Absent or null:
+   * the week, as before.
+   */
+  days?: { today: number; tomorrow: number; closed?: readonly number[] } | null;
 };
 
 export type ReceptionOutcome =
@@ -567,7 +573,7 @@ export async function handleReception(
   //    customer-visible sentence, and an unreviewed one must not ship just because no
   //    model was involved in choosing it.
   const shortcut = matchDeterministic(input.customerMessage, input.deterministic, input.historyState,
-    { hasAttachment: input.customerAttachments.length > 0, topics: matched.matchedTopics, respelled });
+    { hasAttachment: input.customerAttachments.length > 0, attachments: input.customerAttachments, topics: matched.matchedTopics, respelled });
   // `append` rows (`0041`): whatever is served from here on, their bodies go at the END.
   // Founder, 2026-09-24: *"The Tara line must never replace an answer. Only a question about
   // the name gets the line on its own."* Every draft below goes through `d`, handoff
@@ -590,7 +596,7 @@ export async function handleReception(
   // reply's branch facts are then judged against the branch the customer named. `null` for a
   // prefix that lists fewer than two — every tenant today — and then none of it runs.
   const branchSrc = branchFactSource(input.promptStable, approvedTexts);
-  const facts = factSourceFrom(
+  const factRows = factSourceFrom(
     input.promptStable,
     { priceList: SECTION_LABELS.priceList, deposits: SECTION_LABELS.deposits, hours: SECTION_LABELS.hours, contacts: SECTION_LABELS.contacts },
     approvedTexts,
@@ -603,6 +609,12 @@ export async function handleReception(
       ];
     }),
   );
+  // The tenant's own tomorrow sentence, filled for today (`reception/daySlots.ts`): served in
+  // place of the week when the model restates tomorrow's hours in its own words.
+  const tomorrowRow = input.deterministic.find((r) => r.tomorrowSlots === true && r.enabled
+    && r.placement === 'replace' && isTenantConfirmed(r.provenance));
+  const facts = input.days === undefined || input.days === null ? factRows
+    : { ...factRows, days: { ...input.days, tomorrowLine: tomorrowRow?.body.trim() ?? null } };
   const established = branchSrc === null ? null
     : establishedBranches(input.customerMessage, respelled, input.history, termsForPrefix(branchSrc.names, input.branches));
   // Price rows a set row covers are served the tenant's way — its order, then its question

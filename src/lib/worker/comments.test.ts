@@ -76,7 +76,7 @@ type OutboundStub = {
   claim?: Reply;
 };
 
-function stubDb(over: Record<string, Reply> = {}, outbound: OutboundStub = {}) {
+function stubDb(over: Record<string, Reply | Reply[]> = {}, outbound: OutboundStub = {}) {
   const ops: {
     table: string; op: string; cols?: string;
     patch?: Record<string, unknown>;
@@ -96,7 +96,11 @@ function stubDb(over: Record<string, Reply> = {}, outbound: OutboundStub = {}) {
       if (rec.cols === 'id, state') return outbound.pending ?? { data: null, error: null };
       return outbound.existing ?? { data: [], error: null };
     }
-    return over[table] ?? DEFAULTS[table] ?? { data: null, error: null };
+    // A LIST answers successive reads in order, the last one sticking — how a test says
+    // "the Page had not replied at decision time, and had by the time of the send".
+    const o = over[table];
+    if (Array.isArray(o)) return (o.length > 1 ? o.shift() : o[0]) ?? { data: null, error: null };
+    return o ?? DEFAULTS[table] ?? { data: null, error: null };
   };
 
   const from = (table: string) => {
@@ -107,13 +111,13 @@ function stubDb(over: Record<string, Reply> = {}, outbound: OutboundStub = {}) {
       rec.cols = cols;
       return chain;
     };
-    for (const m of ['eq', 'in', 'is', 'not', 'gte', 'lt']) {
+    for (const m of ['eq', 'in', 'is', 'not', 'gte', 'lt', 'contains']) {
       chain[m] = (col: string, val: unknown) => {
         rec.filters[`${m}:${col}`] = val;
         return chain;
       };
     }
-    for (const m of ['or', 'limit']) chain[m] = () => chain;
+    for (const m of ['or', 'limit', 'order']) chain[m] = () => chain;
     for (const m of ['insert', 'update', 'upsert'] as const) {
       chain[m] = (patch: Record<string, unknown>) => {
         rec.op = m;
@@ -141,7 +145,7 @@ const baseInput: CommentJobInput = {
 };
 
 function stubFx(over: {
-  tables?: Record<string, Reply>; outbound?: OutboundStub; send?: CommentSendOutcome;
+  tables?: Record<string, Reply | Reply[]>; outbound?: OutboundStub; send?: CommentSendOutcome;
   privateSend?: PrivateReplyOutcome; lookup?: CommentLookup;
 } = {}) {
   const { db, ops } = stubDb(over.tables ?? {}, over.outbound ?? {});
@@ -912,4 +916,122 @@ test('D-122: a resumed reply still passes the tag check for the comment in hand'
   const r = await result;
   assert.equal(posted.length + privates.length, 0);
   assert.equal(r.refused['comment_tags_person'], 1);
+});
+
+// ---------------------------------------------------------------------------
+// The salon's staff already answered (D-122 addendum)
+// ---------------------------------------------------------------------------
+
+/** A stored webhook row carrying one comment by the PAGE itself. */
+const pageRow = (over: Record<string, unknown>) => ({
+  raw_payload: entry([comment({ from: { id: PAGE, name: 'Salon' }, comment_id: `${PAGE}_s1`, ...over })]),
+});
+const staffReplied = { data: [pageRow({ parent_id: `${PAGE}_c1`, message: 'Мэдээлэл 📍 Яармаг' })], error: null };
+const staffTagged = { data: [pageRow({ comment_id: `${PAGE}_s2`, parent_id: `${PAGE}_c7`, message: 'Сараа Бат Болормаа 📍 Яармаг' })], error: null };
+const nobody = { data: [], error: null };
+
+test('DONE-TEST: the Page replied under the comment — no draft, its own counter, a flag with the proof', async () => {
+  const { ops, lookups, result } = run({ tables: { ...withPrivateLine, webhook_events: staffReplied } }, { config: BOTH, commentMode: 'shadow' });
+  const r = await result;
+  assert.equal(r.refused['staff_replied'], 1);
+  assert.equal(r.drafted + r.privateDrafted, 0);
+  assert.equal(ops.some((o) => o.table === 'outbound_messages' && o.op === 'insert'), false, 'nothing drafted');
+  assert.equal(lookups.length, 0, 'no Graph read for a comment staff already answered');
+  const flag = ops.find((o) => o.table === 'quality_flags' && o.op === 'insert');
+  assert.equal(flag?.patch?.['flag'], 'comment_staff_answered');
+  const detail = flag?.patch?.['detail'] as Record<string, unknown>;
+  assert.equal(detail['how'], 'replied');
+  assert.equal(detail['staff_comment_id'], `${PAGE}_s1`);
+  assert.equal(detail['at'], 'decision');
+  assert.equal(JSON.stringify(detail).includes('Болормаа'), false, 'ids only — never the name');
+  // The read: this tenant, stored payloads only, the Page's comments on THIS post.
+  const read = ops.find((o) => o.table === 'webhook_events');
+  assert.equal(read?.filters['eq:tenant_id'], TENANT);
+  assert.deepEqual(read?.filters['contains:raw_payload'], {
+    changes: [{ value: { item: 'comment', post_id: `${PAGE}_p1`, from: { id: PAGE } } }],
+  });
+});
+
+test('DONE-TEST: the Page tagged this commenter under another comment on the post — refused', async () => {
+  const { result } = run({ tables: { webhook_events: staffTagged } }, { commentMode: 'shadow' });
+  const r = await result;
+  assert.equal(r.refused['staff_tagged_commenter'], 1);
+  assert.equal(r.drafted, 0);
+});
+
+test('the Page naming SOMEONE ELSE on the post does not silence this commenter', async () => {
+  const other = { data: [pageRow({ parent_id: `${PAGE}_c7`, message: 'Сараа Бат баярлалаа💕' })], error: null };
+  const { result } = run({ tables: { webhook_events: other } }, { commentMode: 'shadow' });
+  const r = await result;
+  assert.equal(r.drafted, 1);
+});
+
+test('our OWN posted reply is a Page comment too, and is not counted as staff', async () => {
+  const { result } = run({
+    tables: { webhook_events: staffReplied },
+    outbound: { existing: { data: [{ provider_message_id: `${PAGE}_s1` }], error: null } },
+  }, { commentMode: 'shadow' });
+  const r = await result;
+  assert.equal(r.refused['staff_replied'], undefined);
+});
+
+test('an unreadable staff read is retryable, and drafts nothing', async () => {
+  const { ops, result } = run({ tables: { webhook_events: { data: null, error: { message: 'boom' } } } }, { commentMode: 'shadow' });
+  const r = await result;
+  assert.equal(r.retry, true);
+  assert.equal(ops.some((o) => o.table === 'outbound_messages' && o.op === 'insert'), false);
+});
+
+test('DONE-TEST: LIVE — staff answered between the decision and the send: re-checked, nothing posted, rows refused', async () => {
+  // First read (decision): nobody. Second read (after the claim, before the Graph call):
+  // the Page's reply has arrived.
+  const { posted, privates, ops, result } = run({
+    tables: { ...withPrivateLine, webhook_events: [nobody, staffReplied] },
+  }, { config: BOTH });
+  const r = await result;
+  assert.equal(posted.length + privates.length, 0, 'neither line leaves');
+  assert.equal(r.replied + r.privateSent, 0);
+  assert.equal(r.refused['staff_replied'], 1, 'counted once for the comment, not once per line');
+  const refusedRows = ops.filter((o) => o.table === 'outbound_messages' && o.op === 'update' && o.patch?.['state'] === 'refused');
+  assert.equal(refusedRows.length, 2, 'both claimed rows parked as refused, so no later resume can send them');
+  const reads = ops.filter((o) => o.table === 'webhook_events');
+  assert.equal(reads.length, 2, 'one read at decision, ONE before the sends — memoised across the two lines');
+  const flags = ops.filter((o) => o.table === 'quality_flags' && o.op === 'insert');
+  assert.equal(flags.length, 1);
+  assert.equal((flags[0]?.patch?.['detail'] as Record<string, unknown>)['at'], 'before_send');
+});
+
+test('LIVE — the re-check itself unreadable: nothing posted, the row handed back as failed, and a retry', async () => {
+  const { posted, ops, result } = run({
+    tables: { webhook_events: [nobody, { data: null, error: { message: 'boom' } }] },
+  });
+  const r = await result;
+  assert.equal(posted.length, 0);
+  assert.equal(r.retry, true);
+  const failed = ops.find((o) => o.table === 'outbound_messages' && o.op === 'update' && o.patch?.['state'] === 'failed');
+  assert.ok(failed, 'released as failed, claimable by the retry');
+});
+
+test('LIVE — a clear re-check sends as before', async () => {
+  const { posted, result } = run({ tables: { webhook_events: [nobody, nobody] } });
+  const r = await result;
+  assert.equal(r.replied, 1);
+  assert.equal(posted.length, 1);
+});
+
+test('DONE-TEST: a RESUMED draft is re-checked — a staff tag since the draft stops it', async () => {
+  // The case the re-check exists for: a row drafted before the staff answered, found
+  // pending when the same person comments again. At decision time the new comment's staff
+  // check is clear (the tag is not on the post yet when first read); before the send it is.
+  const { posted, privates, result } = run({
+    tables: { ...withPrivateLine, webhook_events: [nobody, staffTagged] },
+    outbound: {
+      persons: { data: [{ comment_post_id: `${PAGE}_p1`, comment_from_id: 'customer_1' }], error: null },
+      pending: { data: { id: 'om-9', state: 'draft' }, error: null },
+    },
+  }, { config: BOTH });
+  const r = await result;
+  assert.equal(r.refused['person_already_answered'], 1);
+  assert.equal(posted.length + privates.length, 0, 'the stale draft is not posted under the staff answer');
+  assert.equal(r.refused['staff_tagged_commenter'], 1);
 });

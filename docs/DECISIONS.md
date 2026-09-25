@@ -9253,6 +9253,68 @@ because there it answers the question. A `deterministic_replies` UPDATE, live on
 republish; read back NFC. Reply case 1 expects `tara_name` and is unaffected; the old append
 text survives only inside recorded case histories, where it is what the customer saw.
 
+**Addendum, 2026-09-25 evening (founder): a location question with a laugh, and the staff
+who answer by hand.**
+
+*Laughter.* «Tara salon яармаг салбар yarmagtaa bizdee hehe» (webhook 749) — the Page and its
+branch named, then *it is at Yarmag, right?* — was silent: every reply rule excluded laughter.
+The founder wants it answered and the ≥30 jokes kept silent. Rows only: `location` and
+`location_branch` no longer exclude laughter (no joke in the corpus carries a location word,
+and a location question with a laugh on the end is still one), and `location_branch` accepts
+the confirmation particle «биз / biz / биздээ / bizdee / биздэ / bizde» as a question word.
+Every other reply rule keeps the exclusion — that is where the jokes are («Халзан хүнд хэд вэ
+хаха») — and `salonRules.test.ts` now asserts the two location rules are the only exceptions.
+749 fires because it contains «салбар» (inside the Page's name); a bare «yarmagtaa bizdee
+hehe» stays silent, since a place name is tenant data (`tenant_branches.stems` is where it
+would come from). 749 and «Үнэ хаяг» (784) are in `REAL_COMMENTS` expecting a reply: 43 real
+comments, 78 deliveries, 35 the Page's own. Matrix's live `location` and `location_branch`
+rows were updated to the template the same evening (compare-and-set on the old matcher hash,
+read back: 40 enabled rows equal the template); comments stay `shadow`. Note that 749 is a
+reply inside a thread where the platform had not drafted: had the bot answered 412 in that
+thread on 09-22, the one-reply-per-thread rule would silence 749. That rule is unchanged.
+
+*Staff first.* The salon's staff answer comments from the Page, and every such comment is
+already stored — the Page's own comments arrive on the `feed` subscription (35 of 78). So
+before drafting, and again before any live send, the comment path now reads the Page's
+comments on the post from `webhook_events` (jsonb containment on `raw_payload`, one query per
+post, `comments/staff.ts`) and refuses when **(a)** a Page comment's `parent_id` is this
+comment (`staff_replied`) or **(b)** a Page comment on the same post names this commenter
+(`staff_tagged_commenter`); an unreadable check or a missing `from.name` refuses
+(`staff_check_unknown`). Each writes `quality_flags.comment_staff_answered` with the proving
+Page comment's id and `at: decision | before_send`, never the text or the name. Our own
+posted replies (`provider_message_id`) are excluded. The check sits after the verdict (praise
+stays `comment_not_worth_reply`, a complaint still escalates) and before the person and thread
+rules, which is what stops `resumePending` from posting a draft decided before the staff
+answered. Before a live send it runs after the claim and before the Graph call; answered means
+the row goes to `refused`, unreadable means `failed` and a 503.
+
+The tag is read from the NAME because the webhook has nothing else (0 of 78 deliveries carry
+`message_tags`): the commenter's `from.name`, as whole words in order, anywhere in the Page
+comment, on `messageWords` (NFC, `mn-MN` fold, punctuation and emoji stripped) — no `\b`. A
+tag the staff shortened to one name is not recognised. "The Page is somewhere in this thread"
+is deliberately NOT a refusal: 749 sits in a thread the Page answered for someone else.
+
+*No Graph read.* It would add Page comments whose webhook never arrived (before 2026-09-20,
+or dropped) and ones whose payload the purge has nulled (Matrix: 30 days). It is not made:
+the decision follows the comment by seconds, a staff reply's webhook arrives within seconds
+(751: created 14:10:21, received 14:10:27), and a fail-closed gate on the live send that
+cannot be exercised from here is a gate nobody has seen work.
+
+*What the re-check does not do.* The Page's 29 replies on record came **47 s to 7.5 h** after
+the comment (median 28 min; 4 of 29 inside 2 min); a live send follows its decision by about a second. So the
+re-check catches a draft resumed later, not a staff member typing at the same time — on
+2026-09-25 the bot, live, would have answered «Үнэ хаяг» at 06:49 and the staff would have
+answered it again at 14:19. Closing that needs a hold before sending (a delay, then this same
+check), which is a separate decision for the founder. And (b) cannot tell a thank-you from an
+answer: 751 thanked Saran Tuul for her praise, so once it exists her question (749) reads as
+handled.
+
+Tested: `staff.test.ts` (the matcher and the decision), `eligibility.test.ts` (ordering),
+`worker/comments.test.ts` (shadow refusal and flag, the read's filters, our own reply excluded,
+unreadable ⇒ retry, live re-check refusing both lines once, a resumed draft stopped), and
+`worker/comments.realThreads.test.ts`, which replays the real threads of 2026-09-22 to 09-25
+(`realThreads.fixtures.ts`) through `runCommentJob` over an in-memory store.
+
 ## D-123 — the morning report reads what a reply says: former names and internal instructions
 
 **Founder, 2026-09-25:** the morning report missed «ci henbe», where the bot called the salon
@@ -9468,3 +9530,71 @@ handoff line's phone numbers. Those are tenant text and are served as written. T
 domain is a tenant-wide edit (`tenant_booking.booking_url`, `contact_points.website`) and
 the `booking_line` canned row carries the old URL: a canned edit makes every reply 503 with
 `canned_stale` until the republish (D-058), so edit and republish together.
+
+## D-126 — tomorrow's hours as one day, the holiday line, and a person who replies while the bot is writing
+
+**2026-09-25, founder, from three live DM flaws.**
+
+**1. «Hi margaash tanaih ajilahu» got the whole week.** The model had answered it right —
+«Тийм ээ, маргааш манай салон 10:00–20:00 цагийн хооронд ажиллана» (`quality_flags` 153) —
+and `guard/facts.ts` (D-120) refused hours in the model's own words and served the only hours
+it had, all seven days. The founder's answer is one day: «Маргааш (Бямба) 10:00–20:00
+ажиллана.» Two layers now give it:
+
+- **A row, no model.** `0048` lets a `deterministic_replies` row use the gate's own matcher
+  (`match_mode = 'matcher'`; `0049` lets such a row pass the "an enabled row can match" CHECK
+  without stems), because this needs two words together — *tomorrow* AND
+  *working / closed / holiday* — and no existing mode could say "and". The body is the
+  tenant's sentence with two slots, «Маргааш ({tomorrow.day}) {tomorrow.hours} ажиллана.»,
+  filled per request from `business_hours` on the tenant's clock (`reception/daySlots.ts`).
+  The row is **withheld** — the model answers — when tomorrow has no hours, is closed, falls
+  in a `tenant_closures` range, or the tenant lists two or more branches. It stays silent on a
+  message that also asks a price, a booking or an address. The vocabulary is
+  `scripts/provision/templates/day_hours.salon.json`, tested as written.
+- **The guard, when the model answers anyway.** Hours restated about ONE day — «маргааш»,
+  «өнөөдөр» or exactly one weekday name in the model's words — are served as that day: the
+  tenant's tomorrow sentence when it has one, otherwise that day's hours row. Only when the
+  amount really is that day's; «маргааш» over the wrong day's hours keeps the week.
+
+**2. «Margaash automashingvi bvh niitiin amraltiin udur ym bn» got the PRICE refusal.** The
+model wrote a sensible holiday refusal; `gate/pinned.ts` scored it 0.754 of
+`refusal_price_unlisted` — same frame, different subject — and served the price row
+(`quality_flags` 154). The founder's answer: that day's regular hours plus «Баярын өдрийн
+цагийг 76001888 дугаараас лавлана уу.» The tomorrow row fires on holiday words too, and a
+second row (`holiday_hours_note`, `append`) adds the holiday line to whatever is served, so a
+holiday question without a day still gets it. «Баярлалаа» never does: the words are whole
+words, not the stem «баяр».
+
+**Open, not fixed:** the pinned-line mechanism will still serve a topic-specific refusal to a
+different topic that shares its frame. D-077's rule is that an adapted approved line is drift
+and the row is served; serving the WRONG row is worse than the drift. Proposal: when the
+adaptation replaced the row's own subject words, serve the handoff line instead of the row.
+The founder's call.
+
+**Both are permanent cases** (`reply_cases`), judged by what must and must not appear —
+the right answer names tomorrow, so it changes with the day the gate runs on. A closure day
+tomorrow makes the first one fall to the model; that is the row doing its job.
+
+**3. A person who replies while the bot is writing wins.** H11 check 4 asks before generating,
+and the model takes seconds. `handover/presend.ts` asks again beside the claim, immediately
+before a live send: `thread_control` set to `human` at or after the customer's message, OR an
+echo to this customer stored after the customer's own event and not sent by our app — read
+straight from `webhook_events`, so a staff reply counts before its own job has run (0.17 ms,
+primary key and a jsonb containment filter). If so, our reply is marked `refused`
+(`human_replied_before_send`, terminal, so no redelivery sends it) and flagged. An unreadable
+check SENDS and logs, as check 4 does. What it cannot see is a reply Meta has not delivered
+to us yet.
+
+**The case the founder cited was not this race, and it matters for trusting the fix.** In
+conversation 63a52c70 the customer wrote at 14:16:41 and our reply went at 14:16:58; the
+first staff reply to that customer was «Болноо» at 14:17:27, after ours. The 14:16:57 staff
+echo («Манай салбар ажилна») went to a DIFFERENT customer — conversation a70ce9fe, three hours
+after the holiday question. So on 25 Sept the staff answered on top of the bot, not the bot on
+top of the staff; the re-check would not have changed that turn. From the first staff echo on,
+the bot stayed silent in 63a52c70, as check 4 is meant to make it.
+
+**The digest reports the Ulaanbaatar day that just ended** (founder moving it to `5 16 * * *`
+UTC, 00:05 Ulaanbaatar). The flaw report already used the calendar day (`previousDate` on the
+tenant's clock). The three counters used a rolling 24 hours, which is "yesterday" only by the
+accident of the run time; they now count 00:00–00:00 of that day (`reportWindow`), and the
+header names it.

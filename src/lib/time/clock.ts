@@ -53,3 +53,24 @@ export function tenantClock(now: Date, timezone: string): { date: string; time: 
     weekday: Math.max(0, weekdays.indexOf(get('weekday'))),
   };
 }
+
+/**
+ * The instant a local calendar date begins on the given zone's clock: `YYYY-MM-DD 00:00`
+ * there, as a `Date`. Two passes, each reading the zone's own offset through `tenantClock`,
+ * so a zone with daylight saving lands on its real midnight rather than one an hour out.
+ * Throws for a malformed date, as an unknown zone does.
+ */
+export function localDayStart(date: string, timezone: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(date);
+  if (m === null) throw new RangeError(`not a YYYY-MM-DD date: ${date}`);
+  const wall = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const offsetAt = (instant: number): number => {
+    const c = tenantClock(new Date(instant), timezone);
+    const [y, mo, d] = c.date.split('-').map(Number);
+    const [h, mi] = c.time.split(':').map(Number);
+    return Date.UTC(y ?? 1970, (mo ?? 1) - 1, d ?? 1, h ?? 0, mi ?? 0) - Math.floor(instant / 60_000) * 60_000;
+  };
+  let guess = wall - offsetAt(wall);
+  guess = wall - offsetAt(guess);
+  return new Date(guess);
+}

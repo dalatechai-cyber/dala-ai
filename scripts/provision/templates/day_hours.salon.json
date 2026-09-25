@@ -1,0 +1,39 @@
+{
+  "note": "D-126. Matchers for two deterministic_replies rows (match_mode = matcher). The vocabulary is the vertical's; each tenant writes its own bodies. tomorrow_hours answers ONLY when the message says tomorrow AND asks about working, closing or a holiday, and names no other intent (price, booking, address). holiday_hours_note never answers alone: it appends the tenant's holiday line to whatever is served.",
+  "rows": [
+    {
+      "intent": "tomorrow_hours",
+      "placement": "replace",
+      "matcher": {
+        "mode": "all_of",
+        "matchers": [
+          { "mode": "contains_stem", "stems": ["маргааш", "margaash", "margash"] },
+          { "mode": "contains_stem", "stems": [
+            "ажил", "ajil", "ажлл", "ajll",
+            "онгорхой", "ongorhoi", "ongoroi", "нээлттэй", "neelttei", "neeltei",
+            "амрах", "amrah", "амарна", "amarna", "амардаг", "amardag",
+            "нийтийн", "niitiin", "niitin", "баярын", "bayariin", "bayarin", "баяраар", "bayaraar",
+            "наадам", "naadam", "наадм", "naadm"
+          ] },
+          { "mode": "not", "matcher": { "mode": "has_word", "words": [
+            "үнэ", "une", "үнэтэй", "unetei", "үнийг", "uniig", "үнийн", "uniin",
+            "хаяг", "hayag", "hayg", "xayg", "байршил", "bairshil", "baishil", "хаана", "haana",
+            "авмаар", "avmaar", "авах", "avah", "авъя", "avya", "avii", "авий", "авч", "avch",
+            "захиалах", "zahialah", "захиалга", "zahialga", "захиалъя", "zahialya"
+          ] } }
+        ]
+      }
+    },
+    {
+      "intent": "holiday_hours_note",
+      "placement": "append",
+      "matcher": { "mode": "has_word", "words": [
+        "баярын", "баяраар", "bayariin", "bayarin", "bayaraar",
+        "нийтийн амралт", "нийтийн амралтын", "niitiin amralt", "niitiin amraltiin", "niitin amraltiin",
+        "наадам", "наадмаар", "naadam", "naadmaar",
+        "цагаан сар", "цагаан сараар", "tsagaan sar", "tsagaan saraar",
+        "шинэ жил", "шинэ жилээр", "shine jil", "shine jileer"
+      ] }
+    }
+  ]
+}

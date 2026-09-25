@@ -93,3 +93,46 @@ test('DONE-TEST: TWO PRICES ON ONE LINE ARE NOT A RANGE — a CICA answer is nev
   const w = checkFacts('Хуримын засалт 154,000₮–198,000₮ байна.', src);
   assert.equal(w.restated && w.served, 'Хуримын засалт: 154,000₮–198,000₮');
 });
+
+// Founder, 2026-09-25, live: the model answered «Hi margaash tanaih ajilahu» correctly and
+// this guard served all seven days in its place.
+const WEEK_PREFIX = [
+  '=== АЖЛЫН ЦАГ ===', '- Даваа: 10:00 - 20:00', '- Мягмар: 10:00 - 20:00', '- Лхагва: 10:00 - 20:00',
+  '- Пүрэв: 10:00 - 20:00', '- Баасан: 10:00 - 20:00', '- Бямба: 10:00 - 20:00', '- Ням: 11:00 - 19:00',
+].join('\n');
+const LIVE_REPLY = 'Сайн байна уу! Тийм ээ, маргааш манай салон 10:00–20:00 цагийн хооронд ажиллана.';
+const TOMORROW_LINE = 'Маргааш (Бямба) 10:00–20:00 ажиллана.';
+const week = factSourceFrom(WEEK_PREFIX, LABELS, []);
+const friday = { today: 5, tomorrow: 6 };
+
+test("DONE-TEST (live, 2026-09-25): TOMORROW'S HOURS RESTATED ARE SERVED AS TOMORROW, NOT THE WEEK", () => {
+  const r = checkFacts(LIVE_REPLY, { ...week, days: { ...friday, tomorrowLine: TOMORROW_LINE } });
+  assert.equal(r.restated && r.served, TOMORROW_LINE);
+});
+
+test("without the tenant's tomorrow sentence, tomorrow's own row", () => {
+  const r = checkFacts(LIVE_REPLY, { ...week, days: { ...friday, tomorrowLine: null } });
+  assert.equal(r.restated && r.served, 'Бямба: 10:00 - 20:00');
+});
+
+test('«өнөөдөр» is today, and one named day is that day', () => {
+  const today = checkFacts('Өнөөдөр 10:00-20:00 ажиллана.', { ...week, days: { ...friday, tomorrowLine: TOMORROW_LINE } });
+  assert.equal(today.restated && today.served, 'Баасан: 10:00 - 20:00');
+  const sunday = checkFacts('Ням гарагт 11:00-19:00 цагт ажилладаг.', { ...week, days: { ...friday, tomorrowLine: TOMORROW_LINE } });
+  assert.equal(sunday.restated && sunday.served, 'Ням: 11:00 - 19:00');
+});
+
+test("hours that are not the named day's keep the week — true whatever the model meant", () => {
+  // «маргааш» on a Saturday is Sunday, and 10:00–20:00 is not Sunday's.
+  const r = checkFacts(LIVE_REPLY, { ...week, days: { today: 6, tomorrow: 0, tomorrowLine: 'Маргааш (Ням) 11:00–19:00 ажиллана.' } });
+  assert.equal(r.restated && r.served?.split('\n').length, 7);
+  // No day named, or two: the week.
+  const two = checkFacts('Даваа, Мягмар 10:00-20:00.', { ...week, days: { ...friday, tomorrowLine: TOMORROW_LINE } });
+  assert.equal(two.restated && two.served?.split('\n').length, 7);
+  assert.equal(checkFacts(LIVE_REPLY, week).restated && (checkFacts(LIVE_REPLY, week) as { served: string }).served.split('\n').length, 7);
+});
+
+test('a day a closure covers is never narrowed to: its regular hours would be the false answer', () => {
+  const r = checkFacts(LIVE_REPLY, { ...week, days: { ...friday, tomorrowLine: null, closed: [6] } });
+  assert.equal(r.restated && r.served?.split('\n').length, 7);
+});

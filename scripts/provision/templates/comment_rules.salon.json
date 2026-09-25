@@ -1,5 +1,5 @@
 {
- "_comment": "Comment rules for a hair/beauty salon (D-122). A vertical template: a salon tenant gets these as comment_rules rows via scripts/provision/comment-rules.ts <tenant-slug>. Rows, never code. Verdicts: escalate > reply > ignore. Every reply rule excludes laughter; the generic service question also excludes praise.",
+ "_comment": "Comment rules for a hair/beauty salon (D-122). A vertical template: a salon tenant gets these as comment_rules rows via scripts/provision/comment-rules.ts <tenant-slug>. Rows, never code. Verdicts: escalate > reply > ignore. Every reply rule excludes laughter except the two location rules (D-122 addendum: a location question with a laugh on the end is still a location question, and no joke in the corpus carries a location word); the generic service question also excludes praise.",
  "vertical": "salon",
  "rules": [
   {
@@ -383,64 +383,22 @@
    "rule_key": "location",
    "verdict": "reply",
    "matcher": {
-    "mode": "all_of",
-    "matchers": [
-     {
-      "mode": "contains_stem",
-      "stems": [
-       "хаяг",
-       "hayg",
-       "hayag",
-       "xayg",
-       "haig",
-       "байршил",
-       "bairshil",
-       "хаана",
-       "haana",
-       "xaana",
-       "хаашаа",
-       "haashaa",
-       "салбарууд",
-       "salbaruud"
-      ]
-     },
-     {
-      "mode": "not",
-      "matcher": {
-       "mode": "has_word",
-       "words": [
-        "хаха",
-        "хахаха",
-        "хэхэ",
-        "хихи",
-        "haha",
-        "hahaha",
-        "hehe",
-        "hihi",
-        "xaxa",
-        "lol",
-        "kkk",
-        "😂",
-        "🤣",
-        "😆",
-        "😅",
-        "😹"
-       ]
-      }
-     },
-     {
-      "mode": "not",
-      "matcher": {
-       "mode": "contains_stem",
-       "stems": [
-        "хаха",
-        "хэхэ",
-        "haha",
-        "hehe",
-        "xaxa"
-       ]
-      }
-     }
+    "mode": "contains_stem",
+    "stems": [
+     "хаяг",
+     "hayg",
+     "hayag",
+     "xayg",
+     "haig",
+     "байршил",
+     "bairshil",
+     "хаана",
+     "haana",
+     "xaana",
+     "хаашаа",
+     "haashaa",
+     "салбарууд",
+     "salbaruud"
     ]
    }
   },
@@ -468,7 +426,13 @@
        "ve",
        "we",
        "be",
-       "bol"
+       "bol",
+       "биз",
+       "biz",
+       "биздээ",
+       "bizdee",
+       "биздэ",
+       "bizde"
       ]
      },
      {
@@ -477,43 +441,6 @@
        "салбар",
        "salbar"
       ]
-     },
-     {
-      "mode": "not",
-      "matcher": {
-       "mode": "has_word",
-       "words": [
-        "хаха",
-        "хахаха",
-        "хэхэ",
-        "хихи",
-        "haha",
-        "hahaha",
-        "hehe",
-        "hihi",
-        "xaxa",
-        "lol",
-        "kkk",
-        "😂",
-        "🤣",
-        "😆",
-        "😅",
-        "😹"
-       ]
-      }
-     },
-     {
-      "mode": "not",
-      "matcher": {
-       "mode": "contains_stem",
-       "stems": [
-        "хаха",
-        "хэхэ",
-        "haha",
-        "hehe",
-        "xaxa"
-       ]
-      }
      }
     ]
    }

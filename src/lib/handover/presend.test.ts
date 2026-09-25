@@ -1,0 +1,76 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { personEchoesIn, personRepliedSince } from './presend.ts';
+
+const PSID = '28319159404400214';
+const OUR_APP = '1562862634970492';
+const INBOX_APP = 263902037430900;   // Meta's Page inbox: a person typing
+
+const entry = (recipient: string, appId: number | null, isEcho = true) => ({
+  id: '1520409424715591',
+  messaging: [{
+    sender: { id: '1520409424715591' }, recipient: { id: recipient },
+    message: { mid: 'm_x', text: 'Болноо', is_echo: isEcho, ...(appId === null ? {} : { app_id: appId }) },
+  }],
+});
+
+test('a staff reply from the Page inbox to THIS customer is a person', () => {
+  assert.equal(personEchoesIn(entry(PSID, INBOX_APP), PSID, OUR_APP), 1);
+});
+
+test('our own send, a reply to another customer, and a customer message are not', () => {
+  assert.equal(personEchoesIn(entry(PSID, Number(OUR_APP)), PSID, OUR_APP), 0);
+  // 2026-09-25 14:16:57: «Манай салбар ажилна» went to a DIFFERENT customer than the one
+  // being answered at that moment. It must not stop that reply.
+  assert.equal(personEchoesIn(entry('38717672411212186', INBOX_APP), PSID, OUR_APP), 0);
+  assert.equal(personEchoesIn(entry(PSID, null, false), PSID, OUR_APP), 0);
+  assert.equal(personEchoesIn(null, PSID, OUR_APP), 0);
+});
+
+/** A two-table stub: `conversations` for the thread state, `webhook_events` for the scan. */
+function db(conv: { data?: unknown; error?: unknown }, events: { data?: unknown; error?: unknown }) {
+  const from = (table: string) => {
+    const chain: Record<string, unknown> = {};
+    for (const m of ['select', 'eq', 'gt', 'contains', 'order', 'limit']) chain[m] = () => chain;
+    const reply = table === 'conversations' ? conv : events;
+    chain['maybeSingle'] = async () => ({ data: null, error: null, ...reply });
+    chain['then'] = (res: (v: unknown) => unknown) => res({ data: null, error: null, ...reply });
+    return chain;
+  };
+  return { from } as never;
+}
+
+const INPUT = {
+  tenantId: 't', channelId: 'c', conversationId: 'conv', psid: PSID, eventId: 794,
+  since: new Date('2026-09-25T14:16:41Z'), ourAppId: OUR_APP,
+};
+
+test('the thread marked human at or after the message is a reply', async () => {
+  const r = await personRepliedSince(
+    db({ data: { thread_control: 'human', thread_control_at: '2026-09-25T14:16:58Z' } }, { data: [] }), INPUT,
+  );
+  assert.equal(r.replied, true);
+});
+
+test('a human hold from BEFORE the message is not a new reply (check 4 already judged it)', async () => {
+  const r = await personRepliedSince(
+    db({ data: { thread_control: 'human', thread_control_at: '2026-09-25T13:00:00Z' } }, { data: [] }), INPUT,
+  );
+  assert.deepEqual(r, { replied: false });
+});
+
+test('an echo stored after the message counts before its own job has run', async () => {
+  const r = await personRepliedSince(
+    db({ data: { thread_control: 'unknown', thread_control_at: null } }, { data: [{ id: 798, raw_payload: entry(PSID, INBOX_APP) }] }),
+    INPUT,
+  );
+  assert.equal(r.replied, true);
+  assert.equal(r.replied === true && r.via, 'echo');
+});
+
+test('either read failing is unreadable, never "no reply"', async () => {
+  const a = await personRepliedSince(db({ error: { message: 'reset' } }, { data: [] }), INPUT);
+  assert.equal(a.replied, 'unreadable');
+  const b = await personRepliedSince(db({ data: { thread_control: 'unknown' } }, { error: { message: 'reset' } }), INPUT);
+  assert.equal(b.replied, 'unreadable');
+});

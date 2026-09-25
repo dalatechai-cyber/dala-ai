@@ -37,7 +37,7 @@
 import { containsStem, coversMessage, wholeMessageKey, wholeMessageMatches } from '../mn/match.ts';
 import { cpLength, fold } from '../mn/text.ts';
 import { isTenantConfirmed } from '../provenance.ts';
-import { MIN_STEM_CHARS } from './match.ts';
+import { MIN_STEM_CHARS, matcherFires, type MatcherSpec } from './match.ts';
 
 export type DeterministicRule = {
   intent: string;
@@ -49,8 +49,21 @@ export type DeterministicRule = {
    * topics fired on this message. The gate decides what the message is about; this row only
    * says what to add when it is.
    */
-  matchMode: 'whole_message' | 'contains_stem' | 'covers_message' | 'on_topic' | 'on_correction';
+  matchMode: 'whole_message' | 'contains_stem' | 'covers_message' | 'on_topic' | 'on_correction' | 'matcher';
   stems: readonly string[];
+  /**
+   * `matcher` mode (`0048`, D-126): the gate's own matcher, parsed by `parseMatcher`. Null
+   * when the mode is anything else, or when the row's jsonb did not parse — and then the
+   * row never fires (`bad_matcher`), because here a bad row costs a model call, never a
+   * wrong answer.
+   */
+  matcher?: MatcherSpec | null;
+  /**
+   * The body was written with `{tomorrow.day}` / `{tomorrow.hours}` and has been filled in
+   * for this request (`reception/daySlots.ts`). Lets the facts guard serve the tenant's own
+   * tomorrow sentence when the model restates tomorrow's hours in its own words.
+   */
+  tomorrowSlots?: boolean;
   /**
    * `covers_message` only: whole words that may sit beside a stem (`0041`). Every word of
    * the message must be a stem hit or one of these, which is what lets a row answer a
@@ -112,7 +125,9 @@ export type SkipReason =
   | 'disabled' | 'no_stems' | 'stem_too_short' | 'history_not_empty' | 'history_unknown' | 'no_match'
   /** A `covers_message` row reads the words, and a message carrying a picture is not only
    *  its words — «зураг» with a photograph attached is not a question about sending one. */
-  | 'has_attachment';
+  | 'has_attachment'
+  /** A `matcher` row whose matcher is missing or did not parse (`0048`). */
+  | 'bad_matcher';
 
 export type DeterministicOutcome = {
   /** The `replace` row that answers this message, or null. */
@@ -141,6 +156,8 @@ export function matchDeterministic(
   history: HistoryState,
   opts: {
     hasAttachment: boolean; topics?: readonly string[];
+    /** Attachment kinds, for a `matcher` row's `has_attachment` member. Absent reads as none. */
+    attachments?: readonly string[];
     /** The message with known Latin spellings replaced (D-120); a row fires on either text. */
     respelled?: string | null;
   } = { hasAttachment: false },
@@ -174,6 +191,14 @@ export function matchDeterministic(
     if (rule.matchMode === 'whole_message') return texts.some((t) => wholeMessageMatches(t, rule.stems));
     // Topic keys are identifiers the gate emitted, not customer text, so no stem floor.
     if (rule.matchMode === 'on_topic') return rule.stems.some((k) => (opts.topics ?? []).includes(k));
+    // The gate's own matcher and its own floors (`parseMatcher` refused anything short).
+    if (rule.matchMode === 'matcher') {
+      if (rule.matcher === undefined || rule.matcher === null) {
+        skipped.push({ intent: rule.intent, reason: 'bad_matcher' });
+        return null;
+      }
+      return matcherFires({ text, attachments: opts.attachments ?? [], respelled: opts.respelled ?? null }, rule.matcher);
+    }
     // `contains_stem` and `covers_message` carry the gate matcher's over-matching risk on
     // their stems, so they carry its floor. A rule below it is SKIPPED rather than refusing
     // everything: here a bad rule costs a model call, not a disarmed refusal.
@@ -191,7 +216,7 @@ export function matchDeterministic(
     // (`correctionFor`), so it has nothing to say before the reply exists.
     if (rule.matchMode === 'on_correction') continue;
     if (!rule.enabled) { skipped.push({ intent: rule.intent, reason: 'disabled' }); continue; }
-    if (rule.stems.length === 0) { skipped.push({ intent: rule.intent, reason: 'no_stems' }); continue; }
+    if (rule.matchMode !== 'matcher' && rule.stems.length === 0) { skipped.push({ intent: rule.intent, reason: 'no_stems' }); continue; }
 
     if (rule.requiresEmptyHistory) {
       // Unknown is NOT empty. Firing here would greet a customer mid-conversation because

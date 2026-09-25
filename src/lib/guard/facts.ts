@@ -38,7 +38,8 @@
 import { fold, nfc } from '../mn/text.ts';
 import { blankUrls } from '../mn/extract.ts';
 import { sectionRows } from '../quality/serviceNames.ts';
-import { CONTACT_KIND_LABELS } from '../prompt/tenant.ts';
+import { CONTACT_KIND_LABELS, WEEKDAYS } from '../prompt/tenant.ts';
+import { containsStem } from '../mn/match.ts';
 
 export type FactSection = 'price' | 'deposit' | 'hours' | 'contact';
 
@@ -59,7 +60,48 @@ export type FactSource = {
   addresses: string[];
   /** The approved texts as written, so one the reply quoted whole is served beside the rows. */
   quotable: string[];
+  /**
+   * Which weekday is today and tomorrow on the tenant's clock, and the tenant's own
+   * sentence for tomorrow's hours if it has one (D-126). Absent: hours are served as the
+   * whole week, as before.
+   */
+  days?: DayFocus;
 };
+
+export type DayFocus = {
+  today: number; tomorrow: number; tomorrowLine: string | null;
+  /** Of today and tomorrow, the weekdays a `tenant_closures` range covers: never narrowed to. */
+  closed?: readonly number[];
+};
+
+/**
+ * The one day a reply is about, or null. The MODEL's words are read, and the model writes
+ * Cyrillic: «маргааш» is tomorrow and «өнөөдөр» today, by token prefix so «маргаашийн» and
+ * «өнөөдрийн» count; otherwise exactly one weekday name. Two of anything is a week.
+ */
+function focusDay(folded: string, days: DayFocus): { dow: number; tomorrow: boolean } | null {
+  const tomorrow = containsStem(folded, 'маргааш');
+  const today = containsStem(folded, 'өнөөд');
+  if (tomorrow && today) return null;
+  if (tomorrow) return { dow: days.tomorrow, tomorrow: true };
+  if (today) return { dow: days.today, tomorrow: false };
+  const named = WEEKDAYS.filter((w) => containsStem(folded, fold(w.label)));
+  return named.length === 1 ? { dow: named[0]!.dow, tomorrow: named[0]!.dow === days.tomorrow } : null;
+}
+
+/** The day, unless a closure covers it: its regular hours would then be the false answer. */
+function openFocus(folded: string, days: DayFocus): { dow: number; tomorrow: boolean } | null {
+  const f = focusDay(folded, days);
+  return f === null || (days.closed ?? []).includes(f.dow) ? null : f;
+}
+
+/** The hours row for one weekday: the row the hours section prints under that day's name. */
+function dayRow(rows: readonly FactRow[], dow: number): FactRow | null {
+  const label = WEEKDAYS.find((w) => w.dow === dow)?.label;
+  if (label === undefined) return null;
+  const found = rows.filter((r) => r.section === 'hours' && fold(r.text).startsWith(`${fold(label)}:`));
+  return found.length === 1 ? found[0]! : null;
+}
 
 /** Twelve code points of an address outside a verbatim quote is a restatement of it. */
 export const ADDRESS_OVERLAP_CP = 12;
@@ -226,6 +268,17 @@ export function checkFacts(reply: string, source: FactSource, customerMessage = 
     if (owners.some((r) => r.section === 'hours')) {
       const weeks = new Set(owners.filter((r) => r.section === 'hours').map((r) => r.group));
       owners = source.rows.filter((r) => r.section === 'hours' && weeks.has(r.group));
+      // …unless the reply is about ONE day and this amount is that day's (founder,
+      // 2026-09-25: «Hi margaash tanaih ajilahu» got all seven days). Then that day's row,
+      // or the tenant's own tomorrow sentence. One location only: a branch week is judged
+      // by `judgeBranches`. An amount that is not the named day's — «маргааш» over Sunday's
+      // hours — keeps the week, which is true whatever the model meant.
+      const focus = source.days === undefined || weeks.size !== 1 || !weeks.has('') ? null : openFocus(text, source.days);
+      const row = focus === null ? null : dayRow(owners, focus.dow);
+      if (focus !== null && row !== null && row.amounts.includes(a.digits)) {
+        const line = focus.tomorrow ? source.days?.tomorrowLine ?? null : null;
+        owners = [line === null ? row : { ...row, text: line }];
+      }
     }
     // A PRICE row must be corroborated — its range partner, or a word of its service's name
     // in the reply or the question. Measured on Matrix's corpus: «Маникюр хэд вэ?» answered

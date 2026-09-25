@@ -659,6 +659,27 @@ drafts and the replies they produced.
 **Pushing it changes no reply on its own** — the compiled prefix is what a tenant is
 answered from, so every tenant needs republishing afterwards (deploy, `git pull`, publish).
 
+### `0049_matcher_rows_can_match`
+
+**Widens a CHECK.** `enabled_rule_can_match` required an enabled `deterministic_replies` row to
+carry stems; a `matcher` row carries a matcher instead, and the old CHECK refused the first
+real one. It now accepts either. Every row that passed before passes now (D-126).
+
+### `0048_deterministic_matcher`
+
+**Additive.** `deterministic_replies.matcher jsonb` (nullable), `match_mode` may now be
+`matcher`, and a CHECK that `matcher` is set exactly when `match_mode = 'matcher'` (true for
+every existing row). The row fires when the gate's own matcher fires (`gate/match.ts`), which
+is what lets a row require two words together — *tomorrow* AND *working* (D-126). A matcher
+that does not parse never fires.
+
+A body may carry `{tomorrow.day}` and `{tomorrow.hours}`. They are filled per request from
+`business_hours` on the tenant's clock; when tomorrow has no hours, is closed, falls in a
+`tenant_closures` range, or the tenant lists two or more branches, the row does not answer.
+
+For hand-written INSERTs: `match_mode = 'matcher'` with a `matcher` object and `stems = '{}'`;
+`provenance` must be `tenant_confirmed` for the row to be served.
+
 ### `0047_branches`
 
 **Additive.** Four tables and one `canned_response_kinds` row, for a tenant with more than
