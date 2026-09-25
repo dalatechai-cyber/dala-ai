@@ -547,3 +547,13 @@ test('D-122: comment_private_reply is invisible to the model, so its row cannot 
   const withRow = cannedSectionBody('X', [{ kind: 'handoff', body: 'a' }, { kind: 'comment_private_reply', body: 'b' }]);
   assert.equal(withRow, without);
 });
+
+test('in_reply reads the reply about to be sent, and never fires where there is none (2026-09-26, s04)', () => {
+  const parsed = parseMatcher({ mode: 'in_reply', matcher: { mode: 'has_word', words: ['эхо'] } });
+  assert.ok(parsed.ok);
+  if (!parsed.ok) return;
+  assert.equal(matcherFires({ text: 'Утсаар ярьдаг AI байгаа юу?', attachments: [] }, parsed.spec), false, 'no reply yet');
+  assert.equal(matcherFires({ text: 'Утсаар ярьдаг AI байгаа юу?', attachments: [], reply: 'Эхо — Утасны оператор' }, parsed.spec), true);
+  assert.equal(matcherFires({ text: 'эхо', attachments: [], reply: 'Дали' }, parsed.spec), false, 'the customer\'s words are not the reply');
+  assert.equal(parseMatcher({ mode: 'in_reply' }).ok, false, 'a member is required');
+});

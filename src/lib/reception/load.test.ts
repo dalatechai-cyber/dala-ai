@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fallbackLineOf, loadReceptionContext, type TenantSettings } from './load.ts';
+import { complaintRulesOf, fallbackLineOf, loadReceptionContext, type TenantSettings } from './load.ts';
 
 const SETTINGS: TenantSettings = { defaultLocale: 'mn-MN', promptCacheMode: '1h' };
 
@@ -319,4 +319,11 @@ test('a client that THROWS building the sales_next_steps query does not refuse t
   const r = await loadReceptionContext(throwing as never, input);
   assert.equal(r.ok, true);
   assert.equal(r.ok && r.context.fallbackLine, null);
+});
+
+test('complaint rows: the escalate rows as the classifier takes them; a failed read is none', () => {
+  const m = { mode: 'has_word', words: ['муу'] };
+  assert.deepEqual(complaintRulesOf({ data: [{ rule_key: 'complaint_bad', verdict: 'escalate', matcher: m }, { rule_key: 'x', verdict: 'reply', matcher: m }], error: null }),
+    [{ ruleKey: 'complaint_bad', verdict: 'escalate', matcher: m }]);
+  assert.deepEqual(complaintRulesOf({ data: null, error: { message: 'down' } }), []);
 });

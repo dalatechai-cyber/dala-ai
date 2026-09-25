@@ -11,6 +11,7 @@ import { DEFAULT_GATE, GATE_BY_RESPONSE_KIND, scriptForLocale } from '../../conf
 import { loadLiveSnapshot } from '../prompt/publish.ts';
 import { parseMatcher, type CannedRow, type GateRule } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
+import type { CommentRule } from '../comments/classify.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
 import { MAX_REPLY_CHARS } from './handle.ts';
 import type { BusinessHours, Closure } from './volatile.ts';
@@ -57,6 +58,13 @@ export type ReceptionContext = {
    * best-effort: a failed read is null — the old line — and never refuses the reply.
    */
   fallbackLine: string | null;
+  /**
+   * The tenant's own COMPLAINT rows — `comment_rules` with verdict `escalate`, the same rows
+   * the comment classifier and the sales shadow read (D-122, D-127). A complaint keeps its
+   * «Уучлаарай» (founder, 2026-09-26: *"Complaints keep the apology."*). Best-effort: a
+   * failed read is `[]`, which is the behaviour before this existed.
+   */
+  complaintRules: CommentRule[];
   /**
    * Today's and tomorrow's weekday on the tenant's clock (0 = Sunday), and which of the two a
    * closure covers, for the facts guard (D-126).
@@ -264,6 +272,9 @@ export async function loadReceptionContext(
   // query (a fixture without the table does) must land in the catch too, not escape it.
   const fallbackRead = (async () => db.from('sales_next_steps').select('body, enabled, reviewed_at')
     .eq('tenant_id', input.tenantId).eq('kind', 'callback'))()
+    .then((r) => r, () => ({ data: null, error: { message: 'threw' } }));
+  const complaintRead = (async () => db.from('comment_rules').select('rule_key, verdict, matcher')
+    .eq('tenant_id', input.tenantId).eq('enabled', true).eq('verdict', 'escalate'))()
     .then((r) => r, () => ({ data: null, error: { message: 'threw' } }));
   const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes, detRes, contactsRes, aliasRes, spellRes] = await Promise.all([
     db.from('disclosure_rules')
@@ -484,6 +495,7 @@ export async function loadReceptionContext(
       contentHash: snapshot.snapshot.contentHash,
       rules,
       fallbackLine: fallbackLineOf(await fallbackRead),
+      complaintRules: complaintRulesOf(await complaintRead),
       canned: cannedRows,
       tenantGuard,
       cacheMode,
@@ -505,4 +517,12 @@ export function fallbackLineOf(res: { data: unknown; error: unknown }): string |
   const row = rows.find((r) => r['enabled'] !== false && r['reviewed_at'] !== null && r['reviewed_at'] !== undefined
     && typeof r['body'] === 'string' && r['body'].trim() !== '');
   return row === undefined ? null : String(row['body']).trim();
+}
+
+/** The escalate rows as the classifier takes them, or `[]` when the read failed. */
+export function complaintRulesOf(res: { data: unknown; error: unknown }): CommentRule[] {
+  if (res.error !== null && res.error !== undefined) return [];
+  const rows = Array.isArray(res.data) ? res.data as Record<string, unknown>[] : [];
+  return rows.filter((r) => r['verdict'] === 'escalate')
+    .map((r) => ({ ruleKey: String(r['rule_key']), verdict: 'escalate' as const, matcher: r['matcher'] }));
 }

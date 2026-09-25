@@ -358,9 +358,9 @@ from tenants t where t.slug = 'dalatech'
 insert into reply_cases (tenant_id, history, customer_message, expected_body, must_include, must_not_include, note, active)
 select t.id, '[]'::jsonb, 'qpay-eer tulj bolhuu',
        null,
-       array['хамт олон']::text[],
-       array['Тийм ээ', 'QPay-ээр төлбөр хийх боломжтой', 'QPay-ээр төлөх боломжтой', 'QPay-ээр төлж болно', 'Матрикс', 'Matrix', 'Tara', 'Тара салон', 'манай салон', 'салонд тавтай', 'үс засалт', 'дотоод заавар', 'БЭЛЭН ХАРИУЛТ', '76001888', '7741-7777', '80905498', 'Вира одоо ажиллаж байна', 'Эхо одоо ажиллаж байна', 'Нова одоо ажиллаж байна', 'Ора одоо ажиллаж байна', 'Вира одоо ажиллаж байгаа', 'Эхо одоо ажиллаж байгаа', 'Нова одоо ажиллаж байгаа', 'Ора одоо ажиллаж байгаа', 'Вира идэвхтэй ажиллаж байна', 'Эхо идэвхтэй ажиллаж байна', 'Нова идэвхтэй ажиллаж байна', 'Ора идэвхтэй ажиллаж байна', 'Вира идэвхтэй байна', 'Эхо идэвхтэй байна', 'Нова идэвхтэй байна', 'Ора идэвхтэй байна']::text[],
-       'dalatech-testset:m03 — Not in the data: the team answers. No invented yes — QPay is not in DalaTech''s data, and «Тийм ээ, QPay-ээр төлбөр хийх боломжтой» passed this case on 2026-09-26.', false
+       array['QPay']::text[],
+       array['боломжгүй', 'болохгүй', 'Матрикс', 'Matrix', 'Tara', 'Тара салон', 'манай салон', 'салонд тавтай', 'үс засалт', 'дотоод заавар', 'БЭЛЭН ХАРИУЛТ', '76001888', '7741-7777', '80905498', 'Вира одоо ажиллаж байна', 'Эхо одоо ажиллаж байна', 'Нова одоо ажиллаж байна', 'Ора одоо ажиллаж байна', 'Вира одоо ажиллаж байгаа', 'Эхо одоо ажиллаж байгаа', 'Нова одоо ажиллаж байгаа', 'Ора одоо ажиллаж байгаа', 'Вира идэвхтэй ажиллаж байна', 'Эхо идэвхтэй ажиллаж байна', 'Нова идэвхтэй ажиллаж байна', 'Ора идэвхтэй ажиллаж байна', 'Вира идэвхтэй байна', 'Эхо идэвхтэй байна', 'Нова идэвхтэй байна', 'Ора идэвхтэй байна']::text[],
+       'dalatech-testset:m03 — Yes: payment is by QPay, and the monthly fee is collected through QPay (founder, 2026-09-26: in DalaTech''s data from the next publish).', false
 from tenants t where t.slug = 'dalatech'
   and not exists (select 1 from reply_cases r where r.tenant_id = t.id and split_part(r.note, ' ', 1) = 'dalatech-testset:m03');
 
