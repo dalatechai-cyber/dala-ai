@@ -659,6 +659,45 @@ drafts and the replies they produced.
 **Pushing it changes no reply on its own** — the compiled prefix is what a tenant is
 answered from, so every tenant needs republishing afterwards (deploy, `git pull`, publish).
 
+### `0047_branches`
+
+**Additive.** Four tables and one `canned_response_kinds` row, for a tenant with more than
+one location (D-122). Nothing existing is dropped, rewritten, narrowed or re-keyed, and no
+tenant row is inserted. Numbered 0047 because 0045/0046 may be taken by parallel work.
+
+`contact_points` is keyed `(tenant_id, kind)`, so a tenant could hold one address and one
+map link; admitting a second would mean replacing a live primary key. These tables hold
+only what DIFFERS by branch, and every existing row keeps meaning the tenant-wide fact.
+
+| Table | Key | Notes for hand-written INSERTs |
+|---|---|---|
+| `tenant_branches` | `id`; unique `(tenant_id, name)` | `name` (NFC, no line break, no `===` — it becomes a prefix heading), `stems text[]` (how customers write it, either script; default `{}`), `ordinal` (default 0), `active` (default true). **`provenance` NOT NULL with NO DEFAULT**, as `0011`'s five tables: only `tenant_confirmed` branches are compiled |
+| `branch_contact_points` | `(tenant_id, branch_id, kind)` | Same `kind` vocabulary as `contact_points`. `value` NFC, non-empty. Overrides the tenant-wide row of that kind for this branch |
+| `branch_hours` | `(tenant_id, branch_id, weekday)` | As `business_hours` (`weekday` is Postgres `dow`, 0 = Sunday; `closed` or both times). Overrides that weekday for this branch |
+| `branch_variant_prices` | `(tenant_id, branch_id, variant_id)` | `variant_id` → `service_variants(tenant_id, id)`. `price_kind` is `exact`/`range`/`from`/`on_inspection` with `service_variants`' own number CHECKs; `none` is not allowed. **`confirmed_at` null means the price is unknown**: the service is shown for that branch with NO figure, never at the tenant-wide price |
+
+Children reference `(tenant_id, branch_id)` — the composite spine (V14). All four are
+client-readable config like `contact_points`: RLS enabled and forced, the three restrictive
+`_no_client_*` write policies, a dormant `_member_read`, SELECT for `authenticated`, nothing
+for `anon`, all for `service_role` (V2, V3, V5, V6, V15–V17, V35 all pass locally).
+
+**Nothing changes until a tenant has TWO active, confirmed branches.** With zero or one,
+`planBranches` returns null and the compiled prefix is byte-for-byte what it was — measured
+against hashes recorded from the pre-change code (`branches.test.ts`). With two or more, the
+tenant-wide contacts, hours and price list keep only what every branch shares, and each
+branch gets `=== ХОЛБОО БАРИХ — {name} ===`, `=== БАЙГУУЛЛАГЫН АЖЛЫН ЦАГ — {name} ===` and
+`=== ҮНИЙН ЖАГСААЛТ — {name} ===` for what differs, after a `=== САЛБАРУУД ===` list.
+
+`clarify_branch` is the canned kind served when a reply states one branch's facts to a
+customer who has not said which branch. It is registered with **no row**, it is in
+`MODEL_INVISIBLE_KINDS` (so a row cannot move `canned_hash`), and until the founder approves
+a sentence (`prompt/drafts/branch_clarify.mn.txt`) the reply path serves the handoff line.
+
+**Deploy order.** The publish path (`loadTenantKb`) reads these tables, so a publish before
+the push refuses with `tenant_branches unreadable` and writes nothing. The reply path reads
+them only when the live snapshot lists branches, so deploying the code before the push
+cannot 503 a live tenant.
+
 ### `0044_flaw_loop`
 
 **Additive.** Two tables and two functions, for the flaw loop (D-120).

@@ -435,6 +435,57 @@ begin
   raise notice 'T14 PASS: stamped on insert and on transition, never cleared, never re-stamped';
 end $$;
 
+-- T15: a branch's rows cannot attach to ANOTHER tenant's branch or price (0047, D-122).
+-- The four branch tables are new, so the spine they rely on is new too: a per-branch price
+-- that could point at another tenant's variant would put one salon's price in another's
+-- prompt at the next publish. Run as service_role, like T1, for T1's reason.
+do $$
+declare c text; v_variant uuid; v_branch_a uuid; v_branch_b uuid;
+begin
+  set local role service_role;
+  if current_user <> 'service_role' then raise exception 'T15 FAILED: ran as %, not service_role', current_user; end if;
+
+  insert into service_variants (tenant_id, service_id, variant_key, price_kind, price_min)
+    values ('11111111-1111-1111-1111-111111111111','aaaaaaaa-0000-0000-0000-000000000001','t15','exact',30000)
+    returning id into v_variant;
+  insert into tenant_branches (tenant_id, name, provenance)
+    values ('11111111-1111-1111-1111-111111111111','Салбар А','tenant_confirmed') returning id into v_branch_a;
+  insert into tenant_branches (tenant_id, name, provenance)
+    values ('22222222-2222-2222-2222-222222222222','Салбар Б','tenant_confirmed') returning id into v_branch_b;
+
+  begin
+    insert into branch_contact_points (tenant_id, branch_id, kind, value)
+      values ('22222222-2222-2222-2222-222222222222', v_branch_a, 'address', 'Хаяг');
+    raise exception 'T15 FAILED: tenant B wrote a contact point onto tenant A''s branch';
+  exception when foreign_key_violation then
+    get stacked diagnostics c = CONSTRAINT_NAME;
+    if c <> 'branch_contact_points_tenant_id_branch_id_fkey' then
+      raise exception 'T15 FAILED: refused by %, not by the composite spine', c;
+    end if;
+  end;
+
+  begin
+    insert into branch_variant_prices (tenant_id, branch_id, variant_id, price_kind, price_min, confirmed_at)
+      values ('22222222-2222-2222-2222-222222222222', v_branch_b, v_variant, 'exact', 1000, now());
+    raise exception 'T15 FAILED: tenant B''s branch priced tenant A''s variant';
+  exception when foreign_key_violation then
+    get stacked diagnostics c = CONSTRAINT_NAME;
+    if c <> 'branch_variant_prices_tenant_id_variant_id_fkey' then
+      raise exception 'T15 FAILED: refused by %, not by the composite spine', c;
+    end if;
+  end;
+
+  -- D-020: a branch that does not say where it came from is refused, not credited.
+  begin
+    insert into tenant_branches (tenant_id, name) values ('11111111-1111-1111-1111-111111111111','Салбар В');
+    raise exception 'T15 FAILED: a branch with no provenance was accepted';
+  exception when not_null_violation then null;
+  end;
+
+  reset role;
+  raise notice 'T15 PASS: branch rows cannot cross tenants, and a branch must say where it came from';
+end $$;
+
 do $$ begin raise notice 'ISOLATION SUITE PASSED'; end $$;
 
 rollback;
