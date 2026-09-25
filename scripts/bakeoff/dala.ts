@@ -74,6 +74,8 @@ const gateRows = arg('gate') === undefined ? null : JSON.parse(readFileSync(arg(
   phrasings?: { gate: string; stems: string[] }[];
   /** `service_aliases` joined to the service's name, `{ name, alias }`, as `load.ts` shapes them. */
   aliases?: { name: string; alias: string }[];
+  /** `spellings` rows that are settled or confirmed, `{ latin, cyrillic }` (D-120). */
+  spellings?: { latin: string; cyrillic: string }[];
 };
 const PHRASINGS: Record<string, string[][]> = {};
 for (const p of gateRows?.phrasings ?? []) (PHRASINGS[p.gate] ??= []).push(p.stems);
@@ -228,6 +230,7 @@ async function ask(text: string, attachments: readonly string[], history: { role
       depositRows: sectionRows(promptStable, SECTION_LABELS.deposits),
       faqAnswers: faqAnswersFromPrefix(promptStable, SECTION_LABELS.faqs),
       serviceAliases: gateRows?.aliases ?? [],
+      spellings: gateRows?.spellings ?? [],
     } as never);
     return { ok: true, reply: record.body ?? null, answeredBy: record.answeredBy ?? null,
       flags: record.flags, flagDetail: record.flagDetail, kind: (out as { kind: string }).kind, ms: Date.now() - started,

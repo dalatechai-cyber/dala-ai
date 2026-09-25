@@ -106,6 +106,12 @@ export type MatchSubject = {
   text: string;
   /** Attachment kinds on THIS message; empty for an ordinary text message. */
   attachments: readonly string[];
+  /**
+   * The same message with the tenant's known Latin spellings replaced by its words
+   * (`mn/latin.ts`, D-120), or null when nothing was replaced. A matcher fires when it fires
+   * on EITHER text: the spelling can only add a match, never hide what the customer wrote.
+   */
+  respelled?: string | null;
 };
 
 export type GateRule = {
@@ -218,10 +224,14 @@ export function parseMatcher(raw: unknown): ParseResult {
 
 /** Does one parsed matcher fire on this message? */
 export function matcherFires(subject: MatchSubject, spec: MatcherSpec): boolean {
-  if (spec.mode === 'whole_message') return wholeMessageMatches(subject.text, spec.phrases);
   if (spec.mode === 'has_attachment') return subject.attachments.some((a) => spec.kinds.includes(a));
-  if (spec.mode === 'stem_sequence') return matchesStemSequence(subject.text, spec.stems, spec.windowCp);
-  return spec.stems.some((stem) => containsStem(subject.text, stem));
+  const texts = subject.respelled === undefined || subject.respelled === null
+    ? [subject.text] : [subject.text, subject.respelled];
+  return texts.some((text) => {
+    if (spec.mode === 'whole_message') return wholeMessageMatches(text, spec.phrases);
+    if (spec.mode === 'stem_sequence') return matchesStemSequence(text, spec.stems, spec.windowCp);
+    return spec.stems.some((stem) => containsStem(text, stem));
+  });
 }
 
 export type MatchOutcome =

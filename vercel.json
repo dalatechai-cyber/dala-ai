@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "if [ \"$VERCEL_ENV\" = \"production\" ]; then node scripts/preflight.ts; fi && next build",
+  "buildCommand": "if [ \"$VERCEL_ENV\" = \"production\" ]; then node scripts/preflight.ts && node scripts/replycases/gate.ts; fi && next build",
   "regions": [
     "sin1"
   ]

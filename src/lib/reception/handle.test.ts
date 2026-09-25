@@ -8,6 +8,7 @@ import { DAY_ONE_KB } from '../prompt/tenantKb.fixtures.ts';
 import { handleReception, PRICE_VIOLATION_FLAG, type ReceptionDeps, type ReceptionInput } from './handle.ts';
 import type { CallOutcome } from '../model/reception.ts';
 import type { GateRule } from '../gate/match.ts';
+import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
 
 const REVIEWED = '2026-09-04T00:00:00Z';
@@ -40,7 +41,10 @@ const GUARD_VIEW: TenantGuardView = {
 
 const OK_REPLY: CallOutcome = {
   kind: 'ok',
-  text: 'Чёлк тайралт 33,000₮ байна.',
+  // The price-list row quoted whole, as the platform requires (D-120). Written as
+  // «Чёлк тайралт 33,000₮ байна.» it is the price in the model's own words, which
+  // `guard/facts.ts` replaces with the row — see the fact tests at the end of this file.
+  text: 'Чёлк тайралт: 33,000₮ байна.',
   usage: { input_tokens: 9000, output_tokens: 40, cache_read_input_tokens: 8800, cache_creation_input_tokens: 0 },
   modelReturned: 'm', stopReason: 'end_turn',
 };
@@ -87,6 +91,7 @@ const base: ReceptionInput = {
   customerAttachments: [],
   customerSentPhoto: false,
   serviceAliases: [],
+  spellings: [],
   history: [],
   eventAt: new Date('2026-09-04T09:59:00Z'),
   now: new Date('2026-09-04T10:00:00Z'),
@@ -798,19 +803,22 @@ test('DONE-TEST: A RULE-(4) VIOLATION IS FLAGGED AND THE REPLY IS STILL SENT', a
   // than against four eyeballed replies.
   //
   // The reply is NOT discarded: its content is right and only its shape is wrong.
+  //
+  // 44,000 rather than the fixture row's 33,000: the price list's own amount written in the
+  // model's words is replaced by the row now (D-120), and this test is about the shape.
   const { deps: d, flags, drafts } = deps({
-    result: { ...OK_REPLY, text: 'Тайралт 33,000₮, засалт 22,000₮ байна.' },
+    result: { ...OK_REPLY, text: 'Тайралт 44,000₮, засалт 22,000₮ байна.' },
   });
   // Both figures must be on the allow-list or check 2 refuses the reply before the style
   // counter is ever reached — which is what the first run of this test measured.
-  const twoPrices = { ...GUARD_VIEW, allowedNumbers: ['33,000', '22,000'] };
+  const twoPrices = { ...GUARD_VIEW, allowedNumbers: ['44,000', '22,000'] };
   // `serviceNames: []` so the PRICE-PRESENTATION guard has nothing to check: this test is
   // about rule (4), and 22,000 is the fixture service's price, so leaving the list in
   // would substitute the price-list rows and the test would stop measuring what it names.
   const r = await handleReception(d, { ...base, serviceNames: [], tenantGuard: twoPrices });
   assert.equal(r.kind, 'drafted');
   assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'still answered by the model');
-  assert.equal(drafts.at(-1)?.body, 'Тайралт 33,000₮, засалт 22,000₮ байна.', 'unedited');
+  assert.equal(drafts.at(-1)?.body, 'Тайралт 44,000₮, засалт 22,000₮ байна.', 'unedited');
   assert.equal(flags.some((f) => f.code === 'style_price_lines'), true);
 });
 
@@ -972,4 +980,83 @@ test('DONE-TEST: a compliant reply is not flagged', async () => {
   });
   await handleReception(d, { ...base, serviceNames: [], tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['33,000', '22,000'] } });
   assert.equal(flags.some((f) => f.code === 'style_price_lines'), false);
+});
+
+// ---------------------------------------------------------------------------
+// D-120: facts come from the data, and a Latin spelling reaches the gate.
+// ---------------------------------------------------------------------------
+
+/** Matrix's shape: two services share 132,000, and a range belongs to one of them. */
+const PRICED = `STABLE\n=== ${SECTION_LABELS.dataMarker} ===\n=== ${SECTION_LABELS.priceList} ===\n`
+  + '- CMC тэжээл: 132,000₮\n- Усан хими: 132,000₮–154,000₮\n'
+  + `=== ${SECTION_LABELS.contacts} ===\n- Утас: 76001888, 80905498`;
+
+test('DONE-TEST: A PRICE IN THE MODEL\'S OWN WORDS IS REPLACED BY ITS ROW (live «usnii himi»)', async () => {
+  // Measured 2026-09-24 on the first live night: «usnii himi» got «Усны хими 132,000₮–154,000₮
+  // байна.» — two real prices under a service name that does not exist, sent as written
+  // because 132,000 has two owners and the presentation guard would not guess. The range
+  // names one row; that row is what the customer gets.
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text: 'Усны хими 132,000₮–154,000₮ байна.' } });
+  const r = await handleReception(d, {
+    ...base, customerMessage: 'usnii himi', promptStable: PRICED, serviceNames: [],
+    tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['132,000', '154,000'] },
+  });
+  assert.equal(r.kind, 'drafted');
+  assert.equal(drafts.at(-1)?.body, 'Усан хими: 132,000₮–154,000₮');
+  assert.equal(drafts.at(-1)?.answeredBy, 'deterministic', 'no model wording survives');
+  const f = flags.find((x) => x.code === 'fact_restated');
+  assert.ok(f !== undefined, 'the restatement is counted');
+  assert.equal(f?.attempted, 'Усны хими 132,000₮–154,000₮ байна.', 'with what the model wrote');
+});
+
+test('a price row quoted whole, and the phone number as written, are sent untouched', async () => {
+  const text = 'Усан хими: 132,000₮–154,000₮. Дэлгэрэнгүйг 76001888 дугаараас асуугаарай.';
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text } });
+  await handleReception(d, {
+    ...base, customerMessage: 'usnii himi', promptStable: PRICED, serviceNames: [],
+    tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['132,000', '154,000', '76001888'] },
+  });
+  assert.equal(drafts.at(-1)?.body, text);
+  assert.equal(drafts.at(-1)?.answeredBy, 'model');
+  assert.equal(flags.some((x) => x.code === 'fact_restated'), false);
+});
+
+test('DONE-TEST: A SETTLED LATIN SPELLING REACHES THE CHILDREN\'S RULE, AND ONLY WITH THE ROW', async () => {
+  // D-067 measured it: «huuhdiin us zasuulna» fires no Cyrillic stem, so the founder's
+  // children's rule never fired for it. The spelling list (D-120) is what closes it — and a
+  // test that passed without the row would be testing nothing.
+  const opted: GateRule = { ...CHILDREN, deterministicShortcircuit: true };
+  const without = deps();
+  await handleReception(without.deps, { ...base, customerMessage: 'huuhdiin us zasuulna', rules: [opted] });
+  assert.equal(without.drafts.at(-1)?.body === CANNED[1]?.body, false, 'no row, no refusal');
+
+  const withRow = deps();
+  const r = await handleReception(withRow.deps, {
+    ...base, customerMessage: 'huuhdiin us zasuulna', rules: [opted],
+    spellings: [{ latin: 'huuhdiin', cyrillic: 'хүүхдийн' }],
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
+  assert.equal(withRow.drafts.at(-1)?.body, CANNED[1]?.body);
+  assert.deepEqual(withRow.calls, ['release', 'draft:canned'], 'answered from the row, no model call');
+});
+
+test('restated set prices are served the tenant\'s way: its order, then its question', async () => {
+  const SET: DeterministicRule = {
+    intent: 'dye_prices', body: 'Та бүтэн будуулах уу?', enabled: true, matchMode: 'contains_stem',
+    stems: ['будагны үнэ'], coverWords: [], placement: 'replace',
+    quoteServices: ['Үсний угийн будаг', 'Урт үсний будаг'], requiresEmptyHistory: false, provenance: 'tenant_confirmed',
+  };
+  const prefix = `STABLE\n=== ${SECTION_LABELS.dataMarker} ===\n=== ${SECTION_LABELS.priceList} ===\n`
+    + '- Урт үсний будаг: 200,000₮\n- Үсний угийн будаг: 135,000₮';
+  // The model's own labels for the two rows, longest first — measured on Matrix 2026-09-24.
+  const { deps: d, drafts } = deps({ result: { ...OK_REPLY, text: 'Далнаас доош 200,000₮, хүзүүний урт 135,000₮ будаг.' } });
+  await handleReception(d, {
+    ...base, customerMessage: 'Будаг хэд вэ?', promptStable: prefix, deterministic: [SET],
+    serviceNames: [
+      { name: 'Урт үсний будаг', prices: ['200000'], rows: ['Урт үсний будаг: 200,000₮'] },
+      { name: 'Үсний угийн будаг', prices: ['135000'], rows: ['Үсний угийн будаг: 135,000₮'] },
+    ],
+    tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['200,000', '135,000'] },
+  });
+  assert.equal(drafts.at(-1)?.body, 'Үсний угийн будаг: 135,000₮\nУрт үсний будаг: 200,000₮\n\nТа бүтэн будуулах уу?');
 });

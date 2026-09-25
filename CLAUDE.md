@@ -1052,6 +1052,17 @@ any more than on the database's collation (D-026). Exemptions are written as
 `guard-ok:locale` on the line or the one above, so an exemption is always a sentence
 somebody wrote rather than a filename that happened to match.
 
+**The flaw loop gates every publish and every production deploy** (2026-09-24, D-120).
+`reply_cases` holds the replies the founder marked wrong (`select mark_reply_wrong('<ref>',
+'<right reply>')`, refs from the 09:00 flaw report). `scripts/replycases/gate.ts` answers
+each case through `handleReception` over the live configuration and runs in the Vercel
+production build after preflight. `scripts/publish/tenant.ts` runs the same cases against the
+prefix it is about to publish. **A failing case, or one that cannot be checked, stops both.**
+CI cannot see this gate, because it has no live database, so a green PR can still fail its
+production build here. Read the build log before concluding a deploy happened. Model replies
+now pass `guard/facts.ts`: a price, deposit, hour, phone or address in the model's own words
+is replaced by the data rows, or by the handoff line when no row can be shown to own it.
+
 ## Where things are
 
 | | |

@@ -86,6 +86,7 @@ function effects(now: Date): WorkerEffects {
           cannedLabel: SECTION_LABELS.canned,
           serviceNames: servicesFromPrefix(a.ctx.promptStable, SECTION_LABELS.priceList),
           serviceAliases: a.ctx.serviceAliases,
+          spellings: a.ctx.spellings,
           depositRows: sectionRows(a.ctx.promptStable, SECTION_LABELS.deposits),
           faqAnswers: faqAnswersFromPrefix(a.ctx.promptStable, SECTION_LABELS.faqs),
           cannedHash: a.ctx.cannedHash,
