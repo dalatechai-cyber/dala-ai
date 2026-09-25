@@ -157,7 +157,8 @@ Written in one transaction (`scripts/provision/tenant0-approved-2026-09-25.sql`)
 - `tenant_budgets`: daily `2110000000`, so Reception gets $2.00 a day. Monthly carries over
   at $5; nothing reads it.
 - `comment_public_reply`: `reviewed_by = founder`.
-- Unchanged: FAQ 4 («3–5 хоногт») and FAQ 6 (the discounts). Their choice was left blank.
+- FAQ 4 now reads «AI ажилтан 1–2 долоо хоногт ажиллаж эхэлнэ.» (founder, same evening). FAQ 6's
+  discounts were confirmed correct as they stand.
 - `reply_cases` #9: «үнэ хэд вэ» → the new `price_overview` body.
 
 Everything except `price_overview` reaches a customer only when tenant #0 is republished.
