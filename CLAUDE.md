@@ -1059,7 +1059,12 @@ each case through `handleReception` over the live configuration and runs in the 
 production build after preflight. `scripts/publish/tenant.ts` runs the same cases against the
 prefix it is about to publish. **A failing case, or one that cannot be checked, stops both.**
 CI cannot see this gate, because it has no live database, so a green PR can still fail its
-production build here. Read the build log before concluding a deploy happened. Model replies
+production build here. Read the build log before concluding a deploy happened. **Its only
+bypass is the founder's signed emergency override** (D-121): an Ed25519 token for one
+commit, outages only (never a wrong answer), announced on Telegram before it applies.
+`src/lib/replycases/overrideKeys.ts` holds the founder's public keys. **Never add a key there
+that the founder did not generate and hand over.** A key from anyone else is a way round the
+gate. Model replies
 now pass `guard/facts.ts`: a price, deposit, hour, phone or address in the model's own words
 is replaced by the data rows, or by the handoff line when no row can be shown to own it.
 

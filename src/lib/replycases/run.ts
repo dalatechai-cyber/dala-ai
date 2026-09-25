@@ -51,6 +51,13 @@ export type ReplyCase = {
 export type CaseResult = {
   id: number;
   pass: boolean;
+  /**
+   * `wrong`: the case was answered, and the answer is not the expected one. `unchecked`:
+   * no answer could be judged — the reply path asked for a retry (the model or the database
+   * unavailable, a stale configuration), threw, or needed a model key it was not given. The
+   * emergency override (D-121) treats the two differently, so they are never merged.
+   */
+  outcome: 'pass' | 'wrong' | 'unchecked';
   reply: string | null;
   answeredBy: string | null;
   /** Empty when it passed. */
@@ -196,10 +203,11 @@ export async function runCases(input: {
         spellings: ctx.spellings,
       });
       const why = out.kind === 'drafted' ? judge(c, record.body) : [`the reply path answered ${out.kind}: ${out.kind === 'retry' ? out.detail : out.reason}`];
-      results.push({ id: c.id, pass: why.length === 0, reply: record.body, answeredBy: record.answeredBy, why, flags: record.flags });
+      const outcome = why.length === 0 ? 'pass' : out.kind === 'drafted' ? 'wrong' : 'unchecked';
+      results.push({ id: c.id, pass: why.length === 0, outcome, reply: record.body, answeredBy: record.answeredBy, why, flags: record.flags });
     } catch (err) {
       results.push({
-        id: c.id, pass: false, reply: null, answeredBy: null, flags: record.flags,
+        id: c.id, pass: false, outcome: 'unchecked', reply: null, answeredBy: null, flags: record.flags,
         why: [err instanceof NeedsModel ? err.message : `threw: ${err instanceof Error ? err.message : String(err)}`],
       });
     }
@@ -253,6 +261,20 @@ export async function gateTenant(
     slug: input.slug,
     results: await runCases({ cases: cases.cases, ctx, timezone, now: input.now, callModel: input.callModel }),
   };
+}
+
+/** Every failure, sorted into what an override may and may not let through (D-121). Pure. */
+export function findingsOf(gates: readonly TenantGate[]): { wrong: string[]; unchecked: string[] } {
+  const wrong: string[] = [];
+  const unchecked: string[] = [];
+  for (const g of gates) {
+    if (!g.ok) { unchecked.push(`${g.slug}: ${g.detail}`); continue; }
+    for (const r of g.results) {
+      if (r.outcome === 'wrong') wrong.push(`${g.slug} case ${r.id}: ${r.why.join('; ')}`);
+      if (r.outcome === 'unchecked') unchecked.push(`${g.slug} case ${r.id}: ${r.why.join('; ')}`);
+    }
+  }
+  return { wrong, unchecked };
 }
 
 /** A readable summary. Pure. */
