@@ -1013,6 +1013,16 @@ export async function handleReception(
   }
 
   if (pinned.kind !== 'clean') {
+    // WHEN THE CHECK IS UNSURE, THE GENERAL LINE — never a specific approved line that may
+    // answer a different question (founder, 2026-09-25, D-126 addendum). A near-copy of the
+    // whole reply is certain («би» dropped from the handoff line, 0.992) and gets its row.
+    // An adaptation found INSIDE a reply is not: «амралтын өдрийн тусгай хуваарийн мэдээлэл
+    // надад байхгүй» scored 0.754 of the PRICE refusal because both share a frame and a
+    // phone sentence, and the customer was told a holiday question had no price. The
+    // tenant's handoff line is true for any question; a topic's refusal is true for one.
+    const unsure = pinned.kind === 'paraphrase' && pinned.embedded === true && pinned.canonicalKind !== 'handoff';
+    const general = unsure ? canned(input.canned, 'handoff') : null;
+    const servedBody = general ?? pinned.canonical;
     if (pinned.kind === 'paraphrase') {
       // Corrected AND counted. A paraphrase that is quietly fixed is a paraphrase nobody
       // knows is happening, and the rate is the only evidence about whether the gate
@@ -1030,15 +1040,15 @@ export async function handleReception(
       // was stated rather than discovered still has to be COUNTED before anyone can judge
       // whether it is still the right trade.
       const replyChars = [...result.text].length;
-      const rowChars = [...pinned.canonical].length;
       await deps.flag({
         code: 'canned_paraphrased',
         detail: `the reply is ${pinned.similarity.toFixed(3)} of "${pinned.canonicalKind}" and is not it; `
-          + `served the row instead, discarding ${Math.max(0, replyChars - rowChars)} of ${replyChars} characters. `
+          + `served ${general !== null ? 'the handoff line (unsure: an adaptation inside the reply)' : 'the row'} instead, `
+          + `discarding ${Math.max(0, replyChars - [...servedBody].length)} of ${replyChars} characters. `
           + `Attempted: ${result.text}`,
       });
     }
-    const drafted = await d.draft({ body: pinned.canonical, answeredBy: 'canned' });
+    const drafted = await d.draft({ body: servedBody, answeredBy: 'canned' });
     return drafted.ok
       ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned' }
       : { kind: 'retry', detail: drafted.detail };
