@@ -13,6 +13,14 @@
 # олон маань тантай холбогдоно»), so the only new words are the demo sentence.
 #
 # The demo link is data (sales_next_steps.link = https://app.dalatech.online), not code.
+# Since 2026-09-25 it is also a contact point (`demo_url`, 0052), so after the next republish
+# the model sees it under the label «Демо захиалгын холбоос» — a label proposed here with the
+# lines below, and the guard allows the link when the model quotes it.
+#
+# ONLY ДАЛИ IS BUILT (founder, 2026-09-25). Вира, Эхо, Нова and Ора are coming soon with
+# pre-registration. So a question naming any of them never gets the demo — that would sell
+# as available what is not built — it gets the callback row below, which reads as
+# pre-registration. The four names are intent words on DalaTech's callback row (data).
 # No timing is promised anywhere below: the leads report of 2026-09-25 found the site and
 # the app promising three different times (seconds / 24 h / 2 days), so the bot says none.
 
@@ -26,11 +34,12 @@
 # Option B: shorter, a question rather than an instruction.
 Таны бизнест хэрхэн ажиллахыг үзмээр байна уу? Демог https://app.dalatech.online хаягаар захиалаарай.
 
-# ---- kind = callback (chosen instead when the customer asks to call / for a number) ----
-# Intent words (data, sales_playbook.software.json): залга, холбогд, дугаар, уулз, утас,
-# and their Latin spellings.
+# ---- kind = callback (chosen instead when the customer asks to call / for a number, ----
+# ---- or asks about Вира, Эхо, Нова or Ора — then it is the pre-registration step)   ----
+# Intent words (data): залга, холбогд, дугаар, уулз, утас and their Latin spellings; and the
+# four coming-soon names with their case forms (DalaTech's row only).
 
-# Option A:
+# Option A (my recommendation — it reads right both as a call-back and as pre-registration):
 Нэр, утасны дугаараа энд бичиж үлдээвэл хамт олон маань тантай холбогдоно.
 
 # Option B:

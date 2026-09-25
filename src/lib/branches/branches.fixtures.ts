@@ -212,7 +212,7 @@ export function scenarioInput(
         ...(promptStable.includes(ZAISAN.maps) ? [ZAISAN.maps] : []),
       ],
       allowedNumbers: [...allowedNumbers],
-      kbHasPromotion: false,
+      kbHasPromotion: false, approvedPercentages: [],
       concessionStems: [],
       forbiddenStemSeqs: {},
       promptCorpus: '',

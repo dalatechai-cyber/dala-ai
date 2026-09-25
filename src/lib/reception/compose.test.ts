@@ -87,7 +87,7 @@ const SUIT: GateRule = {
 const GUARD: TenantGuardView = {
   primaryScript: 'Cyrillic', allowedUrls: [],
   allowedNumbers: ['135,000', '176,000', '200,000', '120,000', '190,000', '380,000', '460,000', '220,000', '255,000', '132,000', '154,000', '20,000', '10,000', '1'],
-  kbHasPromotion: false, concessionStems: [], forbiddenStemSeqs: { 'Ш2': [['мастер', 'илүү']] },
+  kbHasPromotion: false, approvedPercentages: [], concessionStems: [], forbiddenStemSeqs: { 'Ш2': [['мастер', 'илүү']] },
   promptCorpus: '', cannedResponses: CANNED.map((c) => c.body), scriptShareExclusions: [], maxReplyChars: 1900,
 };
 

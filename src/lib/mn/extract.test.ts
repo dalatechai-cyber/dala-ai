@@ -9,7 +9,9 @@ import {
   numeralsNotAllowed,
   urlsNotAllowed,
 
-  maskUrls,} from './extract.ts';
+  maskUrls,
+  percentagesIn,
+  tenantPercentages,} from './extract.ts';
 
 // Matrix Eco Salon's real price strings, from `currentClient.js`. These are the values
 // the compiler puts in `config_snapshots.allowed_numbers`.
@@ -113,6 +115,29 @@ test('the concession tripwire sees a percentage even in a fully confident senten
   assert.equal(containsPercentage('10 %'), true);
   assert.equal(containsPercentage('᠑᠐%'), true, 'Mongolian digits too');
   assert.equal(containsPercentage('Хямдрал одоогоор байхгүй байна.'), false);
+});
+
+test('percentagesIn reduces each percentage to digits, keeps a decimal point, and ignores links', () => {
+  assert.deepEqual(percentagesIn('Хоёр ажилтан −10%, гурав −15 %, дөрөв ба түүнээс дээш −20%.'), ['10', '15', '20']);
+  assert.deepEqual(percentagesIn('᠑᠐% ба ٥٠%'), ['10', '50'], 'every decimal-digit script reduces to ASCII');
+  assert.deepEqual(percentagesIn('1.5% ба 1,5%'), ['1.5', '1.5'], 'a decimal is never read as 15');
+  assert.deepEqual(percentagesIn('https://example.com/a%20b?q=1%2C хаягаар'), [], 'a URL encoding is not a percentage');
+  assert.deepEqual(percentagesIn('Хямдрал байхгүй.'), []);
+  // Everything containsPercentage flags outside a link, this returns: the tripwire's
+  // coverage did not shrink when it learned to name the figure.
+  for (const t of ['10%', '10 %', '᠑᠐%', 'a 7% b', '−20%']) {
+    assert.equal(containsPercentage(t), percentagesIn(t).length > 0, t);
+  }
+});
+
+test('tenantPercentages keeps the tenant’s own percentages and drops the gate’s counter-examples', () => {
+  // Ш6 quotes «10% хямдралтай» as the answer it forbids. A tenant whose only 10% is that
+  // one gets nothing; a tenant whose own FAQ also says 10% keeps it (multiset, not set).
+  const gate = 'Буруу хариулт: «Тийм ээ, шинэ үйлчлүүлэгчдэд эхний удаа 10% хямдралтай.»';
+  const tenantFaq = 'Хоёр ажилтан −10%, гурав −15%, дөрөв ба түүнээс дээш −20%. Вэбсайт: гэрээ байгуулахад 50%, хүлээлгэн өгөхөд 50%.';
+  assert.deepEqual(tenantPercentages(`${gate}\n\n${tenantFaq}`, gate), ['10', '15', '20', '50']);
+  assert.deepEqual(tenantPercentages(`${gate}\n\nҮс засалт 33,000₮`, gate), [], 'the gate alone approves nothing');
+  assert.deepEqual(tenantPercentages(`${gate}\n\n${tenantFaq}`, null), [], 'a snapshot that cannot be split approves nothing');
 });
 
 // ---------------------------------------------------------------------------

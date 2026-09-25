@@ -50,7 +50,11 @@
 Дугаараа үлдээгээрэй, манай ажилтан Тан руу эргэн залгаж, цагийг тань тохирно.
 
 # ---- kind = lead_thanks (the reply to a message that GIVES a phone number) ------------
-# The lead goes to the salon (see the lead-destination recommendation in D-127).
+# The lead goes to the salon as a PAGE INBOX LABEL on the conversation (founder,
+# 2026-09-25: the salon does not use Telegram), so staff see it in the inbox they already
+# work in. «Дугаарыг тань салонд дамжууллаа» is true of that: the number is in the thread
+# the salon reads, flagged. The label's own name is staff-facing, not customer-facing —
+# proposed: «Залгах хүсэлт».
 #
 # Option A:
 Баярлалаа! Дугаарыг тань салонд дамжууллаа. Манай ажилтан Тан руу залгана.
@@ -97,7 +101,9 @@
 #  2. «Тан руу» with a capital, as the approved handoff writes «Танд»? Or lower case, as the
 #     approved image line does? The two approved rows disagree today.
 #  3. «салоноос Тан руу залгана» (the salon will call you) — true only if the salon DOES
-#     call back. Who calls, and how fast? That decides whether A's promise can stand.
+#     call back. Who watches the labelled conversations, and how fast do they call? That
+#     decides whether A's promise can stand.
+#  6. The inbox label's name — «Залгах хүсэлт», or the salon's own word?
 #  4. Are the eleven pairs right? Strike any the salon would not suggest.
 #  5. Option A's booking line repeats «захиал» twice (lead-in and booking_line). Keep the
 #     lead-in, or start straight with the approved booking_line (Option B)?

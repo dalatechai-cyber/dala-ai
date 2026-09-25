@@ -14,7 +14,7 @@ import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
 import { MAX_REPLY_CHARS } from './handle.ts';
 import type { BusinessHours, Closure } from './volatile.ts';
-import { canonicalizeUrl } from '../mn/extract.ts';
+import { canonicalizeUrl, tenantPercentages } from '../mn/extract.ts';
 import type { Spelling } from '../mn/latin.ts';
 import { appliedSpellings } from '../quality/spellings.ts';
 import { branchNamesFromPrefix } from '../branches/branches.ts';
@@ -212,13 +212,13 @@ export function toDeterministic(rows: unknown): DeterministicRule[] {
  * Every link the tenant has declared in a contact point, from `contact_points` or a branch's
  * `branch_contact_points` — the values the URL guard allows alongside the booking link.
  *
- * All four URL-shaped kinds, not just `maps_url`: restricting it to the one kind needed
+ * Every URL-shaped kind, not just `maps_url`: restricting it to the one kind needed
  * today rebuilds the same gap for `website` the first time anybody adds one. A kind that
  * holds a handle rather than a link is inert here rather than dangerous — it canonicalises
  * to something no extracted URL matches — but it is filtered out anyway so the allow-list
  * contains only things that are actually links.
  */
-export const URL_CONTACT_KINDS: ReadonlySet<string> = new Set(['maps_url', 'website', 'facebook', 'instagram']);
+export const URL_CONTACT_KINDS: ReadonlySet<string> = new Set(['maps_url', 'website', 'facebook', 'instagram', 'demo_url']);
 
 export function linkValues(contacts: readonly { kind: string; value: string }[]): string[] {
   return contacts
@@ -399,6 +399,10 @@ export async function loadReceptionContext(
     // promotions are a first-class table this stays false, which refuses rather than
     // permits, and is stated here rather than hidden in a default.
     kbHasPromotion: false,
+    // The percentages the tenant's own sections state, gate counter-examples subtracted.
+    // Read from the SNAPSHOT, like `allowedNumbers`: what the model was shown is what it
+    // may quote, and a data edit reaches both only when it is republished.
+    approvedPercentages: tenantPercentages(snapshot.snapshot.promptStable, snapshot.snapshot.promptGate),
     concessionStems,
     forbiddenStemSeqs,
     // THE GATE, not the whole prefix (D-084, founder's call 2026-09-18: «a customer

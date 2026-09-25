@@ -147,6 +147,41 @@ export function containsPercentage(text: string): boolean {
   return /\p{Nd}+\s*%/u.test(nfc(text));
 }
 
+/**
+ * Every percentage in the text, reduced to ASCII digits: «−10 %» and «᠑᠐%» are both `10`.
+ * A decimal keeps its point — «1.5%» and «1,5%» are `1.5`, never `15`, so an approved 15%
+ * does not license them. Links are masked first — a `%20` inside a URL is an encoding, and
+ * links are check 1's business. Anything `containsPercentage` sees in the text outside a
+ * link, this returns (the same `\p{Nd}+\s*%` core, widened only to take a decimal part).
+ */
+export function percentagesIn(text: string): string[] {
+  const out: string[] = [];
+  for (const m of maskUrls(text).matchAll(/(\p{Nd}+)(?:[.,](\p{Nd}+))?\s*%/gu)) {
+    out.push(m[2] === undefined ? digitsOf(m[1] ?? '') : `${digitsOf(m[1] ?? '')}.${digitsOf(m[2])}`);
+  }
+  return out;
+}
+
+/**
+ * The percentages a tenant's OWN data carries (founder, 2026-09-25: «let a percentage
+ * through when it comes from our own approved data; keep refusing any other»).
+ *
+ * The prefix is platform gate blocks plus tenant sections, and the gate's percentages are
+ * its counter-examples — Ш6 quotes «10% хямдралтай» as the answer it forbids. So the gate's
+ * are subtracted as a MULTISET, not a set: a tenant whose own FAQ also says 10% keeps it
+ * (two occurrences in the prefix, one in the gate), and a tenant whose only 10% is the
+ * gate's gets nothing — `allowedNumbersFrom`'s platform exclusion, applied to percentages.
+ * A snapshot with no `prompt_gate` (published before `0029`) cannot be split, so it
+ * approves nothing: the old behaviour, refusing every percentage.
+ */
+export function tenantPercentages(promptStable: string, promptGate: string | null): string[] {
+  if (promptGate === null) return [];
+  const remaining = new Map<string, number>();
+  for (const p of percentagesIn(promptStable)) remaining.set(p, (remaining.get(p) ?? 0) + 1);
+  for (const p of percentagesIn(promptGate)) remaining.set(p, (remaining.get(p) ?? 0) - 1);
+  return [...remaining.entries()].filter(([, n]) => n > 0).map(([p]) => p).sort();
+}
+
 /** Trailing characters a sentence puts after a URL that are not part of it. */
 const URL_TRAILING = /[.,;:!?)»】\]'"…]+$/u;
 

@@ -9706,3 +9706,31 @@ me before anything goes live."*
 recommended, if the staff use Telegram. Whether a refusal should carry the call-back ask. And
 before live: count the step as offered only after a confirmed send. Today a failed send
 consumes it.
+
+### D-127 addendum (2026-09-25, evening) — the founder's decisions on the first report
+
+- **A percentage from the tenant's own data is quoted, not invented.** The outbound guard used
+  to refuse every percentage while `kbHasPromotion` was false, which it always is. So DalaTech's
+  team discount (−10/−15/−20%) and its 50/50 website payment could never reach a customer in the
+  model's words: FAQ 6 and 7 went out as the handoff line. Now item 3 refuses only a percentage
+  the tenant's sections do not state. `tenantPercentages` reads them off the snapshot and
+  subtracts the gate's as a multiset, because the gate's percentages are counter-examples (Ш6
+  quotes «10% хямдралтай» as the answer it forbids). Matrix's only 10% is that one, so Matrix
+  still refuses every percentage. A customer typing a figure does not approve it. Concession
+  vocabulary is unchanged, and no tenant has a Ш6 rule row today.
+- **Only Дали is built.** The live data marked Вира ИДЭВХТЭЙ in two places (its knowledge
+  document's title and the «not running yet» line) and the approved price_overview row. All
+  three now say Вира, Эхо, Нова and Ора are coming soon with pre-registration, using the
+  sentence the rows already used for the other three. Reply case 9 moved with the price row in
+  one transaction. The knowledge documents reach the model at the next republish.
+  - The sales shadow sends a question naming any of the four to the call-back row, which reads
+    as pre-registration. It never goes to the demo, which would sell the product as available.
+  - The four names are intent words on DalaTech's row, not the software template, because they
+    are one tenant's products.
+- **The demo page is a contact point** (`demo_url`, `0052`), so the guard allows the link
+  and the prefix can label it.
+- **Tara's leads go to a Page inbox label**, because the salon does not use Telegram. Only the
+  shadow reads `lead_route` today; the label write is built with the live switch.
+- **Automation texts:** four for DalaTech and Tara's away message, both as provided and with
+  the typographic apostrophe. The match is exact, so a curly quote would otherwise count as a
+  person. All of it is in `scripts/provision/decisions-2026-09-25-evening.sql`.

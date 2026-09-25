@@ -165,6 +165,12 @@ export const CONTACT_KIND_LABELS: Readonly<Record<string, string>> = {
   facebook: 'Фэйсбүүк',
   instagram: 'Инстаграм',
   website: 'Вэбсайт',
+  /**
+   * A software tenant's demo page (`0052`). Proposed 2026-09-25 beside the founder's call to
+   * add app.dalatech.online to DalaTech's contact details; like every value here it reaches a
+   * customer only through a republish, which the founder runs.
+   */
+  demo_url: 'Демо захиалгын холбоос',
 };
 
 /** `tenant_booking.booking_url`, which is rendered into the same section. */
