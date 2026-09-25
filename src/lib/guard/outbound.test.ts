@@ -11,7 +11,7 @@ const MATRIX: TenantGuardView = {
   primaryScript: 'Cyrillic',
   allowedUrls: ['https://www.matrixecosalon.org/'],
   allowedNumbers: ['33,000', '22,000', '45,000', '7741-7777', '10:00', '20:00'],
-  kbHasPromotion: false,
+  kbHasPromotion: false, approvedPercentages: [],
   concessionStems: ['хямдр', 'хөнгөлөл', 'урамшуул', 'үнэгүй', 'бэлэг'],
   forbiddenStemSeqs: {
     'Ш2': [['ойролцоо'], ['орчим'], ['дунджаар'], ['аас', 'эхэл'], ['аас', 'эхл']],
@@ -92,6 +92,34 @@ test('a percentage is refused separately, because a stem cannot express «%»', 
   // framing it as a percentage off is not.
   const view: TenantGuardView = { ...MATRIX, concessionStems: [], allowedNumbers: ['10'] };
   const r = outboundGuard(view, CLEAN, 'Танд 10% байна.');
+  assert.equal(r.ok === false && r.code, 'outbound_percent');
+});
+
+test('a percentage the tenant’s own data states is quoted, not invented (founder, 2026-09-25)', () => {
+  // DalaTech's FAQ 6 and 7 as published: team discount and the 50/50 website payment.
+  const view: TenantGuardView = {
+    ...MATRIX, concessionStems: [], allowedNumbers: ['10', '15', '20', '50'], approvedPercentages: ['10', '15', '20', '50'],
+  };
+  assert.deepEqual(outboundGuard(view, CLEAN, 'Хоёр ажилтан −10%, гурав −15%, дөрөв ба түүнээс дээш −20%.'), { ok: true });
+  assert.deepEqual(outboundGuard(view, CLEAN, 'Вэбсайт: гэрээ байгуулахад 50%, хүлээлгэн өгөхөд 50%.'), { ok: true });
+});
+
+test('any other percentage is still refused, even beside approved ones and even when the numeral is allowed', () => {
+  const view: TenantGuardView = {
+    ...MATRIX, concessionStems: [], allowedNumbers: ['10', '15', '20', '25', '50'], approvedPercentages: ['10', '15', '20', '50'],
+  };
+  const r = outboundGuard(view, CLEAN, 'Хоёр ажилтан −10%, таван ажилтан −25%.');
+  assert.equal(r.ok === false && r.code, 'outbound_percent');
+  assert.match(r.ok === false ? r.detail : '', /25%/);
+  // An approved 15 does not license a decimal that shares its digits.
+  const d = outboundGuard({ ...view, allowedNumbers: [...view.allowedNumbers, '1.5'] }, CLEAN, 'Танд 1.5% байна.');
+  assert.equal(d.ok === false && d.code, 'outbound_percent');
+});
+
+test('a customer who types a percentage does not make it approved', () => {
+  const view: TenantGuardView = { ...MATRIX, concessionStems: [], approvedPercentages: ['10'] };
+  const ctx: OutboundContext = { ...CLEAN, customerText: '30% хямдрал байдаг уу?' };
+  const r = outboundGuard(view, ctx, 'Тийм ээ, 30% байна.');
   assert.equal(r.ok === false && r.code, 'outbound_percent');
 });
 

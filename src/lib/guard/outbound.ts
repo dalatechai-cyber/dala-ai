@@ -35,7 +35,7 @@
  */
 import { ALWAYS_ON_GATES } from '../../config/platform.ts';
 import { matchesStemSequence } from '../mn/match.ts';
-import { containsPercentage, extractNumerals, maskUrls, numeralsNotAllowed, urlsNotAllowed } from '../mn/extract.ts';
+import { extractNumerals, maskUrls, numeralsNotAllowed, percentagesIn, urlsNotAllowed } from '../mn/extract.ts';
 import { cpLength, fold, nfc, scriptShare } from '../mn/text.ts';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
 
@@ -54,6 +54,11 @@ export type TenantGuardView = {
   allowedNumbers: readonly string[];
   /** Whether the knowledge base actually carries a promotion right now. */
   kbHasPromotion: boolean;
+  /**
+   * Percentages the tenant's own sections carry, digits only (`tenantPercentages`). Item 3
+   * lets exactly these through and refuses every other (founder, 2026-09-25).
+   */
+  approvedPercentages: readonly string[];
   /** Discount vocabulary, per vertical. A salon's differs from a garage's. */
   concessionStems: readonly string[];
   /** Forbidden phrasings, KEYED BY GATE — see the note on flattening below. */
@@ -522,8 +527,14 @@ export function outboundGuard(
         return refuse('outbound_concession', `concession vocabulary with no promotion in the KB: ${stem}`);
       }
     }
-    if (containsPercentage(text)) {
-      return refuse('outbound_percent', 'a percentage with no promotion in the KB');
+    // A percentage the tenant's own data states — DalaTech's team discount, its 50/50
+    // website payment — is a fact being quoted, not a discount being invented (founder,
+    // 2026-09-25). Any other stays refused, echoed by the customer or not: whether a
+    // figure is approved is a fact about the data, not about who typed it.
+    const approved = new Set(tenant.approvedPercentages);
+    const unapproved = percentagesIn(text).filter((p) => !approved.has(p));
+    if (unapproved.length > 0) {
+      return refuse('outbound_percent', `a percentage not in the tenant's own data: ${[...new Set(unapproved)].join(', ')}%`);
     }
   }
 

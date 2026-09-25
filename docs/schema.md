@@ -694,6 +694,16 @@ number MASKED, «7600****», never digits). `scripts/provision/sales-playbook.ts
 --template salon|software` prints the SQL that switches a tenant's shadow on; it never
 writes a body or `reviewed_at`.
 
+### `0052_demo_url_contact_kind`
+
+**Widens two CHECKs.** `contact_points.kind` and `branch_contact_points.kind` gain `demo_url`: a
+software tenant's demo page, offered the way a salon's booking page is. `contact_points` is
+keyed `(tenant_id, kind)`, so a tenant whose `website` row holds its homepage had nowhere to
+put a second link. `demo_url` is in `URL_CONTACT_KINDS`, so the outbound guard allows the link
+when the model quotes it, and the prefix labels it «Демо захиалгын холбоос» (`CONTACT_KIND_LABELS`,
+founder-gated like every label there; it reaches a customer only through a republish). Every
+existing row satisfies the new constraints.
+
 ### `0049_matcher_rows_can_match`
 
 **Widens a CHECK.** `enabled_rule_can_match` required an enabled `deterministic_replies` row to

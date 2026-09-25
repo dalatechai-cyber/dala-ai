@@ -30,7 +30,7 @@ const GUARD_VIEW: TenantGuardView = {
   primaryScript: 'Cyrillic',
   allowedUrls: [],
   allowedNumbers: ['33,000'],
-  kbHasPromotion: false,
+  kbHasPromotion: false, approvedPercentages: [],
   concessionStems: ['хямдр'],
   forbiddenStemSeqs: {},
   promptCorpus: '',

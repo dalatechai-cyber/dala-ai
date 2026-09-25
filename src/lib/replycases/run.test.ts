@@ -19,7 +19,7 @@ const CTX: ReceptionContext = {
   spellings: [], branches: [], days: null,
   canned: [{ kind: 'handoff', body: 'Уучлаарай, би энэ асуултад хариулж чадахгүй байна.', reviewedAt: REVIEWED }],
   tenantGuard: {
-    primaryScript: 'Cyrillic', allowedUrls: [], allowedNumbers: ['120,000', '190,000'], kbHasPromotion: false,
+    primaryScript: 'Cyrillic', allowedUrls: [], allowedNumbers: ['120,000', '190,000'], kbHasPromotion: false, approvedPercentages: [],
     concessionStems: [], forbiddenStemSeqs: {}, promptCorpus: 'GATE', cannedResponses: [], scriptShareExclusions: [],
     maxReplyChars: 1900,
   },

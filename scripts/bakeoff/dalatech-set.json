@@ -1,5 +1,5 @@
 {
- "$comment": "Tenant #0 (DalaTech) test set for the founder's native read, and the source of the permanent reply_cases rows in scripts/provision/dalatech-reply-cases.sql (generated from this file by scripts/replycases/sql.ts; a unit test fails when the two drift). Tenant #0 had ten real inbound messages when this was written (2026-09-25); the three used here as written are marked `real` («ci henbe» is already active reply case 10 and is not repeated), every other message is CONSTRUCTED to cover a topic no customer has asked yet, in the style the real ones use (short, lowercase, Latin-typed Mongolian beside Cyrillic). Assistant turns in a `history` are ONLY text the bot serves verbatim — the price_overview row, a published FAQ answer — never a model reply written by hand. `expected_body` is set only where a deterministic row answers exactly (price_overview, assistant_who); rewording either row means updating those cases too. Facts were read from the live rows on 2026-09-25: Дали and Вира are ИДЭВХТЭЙ in knowledge_documents; Эхо, Нова, Ора are УДАХГҮЙ (pre-registration). No phone number is published. Numerals are checked by production's own outbound guard; the report adds a report-only allow-list check on top.",
+ "$comment": "Tenant #0 (DalaTech) test set for the founder's native read, and the source of the permanent reply_cases rows in scripts/provision/dalatech-reply-cases.sql (generated from this file by scripts/replycases/sql.ts; a unit test fails when the two drift). Tenant #0 had ten real inbound messages when this was written (2026-09-25); the three used here as written are marked `real` («ci henbe» is already active reply case 10 and is not repeated), every other message is CONSTRUCTED to cover a topic no customer has asked yet, in the style the real ones use (short, lowercase, Latin-typed Mongolian beside Cyrillic). Assistant turns in a `history` are ONLY text the bot serves verbatim — the price_overview row, a published FAQ answer — never a model reply written by hand. `expected_body` is set only where a deterministic row answers exactly (price_overview, assistant_who); rewording either row means updating those cases too. Facts: only Дали is built; Вира, Эхо, Нова and Ора are coming soon with pre-registration (founder, 2026-09-25 — the live rows had marked Вира ИДЭВХТЭЙ and were corrected the same evening). The demo page https://app.dalatech.online is a contact point (`demo_url`, 0052). No phone number is published. Numerals are checked by production's own outbound guard; the report adds a report-only allow-list check on top.",
  "title": "DalaTech test set",
  "tenant_slug": "dalatech",
  "note_prefix": "dalatech-testset",
@@ -30,8 +30,8 @@
   "Матрикс", "Matrix", "Tara", "Тара салон", "манай салон", "салонд тавтай", "үс засалт",
   "дотоод заавар", "БЭЛЭН ХАРИУЛТ",
   "76001888", "7741-7777", "80905498",
-  "Эхо одоо ажилла", "Нова одоо ажилла", "Ора одоо ажилла",
-  "Эхо идэвхтэй", "Нова идэвхтэй", "Ора идэвхтэй"
+  "Вира одоо ажилла", "Эхо одоо ажилла", "Нова одоо ажилла", "Ора одоо ажилла",
+  "Вира идэвхтэй", "Эхо идэвхтэй", "Нова идэвхтэй", "Ора идэвхтэй"
  ],
  "cases": [
   {
@@ -64,13 +64,13 @@
    "id": "p01", "category": "price_overall", "source": "constructed (a price_overview stem)",
    "text": "une hed ve",
    "expect": "The price_overview row, exactly.",
-   "expected_body": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮."
+   "expected_body": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮."
   },
   {
    "id": "p02", "category": "price_overall", "source": "constructed (a price_overview stem)",
    "text": "How much?",
    "expect": "The price_overview row, exactly.",
-   "expected_body": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮."
+   "expected_body": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮."
   },
   {
    "id": "p03", "category": "price_overall", "source": "constructed",
@@ -101,8 +101,8 @@
   {
    "id": "q03", "category": "price_product", "source": "constructed",
    "text": "Вира хэд вэ?",
-   "expect": "Вира: 150,000₮ a month, 150,000₮ setup; sold only alongside another staff member.",
-   "must_include": ["150,000"]
+   "expect": "Вира: 150,000₮ a month, 150,000₮ setup; not built yet, pre-registration open; sold only alongside another staff member.",
+   "must_include": ["150,000", "урьдчилан"]
   },
   {
    "id": "q04", "category": "price_product", "source": "constructed",
@@ -173,8 +173,8 @@
   {
    "id": "s02", "category": "staff", "source": "constructed",
    "text": "Вира юу хийдэг вэ?",
-   "expect": "Monthly sales and customer reports compared with last month; sold only alongside another staff member.",
-   "must_include": ["тайлан"]
+   "expect": "Monthly sales and customer reports compared with last month; not built yet, pre-registration open; sold only alongside another staff member.",
+   "must_include": ["тайлан", "урьдчилан"]
   },
   {
    "id": "s03", "category": "staff", "source": "constructed",
@@ -203,8 +203,8 @@
   {
    "id": "l03", "category": "status", "source": "constructed",
    "text": "Аль ажилтан чинь одоо ажиллаж байгаа вэ?",
-   "expect": "Дали (and Вира, which the data marks ИДЭВХТЭЙ); Эхо, Нова, Ора are pre-registration.",
-   "must_include": ["Дали"]
+   "expect": "Only Дали is running now; Вира, Эхо, Нова and Ора are coming soon, with pre-registration open.",
+   "must_include": ["Дали", "урьдчилан"]
   },
   {
    "id": "l04", "category": "status", "source": "constructed",
@@ -247,7 +247,8 @@
   {
    "id": "e01", "category": "demo", "source": "constructed",
    "text": "Demo uzej boloh uu?",
-   "expect": "No demo link is in tenant #0's rows (app.dalatech.online is not a contact point), so: the team gets in touch, or the website. Never an invented link."
+   "expect": "Offers the demo page https://app.dalatech.online (a contact point since 0052), or the team gets in touch. Never an invented link.",
+   "must_include": ["app.dalatech.online"]
   },
   {
    "id": "e02", "category": "demo", "source": "constructed",
@@ -329,7 +330,7 @@
    "id": "v01", "category": "conversation", "source": "constructed, 2 turns",
    "history": [
     { "role": "user", "content": "une hed ve" },
-    { "role": "assistant", "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮." }
+    { "role": "assistant", "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮." }
    ],
    "text": "ehoo odoo ajillaj bga yu",
    "expect": "After the price list: Эхо is not running yet, pre-registration is open.",
@@ -339,7 +340,7 @@
    "id": "v02", "category": "conversation", "source": "constructed, 2 turns",
    "history": [
     { "role": "user", "content": "Үнийн мэдээлэл" },
-    { "role": "assistant", "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮." }
+    { "role": "assistant", "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮." }
    ],
    "text": "bagts gej yu ve",
    "expect": "The bundle: website + Дали for 800,000₮.",
@@ -361,7 +362,7 @@
    "id": "v04", "category": "conversation", "source": "constructed, 3 turns",
    "history": [
     { "role": "user", "content": "Үнэ хэд вэ" },
-    { "role": "assistant", "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮." },
+    { "role": "assistant", "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮." },
     { "role": "user", "content": "Хямдрал байдаг уу?" },
     { "role": "assistant", "content": "Хоёр ажилтан −10%, гурав −15%, дөрөв ба түүнээс дээш −20%. Хөнгөлөлт сарын төлбөрт хамаарна." }
    ],

@@ -261,3 +261,30 @@ test('a snapshot published before 0029 falls back to the whole prefix', () => {
     assert.equal(r.ok && r.context.tenantGuard.promptCorpus, 'PREFIX');
   })();
 });
+
+test('approved percentages come from the snapshot’s tenant sections, never from the gate’s counter-examples', async () => {
+  // The gate quotes «10% хямдралтай» as the answer it forbids; the tenant's own FAQ states
+  // its team discount. Only the tenant's figures may pass the percentage check.
+  const gate = 'Буруу хариулт: «эхний удаа 10% хямдралтай.»';
+  const stable = `${gate}\n\nХоёр ажилтан −10%, гурав −15%. Гэрээ байгуулахад 50%.`;
+  const r = await loadReceptionContext(stubDb({
+    config_snapshots: { data: { ...SNAPSHOT, prompt_stable: stable, prompt_gate: gate }, error: null },
+  }).db, input);
+  assert.deepEqual(r.ok ? r.context.tenantGuard.approvedPercentages : null, ['10', '15', '50']);
+  const gateOnly = await loadReceptionContext(stubDb({
+    config_snapshots: { data: { ...SNAPSHOT, prompt_stable: `${gate}\n\nҮс засалт 33,000₮`, prompt_gate: gate }, error: null },
+  }).db, input);
+  assert.deepEqual(gateOnly.ok ? gateOnly.context.tenantGuard.approvedPercentages : null, []);
+});
+
+test('a demo link in the contact details is an allowed link, like the homepage', async () => {
+  const r = await loadReceptionContext(stubDb({
+    contact_points: {
+      data: [{ kind: 'website', value: 'https://dalatech.online/' }, { kind: 'demo_url', value: 'https://app.dalatech.online' }],
+      error: null,
+    },
+  }).db, input);
+  const urls = r.ok ? r.context.tenantGuard.allowedUrls : [];
+  assert.ok(urls.includes('https://app.dalatech.online'), urls.join(' '));
+  assert.ok(urls.includes('https://dalatech.online/'), urls.join(' '));
+});
