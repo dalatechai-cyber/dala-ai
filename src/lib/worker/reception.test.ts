@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RECEPTION_MAX_DELIVERIES, runReceptionJob, type DeliverArgs, type GenerateArgs, type WorkerEffects } from './reception.ts';
+import { RECEPTION_MAX_DELIVERIES, runReceptionJob, TYPING_WAIT_MS, type DeliverArgs, type GenerateArgs, type WorkerEffects } from './reception.ts';
 import type { ReceptionOutcome } from '../reception/handle.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
 import type { ExhaustedInput } from './exhaustedAlert.ts';
@@ -1244,4 +1244,27 @@ test('D-122: comments in SHADOW run on a DM-live channel, and read the comment s
   const comments = r.body['comments'] as { replied: number; privateSent: number };
   assert.equal(comments.replied, 0, 'shadow posts nothing, whatever the DM mode says');
   assert.equal(comments.privateSent, 0);
+});
+
+test('D-124: the typing bubble reaches Meta BEFORE the reply, never after it', async () => {
+  // A reply that needs no model is ready before the bubble's own request returns; un-awaited,
+  // the bubble could land after the answer and hang «typing…» under it.
+  const order: string[] = [];
+  const { fx } = stubEffects();
+  const realDeliver = fx.deliver;
+  fx.showTyping = async () => { await new Promise((r) => setTimeout(r, 40)); order.push('typing'); };
+  fx.deliver = async (a) => { order.push('deliver'); return realDeliver(a); };
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.deepEqual(order, ['typing', 'deliver']);
+});
+
+test('D-124: a bubble that never answers delays the reply by at most TYPING_WAIT_MS', async () => {
+  const { fx, delivered } = stubEffects();
+  fx.showTyping = () => new Promise<void>(() => {});
+  const t0 = Date.now();
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(delivered.length, 1);
+  assert.ok(Date.now() - t0 < TYPING_WAIT_MS + 1_000, `took ${Date.now() - t0}ms`);
 });

@@ -121,21 +121,26 @@ function effects(now: Date): WorkerEffects {
      * credential is one refactor from being the wrong salon's.
      */
     showTyping: async ({ tenantId, channelId, recipientId }) => {
+      // One line per bubble, so the live logs can say whether it was shown (D-124): until
+      // this line nothing recorded the outcome, and "the bubble works" could not be read
+      // from production at all.
+      const started = Date.now();
+      let outcome = 'sent';
       try {
         const { data, error } = await db
           .from('tenant_channels').select('external_id').eq('id', channelId).maybeSingle();
-        if (error !== null || data === null) return;
-        const pageId = String((data as Record<string, unknown>)['external_id'] ?? '');
-        if (pageId === '') return;
-        const secret = await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
-        if (!secret.ok) return;
-        await sendSenderAction({
+        const pageId = error !== null || data === null ? '' : String((data as Record<string, unknown>)['external_id'] ?? '');
+        const secret = pageId === '' ? null : await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+        const ok = secret === null || !secret.ok ? false : await sendSenderAction({
           pageId, recipientId, token: secret.secret,
           graphVersion: required('META_GRAPH_VERSION'), action: 'typing_on',
         });
+        outcome = pageId === '' ? 'no_channel' : secret === null || !secret.ok ? 'no_credential' : ok ? 'sent' : 'refused';
       } catch {
         // Cosmetic. There is nothing to classify and nothing a caller could do.
+        outcome = 'threw';
       }
+      console.info('[worker] typing_indicator', { outcome, ms: Date.now() - started });
     },
 
     // The public surface, on the same per-request token as the DM path. `loadTenantSecret`

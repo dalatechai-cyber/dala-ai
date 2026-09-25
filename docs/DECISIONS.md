@@ -9269,3 +9269,41 @@ customer, one said «Тухайн байгууллагын мэдээллийн 
 2026-09-24 21:57 is flagged twice: «Матрикс» and «Дотоод зааврынхаа талаар…». The first form
 of the check missed the second flag — «заавар» drops its vowel when inflected — and the
 stem list now carries both.
+
+## D-124 — a reply that needs no model: where the 3.5 seconds went, and the typing bubble's order
+
+**Founder, 2026-09-25:** replies that need no model call still wait about 3.5 s. Find where
+the time goes and cut it without weakening any guard; measure before and after on live
+traffic. And confirm the typing bubble shows on live replies, from real logs.
+
+**Measured before** (the seven live turns of 2026-09-24 21:54–21:58, `webhook_events` →
+`outbound_messages`, plus each job's `reply_timing_ms`): Meta → our webhook 0.6–1.7 s;
+webhook → worker start ~0.9 s (the webhook route and the QStash hop); the worker's reads
+before the reply ~1.25 s, every one sequential — event 70, attempt count 50, tenant 65,
+channel ~60, context 450, inbound persistence 205, thread state 50, history 60, guard 300;
+a row-answered reply 110–170 ms; trace 50, claim 50; the Graph send ~600 ms. A no-model reply
+therefore lands ≈3.8 s after the customer pressed send.
+
+**Cut, with every refusal evaluated in the same order as before:**
+- the attempt counter, the tenant row and the channel row are read together;
+- the reply context (ten reads, ~450 ms) starts as soon as the tenant is known and is
+  awaited just before the history read, so it overlaps the inbound persistence and thread
+  check. The one ordering change: the customer's message is now stored before a context
+  failure refuses the job — which is "persist everything" and is safe on the retry, since
+  persistence is idempotent and `findReplyFor` still decides whether to answer;
+- the answer trace is written together with the claim;
+- in `spend/reserve`, the platform counter's seed (an idempotent insert of a ceiling that is
+  compiled in code; no money moves) is issued with the ceiling read. The charge itself —
+  the reservation row and `reserve_spend_all` — is unchanged and still last.
+
+Expected ≈0.45 s off the worker; the after-measurement is the next live no-model turns
+(`reply_timing_ms`: `context_load` should read near zero, `attempt_write` should absorb the
+tenant and channel reads).
+
+**The typing bubble had no instrument.** `showTyping` swallowed every outcome, so "it shows"
+could not be read from production at all; it now logs `typing_indicator` with its outcome
+and duration. And it was fired without awaiting: for a reply that needs no model, the reply
+is ready ~150 ms later while the bubble's own request takes longer, so the bubble could reach
+Meta AFTER the answer and hang «typing…» under it. The send now waits for the bubble, at most
+1.5 s (`TYPING_WAIT_MS`); for a model reply the wait is zero because the bubble finished
+seconds earlier.
