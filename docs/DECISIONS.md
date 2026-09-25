@@ -9772,3 +9772,11 @@ consumes it.
 - **Complaints keep «Уучлаарай».** A complaint is recognised by the tenant's own `comment_rules` escalate rows, the same rows the comment classifier and the sales shadow read. Stripping the apology had left r01 opening on «Хариу удсанд тань.», half a sentence.
 - **QPay is in DalaTech's knowledge base** as a document the model words itself, not a verbatim FAQ answer. It is in the compiled prefix, so customers see it only after the founder's next publish. `compile-tenant.ts` on DalaTech's live rows reproduced the live `content_hash` 1b8bb21f (the control) before the change was compiled (ba3e4ed4).
 - The record is `scripts/provision/dalatech-decisions-2026-09-26b.sql`; the `in_reply` row follows the deploy.
+
+### D-127 addendum (2026-09-26, third set) — price sentences, callback rows, QPay wording
+
+- **Only the price sentences become rows** (founder: *"Keep the model's sentences that contain no price, and replace only the price sentences with the data rows. Everything kept still goes through the facts guard."*). `splitFacts` checks each sentence with the rest of the reply as context. A sentence that restates a fact becomes its rows; the others stay as written. It falls back to the old whole-reply rows on one sentence, on an amount nobody owns, or when the assembled reply does not itself pass `checkFacts`. «Дали юу хийдэг вэ?» now keeps its description.
+- **The cost, stated:** a kept sentence can still be wrong in ways the facts guard cannot see. The first replay kept «Дали хараахан ажиллаж эхлээгүй» (a false claim that Дали is not running) in x03. The test set's forbidden list now carries it.
+- **l04 and v05 answer from the approved callback line, with no model call.** A pre-registration request (`preregister_callback`), and paying without an advance or in instalments (`terms_callback`), are `contains_stem` rows. Their body is read from the reviewed sales callback row. The coming-soon rows still append the status line.
+- **QPay in the founder's words:** «Бүх төлбөрийг, үүнд сарын төлбөр багтана, QPay-ээр төлөх боломжтой.» It reaches customers at the next publish.
+- The record is `scripts/provision/dalatech-decisions-2026-09-26c.sql`.

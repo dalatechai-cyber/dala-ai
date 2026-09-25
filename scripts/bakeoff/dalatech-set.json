@@ -33,7 +33,8 @@
   "Вира одоо ажиллаж байна", "Эхо одоо ажиллаж байна", "Нова одоо ажиллаж байна", "Ора одоо ажиллаж байна",
   "Вира одоо ажиллаж байгаа", "Эхо одоо ажиллаж байгаа", "Нова одоо ажиллаж байгаа", "Ора одоо ажиллаж байгаа",
   "Вира идэвхтэй ажиллаж байна", "Эхо идэвхтэй ажиллаж байна", "Нова идэвхтэй ажиллаж байна", "Ора идэвхтэй ажиллаж байна",
-  "Вира идэвхтэй байна", "Эхо идэвхтэй байна", "Нова идэвхтэй байна", "Ора идэвхтэй байна"
+  "Вира идэвхтэй байна", "Эхо идэвхтэй байна", "Нова идэвхтэй байна", "Ора идэвхтэй байна",
+  "Дали хараахан ажиллаж эхлээгүй", "Дали одоогоор ажиллаж эхлээгүй", "Дали ажиллаж эхлээгүй"
  ],
  "cases": [
   {
@@ -165,9 +166,8 @@
   {
    "id": "x03", "category": "discount", "source": "constructed",
    "text": "Дали, Вира хоёрыг авбал сард нийт хэд болох вэ?",
-   "expect": "Both monthly prices from the list (250,000₮ and 150,000₮) and the −10% team discount. No total the list does not carry (400,000₮, 360,000₮).",
-   "must_include": ["250,000"],
-   "must_not_include": ["400,000", "360,000"]
+   "expect": "Both monthly prices from the list (250,000₮ and 150,000₮) and the −10% team discount. A total only when computed from those approved prices (founder, 2026-09-26: 400,000₮, and 360,000₮ after −10%); the numeral guard refuses any other.",
+   "must_include": ["250,000", "150,000"]
   },
   {
    "id": "s01", "category": "staff", "source": "real 2026-09-25",
@@ -215,8 +215,8 @@
   {
    "id": "l04", "category": "status", "source": "constructed",
    "text": "Эхог урьдчилан бүртгүүлье, яах вэ?",
-   "expect": "Takes the request: leave details here and the team will get in touch. No invented form or link.",
-   "must_include": ["холбог"]
+   "expect": "Takes the request with the approved callback line — leave your name and number (founder, 2026-09-26) — and says Эхо is not running yet. Not just prices; no invented form or link.",
+   "must_include": ["Нэр, утасны дугаараа", "урьдчилан"]
   },
   {
    "id": "o01", "category": "onboarding", "source": "constructed",
@@ -384,8 +384,9 @@
     { "role": "assistant", "content": "Вэбсайт: гэрээ байгуулахад 50%, хүлээлгэн өгөхөд 50%. AI ажилтан: суурилуулалт нэг удаа, сарын төлбөр сар бүрийн эхэнд." }
    ],
    "text": "Урьдчилгаагүйгээр хийж болохгүй юу?",
-   "expect": "A negotiation the bot cannot decide: the team answers. No invented yes.",
-   "must_include": ["хамт олон"]
+   "expect": "A negotiation the bot cannot decide: the team answers, with the approved callback line. No invented yes, and never «not possible» (founder, 2026-09-26).",
+   "must_include": ["хамт олон"],
+   "must_not_include": ["боломжгүй", "болохгүй"]
   }
  ]
 }

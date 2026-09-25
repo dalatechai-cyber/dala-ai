@@ -268,7 +268,16 @@ function stemOf(word: string): string {
   return [...word].slice(0, CORROBORATE_CP).join('');
 }
 
-export function checkFacts(reply: string, source: FactSource, customerMessage = ''): FactCheck {
+export function checkFacts(
+  reply: string, source: FactSource, customerMessage = '',
+  /**
+   * The rest of the reply, when `reply` is one sentence of it (`splitFacts`): its words
+   * corroborate a row and its day word focuses hours exactly as they would for the whole
+   * reply — «Эхо …. Суурилуулалт 200,000₮.» is Эхо's price in either reading. Approved
+   * lines in it are blanked first, as in the reply itself.
+   */
+  context = '',
+): FactCheck {
   // Approved text first — the booking line and the contact rows carry links — then every
   // link left, which `urlsNotAllowed` judges and whose characters are never content (D-074).
   // Everything is blanked to its own length, so a position in `masked` is one in `text`.
@@ -277,13 +286,18 @@ export function checkFacts(reply: string, source: FactSource, customerMessage = 
   for (const v of source.verbatim) masked = blank(masked, v);
   for (const v of source.standalone) masked = blank(masked, v);
   masked = blankUrls(masked);
-  let nameText = text;
-  for (const q of source.quotable) {
-    for (const line of [q, ...q.split('\n')]) {
-      const f = fold(line).trim();
-      if ([...f].length >= 4) nameText = blank(nameText, f);
+  const blankQuoted = (t: string): string => {
+    let out = t;
+    for (const q of source.quotable) {
+      for (const line of [q, ...q.split('\n')]) {
+        const f = fold(line).trim();
+        if ([...f].length >= 4) out = blank(out, f);
+      }
     }
-  }
+    return out;
+  };
+  const nameText = blankQuoted(text);
+  const contextText = context === '' ? '' : blankQuoted(fold(context));
 
   type Hit = { at: number; rows: FactRow[]; what: string };
   const hits: Hit[] = [];
@@ -321,7 +335,7 @@ export function checkFacts(reply: string, source: FactSource, customerMessage = 
       // or the tenant's own tomorrow sentence. One location only: a branch week is judged
       // by `judgeBranches`. An amount that is not the named day's — «маргааш» over Sunday's
       // hours — keeps the week, which is true whatever the model meant.
-      const focus = source.days === undefined || weeks.size !== 1 || !weeks.has('') ? null : openFocus(text, source.days);
+      const focus = source.days === undefined || weeks.size !== 1 || !weeks.has('') ? null : openFocus(context === '' ? text : `${fold(context)} ${text}`, source.days);
       const row = focus === null ? null : dayRow(owners, focus.dow);
       if (focus !== null && row !== null && row.amounts.includes(a.digits)) {
         const line = focus.tomorrow ? source.days?.tomorrowLine ?? null : null;
@@ -343,7 +357,7 @@ export function checkFacts(reply: string, source: FactSource, customerMessage = 
     // Вира, Эхо, Нова and Ора in one sentence, and a reply that carried it corroborated
     // every one of them — «Эхо минутаар хэдээр…» was served Ора's 250,000₮ beside Эхо's, and
     // «Дали, Вира хоёр…» nine rows (the test set, 2026-09-26, q05 and x03).
-    const seen = [...wordsOf(nameText), ...wordsOf(customerMessage)];
+    const seen = [...wordsOf(nameText), ...wordsOf(customerMessage), ...wordsOf(contextText)];
     const stems = new Set(seen.filter((w) => [...w].length >= CORROBORATE_CP).map(stemOf));
     const whole = new Set(seen);
     const hit = (w: string): boolean => ([...w].length >= CORROBORATE_CP ? stems.has(stemOf(w)) : whole.has(w));
@@ -441,4 +455,55 @@ export function checkFacts(reply: string, source: FactSource, customerMessage = 
     detail: `restated in the model's words: ${restated.join(', ')}`,
     served: served.length === 0 ? null : served.join('\n'),
   };
+}
+
+/** The reply cut into sentences: at line breaks, and after «.», «!» or «?» followed by space.
+ * A point between digits («1.5») is not a break, and neither is a comma. */
+export function sentencesOf(reply: string): string[] {
+  return nfc(reply).split(/\n+|(?<=[.!?…])\s+/u).map((x) => x.trim()).filter((x) => x !== '');
+}
+
+export type FactSplit =
+  | { ok: true; body: string; replaced: number; kept: number }
+  | { ok: false };
+
+/**
+ * The reply with ONLY its price sentences replaced by the data rows, and every other sentence
+ * kept as the model wrote it (founder, 2026-09-26: *"Keep the model's sentences that contain
+ * no price, and replace only the price sentences with the data rows. Everything kept still
+ * goes through the facts guard."*). «Дали юу хийдэг вэ?» used to lose its whole answer to
+ * two price rows because one sentence restated a price.
+ *
+ * Each sentence is checked on its own, with the rest of the reply as context; a sentence that
+ * restates a fact becomes the rows `checkFacts` names for it, a sentence that does not is
+ * kept. `ok: false` — serve what the whole-reply check served, exactly as before — when a
+ * sentence's amount has no owner, or when the assembled reply does not itself pass the
+ * check: nothing kept may carry a fact in the model's words.
+ */
+export function splitFacts(reply: string, source: FactSource, customerMessage = ''): FactSplit {
+  const sentences = sentencesOf(reply);
+  if (sentences.length < 2) return { ok: false };
+  const lines: string[] = [];
+  let paragraph: string[] = [];
+  const served = new Set<string>();
+  let replaced = 0;
+  let kept = 0;
+  for (const [i, sentence] of sentences.entries()) {
+    const rest = sentences.filter((_, j) => j !== i).join(' ');
+    const c = checkFacts(sentence, source, customerMessage, rest);
+    if (!c.restated) { paragraph.push(sentence); kept += 1; continue; }
+    if (c.served === null) return { ok: false };
+    replaced += 1;
+    if (paragraph.length > 0) { lines.push(paragraph.join(' ')); paragraph = []; }
+    for (const row of c.served.split('\n')) {
+      if (row.trim() === '' || served.has(row)) continue;
+      served.add(row);
+      lines.push(row);
+    }
+  }
+  if (paragraph.length > 0) lines.push(paragraph.join(' '));
+  if (replaced === 0 || kept === 0) return { ok: false };
+  const body = lines.join('\n');
+  if (checkFacts(body, source, customerMessage).restated) return { ok: false };
+  return { ok: true, body, replaced, kept };
 }
