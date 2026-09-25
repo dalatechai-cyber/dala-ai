@@ -32,7 +32,7 @@ import {
   composeQuoted, correctionFor, matchDeterministic, withAppended, type DeterministicRule, type HistoryState,
 } from '../gate/deterministic.ts';
 import { isTenantConfirmed } from '../provenance.ts';
-import { appendedNotice } from './volatile.ts';
+import { REPLY_REMINDERS, appendedNotice } from './volatile.ts';
 import { tenantRegion, ungroundedSentences } from '../guard/grounding.ts';
 import { refusalMarkerFrom, unwarrantedApology } from '../guard/apology.ts';
 import { fold } from '../mn/text.ts';
@@ -614,8 +614,9 @@ export async function handleReception(
     ...input.faqAnswers,
     ...input.deterministic.filter((r) => r.enabled).map((r) => r.body),
     ...input.depositRows,
-    // L4's own lines — today's hours, a closure notice — are data rendered per request.
-    ...input.promptVolatile.split('\n'),
+    // L4's own lines — today's hours, a closure notice — are data rendered per request. Not
+    // the reminders: those are instructions to the model, never text a reply may carry.
+    ...input.promptVolatile.split('\n').filter((l) => !REPLY_REMINDERS.includes(l)),
   ];
   // Two or more branches (D-125): each branch's own sections are fact sections too, and a
   // reply's branch facts are then judged against the branch the customer named. `null` for a
@@ -638,8 +639,11 @@ export async function handleReception(
   // place of the week when the model restates tomorrow's hours in its own words.
   const tomorrowRow = input.deterministic.find((r) => r.tomorrowSlots === true && r.enabled
     && r.placement === 'replace' && isTenantConfirmed(r.provenance));
-  const facts = input.days === undefined || input.days === null ? factRows
-    : { ...factRows, days: { ...input.days, tomorrowLine: tomorrowRow?.body.trim() ?? null } };
+  // A price row is corroborated by its service's aliases too (`FactSource.aliases`).
+  const aliases: Record<string, string[]> = {};
+  for (const a of input.serviceAliases) (aliases[fold(a.name).trim()] ??= []).push(fold(a.alias).trim());
+  const facts = input.days === undefined || input.days === null ? { ...factRows, aliases }
+    : { ...factRows, aliases, days: { ...input.days, tomorrowLine: tomorrowRow?.body.trim() ?? null } };
   const established = branchSrc === null ? null
     : establishedBranches(input.customerMessage, respelled, input.history, termsForPrefix(branchSrc.names, input.branches));
   // Price rows a set row covers are served the tenant's way — its order, then its question

@@ -61,6 +61,14 @@ export type FactSource = {
   /** The approved texts as written, so one the reply quoted whole is served beside the rows. */
   quotable: string[];
   /**
+   * `service_aliases` as whole words per folded service NAME (the row's name part, variant
+   * removed). A price row is corroborated by one of its service's aliases as well as by its
+   * name: «eho yamar unetei ve» names Эхо by its alias, and the model's «Эхогийн» cannot
+   * match a three-letter name any other way — so Эхо's correct prices were refused as
+   * «whose?» (DalaTech's test set, 2026-09-26, q04). Whole words only, as short names are.
+   */
+  aliases?: Readonly<Record<string, readonly string[]>>;
+  /**
    * Which weekday is today and tomorrow on the tenant's clock, and the tenant's own
    * sentence for tomorrow's hours if it has one (D-126). Absent: hours are served as the
    * whole week, as before.
@@ -212,6 +220,11 @@ export type FactCheck =
  * the handoff line then: the model's wording is never sent, and neither is a guess.
  */
 /** A price row's service-name words — what corroborates it. */
+/** The folded service name of a price row: its name part, variant parenthetical removed. */
+export function rowName(row: string): string {
+  return fold(row.slice(0, Math.max(0, row.indexOf(':')))).replace(/\s*\([^()]*\)\s*$/u, '').trim();
+}
+
 function nameWords(row: string): string[] {
   const name = fold(row.slice(0, Math.max(0, row.indexOf(':')))).replace(/\s*\([^()]*\)\s*$/u, '');
   return name.split(/[^\p{L}\p{N}]+/u).filter((w) => w !== '');
@@ -293,7 +306,8 @@ export function checkFacts(reply: string, source: FactSource, customerMessage = 
     const stems = new Set(seen.filter((w) => [...w].length >= CORROBORATE_CP).map(stemOf));
     const whole = new Set(seen);
     const score = (r: FactRow): number => nameWords(r.text)
-      .filter((w) => ([...w].length >= CORROBORATE_CP ? stems.has(stemOf(w)) : whole.has(w))).length;
+      .filter((w) => ([...w].length >= CORROBORATE_CP ? stems.has(stemOf(w)) : whole.has(w))).length
+      + (source.aliases?.[rowName(r.text)] ?? []).filter((a) => whole.has(a)).length;
     const priced = owners.filter((r) => r.section === 'price');
     const best = Math.max(0, ...priced.map(score));
     const corroborated = narrowedByPartner ? priced : priced.filter((r) => best > 0 && score(r) === best);

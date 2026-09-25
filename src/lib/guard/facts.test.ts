@@ -136,3 +136,20 @@ test('a day a closure covers is never narrowed to: its regular hours would be th
   const r = checkFacts(LIVE_REPLY, { ...week, days: { ...friday, tomorrowLine: null, closed: [6] } });
   assert.equal(r.restated && r.served?.split('\n').length, 7);
 });
+
+test('a price row is corroborated by its service\'s ALIAS: «eho» names Эхо when «Эхогийн» cannot (2026-09-26, q04)', () => {
+  const prefix = [
+    '=== ҮНИЙН ЖАГСААЛТ ===',
+    '- Дали — Хүлээн авагч (Сарын төлбөр): 250,000₮',
+    '- Эхо — Утасны оператор (Нэг удаагийн суурилуулалт): 200,000₮',
+    '- Эхо — Утасны оператор (Сарын төлбөр): 250,000₮',
+    '- Ора — Хувийн туслах (Сарын төлбөр): 250,000₮',
+  ].join('\n');
+  const reply = 'Эхогийн нэг удаагийн суурилуулалт 200,000₮, сарын төлбөр 250,000₮ байна.';
+  const bare = checkFacts(reply, factSourceFrom(prefix, LABELS, []), 'eho yamar unetei ve');
+  assert.equal(bare.restated && bare.served, null, 'before: no row can be shown to own 250,000 — the handoff');
+  const withAliases = { ...factSourceFrom(prefix, LABELS, []), aliases: { 'эхо — утасны оператор': ['eho', 'echo'] } };
+  const r = checkFacts(reply, withAliases, 'eho yamar unetei ve');
+  assert.equal(r.restated && r.served,
+    'Эхо — Утасны оператор (Нэг удаагийн суурилуулалт): 200,000₮\nЭхо — Утасны оператор (Сарын төлбөр): 250,000₮');
+});

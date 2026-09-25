@@ -1,1 +1,1 @@
-rerun 1: after the 2026-09-26 fixes (fallback line, e-mail script share, shown totals, reminders, clarification strip, price row)
+rerun 2: alias corroboration, coming-soon append, discount row
