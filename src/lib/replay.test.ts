@@ -326,6 +326,7 @@ function worker(s: ReturnType<typeof store>, eventId: number) {
       return { outcome: 'sent', providerMessageId: 'mid.1' } satisfies DeliverOutcome;
     },
     flagQuality: async () => {},
+    salesShadow: async () => {},
     replyToComment: async () => { throw new Error('the DM path must never reach the comment surface'); },
     sendPrivateReply: async () => { throw new Error('the DM path must never reach the comment surface'); },
     lookupComment: async () => { throw new Error('the DM path must never reach the comment surface'); },

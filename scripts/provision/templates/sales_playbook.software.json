@@ -1,0 +1,26 @@
+{
+  "_comment": "D-127. A software seller's next-step rows (tenant #0's vertical). Bodies are null until the founder chooses them (prompt/drafts/sales_next_step_dalatech.mn.txt). The demo link is the tenant's own and is passed to the provisioning script as --link demo=<url>, never written here.",
+  "lead_route": "founder_telegram",
+  "steps": [
+    {
+      "kind": "demo",
+      "priority": 1,
+      "is_default": true,
+      "link_from": "argument",
+      "intent_matcher": [
+        { "mode": "contains_stem", "stems": ["демо", "demo", "турши", "turshi", "жишээ", "jishee", "үзүүл", "uzuul"] }
+      ]
+    },
+    {
+      "kind": "callback",
+      "priority": 2,
+      "is_default": false,
+      "intent_matcher": [
+        { "mode": "contains_stem", "stems": ["залга", "zalga", "холбогд", "holbogd", "дугаар", "dugaar", "dugar", "уулз", "uulz"] },
+        { "mode": "has_word", "words": ["утас", "утсаа", "утсыг", "utas", "utsaa", "utsig", "utsiig"] }
+      ]
+    },
+    { "kind": "lead_thanks", "priority": 100, "is_default": false, "intent_matcher": null }
+  ],
+  "pairings": []
+}

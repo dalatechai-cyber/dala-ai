@@ -31,6 +31,7 @@ import { raiseAlert } from '@/lib/alerts/alert';
 import { runReceptionJob, type WorkerEffects } from '@/lib/worker/reception';
 import { raiseDeliveryExhausted } from '@/lib/worker/exhaustedAlert';
 import { servicesFromPrefix, sectionRows, faqAnswersFromPrefix } from '@/lib/quality/serviceNames';
+import { salesShadowEffect } from '@/lib/sales/shadow';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -215,6 +216,25 @@ function effects(now: Date): WorkerEffects {
       });
       if (error) console.error('[worker] quality_flag_write_failed', { code, detail: error.message });
     },
+
+    // The sales shadow (D-127): reads the drafted reply, writes `quality_flags`, never rejects.
+    salesShadow: (a) =>
+      salesShadowEffect(db, {
+        tenantId: a.tenantId,
+        conversationId: a.conversationId,
+        messageId: a.messageId,
+        outboundId: a.outboundId,
+        customerMessage: a.customerMessage,
+        customerSentPhoto: a.customerSentPhoto,
+        history: a.history,
+        refusal: a.refusal,
+        threadControl: a.threadControl,
+        promptStable: a.ctx.promptStable,
+        canned: a.ctx.canned,
+        deterministic: a.ctx.deterministic,
+        spellings: a.ctx.spellings,
+        now,
+      }),
 
     log: (level, event, fields) => console[level](`[worker] ${event}`, fields ?? {}),
   };

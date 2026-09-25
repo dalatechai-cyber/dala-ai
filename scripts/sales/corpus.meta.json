@@ -1,0 +1,50 @@
+{
+  "_comment": "D-127 retrospective. The corpus is every inbound DM on the two Facebook channels from 2026-09-18 19:00 UTC to the read on 2026-09-26 (146 messages, 39 conversations), read-only from the live project; corpus.part1/part2.jsonl rows are [conversation(8), tenant T|D, UTC time, customer text, reply state, reviewed canned kinds the reply contains, reply is a small-talk row, reply ends with ?, reply carries the booking/demo link, quality flags within 2 min, a person replied earlier]. md5 of the texts joined by | in (conversation, time) order was reproduced against the live table: 51ae6b3a9b0a0ba5edbd80378e63d5c2. The own texts and the price list below are the tenants' live published rows on 2026-09-26 (Tara: live snapshot compiled 2026-09-24 22:21 UTC).",
+  "tenants": {
+    "T": {
+      "template": "salon",
+      "ownTexts": [
+        "Утас: 76001888, 80905498"
+      ],
+      "priceList": "=== ҮНИЙН ЖАГСААЛТ ===\n- CICA нөхөн сэргээх эмчилгээ (1 удаа): 198,000₮\n- CICA нөхөн сэргээх эмчилгээ (Курсээр, 1 удаагийн үнэ): 154,000₮\n- CMC тэжээл: 132,000₮\n- Афро хими: 430,000₮–510,000₮\n- Гоёлын засалт: 71,500₮–99,000₮\n- Дунд үсний будаг (мөрнөөс дээш урттай үс): 176,000₮\n- Омбре: 500,000₮–640,000₮\n- Оффис колор: 380,000₮–460,000₮\n- Сахал засах: 16,500₮\n- Сор: 120,000₮–190,000₮\n- Тэжээл: 44,000₮–88,000₮\n- Тэжээлийн тос: 49,500₮\n- Угаалт: 22,000₮\n- Урт үсний будаг (мөр давсан урттай үс): 200,000₮\n- Усан хими: 132,000₮–154,000₮\n- Хими арчилт: 154,000₮\n- Хуйх цэвэрлэгээ: 88,000₮\n- Хуримын засалт: 154,000₮–198,000₮\n- Хэлбэржүүлэлт (1-р зэрэг): 33,000₮\n- Хэлбэржүүлэлт (Мастер): 33,000₮–50,000₮\n- Цайруулалт: 430,000₮–570,000₮\n- Чёлк тайралт: 33,000₮\n- Шулуун хими: 430,000₮–510,000₮\n- Эмчилгээний хими: 220,000₮–255,000₮\n- Эмэгтэй тайралт (1-р зэрэг): 55,000₮\n- Эмэгтэй тайралт (Мастер): 66,000₮–88,000₮\n- Эрэгтэй тайралт (1-р зэрэг): 49,500₮\n- Эрэгтэй тайралт (Мастер): 66,000₮\n- Үс хусах: 22,000₮\n- Үсний угийн будаг: 135,000₮\n\n=== ТҮГЭЭМЭЛ АСУУЛТ ===\n",
+      "demoLink": null,
+      "smallTalkPhrases": [
+        "сайн байна уу",
+        "сайн бна уу",
+        "сайн бн уу",
+        "сайн бнуу",
+        "сайн бну",
+        "сайн байнуу",
+        "сайнуу",
+        "сайн уу",
+        "оройн мэнд",
+        "өглөөний мэнд",
+        "sain baina uu",
+        "sain bna uu",
+        "sain bnuu",
+        "sain bnu",
+        "sain bainu",
+        "sain bna u",
+        "sainuu",
+        "sn bna uu",
+        "sn bnu",
+        "sn bnuu",
+        "hi",
+        "hii",
+        "hello",
+        "hey",
+        "ci henbe",
+        "cmg hen hiisen be"
+      ]
+    },
+    "D": {
+      "template": "software",
+      "ownTexts": [],
+      "priceList": "",
+      "demoLink": "https://app.dalatech.online",
+      "smallTalkPhrases": []
+    }
+  },
+  "_comment_smallTalk": "smallTalkPhrases: Tara's live `greeting` row's phrases in full, plus the two phrases of its `assistant_who` / `assistant_maker` rows that occur in this corpus («ci henbe», «cmg hen hiisen be»). DalaTech has no whole-message row.",
+  "_comment_kinds": "Column 6 (reviewed canned kinds in the reply) is matched against the CURRENT reviewed rows with the pre-rebrand number «7741-7777» read as «76001888 эсвэл 80905498» — the one edit those rows received after 2026-09-19. Without it, eleven refusal and handoff replies from 09-19 read as ordinary answers and would have been offered a next step."
+}

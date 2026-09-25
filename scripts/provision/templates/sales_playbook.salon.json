@@ -1,0 +1,42 @@
+{
+  "_comment": "D-127. A salon's next-step rows. Bodies are null: the words are customer-visible Mongolian and wait for the founder (prompt/drafts/sales_next_step_tara.mn.txt). The booking link is read from the tenant's tenant_booking.booking_url by the provisioning script, never written here. intent_matcher is a list of gate matchers; any one firing counts.",
+  "lead_route": "tenant_telegram",
+  "steps": [
+    {
+      "kind": "booking",
+      "priority": 1,
+      "is_default": true,
+      "link_from": "tenant_booking",
+      "intent_matcher": [
+        { "mode": "contains_stem", "stems": ["захиал", "zahial", "бичүүл", "bichuul"] },
+        { "mode": "stem_sequence", "stems": ["цаг", "ав"], "windowCp": 12 },
+        { "mode": "stem_sequence", "stems": ["tsag", "av"], "windowCp": 12 },
+        { "mode": "stem_sequence", "stems": ["tsag", "aw"], "windowCp": 12 }
+      ]
+    },
+    {
+      "kind": "callback",
+      "priority": 2,
+      "is_default": false,
+      "intent_matcher": [
+        { "mode": "contains_stem", "stems": ["залга", "zalga", "холбогд", "holbogd", "дугаар", "dugaar", "dugar"] },
+        { "mode": "has_word", "words": ["утас", "утсаа", "утсыг", "утсыгаа", "utas", "utsaa", "utsig", "utsiig"] }
+      ]
+    },
+    { "kind": "related_service", "priority": 100, "is_default": false, "intent_matcher": null },
+    { "kind": "lead_thanks", "priority": 100, "is_default": false, "intent_matcher": null }
+  ],
+  "pairings": [
+    { "service_name": "Эрэгтэй тайралт", "related_name": "Сахал засах" },
+    { "service_name": "Усан хими", "related_name": "Хими арчилт" },
+    { "service_name": "Шулуун хими", "related_name": "Хими арчилт" },
+    { "service_name": "Афро хими", "related_name": "Хими арчилт" },
+    { "service_name": "Эмчилгээний хими", "related_name": "Хими арчилт" },
+    { "service_name": "Цайруулалт", "related_name": "CICA нөхөн сэргээх эмчилгээ" },
+    { "service_name": "Омбре", "related_name": "CICA нөхөн сэргээх эмчилгээ" },
+    { "service_name": "Үсний угийн будаг", "related_name": "Тэжээл" },
+    { "service_name": "Дунд үсний будаг", "related_name": "Тэжээл" },
+    { "service_name": "Урт үсний будаг", "related_name": "Тэжээл" },
+    { "service_name": "Эмэгтэй тайралт", "related_name": "Хэлбэржүүлэлт" }
+  ]
+}

@@ -172,6 +172,14 @@ export type WorkerEffects = {
    * change what the customer gets.
    */
   flagQuality: (args: { tenantId: string; conversationId: string; code: string; detail: string }) => Promise<void>;
+  /**
+   * The sales shadow (D-127): after a reply is DRAFTED, record whether a next step would be
+   * offered and whether the customer's message was a lead. It reads the stored reply and
+   * writes only `quality_flags`; it cannot change the reply, send anything or alert anyone.
+   * Must never reject — the binding swallows and logs its own failures — and the worker
+   * waits for it at most `SALES_SHADOW_WAIT_MS`, beside the claim.
+   */
+  salesShadow: (args: SalesShadowArgs) => Promise<void>;
   /** Structured, and injected so a test can assert the REASON rather than the status. */
   log: (level: 'info' | 'warn' | 'error', event: string, fields?: Record<string, unknown>) => void;
   /** The public-comment surface. Its own effects, because it is its own surface. */
@@ -180,6 +188,27 @@ export type WorkerEffects = {
   lookupComment: CommentEffects['lookupComment'];
   alertComplaint: CommentEffects['alertComplaint'];
 };
+
+export type SalesShadowArgs = {
+  tenantId: string;
+  conversationId: string;
+  messageId: string;
+  outboundId: string;
+  customerMessage: string;
+  customerSentPhoto: boolean;
+  history: readonly Turn[];
+  refusal: boolean;
+  threadControl: string;
+  ctx: ReceptionContext;
+};
+
+/**
+ * How long the reply waits for the sales shadow before going on without it (D-127). Its
+ * reads run beside the claim and the person-replied check, so on a normal day it adds
+ * nothing; this bounds the bad day. A shadow that has not finished by then keeps running and
+ * is logged `sales_shadow_late` — a record that may be missing, said out loud.
+ */
+export const SALES_SHADOW_WAIT_MS = 250;
 
 export type JobResult = { status: number; body: Record<string, unknown> };
 
@@ -1031,6 +1060,22 @@ async function runReceptionDelivery(
       fx.log('warn', 'answered_with_handoff', { code: outcome.refusal, conversationId });
     }
 
+    // THE SALES SHADOW (D-127). After the draft, never before: the reply is decided and
+    // stored, and this only reads it. Bounded, and it cannot reject (see the effect).
+    let salesSettled = false;
+    const selling = settleWithin(
+      // `Promise.resolve().then` so even a synchronous throw lands in the `.catch`.
+      Promise.resolve().then(() => fx.salesShadow({
+        tenantId, conversationId, messageId: stored.value.messageId, outboundId: outcome.outboundId,
+        customerMessage: message.text,
+        customerSentPhoto: message.attachments.includes('image') && message.stickerIds.length === 0,
+        history: priorTurns, refusal: outcome.refusal !== undefined,
+        threadControl: threadState === 'unreadable' ? 'unreadable' : threadState.control,
+        ctx,
+      })).catch(() => undefined).finally(() => { salesSettled = true; }),
+      SALES_SHADOW_WAIT_MS,
+    );
+
     // --- H14: claim the draft and put it on the wire. ---------------------
     //
     // Beside the claim: has a person replied since this message arrived (founder,
@@ -1046,7 +1091,9 @@ async function runReceptionDelivery(
           automationTexts,
         }).catch((e: unknown) => ({ replied: 'unreadable' as const, detail: e instanceof Error ? e.message : String(e) }))
         : Promise.resolve(null),
+      selling,
     ]);
+    if (!salesSettled) fx.log('info', 'sales_shadow_late', { tenantId, conversationId, outboundId: outcome.outboundId });
     if (!traced.ok) {
       fx.log('error', 'trace_failed', {
         tenantId, conversationId, messageId: stored.value.messageId, detail: traced.detail ?? '',

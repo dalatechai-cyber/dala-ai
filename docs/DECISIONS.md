@@ -9663,3 +9663,46 @@ instructions unasked (founder).**
   сан», words DalaTech's answers about its product legitimately use.
 - DalaTech's approved private comment message and "who are you" answer are rows
   (`comment_private_reply`, `deterministic_replies.assistant_who`); reply case pins the latter.
+
+## D-127 — both bots become salespeople: the next step and the lead, in shadow first
+
+**Founder, 2026-09-26:** *"Both bots become salespeople. Every chat should end with a next step,
+without being pushy."* DalaTech offers the demo, or asks for a name and phone number, and the
+lead goes to the founder's Telegram. Tara offers booking (link and deposit), or asks for a phone
+number so the salon can call back, and suggests one related service where it fits.
+*"Propose all new Mongolian wording for my approval, test on real traffic in shadow, and show
+me before anything goes live."*
+
+**What is built is the instrument, not the behaviour.** No customer-visible change.
+
+- **The decision** is `src/lib/sales/nextStep.ts`, a pure function.
+  - **When:** once per conversation. Never after a complaint (the tenant's own
+    `comment_rules` escalate rows), a person in the thread, a phone number already given, a
+    photo, a refusal or handoff line, a reply that asks the customer something, a greeting, or
+    a stray key.
+  - **Which:** a step whose intent words fire, lowest priority first. Otherwise the tenant's
+    default step.
+  - **Related service:** its own verdict, once, when the customer names a paired listed
+    service uniquely.
+- **The lead detector** is `src/lib/sales/phone.ts`. It finds 8-digit Mongolian numbers:
+  joined, halved, paired, dashed, or behind `+976`. It never matches prices, times or ranges,
+  and never the tenant's own published numbers. Records carry the number masked («7600****»),
+  never digits.
+- **The rows** are `0051`: `sales_playbooks` (mode `off`/`shadow` only, so no live mode
+  exists; plus the lead route), `sales_next_steps` (bodies NULL until chosen), and
+  `service_pairings` (seeded, unconfirmed). Not `canned_responses`: that would put a sales
+  sentence in the cached prefix and move `canned_hash`.
+- **The hook** sits in `worker/reception.ts`, after the draft, beside the claim. It is capped
+  at 250 ms, cannot reject, and reads the stored reply. It writes only `quality_flags`
+  (`sales_next_step_shadow` per reply, plus `sales_lead_shadow` when a phone number is
+  present). It does not touch `handle.ts`, the handover code, or any alert.
+- **The retrospective** is `scripts/sales/retro.ts` over seven days of real DMs
+  (`docs/reports/2026-09-26-sales-shadow.md`). Tara: 17 of 37 conversations would have ended
+  with a step, and 12 of the other 20 got no reply at all. No customer gave a phone number.
+- **The words** are in `prompt/drafts/sales_next_step_{tara,dalatech}.mn.txt`. They are
+  unsigned, with two options each.
+
+**Open, for the founder:** the wording. Tara's lead destination: Telegram to a salon chat is
+recommended, if the staff use Telegram. Whether a refusal should carry the call-back ask. And
+before live: count the step as offered only after a confirmed send. Today a failed send
+consumes it.

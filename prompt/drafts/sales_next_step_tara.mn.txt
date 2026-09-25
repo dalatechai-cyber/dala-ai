@@ -1,0 +1,103 @@
+# UNSIGNED DRAFT — NOT APPROVED. Loaded by nothing. D-127, 2026-09-26.
+#
+# Tenant: Matrix / Tara Salon (vertical `salon`). Rows: `sales_next_steps` (migration 0051)
+# and `service_pairings`. Every body is NULL until the founder chooses it and sets
+# `reviewed_at`; the shadow records each row as `unwritten` until then.
+#
+# NOTHING SENDS THESE. The shadow only records, after each reply, which row WOULD have been
+# added. Sending is a later change, switched on by the founder after the shadow numbers.
+#
+# Written by a session, not a native speaker. Every line is the founder's call.
+#
+# THE LINK AND THE DEPOSIT ARE NOT WRITTEN HERE. The booking step contains the salon's
+# approved booking_line WORD FOR WORD («Та манай вэбсайтаар (https://www.matrixecosalon.org/)
+# онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.»), and the deposit
+# rows are added above it from the price data exactly as every booking answer gets them
+# today (`withDeposits`, D-120). So a changed deposit or URL changes the next step without
+# anyone editing this row, and no amount is typed twice.
+
+# ---- kind = booking (the default next step) ------------------------------------------
+# Added once per conversation, at the end of the first reply that answered a real question.
+#
+# Option A (my recommendation): booking first, the call-back as the other choice.
+Хүсвэл цагаа одоо захиалаарай. Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой. Эсвэл утасны дугаараа энд үлдээвэл салоноос Тан руу залгана.
+#
+# Roughly as the customer would read it (the deposit rows are inserted from the live
+# «УРЬДЧИЛГАА ТӨЛБӨР» section, so their exact form is whatever that section holds):
+#
+#   Хүсвэл цагаа одоо захиалаарай.
+#
+#   - 1-р зэргийн үсчин: 10,000₮
+#   - Мастер үсчин: 20,000₮
+#
+#   Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа
+#   төлбөрөө QPay-ээр төлөх боломжтой. Эсвэл утасны дугаараа энд үлдээвэл салоноос Тан руу
+#   залгана.
+#
+# Option B: one choice per line — the booking line alone here, the call-back only when the
+# customer's words ask for it (the callback row below).
+Цаг захиалах бол: Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.
+
+# ---- kind = callback (chosen when the customer asks for a number / to be called) --------
+# Intent words (data, sales_playbook.salon.json): залга, холбогд, дугаар, утас, утсыг, and
+# the Latin spellings. In last week's traffic: «Sn bnu Badmaa stylestiin dugaar hed we»,
+# «Яармаг салбарын утсыг өгөөч».
+#
+# Option A:
+Утасны дугаараа энд үлдээвэл салоноос Тан руу залгана.
+#
+# Option B:
+Дугаараа үлдээгээрэй, манай ажилтан Тан руу эргэн залгаж, цагийг тань тохирно.
+
+# ---- kind = lead_thanks (the reply to a message that GIVES a phone number) ------------
+# The lead goes to the salon (see the lead-destination recommendation in D-127).
+#
+# Option A:
+Баярлалаа! Дугаарыг тань салонд дамжууллаа. Манай ажилтан Тан руу залгана.
+#
+# Option B:
+Баярлалаа, салоноос Тан руу залгана.
+
+# ---- kind = related_service (ONE per conversation, where it fits) ---------------------
+# One slot, {related}: the paired service's name exactly as the price list writes it,
+# inside «», in the nominative — no suffix is attached to it, so vowel harmony cannot go
+# wrong whatever the name («CICA нөхөн сэргээх эмчилгээ», «Хими арчилт»). The price is not
+# in the line; if the customer asks, it comes from the price list like any other price.
+#
+# Option A (my recommendation): a fact, no push.
+Мөн манайд «{related}» үйлчилгээ бий.
+#
+# Option B: an invitation. Only if the salon really can do both in one visit.
+Хүсвэл «{related}» үйлчилгээг хамт хийлгэж болно.
+
+# ---- service_pairings: which service suggests which (data, seeded, NOT confirmed) --------
+# Proposed from the salon's own price list; each needs the salon's yes
+# (provenance → tenant_confirmed). A pair fires only when the customer's message names the
+# first service uniquely (the matcher's `unique` verdict), once per conversation.
+#
+#   Эрэгтэй тайралт            → Сахал засах
+#   Усан хими                  → Хими арчилт
+#   Шулуун хими                → Хими арчилт
+#   Афро хими                  → Хими арчилт
+#   Эмчилгээний хими           → Хими арчилт
+#   Цайруулалт                 → CICA нөхөн сэргээх эмчилгээ
+#   Омбре                      → CICA нөхөн сэргээх эмчилгээ
+#   Үсний угийн будаг          → Тэжээл
+#   Дунд үсний будаг           → Тэжээл
+#   Урт үсний будаг            → Тэжээл
+#   Эмэгтэй тайралт            → Хэлбэржүүлэлт
+#
+# Deliberately NOT paired: anything with a health or suitability question in it (the
+# suitability rows already append «the stylist decides»), Сор (its name cannot be matched on
+# its own, D-092), and children's services (refused, D-067).
+
+# Questions for the founder:
+#
+#  1. A or B for each kind.
+#  2. «Тан руу» with a capital, as the approved handoff writes «Танд»? Or lower case, as the
+#     approved image line does? The two approved rows disagree today.
+#  3. «салоноос Тан руу залгана» (the salon will call you) — true only if the salon DOES
+#     call back. Who calls, and how fast? That decides whether A's promise can stand.
+#  4. Are the eleven pairs right? Strike any the salon would not suggest.
+#  5. Option A's booking line repeats «захиал» twice (lead-in and booking_line). Keep the
+#     lead-in, or start straight with the approved booking_line (Option B)?
