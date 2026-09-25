@@ -11,4 +11,7 @@
  * switch the gate off, so an entry whose origin is not the founder's own keygen output is a
  * security incident, not a configuration change.
  */
-export const FOUNDER_OVERRIDE_KEYS: readonly string[] = [];
+export const FOUNDER_OVERRIDE_KEYS: readonly string[] = [
+  // Key 33e1d9160edf3173. Handed over by the founder on 2026-09-25 from their own keygen.
+  'MCowBQYDK2VwAyEAbhZ7f3VIEA/zAmCY+PthGlZzQYDkxXBwvC4ajFVBIew=',
+];
