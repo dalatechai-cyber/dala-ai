@@ -14,7 +14,7 @@ const WHO: DeterministicRule = {
 const STABLE = `GATE\n=== ${SECTION_LABELS.dataMarker} ===\n=== ${SECTION_LABELS.priceList} ===\n- Сор: 120,000₮–190,000₮`;
 
 const CTX: ReceptionContext = {
-  promptStable: STABLE, hours: [], closures: [], allowedNumbers: ['120,000', '190,000'], cannedHash: null,
+  promptStable: STABLE, hours: [], closures: [], allowedNumbers: ['120,000', '190,000'], cannedHash: null, fallbackLine: null,
   promptGate: 'GATE', revisionId: 'r1', contentHash: 'h1', rules: [], deterministic: [WHO], serviceAliases: [],
   spellings: [], branches: [], days: null,
   canned: [{ kind: 'handoff', body: 'Уучлаарай, би энэ асуултад хариулж чадахгүй байна.', reviewedAt: REVIEWED }],

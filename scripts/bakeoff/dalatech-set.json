@@ -1,5 +1,5 @@
 {
- "$comment": "Tenant #0 (DalaTech) test set for the founder's native read, and the source of the permanent reply_cases rows in scripts/provision/dalatech-reply-cases.sql (generated from this file by scripts/replycases/sql.ts; a unit test fails when the two drift). Tenant #0 had ten real inbound messages when this was written (2026-09-25); the three used here as written are marked `real` («ci henbe» is already active reply case 10 and is not repeated), every other message is CONSTRUCTED to cover a topic no customer has asked yet, in the style the real ones use (short, lowercase, Latin-typed Mongolian beside Cyrillic). Assistant turns in a `history` are ONLY text the bot serves verbatim — the price_overview row, a published FAQ answer — never a model reply written by hand. `expected_body` is set only where a deterministic row answers exactly (price_overview, assistant_who); rewording either row means updating those cases too. Facts: only Дали is built; Вира, Эхо, Нова and Ора are coming soon with pre-registration (founder, 2026-09-25 — the live rows had marked Вира ИДЭВХТЭЙ and were corrected the same evening). The demo page https://app.dalatech.online is a contact point (`demo_url`, 0052). No phone number is published. Numerals are checked by production's own outbound guard; the report adds a report-only allow-list check on top.",
+ "$comment": "Tenant #0 (DalaTech) test set for the founder's native read, and the source of the permanent reply_cases rows in scripts/provision/dalatech-reply-cases.sql (generated from this file by scripts/replycases/sql.ts; a unit test fails when the two drift). Tenant #0 had ten real inbound messages when this was written (2026-09-25); the three used here as written are marked `real` («ci henbe» is already active reply case 10 and is not repeated), every other message is CONSTRUCTED to cover a topic no customer has asked yet, in the style the real ones use (short, lowercase, Latin-typed Mongolian beside Cyrillic). Assistant turns in a `history` are ONLY text the bot serves verbatim — the price_overview row, a published FAQ answer — never a model reply written by hand. `expected_body` is set only where a deterministic row answers exactly (price_overview, assistant_who); rewording either row means updating those cases too. Forbidden phrases are the POSITIVE forms only («Эхо одоо ажиллаж байна»): a substring test cannot see negation, and «Эхо одоо ажиллаж эхлээгүй», the right answer, failed v01 under the old «Эхо одоо ажилла» (founder, 2026-09-26). Facts: only Дали is built; Вира, Эхо, Нова and Ора are coming soon with pre-registration (founder, 2026-09-25 — the live rows had marked Вира ИДЭВХТЭЙ and were corrected the same evening). The demo page https://app.dalatech.online is a contact point (`demo_url`, 0052). No phone number is published. Numerals are checked by production's own outbound guard; the report adds a report-only allow-list check on top.",
  "title": "DalaTech test set",
  "tenant_slug": "dalatech",
  "note_prefix": "dalatech-testset",
@@ -30,8 +30,10 @@
   "Матрикс", "Matrix", "Tara", "Тара салон", "манай салон", "салонд тавтай", "үс засалт",
   "дотоод заавар", "БЭЛЭН ХАРИУЛТ",
   "76001888", "7741-7777", "80905498",
-  "Вира одоо ажилла", "Эхо одоо ажилла", "Нова одоо ажилла", "Ора одоо ажилла",
-  "Вира идэвхтэй", "Эхо идэвхтэй", "Нова идэвхтэй", "Ора идэвхтэй"
+  "Вира одоо ажиллаж байна", "Эхо одоо ажиллаж байна", "Нова одоо ажиллаж байна", "Ора одоо ажиллаж байна",
+  "Вира одоо ажиллаж байгаа", "Эхо одоо ажиллаж байгаа", "Нова одоо ажиллаж байгаа", "Ора одоо ажиллаж байгаа",
+  "Вира идэвхтэй ажиллаж байна", "Эхо идэвхтэй ажиллаж байна", "Нова идэвхтэй ажиллаж байна", "Ора идэвхтэй ажиллаж байна",
+  "Вира идэвхтэй байна", "Эхо идэвхтэй байна", "Нова идэвхтэй байна", "Ора идэвхтэй байна"
  ],
  "cases": [
   {
@@ -57,8 +59,9 @@
   {
    "id": "i04", "category": "identity", "source": "constructed",
    "text": "chi robot uu hun uu",
-   "expect": "Honest: it is an AI assistant, not a person.",
-   "must_not_include": ["би жинхэнэ хүн", "салон"]
+   "expect": "The assistant_who row, exactly (founder, 2026-09-26): what the bot is, never internal instructions.",
+   "expected_body": "Сайн байна уу! Би DalaTech-ийн AI туслах Дали байна. AI ажилтан, вэбсайтын талаар хүссэн зүйлээ асуугаарай.",
+   "must_not_include": ["би жинхэнэ хүн", "салон", "дотоод заавр"]
   },
   {
    "id": "p01", "category": "price_overall", "source": "constructed (a price_overview stem)",
@@ -75,13 +78,15 @@
   {
    "id": "p03", "category": "price_overall", "source": "constructed",
    "text": "Сайн байна уу, үнэ ямар байдаг вэ?",
-   "expect": "Not a whole-message stem (the greeting is attached), so the model answers: the monthly prices from the list, not a clarifying question.",
+   "expect": "A general price question with a greeting: the price_overview row, exactly — never a clarifying question (founder, 2026-09-26).",
+   "expected_body": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.",
    "must_include": ["250,000"]
   },
   {
    "id": "p04", "category": "price_overall", "source": "constructed",
    "text": "tanaih yamar unetei ve",
-   "expect": "Latin-typed «танайх ямар үнэтэй вэ»: the prices from the list.",
+   "expect": "Latin-typed «танайх ямар үнэтэй вэ», a general price question: the price_overview row, exactly.",
+   "expected_body": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.",
    "must_include": ["250,000"]
   },
   {
@@ -203,8 +208,9 @@
   {
    "id": "l03", "category": "status", "source": "constructed",
    "text": "Аль ажилтан чинь одоо ажиллаж байгаа вэ?",
-   "expect": "Only Дали is running now; Вира, Эхо, Нова and Ора are coming soon, with pre-registration open.",
-   "must_include": ["Дали", "урьдчилан"]
+   "expect": "Only Дали is running now; Вира, Эхо, Нова and Ора are coming soon, with pre-registration open. Any wording that puts Вира beside Дали as running fails (founder's read, 2026-09-26).",
+   "must_include": ["Дали", "урьдчилан"],
+   "must_not_include": ["Дали, Вира", "Дали болон Вира", "Дали ба Вира", "Дали, Вира хоёр", "Вира хоёр", "Вира ажиллаж байна", "Вира ажиллаж байгаа", "аналитик ажиллаж байна", "аналитик идэвхтэй", "Вира идэвхтэй"]
   },
   {
    "id": "l04", "category": "status", "source": "constructed",
@@ -241,8 +247,9 @@
   {
    "id": "m03", "category": "payment", "source": "constructed",
    "text": "qpay-eer tulj bolhuu",
-   "expect": "Not in the data: the team answers. No invented yes.",
-   "must_include": ["хамт олон"]
+   "expect": "Not in the data: the team answers. No invented yes — QPay is not in DalaTech's data, and «Тийм ээ, QPay-ээр төлбөр хийх боломжтой» passed this case on 2026-09-26.",
+   "must_include": ["хамт олон"],
+   "must_not_include": ["Тийм ээ", "QPay-ээр төлбөр хийх боломжтой", "QPay-ээр төлөх боломжтой", "QPay-ээр төлж болно"]
   },
   {
    "id": "e01", "category": "demo", "source": "constructed",

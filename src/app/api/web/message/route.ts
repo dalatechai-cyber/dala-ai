@@ -115,6 +115,7 @@ function effects(now: Date): MessageEffects {
           faqAnswers: faqAnswersFromPrefix(a.ctx.promptStable, SECTION_LABELS.faqs),
           branches: a.ctx.branches,
           cannedHash: a.ctx.cannedHash,
+          fallbackLine: a.ctx.fallbackLine,
         },
       ),
 

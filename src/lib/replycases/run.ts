@@ -226,6 +226,7 @@ export async function runCases(input: {
         depositRows: sectionRows(ctx.promptStable, SECTION_LABELS.deposits),
         faqAnswers: faqAnswersFromPrefix(ctx.promptStable, SECTION_LABELS.faqs),
         cannedHash: ctx.cannedHash,
+        fallbackLine: ctx.fallbackLine,
         spellings: ctx.spellings,
         branches: ctx.branches,
       });

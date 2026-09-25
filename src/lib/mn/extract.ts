@@ -116,6 +116,43 @@ export function extractNumerals(text: string): Numeral[] {
 }
 
 /**
+ * Totals the reply COMPUTES from approved prices it also states (founder, 2026-09-26: «a
+ * total is fine only if it's computed from our approved prices»). Returned as digit strings,
+ * for the numeral check to accept beside `allowed_numbers`.
+ *
+ * A total is accepted only with its work shown in the same reply:
+ *  - it equals the sum of two or more approved amounts (four digits or more — prices, not
+ *    counts) that the reply itself writes, each occurrence used at most once; or
+ *  - it equals such a sum, or another total accepted here, less a percentage the reply
+ *    writes and the tenant's own data states (`approvedPercentages`).
+ *
+ * «Дали 250,000₮, Вира 150,000₮ — нийлбэр 400,000₮, 10% хөнгөлөлттэй 360,000₮» passes; a
+ * bare «Вира 300,000₮» does not, although 300,000 is 150,000 twice, because nothing in the
+ * reply shows it was added up — an invented price that happens to be a sum stays invented.
+ */
+export function shownTotals(text: string, allowedNumbers: readonly string[], approvedPercentages: readonly string[]): string[] {
+  const approved = new Set(allowedNumbers.map(digitsOf).filter((d) => d.length >= 4));
+  const numerals = extractNumerals(maskUrls(text)).map((n) => n.digits).filter((d) => d !== '');
+  const parts = numerals.filter((d) => approved.has(d)).slice(0, 12).map(Number);
+  const sums = new Set<number>();
+  for (let mask = 1; mask < 1 << parts.length; mask += 1) {
+    let n = 0; let total = 0;
+    for (let i = 0; i < parts.length; i += 1) if ((mask & (1 << i)) !== 0) { n += 1; total += parts[i] ?? 0; }
+    if (n >= 2) sums.add(total);
+  }
+  const written = new Set(numerals.map(Number));
+  const accepted = new Set([...sums].filter((t) => written.has(t)));
+  const pcts = percentagesIn(text).filter((p) => approvedPercentages.includes(p) && !p.includes('.')).map(Number);
+  for (const base of [...sums, ...accepted]) {
+    for (const p of pcts) {
+      const net = (base * (100 - p)) / 100;
+      if (Number.isInteger(net) && written.has(net)) accepted.add(net);
+    }
+  }
+  return [...accepted].map(String);
+}
+
+/**
  * The done-test from V1.md 3.4: **every numeral in the reply must appear in
  * `allowed_numbers`.** Returns the offenders; an empty array is a pass.
  *
