@@ -154,7 +154,7 @@ from `tara-live.json`, a read-only dump served by `fixtureDb.ts` (writes throw),
 refuses to start unless the dumped `prompt_stable` hashes to its snapshot's `content_hash`.
 
 ```bash
-EGUNE_API_KEY=…     node scripts/bakeoff/arms.ts --arm egune  --tag night1 [--egune-model egune1-14b]
+EGUNE_API_KEY=…     node scripts/bakeoff/arms.ts --arm egune  --tag night1 [--egune-model egune-nano]
 ANTHROPIC_API_KEY=… node scripts/bakeoff/arms.ts --arm sonnet --tag night1
 node scripts/bakeoff/compare.mjs --a sonnet-night1 --b egune-night1 [--b-usd-in X --b-usd-out Y] > report.md
 ```

@@ -14,7 +14,7 @@ on:
     inputs:
       egune_model:
         description: Egune model id (the "Egune models" step lists what the key can use)
-        default: egune1-14b
+        default: egune-nano
       egune_usd_in:
         description: Egune price per MILLION input tokens in USD, if known (blank = cost not computed)
         required: false
