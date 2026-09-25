@@ -57,7 +57,7 @@ export const PRICE_VIOLATION_FLAG = 'price_violation_seen';
 import { bookingApology, renderBookingAnswer, apologyStemsFrom } from '../guard/bookingApology.ts';
 import { capToSingleMessage } from '../mn/text.ts';
 import { respell, type Spelling } from '../mn/latin.ts';
-import { checkFacts, factSourceFrom } from '../guard/facts.ts';
+import { checkFacts, factSourceFrom, splitFacts } from '../guard/facts.ts';
 import { instructionLeakIn } from '../quality/leaks.ts';
 import {
   CLARIFY_BRANCH_KIND, branchSectionLabels, establishedBranches, termsForPrefix, type BranchStems,
@@ -681,12 +681,25 @@ export async function handleReception(
       if (x.answeredBy === 'model') {
         const fact = checkFacts(x.body, facts, input.customerMessage);
         if (fact.restated) {
-          await deps.flag({ code: 'fact_restated', detail: fact.detail, attempted: x.body });
-          // A price no row can be shown to own gets the handoff line: the answer with no
-          // facts in it. Never the model's wording, and never a guessed row.
-          const served = fact.served === null ? generalLine(input)?.body ?? null : asSet(fact.served);
-          if (served === null) return { ok: false, detail: 'fact_restated: no row to serve and no handoff line' };
-          x = { ...x, body: served, answeredBy: fact.served === null ? 'canned' : 'deterministic' };
+          // Only the price sentences are replaced by their rows; the model's other sentences
+          // stay, each one checked (founder, 2026-09-26). A reply that cannot be split that
+          // way — one sentence, an amount nobody owns, a kept sentence still carrying a fact —
+          // is served as before.
+          const split = fact.served === null ? { ok: false as const } : splitFacts(x.body, facts, input.customerMessage);
+          await deps.flag({
+            code: 'fact_restated',
+            detail: split.ok ? `${fact.detail}; ${split.replaced} sentence(s) replaced by rows, ${split.kept} kept` : fact.detail,
+            attempted: x.body,
+          });
+          if (split.ok) {
+            x = { ...x, body: split.body };
+          } else {
+            // A price no row can be shown to own gets the handoff line: the answer with no
+            // facts in it. Never the model's wording, and never a guessed row.
+            const served = fact.served === null ? generalLine(input)?.body ?? null : asSet(fact.served);
+            if (served === null) return { ok: false, detail: 'fact_restated: no row to serve and no handoff line' };
+            x = { ...x, body: served, answeredBy: fact.served === null ? 'canned' : 'deterministic' };
+          }
         }
       }
       // WHICH BRANCH (D-125). Judged on what the model wrote — or on the rows `checkFacts`

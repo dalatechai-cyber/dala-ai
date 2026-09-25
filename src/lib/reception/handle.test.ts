@@ -1041,6 +1041,18 @@ test('DONE-TEST: A PRICE IN THE MODEL\'S OWN WORDS IS REPLACED BY ITS ROW (live 
   assert.equal(f?.attempted, 'Усны хими 132,000₮–154,000₮ байна.', 'with what the model wrote');
 });
 
+test('DONE-TEST: THE MODEL\'S OTHER SENTENCES STAY; ONLY THE PRICE SENTENCE BECOMES ITS ROW (founder, 2026-09-26)', async () => {
+  const text = 'Усан хими үсийг долгиолж өгдөг. Усны хими 132,000₮–154,000₮ байна.';
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text } });
+  await handleReception(d, {
+    ...base, customerMessage: 'usnii himi', promptStable: PRICED, serviceNames: [],
+    tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['132,000', '154,000'] },
+  });
+  assert.equal(drafts.at(-1)?.body, 'Усан хими үсийг долгиолж өгдөг.\nУсан хими: 132,000₮–154,000₮');
+  assert.equal(drafts.at(-1)?.answeredBy, 'model', 'model sentences survive, so it is the model\'s answer');
+  assert.match(flags.find((x) => x.code === 'fact_restated')?.detail ?? '', /1 sentence\(s\) replaced by rows, 1 kept/);
+});
+
 test('a price row quoted whole, and the phone number as written, are sent untouched', async () => {
   const text = 'Усан хими: 132,000₮–154,000₮. Дэлгэрэнгүйг 76001888 дугаараас асуугаарай.';
   const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text } });

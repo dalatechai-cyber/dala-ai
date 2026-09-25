@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { amountsIn, checkFacts, factSourceFrom } from './facts.ts';
+import { amountsIn, checkFacts, factSourceFrom, sentencesOf, splitFacts } from './facts.ts';
 
 const LABELS = { priceList: 'ҮНИЙН ЖАГСААЛТ', deposits: 'УРЬДЧИЛГАА ТӨЛБӨР', hours: 'АЖЛЫН ЦАГ', contacts: 'ХОЛБОО БАРИХ' };
 // Matrix's live rows, trimmed (seq 15, 2026-09-24).
@@ -195,4 +195,19 @@ test('a «Name — Role» row is owned by its NAME: a role word sharing four let
   // No name written, only the role: the role still decides.
   const role = checkFacts('Харилцагчийн менежерийн сарын төлбөр 150,000₮.', factSourceFrom(prefix, LABELS, []), '');
   assert.equal(role.restated && role.served, 'Нова — Харилцагчийн менежер (Сарын төлбөр): 150,000₮');
+});
+
+test('DONE-TEST: ONLY THE PRICE SENTENCE IS REPLACED; THE MODEL\'S OTHER SENTENCES STAY (founder, 2026-09-26, s01)', () => {
+  const prefix = ['=== ҮНИЙН ЖАГСААЛТ ===',
+    '- Дали — Хүлээн авагч (Нэг удаагийн суурилуулалт): 150,000₮', '- Дали — Хүлээн авагч (Сарын төлбөр): 250,000₮'].join('\n');
+  const src = factSourceFrom(prefix, LABELS, []);
+  const reply = 'Дали бол хүлээн авагч AI ажилтан. Нэг удаагийн суурилуулалт 150,000₮, сарын төлбөр 250,000₮ байна.';
+  const r = splitFacts(reply, src, 'daly gj yuve');
+  assert.deepEqual(r, { ok: true, replaced: 1, kept: 1, body:
+    'Дали бол хүлээн авагч AI ажилтан.\nДали — Хүлээн авагч (Нэг удаагийн суурилуулалт): 150,000₮\nДали — Хүлээн авагч (Сарын төлбөр): 250,000₮' });
+  // An amount nobody owns, or a reply of one sentence, is not split: the caller serves as before.
+  assert.equal(splitFacts('Дали сайн. Үнэ нь 999,000₮.', src).ok, false);
+  assert.equal(splitFacts('Дали 250,000₮.', src).ok, false);
+  // A point between digits is not a sentence break.
+  assert.deepEqual(sentencesOf('Үнэ 1.5 сая. Тийм!\nБолно'), ['Үнэ 1.5 сая.', 'Тийм!', 'Болно']);
 });
