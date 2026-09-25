@@ -9168,3 +9168,9 @@ wrong answer is never overridden; no alert means no override). The real gate scr
 against an unreachable database: without a token it exits 2 and names what it could not
 check. A token from an unregistered key is refused, exit 2. The success path has not run
 against real Telegram, because that would post into the shared chat.
+
+**D-121 addendum, 2026-09-25: the founder's key is registered.** The founder generated it
+and handed over the public half. `overrideKeys.ts` now lists one Ed25519 key, id
+`33e1d9160edf3173` (the first 16 hex of the SHA-256 of its SPKI bytes). The private half never
+left the founder's machine, and nothing here can mint a token with it. A test now fails CI if
+any registered entry is not an Ed25519 public key, or appears twice.

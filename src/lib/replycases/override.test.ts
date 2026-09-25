@@ -71,3 +71,13 @@ test('a passing gate never uses the override, even when a token is set', async (
   assert.equal(r.exit, 0);
   assert.equal(r.alerts.length, 0);
 });
+
+test('every registered founder key is an Ed25519 public key, and each is listed once', async () => {
+  const { createPublicKey } = await import('node:crypto');
+  const { FOUNDER_OVERRIDE_KEYS } = await import('./overrideKeys.ts');
+  assert.equal(new Set(FOUNDER_OVERRIDE_KEYS).size, FOUNDER_OVERRIDE_KEYS.length);
+  for (const k of FOUNDER_OVERRIDE_KEYS) {
+    const key = createPublicKey({ key: Buffer.from(k, 'base64'), format: 'der', type: 'spki' });
+    assert.equal(key.asymmetricKeyType, 'ed25519', k);
+  }
+});
