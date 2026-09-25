@@ -34,8 +34,6 @@ export type CommentPolicy = 'none' | 'public_only' | 'private_only' | 'both';
 export type CommentRefusal =
   /** The tenant has comments switched off. The default, and the safe one. */
   | 'comment_policy_off'
-  /** `private_only` / `both` — designed in §3.8.4, not built. Refused rather than approximated. */
-  | 'private_reply_not_implemented'
   /** A staff member's personal account, per `tenant_channels.ignore_commenter_ids`. */
   | 'commenter_ignored'
   /** A reply to one of our own comments: the loop, one level down. */
@@ -84,13 +82,43 @@ export type CommentRefusal =
   | 'comment_unclassified'
   /** This thread already has its one public reply. */
   | 'thread_already_answered'
+  /**
+   * This PERSON already has their reply on this post (D-122, founder: "at most one reply
+   * per person per post"). Two separate comments by one customer under one post are two
+   * threads, so the thread rule alone would answer both.
+   */
+  | 'person_already_answered'
+  /**
+   * The comment tags another person (D-122). Read from Graph's `message_tags`, because the
+   * webhook carries a tag only as the person's name in plain text. «Bold, look at this» is
+   * two friends talking under the salon's post; a salon line under it is an intrusion.
+   * A tag of the salon's own Page is not a person and does not refuse.
+   */
+  | 'comment_tags_person'
+  /** The POST is older than the channel's window — §3.8.2 rule 5, closed at last (D-122). */
+  | 'post_too_old'
+  /**
+   * We could not read the post's age or the comment's tags. Unknown is not young and not
+   * untagged: refusing is the direction that cannot put a line under a friend's tag or
+   * resurface a four-year-old post.
+   */
+  | 'comment_lookup_unknown'
   /** This POST already has today's allowance of public replies, in any thread. */
   | 'post_cap_reached'
   /** No reviewed pinned line for this tenant and locale. Silence, never a default. */
   | 'no_reviewed_line';
 
 export type CommentDecision =
-  | { reply: true; body: string; threadId: string; postId: string }
+  | {
+      reply: true;
+      /** The public line, when the policy posts one. Null under `private_only`. */
+      publicBody: string | null;
+      /** The private message, when the policy sends one. Null under `public_only`. */
+      privateBody: string | null;
+      threadId: string;
+      postId: string;
+      fromId: string;
+    }
   | { reply: false; refusal: CommentRefusal; detail: string };
 
 export type CommentChannelConfig = {
@@ -129,6 +157,8 @@ export type CommentDecisionInput = {
   verdict: CommentVerdict;
   /** The tenant's own pinned sentence, and whether a human has signed it off. */
   pinnedLine: { body: string; reviewedAt: string | null } | null;
+  /** The tenant's private message to a commenter (`comment_private_reply`), same rules. */
+  privateLine: { body: string; reviewedAt: string | null } | null;
   comment: {
     commentId: string;
     threadId: string;
@@ -141,6 +171,8 @@ export type CommentDecisionInput = {
   };
   /** Whether this thread already carries a `comment_reply` outbound row. */
   threadAlreadyAnswered: boolean;
+  /** Whether this commenter already has a comment reply or private reply on this post. */
+  personAlreadyAnswered: boolean;
   /**
    * How many public replies this POST has already had in the window — from our own
    * `outbound_messages` rows, counted by the caller. Not a boolean, because the cap is a
@@ -163,14 +195,12 @@ export function decideCommentReply(input: CommentDecisionInput): CommentDecision
   if (config.policy === 'none') {
     return { reply: false, refusal: 'comment_policy_off', detail: 'this channel does not answer comments' };
   }
-  if (config.policy !== 'public_only') {
-    // `private_only` and `both` need §3.8.4's single-use, seven-day, expiring private
-    // reply, which is not built. Approximating it with a public reply would silently turn
-    // a tenant's private-only choice into a public post under their own wall.
+  if (config.policy !== 'public_only' && config.policy !== 'private_only' && config.policy !== 'both') {
+    // A value this code does not understand is not a value to post on.
     return {
       reply: false,
-      refusal: 'private_reply_not_implemented',
-      detail: `comment_policy ${JSON.stringify(config.policy)} needs the private reply, which V1 does not have`,
+      refusal: 'comment_policy_off',
+      detail: `unrecognised comment_policy ${JSON.stringify(config.policy)}`,
     };
   }
 
@@ -226,6 +256,11 @@ export function decideCommentReply(input: CommentDecisionInput): CommentDecision
     return { reply: false, refusal: 'comment_unclassified', detail: 'no rule fired; silent, and recorded so a rule can be written' };
   }
 
+  if (input.personAlreadyAnswered) {
+    // Checked before the thread rule because it is the rule the founder named, and the
+    // more specific truth when both hold: the same person, the same post.
+    return { reply: false, refusal: 'person_already_answered', detail: 'this person already has their reply on this post' };
+  }
   if (input.threadAlreadyAnswered) {
     // Three comments in one thread get ONE reply. The database enforces this too — the
     // unique index on (tenant_id, kind, dedup_key) — and this check is what keeps the
@@ -248,16 +283,72 @@ export function decideCommentReply(input: CommentDecisionInput): CommentDecision
     };
   }
 
-  const line = input.pinnedLine;
-  if (line === null || line.reviewedAt === null || line.body.trim() === '') {
+  const wantsPublic = config.policy === 'public_only' || config.policy === 'both';
+  const wantsPrivate = config.policy === 'private_only' || config.policy === 'both';
+  const usable = (l: { body: string; reviewedAt: string | null } | null): l is { body: string; reviewedAt: string } =>
+    l !== null && l.reviewedAt !== null && l.body.trim() !== '';
+  // BOTH lines the policy names must be reviewed, or neither is sent. Half of "both" is a
+  // different policy from the one the tenant chose: a public "message us" line with no
+  // private message behind it sends the customer to an inbox nobody has written in.
+  if (wantsPublic && !usable(input.pinnedLine)) {
     return {
       reply: false,
       refusal: 'no_reviewed_line',
       detail: 'no reviewed comment_public_reply for this tenant and locale; refusing to invent one',
     };
   }
+  if (wantsPrivate && !usable(input.privateLine)) {
+    return {
+      reply: false,
+      refusal: 'no_reviewed_line',
+      detail: 'no reviewed comment_private_reply for this tenant and locale; refusing to invent one',
+    };
+  }
 
-  // The tenant's sentence, unchanged. Nothing above read the comment's text, and nothing
+  // The tenant's sentences, unchanged. Nothing above read the comment's text, and nothing
   // here can transform it.
-  return { reply: true, body: line.body, threadId: comment.threadId, postId: comment.postId };
+  return {
+    reply: true,
+    publicBody: wantsPublic && input.pinnedLine !== null ? input.pinnedLine.body : null,
+    privateBody: wantsPrivate && input.privateLine !== null ? input.privateLine.body : null,
+    threadId: comment.threadId,
+    postId: comment.postId,
+    fromId: comment.fromId,
+  };
+}
+
+/**
+ * The two checks that need a Graph read (D-122), decided on what the read returned.
+ *
+ * Split from `decideCommentReply` because the read costs a round trip and is made only for
+ * a comment that function already decided to answer — praise and tags between friends are
+ * the bulk of a salon's comments, and none of them should cost a request.
+ *
+ * `null` means the read did not answer that question, and unknown refuses.
+ */
+export function decideAfterLookup(input: {
+  tagsPerson: boolean | null;
+  postCreatedAt: Date | null;
+  maxPostAgeDays: number;
+  now: Date;
+}): { ok: true } | { ok: false; refusal: CommentRefusal; detail: string } {
+  if (input.tagsPerson === null || input.postCreatedAt === null || Number.isNaN(input.postCreatedAt.getTime())) {
+    return {
+      ok: false,
+      refusal: 'comment_lookup_unknown',
+      detail: `could not read ${input.tagsPerson === null ? 'the comment’s tags' : 'the post’s age'}; unknown refuses`,
+    };
+  }
+  if (input.tagsPerson) {
+    return { ok: false, refusal: 'comment_tags_person', detail: 'the comment tags another person; it is addressed to them' };
+  }
+  const ageMs = input.now.getTime() - input.postCreatedAt.getTime();
+  if (ageMs > input.maxPostAgeDays * 86_400_000) {
+    return {
+      ok: false,
+      refusal: 'post_too_old',
+      detail: `the POST is ${Math.floor(ageMs / 86_400_000)} days old; this channel's limit is ${input.maxPostAgeDays}`,
+    };
+  }
+  return { ok: true };
 }

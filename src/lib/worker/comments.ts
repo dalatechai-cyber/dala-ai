@@ -46,9 +46,10 @@
  * reads exactly one.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { canDeliver } from '../channel/delivery.ts';
+import { canDeliverComments } from '../channel/delivery.ts';
 import { extractComments, type InboundComment } from '../meta/comments.ts';
-import { decideCommentReply, type CommentChannelConfig, type CommentRefusal } from '../comments/eligibility.ts';
+import { decideAfterLookup, decideCommentReply, type CommentChannelConfig, type CommentRefusal } from '../comments/eligibility.ts';
+import type { CommentLookup } from '../comments/lookup.ts';
 import { classifyComment, type CommentRule } from '../comments/classify.ts';
 import { cpLength } from '../mn/text.ts';
 import type { CommentSendOutcome } from '../comments/send.ts';
@@ -57,6 +58,28 @@ import { MESSENGER_SEND_UNIT_COST } from '../../config/platform.ts';
 
 /** The canned kind seeded by 0007. One sentence, per tenant, per locale. */
 export const COMMENT_LINE_KIND = 'comment_public_reply';
+
+/** The private message to the commenter (0045, D-122). One sentence, per tenant, per locale. */
+export const PRIVATE_LINE_KIND = 'comment_private_reply';
+
+/**
+ * The dedup key of a private reply: one per person per post, enforced by the unique index
+ * `outbound_messages_dedup (tenant_id, kind, dedup_key)` rather than by a read. Meta allows
+ * one private reply per COMMENT; the founder allows one per person per post, which is
+ * stricter, so the post and the person are the key.
+ */
+export function privateReplyDedupKey(postId: string, fromId: string): string {
+  return `pr:${postId}:${fromId}`;
+}
+
+/** The link printed in a complaint alert: the post's permalink, pointed at the comment. */
+export function commentLink(comment: { commentId: string; postId: string; postPermalink: string | null }): string {
+  // Graph's comment id is `{post}_{comment}`; the `comment_id` query parameter wants the
+  // second half. Facebook's own share links take this form.
+  const tail = comment.commentId.includes('_') ? comment.commentId.slice(comment.commentId.indexOf('_') + 1) : comment.commentId;
+  const base = comment.postPermalink ?? `https://www.facebook.com/${comment.postId}`;
+  return `${base}${base.includes('?') ? '&' : '?'}comment_id=${encodeURIComponent(tail)}`;
+}
 
 /**
  * The flag written for a comment no rule fired on (D-085).
@@ -135,15 +158,51 @@ export type CommentEffects = {
     body: string;
     graphVersion: string;
   }) => Promise<CommentSendOutcome>;
+  /**
+   * The private message to the commenter (D-122): `POST /{page-id}/messages` with
+   * `recipient.comment_id`. Same per-call credential rule as `replyToComment`.
+   */
+  sendPrivateReply: (args: {
+    tenantId: string;
+    channelId: string;
+    pageId: string;
+    commentId: string;
+    body: string;
+    graphVersion: string;
+  }) => Promise<PrivateReplyOutcome>;
+  /** Tags and post age from Graph (`comments/lookup.ts`). Never throws; unknown is null. */
+  lookupComment: (args: {
+    tenantId: string;
+    channelId: string;
+    pageId: string;
+    commentId: string;
+    postId: string;
+    graphVersion: string;
+  }) => Promise<CommentLookup>;
+  /**
+   * Tell the founder a complaint landed on the wall (D-122). Best effort: the flag row is
+   * the durable record, and an alert that could not be sent is logged, never retried by
+   * failing the job — a retry would re-run every comment in the entry.
+   */
+  alertComplaint: (args: { tenantId: string; commentId: string; text: string; link: string }) => Promise<void>;
   log: (level: 'info' | 'warn' | 'error', event: string, fields?: Record<string, unknown>) => void;
 };
+
+/** What a private reply's send returned — `meta/send.ts`'s outcome, narrowed to what is read. */
+export type PrivateReplyOutcome =
+  | { outcome: 'sent'; providerMessageId: string }
+  | { outcome: 'failed'; retryable: boolean; failure: string; detail: string }
+  | { outcome: 'indeterminate'; detail: string };
 
 export type CommentJobInput = {
   tenantId: string;
   channelId: string;
   /** The channel's `external_id`: the Page. Used to spot the Page's own comments. */
   pageExternalId: string;
-  deliveryMode: string;
+  /** `tenant_channels.comment_delivery_mode` — the comment switch, NOT the DM one (D-122). */
+  commentMode: string;
+  /** `tenant_channels.token_status`: live comments post only while it is `active`. */
+  tokenStatus: string;
   graphVersion: string;
   locale: string;
   config: CommentChannelConfig;
@@ -153,6 +212,10 @@ export type CommentJobInput = {
 export type CommentJobResult = {
   /** Public replies actually posted. */
   replied: number;
+  /** Private messages actually sent to commenters (D-122). */
+  privateSent: number;
+  /** Private messages drafted and withheld because comments are in shadow. */
+  privateDrafted: number;
   /**
    * Replies decided and written as `draft`, then withheld because the channel is mirroring.
    *
@@ -163,7 +226,8 @@ export type CommentJobResult = {
   drafted: number;
   /** Comments seen and deliberately not answered, by reason. */
   refused: Partial<Record<
-    CommentRefusal | 'not_generating' | 'not_delivering' | 'send_failed' | 'indeterminate',
+    CommentRefusal | 'not_generating' | 'not_delivering' | 'send_failed' | 'indeterminate'
+      | 'private_send_failed' | 'private_indeterminate',
     number
   >>;
   /** Extractor skips — the `feed` firehose, counted so its volume is visible. */
@@ -175,13 +239,13 @@ export type CommentJobResult = {
 /** The tenant's pinned public line, or null. Never a platform default — see eligibility.ts. */
 async function readPinnedLine(
   db: SupabaseClient,
-  input: { tenantId: string; locale: string },
+  input: { tenantId: string; locale: string; kind?: string },
 ): Promise<{ ok: true; line: { body: string; reviewedAt: string | null } | null } | { ok: false; detail: string }> {
   const { data, error } = await db
     .from('canned_responses')
     .select('body, reviewed_at')
     .eq('tenant_id', input.tenantId)
-    .eq('kind', COMMENT_LINE_KIND)
+    .eq('kind', input.kind ?? COMMENT_LINE_KIND)
     .eq('locale', input.locale)
     .maybeSingle();
   if (error) return { ok: false, detail: `canned_responses unreadable: ${error.message}` };
@@ -298,6 +362,30 @@ async function parentsWeWrote(
   return { ok: true, ours: new Set(rows.map((r) => String((r as Record<string, unknown>)['provider_message_id']))) };
 }
 
+/**
+ * This comment's own row of one kind, when it is still waiting to be sent (D-122).
+ *
+ * `draft` or `failed`: decided and never delivered. Read only on the resume path, so it
+ * costs nothing on an ordinary comment.
+ */
+async function readPending(
+  db: SupabaseClient,
+  input: { tenantId: string; kind: 'comment_reply' | 'private_reply'; dedupKey: string },
+): Promise<{ ok: true; id: string | null } | { ok: false; detail: string }> {
+  const { data, error } = await db
+    .from('outbound_messages')
+    .select('id, state')
+    .eq('tenant_id', input.tenantId)
+    .eq('kind', input.kind)
+    .eq('dedup_key', input.dedupKey)
+    .maybeSingle();
+  if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
+  const row = data as Record<string, unknown> | null;
+  if (row === null) return { ok: true, id: null };
+  const state = String(row['state'] ?? '');
+  return { ok: true, id: state === 'draft' || state === 'failed' ? String(row['id']) : null };
+}
+
 /** Which of these threads already carry their one public reply. */
 async function answeredThreads(
   db: SupabaseClient,
@@ -313,6 +401,40 @@ async function answeredThreads(
   if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
   const rows = Array.isArray(data) ? data : [];
   return { ok: true, answered: new Set(rows.map((r) => String((r as Record<string, unknown>)['dedup_key']))) };
+}
+
+/**
+ * Which (post, person) pairs already have a comment reply or a private reply (D-122).
+ *
+ * Counted over the same states as the per-post cap and for the same reason: a `failed` or
+ * `refused` row proves nothing reached the person, and must not silence them for good;
+ * `draft` and `indeterminate` may be (or become) visible, so they count. Unlike the cap
+ * there is no time window — "one reply per person per post" has no expiry.
+ */
+async function answeredPersons(
+  db: SupabaseClient,
+  input: { tenantId: string; postIds: readonly string[]; fromIds: readonly string[] },
+): Promise<{ ok: true; answered: Set<string> } | { ok: false; detail: string }> {
+  if (input.postIds.length === 0 || input.fromIds.length === 0) return { ok: true, answered: new Set() };
+  const { data, error } = await db
+    .from('outbound_messages')
+    .select('comment_post_id, comment_from_id')
+    .eq('tenant_id', input.tenantId)
+    .in('kind', ['comment_reply', 'private_reply'])
+    .in('comment_post_id', [...input.postIds])
+    .in('comment_from_id', [...input.fromIds])
+    .in('state', ['draft', 'claiming', 'sending', 'sent', 'indeterminate']);
+  if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
+  const answered = new Set<string>();
+  for (const row of Array.isArray(data) ? data : []) {
+    const r = row as Record<string, unknown>;
+    answered.add(personKey(String(r['comment_post_id']), String(r['comment_from_id'])));
+  }
+  return { ok: true, answered };
+}
+
+function personKey(postId: string, fromId: string): string {
+  return `${postId}\u0000${fromId}`;
 }
 
 /**
@@ -371,24 +493,18 @@ function count(into: CommentJobResult['refused'], key: keyof CommentJobResult['r
 }
 
 export async function runCommentJob(fx: CommentEffects, input: CommentJobInput): Promise<CommentJobResult> {
-  const result: CommentJobResult = { replied: 0, drafted: 0, refused: {}, skipped: [], retry: false };
+  const result: CommentJobResult = {
+    replied: 0, privateSent: 0, drafted: 0, privateDrafted: 0, refused: {}, skipped: [], retry: false,
+  };
 
   const { comments, skipped } = extractComments(input.rawPayload, input.pageExternalId);
   result.skipped = skipped;
   if (comments.length === 0) return result;
 
-  // The same gate the DM path uses, SPLIT the same way — and the split is the whole point.
-  //
-  // `canDeliver('shadow')` answers `{ generate: true, deliver: false }`, and this function
-  // used to read only the second half and return before drafting anything. So a shadowing
-  // channel produced counters and no rows: the fourteen days of withheld drafts that found
-  // D-066's gate-label leak, D-068's thrown-away booking reply and D-069's «Хаяг» label had
-  // no equivalent here at all. The one surface where a mistake is public was the one surface
-  // that could not be rehearsed.
-  //
-  // `off`, `halted` and an unrecognised mode still stop here: nothing is generated for a
-  // channel that cannot receive it, which is what `generate` means.
-  const delivery = canDeliver(input.deliveryMode);
+  // The COMMENT switch, not the DM one (D-122). `shadow` generates and withholds, exactly
+  // as the DM mirror does, so what the drafts show is what going live would have done;
+  // `live` posts only while the token is `active`.
+  const delivery = canDeliverComments(input.commentMode, input.tokenStatus);
   if (!delivery.generate) {
     fx.log('info', 'comments_not_generating', { tenantId: input.tenantId, detail: delivery.detail });
     for (const _ of comments) count(result.refused, 'not_generating');
@@ -398,6 +514,12 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
   const line = await readPinnedLine(fx.db, { tenantId: input.tenantId, locale: input.locale });
   if (!line.ok) {
     fx.log('error', 'comment_line_unreadable', { tenantId: input.tenantId, detail: line.detail });
+    result.retry = true;
+    return result;
+  }
+  const privateLine = await readPinnedLine(fx.db, { tenantId: input.tenantId, locale: input.locale, kind: PRIVATE_LINE_KIND });
+  if (!privateLine.ok) {
+    fx.log('error', 'comment_private_line_unreadable', { tenantId: input.tenantId, detail: privateLine.detail });
     result.retry = true;
     return result;
   }
@@ -435,6 +557,17 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     return result;
   }
 
+  const persons = await answeredPersons(fx.db, {
+    tenantId: input.tenantId,
+    postIds: [...new Set(comments.map((c) => c.postId))],
+    fromIds: [...new Set(comments.map((c) => c.fromId))],
+  });
+  if (!persons.ok) {
+    fx.log('error', 'comment_persons_unreadable', { tenantId: input.tenantId, detail: persons.detail });
+    result.retry = true;
+    return result;
+  }
+
   const perPost = await repliesPerPost(fx.db, {
     tenantId: input.tenantId,
     postIds: [...new Set(comments.map((c) => c.postId))],
@@ -446,20 +579,18 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     return result;
   }
 
-  // Threads answered within THIS entry, so two comments arriving together in one thread
-  // still produce one reply. The database would catch it a moment later; catching it here
-  // means the second one never becomes a draft row at all.
+  // Threads, people and posts answered within THIS entry, so two comments arriving together
+  // still produce one reply. The database would catch the thread and the private reply a
+  // moment later (unique keys); catching them here means the second never becomes a row.
   const answeredNow = new Set(answered.answered);
-  // The same, one level out: five people commenting on ONE post in one delivery are five
-  // threads, and without this they would get five identical replies under it.
+  const personsNow = new Set(persons.answered);
   const postCounts = new Map(perPost.counts);
 
   for (const comment of comments) {
-    // A comment carries no attachment kinds on this surface: `extractComments` skips a
-    // sticker or bare-photo comment as `no_text` before it reaches here, so there is
-    // nothing for a `has_attachment` rule to read. Passed explicitly as empty rather than
-    // defaulted, for D-083's reason — a default asserts "no attachment" on behalf of a
-    // caller who forgot, and the case it would get wrong is the one the field exists for.
+    // A comment carries no attachment kinds on this surface: `extractComments` returns a
+    // sticker or bare-photo comment with empty text, so there is nothing for a
+    // `has_attachment` rule to read. Passed explicitly as empty rather than defaulted, for
+    // D-083's reason — a default asserts "no attachment" on behalf of a caller who forgot.
     const classified = classifyComment({ text: comment.text, attachments: [] }, rules.rules);
     if (!classified.ok) {
       // A malformed or missing rule set refuses the JOB, not the comment. Continuing would
@@ -475,6 +606,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       config: input.config,
       verdict: classified.verdict,
       pinnedLine: line.line,
+      privateLine: privateLine.line,
       comment: {
         commentId: comment.commentId,
         threadId: comment.threadId,
@@ -484,6 +616,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
         parentIsOurs: parents.ours.has(comment.threadId),
       },
       threadAlreadyAnswered: answeredNow.has(comment.threadId),
+      personAlreadyAnswered: personsNow.has(personKey(comment.postId, comment.fromId)),
       postRepliesInWindow: postCounts.get(comment.postId) ?? 0,
       now: fx.now,
     });
@@ -493,15 +626,11 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       // log would be the volume problem, and a counter is what an operator reads anyway.
       count(result.refused, decision.refusal);
 
-      // Two of them also get a durable row. Written from HERE rather than beside the
+      // Three of them also get a durable row. Written from HERE rather than beside the
       // classifier (D-085 review): `decideCommentReply` refuses on policy, self-reply, the
       // ignore list and age BEFORE it ever looks at the verdict, so writing at the
       // classifier put a row on the operator's to-do list for a staff member's own comment
       // and for spam under an ancient post — work nobody should be handed.
-      //
-      // It also bounds the duplicates. `quality_flags` has no unique key, so a redelivery
-      // re-runs this loop and inserts again; refusing earlier is fewer rows, and the
-      // `comment_id` in the payload is what lets the operator collapse them.
       const flag = decision.refusal === 'comment_unclassified' ? UNCLASSIFIED_FLAG
         : decision.refusal === 'comment_escalated' ? ESCALATED_FLAG
         : decision.refusal === 'post_cap_reached' ? CAPPED_FLAG
@@ -511,115 +640,291 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
           tenantId: input.tenantId,
           comment,
           flag,
-          // Only the cap carries them, and only because they are what the row is FOR: an
-          // operator asking whether the cap costs customers should not have to rebuild the
-          // allowance from a second table to read their own counter.
           extra: flag === CAPPED_FLAG
             ? { replies_in_window: postCounts.get(comment.postId) ?? 0, cap: input.config.repliesPerPostPerDay }
             : undefined,
         });
       }
+      // A complaint on the wall is the one comment a person must see TODAY (D-122). The
+      // row above is the record; this is the tap on the shoulder, with the link. Raised in
+      // shadow too: nothing is posted either way, and a complaint is no less real because
+      // the bot is rehearsing.
+      // FINISH WHAT WAS STARTED (D-122). A thread or a person counts as answered from the
+      // moment its rows are DRAFTED, which is the over-count direction every rule here fails
+      // in. The cost is the retry: the public line went out, the private message hit a 613,
+      // the job 503'd — and on the redelivery the person reads as answered, so without this
+      // the private message is never sent. "A row exists" was read as "the work was done",
+      // which is D-029's sentence. On a delivering channel, a refusal for being already
+      // answered therefore looks for this thread's and this person's rows still waiting
+      // (`draft` or `failed`) and sends them; a row already sent is left alone, and the
+      // claim's CAS keeps a second worker from sending the same row twice.
+      if (delivery.deliver
+          && (decision.refusal === 'thread_already_answered' || decision.refusal === 'person_already_answered')) {
+        const resumed = await resumePending(fx, input, comment, result);
+        if (resumed === 'retry') return result;
+      }
+      if (decision.refusal === 'comment_escalated') {
+        try {
+          await fx.alertComplaint({
+            tenantId: input.tenantId,
+            commentId: comment.commentId,
+            text: comment.text,
+            link: commentLink(comment),
+          });
+        } catch (e) {
+          fx.log('error', 'comment_complaint_alert_failed', {
+            commentId: comment.commentId, detail: e instanceof Error ? e.message : String(e),
+          });
+        }
+      }
       continue;
     }
 
-    const drafted = await draftOnce(fx.db, {
+    // --- The two facts the webhook does not carry: tags and the post's age (D-122). ---
+    //
+    // Read only now, for a comment already worth answering, so praise costs no request.
+    const lookup = await safeLookup(fx, input, comment);
+    if (lookup.problems.length > 0) {
+      fx.log('warn', 'comment_lookup_incomplete', { commentId: comment.commentId, problems: lookup.problems });
+    }
+    const confirmed = decideAfterLookup({
+      tagsPerson: lookup.tagsPerson,
+      postCreatedAt: lookup.postCreatedAt,
+      maxPostAgeDays: input.config.maxPostAgeDays,
+      now: fx.now,
+    });
+    if (!confirmed.ok) {
+      count(result.refused, confirmed.refusal);
+      fx.log('info', 'comment_refused_after_lookup', { commentId: comment.commentId, refusal: confirmed.refusal, detail: confirmed.detail });
+      continue;
+    }
+
+    // --- Draft BOTH rows before sending either. -----------------------------------------
+    //
+    // Written down first, so a shadow run exercises every counting rule and a worker that
+    // dies mid-send leaves rows that count against the post and the person — the
+    // over-count direction every rule here is built to fail in.
+    const publicDraft = decision.publicBody === null ? null : await draftOnce(fx.db, {
       tenantId: input.tenantId,
       kind: 'comment_reply',
-      // The thread, not the comment. Three comments in one thread share one key, so the
-      // second and third lose the insert race and find the first one's row.
+      // The thread, not the comment. Three comments in one thread share one key.
       dedupKey: decision.threadId,
-      body: decision.body,
+      body: decision.publicBody,
       channelId: input.channelId,
-      // What the per-post cap is counted from. Written with the draft, i.e. before the
-      // send, so the count is high rather than low if this worker dies next.
       commentPostId: decision.postId,
+      commentFromId: decision.fromId,
     });
-    if (!drafted.ok) {
-      fx.log('error', 'comment_draft_failed', { detail: drafted.detail });
+    if (publicDraft !== null && !publicDraft.ok) {
+      fx.log('error', 'comment_draft_failed', { detail: publicDraft.detail });
+      result.retry = true;
+      return result;
+    }
+    const privateDraft = decision.privateBody === null ? null : await draftOnce(fx.db, {
+      tenantId: input.tenantId,
+      kind: 'private_reply',
+      dedupKey: privateReplyDedupKey(decision.postId, decision.fromId),
+      body: decision.privateBody,
+      channelId: input.channelId,
+      commentPostId: decision.postId,
+      commentFromId: decision.fromId,
+    });
+    if (privateDraft !== null && !privateDraft.ok) {
+      fx.log('error', 'comment_private_draft_failed', { detail: privateDraft.detail });
       result.retry = true;
       return result;
     }
     answeredNow.add(decision.threadId);
-    if (drafted.created) postCounts.set(decision.postId, (postCounts.get(decision.postId) ?? 0) + 1);
+    personsNow.add(personKey(decision.postId, decision.fromId));
+    if (publicDraft?.ok === true && publicDraft.created) {
+      postCounts.set(decision.postId, (postCounts.get(decision.postId) ?? 0) + 1);
+    }
 
-    // Decided and written down, and deliberately not posted. The row stays `draft`, so the
-    // day the channel goes live it is claimable rather than lost — the same disposition
-    // `worker/reception.ts` gives a withheld DM, and the reason the mirror is worth running:
-    // a draft nobody sent is still a decision somebody can read.
-    //
-    // AFTER `draftOnce` and after the two in-entry counters above, so a shadow run exercises
-    // the thread rule and the per-post cap rather than stubbing them. What the corpus shows
-    // is then what going live would actually have done, which is the only version of it
-    // worth reading.
+    // Decided and written down, and deliberately not posted. The rows stay `draft`, so the
+    // day the switch goes live they are claimable rather than lost — the same disposition
+    // `worker/reception.ts` gives a withheld DM.
     if (!delivery.deliver) {
       fx.log('info', 'comments_not_delivering', {
         tenantId: input.tenantId, threadId: decision.threadId, detail: delivery.detail,
       });
       count(result.refused, 'not_delivering');
-      result.drafted += 1;
+      if (publicDraft !== null) result.drafted += 1;
+      if (privateDraft !== null) result.privateDrafted += 1;
       continue;
     }
 
-    // Straight to the claim whether or not WE wrote the row, which is what the DM path in
-    // `worker/reception.ts` does and for the same reason. A short-circuit on
-    // `!drafted.created` reads as "somebody else has this", and for a `sent`, `sending` or
-    // `indeterminate` row it is right — but `failed` is also somebody else's row, and it
-    // is one this job asked to be retried. The CAS in `claim` already distinguishes all
-    // four (`CLAIMABLE` is draft and failed), so refusing before it turned every
-    // `retry: true` on this path into a redelivery that did nothing.
-    const held = await claim(fx.db, { id: drafted.row.id, tenantId: input.tenantId, now: fx.now });
-    if (held.outcome === 'unavailable') {
-      fx.log('error', 'comment_claim_unavailable', { detail: held.detail });
-      result.retry = true;
-      return result;
-    }
-    if (held.outcome !== 'claimed') {
-      // Already sent, or another worker holds a live lease. Neither is an error.
-      count(result.refused, 'thread_already_answered');
-      continue;
+    // --- The public line. ----------------------------------------------------------------
+    //
+    // Straight to the claim whether or not WE wrote the row: `claim`'s CAS distinguishes
+    // sent, leased, failed and draft, and refusing before it would turn every retry of a
+    // `failed` row into a redelivery that did nothing.
+    if (publicDraft !== null && publicDraft.ok) {
+      const outcome = await sendPublic(fx, input, comment.commentId, publicDraft.row.id, result);
+      if (outcome === 'retry') return result;
     }
 
-    const sent = await fx.replyToComment({
-      tenantId: input.tenantId,
-      channelId: input.channelId,
-      commentId: comment.commentId,
-      // The STORED body, as everywhere else: a redelivery re-posts what was written, and
-      // there is nothing to regenerate because nothing was ever generated.
-      body: held.body,
-      graphVersion: input.graphVersion,
-    });
-
-    if (sent.outcome === 'sent') {
-      await markSent(fx.db, {
-        id: held.id,
-        tenantId: input.tenantId,
-        providerMessageId: sent.providerCommentId,
-        unitCost: MESSENGER_SEND_UNIT_COST,
-        now: fx.now,
-      });
-      result.replied += 1;
-      continue;
+    // --- The private message, at the same time. -----------------------------------------
+    //
+    // Independent of the public line's outcome: a public reply Meta refused is no reason
+    // to withhold the private one, and vice versa. Each row has its own claim and its own
+    // at-most-once guarantee.
+    if (privateDraft !== null && privateDraft.ok) {
+      const outcome = await sendPrivate(fx, input, comment.commentId, privateDraft.row.id, result);
+      if (outcome === 'retry') return result;
     }
-    if (sent.outcome === 'indeterminate') {
-      // It may already be public. Re-posting would put two identical replies under one
-      // customer's comment, so this is parked outside CLAIMABLE for a person to look at.
-      await markIndeterminate(fx.db, { id: held.id, tenantId: input.tenantId, reason: sent.detail });
-      fx.log('warn', 'comment_reply_indeterminate', { commentId: comment.commentId, detail: sent.detail });
-      count(result.refused, 'indeterminate');
-      continue;
-    }
-
-    await markFailed(fx.db, { id: held.id, tenantId: input.tenantId, attempts: held.attempts, reason: sent.detail });
-    count(result.refused, 'send_failed');
-    if (sent.retryable) {
-      fx.log('warn', 'comment_reply_retryable', { commentId: comment.commentId, failure: sent.failure });
-      result.retry = true;
-      return result;
-    }
-    fx.log('error', 'comment_reply_terminal', { commentId: comment.commentId, failure: sent.failure, detail: sent.detail });
   }
 
   return result;
+}
+
+/**
+ * The Graph read, with a throw turned into two unknowns. The effect is written not to throw;
+ * this is what makes that a property of the job rather than of one binding, because a throw
+ * here would 500 the whole entry and re-run every comment in it.
+ */
+async function safeLookup(fx: CommentEffects, input: CommentJobInput, comment: InboundComment): Promise<CommentLookup> {
+  try {
+    return await fx.lookupComment({
+      tenantId: input.tenantId, channelId: input.channelId, pageId: input.pageExternalId,
+      commentId: comment.commentId, postId: comment.postId, graphVersion: input.graphVersion,
+    });
+  } catch (e) {
+    return { tagsPerson: null, postCreatedAt: null, problems: [`lookup threw: ${e instanceof Error ? e.name : 'unknown'}`] };
+  }
+}
+
+/**
+ * Send this comment's rows that were decided and never delivered. See the call site.
+ *
+ * The tag and post-age read runs again first: the comment in hand may be a different one in
+ * the same thread, and a reply under it must pass the same checks a fresh one would.
+ */
+async function resumePending(
+  fx: CommentEffects, input: CommentJobInput, comment: InboundComment, result: CommentJobResult,
+): Promise<'done' | 'retry'> {
+  const wantsPrivate = input.config.policy === 'both' || input.config.policy === 'private_only';
+  const wantsPublic = input.config.policy === 'both' || input.config.policy === 'public_only';
+  const pub = wantsPublic
+    ? await readPending(fx.db, { tenantId: input.tenantId, kind: 'comment_reply', dedupKey: comment.threadId })
+    : { ok: true as const, id: null };
+  const priv = wantsPrivate
+    ? await readPending(fx.db, { tenantId: input.tenantId, kind: 'private_reply', dedupKey: privateReplyDedupKey(comment.postId, comment.fromId) })
+    : { ok: true as const, id: null };
+  if (!pub.ok || !priv.ok) {
+    fx.log('error', 'comment_pending_unreadable', { commentId: comment.commentId, detail: !pub.ok ? pub.detail : (priv as { detail: string }).detail });
+    result.retry = true;
+    return 'retry';
+  }
+  if (pub.id === null && priv.id === null) return 'done';
+
+  const lookup = await safeLookup(fx, input, comment);
+  const confirmed = decideAfterLookup({
+    tagsPerson: lookup.tagsPerson, postCreatedAt: lookup.postCreatedAt,
+    maxPostAgeDays: input.config.maxPostAgeDays, now: fx.now,
+  });
+  if (!confirmed.ok) {
+    count(result.refused, confirmed.refusal);
+    return 'done';
+  }
+  fx.log('info', 'comment_resuming', { commentId: comment.commentId, public: pub.id !== null, private: priv.id !== null });
+  if (pub.id !== null && (await sendPublic(fx, input, comment.commentId, pub.id, result)) === 'retry') return 'retry';
+  if (priv.id !== null && (await sendPrivate(fx, input, comment.commentId, priv.id, result)) === 'retry') return 'retry';
+  return 'done';
+}
+
+/** Claim and post one public reply. 'retry' means the job must 503; the caller returns. */
+async function sendPublic(
+  fx: CommentEffects, input: CommentJobInput, commentId: string, rowId: string, result: CommentJobResult,
+): Promise<'done' | 'retry'> {
+  const held = await claim(fx.db, { id: rowId, tenantId: input.tenantId, now: fx.now });
+  if (held.outcome === 'unavailable') {
+    fx.log('error', 'comment_claim_unavailable', { detail: held.detail });
+    result.retry = true;
+    return 'retry';
+  }
+  if (held.outcome !== 'claimed') {
+    // Already sent, or another worker holds a live lease. Neither is an error.
+    count(result.refused, 'thread_already_answered');
+    return 'done';
+  }
+  const sent = await fx.replyToComment({
+    tenantId: input.tenantId,
+    channelId: input.channelId,
+    commentId,
+    // The STORED body, as everywhere else: a redelivery re-posts what was written.
+    body: held.body,
+    graphVersion: input.graphVersion,
+  });
+  if (sent.outcome === 'sent') {
+    await markSent(fx.db, {
+      id: held.id, tenantId: input.tenantId, providerMessageId: sent.providerCommentId,
+      unitCost: MESSENGER_SEND_UNIT_COST, now: fx.now,
+    });
+    result.replied += 1;
+    return 'done';
+  }
+  if (sent.outcome === 'indeterminate') {
+    // It may already be public. Re-posting would put two identical replies under one
+    // customer's comment, so this is parked outside CLAIMABLE for a person to look at.
+    await markIndeterminate(fx.db, { id: held.id, tenantId: input.tenantId, reason: sent.detail });
+    fx.log('warn', 'comment_reply_indeterminate', { commentId, detail: sent.detail });
+    count(result.refused, 'indeterminate');
+    return 'done';
+  }
+  await markFailed(fx.db, { id: held.id, tenantId: input.tenantId, attempts: held.attempts, reason: sent.detail });
+  count(result.refused, 'send_failed');
+  if (sent.retryable) {
+    fx.log('warn', 'comment_reply_retryable', { commentId, failure: sent.failure });
+    result.retry = true;
+    return 'retry';
+  }
+  fx.log('error', 'comment_reply_terminal', { commentId, failure: sent.failure, detail: sent.detail });
+  return 'done';
+}
+
+/** Claim and send one private reply. Same shape as `sendPublic`, on the Messenger send. */
+async function sendPrivate(
+  fx: CommentEffects, input: CommentJobInput, commentId: string, rowId: string, result: CommentJobResult,
+): Promise<'done' | 'retry'> {
+  const held = await claim(fx.db, { id: rowId, tenantId: input.tenantId, now: fx.now });
+  if (held.outcome === 'unavailable') {
+    fx.log('error', 'comment_private_claim_unavailable', { detail: held.detail });
+    result.retry = true;
+    return 'retry';
+  }
+  if (held.outcome !== 'claimed') return 'done';
+  const sent = await fx.sendPrivateReply({
+    tenantId: input.tenantId,
+    channelId: input.channelId,
+    pageId: input.pageExternalId,
+    commentId,
+    body: held.body,
+    graphVersion: input.graphVersion,
+  });
+  if (sent.outcome === 'sent') {
+    await markSent(fx.db, {
+      id: held.id, tenantId: input.tenantId, providerMessageId: sent.providerMessageId,
+      unitCost: MESSENGER_SEND_UNIT_COST, now: fx.now,
+    });
+    result.privateSent += 1;
+    return 'done';
+  }
+  if (sent.outcome === 'indeterminate') {
+    // Meta allows one private reply per comment, so a re-send would at best be refused and
+    // at worst be a second message; parked, never retried.
+    await markIndeterminate(fx.db, { id: held.id, tenantId: input.tenantId, reason: sent.detail });
+    fx.log('warn', 'comment_private_indeterminate', { commentId, detail: sent.detail });
+    count(result.refused, 'private_indeterminate');
+    return 'done';
+  }
+  await markFailed(fx.db, { id: held.id, tenantId: input.tenantId, attempts: held.attempts, reason: sent.detail });
+  count(result.refused, 'private_send_failed');
+  if (sent.retryable) {
+    fx.log('warn', 'comment_private_retryable', { commentId, failure: sent.failure });
+    result.retry = true;
+    return 'retry';
+  }
+  fx.log('error', 'comment_private_terminal', { commentId, failure: sent.failure, detail: sent.detail });
+  return 'done';
 }
 
 export type { InboundComment };

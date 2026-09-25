@@ -77,6 +77,23 @@ test('the body carries messaging_type RESPONSE and the text unchanged', async ()
   assert.deepEqual(body['message'], { text: 'Сайн байна уу. Захиалга авъя.' });
 });
 
+test('D-122: a private reply names the COMMENT, carries no messaging_type, and needs exactly one recipient', async () => {
+  const { seen, impl } = stubFetch({ status: 200, body: { recipient_id: PSID, message_id: 'mid.p' } });
+  const out = await sendMessage({ ...base, recipientId: '', recipientCommentId: '139_174', fetchImpl: impl });
+  assert.deepEqual(out, { outcome: 'sent', providerMessageId: 'mid.p', recipientId: PSID });
+  const body = JSON.parse(String(seen[0]?.init.body)) as Record<string, unknown>;
+  assert.deepEqual(body['recipient'], { comment_id: '139_174' });
+  assert.equal('messaging_type' in body, false);
+  assert.ok(seen[0]?.url.endsWith(`/${PAGE}/messages`));
+  // Both, or neither, never reach the network.
+  const both = stubFetch({ status: 200, body: { message_id: 'x' } });
+  const r1 = await sendMessage({ ...base, recipientCommentId: '139_174', fetchImpl: both.impl });
+  const r2 = await sendMessage({ ...base, recipientId: '', fetchImpl: both.impl });
+  assert.equal(r1.outcome, 'failed');
+  assert.equal(r2.outcome, 'failed');
+  assert.equal(both.seen.length, 0);
+});
+
 // ---------------------------------------------------------------------------
 // The Graph error taxonomy
 // ---------------------------------------------------------------------------

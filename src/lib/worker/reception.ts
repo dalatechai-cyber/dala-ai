@@ -171,6 +171,9 @@ export type WorkerEffects = {
   log: (level: 'info' | 'warn' | 'error', event: string, fields?: Record<string, unknown>) => void;
   /** The public-comment surface. Its own effects, because it is its own surface. */
   replyToComment: CommentEffects['replyToComment'];
+  sendPrivateReply: CommentEffects['sendPrivateReply'];
+  lookupComment: CommentEffects['lookupComment'];
+  alertComplaint: CommentEffects['alertComplaint'];
 };
 
 export type JobResult = { status: number; body: Record<string, unknown> };
@@ -461,7 +464,7 @@ async function runReceptionDelivery(
   // --- The channel: where a reply would go, and whether it may go at all. ---
   const { data: channelRow, error: channelErr } = await db
     .from('tenant_channels')
-    .select('external_id, status, delivery_mode, meta_app_id, graph_version_override, comment_policy, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day')
+    .select('external_id, status, delivery_mode, token_status, meta_app_id, graph_version_override, comment_policy, comment_delivery_mode, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day')
     .eq('id', channelId)
     .eq('tenant_id', tenantId)
     .maybeSingle();
@@ -594,15 +597,28 @@ async function runReceptionDelivery(
 
   // --- The public surface. A `feed` entry has no `messaging`, so this is where a
   // comments-only event is handled; a `messages` entry yields no comments and skips it.
+  //
+  // Gated on the COMMENT switch (D-122), which is independent of the DM `delivery_mode`: a
+  // channel can be live for DMs and shadow for comments. `off` (the default for every
+  // channel) and `comment_policy = 'none'` both skip the job entirely, so a DM-only channel
+  // pays nothing for the `feed` firehose.
   let commentResult: CommentJobResult | null = null;
-  if (String(c['comment_policy'] ?? 'none') !== 'none') {
+  const commentMode = String(c['comment_delivery_mode'] ?? 'off');
+  if (String(c['comment_policy'] ?? 'none') !== 'none' && commentMode !== 'off') {
     commentResult = await runCommentJob(
-      { db, now, replyToComment: fx.replyToComment, log: fx.log },
+      {
+        db, now, log: fx.log,
+        replyToComment: fx.replyToComment,
+        sendPrivateReply: fx.sendPrivateReply,
+        lookupComment: fx.lookupComment,
+        alertComplaint: fx.alertComplaint,
+      },
       {
         tenantId,
         channelId,
         pageExternalId: pageId,
-        deliveryMode: String(c['delivery_mode'] ?? ''),
+        commentMode,
+        tokenStatus: String(c['token_status'] ?? ''),
         graphVersion,
         locale: settings.defaultLocale,
         config: {

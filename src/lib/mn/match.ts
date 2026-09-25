@@ -35,7 +35,7 @@
  * The engine does not paper over it, because a stem list is reviewable and a heuristic
  * buried in code is not.
  */
-import { cpOffsets, fold } from './text.ts';
+import { cpOffsets, fold, nfc } from './text.ts';
 
 /** One occurrence of a stem at the start of a token. */
 export type StemHit = {
@@ -202,6 +202,64 @@ export function coversMessage(text: string, stems: readonly string[], coverWords
   const cover = new Set(coverWords.map((w) => wholeMessageKey(w)).filter((w) => w !== ''));
   const isAnchor = (w: string): boolean => anchors.some((a) => w.startsWith(a));
   return words.some(isAnchor) && words.every((w) => isAnchor(w) || cover.has(w));
+}
+
+/**
+ * The message's words, for `has_word` and `ends_with`: the reduced form's space-separated
+ * runs, exactly the words `coversMessage` sees. Punctuation, symbols and emoji are gone.
+ */
+export function messageWords(text: string): string[] {
+  return wholeMessageKey(text).split(' ').filter((w) => w !== '');
+}
+
+/**
+ * Does the message contain one of `words` as a WHOLE word (or a whole run of words)?
+ *
+ * The comment surface needs words that are shorter than any stem floor could admit —
+ * «ib», «pm», «хэд», «вэ» — and a whole-word match is what makes them safe: «хэд» does not
+ * fire on «хэдийнээ», and «ib» does not fire on «ibiza». A prefix match on two letters
+ * is the unanchored matcher rule 6 forbids; an equality test on a whole word is not.
+ *
+ * A listed entry of several words matches that run of consecutive words («мэдээлэл өгөөч»).
+ * An entry with NO word in it — `?`, `😂` — cannot be a word, because punctuation and
+ * emoji are stripped from the words; it is tested as a substring of the NFC text instead.
+ * `?` also matches the full-width `？`. Symbols are not customer vocabulary in rule 6's
+ * sense: a laughing emoji has no inflection to get wrong.
+ */
+export function hasWord(text: string, words: readonly string[]): boolean {
+  const have = messageWords(text);
+  const raw_ = nfc(text);
+  for (const raw of words) {
+    const want = messageWords(raw);
+    if (want.length === 0) {
+      const sym = nfc(raw).trim();
+      if (sym === '') continue;
+      if (raw_.includes(sym) || (sym === '?' && raw_.includes('\uFF1F'))) return true;
+      continue;
+    }
+    for (let i = 0; i + want.length <= have.length; i += 1) {
+      if (want.every((w, j) => have[i + j] === w)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Does the message's LAST word end with one of `endings`?
+ *
+ * Mongolian question particles are often typed fused to the word before them —
+ * «арилдагуу» for «арилдаг уу», «хийдэгүү» — so a whole-word test for «уу» misses them.
+ * Only the last word is read, because that is where the particle sits; a suffix test over
+ * every word would fire on any noun that happens to end in «уу».
+ */
+export function endsWithAny(text: string, endings: readonly string[]): boolean {
+  const words = messageWords(text);
+  const last = words[words.length - 1];
+  if (last === undefined) return false;
+  return endings.some((e) => {
+    const f = messageWords(e).join(' ');
+    return f !== '' && last.endsWith(f);
+  });
 }
 
 /**

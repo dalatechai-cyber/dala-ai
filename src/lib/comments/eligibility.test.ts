@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decideCommentReply, type CommentDecisionInput } from './eligibility.ts';
+import { decideAfterLookup, decideCommentReply, type CommentDecisionInput } from './eligibility.ts';
 
 const NOW = new Date('2026-09-04T12:00:00Z');
 const LINE = { body: 'Сайн байна уу! Дэлгэрэнгүйг хувийн мессежээр хүргэе.', reviewedAt: '2026-09-01T00:00:00Z' };
@@ -11,6 +11,7 @@ const base: CommentDecisionInput = {
   // worth answering, so `reply` is the base. The verdict's own four cases are below.
   verdict: 'reply',
   pinnedLine: LINE,
+  privateLine: { body: 'Сайн байна уу! Хүссэн зүйлээ асуугаарай.', reviewedAt: '2026-09-25T00:00:00Z' },
   comment: {
     commentId: 'c_1',
     threadId: 'c_1',
@@ -20,6 +21,7 @@ const base: CommentDecisionInput = {
     parentIsOurs: false,
   },
   threadAlreadyAnswered: false,
+  personAlreadyAnswered: false,
   postRepliesInWindow: 0,
   now: NOW,
 };
@@ -47,7 +49,7 @@ test('DONE-TEST: the reply cannot depend on what the comment said', () => {
   );
   for (const o of outcomes) {
     assert.equal(o.reply, true);
-    assert.equal(o.reply === true && o.body, LINE.body, 'the tenant line, unchanged');
+    assert.equal(o.reply === true && o.publicBody, LINE.body, 'the tenant line, unchanged');
   }
   // And the signature itself carries no text field. If somebody adds one, this fails.
   assert.ok(!('text' in base.comment), 'the comment TEXT must never become an input here');
@@ -56,7 +58,7 @@ test('DONE-TEST: the reply cannot depend on what the comment said', () => {
 test('the pinned line is returned unchanged — never trimmed, wrapped or decorated', () => {
   const odd = { body: '  Сайн байна уу!  ', reviewedAt: '2026-09-01' };
   const r = decide({ pinnedLine: odd });
-  assert.equal(r.reply === true && r.body, '  Сайн байна уу!  ');
+  assert.equal(r.reply === true && r.publicBody, '  Сайн байна уу!  ');
 });
 
 // ---------------------------------------------------------------------------
@@ -69,14 +71,50 @@ test('comments are OFF unless the tenant turned them on', () => {
   assert.equal(r.reply === false && r.refusal, 'comment_policy_off');
 });
 
-test('a policy needing the private reply is refused, not approximated with a public one', () => {
-  // Turning a tenant's private_only choice into a public post under their own wall is the
-  // worst possible way to be helpful. §3.8.4's single-use expiring private reply is not
-  // built, so these refuse.
-  for (const policy of ['private_only', 'both']) {
-    const r = withConfig({ policy });
-    assert.equal(r.reply === false && r.refusal, 'private_reply_not_implemented', policy);
+test('D-122: the policy decides which lines go — public, private, or both', () => {
+  const pub = withConfig({ policy: 'public_only' });
+  assert.ok(pub.reply === true && pub.publicBody === LINE.body && pub.privateBody === null);
+  const priv = withConfig({ policy: 'private_only' });
+  assert.ok(priv.reply === true && priv.publicBody === null && priv.privateBody === base.privateLine?.body);
+  const both = withConfig({ policy: 'both' });
+  assert.ok(both.reply === true && both.publicBody === LINE.body && both.privateBody === base.privateLine?.body);
+});
+
+test('D-122: "both" with either line unreviewed sends neither — half a policy is a different policy', () => {
+  const noPrivate = decide({ config: { ...base.config, policy: 'both' }, privateLine: { body: 'x', reviewedAt: null } });
+  assert.equal(noPrivate.reply === false && noPrivate.refusal, 'no_reviewed_line');
+  const noPublic = decide({ config: { ...base.config, policy: 'both' }, pinnedLine: null });
+  assert.equal(noPublic.reply === false && noPublic.refusal, 'no_reviewed_line');
+  // public_only does not need the private line at all.
+  assert.equal(decide({ privateLine: null }).reply, true);
+});
+
+test('D-122: one reply per person per post', () => {
+  const r = decide({ personAlreadyAnswered: true });
+  assert.equal(r.reply === false && r.refusal, 'person_already_answered');
+  // Named before the thread rule: the same person on the same post is the more specific truth.
+  const both = decide({ personAlreadyAnswered: true, threadAlreadyAnswered: true });
+  assert.equal(both.reply === false && both.refusal, 'person_already_answered');
+  // And the verdict still comes first: a second complaint by the same person is escalated.
+  const complaint = decide({ personAlreadyAnswered: true, verdict: 'escalate' });
+  assert.equal(complaint.reply === false && complaint.refusal, 'comment_escalated');
+});
+
+test('D-122: after the Graph read — a tag of a person refuses; unknown refuses; an old post refuses', () => {
+  const now = new Date('2026-09-25T00:00:00Z');
+  const young = new Date('2026-09-20T00:00:00Z');
+  assert.deepEqual(decideAfterLookup({ tagsPerson: false, postCreatedAt: young, maxPostAgeDays: 30, now }), { ok: true });
+  const tagged = decideAfterLookup({ tagsPerson: true, postCreatedAt: young, maxPostAgeDays: 30, now });
+  assert.equal(!tagged.ok && tagged.refusal, 'comment_tags_person');
+  for (const [tagsPerson, postCreatedAt] of [[null, young], [false, null], [false, new Date(NaN)]] as const) {
+    const r = decideAfterLookup({ tagsPerson, postCreatedAt, maxPostAgeDays: 30, now });
+    assert.equal(!r.ok && r.refusal, 'comment_lookup_unknown');
   }
+  const old = decideAfterLookup({ tagsPerson: false, postCreatedAt: new Date('2022-01-01T00:00:00Z'), maxPostAgeDays: 30, now });
+  assert.equal(!old.ok && old.refusal, 'post_too_old');
+  // The boundary: exactly the limit is still young.
+  const edge = decideAfterLookup({ tagsPerson: false, postCreatedAt: new Date(now.getTime() - 30 * 86_400_000), maxPostAgeDays: 30, now });
+  assert.equal(edge.ok, true);
 });
 
 test('an unrecognised policy does not reply', () => {
@@ -185,7 +223,7 @@ test('a tenant with comments off is attributed to that, not to a later check', (
 test('every refusal carries a detail a person could act on', () => {
   const inputs: Partial<CommentDecisionInput>[] = [
     { config: { ...base.config, policy: 'none' } },
-    { config: { ...base.config, policy: 'both' } },
+    { personAlreadyAnswered: true },
     { config: { ...base.config, ignoreCommenterIds: ['customer_1'] } },
     { comment: { ...base.comment, parentIsOurs: true } },
     { comment: { ...base.comment, createdAt: new Date('2020-01-01') } },
@@ -202,7 +240,7 @@ test('every refusal carries a detail a person could act on', () => {
       seen.add(r.refusal);
     }
   }
-  assert.equal(seen.size, 8, 'every refusal reason is reachable and distinct');
+  assert.equal(seen.size, inputs.length, 'every refusal reason is reachable and distinct');
 });
 
 // ---------------------------------------------------------------------------

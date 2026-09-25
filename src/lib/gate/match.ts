@@ -27,7 +27,7 @@
  * thing the rule existed to prevent.
  */
 import { isTenantConfirmed } from '../provenance.ts';
-import { containsStem, matchesStemSequence, wholeMessageMatches } from '../mn/match.ts';
+import { containsStem, endsWithAny, hasWord, matchesStemSequence, wholeMessageMatches } from '../mn/match.ts';
 import { cpLength } from '../mn/text.ts';
 import type { GateKey } from '../guard/outbound.ts';
 
@@ -82,7 +82,29 @@ export type MatcherSpec =
    * it is a real mislabel. Use it where the verdict is coarse; prefer a long single stem
    * where the topic decides what is said.
    */
-  | { mode: 'stem_sequence'; stems: readonly string[]; windowCp: number };
+  | { mode: 'stem_sequence'; stems: readonly string[]; windowCp: number }
+  /**
+   * Whole words, not prefixes (comment classifier, D-122). Admits words below
+   * `MIN_STEM_CHARS` — «ib», «pm», «хэд», «вэ» — because equality with a whole word is the
+   * specificity the length floor stands in for. `?` is the one non-word entry.
+   */
+  | { mode: 'has_word'; words: readonly string[] }
+  /** The LAST word ends with one of these — a question particle typed fused (D-122). */
+  | { mode: 'ends_with'; endings: readonly string[] }
+  /**
+   * Every member fires. How a row says "a question AND about a service AND not praise"
+   * without a code path per combination. At least two members, and nested at most
+   * `MAX_MATCHER_DEPTH` deep.
+   */
+  | { mode: 'all_of'; matchers: readonly MatcherSpec[] }
+  /**
+   * The member does NOT fire. Only admissible inside `all_of`: on its own it fires on
+   * almost every message, which is the unanchored matcher rule 6 forbids.
+   */
+  | { mode: 'not'; matcher: MatcherSpec };
+
+/** How deep `all_of` / `not` may nest. Deeper than this is a rule nobody can review. */
+export const MAX_MATCHER_DEPTH = 3;
 
 /**
  * The widest window a `stem_sequence` may span, in code points.
@@ -158,6 +180,14 @@ export type ParseResult = { ok: true; spec: MatcherSpec } | { ok: false; detail:
  * silent pass.
  */
 export function parseMatcher(raw: unknown): ParseResult {
+  const parsed = parseMatcherAt(raw, 0);
+  if (parsed.ok && parsed.spec.mode === 'not') {
+    return { ok: false, detail: 'a bare "not" fires on almost every message; use it inside all_of' };
+  }
+  return parsed;
+}
+
+function parseMatcherAt(raw: unknown, depth: number): ParseResult {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return { ok: false, detail: 'matcher is not a JSON object' };
   }
@@ -219,17 +249,79 @@ export function parseMatcher(raw: unknown): ParseResult {
     return { ok: true, spec: { mode: 'stem_sequence', stems: stems as string[], windowCp } };
   }
 
+  if (mode === 'has_word') {
+    const words = o['words'];
+    if (!Array.isArray(words) || words.length === 0) return { ok: false, detail: 'has_word needs a non-empty words array' };
+    if (words.some((w) => typeof w !== 'string' || w.trim() === '')) return { ok: false, detail: 'a word is not a non-empty string' };
+    return { ok: true, spec: { mode: 'has_word', words: words as string[] } };
+  }
+
+  if (mode === 'ends_with') {
+    const endings = o['endings'];
+    if (!Array.isArray(endings) || endings.length === 0) return { ok: false, detail: 'ends_with needs a non-empty endings array' };
+    if (endings.some((e) => typeof e !== 'string' || e.trim() === '')) return { ok: false, detail: 'an ending is not a non-empty string' };
+    // One letter is the last letter of half the words in the language.
+    const short = (endings as string[]).filter((e) => cpLength(e.trim()) < 2);
+    if (short.length > 0) return { ok: false, detail: `endings shorter than 2 characters match almost anything: ${short.join(', ')}` };
+    return { ok: true, spec: { mode: 'ends_with', endings: endings as string[] } };
+  }
+
+  if (mode === 'all_of' || mode === 'not') {
+    if (depth >= MAX_MATCHER_DEPTH) return { ok: false, detail: `matchers nest deeper than ${MAX_MATCHER_DEPTH}` };
+    if (mode === 'not') {
+      const inner = parseMatcherAt(o['matcher'], depth + 1);
+      if (!inner.ok) return { ok: false, detail: `not: ${inner.detail}` };
+      return { ok: true, spec: { mode: 'not', matcher: inner.spec } };
+    }
+    const members = o['matchers'];
+    if (!Array.isArray(members) || members.length < 2) {
+      return { ok: false, detail: 'all_of needs at least two matchers; one is just that matcher' };
+    }
+    const specs: MatcherSpec[] = [];
+    for (const m of members) {
+      const inner = parseMatcherAt(m, depth + 1);
+      if (!inner.ok) return { ok: false, detail: `all_of: ${inner.detail}` };
+      specs.push(inner.spec);
+    }
+    // All members negative is a bare "not" with extra steps.
+    if (specs.every((sp) => sp.mode === 'not')) {
+      return { ok: false, detail: 'all_of needs at least one positive member; only "not" members fire on almost everything' };
+    }
+    return { ok: true, spec: { mode: 'all_of', matchers: specs } };
+  }
+
   return { ok: false, detail: `unknown matcher mode ${JSON.stringify(mode)}` };
+}
+
+/**
+ * Every piece of customer-facing vocabulary a matcher carries, through any nesting — for
+ * reviewers that ask "does this rule list a Latin spelling?" (provision/validate.ts).
+ * Negated members are included: a spelling in a `not` is still vocabulary somebody chose.
+ */
+export function matcherTerms(spec: MatcherSpec): string[] {
+  switch (spec.mode) {
+    case 'contains_stem': case 'stem_sequence': return [...spec.stems];
+    case 'whole_message': return [...spec.phrases];
+    case 'has_word': return spec.words.filter((w) => w !== '?');
+    case 'ends_with': return [...spec.endings];
+    case 'has_attachment': return [];
+    case 'all_of': return spec.matchers.flatMap(matcherTerms);
+    case 'not': return matcherTerms(spec.matcher);
+  }
 }
 
 /** Does one parsed matcher fire on this message? */
 export function matcherFires(subject: MatchSubject, spec: MatcherSpec): boolean {
   if (spec.mode === 'has_attachment') return subject.attachments.some((a) => spec.kinds.includes(a));
+  if (spec.mode === 'all_of') return spec.matchers.every((m) => matcherFires(subject, m));
+  if (spec.mode === 'not') return !matcherFires(subject, spec.matcher);
   const texts = subject.respelled === undefined || subject.respelled === null
     ? [subject.text] : [subject.text, subject.respelled];
   return texts.some((text) => {
     if (spec.mode === 'whole_message') return wholeMessageMatches(text, spec.phrases);
     if (spec.mode === 'stem_sequence') return matchesStemSequence(text, spec.stems, spec.windowCp);
+    if (spec.mode === 'has_word') return hasWord(text, spec.words);
+    if (spec.mode === 'ends_with') return endsWithAny(text, spec.endings);
     return spec.stems.some((stem) => containsStem(text, stem));
   });
 }
@@ -472,7 +564,7 @@ function cannedKinds(rows: readonly CannedRow[]): string[] {
  * shipping it late is an outage.
  */
 export const MODEL_INVISIBLE_KINDS: readonly string[] = [
-  'image_received', 'comment_public_reply', 'handover_notice', 'handover_reclaim',
+  'image_received', 'comment_public_reply', 'comment_private_reply', 'handover_notice', 'handover_reclaim',
 ];
 
 /**
@@ -504,7 +596,7 @@ export function kindsReferencedBy(blockBodies: readonly string[]): string[] {
   const out = new Set<string>();
   // ascii-safe: a canned kind is a lower_snake ASCII token in straight double quotes;
   // Mongolian prose in these blocks uses «…», so the two never collide.
-  for (const body of blockBodies) for (const m of body.matchAll(/"([a-z][a-z_]*)"/g)) out.add(m[1] ?? '');
+  for (const body of blockBodies) for (const m of body.matchAll(/"([a-z][a-z_]*)"/g)) out.add(m[1] ?? ''); // ascii-safe: canned kinds are lower_snake ASCII
   out.delete('');
   return [...out].sort();
 }

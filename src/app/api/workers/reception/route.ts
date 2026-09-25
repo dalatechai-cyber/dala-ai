@@ -21,7 +21,9 @@ import { buildDeps } from '@/lib/reception/deps';
 import { deliverOutbound } from '@/lib/outbound/deliver';
 import { loadTenantSecret } from '@/lib/secrets/tenantSecret';
 import { sendCommentReply } from '@/lib/comments/send';
-import { sendSenderAction } from '@/lib/meta/send';
+import { sendMessage, sendSenderAction } from '@/lib/meta/send';
+import { lookupComment } from '@/lib/comments/lookup';
+import { raiseCommentComplaint } from '@/lib/comments/complaint';
 import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
 import { SECTION_LABELS } from '@/lib/prompt/tenant';
@@ -149,6 +151,32 @@ function effects(now: Date): WorkerEffects {
         };
       }
       return sendCommentReply({ commentId, body, token: secret.secret, graphVersion });
+    },
+
+    // The private message to a commenter (D-122): the Messenger send, addressed by comment.
+    sendPrivateReply: async ({ tenantId, channelId, pageId, commentId, body, graphVersion }) => {
+      const secret = await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+      if (!secret.ok) {
+        return { outcome: 'failed', retryable: secret.retryable, failure: 'unknown', detail: `no credential: ${secret.code}` };
+      }
+      const sent = await sendMessage({
+        pageId, recipientId: '', recipientCommentId: commentId, text: body, token: secret.secret, graphVersion,
+      });
+      return sent.outcome === 'sent' ? { outcome: 'sent', providerMessageId: sent.providerMessageId } : sent;
+    },
+
+    // Tags and post age (D-122). An unloadable credential is two unknowns, which refuse.
+    lookupComment: async ({ tenantId, channelId, pageId, commentId, postId, graphVersion }) => {
+      const secret = await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+      if (!secret.ok) return { tagsPerson: null, postCreatedAt: null, problems: [`no credential: ${secret.code}`] };
+      return lookupComment({ commentId, postId, pageId, token: secret.secret, graphVersion });
+    },
+
+    alertComplaint: async (input) => {
+      const outcome = await raiseCommentComplaint(db, input);
+      if (outcome.outcome === 'failed' || outcome.outcome === 'recorded_undelivered') {
+        console.error('[worker] comment_complaint_alert_undelivered', { commentId: input.commentId, ...outcome });
+      }
     },
 
     /**

@@ -139,9 +139,12 @@ export async function draftOnce(
     /**
      * `comment_reply` only: the post the replied-to comment sits under, so the per-post
      * daily cap can be counted from the rows that already exist rather than from a second
-     * table that would drift from them. A CHECK refuses it on any other kind.
+     * table that would drift from them. A CHECK refuses it on any kind but `comment_reply`
+     * and `private_reply` (0045).
      */
     commentPostId?: string | null;
+    /** `comment_reply` / `private_reply` only (D-122): who the reply answers. */
+    commentFromId?: string | null;
   },
 ): Promise<DraftOutcome> {
   if (input.dedupKey === '') {
@@ -163,6 +166,8 @@ export async function draftOnce(
       body: input.body,
       dedup_key: input.dedupKey,
       comment_post_id: input.commentPostId ?? null,
+      // Only named when set, so a DM draft's insert is byte-identical to before 0045.
+      ...(input.commentFromId ? { comment_from_id: input.commentFromId } : {}),
       state: 'draft',
     })
     .select('id, body, state, attempts')

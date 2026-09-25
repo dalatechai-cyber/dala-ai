@@ -1,0 +1,2095 @@
+{
+ "_comment": "Comment rules for a hair/beauty salon (D-122). A vertical template: a salon tenant gets these as comment_rules rows via scripts/provision/comment-rules.ts <tenant-slug>. Rows, never code. Verdicts: escalate > reply > ignore. Every reply rule excludes laughter; the generic service question also excludes praise.",
+ "vertical": "salon",
+ "rules": [
+  {
+   "rule_key": "complaint",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "contains_stem",
+    "stems": [
+     "гомдол",
+     "gomdol",
+     "луйвар",
+     "luivar",
+     "залилан",
+     "zalilan",
+     "залилсан",
+     "zalilsan",
+     "сүйтгэ",
+     "suitge",
+     "svitge",
+     "сүйрүүл",
+     "suiruul",
+     "шатаа",
+     "shataa",
+     "шатсан",
+     "shatsan",
+     "шатчих",
+     "shatchih",
+     "муудсан",
+     "muudsan",
+     "муудуул",
+     "muuduul",
+     "ичгүүргүй",
+     "ichguurgui",
+     "ichgvvrgvi",
+     "бүдүүлэг",
+     "buduuleg",
+     "bvdvvleg",
+     "хариулахгүй",
+     "hariulahgui",
+     "hariulahgvi",
+     "хүлээлгэ",
+     "huleelge",
+     "hvleelge",
+     "хүлээсээр",
+     "huleeseer",
+     "дундуур",
+     "dunduur",
+     "худлаа",
+     "hudlaa",
+     "муухай",
+     "muuhai",
+     "тэнэг",
+     "teneg",
+     "хогийн",
+     "hogiin"
+    ]
+   }
+  },
+  {
+   "rule_key": "complaint_phrases",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "stem_sequence",
+    "stems": [
+     "утсаа",
+     "ав"
+    ],
+    "windowCp": 20
+   }
+  },
+  {
+   "rule_key": "complaint_phrases_lat",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "stem_sequence",
+    "stems": [
+     "utsaa",
+     "av"
+    ],
+    "windowCp": 20
+   }
+  },
+  {
+   "rule_key": "complaint_call_mn",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "stem_sequence",
+    "stems": [
+     "залга",
+     "авахгүй"
+    ],
+    "windowCp": 30
+   }
+  },
+  {
+   "rule_key": "complaint_call_lat",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "stem_sequence",
+    "stems": [
+     "zalga",
+     "avahgui"
+    ],
+    "windowCp": 30
+   }
+  },
+  {
+   "rule_key": "complaint_days_mn",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "stem_sequence",
+    "stems": [
+     "өдөр",
+     "залга"
+    ],
+    "windowCp": 20
+   }
+  },
+  {
+   "rule_key": "complaint_days_lat",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "stem_sequence",
+    "stems": [
+     "udur",
+     "zalga"
+    ],
+    "windowCp": 20
+   }
+  },
+  {
+   "rule_key": "complaint_money_mn",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "stem_sequence",
+    "stems": [
+     "мөнгө",
+     "буцаа"
+    ],
+    "windowCp": 20
+   }
+  },
+  {
+   "rule_key": "complaint_money_lat",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "stem_sequence",
+    "stems": [
+     "mungu",
+     "butsaa"
+    ],
+    "windowCp": 20
+   }
+  },
+  {
+   "rule_key": "complaint_again_mn",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "stem_sequence",
+    "stems": [
+     "дахиж",
+     "очихгүй"
+    ],
+    "windowCp": 20
+   }
+  },
+  {
+   "rule_key": "complaint_again_lat",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "stem_sequence",
+    "stems": [
+     "dahij",
+     "ochihgui"
+    ],
+    "windowCp": 20
+   }
+  },
+  {
+   "rule_key": "complaint_human_mn",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "stem_sequence",
+    "stems": [
+     "хүнтэй",
+     "холбог"
+    ],
+    "windowCp": 20
+   }
+  },
+  {
+   "rule_key": "complaint_human_lat",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "stem_sequence",
+    "stems": [
+     "huntei",
+     "holbog"
+    ],
+    "windowCp": 20
+   }
+  },
+  {
+   "rule_key": "complaint_words",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "has_word",
+    "words": [
+     "ai bish",
+     "ай биш",
+     "бот биш",
+     "bot bish",
+     "хог"
+    ]
+   }
+  },
+  {
+   "rule_key": "complaint_bad",
+   "verdict": "escalate",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "has_word",
+      "words": [
+       "муу",
+       "muu"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "биш",
+        "bish",
+        "bishee",
+        "бишээ"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "price",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "has_word",
+      "words": [
+       "үнэ",
+       "une",
+       "vne",
+       "үнэ нь",
+       "үнийг",
+       "uniig",
+       "хэд",
+       "hed",
+       "хэдэн",
+       "heden",
+       "хэдээр",
+       "hedeer",
+       "төгрөг",
+       "tugrug",
+       "ямар үнэтэй"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "price_stems",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "contains_stem",
+      "stems": [
+       "үнийн",
+       "uniin",
+       "vniin",
+       "үнэтэй",
+       "unetei",
+       "vnetei",
+       "хэдээр",
+       "hedeer",
+       "төлбөр",
+       "tulbur",
+       "tolbor",
+       "хямдрал",
+       "hymdral",
+       "hyamdral",
+       "урамшуулал",
+       "uramshuulal",
+       "төгрөг",
+       "tugrug"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "location",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "contains_stem",
+      "stems": [
+       "хаяг",
+       "hayg",
+       "hayag",
+       "xayg",
+       "haig",
+       "байршил",
+       "bairshil",
+       "хаана",
+       "haana",
+       "xaana",
+       "хаашаа",
+       "haashaa",
+       "салбарууд",
+       "salbaruud"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "location_branch",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "has_word",
+      "words": [
+       "?",
+       "уу",
+       "үү",
+       "юу",
+       "юү",
+       "вэ",
+       "бэ",
+       "бол",
+       "uu",
+       "vv",
+       "yu",
+       "yuu",
+       "ve",
+       "we",
+       "be",
+       "bol"
+      ]
+     },
+     {
+      "mode": "contains_stem",
+      "stems": [
+       "салбар",
+       "salbar"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "booking",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "contains_stem",
+      "stems": [
+       "захиал",
+       "zahial",
+       "zakhial",
+       "бүртгүүл",
+       "burtguul"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "booking_mn",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "stem_sequence",
+      "stems": [
+       "цаг",
+       "ав"
+      ],
+      "windowCp": 14
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "booking_lat",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "stem_sequence",
+      "stems": [
+       "tsag",
+       "av"
+      ],
+      "windowCp": 14
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "booking_lat_c",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "stem_sequence",
+      "stems": [
+       "cag",
+       "av"
+      ],
+      "windowCp": 14
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "booking_free_mn",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "stem_sequence",
+      "stems": [
+       "цаг",
+       "ба"
+      ],
+      "windowCp": 12
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "booking_free_lat",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "stem_sequence",
+      "stems": [
+       "tsag",
+       "b"
+      ],
+      "windowCp": 12
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "booking_open_mn",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "stem_sequence",
+      "stems": [
+       "сул",
+       "цаг"
+      ],
+      "windowCp": 10
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "booking_when_mn",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "stem_sequence",
+      "stems": [
+       "цаг",
+       "хэзээ"
+      ],
+      "windowCp": 16
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "booking_when_lat",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "stem_sequence",
+      "stems": [
+       "tsag",
+       "hezee"
+      ],
+      "windowCp": 16
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "info",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "has_word",
+      "words": [
+       "ib",
+       "pm",
+       "dm",
+       "info",
+       "инфо",
+       "иб",
+       "пм",
+       "inbox",
+       "инбокс",
+       "дэлгэрэнгүй",
+       "delgerengui",
+       "delgerengvi",
+       "мэдээлэл",
+       "medeelel",
+       "detail",
+       "details",
+       "dtl",
+       "утас",
+       "utas",
+       "утсаа",
+       "utsaa",
+       "дугаар",
+       "dugaar",
+       "дугаараа",
+       "dugaaraa"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "info_stems",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "contains_stem",
+      "stems": [
+       "дэлгэрэнгүй",
+       "delgerengu",
+       "delgerengv",
+       "мэдээлэл",
+       "medeelel",
+       "medeell",
+       "инбокс",
+       "inbox",
+       "холбогд",
+       "holbogd",
+       "утасны",
+       "utasnii",
+       "дугаар",
+       "dugaar",
+       "ibee",
+       "ibeer",
+       "ибээр",
+       "pmeer",
+       "пмээр"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "hours",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "contains_stem",
+      "stems": [
+       "хуваар",
+       "huvaar",
+       "huwaar",
+       "нээлттэй",
+       "neelttei"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "hours_open",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "has_word",
+      "words": [
+       "?",
+       "уу",
+       "үү",
+       "юу",
+       "юү",
+       "вэ",
+       "бэ",
+       "бол",
+       "uu",
+       "vv",
+       "yu",
+       "yuu",
+       "ve",
+       "we",
+       "be",
+       "bol"
+      ]
+     },
+     {
+      "mode": "contains_stem",
+      "stems": [
+       "ажилла",
+       "ajilla",
+       "нээх",
+       "neeh",
+       "хаах",
+       "haah",
+       "нээгд",
+       "neegd"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "service_question_q_stem",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "has_word",
+      "words": [
+       "?",
+       "уу",
+       "үү",
+       "юу",
+       "юү",
+       "вэ",
+       "бэ",
+       "бол",
+       "uu",
+       "vv",
+       "yu",
+       "yuu",
+       "ve",
+       "we",
+       "be",
+       "bol"
+      ]
+     },
+     {
+      "mode": "contains_stem",
+      "stems": [
+       "хими",
+       "himi",
+       "будаг",
+       "будг",
+       "budag",
+       "budg",
+       "будал",
+       "budal",
+       "будуул",
+       "buduul",
+       "тайрал",
+       "tairal",
+       "тайруул",
+       "tairuul",
+       "засал",
+       "zasal",
+       "засуул",
+       "zasuul",
+       "засда",
+       "zasda",
+       "үсчин",
+       "uschin",
+       "vschin",
+       "мастер",
+       "master",
+       "сэттинг",
+       "setting",
+       "эмчилгээ",
+       "emchilgee",
+       "emchilge",
+       "маникюр",
+       "manicure",
+       "manikyur",
+       "manikur",
+       "педикюр",
+       "pedikyur",
+       "pedicure",
+       "хумсаа",
+       "humsaa",
+       "өнгө",
+       "өнгий",
+       "ongo",
+       "ongi",
+       "ungu",
+       "туяа",
+       "tuya",
+       "омбре",
+       "ombre",
+       "балаяж",
+       "balayage",
+       "блонд",
+       "blond",
+       "шулуун",
+       "shuluun",
+       "буржгар",
+       "burjgar",
+       "кератин",
+       "keratin",
+       "ботокс",
+       "botox",
+       "сормуус",
+       "sormuus",
+       "хөмсөг",
+       "humsug",
+       "үйлчилгээ",
+       "uilchilgee",
+       "vilchilgee",
+       "сургалт",
+       "surgalt",
+       "арилда",
+       "arilda",
+       "цайруул",
+       "tsairuul",
+       "гэрлүүл",
+       "gerluul",
+       "угаалга",
+       "ugaalga",
+       "тосон",
+       "toson",
+       "үйлчил",
+       "uilchil",
+       "vilchil"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "гоё",
+        "гоёо",
+        "гоёоо",
+        "goy",
+        "goyo",
+        "goyoo",
+        "хөөрхөн",
+        "hoorhon",
+        "huurhun",
+        "hvvrhun",
+        "сайхан",
+        "saihan",
+        "гайхалтай",
+        "gaihaltai",
+        "мундаг",
+        "mundag",
+        "амжилт",
+        "amjilt",
+        "баярлалаа",
+        "bayarlalaa",
+        "bayrlalaa",
+        "wow",
+        "woow",
+        "вау",
+        "super",
+        "супер",
+        "nice"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "гоёмсог",
+        "хөөрхөн",
+        "гайхалт",
+        "мундаг",
+        "mundag",
+        "амжилт",
+        "amjilt",
+        "баярлал",
+        "bayarlal",
+        "bayrlal",
+        "чадварлаг",
+        "chadvarlag"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "service_question_q_word",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "has_word",
+      "words": [
+       "?",
+       "уу",
+       "үү",
+       "юу",
+       "юү",
+       "вэ",
+       "бэ",
+       "бол",
+       "uu",
+       "vv",
+       "yu",
+       "yuu",
+       "ve",
+       "we",
+       "be",
+       "bol"
+      ]
+     },
+     {
+      "mode": "has_word",
+      "words": [
+       "үс",
+       "үсээ",
+       "үсийг",
+       "үсэнд",
+       "үсний",
+       "үсэн",
+       "us",
+       "usaa",
+       "usee",
+       "usend",
+       "usnii",
+       "vs",
+       "vsee",
+       "vsnii",
+       "урт",
+       "urt",
+       "богино",
+       "bogino",
+       "хумс",
+       "hums"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "гоё",
+        "гоёо",
+        "гоёоо",
+        "goy",
+        "goyo",
+        "goyoo",
+        "хөөрхөн",
+        "hoorhon",
+        "huurhun",
+        "hvvrhun",
+        "сайхан",
+        "saihan",
+        "гайхалтай",
+        "gaihaltai",
+        "мундаг",
+        "mundag",
+        "амжилт",
+        "amjilt",
+        "баярлалаа",
+        "bayarlalaa",
+        "bayrlalaa",
+        "wow",
+        "woow",
+        "вау",
+        "super",
+        "супер",
+        "nice"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "гоёмсог",
+        "хөөрхөн",
+        "гайхалт",
+        "мундаг",
+        "mundag",
+        "амжилт",
+        "amjilt",
+        "баярлал",
+        "bayarlal",
+        "bayrlal",
+        "чадварлаг",
+        "chadvarlag"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "service_question_end_stem",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "ends_with",
+      "endings": [
+       "уу",
+       "үү",
+       "юу",
+       "юү",
+       "вэ",
+       "бэ",
+       "uu",
+       "vv",
+       "yu",
+       "ve",
+       "we",
+       "be"
+      ]
+     },
+     {
+      "mode": "contains_stem",
+      "stems": [
+       "хими",
+       "himi",
+       "будаг",
+       "будг",
+       "budag",
+       "budg",
+       "будал",
+       "budal",
+       "будуул",
+       "buduul",
+       "тайрал",
+       "tairal",
+       "тайруул",
+       "tairuul",
+       "засал",
+       "zasal",
+       "засуул",
+       "zasuul",
+       "засда",
+       "zasda",
+       "үсчин",
+       "uschin",
+       "vschin",
+       "мастер",
+       "master",
+       "сэттинг",
+       "setting",
+       "эмчилгээ",
+       "emchilgee",
+       "emchilge",
+       "маникюр",
+       "manicure",
+       "manikyur",
+       "manikur",
+       "педикюр",
+       "pedikyur",
+       "pedicure",
+       "хумсаа",
+       "humsaa",
+       "өнгө",
+       "өнгий",
+       "ongo",
+       "ongi",
+       "ungu",
+       "туяа",
+       "tuya",
+       "омбре",
+       "ombre",
+       "балаяж",
+       "balayage",
+       "блонд",
+       "blond",
+       "шулуун",
+       "shuluun",
+       "буржгар",
+       "burjgar",
+       "кератин",
+       "keratin",
+       "ботокс",
+       "botox",
+       "сормуус",
+       "sormuus",
+       "хөмсөг",
+       "humsug",
+       "үйлчилгээ",
+       "uilchilgee",
+       "vilchilgee",
+       "сургалт",
+       "surgalt",
+       "арилда",
+       "arilda",
+       "цайруул",
+       "tsairuul",
+       "гэрлүүл",
+       "gerluul",
+       "угаалга",
+       "ugaalga",
+       "тосон",
+       "toson",
+       "үйлчил",
+       "uilchil",
+       "vilchil"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "гоё",
+        "гоёо",
+        "гоёоо",
+        "goy",
+        "goyo",
+        "goyoo",
+        "хөөрхөн",
+        "hoorhon",
+        "huurhun",
+        "hvvrhun",
+        "сайхан",
+        "saihan",
+        "гайхалтай",
+        "gaihaltai",
+        "мундаг",
+        "mundag",
+        "амжилт",
+        "amjilt",
+        "баярлалаа",
+        "bayarlalaa",
+        "bayrlalaa",
+        "wow",
+        "woow",
+        "вау",
+        "super",
+        "супер",
+        "nice"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "гоёмсог",
+        "хөөрхөн",
+        "гайхалт",
+        "мундаг",
+        "mundag",
+        "амжилт",
+        "amjilt",
+        "баярлал",
+        "bayarlal",
+        "bayrlal",
+        "чадварлаг",
+        "chadvarlag"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "service_question_end_word",
+   "verdict": "reply",
+   "matcher": {
+    "mode": "all_of",
+    "matchers": [
+     {
+      "mode": "ends_with",
+      "endings": [
+       "уу",
+       "үү",
+       "юу",
+       "юү",
+       "вэ",
+       "бэ",
+       "uu",
+       "vv",
+       "yu",
+       "ve",
+       "we",
+       "be"
+      ]
+     },
+     {
+      "mode": "has_word",
+      "words": [
+       "үс",
+       "үсээ",
+       "үсийг",
+       "үсэнд",
+       "үсний",
+       "үсэн",
+       "us",
+       "usaa",
+       "usee",
+       "usend",
+       "usnii",
+       "vs",
+       "vsee",
+       "vsnii",
+       "урт",
+       "urt",
+       "богино",
+       "bogino",
+       "хумс",
+       "hums"
+      ]
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "гоё",
+        "гоёо",
+        "гоёоо",
+        "goy",
+        "goyo",
+        "goyoo",
+        "хөөрхөн",
+        "hoorhon",
+        "huurhun",
+        "hvvrhun",
+        "сайхан",
+        "saihan",
+        "гайхалтай",
+        "gaihaltai",
+        "мундаг",
+        "mundag",
+        "амжилт",
+        "amjilt",
+        "баярлалаа",
+        "bayarlalaa",
+        "bayrlalaa",
+        "wow",
+        "woow",
+        "вау",
+        "super",
+        "супер",
+        "nice"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "гоёмсог",
+        "хөөрхөн",
+        "гайхалт",
+        "мундаг",
+        "mundag",
+        "амжилт",
+        "amjilt",
+        "баярлал",
+        "bayarlal",
+        "bayrlal",
+        "чадварлаг",
+        "chadvarlag"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "has_word",
+       "words": [
+        "хаха",
+        "хахаха",
+        "хэхэ",
+        "хихи",
+        "haha",
+        "hahaha",
+        "hehe",
+        "hihi",
+        "xaxa",
+        "lol",
+        "kkk",
+        "😂",
+        "🤣",
+        "😆",
+        "😅",
+        "😹"
+       ]
+      }
+     },
+     {
+      "mode": "not",
+      "matcher": {
+       "mode": "contains_stem",
+       "stems": [
+        "хаха",
+        "хэхэ",
+        "haha",
+        "hehe",
+        "xaxa"
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "rule_key": "praise",
+   "verdict": "ignore",
+   "matcher": {
+    "mode": "has_word",
+    "words": [
+     "гоё",
+     "гоёо",
+     "гоёоо",
+     "goy",
+     "goyo",
+     "goyoo",
+     "хөөрхөн",
+     "hoorhon",
+     "huurhun",
+     "hvvrhun",
+     "сайхан",
+     "saihan",
+     "гайхалтай",
+     "gaihaltai",
+     "мундаг",
+     "mundag",
+     "амжилт",
+     "amjilt",
+     "баярлалаа",
+     "bayarlalaa",
+     "bayrlalaa",
+     "wow",
+     "woow",
+     "вау",
+     "super",
+     "супер",
+     "nice"
+    ]
+   }
+  },
+  {
+   "rule_key": "praise_stems",
+   "verdict": "ignore",
+   "matcher": {
+    "mode": "contains_stem",
+    "stems": [
+     "гоёмсог",
+     "хөөрхөн",
+     "гайхалт",
+     "мундаг",
+     "mundag",
+     "амжилт",
+     "amjilt",
+     "баярлал",
+     "bayarlal",
+     "bayrlal",
+     "чадварлаг",
+     "chadvarlag"
+    ]
+   }
+  },
+  {
+   "rule_key": "laughter",
+   "verdict": "ignore",
+   "matcher": {
+    "mode": "has_word",
+    "words": [
+     "хаха",
+     "хахаха",
+     "хэхэ",
+     "хихи",
+     "haha",
+     "hahaha",
+     "hehe",
+     "hihi",
+     "xaxa",
+     "lol",
+     "kkk",
+     "😂",
+     "🤣",
+     "😆",
+     "😅",
+     "😹"
+    ]
+   }
+  },
+  {
+   "rule_key": "greeting",
+   "verdict": "ignore",
+   "matcher": {
+    "mode": "whole_message",
+    "phrases": [
+     "сайн байна уу",
+     "сайн уу",
+     "sain baina uu",
+     "sain bnuu",
+     "sn bnu",
+     "hi",
+     "hello",
+     "сайн байцгаана уу"
+    ]
+   }
+  }
+ ]
+}

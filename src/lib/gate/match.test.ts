@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   cannedSectionBody, kindsReferencedBy, kindsRequiredByRules, matchRules, matcherFires,
-  MIN_STEM_CHARS, MODEL_INVISIBLE_KINDS, parseMatcher, renderCannedSection, type GateRule,
+  MIN_STEM_CHARS, MODEL_INVISIBLE_KINDS, matcherTerms, parseMatcher, renderCannedSection, type GateRule,
 } from './match.ts';
 import { IMAGE_REPLY_KIND } from '../inbound/imageReply.ts';
 
@@ -468,4 +468,82 @@ test('DONE-TEST: a rule with quote_price=true never reaches the blocking list', 
   const r = matchRules({ text: 'Жирэмсэн үедээ будуулж болох уу?', attachments: [] }, [CHILDREN, HEALTH]);
   assert.deepEqual(r.ok && r.matchedTopics, ['health'], 'it did fire');
   assert.deepEqual(r.ok && r.priceBlockingTopics, [], 'and it did not block');
+});
+
+// ---------------------------------------------------------------------------
+// D-122: has_word, ends_with, all_of, not
+// ---------------------------------------------------------------------------
+
+const fires = (matcher: unknown, text: string): boolean => {
+  const p = parseMatcher(matcher);
+  assert.ok(p.ok, JSON.stringify(matcher));
+  return p.ok && matcherFires({ text, attachments: [] }, p.spec);
+};
+
+test('D-122 has_word: whole words only — short words are safe because they must be a whole word', () => {
+  const m = { mode: 'has_word', words: ['ib', 'pm', 'хэд', 'үнэ нь'] };
+  assert.equal(fires(m, 'ib'), true);
+  assert.equal(fires(m, 'IB ээ'), true, 'folded');
+  assert.equal(fires(m, 'Pm!!'), true, 'punctuation is not part of a word');
+  assert.equal(fires(m, 'ibiza'), false);
+  assert.equal(fires(m, 'хэдийнээ ирсэн'), false, 'not a prefix match');
+  assert.equal(fires(m, 'Хэд вэ?'), true);
+  assert.equal(fires(m, 'Үнэ нь хэдээр вэ'), true, 'a listed run of words');
+  assert.equal(fires(m, 'үнэтэй юу'), false);
+  assert.equal(fires({ mode: 'has_word', words: ['?'] }, 'энэ юу вэ?'), true, '? is tested against the text');
+  assert.equal(fires({ mode: 'has_word', words: ['?'] }, 'энэ юу вэ？'), true, 'full-width too');
+  assert.equal(fires({ mode: 'has_word', words: ['?'] }, 'гоё'), false);
+});
+
+test('D-122 ends_with: the LAST word only — a fused question particle', () => {
+  const m = { mode: 'ends_with', endings: ['уу', 'үү', 'вэ'] };
+  assert.equal(fires(m, 'Зэсэн улаан туяа арилдагуу'), true);
+  assert.equal(fires(m, 'Хийдэг үү?'), true);
+  assert.equal(fires(m, 'Хийдэг үү 😊'), true, 'emoji are not words');
+  assert.equal(fires(m, 'Сайн байна уу гоё'), false, 'only the last word');
+  assert.equal(parseMatcher({ mode: 'ends_with', endings: ['у'] }).ok, false, 'one letter ends half the language');
+});
+
+test('D-122 all_of / not: a conjunction, and a negation only inside one', () => {
+  const q = {
+    mode: 'all_of',
+    matchers: [
+      { mode: 'has_word', words: ['?', 'уу', 'вэ'] },
+      { mode: 'contains_stem', stems: ['будаг', 'хими'] },
+      { mode: 'not', matcher: { mode: 'has_word', words: ['гоё', 'хөөрхөн'] } },
+    ],
+  };
+  assert.equal(fires(q, 'Энэ ямар будаг вэ?'), true);
+  assert.equal(fires(q, 'Ямар гоё будаг вэ'), false, 'praise excluded');
+  assert.equal(fires(q, 'Будаг хийлгэсэн'), false, 'not a question');
+  assert.equal(parseMatcher({ mode: 'not', matcher: { mode: 'has_word', words: ['гоё'] } }).ok, false, 'bare not');
+  assert.equal(parseMatcher({ mode: 'all_of', matchers: [{ mode: 'has_word', words: ['a'] }] }).ok, false, 'one member');
+  assert.equal(parseMatcher({ mode: 'all_of', matchers: [
+    { mode: 'not', matcher: { mode: 'has_word', words: ['a'] } },
+    { mode: 'not', matcher: { mode: 'has_word', words: ['b'] } },
+  ] }).ok, false, 'only negatives');
+  // Three composite levels are reviewable; a fourth is not.
+  let deep: unknown = { mode: 'has_word', words: ['z'] };
+  for (let i = 0; i < 3; i += 1) deep = { mode: 'all_of', matchers: [{ mode: 'has_word', words: ['a'] }, deep] };
+  assert.equal(parseMatcher(deep).ok, true, 'three levels');
+  deep = { mode: 'all_of', matchers: [{ mode: 'has_word', words: ['a'] }, deep] };
+  assert.equal(parseMatcher(deep).ok, false, 'nests too deep');
+  // A malformed member refuses the whole matcher — never a silently shorter rule.
+  assert.equal(parseMatcher({ mode: 'all_of', matchers: [{ mode: 'contains_stem', stems: ['үс'] }, { mode: 'has_word', words: ['a'] }] }).ok, false);
+});
+
+test('D-122 matcherTerms walks every mode, so the Latin-spelling review sees nested words', () => {
+  const p = parseMatcher({ mode: 'all_of', matchers: [
+    { mode: 'has_word', words: ['?', 'uu'] },
+    { mode: 'not', matcher: { mode: 'contains_stem', stems: ['goyo'] } },
+  ] });
+  assert.ok(p.ok);
+  assert.deepEqual(p.ok && matcherTerms(p.spec), ['uu', 'goyo']);
+});
+
+test('D-122: comment_private_reply is invisible to the model, so its row cannot move canned_hash', () => {
+  assert.ok(MODEL_INVISIBLE_KINDS.includes('comment_private_reply'));
+  const without = cannedSectionBody('X', [{ kind: 'handoff', body: 'a' }]);
+  const withRow = cannedSectionBody('X', [{ kind: 'handoff', body: 'a' }, { kind: 'comment_private_reply', body: 'b' }]);
+  assert.equal(withRow, without);
 });

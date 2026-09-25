@@ -169,6 +169,9 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     replyToComment: async () => {
       throw new Error('the DM path must never reach the comment surface');
     },
+    sendPrivateReply: async () => { throw new Error('the DM path must never reach the comment surface'); },
+    lookupComment: async () => { throw new Error('the DM path must never reach the comment surface'); },
+    alertComplaint: async () => { throw new Error('the DM path must never reach the comment surface'); },
     log: (level, event, fields) => {
       logs.push(fields === undefined ? { level, event } : { level, event, fields });
     },
@@ -1192,4 +1195,53 @@ test('DONE-TEST: THE LARGEST DATABASE PHASE REPORTS ITS TWO HALVES', async () =>
   const batch = Number(timing.fields?.['context_batch']);
   assert.ok(snapshot + batch <= whole + 1,
     `the halves (${snapshot} + ${batch}) exceed context_load (${whole})`);
+});
+
+// ---------------------------------------------------------------------------
+// D-122: the comment switch is its own, and `off` never reaches the comment surface
+// ---------------------------------------------------------------------------
+
+const FEED_ENTRY = {
+  id: '100000000000001',
+  changes: [{ field: 'feed', value: {
+    item: 'comment', verb: 'add', comment_id: '1_2', post_id: '100000000000001_1',
+    from: { id: 'customer_9', name: 'Сараа' }, message: 'Үнэ хэд вэ?', created_time: Math.floor(NOW.getTime() / 1000) - 60,
+  } }],
+};
+
+test('D-122: comments OFF on a DM-live channel never reach the comment surface', async () => {
+  // The throwing comment stubs from `stubEffects` are the assertion: reaching any of them fails.
+  const { fx } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: FEED_ENTRY, attempts: 0, received_at: NOW.toISOString() } },
+      tenant_channels: { data: {
+        external_id: '100000000000001', delivery_mode: 'live', token_status: 'active',
+        comment_policy: 'both', comment_delivery_mode: 'off', graph_version_override: null,
+      } },
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(r.body['comments'], undefined);
+});
+
+test('D-122: comments in SHADOW run on a DM-live channel, and read the comment switch, not the DM one', async () => {
+  const seen: string[] = [];
+  const { fx } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: FEED_ENTRY, attempts: 0, received_at: NOW.toISOString() } },
+      tenant_channels: { data: {
+        external_id: '100000000000001', delivery_mode: 'live', token_status: 'active',
+        comment_policy: 'both', comment_delivery_mode: 'shadow', graph_version_override: null,
+      } },
+      comment_rules: { data: [{ rule_key: 'price', verdict: 'reply', matcher: { mode: 'has_word', words: ['үнэ'] } }], error: null },
+    },
+  });
+  fx.lookupComment = async (a) => { seen.push(`lookup:${a.commentId}`); return { tagsPerson: false, postCreatedAt: NOW, problems: [] }; };
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.ok(r.body['comments'] !== undefined, 'the comment job ran');
+  const comments = r.body['comments'] as { replied: number; privateSent: number };
+  assert.equal(comments.replied, 0, 'shadow posts nothing, whatever the DM mode says');
+  assert.equal(comments.privateSent, 0);
 });

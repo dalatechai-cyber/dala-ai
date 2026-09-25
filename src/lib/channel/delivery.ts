@@ -128,3 +128,33 @@ export function canDeliver(mode: string): DeliveryVerdict {
     detail: WHY[mode] ?? `unrecognised delivery_mode ${JSON.stringify(mode)}`,
   };
 }
+
+/**
+ * The COMMENT surface's own switch (D-122), independent of the DM `delivery_mode`.
+ *
+ * `comment_delivery_mode` is `off`, `shadow` or `live`. Shadow drafts every public reply and
+ * private message it would send, and sends none — so comments can be rehearsed while DMs
+ * are live, which the founder asked for and the single shared switch could not give.
+ *
+ * `live` sends only while the channel's token is `active`. Both halts in `halt.ts` write
+ * `token_status` (`revoked` or `error`), so a halted channel stops posting publicly through
+ * this check alone. `halt.ts` deliberately does NOT also write this column: a halt is the
+ * one statement that must never fail, and every extra column it names is one more way for
+ * it to. An unrecognised value is refused, as `canDeliver` refuses one.
+ */
+export function canDeliverComments(commentMode: string, tokenStatus: string): DeliveryVerdict {
+  if (commentMode === 'live') {
+    if (tokenStatus === 'active') return { deliver: true, generate: true };
+    return {
+      deliver: false, generate: false, reason: 'not_live',
+      detail: `comments are live but the token is ${JSON.stringify(tokenStatus)}; nothing is posted`,
+    };
+  }
+  if (commentMode === 'shadow') {
+    return { deliver: false, generate: true, reason: 'mirror', detail: 'comment shadow: replies are drafted and deliberately not posted' };
+  }
+  return {
+    deliver: false, generate: false, reason: 'not_live',
+    detail: commentMode === 'off' ? 'comments are off for this channel' : `unrecognised comment_delivery_mode ${JSON.stringify(commentMode)}`,
+  };
+}
