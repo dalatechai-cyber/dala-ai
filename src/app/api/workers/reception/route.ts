@@ -91,6 +91,7 @@ function effects(now: Date): WorkerEffects {
           spellings: a.ctx.spellings,
           depositRows: sectionRows(a.ctx.promptStable, SECTION_LABELS.deposits),
           faqAnswers: faqAnswersFromPrefix(a.ctx.promptStable, SECTION_LABELS.faqs),
+          branches: a.ctx.branches,
           cannedHash: a.ctx.cannedHash,
         },
       ),

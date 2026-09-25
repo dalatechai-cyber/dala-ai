@@ -114,7 +114,7 @@ const base: ReceptionInput = {
   promptStable: STABLE, promptVolatile: 'VOLATILE', modelId: 'm', cacheMode: '1h', timeoutMs: 25_000,
   rules: [SUIT], deterministic: [TARA_NAME, TARA_APPEND, DYE, STYLIST_ROW], historyState: { known: true, empty: false },
   canned: CANNED, tenantGuard: GUARD, cannedLabel: 'БЭЛЭН ХАРИУЛТ', cannedHash: null,
-  serviceNames: SERVICES, serviceAliases: ALIASES, depositRows: DEPOSITS, faqAnswers: [], spellings: [],
+  serviceNames: SERVICES, serviceAliases: ALIASES, depositRows: DEPOSITS, faqAnswers: [], spellings: [], branches: [],
 };
 
 test('B1 DONE-TEST: AN ADDRESS QUESTION GETS ITS ANSWER, THEN THE TARA LINE', async () => {

@@ -9307,3 +9307,141 @@ is ready ~150 ms later while the bubble's own request takes longer, so the bubbl
 Meta AFTER the answer and hang «typing…» under it. The send now waits for the bubble, at most
 1.5 s (`TYPING_WAIT_MS`); for a model reply the wait is zero because the bubble finished
 seconds earlier.
+## D-125 — a tenant with two branches: ask which one, never guess, and change nothing for one
+
+**2026-09-25. Built, not applied, not published.** Matrix is becoming Tara Salon and will
+send new prices, a new domain, new map links and a SECOND BRANCH. Until now a tenant was one
+place: `contact_points` is keyed `(tenant_id, kind)`, so it could hold one address and one
+map link. `0047` makes the data model and the reply path ready for two or more locations.
+Nothing here touches Matrix's rows, and Matrix's compiled prefix and replies do not move.
+
+### The rule
+
+- **A question whose answer differs by branch, from a customer who has not said which
+  branch: the bot asks.** A question whose answer is the same at every branch: answered.
+- **A customer who names a branch — in this message, or in an earlier message of their own
+  — gets that branch's facts.** A reply about the other branch, or both, is replaced by the
+  named branch's own rows when the branch was named in THIS message; when it was named
+  earlier, the bot asks, because «нөгөө салбарынх?» names no branch and means the other one.
+- **One branch, or none, is today's tenant, byte for byte.** Nothing is split below two
+  active, confirmed branches.
+
+### How it is built, and why each piece is where it is
+
+**Rows, not code.** `tenant_branches` (name, customer spellings, order, provenance) and three
+side tables holding only what DIFFERS per branch: `branch_contact_points`, `branch_hours`,
+`branch_variant_prices`. Where a branch has no row, the tenant-wide row applies to it. Side
+tables rather than a `branch_id` on the old ones, because admitting a second address to
+`contact_points` means replacing a live primary key, which is not additive.
+
+**The compiler decides what is shared** (`prompt/tenant.ts`, `planBranches`). A fact whose
+effective value prints identically at every branch stays in the tenant-wide section where it
+always was; one that differs leaves it and appears under each branch's own heading
+(`=== ХОЛБОО БАРИХ — Яармаг салбар ===` etc.), after a `=== САЛБАРУУД ===` list. Compared as
+rendered lines. Hours are one fact, the week; a service is one fact, all its variants — so
+the prompt never shows half a service in one place. An unconfirmed branch price shows the
+service with no figure, never the tenant-wide price the row says is wrong.
+
+**The check is a property of the reply's text, like `guard/facts.ts`** (`branches/facts.ts`,
+run in the same draft wrapper every path ends in). It reads each branch's rows back out of
+the compiled prefix and asks whether the reply carries one of them whole, an amount only
+some branches carry, a phone in the model's own format, twelve code points of an address, or
+a branch's link. Text the tenant approved (reviewed lines, FAQ answers, deterministic rows,
+deposit rows, L4) is masked first, so the handoff line's phone numbers never read as the
+model choosing a branch. `guard/facts.ts` reads the branch sections too, so a branch fact in
+the model's own words is still replaced by its row first; the branch verdict then judges
+those rows.
+
+**Only model text is judged.** A reviewed line or a deterministic row is the tenant's own
+words; a tenant that writes one branch's address into a FAQ answer has chosen to.
+
+**The question is the tenant's reviewed `clarify_branch` line, or nothing.** Missing or
+unreviewed, the handoff line is served (flag `branch_ask_unavailable`) — never the guess.
+Asked on the previous turn and still unanswered: the handoff (`branch_ask_repeated`), so it
+cannot loop. The kind is `MODEL_INVISIBLE_KINDS`, so inserting or editing the row moves no
+`canned_hash` and needs no republish. The wording is the founder's and is NOT written:
+`prompt/drafts/branch_clarify.mn.txt` carries two unsigned proposals.
+
+**Naming a branch.** Its `stems` plus the words of its name no other branch shares, matched
+at token starts over folded text. A word two branches share names neither — «салбар» is in
+both names and in nearly every location question, and establishing every branch would
+switch the question off exactly where it is needed. The same across scripts: a `salbar`
+stem is dropped because D-120's lossy key says it is «салбар». A branch left with no usable
+word would make the bot ask for ever, so the publish refuses it instead.
+
+**L4 says which branch is open** when the branches' weeks differ; one line when they agree.
+
+### Two properties the design rests on, both measured
+
+1. **A one-location tenant is untouched.** `branches.test.ts` compares the compiled
+   `content_hash`, `canned_hash` and ten recorded replies against values produced by the
+   PRE-CHANGE code at `5edc916` — measurements of the old code, not of the new. Adding ONE
+   branch row, however different, still produces the old hash. Mutating the threshold to one
+   branch fails those tests; switching the branch check off fails seven others.
+2. **Deploying before `0047` is pushed cannot take a live tenant down.** The reply path
+   reads the branch tables only when the LIVE snapshot lists branches, and a snapshot can only
+   list them after a publish that read those tables. The publish path reads them always, so a
+   publish before the push refuses with `tenant_branches unreadable` and writes nothing.
+
+### What is not built, and costs stated rather than discovered
+
+- **The discarded answer.** When the bot asks, the model's reply is thrown away whole,
+  including anything else it said (D-077's cost). A gate instruction telling the model to ask
+  first would save the wasted call; it would be signed platform Mongolian and is not drafted.
+- **The week is one fact**, so «10:00-20:00» on a Monday-to-Saturday question is asked about
+  when only Sunday differs. Over-cautious in the safe direction.
+- **Deposits, the booking link, closures, FAQs, knowledge documents and canned lines stay
+  tenant-wide.** A branch that takes different deposits is not modelled.
+- **A branch that does not offer a service at all** is not modelled (`none` is refused in
+  `branch_variant_prices`).
+- **`answered_by` on the trace** records `model` for a draft the wrapper replaced — true of
+  `fact_restated` before this change too. The flag rows say what was served.
+- Found while reading, not fixed: `prompt/tenant.ts` says «Only CONFIRMED rows reach here:
+  `loadTenantKb` filters on `confirmed_at`» of `service_variants`, and `loadTenantKb` does not
+  select or filter `confirmed_at`. A comment asserting a filter that does not exist (D-072's
+  shape). Fixing it could change Matrix's prefix, so it is reported, not changed.
+
+### Adding the second branch — the rows, in order
+
+Tenant id from D-114. Only the SECOND branch needs contact, hours or price rows: the first
+keeps every tenant-wide row. Names and values in `<…>` are the salon's.
+
+```sql
+-- 1. Both branches, confirmed. Latin spellings customers use go in `stems`.
+insert into tenant_branches (tenant_id, name, stems, ordinal, provenance) values
+  ('8f2826f5-bd33-4d6c-ab70-b6c5ba7f3f06', 'Яармаг салбар', '{yarmag,iarmag}', 0, 'tenant_confirmed'),
+  ('8f2826f5-bd33-4d6c-ab70-b6c5ba7f3f06', '<name> салбар', '{<latin>}',      1, 'tenant_confirmed');
+
+-- 2. What differs at the second branch: its address, map link, and phone if it has its own.
+insert into branch_contact_points (tenant_id, branch_id, kind, value)
+select b.tenant_id, b.id, k.kind, k.value
+  from tenant_branches b,
+       (values ('address', '<address>'), ('maps_url', '<https://maps.app.goo.gl/…>'), ('phone', '<phone>')) as k(kind, value)
+ where b.tenant_id = '8f2826f5-bd33-4d6c-ab70-b6c5ba7f3f06' and b.name = '<name> салбар';
+
+-- 3. Only weekdays whose hours differ (weekday 0 = Sunday).
+insert into branch_hours (tenant_id, branch_id, weekday, opens, closes, closed)
+select tenant_id, id, 0, '<12:00>', '<18:00>', false from tenant_branches
+ where tenant_id = '8f2826f5-bd33-4d6c-ab70-b6c5ba7f3f06' and name = '<name> салбар';
+
+-- 4. Only prices that differ, per variant. confirmed_at null = shown with no figure.
+insert into branch_variant_prices (tenant_id, branch_id, variant_id, price_kind, price_min, price_max, confirmed_at)
+select b.tenant_id, b.id, v.id, 'exact', <price>, null, now()
+  from tenant_branches b
+  join services s on s.tenant_id = b.tenant_id and s.name = '<service name>'
+  join service_variants v on v.tenant_id = s.tenant_id and v.service_id = s.id and v.variant_key = '<variant key or empty>'
+ where b.tenant_id = '8f2826f5-bd33-4d6c-ab70-b6c5ba7f3f06' and b.name = '<name> салбар';
+
+-- 5. The founder's approved question (after choosing the wording in the draft).
+insert into canned_responses (tenant_id, kind, locale, body, reviewed_by, reviewed_at)
+values ('8f2826f5-bd33-4d6c-ab70-b6c5ba7f3f06', 'clarify_branch', 'mn-MN', '<approved sentence>', '<name>', now());
+```
+
+Then: push `0047` (read the ledger), deploy, `git pull`, dry-run `scripts/publish/tenant.ts`
+— it prints `NOTE: branches appear for the FIRST time` — then publish. Before publishing,
+re-read every row that states ONE location as the salon's: the «Салбарууд» knowledge
+document (it says one branch), any FAQ or deterministic row carrying the address, and the
+handoff line's phone numbers. Those are tenant text and are served as written. The new
+domain is a tenant-wide edit (`tenant_booking.booking_url`, `contact_points.website`) and
+the `booking_line` canned row carries the old URL: a canned edit makes every reply 503 with
+`canned_stale` until the republish (D-058), so edit and republish together.

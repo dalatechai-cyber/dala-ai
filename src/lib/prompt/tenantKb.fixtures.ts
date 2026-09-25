@@ -28,7 +28,7 @@ export const CANNED_ROWS: readonly { kind: string; body: string }[] = [
 export const EMPTY_KB: TenantKb = {
   currencySymbol: '₮', currencySymbolBefore: false,
   refusalTopics: [], clarify: [], deposits: [], documents: [], canned: [],
-  staff: [], services: [], faqs: [], contacts: [], bookingUrl: null, hours: [],
+  staff: [], services: [], faqs: [], contacts: [], bookingUrl: null, hours: [], branches: [],
 };
 
 /**

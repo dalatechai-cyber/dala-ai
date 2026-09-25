@@ -92,6 +92,7 @@ const base: ReceptionInput = {
   customerSentPhoto: false,
   serviceAliases: [],
   spellings: [],
+  branches: [],
   history: [],
   eventAt: new Date('2026-09-04T09:59:00Z'),
   now: new Date('2026-09-04T10:00:00Z'),

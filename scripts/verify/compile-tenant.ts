@@ -147,6 +147,7 @@ console.log(`canned_hash   ${out.cannedHash}`);
 console.log(`order         ${rendered.order.join(' → ')}`);
 if (out.unconfirmed.faqsExcluded.length > 0) console.log(`EXCLUDED faqs ${out.unconfirmed.faqsExcluded.join(', ')}`);
 if (out.unconfirmed.refusalTopicsUnconfirmed.length > 0) console.log(`UNCONFIRMED topics ${out.unconfirmed.refusalTopicsUnconfirmed.join(', ')}`);
+if (out.unconfirmed.branchesExcluded.length > 0) console.log(`EXCLUDED branches ${out.unconfirmed.branchesExcluded.join(', ')}`);
 
 if (process.env['PRINT_PREFIX'] === '1') {
   console.log('\n----- compiled prefix -----\n');

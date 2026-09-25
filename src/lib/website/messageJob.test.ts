@@ -121,7 +121,7 @@ function stubDb(over: {
 }
 
 const CTX = {
-  promptStable: 'PREFIX', hours: [], closures: [], allowedNumbers: [], cannedHash: 'ch',
+  promptStable: 'PREFIX', hours: [], closures: [], branches: [], allowedNumbers: [], cannedHash: 'ch',
   promptGate: 'GATE', revisionId: 'rev-1', contentHash: 'hash-1', rules: [], deterministic: [],
   canned: [{ kind: 'handoff', body: 'Түр хүлээнэ үү', reviewedAt: NOW.toISOString() }],
   tenantGuard: {}, cacheMode: '1h' as const,

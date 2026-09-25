@@ -58,6 +58,13 @@ export type VolatileInput = {
   surface: Surface;
   hours: readonly BusinessHours[];
   closures: readonly Closure[];
+  /**
+   * Each branch's week, when the live prefix lists two or more (D-125) — `ctx.branches`.
+   * Required, not defaulted: a caller that forgot would print ONE «open now» for a tenant
+   * whose branches keep different hours, which is a fact about one branch told as the
+   * salon's. `[]` is a real state, and every tenant today is in it.
+   */
+  branches: readonly { name: string; hours: readonly BusinessHours[] }[];
 };
 
 /**
@@ -79,6 +86,14 @@ export function isOpenAt(hours: readonly BusinessHours[], weekday: number, hhmm:
   // flips. A salon rarely needs it; a bar always does, and the cost of handling it is one
   // branch rather than a second table shape later.
   return closes < opens ? hhmm >= opens || hhmm < closes : hhmm >= opens && hhmm < closes;
+}
+
+/** A week as a comparable string: what `isOpenAt` reads of each day, in weekday order. */
+function weekKey(hours: readonly BusinessHours[]): string {
+  return [0, 1, 2, 3, 4, 5, 6].map((wd) => {
+    const r = hours.find((h) => h.weekday === wd);
+    return r === undefined ? '-' : r.closed ? 'x' : `${(r.opens ?? '').slice(0, 5)}-${(r.closes ?? '').slice(0, 5)}`;
+  }).join('|');
 }
 
 /** The closure covering this local date, if any. Dates are inclusive at both ends. */
@@ -152,13 +167,22 @@ export function renderVolatile(input: VolatileInput): string {
   ];
 
   const closure = activeClosure(input.closures, clock.date);
-  const open = isOpenAt(input.hours, clock.weekday, clock.time);
+  // Two or more branches: their weeks decide, not the tenant-wide rows. The same week
+  // everywhere is still ONE line; different weeks are one line per branch, each naming it.
+  const branchWeeks = input.branches.length >= 2 ? input.branches : [];
+  const differ = branchWeeks.some((b) => weekKey(b.hours) !== weekKey(branchWeeks[0]?.hours ?? []));
+  const open = isOpenAt(branchWeeks[0]?.hours ?? input.hours, clock.weekday, clock.time);
 
   // A closure outranks the weekly hours: a holiday is exactly the case where the schedule
   // says open and the door is locked.
   if (closure !== null) {
     lines.push(`${LABELS.status}: ${LABELS.shut}`);
     lines.push(`${LABELS.closure}: ${nfc(closure.message)}`);
+  } else if (differ) {
+    for (const b of branchWeeks) {
+      const o = isOpenAt(b.hours, clock.weekday, clock.time);
+      if (o !== null) lines.push(`${LABELS.status} (${nfc(b.name)}): ${o ? LABELS.open : LABELS.shut}`);
+    }
   } else if (open !== null) {
     lines.push(`${LABELS.status}: ${open ? LABELS.open : LABELS.shut}`);
   }
