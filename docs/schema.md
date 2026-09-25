@@ -659,6 +659,12 @@ drafts and the replies they produced.
 **Pushing it changes no reply on its own** — the compiled prefix is what a tenant is
 answered from, so every tenant needs republishing afterwards (deploy, `git pull`, publish).
 
+### `0049_matcher_rows_can_match`
+
+**Widens a CHECK.** `enabled_rule_can_match` required an enabled `deterministic_replies` row to
+carry stems; a `matcher` row carries a matcher instead, and the old CHECK refused the first
+real one. It now accepts either. Every row that passed before passes now (D-126).
+
 ### `0048_deterministic_matcher`
 
 **Additive.** `deterministic_replies.matcher jsonb` (nullable), `match_mode` may now be

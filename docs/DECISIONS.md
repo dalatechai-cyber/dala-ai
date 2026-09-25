@@ -9480,7 +9480,8 @@ it had, all seven days. The founder's answer is one day: «Маргааш (Бя�
 ажиллана.» Two layers now give it:
 
 - **A row, no model.** `0048` lets a `deterministic_replies` row use the gate's own matcher
-  (`match_mode = 'matcher'`), because this needs two words together — *tomorrow* AND
+  (`match_mode = 'matcher'`; `0049` lets such a row pass the "an enabled row can match" CHECK
+  without stems), because this needs two words together — *tomorrow* AND
   *working / closed / holiday* — and no existing mode could say "and". The body is the
   tenant's sentence with two slots, «Маргааш ({tomorrow.day}) {tomorrow.hours} ажиллана.»,
   filled per request from `business_hours` on the tenant's clock (`reception/daySlots.ts`).
