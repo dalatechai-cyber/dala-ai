@@ -1,0 +1,47 @@
+# UNSIGNED DRAFT — NOT APPROVED. Loaded by nothing. D-122, 2026-09-25.
+#
+# Tenant: Matrix / Tara Salon, for the day it has two branches.
+# Row: canned_responses (kind = 'clarify_branch', locale mn-MN), inserted by the founder with
+# reviewed_at set once he has chosen and corrected the wording. Until that row exists and is
+# reviewed, the platform serves the tenant's handoff line in its place — never a reply that
+# guessed a branch.
+#
+# Served whole by src/lib/reception/handle.ts when a model reply states a fact that differs
+# by branch (address, map link, phone, hours, a price) and the customer has not named a
+# branch in this message or an earlier one. Never model-generated, never shown to the model
+# (MODEL_INVISIBLE_KINDS), so editing the row later does NOT move canned_hash and needs no
+# republish.
+#
+# Written by a session, not a native speaker. The founder's call, as every customer-facing
+# line is. Two proposals; pick one, or write a third.
+
+# ---- Proposal A: names the branches (my recommendation) --------------------------------
+# The customer answers with a word the platform can recognise, because the question hands
+# them the names. «{ХОЁР ДАХЬ САЛБАР}» is a placeholder for the second branch's name as the
+# salon writes it in tenant_branches.name — the row is the salon's own sentence, so it names
+# its own branches; there is no template slot.
+
+Та манай аль салбарын талаар асууж байна вэ? Яармаг салбар уу, эсвэл {ХОЁР ДАХЬ САЛБАР} уу?
+
+# ---- Proposal B: names none (survives a third branch without an edit) -----------------
+
+Манайх хоёр салбартай. Та аль салбарын талаар асууж байна вэ?
+
+# Questions for the founder:
+#
+#  1. A or B? A tells the customer what to type; B has to be edited when a third branch
+#     opens (A too, to add the name), and «хоёр» becomes wrong.
+#  2. «асууж байна вэ» or «хандах гэж байна вэ» (which branch are you going to)? The first
+#     fits an address, phone and price question equally; the second reads as a visit.
+#  3. Vowel harmony: «салбар уу» follows «а». If the second branch's name ends in a word
+#     with front vowels («…төв», «…Сүхбаатар»), the particle after it is «үү», not «уу».
+#  4. No phone, no apology, deliberately: the customer has done nothing wrong, and the point
+#     is to keep them in the conversation, as the approved image line does (D-076 addendum).
+#
+# The customer's answer is matched against tenant_branches.stems (plus the words of each
+# branch's name that no other branch shares), so the Latin spellings customers use for the
+# second branch belong in that row's `stems`, e.g. {'zaisan','zaysan'} — data, not wording.
+#
+# Not drafted, and not needed for correctness: a gate instruction telling the MODEL to ask
+# first. The platform already replaces any reply that guesses a branch; an instruction would
+# only save the discarded model call. If wanted, it is a signed block for the reading evening.
