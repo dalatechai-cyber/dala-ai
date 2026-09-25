@@ -225,7 +225,8 @@ reply the bubble has always landed first, and nothing extra is sent.
 
 ## Things only you can do
 
-- Approve (or change) the per-post cap of 20 and the `clarify_branch` wording.
+- ~~Approve the per-post cap of 20~~ — approved 2026-09-25. Choose the `clarify_branch`
+  wording (needed only once a second branch exists).
 - Switch comments live when you're ready (checklist in §1).
 - The pre-rebrand items from D-114/D-125 still apply when the new data arrives: the
   «Салбарууд» document says one branch, the handoff line lists phones, and `booking_line` has
@@ -240,3 +241,11 @@ reply the bubble has always landed first, and nothing extra is sent.
 - Matrix's comments are in shadow with 40 rules, both lines reviewed, and a cap of 20.
 - Still open: the no-model before/after number (needs one warm no-model turn), the Graph
   reads on a first real comment, and the digest schedule at the top of this file.
+
+## Founder decisions (2026-09-25, after the report)
+
+- Per-post comment cap of 20: **approved**; one reply per person per post still holds.
+- `tara_rebrand` append: «Тийм,» dropped, **live** — «Манай салон одоо Tara Salon нэртэй
+  болсон. Шинэ мэдээллийг удахгүй хүргэнэ.» `tara_name` keeps «Тийм,».
+- Digest: the founder created the QStash schedule (`/api/workers/digest`, `0 1 * * *` UTC,
+  POST). Its first run is 2026-09-26 01:00 UTC; confirm from the Vercel logs and Telegram.
