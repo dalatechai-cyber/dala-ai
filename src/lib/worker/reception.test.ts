@@ -68,7 +68,7 @@ function stubDb(over: Record<string, Reply | Reply[]> = {}) {
     const rec = { table, op: 'select' } as (typeof ops)[number];
     ops.push(rec);
     const chain: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'in', 'is', 'or', 'lt', 'gte', 'order', 'limit']) {
+    for (const m of ['select', 'eq', 'in', 'is', 'not', 'contains', 'or', 'lt', 'gte', 'order', 'limit']) {
       chain[m] = () => chain;
     }
     for (const m of ['insert', 'update', 'upsert'] as const) {

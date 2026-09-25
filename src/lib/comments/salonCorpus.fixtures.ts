@@ -5,10 +5,10 @@
  * Two halves.
  *
  * `REAL_COMMENTS` is every comment Matrix's Page delivered to this platform between
- * 2026-09-20 02:17 UTC (the first `feed` delivery, `webhook_events` 203) and 2026-09-24 14:10
- * UTC — 72 comment deliveries, counted from the table on 2026-09-25. 30 were the Page's own
+ * 2026-09-20 02:17 UTC (the first `feed` delivery, `webhook_events` 203) and 2026-09-25 14:19
+ * UTC — 78 comment deliveries, counted from the table on 2026-09-25. 35 were the Page's own
  * replies (skipped as `comment_self` before any rule runs, so not listed), 9 carried no text
- * (a sticker or a photo; listed with `text: ''`), and 33 carried text: all 42 are below. Text
+ * (a sticker or a photo; listed with `text: ''`), and 34 carried text: all 43 are below. Text
  * copied from `webhook_events.raw_payload` exactly, ids kept so a reader can find the row. The expected
  * outcome is the founder's rule applied by hand: reply to a question or a request for
  * information, never to praise, emoji, stickers, tags, jokes or the Page itself.
@@ -66,7 +66,12 @@ export const REAL_COMMENTS: readonly CorpusEntry[] = [
   { eventId: 706, text: 'Yag haana be', expect: 'reply' },
   { eventId: 740, text: 'Амжилт бүтээлийн дээдийг хүсэн ерөөе. Мундаг бүсгүй минь🌹🌺❤️', expect: 'silent' },
   { eventId: 748, text: 'Egchdee amjilt husie. Mundag shuu ta min 🤎', expect: 'silent' },
-  { eventId: 749, text: 'Tara salon яармаг салбар yarmagtaa bizdee hehe', expect: 'silent', note: 'a reply to another customer, confirming the address to them, laughing' },
+  {
+    eventId: 749, text: 'Tara salon яармаг салбар yarmagtaa bizdee hehe', expect: 'reply',
+    note: 'the founder, 2026-09-25: answer it. It names the Page and its branch and asks «it is at Yarmag, right?» — ' +
+      'a location question with a laugh on the end. Fires `location_branch` (салбар + «bizdee»), which no longer excludes laughter',
+  },
+  { eventId: 784, text: 'Үнэ хаяг', expect: 'reply', note: 'price and address, two bare nouns — the founder: answer it' },
   { eventId: 484, text: 'Enkhnasan Nasandalai Баярлалаа💕', expect: 'silent', note: 'not the Page: a personal account thanking a tagged person' },
   // Nine real comments arrived with no text at all — a sticker or a photo. `extractComments`
   // returns them with `text: ''`, and no rule can fire on nothing.
@@ -94,6 +99,12 @@ export const EXAMPLES: Readonly<Record<'question' | 'praise' | 'tag' | 'emoji' |
     q('Утсаа өгөөч'), q('Утас?'), q('Эрэгтэйчүүдэд үйлчилдэг үү'), q('Salbaruud'), q('Шинэ салбар хэзээ нээгдэх вэ'),
     q('Хамгийн ойрын цаг хэзээ вэ'), q('Үнэ?'), q('Нээлттэй юу'), q('Одоо ажиллаж байгаа юу'), q('Хаяг'), q('Мэдээлэл'),
     q('Ямар гоё юм бэ хэдээр хийдэг вэ'), q('Сайхан байна, хаана байдаг вэ'), q('Tsagiin huwaari'), q('Цаг авах'),
+    // D-122 addendum: a LOCATION question with a laugh on the end is still a location
+    // question. The two location rules are the only reply rules without the laughter
+    // exclusion; every joke below must stay silent regardless.
+    q('Хаяг хаана вэ хаха', 'a location question, laughing'), q('hayg haana ve haha'), q('Хаана байдаг юм бэ 😂'),
+    q('Салбар нь Яармагт биз дээ хэхэ', '«биз дээ» — "right?" — a question asking the salon to confirm'),
+    q('Яармаг салбар мөн биз 😅'), q('salbar yarmagtaa biz dee hehe'),
   ],
   praise: [
     s('Амжилт хүсье'), s('Гоё байна'), s('Ямар гоё юм бэ'), s('Хөөрхөн юу'), s('Үнэхээр гоё болжээ'), s('Мундаг шүү'),
@@ -146,6 +157,9 @@ export const EXAMPLES: Readonly<Record<'question' | 'praise' | 'tag' | 'emoji' |
     s('Толгой минь хүртэл гялалзана 😂'), s('Хаха бид хоёр ийм болох уу'), s('Лол салонд очоод буцаж ирэхгүй юм байна 😂'),
     s('Ингэж будуулчихвал ажлаасаа хөөгдөнө хэхэ'),
     s('Хэзээ очих вэ хамт', 'two friends planning — no question to the salon'), s('Хэдүүлээ очъё'), s('Гадаа хүйтэн байна уу'),
+    // «биз» is a question word only inside the location rules; a joke that uses it about
+    // anything else stays a joke.
+    s('Би ч гэсэн ийм болох биз дээ хаха'), s('Нөхөр маань намайг таних биз хэхэ'), s('ene chin bi biz dee haha'),
   ],
   latin: [
     q('une hed ve'), q('une hed we'), q('uniin medeelel'), q('hayg haana ve'), q('hayag?'), q('haana baidag ve'),

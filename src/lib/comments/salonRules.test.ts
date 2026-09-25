@@ -39,6 +39,7 @@ export function outcome(entry: CorpusEntry): { got: Expect; fired: string[] } {
     },
     threadAlreadyAnswered: false,
     personAlreadyAnswered: false,
+    staff: { handled: false },
     postRepliesInWindow: 0,
     now: NOW,
   });
@@ -71,7 +72,7 @@ test('the template parses: every matcher is valid, every verdict is one of three
 });
 
 test('D-122: every REAL comment on Matrix’s wall gets the founder’s outcome', () => {
-  assert.equal(REAL_COMMENTS.length, 42, '72 deliveries less the Page\u2019s own 30');
+  assert.equal(REAL_COMMENTS.length, 43, '78 deliveries less the Page\u2019s own 35');
   check(REAL_COMMENTS, 'real');
 });
 
@@ -87,6 +88,16 @@ test('D-122: ZERO replies to praise or to tags — asserted as a count, not only
   assert.equal(replies.length, 0);
   const realPraise = REAL_COMMENTS.filter((en) => en.expect === 'silent');
   assert.equal(realPraise.filter((en) => outcome(en).got === 'reply').length, 0);
+});
+
+test('D-122 addendum: the two location rules are the ONLY reply rules that answer through laughter', () => {
+  // A location question with a laugh on the end is answered («…yarmagtaa bizdee hehe»);
+  // every other reply topic keeps the exclusion, because that is where the jokes are
+  // («Халзан хүнд хэд вэ хаха»). A rule edit that drops it anywhere else fails here, not on
+  // the wall.
+  const excludesLaughter = (m: unknown): boolean => JSON.stringify(m).includes('{"mode":"not","matcher":{"mode":"has_word","words":["хаха"');
+  const without = RULES.filter((r) => r.verdict === 'reply' && !excludesLaughter(r.matcher)).map((r) => r.ruleKey).sort();
+  assert.deepEqual(without, ['location', 'location_branch']);
 });
 
 test('D-122: a tag is silenced by the Graph answer, not by luck in the words', () => {
