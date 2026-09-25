@@ -9734,3 +9734,32 @@ consumes it.
 - **Automation texts:** four for DalaTech and Tara's away message, both as provided and with
   the typographic apostrophe. The match is exact, so a curly quote would otherwise count as a
   person. All of it is in `scripts/provision/decisions-2026-09-25-evening.sql`.
+
+### D-127 addendum (2026-09-26) — wording approved; the test-set read fixed at the root
+
+- **Sales wording approved, still shadow.**
+  - **DalaTech:** demo A, callback A and lead_thanks A.
+  - **Tara:** booking B, which is «Цаг захиалах бол: » followed by the approved booking_line, read from its row. Callback A and lead_thanks A are approved but disabled until the salon is confirmed to call back from the inbox label, so Tara's next step is booking only.
+  - Tara's related-service step and all eleven pairings are gone, because Tara does not recommend services.
+  - The record is `scripts/provision/sales-wording-approved-2026-09-26.sql`.
+- **The founder's read of the test set was reproduced in CI**, because the report was not on a reachable branch.
+  - `scripts/bakeoff/dalatech-live.json` holds the live gate half and tenant half. The prompt was rebuilt from the repository's gate, and it hashes to the live `content_hash`.
+  - `.github/workflows/testset-dalatech.yml` answers the set with the real model, and runs only on purpose.
+  - The baseline scored 45/53, and every lost answer had a named cause:
+    - k03: refused as not Mongolian, because of the tenant's own Latin e-mail.
+    - x03: a correct total refused as an unapproved numeral.
+    - c02 and t02: «24/7» and «4».
+    - v03: an adapted approved line, then «unsure», then the handoff line.
+    - q04: a gate label.
+    - n02: an English answer.
+    - p03: a clarifying question in place of the list.
+- **What changed, and why each is the root rather than a patch:**
+  - **The generic fallback is the tenant's reviewed callback line when it has one** (`fallbackLine`). Founder: a customer who wants to buy must never be told we have no information. A specific reviewed refusal still wins. The line is read best-effort, and Tara's is disabled.
+  - **Contact values are excluded from the script share.**
+  - **`shownTotals`:** a total passes only with its work shown. The addends must be approved prices written in the reply; a discount must be an approved percentage written in the reply. A bare figure that happens to be a sum stays refused.
+  - **Aliases corroborate a price row** in the facts guard. A three-letter name such as «Эхо» could not otherwise be tied to «Эхогийн».
+  - **Three reminders are read last in L4:** reply in Mongolian, never write the gate's labels, answer first. They are code-owned scaffolding like `LABELS`, and never approved text.
+  - **An apologetic opening question** that the reply answers itself goes with the apology.
+  - **`covers_message` matches a stem under the floor as a WHOLE word**, where it used to skip the row. Measured: DalaTech's price row went silent for minutes when data ran ahead of this code, and was reverted. Any row using a short stem must follow the deploy.
+  - **Data rows, all reusing approved sentences:** a general price question gets price_overview (a `covers_message` row, pending the deploy); robot-or-human questions get assistant_who; naming any of the four coming-soon staff appends «…хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно»; a general discount question gets FAQ 6. The record is `scripts/provision/dalatech-testset-fixes-2026-09-26.sql`.
+  - **Test set:** the forbidden list holds positive forms only (a substring test cannot see negation, so v01's correct answer failed). l03 now fails on any wording that puts Вира beside Дали as running.
