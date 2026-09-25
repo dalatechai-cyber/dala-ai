@@ -124,7 +124,7 @@ const LABELS = {
  * Tell the model which tenant lines the platform will add at the end of this reply.
  *
  * Without it the model answers «Tara salon hayag?» knowing nothing of the rebrand, and the
- * appended «Тийм, манай салон одоо Tara Salon нэртэй болсон» can land under a reply that
+ * appended «Манай салон одоо Tara Salon нэртэй болсон» can land under a reply that
  * contradicts it. The line is quoted VERBATIM, like the closure notice above, and the
  * label says the platform adds it — so the model neither contradicts it nor retypes it.
  * If it retypes it anyway, `withAppended` moves the copy to the end rather than sending

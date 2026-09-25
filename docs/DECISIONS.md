@@ -9240,6 +9240,19 @@ alarms were fixed and every probe was added to the corpus.
 probably a request, and on the DM surface it is answered; on the wall, precision is kept over
 recall until the shadow list says how often it happens. «Муу» alone escalates; «муу биш» does not.
 
+**Addendum, 2026-09-25 (founder).** The cap of **20 public replies per post per day** is
+approved as set (`tenant_channels.comment_replies_per_post_per_day = 20` on Matrix's channel).
+It sits on top of one reply per person per post, which is unchanged: the cap bounds a viral
+post, the person rule bounds one commenter.
+
+**Same day, the `tara_rebrand` append lost its «Тийм,»** (founder's wording). Appended under
+an address or location answer, «Тийм,» agreed with a question nobody asked. The append row now
+reads «Манай салон одоо Tara Salon нэртэй болсон. Шинэ мэдээллийг удахгүй хүргэнэ.»;
+`tara_name` — the `covers_message` row answering *is this Tara / Matrix?* — keeps «Тийм,»,
+because there it answers the question. A `deterministic_replies` UPDATE, live on write with no
+republish; read back NFC. Reply case 1 expects `tara_name` and is unaffected; the old append
+text survives only inside recorded case histories, where it is what the customer saw.
+
 ## D-123 — the morning report reads what a reply says: former names and internal instructions
 
 **Founder, 2026-09-25:** the morning report missed «ci henbe», where the bot called the salon
