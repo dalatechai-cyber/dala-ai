@@ -37,6 +37,7 @@ import { loadLiveSnapshot } from '../prompt/publish.ts';
 import { growSpellings } from './spellings.ts';
 import { refusalMarkerFrom } from '../guard/apology.ts';
 import { apologyStemsFrom } from '../guard/bookingApology.ts';
+import { formerNameIn, internalMentionIn } from './leaks.ts';
 
 export type FlawPair = {
   /** The first eight characters of the reply's id — what `mark_reply_wrong` takes. */
@@ -65,6 +66,10 @@ export type FlawSignals = {
    */
   apologyStems: readonly string[];
   refusalMarker: string | null;
+  /** Names the tenant no longer uses (`tenants.former_names`, D-123). Optional: absent is none. */
+  formerNames?: readonly string[];
+  /** Approved text — reviewed lines, deterministic replies — cut out before the internal check. */
+  approvedTexts?: readonly string[];
 };
 
 /**
@@ -126,6 +131,12 @@ export function detectFlaws(
       || signals.correctionBodies.some((b) => b.trim() !== '' && reply.includes(fold(b.trim())))) {
       reasons.push("didn't understand");
     }
+    // Content, not conversation shape (D-123): «ci henbe» was answered «Матрикс» and no
+    // signal above reads what a reply SAYS.
+    const former = formerNameIn(p.reply, signals.formerNames ?? []);
+    if (former !== null) reasons.push(`old name (${former})`);
+    const internal = internalMentionIn(p.reply, p.customer, signals.approvedTexts ?? []);
+    if (internal !== null) reasons.push(`internal (${internal})`);
     if (reasons.length > 0) out.push({ pair: p, reasons: [...new Set(reasons)] });
   }
   return out.sort((a, b) => a.pair.at.getTime() - b.pair.at.getTime());
@@ -194,7 +205,7 @@ const LOOKBACK_MS = 3 * 24 * 60 * 60_000;
 
 async function tenantReport(
   db: SupabaseClient,
-  t: { id: string; slug: string; name: string; timezone: string },
+  t: { id: string; slug: string; name: string; timezone: string; formerNames: readonly string[] },
   now: Date,
 ): Promise<TenantReport> {
   const date = previousDate(tenantClock(now, t.timezone).date);
@@ -243,6 +254,11 @@ async function tenantReport(
     correctionBodies: correction.map((r) => String(r['body'] ?? '')),
     apologyStems,
     refusalMarker: refusalMarkerFrom(cannedRows, apologyStems),
+    formerNames: t.formerNames,
+    approvedTexts: [
+      ...reviewed.map((r) => String(r['body'] ?? '')),
+      ...rows(det.data).filter((r) => r['enabled'] === true).map((r) => String(r['body'] ?? '')),
+    ],
   });
 
   // The list grows from yesterday's messages; the tenant's own text is what it may learn.
@@ -273,7 +289,7 @@ async function tenantReport(
  */
 export async function buildFlawReport(db: SupabaseClient, now: Date): Promise<string> {
   const [tenants, channels] = await Promise.all([
-    db.from('tenants').select('id, slug, display_name, timezone'),
+    db.from('tenants').select('id, slug, display_name, timezone, former_names'),
     db.from('tenant_channels').select('tenant_id').eq('delivery_mode', 'live'),
   ]);
   if (tenants.error) return renderFlawReport([{ ok: false, name: 'All tenants', detail: `tenants unreadable: ${tenants.error.message}` }]);
@@ -284,7 +300,10 @@ export async function buildFlawReport(db: SupabaseClient, now: Date): Promise<st
     const r = raw as Record<string, unknown>;
     const id = String(r['id']);
     if (!live.has(id)) continue;
-    const t = { id, slug: String(r['slug']), name: String(r['display_name'] ?? r['slug']), timezone: String(r['timezone']) };
+    const t = {
+      id, slug: String(r['slug']), name: String(r['display_name'] ?? r['slug']), timezone: String(r['timezone']),
+      formerNames: Array.isArray(r['former_names']) ? (r['former_names'] as unknown[]).map(String) : [],
+    };
     try {
       reports.push(await tenantReport(db, t, now));
     } catch (err) {

@@ -659,6 +659,12 @@ drafts and the replies they produced.
 **Pushing it changes no reply on its own** — the compiled prefix is what a tenant is
 answered from, so every tenant needs republishing afterwards (deploy, `git pull`, publish).
 
+### `0046_tenant_former_names`
+
+**Additive.** `tenants.former_names text[] not null default '{}'` — names the business no
+longer uses. The morning flaw report flags a sent reply that uses one (links masked first, so
+the salon's own website address is not a hit). D-123.
+
 ### `0045_comment_delivery_mode`
 
 **Additive, plus one CHECK widened.** Comments get their own switch (D-122).

@@ -9239,3 +9239,33 @@ alarms were fixed and every probe was added to the corpus.
 **Known and left:** a bare service noun («Үс будуулах», «Usnii emchilgee») is silent. It is
 probably a request, and on the DM surface it is answered; on the wall, precision is kept over
 recall until the shadow list says how often it happens. «Муу» alone escalates; «муу биш» does not.
+
+## D-123 — the morning report reads what a reply says: former names and internal instructions
+
+**Founder, 2026-09-25:** the morning report missed «ci henbe», where the bot called the salon
+«Матрикс». Flag any reply that calls the salon Матрикс / Matrix, and any reply that mentions
+internal instructions unasked.
+
+Every earlier signal in `quality/flaws.ts` reads the SHAPE of a conversation — a correction, a
+repeat, a handoff, a refusal. None reads what the reply says, so a wrong name went through.
+`quality/leaks.ts` adds two content checks, both reported in the morning report, neither
+enforced at send time:
+
+- **`old name (…)`** — the reply uses one of `tenants.former_names` (`0046`). Rows, not code:
+  the next business to rebrand fills in a column. Links are masked first, because
+  `matrixecosalon.org` is still the salon's real website and quoting it is not calling the
+  salon Matrix. Matrix's row: `{Матрикс, Matrix}`.
+- **`internal (…)`** — a gate label («Ш0»), an internal identifier (`refusal_public_channel`,
+  `facebook_page`), a section heading copied in capitals («БЭЛЭН ХАРИУЛТ»), `===`, or words
+  describing the bot's instructions or the data it was given («заавар»/«заавр», «дотоод»,
+  «надад өгсөн», «мэдээллийн сан», «тухайн байгууллагын мэдээлэл»…). Approved text (reviewed
+  lines, enabled deterministic replies) is cut out first. When the customer asked about the
+  bot, its rules or its instructions, it is not flagged.
+
+**Measured against the 201 replies on record** (10 days, drafts and sent): 23 flagged, every
+one a true positive on reading — 21 greet as «Матрикс эко салон» (shadow-era drafts before the
+rebrand, plus the live 03:28 reply on 09-21), one draft named `refusal_public_channel` to a
+customer, one said «Тухайн байгууллагын мэдээллийн санд…». The live «ci henbe» reply of
+2026-09-24 21:57 is flagged twice: «Матрикс» and «Дотоод зааврынхаа талаар…». The first form
+of the check missed the second flag — «заавар» drops its vowel when inflected — and the
+stem list now carries both.
