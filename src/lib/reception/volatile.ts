@@ -121,6 +121,26 @@ const LABELS = {
 } as const;
 
 /**
+ * Three reminders, read LAST — the recency the stable prefix cannot have (founder,
+ * 2026-09-26, DalaTech's test set). Scaffolding the model reads, like `LABELS`, never a
+ * sentence a customer sees; the signed gate blocks already say the second one, and the
+ * model broke it anyway from 14,000 characters away.
+ *
+ *  - The reply language. No signed block names it, so an English question got an English
+ *    answer (n02) that the script check then refused: the customer asked in English and got
+ *    «…мэдээлэл надад байхгүй». Answering in Mongolian is the product.
+ *  - The gate's own labels. «Ш2 дагуу хариулъя —» (q04) and «Ш9» (i04) were written into
+ *    replies; the guard catches them, but a caught reply is a lost answer.
+ *  - Answer first. «Уучлаарай, тодруулбал… байна уу?» before an answer the model then gave
+ *    anyway (s01), and a clarifying question instead of the price list (p03).
+ */
+export const REPLY_REMINDERS: readonly string[] = [
+  'ХАРИУЛТЫН ХЭЛ: зөвхөн монгол хэлээр, кирилл үсгээр бич — хэрэглэгч англиар эсвэл латин үсгээр бичсэн ч.',
+  'ХАРИУЛТАД ХЭЗЭЭ Ч БИЧИХГҮЙ: шалгалтын нэр, дугаар (Ш0–Ш11, 2а гэх мэт), «БЭЛЭН ХАРИУЛТ»-ын мөрийн түлхүүр, аль шалгалтаар шийдсэнээ.',
+  'ЭХЛЭЛ: асуусан зүйлд нь шууд хариул. «Уучлаарай», «тодруулбал» гэж эхэлж хариултаа хойшлуулахгүй; хариулж чадах асуултад тодруулга асуухгүй.',
+];
+
+/**
  * Tell the model which tenant lines the platform will add at the end of this reply.
  *
  * Without it the model answers «Tara salon hayag?» knowing nothing of the rebrand, and the
@@ -189,5 +209,6 @@ export function renderVolatile(input: VolatileInput): string {
   // `open === null` and no closure: say nothing. An absent row is a provisioning gap, and
   // asserting either state from it would be inventing one.
 
+  lines.push(...REPLY_REMINDERS);
   return lines.join('\n');
 }

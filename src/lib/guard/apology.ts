@@ -84,6 +84,9 @@ export type ApologyVerdict =
  * `refusedByGate` is true when a refusal rule fired on the customer's message: the reply
  * is then a refusal whatever its words, and keeps its apology.
  */
+/** What must follow an apologetic opening question for the question to go with the apology. */
+export const SELF_ANSWER_MIN_CP = 40;
+
 export function unwarrantedApology(
   reply: string,
   apologyStems: readonly string[],
@@ -109,6 +112,16 @@ export function unwarrantedApology(
 
   let k = stemLen;
   while (k < cps.length && /[\s\p{P}]/u.test(cps[k] ?? '')) k += 1;
+  // An apology that opens a QUESTION the reply then answers itself goes with its question
+  // (founder, 2026-09-26, DalaTech's s01: «Уучлаарай, тодруулбал … байна уу?» and then the
+  // answer). Only when an answer of its own follows: a reply that IS the question keeps it —
+  // that question is the answer this module's header protects.
+  const qEnd = cps.slice(k).findIndex((c) => /[.!?\n]/u.test(c));
+  if (qEnd >= 0 && ['?', '？'].includes(cps[k + qEnd] ?? '')) {
+    let j = k + qEnd + 1;
+    while (j < cps.length && /[\s\p{P}]/u.test(cps[j] ?? '')) j += 1;
+    if (cps.length - j >= SELF_ANSWER_MIN_CP) k = j;
+  }
   const rest = cps.slice(k);
   if (rest.length === 0) return { strip: false };
   const first = (rest[0] ?? '').toLocaleUpperCase('mn-MN');

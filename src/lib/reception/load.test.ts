@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadReceptionContext, type TenantSettings } from './load.ts';
+import { fallbackLineOf, loadReceptionContext, type TenantSettings } from './load.ts';
 
 const SETTINGS: TenantSettings = { defaultLocale: 'mn-MN', promptCacheMode: '1h' };
 
@@ -287,4 +287,36 @@ test('a demo link in the contact details is an allowed link, like the homepage',
   const urls = r.ok ? r.context.tenantGuard.allowedUrls : [];
   assert.ok(urls.includes('https://app.dalatech.online'), urls.join(' '));
   assert.ok(urls.includes('https://dalatech.online/'), urls.join(' '));
+});
+
+test('the fallback line is the REVIEWED, ENABLED callback row, and anything else is null', () => {
+  const body = 'Нэр, утасны дугаараа энд бичиж үлдээвэл хамт олон маань тантай холбогдоно.';
+  const reviewed = { body, enabled: true, reviewed_at: '2026-09-26T00:00:00Z' };
+  assert.equal(fallbackLineOf({ data: [reviewed], error: null }), body);
+  assert.equal(fallbackLineOf({ data: [{ ...reviewed, enabled: false }], error: null }), null, 'Tara: approved but unused');
+  assert.equal(fallbackLineOf({ data: [{ ...reviewed, reviewed_at: null }], error: null }), null, 'unreviewed wording is never served');
+  assert.equal(fallbackLineOf({ data: [{ ...reviewed, body: null }], error: null }), null);
+  assert.equal(fallbackLineOf({ data: [], error: null }), null);
+  assert.equal(fallbackLineOf({ data: null, error: { message: 'relation does not exist' } }), null, 'a failed read is the old line');
+});
+
+test('a contact value is excluded from the script share, so an e-mail answer is Mongolian', async () => {
+  const r = await loadReceptionContext(stubDb({
+    contact_points: { data: [{ kind: 'email', value: 'dalatech.ai@gmail.com' }], error: null },
+  }).db, input);
+  assert.ok(r.ok && r.context.tenantGuard.scriptShareExclusions.includes('dalatech.ai@gmail.com'));
+});
+
+test('a sales_next_steps read that fails does not refuse the reply', async () => {
+  const r = await loadReceptionContext(stubDb({ sales_next_steps: { data: null, error: { message: 'boom' } } }).db, input);
+  assert.equal(r.ok, true);
+  assert.equal(r.ok && r.context.fallbackLine, null);
+});
+
+test('a client that THROWS building the sales_next_steps query does not refuse the reply either', async () => {
+  const { db } = stubDb();
+  const throwing = { from: (t: string) => { if (t === 'sales_next_steps') throw new Error('no such table in this dump'); return (db as { from: (t: string) => unknown }).from(t); } };
+  const r = await loadReceptionContext(throwing as never, input);
+  assert.equal(r.ok, true);
+  assert.equal(r.ok && r.context.fallbackLine, null);
 });

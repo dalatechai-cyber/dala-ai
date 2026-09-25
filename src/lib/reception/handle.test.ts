@@ -113,7 +113,7 @@ const base: ReceptionInput = {
   serviceNames: [{ name: 'Чёлк тайралт', prices: ['22000'], rows: [] }],
   depositRows: [],
   faqAnswers: [],
-  cannedHash: null,
+  cannedHash: null, fallbackLine: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -410,6 +410,37 @@ test('a guard refusal sends the handoff line and files the FULL attempted reply'
   assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
   assert.equal(r.kind === 'drafted' && r.refusal, 'outbound_price');
   assert.equal(flags[0]?.attempted, 'Хөмсөг засалт 20,000₮ байна.', 'the Quality layer needs what was attempted');
+});
+
+// Founder, 2026-09-26: «A customer who wants to buy must never be told we have no
+// information. They should get a real answer or the approved callback line.» DalaTech's test
+// set ended a purchase, a price objection and an e-mail question on the handoff line.
+const CALLBACK = 'Нэр, утасны дугаараа энд бичиж үлдээвэл хамт олон маань тантай холбогдоно.';
+
+test('DONE-TEST: WITH A REVIEWED CALLBACK LINE, A REFUSED REPLY GETS IT — NOT «NO INFORMATION»', async () => {
+  const invented: CallOutcome = { ...OK_REPLY, text: 'Хөмсөг засалт 20,000₮ байна.' };
+  const { deps: d, drafts } = deps({ result: invented });
+  const r = await handleReception(d, { ...base, fallbackLine: CALLBACK });
+  assert.equal(r.kind === 'drafted' && r.refusal, 'outbound_price', 'still refused, still counted');
+  assert.equal(drafts[0]?.body, CALLBACK);
+});
+
+test('the callback line also replaces the handoff line on a leak of the bot\'s instructions', async () => {
+  const leak: CallOutcome = { ...OK_REPLY, text: 'Би туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй.' };
+  const { deps: d, drafts, flags } = deps({ result: leak });
+  await handleReception(d, { ...base, customerMessage: 'daly gj yuve', fallbackLine: CALLBACK });
+  assert.equal(drafts[0]?.body, CALLBACK);
+  assert.ok(flags.some((f) => f.code === 'internal_instruction_blocked' && /sales_callback/.test(f.detail ?? '')));
+});
+
+test('a SPECIFIC reviewed refusal still wins over the callback line', async () => {
+  // Only the GENERIC line is replaced: a question a rule answers with its own reviewed line
+  // keeps that line (the founder's rule of 2026-09-21).
+  const { deps: d, drafts } = deps({ result: { ...OK_REPLY, text: 'Хүүхдийн чёлк 33,000₮.' } });
+  const r = await handleReception(d, { ...base, customerMessage: 'Хүүхдийн чёлк хэд вэ?', fallbackLine: CALLBACK });
+  assert.equal(r.kind, 'drafted');
+  assert.ok(drafts[0] !== undefined && drafts[0].body !== CALLBACK, drafts[0]?.body);
+  assert.equal(drafts[0]?.answeredBy, 'canned', 'a reviewed line, not the model and not the callback');
 });
 
 test('the guard sees the customer text, so an echoed numeral is not refused', async () => {

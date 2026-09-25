@@ -50,6 +50,14 @@ export type ReceptionContext = {
   rules: GateRule[];
   deterministic: DeterministicRule[];
   /**
+   * The tenant's reviewed, enabled sales CALLBACK line (D-127), or null. Served instead of
+   * the generic handoff line when a reply has to be replaced and no specific reviewed line
+   * applies (founder, 2026-09-26: *"A customer who wants to buy must never be told we have
+   * no information. They should get a real answer or the approved callback line."*). Read
+   * best-effort: a failed read is null — the old line — and never refuses the reply.
+   */
+  fallbackLine: string | null;
+  /**
    * Today's and tomorrow's weekday on the tenant's clock (0 = Sunday), and which of the two a
    * closure covers, for the facts guard (D-126).
    */
@@ -250,6 +258,13 @@ export async function loadReceptionContext(
   // ten pointless reads, and more importantly `timings` has not yet said whether the
   // snapshot is a meaningful share of the 533ms. Measure, then move it.
   const tBatch = Date.now();
+  // Best effort, so NOT in the batch below: a failure there refuses the reply, and a missing
+  // fallback line only means the generic one is served (`fallbackLine`).
+  // An async wrapper, not `Promise.resolve(query)`: a client that throws while BUILDING the
+  // query (a fixture without the table does) must land in the catch too, not escape it.
+  const fallbackRead = (async () => db.from('sales_next_steps').select('body, enabled, reviewed_at')
+    .eq('tenant_id', input.tenantId).eq('kind', 'callback'))()
+    .then((r) => r, () => ({ data: null, error: { message: 'threw' } }));
   const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes, detRes, contactsRes, aliasRes, spellRes] = await Promise.all([
     db.from('disclosure_rules')
       .select('topic_key, matcher, quote_price, response_kind, deterministic_shortcircuit, provenance')
@@ -325,6 +340,8 @@ export async function loadReceptionContext(
    * a reply punished for using the tenant's own approved data. Which kinds count: see
    * `linkValues`, which the branch links below go through too.
    */
+  const contactValues = (Array.isArray(contactsRes.data) ? contactsRes.data : [])
+    .map((raw) => String((raw as Record<string, unknown>)['value'] ?? '')).filter((v) => v !== '');
   const contactUrls = linkValues((Array.isArray(contactsRes.data) ? contactsRes.data : []).map((raw) => ({
     kind: String((raw as Record<string, unknown>)['kind'] ?? ''),
     value: String((raw as Record<string, unknown>)['value'] ?? ''),
@@ -412,7 +429,10 @@ export async function loadReceptionContext(
     // skipping the check, and the next republish narrows it.
     promptCorpus: snapshot.snapshot.promptGate ?? snapshot.snapshot.promptStable,
     cannedResponses: cannedRows.map((c) => c.body),
-    scriptShareExclusions: [...serviceNames, ...allowedUrls],
+    // Every contact value, not only links: «Манай и-мэйл хаяг: dalatech.ai@gmail.com» is a
+    // Mongolian sentence around the tenant's own Latin address, and was refused as not
+    // Mongolian (2026-09-26 test set, k03) — the customer asked for exactly that address.
+    scriptShareExclusions: [...serviceNames, ...allowedUrls, ...contactValues],
     maxReplyChars: MAX_REPLY_CHARS,
   };
 
@@ -463,6 +483,7 @@ export async function loadReceptionContext(
       revisionId: snapshot.snapshot.revisionId,
       contentHash: snapshot.snapshot.contentHash,
       rules,
+      fallbackLine: fallbackLineOf(await fallbackRead),
       canned: cannedRows,
       tenantGuard,
       cacheMode,
@@ -472,4 +493,16 @@ export async function loadReceptionContext(
     // actually waits, which is what the phase is for.
     timings: { snapshot: snapshotMs, batch: Date.now() - tBatch },
   };
+}
+
+/**
+ * The reviewed, enabled callback row's body, or null for anything else — no row, no body, not
+ * reviewed, disabled, or a read that failed. Null is the generic handoff line, as before.
+ */
+export function fallbackLineOf(res: { data: unknown; error: unknown }): string | null {
+  if (res.error !== null && res.error !== undefined) return null;
+  const rows = Array.isArray(res.data) ? res.data as Record<string, unknown>[] : [];
+  const row = rows.find((r) => r['enabled'] !== false && r['reviewed_at'] !== null && r['reviewed_at'] !== undefined
+    && typeof r['body'] === 'string' && r['body'].trim() !== '');
+  return row === undefined ? null : String(row['body']).trim();
 }

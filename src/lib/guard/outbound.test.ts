@@ -123,6 +123,24 @@ test('a customer who types a percentage does not make it approved', () => {
   assert.equal(r.ok === false && r.code, 'outbound_percent');
 });
 
+test('a computed total passes with its work shown; an invented figure still does not (founder, 2026-09-26)', () => {
+  const view: TenantGuardView = {
+    ...MATRIX, concessionStems: [], allowedNumbers: ['10', '150,000', '250,000'], approvedPercentages: ['10'],
+    scriptShareExclusions: [],
+  };
+  const x03 = 'Дали (сарын төлбөр) 250,000₮, Вира (сарын төлбөр) 150,000₮ — нийлбэр нь 400,000₮, гэхдээ хоёр ажилтан авахад сарын төлбөрт 10% хөнгөлөлт үзүүлдэг тул сард 360,000₮ болно.';
+  assert.deepEqual(outboundGuard(view, CLEAN, x03), { ok: true });
+  const r = outboundGuard(view, CLEAN, 'Вира сард 300,000₮.');
+  assert.equal(r.ok === false && r.code, 'outbound_price');
+});
+
+test('a Mongolian sentence around the tenant\'s own Latin e-mail is Mongolian', () => {
+  const view: TenantGuardView = { ...MATRIX, scriptShareExclusions: [...MATRIX.scriptShareExclusions, 'dalatech.ai@gmail.com'] };
+  assert.deepEqual(outboundGuard(view, CLEAN, 'Манай и-мэйл хаяг: dalatech.ai@gmail.com'), { ok: true });
+  const bare = outboundGuard({ ...MATRIX }, CLEAN, 'Манай и-мэйл хаяг: dalatech.ai@gmail.com');
+  assert.equal(bare.ok === false && bare.code, 'outbound_language', 'what the 2026-09-26 test set measured before the fix');
+});
+
 test('a tenant that really is running a promotion may say so', () => {
   const promo: TenantGuardView = { ...MATRIX, kbHasPromotion: true, allowedNumbers: [...MATRIX.allowedNumbers, '10'] };
   // Nothing in items 3 or 7 may refuse this: the promotion is real and in the KB.

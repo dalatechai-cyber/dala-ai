@@ -202,12 +202,16 @@ export function matchDeterministic(
     // `contains_stem` and `covers_message` carry the gate matcher's over-matching risk on
     // their stems, so they carry its floor. A rule below it is SKIPPED rather than refusing
     // everything: here a bad rule costs a model call, not a disarmed refusal.
-    const short = rule.stems.filter((s) => cpLength(s) < MIN_STEM_CHARS);
-    if (short.length > 0) { skipped.push({ intent: rule.intent, reason: 'stem_too_short' }); return null; }
+    // `covers_message` does not skip a short stem: it matches it as a WHOLE word, which is
+    // how a word below the floor is made safe everywhere else (`hasWord`). Every other word
+    // of the message must still be a stem or a cover word, so «үнэ» cannot fire inside a
+    // question about something else.
     if (rule.matchMode === 'covers_message') {
       if (opts.hasAttachment) { skipped.push({ intent: rule.intent, reason: 'has_attachment' }); return null; }
-      return texts.some((t) => coversMessage(t, rule.stems, rule.coverWords));
+      return texts.some((t) => coversMessage(t, rule.stems, rule.coverWords, MIN_STEM_CHARS));
     }
+    const short = rule.stems.filter((s) => cpLength(s) < MIN_STEM_CHARS);
+    if (short.length > 0) { skipped.push({ intent: rule.intent, reason: 'stem_too_short' }); return null; }
     return texts.some((t) => rule.stems.some((stem) => containsStem(t, stem)));
   };
 

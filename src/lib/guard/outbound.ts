@@ -35,7 +35,7 @@
  */
 import { ALWAYS_ON_GATES } from '../../config/platform.ts';
 import { matchesStemSequence } from '../mn/match.ts';
-import { extractNumerals, maskUrls, numeralsNotAllowed, percentagesIn, urlsNotAllowed } from '../mn/extract.ts';
+import { extractNumerals, maskUrls, numeralsNotAllowed, percentagesIn, shownTotals, urlsNotAllowed } from '../mn/extract.ts';
 import { cpLength, fold, nfc, scriptShare } from '../mn/text.ts';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
 
@@ -493,7 +493,9 @@ export function outboundGuard(
   // digits in its slug, and the echo set must be produced by the same rule the reply is
   // measured against or the two silently disagree about what a numeral is.
   const echoed = extractNumerals(maskUrls(ctx.customerText)).map((n) => n.raw);
-  const badNumbers = numeralsNotAllowed(text, [...tenant.allowedNumbers, ...echoed]);
+  // A total computed from approved prices the reply itself states (`shownTotals`).
+  const totals = shownTotals(text, tenant.allowedNumbers, tenant.approvedPercentages);
+  const badNumbers = numeralsNotAllowed(text, [...tenant.allowedNumbers, ...echoed, ...totals]);
   if (badNumbers.length > 0) {
     return refuse('outbound_price', `numeral neither compiled nor stated by the customer: ${badNumbers.join(', ')}`);
   }

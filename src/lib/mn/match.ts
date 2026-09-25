@@ -195,12 +195,23 @@ export function wholeMessageKey(text: string): string {
  * Words are the reduced form's space-separated runs — punctuation, symbols and emoji are
  * already gone — so «Tara salon мөн үү?» is four words and the question mark is none.
  */
-export function coversMessage(text: string, stems: readonly string[], coverWords: readonly string[]): boolean {
+export function coversMessage(
+  text: string,
+  stems: readonly string[],
+  coverWords: readonly string[],
+  /**
+   * A stem shorter than this is matched as a WHOLE word, not a prefix — `hasWord`'s rule for
+   * words below the stem floor. «үнэ» (price) is three letters and also begins «үнэн»
+   * (true); whole, it is the word the customer typed and nothing else. Default 0: every
+   * stem a prefix, as before.
+   */
+  minPrefixCp = 0,
+): boolean {
   const words = wholeMessageKey(text).split(' ').filter((w) => w !== '');
   if (words.length === 0) return false;
   const anchors = stems.map((st) => fold(st)).filter((st) => st !== '');
   const cover = new Set(coverWords.map((w) => wholeMessageKey(w)).filter((w) => w !== ''));
-  const isAnchor = (w: string): boolean => anchors.some((a) => w.startsWith(a));
+  const isAnchor = (w: string): boolean => anchors.some((a) => ([...a].length >= minPrefixCp ? w.startsWith(a) : w === a));
   return words.some(isAnchor) && words.every((w) => isAnchor(w) || cover.has(w));
 }
 

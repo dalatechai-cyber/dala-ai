@@ -288,3 +288,17 @@ test('0042: an on_topic row fires when its gate topic fired, and never on the wo
   const r = matchDeterministic('Хар өнгөтэй үсэнд орох уу', [row], ANY, { hasAttachment: false, topics: ['suitability_mn_orh'] });
   assert.deepEqual(r.appends.map((a) => [a.intent, a.onTopic]), [['stylist', true]]);
 });
+
+test('covers_message: a stem under the floor matches as a WHOLE word, not a prefix (2026-09-26)', () => {
+  const price: DeterministicRule = {
+    intent: 'price_overview', body: 'PRICE LIST', enabled: true, matchMode: 'covers_message',
+    stems: ['үнэ', 'үнэт', 'үний', 'une', 'unet'], coverWords: ['сайн', 'байна', 'уу', 'ямар', 'байдаг', 'вэ', 'tanaih', 'yamar', 've', 'hed'],
+    placement: 'replace', quoteServices: [], requiresEmptyHistory: false, provenance: 'tenant_confirmed',
+  };
+  const hit = (m: string) => matchDeterministic(m, [price], { known: true, empty: true }).hit?.intent ?? null;
+  assert.equal(hit('Сайн байна уу, үнэ ямар байдаг вэ?'), 'price_overview');
+  assert.equal(hit('tanaih yamar unetei ve'), 'price_overview', '«unet» is a prefix: four letters');
+  assert.equal(hit('une hed ve'), 'price_overview');
+  assert.equal(hit('Үнэн үү?'), null, '«үнэ» is whole: «үнэн» (true) is another word');
+  assert.equal(hit('unen yamar ve'), null);
+});

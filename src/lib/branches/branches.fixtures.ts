@@ -222,6 +222,7 @@ export function scenarioInput(
     },
     cannedLabel: SECTION_LABELS.canned,
     cannedHash: null,
+    fallbackLine: null,
     serviceNames: servicesFromPrefix(promptStable, SECTION_LABELS.priceList),
     serviceAliases: [],
     depositRows: sectionRows(promptStable, SECTION_LABELS.deposits),

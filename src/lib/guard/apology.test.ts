@@ -58,3 +58,19 @@ test('only a whole opening word, and never when nothing would remain', () => {
 test('no shared refusal marker means the check is inert', () => {
   assert.deepEqual(unwarrantedApology('Уучлаарай, ямар үйлчилгээ вэ?', STEMS, null, false), { strip: false });
 });
+
+test('DONE-TEST (2026-09-26, s01): AN APOLOGETIC QUESTION THE REPLY ANSWERS ITSELF GOES WITH THE APOLOGY', () => {
+  const m = refusalMarkerFrom(CANNED, STEMS);
+  const reply = 'Уучлаарай, тодруулбал Дали гэдэг манай AI хүлээн авагчийг хэлж байна уу? '
+    + 'Дали бол Facebook, Instagram, вэбсайтад ирсэн зурваст шууд хариулдаг хүлээн авагч ажилтан.';
+  const r = unwarrantedApology(reply, STEMS, m, false);
+  assert.equal(r.strip && r.text, 'Дали бол Facebook, Instagram, вэбсайтад ирсэн зурваст шууд хариулдаг хүлээн авагч ажилтан.');
+});
+
+test('a reply that IS the question keeps it, and a short tail is not an answer', () => {
+  const m = refusalMarkerFrom(CANNED, STEMS);
+  const only = unwarrantedApology('Уучлаарай, ямар үйлчилгээний үнийг мэдэхийг хүсэж байна вэ?', STEMS, m, false);
+  assert.equal(only.strip && only.text, 'Ямар үйлчилгээний үнийг мэдэхийг хүсэж байна вэ?');
+  const two = unwarrantedApology('Уучлаарай, тодруулж болох уу? Та бүтэн будуулах уу?', STEMS, m, false);
+  assert.equal(two.strip && two.text, 'Тодруулж болох уу? Та бүтэн будуулах уу?', 'a second question is not an answer of 40 characters');
+});

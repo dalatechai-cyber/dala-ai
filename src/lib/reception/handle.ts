@@ -158,6 +158,11 @@ export type ReceptionInput = {
    */
   cannedHash: string | null;
   /**
+   * The tenant's reviewed callback line (`ReceptionContext.fallbackLine`), or null. Required
+   * so a caller cannot forget it silently; null keeps the generic handoff line.
+   */
+  fallbackLine: string | null;
+  /**
    * The service names the tenant's price list renders, for the name-fidelity COUNTER.
    *
    * Derived from `promptStable` by `servicesFromPrefix`, so it costs no query. Required
@@ -215,6 +220,22 @@ export type ReceptionOutcome =
   | { kind: 'dropped'; reason: string };
 
 /** The tenant's pinned line for a kind, or null when it is not provisioned. */
+/**
+ * The line served when a reply must be replaced and no specific reviewed line applies: the
+ * tenant's reviewed callback line if it has one, otherwise its handoff line (founder,
+ * 2026-09-26: *"A customer who wants to buy must never be told we have no information. They
+ * should get a real answer or the approved callback line."*). Measured on DalaTech's test
+ * set the same night: «За тэгвэл Дали авъя», a price objection, «Имэйл хаяг чинь юу вэ» and
+ * a two-staff total all ended on «…мэдээлэл надад байхгүй байна». Both lines are true for
+ * any question, which is the property the generic line needs.
+ */
+function generalLine(input: Pick<ReceptionInput, 'canned' | 'fallbackLine'>): { body: string; kind: string } | null {
+  const f = input.fallbackLine;
+  if (typeof f === 'string' && f.trim() !== '') return { body: f, kind: 'sales_callback' };
+  const h = canned(input.canned, 'handoff');
+  return h === null ? null : { body: h, kind: 'handoff' };
+}
+
 function canned(rows: readonly CannedRow[], kind: string): string | null {
   const row = rows.find((r) => r.kind === kind);
   return row === undefined || row.reviewedAt === null ? null : row.body;
@@ -472,7 +493,10 @@ async function handoff(
     const specific = canned(input.canned, kind);
     if (specific !== null) { line = specific; servedKind = kind; break; }
   }
-  if (line === null) line = canned(input.canned, 'handoff');
+  if (line === null) {
+    const general = generalLine(input);
+    if (general !== null) { line = general.body; servedKind = general.kind; }
+  }
   if (line === null) {
     return { kind: 'retry', detail: `no reviewed handoff line: cannot answer ${reason.code}` };
   }
@@ -637,10 +661,10 @@ export async function handleReception(
       // edited — the handoff line, which is true for any question, and a flag.
       if (x.answeredBy === 'model') {
         const leak = instructionLeakIn(x.body, input.customerMessage, approvedTexts);
-        const general = leak === null ? null : canned(input.canned, 'handoff');
+        const general = leak === null ? null : generalLine(input);
         if (leak !== null && general !== null) {
-          await deps.flag({ code: 'internal_instruction_blocked', detail: leak, attempted: x.body });
-          x = { ...x, body: general, answeredBy: 'canned' };
+          await deps.flag({ code: 'internal_instruction_blocked', detail: `${leak}; served ${general.kind}`, attempted: x.body });
+          x = { ...x, body: general.body, answeredBy: 'canned' };
         }
       }
       if (x.answeredBy === 'model') {
@@ -649,7 +673,7 @@ export async function handleReception(
           await deps.flag({ code: 'fact_restated', detail: fact.detail, attempted: x.body });
           // A price no row can be shown to own gets the handoff line: the answer with no
           // facts in it. Never the model's wording, and never a guessed row.
-          const served = fact.served === null ? canned(input.canned, 'handoff') : asSet(fact.served);
+          const served = fact.served === null ? generalLine(input)?.body ?? null : asSet(fact.served);
           if (served === null) return { ok: false, detail: 'fact_restated: no row to serve and no handoff line' };
           x = { ...x, body: served, answeredBy: fact.served === null ? 'canned' : 'deterministic' };
         }
@@ -1033,7 +1057,7 @@ export async function handleReception(
     // phone sentence, and the customer was told a holiday question had no price. The
     // tenant's handoff line is true for any question; a topic's refusal is true for one.
     const unsure = pinned.kind === 'paraphrase' && pinned.embedded === true && pinned.canonicalKind !== 'handoff';
-    const general = unsure ? canned(input.canned, 'handoff') : null;
+    const general = unsure ? generalLine(input)?.body ?? null : null;
     const servedBody = general ?? pinned.canonical;
     if (pinned.kind === 'paraphrase') {
       // Corrected AND counted. A paraphrase that is quietly fixed is a paraphrase nobody

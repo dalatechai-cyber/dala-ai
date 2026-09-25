@@ -11,6 +11,7 @@ import {
 
   maskUrls,
   percentagesIn,
+  shownTotals,
   tenantPercentages,} from './extract.ts';
 
 // Matrix Eco Salon's real price strings, from `currentClient.js`. These are the values
@@ -233,4 +234,22 @@ test('a bare www link is masked too, as extractUrls finds it', () => {
   // One regex, shared, so the two cannot drift about what a link is.
   assert.equal(maskUrls('очно уу www.matrixecosalon.org/9 гэж').trim(), 'очно уу   гэж'.trim());
   assert.deepEqual(numeralsNotAllowed('www.matrixecosalon.org/9', []), []);
+});
+
+test('a total counts only with its work shown: approved prices the reply states, and an approved discount', () => {
+  const allowed = ['10', '15', '20', '150,000', '250,000', '200,000'];
+  const pct = ['10', '15', '20'];
+  // The 2026-09-26 test set, x03, word for word as the model wrote it.
+  const x03 = 'Дали (сарын төлбөр) 250,000₮, Вира (сарын төлбөр) 150,000₮ — нийлбэр нь 400,000₮, гэхдээ хоёр ажилтан авахад сарын төлбөрт 10% хөнгөлөлт үзүүлдэг тул сард 360,000₮ болно.';
+  assert.deepEqual(shownTotals(x03, allowed, pct).sort(), ['360000', '400000']);
+  // The discounted figure alone, with the addends and the percentage written: still shown work.
+  assert.deepEqual(shownTotals('Дали 250,000₮, Вира 150,000₮, 10% хөнгөлөлттэй 360,000₮.', allowed, pct), ['360000']);
+  // A bare figure that happens to be a sum is NOT a total: nothing shows it was added up.
+  assert.deepEqual(shownTotals('Вира 300,000₮.', allowed, pct), []);
+  // One occurrence cannot be used twice.
+  assert.deepEqual(shownTotals('Вира 150,000₮, нийт 300,000₮.', allowed, pct), []);
+  // A discount the data does not state does not license a net figure.
+  assert.deepEqual(shownTotals('Дали 250,000₮, Вира 150,000₮, 25% хөнгөлөлттэй 300,000₮.', allowed, pct), []);
+  // A wrong sum is not accepted.
+  assert.deepEqual(shownTotals('Дали 250,000₮, Вира 150,000₮, нийт 450,000₮.', allowed, pct), []);
 });
