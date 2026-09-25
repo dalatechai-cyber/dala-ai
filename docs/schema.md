@@ -668,6 +668,32 @@ not a person: it neither hands the thread to a human nor counts as staff answeri
 Measured 2026-09-26: Meta's automated DM carries the same app id as a staff reply typed in the
 Page inbox, so the text is the only thing that separates them (D-126 addendum).
 
+### `0051_sales_playbooks`
+
+**Additive.** Three tables for the sales next-step SHADOW (D-127). Nothing existing is
+touched, no tenant row is inserted, and **the reply path does not read them** — only
+`sales/shadow.ts` does, after a reply is drafted, in its own best-effort queries. So pushing
+late cannot fail a reply: before the push the shadow logs `sales_shadow_unusable` and records
+nothing. Numbered 0051 because 0050 is taken by parallel work.
+
+| Table | Key | Notes for hand-written INSERTs |
+|---|---|---|
+| `sales_playbooks` | `tenant_id` | `mode` is `off` (default) or `shadow` — **there is no live value**, so nothing can be switched to sending by an UPDATE. `lead_route` NOT NULL: `founder_telegram` / `tenant_telegram` / `page_label` (recorded on each shadow lead; nothing sends to it) |
+| `sales_next_steps` | `(tenant_id, kind)` | `kind` ∈ `demo`/`booking`/`callback`/`related_service`/`lead_thanks`. `body` (NFC) is **NULL until the founder chooses the words**, and `reviewed_at` requires a body. `related_service`'s body must carry `{related}`. `link` is an `https://` URL or NULL. `priority` (lower wins), `is_default` (at most one per tenant, and only `demo`/`booking`/`callback`), `intent_matcher` jsonb — one gate matcher or an array of them, any firing counts |
+| `service_pairings` | `(tenant_id, service_name, related_name)` | Both names as the compiled price list writes them, not equal. **`provenance` NOT NULL with no default**: the platform's proposals are `seeded`; only the salon's yes is `tenant_confirmed` |
+
+Not `canned_responses`, on purpose: a reviewed row there is compiled into the cached prefix
+(D-058) and hashed into `canned_hash`, so a next-step row would be a sentence in the model's
+context with no instruction attached (D-082) and would 503 every reply as `canned_stale`
+until a republish.
+
+The shadow writes `quality_flags` rows only: `sales_next_step_shadow` (one per drafted
+reply; `detail` = verdict, kind or skip reason, row state, optional related pair, outbound
+id) and `sales_lead_shadow` (when the customer's message carries a phone; `detail` holds the
+number MASKED, «7600****», never digits). `scripts/provision/sales-playbook.ts <slug>
+--template salon|software` prints the SQL that switches a tenant's shadow on; it never
+writes a body or `reviewed_at`.
+
 ### `0049_matcher_rows_can_match`
 
 **Widens a CHECK.** `enabled_rule_can_match` required an enabled `deterministic_replies` row to

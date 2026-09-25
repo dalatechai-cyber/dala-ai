@@ -1,0 +1,59 @@
+# UNSIGNED DRAFT — NOT APPROVED. Loaded by nothing. D-127, 2026-09-26.
+#
+# Tenant: #0 DalaTech (vertical `software`). Rows: `sales_next_steps` (migration 0051), one
+# row per kind, `body` set to the chosen text and `reviewed_at` set by the founder. Until
+# then every row's body is NULL and the shadow records the row as `unwritten`.
+#
+# NOTHING SENDS THESE. The shadow (src/lib/sales/shadow.ts) only records, after each reply,
+# which of these rows WOULD have been added. Sending them is a later change the founder
+# switches on after reading the shadow numbers.
+#
+# Written by a session, not a native speaker. Every line is the founder's call. Option A
+# reuses the wording of DalaTech's own approved booking_line («…энд бичиж үлдээвэл хамт
+# олон маань тантай холбогдоно»), so the only new words are the demo sentence.
+#
+# The demo link is data (sales_next_steps.link = https://app.dalatech.online), not code.
+# No timing is promised anywhere below: the leads report of 2026-09-25 found the site and
+# the app promising three different times (seconds / 24 h / 2 days), so the bot says none.
+
+# ---- kind = demo (the default next step) ---------------------------------------------
+# Added once per conversation, at the end of the first reply that answered a real question
+# (not a greeting, not a refusal, not a reply that asks the customer something).
+
+# Option A (my recommendation): both choices in one line, the second in approved words.
+Өөрийн бизнест зориулсан демог https://app.dalatech.online хаягаар захиалж болно. Эсвэл нэр, утасны дугаараа энд бичиж үлдээвэл хамт олон маань тантай холбогдоно.
+
+# Option B: shorter, a question rather than an instruction.
+Таны бизнест хэрхэн ажиллахыг үзмээр байна уу? Демог https://app.dalatech.online хаягаар захиалаарай.
+
+# ---- kind = callback (chosen instead when the customer asks to call / for a number) ----
+# Intent words (data, sales_playbook.software.json): залга, холбогд, дугаар, уулз, утас,
+# and their Latin spellings.
+
+# Option A:
+Нэр, утасны дугаараа энд бичиж үлдээвэл хамт олон маань тантай холбогдоно.
+
+# Option B:
+Та нэр, утасны дугаараа үлдээнэ үү. Бид тантай эргэн холбогдоно.
+
+# ---- kind = lead_thanks (the reply to a message that GIVES a phone number) ------------
+# The lead goes to the founder's Telegram (lead_route = founder_telegram). This line
+# acknowledges it; it is the only thing added to that reply.
+
+# Option A:
+Баярлалаа! Мэдээллийг тань хүлээн авлаа. Хамт олон маань тантай холбогдоно.
+
+# Option B:
+Баярлалаа, бид тантай удахгүй холбогдоно.
+
+# Questions for the founder:
+#
+#  1. A or B for each. A never says WHEN; B's «удахгүй» (soon) is a promise the founder
+#     keeps personally — only choose it if a lead is called the same day.
+#  2. «демог … захиалж болно» vs «демо авах бол …»: is the demo something the customer
+#     ORDERS (захиалах) or something they TRY (туршиж үзэх)? The app is a request form that
+#     sends a demo later, so «захиалах» is the one used here.
+#  3. Should the demo line name Дали? The Page sells five staff and websites; a demo line
+#     naming one product would be wrong in a conversation about another. Not named here.
+#  4. Is «хамт олон маань» still how DalaTech wants to refer to itself? It is the approved
+#     wording in booking_line and handoff today, which is why it is reused.

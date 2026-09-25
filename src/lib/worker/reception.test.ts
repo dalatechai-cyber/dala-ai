@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RECEPTION_MAX_DELIVERIES, runReceptionJob, TYPING_WAIT_MS, type DeliverArgs, type GenerateArgs, type WorkerEffects } from './reception.ts';
+import { RECEPTION_MAX_DELIVERIES, runReceptionJob, SALES_SHADOW_WAIT_MS, TYPING_WAIT_MS, type DeliverArgs, type GenerateArgs, type SalesShadowArgs, type WorkerEffects } from './reception.ts';
 import type { ReceptionOutcome } from '../reception/handle.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
 import type { ExhaustedInput } from './exhaustedAlert.ts';
@@ -149,6 +149,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
   const standbyAlerts: { tenantId: string; channelId: string; dayKey: string; events: number }[] = [];
   const exhausted: ExhaustedInput[] = [];
   const typed: { tenantId: string; channelId: string; recipientId: string }[] = [];
+  const shadowed: SalesShadowArgs[] = [];
 
   const fx: WorkerEffects = {
     db,
@@ -169,6 +170,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     flagQuality: async (a) => {
       flags.push(a);
     },
+    salesShadow: async (a) => { shadowed.push(a); },
     // The comment surface. Defaults to a stub that would fail loudly if a DM-path test
     // ever reached it: a `messages` entry carries no `changes`, so it must not.
     replyToComment: async () => {
@@ -182,7 +184,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     },
     ...rest,
   };
-  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted, typed };
+  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted, typed, shadowed };
 }
 
 const run = (fx: WorkerEffects, rawBody = job(), signature: string | null = 'sig') =>
@@ -1366,3 +1368,73 @@ test('a shadow channel never runs the re-check: nothing is sent to protect', asy
   assert.equal(ops.some((o) => o.op === 'contains'), false);
 });
 
+
+// ---------------------------------------------------------------------------
+// The sales shadow (D-127): after the draft, bounded, and unable to change the reply
+// ---------------------------------------------------------------------------
+
+test('D-127: the sales shadow runs once per drafted reply, AFTER the draft, with its ids', async () => {
+  const order: string[] = [];
+  const { fx, shadowed, delivered } = stubEffects();
+  const realGenerate = fx.generateReply;
+  fx.generateReply = async (a) => { order.push('generate'); return realGenerate(a); };
+  const realShadow = fx.salesShadow;
+  fx.salesShadow = async (a) => { order.push('shadow'); return realShadow(a); };
+  const realDeliver = fx.deliver;
+  fx.deliver = async (a) => { order.push('deliver'); return realDeliver(a); };
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(shadowed.length, 1);
+  assert.equal(shadowed[0]?.outboundId, 'om-1');
+  assert.equal(shadowed[0]?.customerMessage, 'Сайн байна уу, үнэ хэд вэ?');
+  assert.equal(typeof shadowed[0]?.messageId, 'string');
+  assert.deepEqual(order, ['generate', 'shadow', 'deliver']);
+  assert.equal(delivered.length, 1);
+});
+
+test('D-127: a sales shadow that never settles delays the send by at most its cap, and says so', async () => {
+  const { fx, delivered, logs } = stubEffects();
+  fx.salesShadow = () => new Promise<void>(() => {});
+  let sentAt = 0;
+  const realDeliver = fx.deliver;
+  fx.deliver = async (a) => { sentAt = Date.now(); return realDeliver(a); };
+  const t0 = Date.now();
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(delivered.length, 1);
+  assert.ok(sentAt - t0 < SALES_SHADOW_WAIT_MS + 500, `the reply waited ${sentAt - t0}ms for the shadow`);
+  assert.ok(reasons(logs).includes('sales_shadow_late'));
+});
+
+test('D-127: a sales shadow that REJECTS changes nothing about the reply', async () => {
+  const { fx, delivered } = stubEffects({
+    tables: { outbound_messages: [{ data: { id: 'om-1', body: 'ХАДГАЛСАН ХАРИУЛТ', attempts: 1 } }] },
+  });
+  fx.salesShadow = async () => { throw new Error('shadow exploded'); };
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(r.body['sent'], 1);
+  assert.equal(delivered[0]?.body, 'ХАДГАЛСАН ХАРИУЛТ');
+});
+
+test('D-127: no shadow for a message that was not answered', async () => {
+  for (const outcome of [
+    { kind: 'dropped', reason: 'stale_event' },
+    { kind: 'retry', detail: 'model unreachable' },
+  ] as const) {
+    const { fx, shadowed } = stubEffects({ generateReply: async () => outcome });
+    await run(fx);
+    assert.equal(shadowed.length, 0, outcome.kind);
+  }
+});
+
+test('D-127: a shadow channel is shadowed too — the mirror is where the number is wanted', async () => {
+  const { fx, shadowed, delivered } = stubEffects({
+    tables: {
+      tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'shadow', graph_version_override: null } },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.equal(shadowed.length, 1);
+});
