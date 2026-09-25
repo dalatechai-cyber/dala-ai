@@ -103,6 +103,8 @@ export async function replayComments(input: {
   decide: readonly number[];
   rules: readonly ReplayRule[];
   evidence: 'at_decision' | 'all';
+  /** `tenant_channels.automation_texts` for the replayed channel (D-126 addendum). */
+  automationTexts?: readonly string[];
 }): Promise<ReplayOutcome[]> {
   const events = input.stored.map((c) => ({
     id: c.eventId, tenant_id: TENANT, raw_payload: entryOf(c), received_at: c.receivedAt,
@@ -141,6 +143,7 @@ export async function replayComments(input: {
       tenantId: TENANT,
       channelId: 'channel-replay',
       pageExternalId: PAGE_ID,
+      automationTexts: input.automationTexts ?? [],
       commentMode: 'shadow',
       tokenStatus: 'active',
       graphVersion: 'v21.0',

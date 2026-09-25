@@ -102,6 +102,13 @@ export type SkippedEvent = {
    */
   appId: string | null;
   /**
+   * An echo's text, NFC. Null on every other reason. Carried for one question: is this one of
+   * the Page's own automations (`handover/automation.ts`)? Meta's automated DM carries the same
+   * app id as a staff reply typed in the inbox, so the text is what separates them. Staff
+   * words: never logged.
+   */
+  echoText?: string | null;
+  /**
    * When Meta says an ECHO was sent — its own `timestamp`, the same clock as a customer
    * message's `sentAt`. Null on every other reason, and null on an echo with no timestamp.
    *
@@ -218,6 +225,7 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
         senderId: extra.senderId ?? null,
         recipientId: extra.recipientId ?? null,
         appId: extra.appId ?? null,
+        echoText: extra.echoText ?? null,
         sentAt: extra.sentAt ?? null,
         attachments: extra.attachments ?? [],
         stickerIds: extra.stickerIds ?? [],
@@ -268,6 +276,7 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
         senderId: senderIdOf === '' ? null : senderIdOf,
         recipientId: recipientIdOf === '' ? null : recipientIdOf,
         appId,
+        echoText: typeof message['text'] === 'string' ? nfc(message['text']) : null,
         sentAt: typeof echoTs === 'number' && Number.isFinite(echoTs) ? new Date(echoTs) : null,
       });
       continue;

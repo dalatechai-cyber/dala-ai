@@ -90,3 +90,25 @@ test('a personal account thanking someone is not the Page, and silences nobody',
   const ask = wouldBe(910, 'u910', 'Khulan Erdene', P_REEL_0922, 'Хаяг хаана вэ?');
   assert.deepEqual(await outcomes([910], 'all', [...STORED, ask]), { 910: 'drafted' });
 });
+
+// DalaTech's Page, 2026-09-26: Meta's auto comment reply «chat bicnuu», created in the same
+// second as the comment it answers, is the Page but not staff (D-126 addendum).
+test('DONE-TEST (live, 2026-09-26): META\'S AUTO COMMENT REPLY IS NOT STAFF ANSWERING', async () => {
+  const post = P_REEL_0829;
+  const customer: StoredComment = {
+    eventId: 9001, receivedAt: '2026-09-25T19:19:50.500Z', fromId: '90000000000000099', fromName: 'Test Person',
+    commentId: '1378787287727016_900', parentId: post, postId: post, message: 'Үнэ хэд вэ?', createdTime: 1790363976,
+  };
+  const auto: StoredComment = {
+    eventId: 9002, receivedAt: '2026-09-25T19:19:51.168Z', fromId: STORED.find((c) => c.eventId === 803)!.fromId,
+    fromName: 'Page', commentId: '1378787287727016_901', parentId: customer.commentId, postId: post,
+    message: 'chat bicnuu', createdTime: 1790363976,
+  };
+  const rules = RULES;
+  const [withoutRows] = await replayComments({ stored: [customer, auto], decide: [9001], rules, evidence: 'all' });
+  assert.equal(withoutRows?.outcome, 'staff_replied', 'without the row the automation reads as staff');
+  const [withRows] = await replayComments({
+    stored: [customer, auto], decide: [9001], rules, evidence: 'all', automationTexts: ['chat bicnuu'],
+  });
+  assert.equal(withRows?.outcome, 'drafted');
+});

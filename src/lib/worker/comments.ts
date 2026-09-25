@@ -50,6 +50,7 @@ import { canDeliverComments } from '../channel/delivery.ts';
 import { extractComments, type InboundComment } from '../meta/comments.ts';
 import { decideAfterLookup, decideCommentReply, type CommentChannelConfig, type CommentRefusal } from '../comments/eligibility.ts';
 import type { CommentLookup } from '../comments/lookup.ts';
+import { isAutomationText } from '../handover/automation.ts';
 import { pageCommentsIn, staffHandled, type PageComment, type StaffCheck } from '../comments/staff.ts';
 import { classifyComment, type CommentRule } from '../comments/classify.ts';
 import { cpLength } from '../mn/text.ts';
@@ -210,6 +211,11 @@ export type CommentJobInput = {
   channelId: string;
   /** The channel's `external_id`: the Page. Used to spot the Page's own comments. */
   pageExternalId: string;
+  /**
+   * `tenant_channels.automation_texts`: a Page comment with one of these texts is Meta's
+   * auto-reply, not staff answering (D-126 addendum). Absent reads as none.
+   */
+  automationTexts?: readonly string[];
   /** `tenant_channels.comment_delivery_mode` — the comment switch, NOT the DM one (D-122). */
   commentMode: string;
   /** `tenant_channels.token_status`: live comments post only while it is `active`. */
@@ -514,7 +520,7 @@ async function repliesPerPost(
  */
 async function readStaffActivity(
   db: SupabaseClient,
-  input: { tenantId: string; pageId: string; postIds: readonly string[] },
+  input: { tenantId: string; pageId: string; postIds: readonly string[]; automationTexts?: readonly string[] },
 ): Promise<{ ok: true; pageComments: PageComment[]; ours: Set<string> } | { ok: false; detail: string }> {
   if (input.postIds.length === 0) return { ok: true, pageComments: [], ours: new Set() };
   const entries: unknown[] = [];
@@ -529,7 +535,10 @@ async function readStaffActivity(
     if (error) return { ok: false, detail: `webhook_events unreadable: ${error.message}` };
     for (const row of Array.isArray(data) ? data : []) entries.push((row as Record<string, unknown>)['raw_payload']);
   }
-  const pageComments = pageCommentsIn(entries, input.pageId);
+  // Meta's own auto comment reply is the Page speaking, not a person answering: measured
+  // 2026-09-26, «chat bicnuu» created in the same second as the comment it answered.
+  const pageComments = pageCommentsIn(entries, input.pageId)
+    .filter((c) => !isAutomationText(c.text, input.automationTexts ?? []));
   if (pageComments.length === 0) return { ok: true, pageComments, ours: new Set() };
   const { data, error } = await db
     .from('outbound_messages')
@@ -577,7 +586,7 @@ function staffGateFor(
   return () => {
     memo ??= (async (): Promise<StaffGate> => {
       const activity = await readStaffActivity(fx.db, {
-        tenantId: input.tenantId, pageId: input.pageExternalId, postIds: [comment.postId],
+        tenantId: input.tenantId, pageId: input.pageExternalId, automationTexts: input.automationTexts ?? [], postIds: [comment.postId],
       });
       if (!activity.ok) {
         fx.log('error', 'comment_staff_unreadable_before_send', { commentId: comment.commentId, detail: activity.detail });
@@ -716,6 +725,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
   const staffActivity = await readStaffActivity(fx.db, {
     tenantId: input.tenantId,
     pageId: input.pageExternalId,
+    automationTexts: input.automationTexts ?? [],
     postIds: [...new Set(comments.map((c) => c.postId))],
   });
   if (!staffActivity.ok) {

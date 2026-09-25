@@ -659,6 +659,15 @@ drafts and the replies they produced.
 **Pushing it changes no reply on its own** — the compiled prefix is what a tenant is
 answered from, so every tenant needs republishing afterwards (deploy, `git pull`, publish).
 
+### `0050_channel_automation_texts`
+
+**Additive.** `tenant_channels.automation_texts text[] not null default '{}'`: the exact texts
+of the Page's own Meta automations (instant reply, comment-to-message, auto comment reply). An
+echo or a Page comment whose text is one of them (NFC, whitespace collapsed, case folded) is
+not a person: it neither hands the thread to a human nor counts as staff answering a comment.
+Measured 2026-09-26: Meta's automated DM carries the same app id as a staff reply typed in the
+Page inbox, so the text is the only thing that separates them (D-126 addendum).
+
 ### `0049_matcher_rows_can_match`
 
 **Widens a CHECK.** `enabled_rule_can_match` required an enabled `deterministic_replies` row to

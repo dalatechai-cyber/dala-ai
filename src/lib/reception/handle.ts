@@ -56,6 +56,7 @@ import { bookingApology, renderBookingAnswer, apologyStemsFrom } from '../guard/
 import { capToSingleMessage } from '../mn/text.ts';
 import { respell, type Spelling } from '../mn/latin.ts';
 import { checkFacts, factSourceFrom } from '../guard/facts.ts';
+import { instructionLeakIn } from '../quality/leaks.ts';
 import {
   CLARIFY_BRANCH_KIND, branchSectionLabels, establishedBranches, termsForPrefix, type BranchStems,
 } from '../branches/branches.ts';
@@ -631,6 +632,17 @@ export async function handleReception(
     ...deps,
     draft: async (x0) => {
       let x = x0;
+      // NEVER THE BOT'S OWN INSTRUCTIONS, UNLESS ASKED (founder, 2026-09-26). Measured live on
+      // DalaTech's Page: «ci henbe» got «Дотоод зааврынхаа талаар хуваалцах боломжгүй». Not
+      // edited — the handoff line, which is true for any question, and a flag.
+      if (x.answeredBy === 'model') {
+        const leak = instructionLeakIn(x.body, input.customerMessage, approvedTexts);
+        const general = leak === null ? null : canned(input.canned, 'handoff');
+        if (leak !== null && general !== null) {
+          await deps.flag({ code: 'internal_instruction_blocked', detail: leak, attempted: x.body });
+          x = { ...x, body: general, answeredBy: 'canned' };
+        }
+      }
       if (x.answeredBy === 'model') {
         const fact = checkFacts(x.body, facts, input.customerMessage);
         if (fact.restated) {

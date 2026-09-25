@@ -29,6 +29,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { controlFromEcho } from './control.ts';
+import { isAutomationText } from './automation.ts';
 import { readThreadState } from './record.ts';
 
 /** More echoes than this after one customer message is a conversation, not a race. */
@@ -40,7 +41,9 @@ export type PersonReplied =
   | { replied: 'unreadable'; detail: string };
 
 /** Echoes in one stored entry that a PERSON sent to this customer. */
-export function personEchoesIn(payload: unknown, psid: string, ourAppId: string | null): number {
+export function personEchoesIn(
+  payload: unknown, psid: string, ourAppId: string | null, automationTexts: readonly string[] = [],
+): number {
   if (payload === null || typeof payload !== 'object') return 0;
   const messaging = (payload as Record<string, unknown>)['messaging'];
   if (!Array.isArray(messaging)) return 0;
@@ -53,7 +56,8 @@ export function personEchoesIn(payload: unknown, psid: string, ourAppId: string 
     if (message?.['is_echo'] !== true || String(recipient?.['id'] ?? '') !== psid) continue;
     const app = message['app_id'];
     const appId = typeof app === 'number' || typeof app === 'string' ? String(app) : null;
-    if (controlFromEcho(false, appId, ourAppId).control === 'human') n += 1;
+    const automated = isAutomationText(typeof message['text'] === 'string' ? message['text'] : null, automationTexts);
+    if (controlFromEcho(false, appId, ourAppId, automated).control === 'human') n += 1;
   }
   return n;
 }
@@ -69,6 +73,8 @@ export async function personRepliedSince(
     /** When the customer's message was sent. */
     since: Date;
     ourAppId: string | null;
+    /** `tenant_channels.automation_texts`: an automated DM is not a person replying. */
+    automationTexts?: readonly string[];
   },
 ): Promise<PersonReplied> {
   const [state, echoes] = await Promise.all([
@@ -93,7 +99,7 @@ export async function personRepliedSince(
   if (!echoes.error) {
     for (const row of Array.isArray(echoes.data) ? echoes.data : []) {
       const r = row as Record<string, unknown>;
-      if (personEchoesIn(r['raw_payload'], input.psid, input.ourAppId) > 0) {
+      if (personEchoesIn(r['raw_payload'], input.psid, input.ourAppId, input.automationTexts ?? []) > 0) {
         return { replied: true, via: 'echo', detail: `a person replied in webhook event ${String(r['id'])}` };
       }
     }
