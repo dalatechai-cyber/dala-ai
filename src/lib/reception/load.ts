@@ -17,6 +17,8 @@ import type { BusinessHours, Closure } from './volatile.ts';
 import { canonicalizeUrl } from '../mn/extract.ts';
 import type { Spelling } from '../mn/latin.ts';
 import { appliedSpellings } from '../quality/spellings.ts';
+import { branchNamesFromPrefix } from '../branches/branches.ts';
+import { loadBranchContext, type BranchContext } from '../branches/load.ts';
 
 export type TenantSettings = {
   defaultLocale: string;
@@ -55,6 +57,12 @@ export type ReceptionContext = {
   serviceAliases: { name: string; alias: string }[];
   /** `spellings` that are `settled` or `confirmed` (D-120): what the gate also matches against. */
   spellings: Spelling[];
+  /**
+   * The branches the live prefix lists, with their live stems, week and contact points
+   * (D-122). `[]` unless the prefix lists two or more — every tenant today — and then the
+   * branch tables are not read at all.
+   */
+  branches: BranchContext[];
   canned: CannedRow[];
   tenantGuard: TenantGuardView;
   cacheMode: 'off' | '5m' | '1h';
@@ -157,6 +165,24 @@ export function toDeterministic(rows: unknown): DeterministicRule[] {
   });
 }
 
+/**
+ * Every link the tenant has declared in a contact point, from `contact_points` or a branch's
+ * `branch_contact_points` — the values the URL guard allows alongside the booking link.
+ *
+ * All four URL-shaped kinds, not just `maps_url`: restricting it to the one kind needed
+ * today rebuilds the same gap for `website` the first time anybody adds one. A kind that
+ * holds a handle rather than a link is inert here rather than dangerous — it canonicalises
+ * to something no extracted URL matches — but it is filtered out anyway so the allow-list
+ * contains only things that are actually links.
+ */
+export const URL_CONTACT_KINDS: ReadonlySet<string> = new Set(['maps_url', 'website', 'facebook', 'instagram']);
+
+export function linkValues(contacts: readonly { kind: string; value: string }[]): string[] {
+  return contacts
+    .filter((c) => URL_CONTACT_KINDS.has(c.kind) && c.value !== '' && canonicalizeUrl(c.value) !== null)
+    .map((c) => c.value);
+}
+
 export async function loadReceptionContext(
   db: SupabaseClient,
   input: { tenantId: string; channel: string; settings: TenantSettings; localDate: string },
@@ -253,25 +279,44 @@ export async function loadReceptionContext(
    * `urlsNotAllowed` — so Matrix's location, which `contact_points.kind` has allowed as
    * `maps_url` since `0001`, could be compiled into the prefix, quoted correctly by the
    * model, and then thrown away by the guard. That is D-068's shape in a different check:
-   * a reply punished for using the tenant's own approved data.
-   *
-   * All four URL-shaped kinds, not just `maps_url`: restricting it to the one kind needed
-   * today rebuilds the same gap for `website` the first time anybody adds one. A kind that
-   * holds a handle rather than a link is inert here rather than dangerous — it canonicalises
-   * to something no extracted URL matches — but it is filtered out anyway so the allow-list
-   * contains only things that are actually links.
+   * a reply punished for using the tenant's own approved data. Which kinds count: see
+   * `linkValues`, which the branch links below go through too.
    */
-  const URL_CONTACT_KINDS: ReadonlySet<string> = new Set(['maps_url', 'website', 'facebook', 'instagram']);
-  const contactUrls = (Array.isArray(contactsRes.data) ? contactsRes.data : [])
-    .filter((raw) => URL_CONTACT_KINDS.has(String((raw as Record<string, unknown>)['kind'] ?? '')))
-    .map((raw) => String((raw as Record<string, unknown>)['value'] ?? ''))
-    .filter((v) => v !== '' && canonicalizeUrl(v) !== null);
+  const contactUrls = linkValues((Array.isArray(contactsRes.data) ? contactsRes.data : []).map((raw) => ({
+    kind: String((raw as Record<string, unknown>)['kind'] ?? ''),
+    value: String((raw as Record<string, unknown>)['value'] ?? ''),
+  })));
+
+  const hours: BusinessHours[] = (Array.isArray(hoursRes.data) ? hoursRes.data : []).map((raw) => {
+    const r = raw as Record<string, unknown>;
+    return {
+      weekday: Number(r['weekday']),
+      opens: r['opens'] === null ? null : String(r['opens']),
+      closes: r['closes'] === null ? null : String(r['closes']),
+      closed: r['closed'] === true,
+    };
+  });
+
+  // Branches (D-122), read ONLY when the live prefix lists two or more. The gate is the
+  // prefix, not the tables: a tenant whose snapshot lists none never issues these reads, so
+  // this path is safe for every tenant before `0047` is pushed — see `branches/load.ts`.
+  const branchNames = branchNamesFromPrefix(snapshot.snapshot.promptStable);
+  let branches: BranchContext[] = [];
+  if (branchNames.length > 0) {
+    const loadedBranches = await loadBranchContext(db, { tenantId: input.tenantId, names: branchNames, tenantHours: hours });
+    if (!loadedBranches.ok) return { ok: false, code: 'unavailable', detail: loadedBranches.detail };
+    branches = loadedBranches.branches;
+  }
+  // A branch's own map link is the tenant's approved data exactly as the tenant-wide one is,
+  // and a guard that refused it would be D-068's shape again.
+  const branchUrls = linkValues(branches.flatMap((b) => b.contacts));
 
   const allowedUrls = [
     ...(Array.isArray(booking.data) ? booking.data : [])
       .map((raw) => String((raw as Record<string, unknown>)['booking_url'] ?? ''))
       .filter((u) => u !== ''),
     ...contactUrls,
+    ...branchUrls,
   ];
 
   const serviceNames = (Array.isArray(services.data) ? services.data : [])
@@ -326,16 +371,6 @@ export async function loadReceptionContext(
 
   const cacheMode = CACHE_MODES.has(input.settings.promptCacheMode) ? input.settings.promptCacheMode : 'off';
 
-  const hours: BusinessHours[] = (Array.isArray(hoursRes.data) ? hoursRes.data : []).map((raw) => {
-    const r = raw as Record<string, unknown>;
-    return {
-      weekday: Number(r['weekday']),
-      opens: r['opens'] === null ? null : String(r['opens']),
-      closes: r['closes'] === null ? null : String(r['closes']),
-      closed: r['closed'] === true,
-    };
-  });
-
   const closures: Closure[] = (Array.isArray(closuresRes.data) ? closuresRes.data : []).map((raw) => {
     const r = raw as Record<string, unknown>;
     return {
@@ -369,6 +404,7 @@ export async function loadReceptionContext(
       deterministic,
       serviceAliases,
       spellings,
+      branches,
       hours,
       closures,
       allowedNumbers: snapshot.snapshot.allowedNumbers,

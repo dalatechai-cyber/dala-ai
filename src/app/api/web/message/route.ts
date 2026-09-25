@@ -112,6 +112,7 @@ function effects(now: Date): MessageEffects {
           spellings: a.ctx.spellings,
           depositRows: sectionRows(a.ctx.promptStable, SECTION_LABELS.deposits),
           faqAnswers: faqAnswersFromPrefix(a.ctx.promptStable, SECTION_LABELS.faqs),
+          branches: a.ctx.branches,
           cannedHash: a.ctx.cannedHash,
         },
       ),

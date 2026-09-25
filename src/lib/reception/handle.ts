@@ -56,6 +56,10 @@ import { bookingApology, renderBookingAnswer, apologyStemsFrom } from '../guard/
 import { capToSingleMessage } from '../mn/text.ts';
 import { respell, type Spelling } from '../mn/latin.ts';
 import { checkFacts, factSourceFrom } from '../guard/facts.ts';
+import {
+  CLARIFY_BRANCH_KIND, branchSectionLabels, establishedBranches, termsForPrefix, type BranchStems,
+} from '../branches/branches.ts';
+import { branchFactSource, judgeBranches } from '../branches/facts.ts';
 
 /** One Messenger send, in characters. */
 export const MAX_REPLY_CHARS = 1900;
@@ -186,6 +190,13 @@ export type ReceptionInput = {
    * `[]` is a real state — a tenant whose list is empty — and a caller must say so.
    */
   spellings: readonly Spelling[];
+  /**
+   * `tenant_branches` names and stems, read live — how a customer can name a branch (D-122).
+   * Only read when the prefix lists two or more branches (`reception/load.ts`); `[]` for
+   * every other tenant, and then nothing about branches runs here. Required: `[]` is a real
+   * state and a caller must say so.
+   */
+  branches: readonly BranchStems[];
 };
 
 export type ReceptionOutcome =
@@ -567,18 +578,33 @@ export async function handleReception(
   // Prices, the address, phone numbers, hours and deposits come from the data, never from
   // the model's wording (founder, 2026-09-24; `guard/facts.ts`). Checked HERE, where every
   // draft passes, so no path the model's text can take reaches a customer unchecked.
+  const approvedTexts = [
+    ...input.canned.filter((c) => c.reviewedAt !== null).map((c) => c.body),
+    ...input.faqAnswers,
+    ...input.deterministic.filter((r) => r.enabled).map((r) => r.body),
+    ...input.depositRows,
+    // L4's own lines — today's hours, a closure notice — are data rendered per request.
+    ...input.promptVolatile.split('\n'),
+  ];
+  // Two or more branches (D-122): each branch's own sections are fact sections too, and a
+  // reply's branch facts are then judged against the branch the customer named. `null` for a
+  // prefix that lists fewer than two — every tenant today — and then none of it runs.
+  const branchSrc = branchFactSource(input.promptStable, approvedTexts);
   const facts = factSourceFrom(
     input.promptStable,
     { priceList: SECTION_LABELS.priceList, deposits: SECTION_LABELS.deposits, hours: SECTION_LABELS.hours, contacts: SECTION_LABELS.contacts },
-    [
-      ...input.canned.filter((c) => c.reviewedAt !== null).map((c) => c.body),
-      ...input.faqAnswers,
-      ...input.deterministic.filter((r) => r.enabled).map((r) => r.body),
-      ...input.depositRows,
-      // L4's own lines — today's hours, a closure notice — are data rendered per request.
-      ...input.promptVolatile.split('\n'),
-    ],
+    approvedTexts,
+    branchSrc === null ? [] : branchSrc.names.flatMap((name) => {
+      const l = branchSectionLabels(name);
+      return [
+        { section: 'contact' as const, label: l.contacts },
+        { section: 'hours' as const, label: l.hours },
+        { section: 'price' as const, label: l.prices },
+      ];
+    }),
   );
+  const established = branchSrc === null ? null
+    : establishedBranches(input.customerMessage, respelled, input.history, termsForPrefix(branchSrc.names, input.branches));
   // Price rows a set row covers are served the tenant's way — its order, then its question
   // (founder, 2026-09-24: *"…then my question, also when served from data."*). Any other
   // line in the answer keeps the served text as it was.
@@ -602,6 +628,31 @@ export async function handleReception(
           const served = fact.served === null ? canned(input.canned, 'handoff') : asSet(fact.served);
           if (served === null) return { ok: false, detail: 'fact_restated: no row to serve and no handoff line' };
           x = { ...x, body: served, answeredBy: fact.served === null ? 'canned' : 'deterministic' };
+        }
+      }
+      // WHICH BRANCH (D-122). Judged on what the model wrote — or on the rows `checkFacts`
+      // served in its place, which can be one branch's rows exactly as easily. A reviewed
+      // line or a deterministic row is the tenant's own words and is not judged here.
+      if (x0.answeredBy === 'model' && branchSrc !== null && established !== null) {
+        const verdict = judgeBranches(x.body, branchSrc, established);
+        if (verdict.kind === 'serve') {
+          await deps.flag({ code: 'branch_facts_served', detail: verdict.detail, attempted: x0.body });
+          x = { ...x, body: verdict.body, answeredBy: 'deterministic' };
+        } else if (verdict.kind === 'ask' || verdict.kind === 'handoff') {
+          // Ask which branch — with the tenant's REVIEWED line only. No reviewed line, or the
+          // question already asked on the previous turn and still unanswered: the handoff
+          // line, which names no branch. Never the reply that guessed one.
+          const clarify = verdict.kind === 'ask' ? canned(input.canned, CLARIFY_BRANCH_KIND) : null;
+          const askedLastTurn = clarify !== null && previousReply !== null
+            && fold(previousReply).includes(fold(clarify).trim());
+          const line = clarify !== null && !askedLastTurn ? clarify : canned(input.canned, 'handoff');
+          const code = verdict.kind === 'handoff' ? 'branch_no_counterpart'
+            : clarify === null ? 'branch_ask_unavailable'
+              : askedLastTurn ? 'branch_ask_repeated'
+                : 'branch_asked';
+          await deps.flag({ code, detail: verdict.detail, attempted: x0.body });
+          if (line === null) return { ok: false, detail: `${code}: no reviewed line to serve` };
+          x = { ...x, body: line, answeredBy: 'canned' };
         }
       }
       // A topic append («the stylist decides») is not added to a reviewed line: the refusal

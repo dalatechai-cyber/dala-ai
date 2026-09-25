@@ -42,7 +42,12 @@ import { CONTACT_KIND_LABELS } from '../prompt/tenant.ts';
 
 export type FactSection = 'price' | 'deposit' | 'hours' | 'contact';
 
-export type FactRow = { section: FactSection; text: string; amounts: string[] };
+/**
+ * `group` is the heading the row was read under — `''` for the tenant-wide sections, a
+ * branch's own heading otherwise (D-122). It exists for one rule: hours are one fact, the
+ * WEEK, and a week is one heading's rows, never two branches' weeks served as one.
+ */
+export type FactRow = { section: FactSection; text: string; amounts: string[]; group: string };
 
 export type FactSource = {
   rows: FactRow[];
@@ -93,17 +98,29 @@ export function factSourceFrom(
   promptStable: string,
   labels: { priceList: string; deposits: string; hours: string; contacts: string },
   approved: readonly string[],
+  /**
+   * More sections to read facts from: each branch's own contacts, hours and prices when the
+   * tenant has two or more branches (`branches/facts.ts`). Empty for every other tenant, and
+   * then this function is what it was — so a branch fact restated in the model's words is
+   * served from its row exactly as a tenant-wide one is. WHICH branch it belongs to is a
+   * separate question, judged after this one (`judgeBranches`).
+   */
+  extra: readonly { section: FactSection; label: string }[] = [],
 ): FactSource {
   const rows: FactRow[] = [];
-  const add = (section: FactSection, label: string): string[] => {
+  const add = (section: FactSection, label: string, group: string): string[] => {
     const found = sectionRows(promptStable, label);
-    for (const text of found) rows.push({ section, text, amounts: amountsIn(text).map((a) => a.digits) });
+    for (const text of found) rows.push({ section, text, amounts: amountsIn(text).map((a) => a.digits), group });
     return found;
   };
-  add('price', labels.priceList);
-  add('deposit', labels.deposits);
-  add('hours', labels.hours);
-  const contacts = add('contact', labels.contacts);
+  add('price', labels.priceList, '');
+  add('deposit', labels.deposits, '');
+  add('hours', labels.hours, '');
+  const contacts = add('contact', labels.contacts, '');
+  for (const x of extra) {
+    const found = add(x.section, x.label, x.label);
+    if (x.section === 'contact') contacts.push(...found);
+  }
 
   const addressPrefix = `${CONTACT_KIND_LABELS['address'] ?? ''}: `;
   const addresses = contacts.filter((c) => c.startsWith(addressPrefix)).map((c) => fold(valueOf(c))).filter((a) => a !== '');
@@ -195,8 +212,12 @@ export function checkFacts(reply: string, source: FactSource, customerMessage = 
       if (byName.length > 0) owners = byName;
     }
     // Hours are one fact, the week: «10:00-20:00 every day» is answered with every day,
-    // including the one that differs.
-    if (owners.some((r) => r.section === 'hours')) owners = source.rows.filter((r) => r.section === 'hours');
+    // including the one that differs. The week of each heading an owner came from — with
+    // one location that is the one tenant-wide week, exactly as before.
+    if (owners.some((r) => r.section === 'hours')) {
+      const weeks = new Set(owners.filter((r) => r.section === 'hours').map((r) => r.group));
+      owners = source.rows.filter((r) => r.section === 'hours' && weeks.has(r.group));
+    }
     // A PRICE row must be corroborated — its range partner, or a word of its service's name
     // in the reply or the question. Measured on Matrix's corpus: «Маникюр хэд вэ?» answered
     // from a superseded nail list carried 50,000, which today only «Хэлбэржүүлэлт (Мастер)»

@@ -27,7 +27,8 @@
  * They are scaffolding the model reads, not text a customer sees, which the founder ruled
  * sits outside the `prompt/platform` sign-off gate — the same ruling that covers
  * `volatile.ts`'s labels. That is a reason they need no signature, not a reason nobody
- * should read them: every string this file emits is in the two constants below.
+ * should read them: every string this file emits is in the two constants below, plus the
+ * « — » `branchHeading` puts between a section's label and a branch's own name (D-122).
  *
  * ## Why the currency symbol goes after EVERY price, without exception
  *
@@ -52,7 +53,7 @@
  * inventing a separator for a problem that does not exist.
  */
 import type { PromptSection } from './render.ts';
-import { nfc } from '../mn/text.ts';
+import { byCodePoint, nfc } from '../mn/text.ts';
 import { cannedSectionBody } from '../gate/match.ts';
 
 /**
@@ -83,7 +84,26 @@ export const SECTION_LABELS = {
    * belongs with the others rather than at a call site.
    */
   canned: 'БЭЛЭН ХАРИУЛТ',
+  /**
+   * The tenant's locations, one per line (D-122). Rendered only when two or more are
+   * confirmed, and it is what the request path reads to know that the prefix is split by
+   * branch at all (`branches/branches.ts`). Each branch's own facts follow under
+   * `${label} — ${branch name}` headings, built by `branchHeading`.
+   */
+  branches: 'САЛБАРУУД',
 } as const;
+
+/**
+ * The heading of one branch's own copy of a section: «ХОЛБОО БАРИХ — Яармаг салбар».
+ *
+ * The section's own label comes FIRST so the model reads «ҮНИЙН ЖАГСААЛТ — …» as the price
+ * list Ш2 addresses, and the branch name is the salon's own. `sectionRows` looks a heading up
+ * by its full text between `=== ` and ` ===`, so the tenant-wide «=== ХОЛБОО БАРИХ ===» and a
+ * branch's «=== ХОЛБОО БАРИХ — Яармаг салбар ===» can never be read for each other.
+ */
+export function branchHeading(label: string, branch: string): string {
+  return `${label} — ${branch}`;
+}
 
 /**
  * Weekday names, and the order the week is printed in.
@@ -220,7 +240,32 @@ export type TenantKb = {
    * answers from its FAQ — got the handoff line, because the facts were not in the model's
    * context at all. Measured on the live project 2026-09-07.
    */
-  hours: readonly { weekday: number; opens: string | null; closes: string | null; closed: boolean }[];
+  hours: readonly HoursRow[];
+  /**
+   * The tenant's active, CONFIRMED locations, in their `ordinal` order, each carrying only
+   * the rows where it differs from the tenant-wide ones above (0047, D-122).
+   *
+   * Fewer than two means the tenant is one place and nothing here is rendered: the prefix is
+   * exactly what it was before branches existed. See `planBranches`.
+   */
+  branches: readonly BranchKb[];
+};
+
+/** One day of opening hours, as `business_hours` and `branch_hours` both hold it. */
+export type HoursRow = { weekday: number; opens: string | null; closes: string | null; closed: boolean };
+
+/**
+ * A branch's price for one variant. `variant` null means the row exists and is not
+ * confirmed: the branch's price is unknown, and the tenant-wide price is exactly the number
+ * the row says is wrong for it — so the service is shown for that branch with no figure.
+ */
+export type BranchPrice = { service: string; variantKey: string; variant: ServiceVariant | null };
+
+export type BranchKb = {
+  name: string;
+  contacts: readonly { kind: string; value: string }[];
+  hours: readonly HoursRow[];
+  prices: readonly BranchPrice[];
 };
 
 /** `HH:MM` from a PostgREST `time`, which arrives as `10:00:00`. Null when unusable. */
@@ -377,6 +422,145 @@ function priceOf(v: ServiceVariant, kb: TenantKb): string | null {
 
 const heading = (label: string) => `=== ${label} ===`;
 
+/**
+ * The lines of the three sections a branch can have its own copy of. One renderer for the
+ * tenant-wide section and every branch's, so a branch row can never be formatted
+ * differently from the row it replaces — the `btrim`/`.trim()` lesson (D-058).
+ */
+function contactLines(contacts: readonly { kind: string; value: string }[], bookingUrl: string | null): string[] {
+  return [
+    ...contacts.map((c) => `- ${CONTACT_KIND_LABELS[c.kind] ?? c.kind}: ${c.value}`),
+    ...(bookingUrl === null ? [] : [`- ${BOOKING_LABEL}: ${bookingUrl}`]),
+  ];
+}
+
+function hoursLines(hours: readonly HoursRow[]): string[] {
+  return WEEKDAYS.flatMap(({ dow, label }) => {
+    const row = hours.find((h) => h.weekday === dow);
+    if (row === undefined) return [];
+    if (row.closed) return [`- ${label}: ${CLOSED_LABEL}`];
+    const opens = clockTime(row.opens);
+    const closes = clockTime(row.closes);
+    if (opens === null || closes === null) return [];
+    return [`- ${label}: ${opens} - ${closes}`];
+  });
+}
+
+function priceLines(services: TenantKb['services'], kb: TenantKb): string[] {
+  return services.flatMap((svc) =>
+    svc.variants.map((v) => {
+      const name = v.variantKey === '' ? svc.name : `${svc.name} (${v.variantKey})`;
+      // `null` is a PRICED variant, rendered as the name alone. The colon goes with the
+      // figure: `- Омбре:` with nothing after it reads as a missing value rather than a
+      // withheld one, and the model would try to fill it.
+      const shown = priceOf(v, kb);
+      return shown === null ? `- ${name}` : `- ${name}: ${shown}`;
+    }));
+}
+
+/** At least two locations before anything is split; one location is just the tenant. */
+export const MIN_BRANCHES = 2;
+
+/**
+ * Which facts every branch shares, and which each branch states for itself (D-122).
+ *
+ * `null` when the tenant has fewer than {@link MIN_BRANCHES} branches — and then NOTHING
+ * about branches is rendered and the prefix is byte-for-byte what it was before `0047`.
+ * That is the property Matrix depends on: it is live, it has one location, and a change
+ * built for its second branch must not move its `content_hash` by one byte before that
+ * branch's rows exist.
+ *
+ * ## Effective value, then "the same everywhere?"
+ *
+ * A branch row overrides the tenant-wide row of the same kind / weekday / variant for that
+ * branch; where a branch has none, the tenant-wide row applies to it. A fact whose effective
+ * value is identical at every branch stays in the tenant-wide section, where it always was,
+ * and a customer asking about it is answered without being asked which branch. A fact that
+ * differs moves OUT of the tenant-wide section entirely and into each branch's own — so the
+ * prefix never carries one branch's address under a heading that means "the salon's".
+ *
+ * Compared as RENDERED LINES, not as raw rows: two rows that print identically are the same
+ * fact to a customer, and two that print differently are not, whatever the columns say.
+ *
+ * Hours are one fact, the week (`guard/facts.ts` serves them that way too): if any day
+ * differs, each branch shows its whole week. A service is one fact too: if any variant's
+ * price differs, every variant of that service is shown per branch, so a price list never
+ * shows half a service's options in one place and half in another.
+ */
+export type BranchPlan = {
+  shared: TenantKb;
+  branches: {
+    name: string;
+    contacts: { kind: string; value: string }[];
+    hours: HoursRow[];
+    services: { name: string; variants: ServiceVariant[] }[];
+  }[];
+};
+
+export function planBranches(kb: TenantKb): BranchPlan | null {
+  // A KB read from a JSON dump written before `0047` (the bake-off's `--kb`) has no
+  // `branches` at all, and "no branches" is exactly what it means.
+  const branches: readonly BranchKb[] = (kb.branches as readonly BranchKb[] | undefined) ?? [];
+  if (branches.length < MIN_BRANCHES) return null;
+  const per = branches.map((b) => ({
+    name: b.name,
+    contacts: [] as { kind: string; value: string }[],
+    hours: [] as HoursRow[],
+    services: [] as { name: string; variants: ServiceVariant[] }[],
+  }));
+  const same = (lines: readonly string[][]): boolean => lines.every((l) => l.join('\n') === (lines[0] ?? []).join('\n'));
+
+  // Contacts, kind by kind, in code-point order — the order `loadTenantKb` gives the
+  // tenant-wide rows, so a tenant whose branches override nothing renders them unchanged.
+  const tenantContact = new Map(kb.contacts.map((c) => [c.kind, c.value] as const));
+  const kinds = [...new Set([...kb.contacts.map((c) => c.kind), ...branches.flatMap((b) => b.contacts.map((c) => c.kind))])]
+    .sort(byCodePoint);
+  const sharedContacts: { kind: string; value: string }[] = [];
+  for (const kind of kinds) {
+    const eff = branches.map((b) => b.contacts.find((c) => c.kind === kind)?.value ?? tenantContact.get(kind) ?? null);
+    const first = eff[0] ?? null;
+    if (eff.every((e) => e === first)) {
+      if (first !== null) sharedContacts.push({ kind, value: first });
+    } else {
+      eff.forEach((e, i) => { if (e !== null) per[i]?.contacts.push({ kind, value: e }); });
+    }
+  }
+
+  // Hours: the whole week per branch, or the one week everybody keeps.
+  const weeks = branches.map((b) => [0, 1, 2, 3, 4, 5, 6].flatMap((wd) => {
+    const row = b.hours.find((h) => h.weekday === wd) ?? kb.hours.find((h) => h.weekday === wd);
+    return row === undefined ? [] : [row];
+  }));
+  const hoursShared = same(weeks.map(hoursLines));
+  if (!hoursShared) weeks.forEach((w, i) => { per[i]?.hours.push(...w); });
+
+  // Services: a whole service is shared, or a whole service is per branch.
+  const sharedServices: { name: string; variants: readonly ServiceVariant[] }[] = [];
+  for (const svc of kb.services) {
+    const effective = branches.map((b) => svc.variants.map((v): ServiceVariant => {
+      const own = b.prices.find((p) => p.service === svc.name && p.variantKey === v.variantKey);
+      if (own === undefined) return v;
+      // Unconfirmed: the branch's price is unknown, so the service is named with no figure.
+      return own.variant ?? { variantKey: v.variantKey, priceKind: 'exact', priceMin: null, priceMax: null, refusalTopic: null };
+    }));
+    const touched = branches.some((b) => b.prices.some((p) => p.service === svc.name));
+    if (!touched) { sharedServices.push(svc); continue; }
+    const lines = effective.map((variants) => priceLines([{ name: svc.name, variants }], kb));
+    if (same(lines)) sharedServices.push({ name: svc.name, variants: effective[0] ?? svc.variants });
+    else effective.forEach((variants, i) => { per[i]?.services.push({ name: svc.name, variants }); });
+  }
+
+  return {
+    shared: {
+      ...kb,
+      contacts: sharedContacts,
+      hours: hoursShared ? (weeks[0] ?? []) : [],
+      services: sharedServices,
+    },
+    branches: per,
+  };
+}
+
 /** A section, or null when it has no rows. An empty heading invites the model to treat
  *  "the list is absent" as "the list is empty", and Ш8 already covers absence. */
 function section(
@@ -408,8 +592,13 @@ function section(
  * required parameter rather than a default so the compiler cannot mint an approval it was
  * never given.
  */
-export function renderTenantSections(kb: TenantKb, approvedAt: string): PromptSection[] {
+export function renderTenantSections(tenantKb: TenantKb, approvedAt: string): PromptSection[] {
   const out: (PromptSection | null)[] = [];
+  // With two or more branches the three branch-dependent sections below render only what
+  // every branch shares, and each branch's own facts follow at the end (D-122). With fewer,
+  // `plan` is null, `kb` IS the tenant's KB, and every line below is what it always was.
+  const plan = planBranches(tenantKb);
+  const kb = plan === null ? tenantKb : plan.shared;
 
   // ---- L2: the boundary pack. Lists that CONSTRAIN. ----------------------
   // `key: question`, the shape `clarify_axes` below already uses. Ш1 asks whether the
@@ -451,16 +640,7 @@ export function renderTenantSections(kb: TenantKb, approvedAt: string): PromptSe
       return `- ${parts.join(' · ')}`;
     }), approvedAt));
 
-  out.push(section('L3', 'price_list', 2, SECTION_LABELS.priceList,
-    kb.services.flatMap((svc) =>
-      svc.variants.map((v) => {
-        const name = v.variantKey === '' ? svc.name : `${svc.name} (${v.variantKey})`;
-        // `null` is a PRICED variant, rendered as the name alone. The colon goes with the
-        // figure: `- Омбре:` with nothing after it reads as a missing value rather than a
-        // withheld one, and the model would try to fill it.
-        const shown = priceOf(v, kb);
-        return shown === null ? `- ${name}` : `- ${name}: ${shown}`;
-      })), approvedAt));
+  out.push(section('L3', 'price_list', 2, SECTION_LABELS.priceList, priceLines(kb.services, kb), approvedAt));
 
   out.push(section('L3', 'faqs', 3, SECTION_LABELS.faqs,
     kb.faqs.map((f) => `- ${f.question}\n  ${f.answer}`), approvedAt));
@@ -488,22 +668,30 @@ export function renderTenantSections(kb: TenantKb, approvedAt: string): PromptSe
   //     with no times is OMITTED rather than guessed at, which is the same "we do not know
   //     is not closed" rule `isOpenAt` already applies per request. A day with no row at
   //     all was never in the list to begin with.
-  out.push(section('L3', 'business_hours', 4, SECTION_LABELS.hours,
-    WEEKDAYS.flatMap(({ dow, label }) => {
-      const row = kb.hours.find((h) => h.weekday === dow);
-      if (row === undefined) return [];
-      if (row.closed) return [`- ${label}: ${CLOSED_LABEL}`];
-      const opens = clockTime(row.opens);
-      const closes = clockTime(row.closes);
-      if (opens === null || closes === null) return [];
-      return [`- ${label}: ${opens} - ${closes}`];
-    }), approvedAt));
+  out.push(section('L3', 'business_hours', 4, SECTION_LABELS.hours, hoursLines(kb.hours), approvedAt));
 
-  out.push(section('L3', 'contacts', 5, SECTION_LABELS.contacts,
-    [
-      ...kb.contacts.map((c) => `- ${CONTACT_KIND_LABELS[c.kind] ?? c.kind}: ${c.value}`),
-      ...(kb.bookingUrl === null ? [] : [`- ${BOOKING_LABEL}: ${kb.bookingUrl}`]),
-    ], approvedAt));
+  out.push(section('L3', 'contacts', 5, SECTION_LABELS.contacts, contactLines(kb.contacts, kb.bookingUrl), approvedAt));
+
+  // ---- L3: the branches, only when there are two or more (D-122). -----------
+  //
+  // The list first, so the model knows the tenant is more than one place and what each is
+  // called; then each branch's own contacts, week and prices under a heading carrying its
+  // name. A branch section holds only what DIFFERS — what every branch shares stayed above.
+  // Ordinals start after `contacts` and step by three, so no two sections share a slot
+  // (`renderStablePrefix` refuses an ambiguous order) and branch order is the loader's.
+  // The booking link is the tenant's, not a branch's, and stays in the tenant-wide section.
+  if (plan !== null) {
+    out.push(section('L3', 'branches', 6, SECTION_LABELS.branches,
+      plan.branches.map((b) => `- ${b.name}`), approvedAt));
+    plan.branches.forEach((b, i) => {
+      out.push(section('L3', `branch_${i}_contacts`, 7 + 3 * i,
+        branchHeading(SECTION_LABELS.contacts, b.name), contactLines(b.contacts, null), approvedAt));
+      out.push(section('L3', `branch_${i}_hours`, 8 + 3 * i,
+        branchHeading(SECTION_LABELS.hours, b.name), hoursLines(b.hours), approvedAt));
+      out.push(section('L3', `branch_${i}_prices`, 9 + 3 * i,
+        branchHeading(SECTION_LABELS.priceList, b.name), priceLines(b.services, kb), approvedAt));
+    });
+  }
 
   const sections = out.filter((s): s is PromptSection => s !== null);
 

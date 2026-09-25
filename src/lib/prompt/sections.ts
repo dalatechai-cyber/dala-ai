@@ -47,7 +47,8 @@ export function cannedHashOf(rows: readonly { kind: string; body: string }[]): s
   return createHash('sha256').update(cannedSectionBody(SECTION_LABELS.canned, rows), 'utf8').digest('hex');
 }
 import { publishRevision, type PublishOutcome } from './publish.ts';
-import { renderTenantSections, type PriceKind, type ServiceVariant, type TenantKb } from './tenant.ts';
+import { MIN_BRANCHES, renderTenantSections, type BranchKb, type PriceKind, type ServiceVariant, type TenantKb } from './tenant.ts';
+import { branchTerms } from '../branches/branches.ts';
 import { isTenantConfirmed, unconfirmedNames } from '../provenance.ts';
 import { byCodePoint } from '../mn/text.ts';
 
@@ -173,9 +174,15 @@ export type KbProvenance = {
   faqsExcluded: string[];
   /** Refusal topics that fired into the prompt without confirmation. */
   refusalTopicsUnconfirmed: string[];
+  /**
+   * Active branches left out because they are not `tenant_confirmed` (0047, D-122). A branch
+   * is a set of facts told to customers, like a FAQ, so it is excluded rather than kept — and
+   * with fewer than two confirmed branches the tenant compiles as one location.
+   */
+  branchesExcluded: string[];
 };
 
-export const NO_UNCONFIRMED: KbProvenance = { faqsExcluded: [], refusalTopicsUnconfirmed: [] };
+export const NO_UNCONFIRMED: KbProvenance = { faqsExcluded: [], refusalTopicsUnconfirmed: [], branchesExcluded: [] };
 
 export type TenantKbOutcome =
   | { ok: true; kb: TenantKb; unconfirmed: KbProvenance }
@@ -261,6 +268,7 @@ export async function loadTenantKb(
   const [
     tenant, disclosure, outOfScope, disambig, axes, deposits,
     documents, canned, staff, services, variants, faqs, contacts, booking, hours,
+    branchRows, branchContacts, branchHours, branchPrices,
   ] = await Promise.all([
     db.from('tenants').select('currency_symbol, currency_symbol_before, default_locale').eq('id', t).maybeSingle(),
     db.from('disclosure_rules').select('topic_key, decision_question, provenance').eq('tenant_id', t).order('topic_key'),
@@ -275,11 +283,17 @@ export async function loadTenantKb(
     db.from('canned_responses').select('kind, body, locale').eq('tenant_id', t).order('kind'),
     db.from('staff_members').select('name, short_name, group_name, tier').eq('tenant_id', t).eq('active', true).order('group_name').order('name'),
     db.from('services').select('id, name').eq('tenant_id', t).eq('active', true).order('name'),
-    db.from('service_variants').select('service_id, variant_key, price_kind, price_min, price_max, refusal_topic').eq('tenant_id', t).order('variant_key'),
+    db.from('service_variants').select('id, service_id, variant_key, price_kind, price_min, price_max, refusal_topic').eq('tenant_id', t).order('variant_key'),
     db.from('faqs').select('question, answer, provenance').eq('tenant_id', t).order('ordinal').order('question'),
     db.from('contact_points').select('kind, value').eq('tenant_id', t).order('kind'),
     db.from('tenant_booking').select('booking_url').eq('tenant_id', t).maybeSingle(),
     db.from('business_hours').select('weekday, opens, closes, closed').eq('tenant_id', t).order('weekday'),
+    // 0047 (D-122). Read on every publish, so a publish against a project where 0047 is not
+    // pushed refuses as `tenant_branches unreadable` — loudly, with nothing written.
+    db.from('tenant_branches').select('id, name, stems, ordinal, provenance').eq('tenant_id', t).eq('active', true).order('ordinal'),
+    db.from('branch_contact_points').select('branch_id, kind, value').eq('tenant_id', t).order('kind'),
+    db.from('branch_hours').select('branch_id, weekday, opens, closes, closed').eq('tenant_id', t).order('weekday'),
+    db.from('branch_variant_prices').select('branch_id, variant_id, price_kind, price_min, price_max, confirmed_at').eq('tenant_id', t),
   ]);
 
   for (const [name, res] of [
@@ -288,6 +302,8 @@ export async function loadTenantKb(
     ['knowledge_documents', documents], ['canned_responses', canned], ['staff_members', staff], ['services', services],
     ['service_variants', variants], ['faqs', faqs], ['contact_points', contacts],
     ['tenant_booking', booking], ['business_hours', hours],
+    ['tenant_branches', branchRows], ['branch_contact_points', branchContacts],
+    ['branch_hours', branchHours], ['branch_variant_prices', branchPrices],
   ] as const) {
     if (res.error) return { ok: false, detail: `${name} unreadable: ${res.error.message}` };
   }
@@ -321,9 +337,73 @@ export async function loadTenantKb(
     byService.set(id, list);
   }
 
+  // ---- Branches (0047, D-122) ----------------------------------------------
+  //
+  // Only CONFIRMED branches, in `ordinal` order, each carrying only its own rows. The
+  // renderer does nothing with fewer than two (`planBranches`), so a tenant that has not
+  // added a second confirmed branch compiles exactly as before.
+  const serviceName = new Map(rows(services.data).map((r) => [str(r['id']), str(r['name'])] as const));
+  const variantOf = new Map(rows(variants.data).map((v) => [
+    str(v['id']), { service: serviceName.get(str(v['service_id'])), variantKey: str(v['variant_key']) },
+  ] as const));
+  const branchAll = ordered(rows(branchRows.data), (r) => num(r['ordinal']), (r) => str(r['name']), (r) => str(r['id']));
+  const confirmedBranches = branchAll.filter((r) => isTenantConfirmed(r['provenance']));
+  const branchesExcluded = unconfirmedNames(branchAll.filter((r) => !isTenantConfirmed(r['provenance'])).map((r) => str(r['name'])));
+  const branchesKb: BranchKb[] = confirmedBranches.map((b) => {
+    const id = str(b['id']);
+    return {
+      name: str(b['name']),
+      contacts: ordered(rows(branchContacts.data).filter((c) => str(c['branch_id']) === id), (c) => str(c['kind']), (c) => str(c['value']))
+        .map((c) => ({ kind: str(c['kind']), value: str(c['value']) })),
+      hours: rows(branchHours.data).filter((h) => str(h['branch_id']) === id).map((h) => ({
+        weekday: num(h['weekday']), opens: orNull(h['opens']), closes: orNull(h['closes']), closed: h['closed'] === true,
+      })),
+      prices: ordered(rows(branchPrices.data).filter((p) => str(p['branch_id']) === id), (p) => str(p['variant_id'])).flatMap((p) => {
+        const v = variantOf.get(str(p['variant_id']));
+        // A price for a variant of an INACTIVE service: the service is not on the list at all.
+        if (v === undefined || v.service === undefined) return [];
+        const confirmed = p['confirmed_at'] !== null && p['confirmed_at'] !== undefined;
+        return [{
+          service: v.service,
+          variantKey: v.variantKey,
+          variant: confirmed
+            ? {
+                variantKey: v.variantKey, priceKind: str(p['price_kind']) as PriceKind,
+                priceMin: orNull(p['price_min']), priceMax: orNull(p['price_max']), refusalTopic: null,
+              }
+            : null,
+        }];
+      }),
+    };
+  });
+  // A branch no customer can name is a question the bot would ask for ever: the customer
+  // answers, nothing recognises the answer, and the question comes again. Refused at
+  // publish, where an operator reads it, rather than looping at a customer.
+  if (branchesKb.length >= MIN_BRANCHES) {
+    // The name is a HEADING, and the reply path finds a branch's sections by reading the
+    // name back out of the prefix, trimmed. A name that is not its own trim — a tab, a
+    // no-break space the database's `btrim` does not strip — renders a heading nothing can
+    // find, and that branch's facts would be invisible to the check that asks which branch.
+    const malformed = branchesKb.map((b) => b.name).filter((n) => n !== n.trim() || n === '' || /[\r\n]|===/u.test(n));
+    if (malformed.length > 0) {
+      return { ok: false, detail: `tenant_branches: a name cannot be a section heading: ${malformed.map((n) => JSON.stringify(n)).join(', ')}` };
+    }
+    const unnameable = branchTerms(confirmedBranches.map((b) => ({
+      name: str(b['name']),
+      stems: Array.isArray(b['stems']) ? (b['stems'] as unknown[]).filter((s): s is string => typeof s === 'string') : [],
+    }))).filter((b) => b.terms.length === 0).map((b) => b.name);
+    if (unnameable.length > 0) {
+      return {
+        ok: false,
+        detail: `tenant_branches: no customer could name ${unnameable.map((n) => `«${n}»`).join(', ')} — `
+          + 'give each a stem of four or more letters that no other branch shares (tenant_branches.stems)',
+      };
+    }
+  }
+
   return {
     ok: true,
-    unconfirmed: { faqsExcluded, refusalTopicsUnconfirmed },
+    unconfirmed: { faqsExcluded, refusalTopicsUnconfirmed, branchesExcluded },
     kb: {
       currencySymbol: str(tRow['currency_symbol']) || '\u20ae',
       currencySymbolBefore: tRow['currency_symbol_before'] === true,
@@ -380,6 +460,7 @@ export async function loadTenantKb(
         closes: orNull(r['closes']),
         closed: r['closed'] === true,
       })),
+      branches: branchesKb,
     },
   };
 }

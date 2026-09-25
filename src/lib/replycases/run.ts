@@ -27,7 +27,9 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { handleReception, type ReceptionDeps } from '../reception/handle.ts';
-import { loadReceptionContext, type ReceptionContext } from '../reception/load.ts';
+import { linkValues, loadReceptionContext, type ReceptionContext } from '../reception/load.ts';
+import { branchNamesFromPrefix } from '../branches/branches.ts';
+import { loadBranchContext, type BranchContext } from '../branches/load.ts';
 import { renderVolatile } from '../reception/volatile.ts';
 import { servicesFromPrefix, sectionRows, faqAnswersFromPrefix } from '../quality/serviceNames.ts';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
@@ -146,6 +148,25 @@ export function withCompiled(
   };
 }
 
+/**
+ * The context with a different set of branches: the branch links it allowed are swapped for
+ * the new branches' links, and nothing else in the URL allow-list moves.
+ */
+export function withBranches(ctx: ReceptionContext, branches: BranchContext[]): ReceptionContext {
+  const old = new Set(linkValues(ctx.branches.flatMap((b) => b.contacts)));
+  const kept = ctx.tenantGuard.allowedUrls.filter((u) => !old.has(u));
+  const allowedUrls = [...kept, ...linkValues(branches.flatMap((b) => b.contacts))];
+  return {
+    ...ctx,
+    branches,
+    tenantGuard: {
+      ...ctx.tenantGuard,
+      allowedUrls,
+      scriptShareExclusions: [...ctx.tenantGuard.scriptShareExclusions.filter((u) => !old.has(u)), ...allowedUrls.filter((u) => !kept.includes(u))],
+    },
+  };
+}
+
 /** Thrown by the stub model when no key was given; caught per case and reported. */
 class NeedsModel extends Error {}
 
@@ -185,7 +206,9 @@ export async function runCases(input: {
         eventAt: now,
         now,
         promptStable: ctx.promptStable,
-        promptVolatile: renderVolatile({ now, timezone: input.timezone, surface: 'direct_message', hours: ctx.hours, closures: ctx.closures }),
+        promptVolatile: renderVolatile({
+          now, timezone: input.timezone, surface: 'direct_message', hours: ctx.hours, closures: ctx.closures, branches: ctx.branches,
+        }),
         modelId: MODEL_REGISTRY.reception,
         cacheMode: ctx.cacheMode,
         timeoutMs: RECEPTION_UPSTREAM_TIMEOUT_MS,
@@ -201,6 +224,7 @@ export async function runCases(input: {
         faqAnswers: faqAnswersFromPrefix(ctx.promptStable, SECTION_LABELS.faqs),
         cannedHash: ctx.cannedHash,
         spellings: ctx.spellings,
+        branches: ctx.branches,
       });
       const why = out.kind === 'drafted' ? judge(c, record.body) : [`the reply path answered ${out.kind}: ${out.kind === 'retry' ? out.detail : out.reason}`];
       const outcome = why.length === 0 ? 'pass' : out.kind === 'drafted' ? 'wrong' : 'unchecked';
@@ -255,7 +279,21 @@ export async function gateTenant(
     localDate: tenantClock(input.now, timezone).date,
   });
   if (!loaded.ok) return { ok: false, slug: input.slug, detail: `configuration did not load (${loaded.code}): ${loaded.detail}` };
-  const ctx = input.compiled === undefined ? loaded.context : withCompiled(loaded.context, input.compiled);
+  let ctx = input.compiled === undefined ? loaded.context : withCompiled(loaded.context, input.compiled);
+  // The branches are read for the LIVE prefix (`reception/load.ts`). A publish that adds or
+  // changes branches is judged against the prefix it is about to publish, so the branch rows
+  // — spellings, links, weeks — are re-read for THAT prefix's list. Without this, the first
+  // publish of a second branch would replay every case with no branch stems and no branch
+  // links: not a false pass, but a gate simulating something that will never go live.
+  if (input.compiled !== undefined) {
+    const names = branchNamesFromPrefix(input.compiled.promptStable);
+    if (names.join('\n') !== ctx.branches.map((b) => b.name).join('\n')) {
+      const branches = names.length === 0 ? { ok: true as const, branches: [] }
+        : await loadBranchContext(db, { tenantId, names, tenantHours: ctx.hours });
+      if (!branches.ok) return { ok: false, slug: input.slug, detail: `configuration did not load (unavailable): ${branches.detail}` };
+      ctx = withBranches(ctx, branches.branches);
+    }
+  }
   return {
     ok: true,
     slug: input.slug,

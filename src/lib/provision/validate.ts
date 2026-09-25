@@ -86,6 +86,9 @@ export function toTenantKb(doc: IntakeDocument): TenantKb {
     contacts: doc.contacts,
     bookingUrl: doc.booking.url,
     hours: doc.hours,
+    // An intake document describes ONE place; it has no field for branches (0047). A second
+    // branch is added as rows after provisioning, and the projection is right to say none.
+    branches: [],
   };
 }
 

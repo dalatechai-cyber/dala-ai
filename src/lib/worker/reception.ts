@@ -656,7 +656,7 @@ async function runReceptionDelivery(
    * every entry, silently, and the bill roughly triples.
    */
   const promptVolatile = renderVolatile({
-    now, timezone, surface: RECEPTION_SURFACE, hours: ctx.hours, closures: ctx.closures,
+    now, timezone, surface: RECEPTION_SURFACE, hours: ctx.hours, closures: ctx.closures, branches: ctx.branches,
   });
 
   // --- One message, one reservation, one reply. -----------------------------

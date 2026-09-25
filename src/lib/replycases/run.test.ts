@@ -16,7 +16,7 @@ const STABLE = `GATE\n=== ${SECTION_LABELS.dataMarker} ===\n=== ${SECTION_LABELS
 const CTX: ReceptionContext = {
   promptStable: STABLE, hours: [], closures: [], allowedNumbers: ['120,000', '190,000'], cannedHash: null,
   promptGate: 'GATE', revisionId: 'r1', contentHash: 'h1', rules: [], deterministic: [WHO], serviceAliases: [],
-  spellings: [],
+  spellings: [], branches: [],
   canned: [{ kind: 'handoff', body: 'Уучлаарай, би энэ асуултад хариулж чадахгүй байна.', reviewedAt: REVIEWED }],
   tenantGuard: {
     primaryScript: 'Cyrillic', allowedUrls: [], allowedNumbers: ['120,000', '190,000'], kbHasPromotion: false,

@@ -473,6 +473,11 @@ function cannedKinds(rows: readonly CannedRow[]): string[] {
  */
 export const MODEL_INVISIBLE_KINDS: readonly string[] = [
   'image_received', 'comment_public_reply', 'handover_notice', 'handover_reclaim',
+  // D-122. Served by `handleReception` when a reply depends on a branch the customer has not
+  // named; the model is never asked to choose it. Listed while `0047` registers the kind and
+  // no tenant has a row — the same order the handover pair was shipped in, for the same
+  // reason: a row inserted before the filter moves `canned_hash` and 503s every DM reply.
+  'clarify_branch',
 ];
 
 /**

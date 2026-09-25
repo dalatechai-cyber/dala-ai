@@ -41,6 +41,7 @@ import { comparePlatformBlocks, type LiveBlock } from '../prompt/blockset.ts';
 import { loadLiveSnapshot } from '../../src/lib/prompt/publish.ts';
 import { supabasePublish } from '../../src/lib/supabase/clients.ts';
 import { SECTION_LABELS } from '../../src/lib/prompt/tenant.ts';
+import { CLARIFY_BRANCH_KIND, branchNamesFromPrefix } from '../../src/lib/branches/branches.ts';
 import { gateTenant, renderGate } from '../../src/lib/replycases/run.ts';
 import { callReception } from '../../src/lib/model/reception.ts';
 
@@ -158,6 +159,22 @@ if (compiled.unconfirmed.faqsExcluded.length > 0) {
 }
 if (compiled.unconfirmed.refusalTopicsUnconfirmed.length > 0) {
   process.stdout.write(`UNCONFIRMED     ${compiled.unconfirmed.refusalTopicsUnconfirmed.join(', ')}\n`);
+}
+if (compiled.unconfirmed.branchesExcluded.length > 0) {
+  process.stdout.write(`EXCLUDED branches ${compiled.unconfirmed.branchesExcluded.join(', ')}  ← not tenant_confirmed\n`);
+}
+
+// D-122, stated for the same reason as the marker below: the first compile that lists two
+// or more branches changes how location, phone, hours and some prices are answered.
+const branchesNow = branchNamesFromPrefix(rendered.promptStable);
+const branchesBefore = before === null ? [] : branchNamesFromPrefix(before.promptStable);
+if (branchesNow.join('\n') !== branchesBefore.join('\n')) {
+  process.stdout.write(branchesNow.length === 0
+    ? '\nNOTE: the prefix no longer lists branches. The tenant answers as one location again.\n'
+    : `\nNOTE: branches ${branchesBefore.length === 0 ? 'appear for the FIRST time' : 'changed'}: ${branchesNow.join(', ')}.
+      A reply stating one branch's address, link, phone, hours or price to a customer who has
+      not named a branch is replaced by the reviewed «${CLARIFY_BRANCH_KIND}» line — or the
+      handoff line while that row does not exist or is unreviewed.\n`);
 }
 
 // D-033, stated rather than left to be noticed. A tenant whose prefix carries no marker is
