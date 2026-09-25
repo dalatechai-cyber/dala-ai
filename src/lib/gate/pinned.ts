@@ -97,7 +97,17 @@ export type PinnedVerdict =
    * because a paraphrase of an approved sentence is the failure this module exists for and
    * it must be counted, not merely corrected.
    */
-  | { kind: 'paraphrase'; canonicalKind: string; canonical: string; similarity: number };
+  | {
+      kind: 'paraphrase'; canonicalKind: string; canonical: string; similarity: number;
+      /**
+       * Found by `embeddedAdaptation` — a share of the row inside a reply of a different
+       * length — rather than as a near-copy of the whole reply. This is the UNSURE verdict:
+       * Matrix's refusal rows share their frame and phone sentence, so a refusal about one
+       * subject reads as an adaptation of another's (2026-09-25, 0.754 of the price refusal
+       * for a holiday question). The caller serves the handoff line instead (D-126 addendum).
+       */
+      embedded?: true;
+    };
 
 /**
  * Compare on what a reader would call the same sentence.
@@ -357,6 +367,7 @@ function embeddedAdaptation(candidate: string, canned: readonly CannedRow[]): Pi
     canonicalKind: row.kind,
     canonical: row.body,
     similarity: hit.run / [...comparable(row.body)].length,
+    embedded: true,
   };
 }
 

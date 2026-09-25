@@ -9598,3 +9598,17 @@ UTC, 00:05 Ulaanbaatar). The flaw report already used the calendar day (`previou
 tenant's clock). The three counters used a rolling 24 hours, which is "yesterday" only by the
 accident of the run time; they now count 00:00–00:00 of that day (`reportWindow`), and the
 header names it.
+
+**Addendum, 2026-09-25 evening — two decisions (founder).**
+
+- **When the checker is unsure, the general line.** An approved line found adapted INSIDE a
+  reply (`embeddedAdaptation`) is the unsure verdict: refusal rows share their frame and phone
+  sentence, so a refusal about one subject reads as an adaptation of another's. It now serves
+  the tenant's `handoff` line, never that other row. A near-copy of the WHOLE reply (≥0.9,
+  D-065's «би») is certain and still gets its row. FAQ drift is unchanged: its match is the
+  answer's own content, not a shared frame. Counted as before (`canned_paraphrased`, whose
+  detail now says which was served).
+- **No hold on comment replies.** A comment is answered as soon as it is decided. The staff
+  check (D-122 addendum) therefore protects the seconds before a send and every later resend,
+  not the typical 28-minute staff reply; the founder accepts that. Comments went live the same
+  evening.

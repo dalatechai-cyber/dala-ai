@@ -1061,3 +1061,35 @@ test('restated set prices are served the tenant\'s way: its order, then its ques
   });
   assert.equal(drafts.at(-1)?.body, 'Үсний угийн будаг: 135,000₮\nУрт үсний будаг: 200,000₮\n\nТа бүтэн будуулах уу?');
 });
+
+// Founder, 2026-09-25 (D-126 addendum): "when the checker is unsure, send the general line,
+// never a wrong approved line." Matrix's live rows and the live holiday reply (flag 154).
+const LIVE_HANDOFF = 'Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.';
+const LIVE_PRICE_REFUSAL = 'Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу.';
+const LIVE_CANNED = [
+  { kind: 'handoff', body: LIVE_HANDOFF, reviewedAt: REVIEWED },
+  { kind: 'refusal_price_unlisted', body: LIVE_PRICE_REFUSAL, reviewedAt: REVIEWED },
+  ...CANNED.slice(1),
+];
+
+test('DONE-TEST (live, 2026-09-25): AN UNSURE MATCH SERVES THE GENERAL LINE, NEVER ANOTHER TOPIC\'S REFUSAL', async () => {
+  const holiday: CallOutcome = {
+    ...OK_REPLY,
+    text: 'Уучлаарай, амралтын өдрийн тусгай хуваарийн мэдээлэл надад байхгүй байна. Та 76001888 эсвэл 80905498 дугаараар холбогдож лавлана уу.',
+  };
+  const { deps: d, drafts, flags } = deps({ result: holiday });
+  const r = await handleReception(d, {
+    ...base, canned: LIVE_CANNED, cannedHash: null,
+    customerMessage: 'Margaash automashingvi bvh niitiin amraltiin udur ym bn',
+  });
+  assert.equal(r.kind, 'drafted', JSON.stringify(r));
+  assert.equal(drafts[0]?.body, LIVE_HANDOFF, 'the handoff line, not the price refusal');
+  assert.match(String(flags.find((f) => f.code === 'canned_paraphrased')?.detail), /handoff line \(unsure/);
+});
+
+test('a near-copy of a whole row is certain, and still gets that row', async () => {
+  const priceDropped: CallOutcome = { ...OK_REPLY, text: LIVE_PRICE_REFUSAL.replace('байхгүй байна', 'байхгүй') };
+  const { deps: d, drafts } = deps({ result: priceDropped });
+  await handleReception(d, { ...base, canned: LIVE_CANNED, cannedHash: null, customerMessage: 'Сор хэд вэ?' });
+  assert.equal(drafts[0]?.body, LIVE_PRICE_REFUSAL);
+});
