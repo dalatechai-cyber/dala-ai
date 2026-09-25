@@ -128,3 +128,27 @@ test('DONE-TEST: the tomorrow and holiday cases pass through the whole reply pat
   }
   assert.equal(results[1]?.reply, 'Маргааш (Бямба) 10:00–20:00 ажиллана.\n\nБаярын өдрийн цагийг 76001888 дугаараас лавлана уу.');
 });
+
+test('REPLY_GATE_PRINT: every reply printed verbatim beside the customer\'s message, and nothing else changes', async () => {
+  const { renderReplies, findingsOf } = await import('./run.ts');
+  const results = await runCases({
+    cases: [kase({}), kase({ id: 2, customerMessage: 'Сор хэд вэ?', expectedBody: 'Сор: 120,000₮–190,000₮' })],
+    ctx: CTX, timezone: 'Asia/Ulaanbaatar', now: new Date(), callModel: null,
+  });
+  assert.equal(results[0]?.message, 'ci henbe');
+  const gates = [{ ok: true as const, slug: 'tara', results }, { ok: false as const, slug: 'other', detail: 'unreadable' }];
+  const printed = renderReplies(gates);
+  assert.ok(printed.includes('tara case 1 — PASS (deterministic)'));
+  assert.ok(printed.includes(`  reply:    ${WHO.body}`), 'the reply, verbatim');
+  assert.ok(printed.includes('  customer: ci henbe'));
+  assert.ok(printed.includes('tara case 2 — UNCHECKED'));
+  assert.ok(printed.includes('  reply:    (no reply was drafted)'));
+  assert.ok(!printed.includes('other'), 'a tenant that could not be checked has no replies to print');
+  // A multi-line reply stays readable: continuation lines are indented under the reply.
+  const multi = renderReplies([{ ok: true, slug: 's', results: [{ id: 3, pass: true, outcome: 'pass', message: 'a', reply: 'x\ny', answeredBy: 'model', why: [], flags: ['f'] }] }]);
+  assert.ok(multi.includes('  reply:    x\n            y'));
+  assert.ok(multi.includes('  flags:    f'));
+  assert.equal(renderReplies([]), '');
+  // The verdict is computed from the same results with or without the print.
+  assert.deepEqual(findingsOf(gates), { wrong: [], unchecked: ['tara case 2: this case reaches the model and no ANTHROPIC_API_KEY was given', 'other: unreadable'] });
+});
