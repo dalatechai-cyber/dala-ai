@@ -27,6 +27,7 @@
  */
 
 import type { CommentVerdict } from './classify.ts';
+import type { StaffCheck } from './staff.ts';
 
 /** `tenant_channels.comment_policy`. V1 implements two of the four. */
 export type CommentPolicy = 'none' | 'public_only' | 'private_only' | 'both';
@@ -82,6 +83,16 @@ export type CommentRefusal =
   | 'comment_unclassified'
   /** This thread already has its one public reply. */
   | 'thread_already_answered'
+  /**
+   * The salon's staff already replied under this comment, from the Page (D-122 addendum,
+   * `comments/staff.ts`). A person answered; the bot's line under theirs is a second answer
+   * in the salon's own voice.
+   */
+  | 'staff_replied'
+  /** The Page already tagged this commenter on this post — staff answered them there. */
+  | 'staff_tagged_commenter'
+  /** Whether staff answered could not be read. Unknown refuses, as `comment_lookup_unknown` does. */
+  | 'staff_check_unknown'
   /**
    * This PERSON already has their reply on this post (D-122, founder: "at most one reply
    * per person per post"). Two separate comments by one customer under one post are two
@@ -174,6 +185,12 @@ export type CommentDecisionInput = {
   /** Whether this commenter already has a comment reply or private reply on this post. */
   personAlreadyAnswered: boolean;
   /**
+   * Whether a person at the salon already answered this commenter from the Page
+   * (`staffHandled`). Required, never defaulted: a default of "nobody answered" would assert
+   * that on behalf of a caller who forgot to look — D-083's reason.
+   */
+  staff: StaffCheck;
+  /**
    * How many public replies this POST has already had in the window — from our own
    * `outbound_messages` rows, counted by the caller. Not a boolean, because the cap is a
    * number the tenant sets.
@@ -254,6 +271,21 @@ export function decideCommentReply(input: CommentDecisionInput): CommentDecision
   }
   if (input.verdict === 'unclassified') {
     return { reply: false, refusal: 'comment_unclassified', detail: 'no rule fired; silent, and recorded so a rule can be written' };
+  }
+
+  // STAFF, after the verdict and before our own counting rules (D-122 addendum). After the
+  // verdict so praise the staff thanked stays `comment_not_worth_reply` — that is the more
+  // useful number, and nothing would have been sent either way — and so a complaint still
+  // escalates to the founder whoever replied to it. Before the person and thread rules
+  // because those count OUR rows, and on a delivering channel they trigger `resumePending`,
+  // which would send a draft decided before the staff answered.
+  if (input.staff.handled === null) {
+    return { reply: false, refusal: 'staff_check_unknown', detail: input.staff.detail };
+  }
+  if (input.staff.handled) {
+    return input.staff.how === 'replied'
+      ? { reply: false, refusal: 'staff_replied', detail: `the Page already replied under this comment (${input.staff.staffCommentId})` }
+      : { reply: false, refusal: 'staff_tagged_commenter', detail: `the Page already tagged this commenter on this post (${input.staff.staffCommentId})` };
   }
 
   if (input.personAlreadyAnswered) {

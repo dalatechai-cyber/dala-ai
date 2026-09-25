@@ -50,10 +50,11 @@ import { canDeliverComments } from '../channel/delivery.ts';
 import { extractComments, type InboundComment } from '../meta/comments.ts';
 import { decideAfterLookup, decideCommentReply, type CommentChannelConfig, type CommentRefusal } from '../comments/eligibility.ts';
 import type { CommentLookup } from '../comments/lookup.ts';
+import { pageCommentsIn, staffHandled, type PageComment, type StaffCheck } from '../comments/staff.ts';
 import { classifyComment, type CommentRule } from '../comments/classify.ts';
 import { cpLength } from '../mn/text.ts';
 import type { CommentSendOutcome } from '../comments/send.ts';
-import { claim, draftOnce, markFailed, markIndeterminate, markSent } from '../outbound/claim.ts';
+import { claim, draftOnce, markFailed, markIndeterminate, markRefused, markSent } from '../outbound/claim.ts';
 import { MESSENGER_SEND_UNIT_COST } from '../../config/platform.ts';
 
 /** The canned kind seeded by 0007. One sentence, per tenant, per locale. */
@@ -141,6 +142,16 @@ export const ESCALATED_FLAG = 'comment_escalated';
  * numbers that let the row answer the question on its own instead of by joining.
  */
 export const CAPPED_FLAG = 'comment_post_cap_reached';
+
+/**
+ * The flag written when the salon's staff already answered this commenter from the Page
+ * (D-122 addendum). A reply that was WANTED and not sent, like `CAPPED_FLAG` — but here the
+ * customer was answered, by a person, and the row is what lets the founder count how often
+ * the staff got there first. Written at decision time, and again if the check before a live
+ * send refuses (`at` says which). Carries ids only: which Page comment proved it, never its
+ * text and never the commenter's name.
+ */
+export const STAFF_FLAG = 'comment_staff_answered';
 
 export type CommentEffects = {
   db: SupabaseClient;
@@ -306,8 +317,8 @@ async function recordCommentFlag(
   fx: CommentEffects,
   input: {
     tenantId: string; comment: InboundComment; flag: string;
-    /** Numbers a particular flag needs. Never the customer's words. */
-    extra?: Record<string, number> | undefined;
+    /** Numbers and ids a particular flag needs. Never the customer's words or name. */
+    extra?: Record<string, number | string> | undefined;
   },
 ): Promise<void> {
   const { error } = await fx.db.from('quality_flags').insert({
@@ -485,6 +496,126 @@ async function repliesPerPost(
   return { ok: true, counts };
 }
 
+/**
+ * The Page's own comments on these posts, from the webhook events this platform already
+ * stored (D-122 addendum, `comments/staff.ts`), and which of them are OUR replies.
+ *
+ * One read per post, filtered by jsonb containment on the stored entry, so the database
+ * returns only entries carrying a comment by the Page on that post. Ordered by id so an
+ * edit or a removal is applied after the comment it changes.
+ *
+ * What it cannot see, stated: a Page comment whose webhook never arrived (before the `feed`
+ * subscription on 2026-09-20, or a delivery Meta dropped), and one whose `raw_payload` the
+ * purge has already nulled (`tenants.retention_days_raw_events`, 30 for Matrix). Both read
+ * as "nobody answered". A Graph read of the thread would see them and is not made: the
+ * decision follows the comment by seconds and a staff reply's webhook arrives within seconds
+ * of it (measured: 6 s), and a fail-closed Graph gate on the live send that cannot be
+ * exercised from where it is written would be a gate nobody has seen work (D-122 addendum).
+ */
+async function readStaffActivity(
+  db: SupabaseClient,
+  input: { tenantId: string; pageId: string; postIds: readonly string[] },
+): Promise<{ ok: true; pageComments: PageComment[]; ours: Set<string> } | { ok: false; detail: string }> {
+  if (input.postIds.length === 0) return { ok: true, pageComments: [], ours: new Set() };
+  const entries: unknown[] = [];
+  for (const postId of input.postIds) {
+    const { data, error } = await db
+      .from('webhook_events')
+      .select('raw_payload')
+      .eq('tenant_id', input.tenantId)
+      .not('raw_payload', 'is', null)
+      .contains('raw_payload', { changes: [{ value: { item: 'comment', post_id: postId, from: { id: input.pageId } } }] })
+      .order('id', { ascending: true });
+    if (error) return { ok: false, detail: `webhook_events unreadable: ${error.message}` };
+    for (const row of Array.isArray(data) ? data : []) entries.push((row as Record<string, unknown>)['raw_payload']);
+  }
+  const pageComments = pageCommentsIn(entries, input.pageId);
+  if (pageComments.length === 0) return { ok: true, pageComments, ours: new Set() };
+  const { data, error } = await db
+    .from('outbound_messages')
+    .select('provider_message_id')
+    .eq('tenant_id', input.tenantId)
+    .eq('kind', 'comment_reply')
+    .in('provider_message_id', pageComments.map((c) => c.commentId));
+  if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
+  const ours = new Set((Array.isArray(data) ? data : []).map((r) => String((r as Record<string, unknown>)['provider_message_id'])));
+  return { ok: true, pageComments, ours };
+}
+
+/** The flag payload for a staff refusal: which proof, never whose name. */
+function staffFlagExtra(staff: StaffCheck, at: 'decision' | 'before_send'): Record<string, string> {
+  if (staff.handled === true) return { how: staff.how, staff_comment_id: staff.staffCommentId, at };
+  return { how: 'unknown', at };
+}
+
+function staffRefusal(staff: StaffCheck): CommentRefusal | null {
+  if (staff.handled === false) return null;
+  if (staff.handled === null) return 'staff_check_unknown';
+  return staff.how === 'replied' ? 'staff_replied' : 'staff_tagged_commenter';
+}
+
+/**
+ * The staff check again, IMMEDIATELY before a live send (D-122 addendum).
+ *
+ * The decision was made when the comment arrived, and staff answer by hand. Anything the
+ * Page wrote since is in `webhook_events` by now, so the read is repeated for this comment's
+ * post, after the row is claimed and before the Graph call. Memoised per comment: the public
+ * line and the private message are held to one reading, and a refusal writes one flag.
+ *
+ * Measured, so nobody overestimates it: the Page's 29 replies on record came 47 s to 7.5 h
+ * after the comment they answer, and a live send follows its decision by about a second. So
+ * this catches a staff reply inside that second, and — the case that matters — a draft sent
+ * LATER by `resumePending`, which was decided before the staff answered. Catching the
+ * 47-second reply needs a hold before sending, which is a separate decision.
+ */
+type StaffGate = 'clear' | 'handled' | 'unreadable';
+
+function staffGateFor(
+  fx: CommentEffects, input: CommentJobInput, comment: InboundComment, result: CommentJobResult,
+): () => Promise<StaffGate> {
+  let memo: Promise<StaffGate> | null = null;
+  return () => {
+    memo ??= (async (): Promise<StaffGate> => {
+      const activity = await readStaffActivity(fx.db, {
+        tenantId: input.tenantId, pageId: input.pageExternalId, postIds: [comment.postId],
+      });
+      if (!activity.ok) {
+        fx.log('error', 'comment_staff_unreadable_before_send', { commentId: comment.commentId, detail: activity.detail });
+        return 'unreadable';
+      }
+      const staff = staffHandled({ comment, pageComments: activity.pageComments, ours: activity.ours });
+      const refusal = staffRefusal(staff);
+      if (refusal === null) return 'clear';
+      count(result.refused, refusal);
+      fx.log('info', 'comment_staff_answered', { commentId: comment.commentId, refusal, at: 'before_send' });
+      await recordCommentFlag(fx, { tenantId: input.tenantId, comment, flag: STAFF_FLAG, extra: staffFlagExtra(staff, 'before_send') });
+      return 'handled';
+    })();
+    return memo;
+  };
+}
+
+/**
+ * Apply the gate to a row this worker holds. `send` goes ahead; `refused` parks the row
+ * where no claim can reach it (`refused` is not claimable, and it is not counted by the
+ * person rule or the cap, so the next comment is decided afresh); `retry` hands the row
+ * back as `failed` and asks for a 503, because an unread check is not a clear one.
+ */
+async function holdForStaff(
+  fx: CommentEffects, input: CommentJobInput, held: { id: string; attempts: number },
+  result: CommentJobResult, gate: () => Promise<StaffGate>,
+): Promise<'send' | 'refused' | 'retry'> {
+  const g = await gate();
+  if (g === 'clear') return 'send';
+  if (g === 'handled') {
+    await markRefused(fx.db, { id: held.id, tenantId: input.tenantId, reason: 'staff answered this commenter from the Page before the send' });
+    return 'refused';
+  }
+  await markFailed(fx.db, { id: held.id, tenantId: input.tenantId, attempts: held.attempts, reason: 'staff check unreadable before the send' });
+  result.retry = true;
+  return 'retry';
+}
+
 /** The cap's window. A rolling 24 hours: see 0009 for why not a calendar day. */
 export const POST_CAP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -579,6 +710,20 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     return result;
   }
 
+  // What the salon's staff already wrote from the Page on these posts (D-122 addendum).
+  // One query per post, read with the thread and person reads because the decision below
+  // needs it in the same breath.
+  const staffActivity = await readStaffActivity(fx.db, {
+    tenantId: input.tenantId,
+    pageId: input.pageExternalId,
+    postIds: [...new Set(comments.map((c) => c.postId))],
+  });
+  if (!staffActivity.ok) {
+    fx.log('error', 'comment_staff_unreadable', { tenantId: input.tenantId, detail: staffActivity.detail });
+    result.retry = true;
+    return result;
+  }
+
   // Threads, people and posts answered within THIS entry, so two comments arriving together
   // still produce one reply. The database would catch the thread and the private reply a
   // moment later (unique keys); catching them here means the second never becomes a row.
@@ -602,6 +747,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       result.retry = true;
       return result;
     }
+    const staff = staffHandled({ comment, pageComments: staffActivity.pageComments, ours: staffActivity.ours });
     const decision = decideCommentReply({
       config: input.config,
       verdict: classified.verdict,
@@ -617,6 +763,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       },
       threadAlreadyAnswered: answeredNow.has(comment.threadId),
       personAlreadyAnswered: personsNow.has(personKey(comment.postId, comment.fromId)),
+      staff,
       postRepliesInWindow: postCounts.get(comment.postId) ?? 0,
       now: fx.now,
     });
@@ -631,9 +778,11 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       // ignore list and age BEFORE it ever looks at the verdict, so writing at the
       // classifier put a row on the operator's to-do list for a staff member's own comment
       // and for spam under an ancient post — work nobody should be handed.
+      const byStaff = staffRefusal(staff) === decision.refusal;
       const flag = decision.refusal === 'comment_unclassified' ? UNCLASSIFIED_FLAG
         : decision.refusal === 'comment_escalated' ? ESCALATED_FLAG
         : decision.refusal === 'post_cap_reached' ? CAPPED_FLAG
+        : byStaff ? STAFF_FLAG
         : null;
       if (flag !== null) {
         await recordCommentFlag(fx, {
@@ -642,9 +791,11 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
           flag,
           extra: flag === CAPPED_FLAG
             ? { replies_in_window: postCounts.get(comment.postId) ?? 0, cap: input.config.repliesPerPostPerDay }
+            : byStaff ? staffFlagExtra(staff, 'decision')
             : undefined,
         });
       }
+      if (byStaff) fx.log('info', 'comment_staff_answered', { commentId: comment.commentId, refusal: decision.refusal, at: 'decision' });
       // A complaint on the wall is the one comment a person must see TODAY (D-122). The
       // row above is the record; this is the tap on the shoulder, with the link. Raised in
       // shadow too: nothing is posted either way, and a complaint is no less real because
@@ -757,8 +908,9 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     // Straight to the claim whether or not WE wrote the row: `claim`'s CAS distinguishes
     // sent, leased, failed and draft, and refusing before it would turn every retry of a
     // `failed` row into a redelivery that did nothing.
+    const gate = staffGateFor(fx, input, comment, result);
     if (publicDraft !== null && publicDraft.ok) {
-      const outcome = await sendPublic(fx, input, comment.commentId, publicDraft.row.id, result);
+      const outcome = await sendPublic(fx, input, comment.commentId, publicDraft.row.id, result, gate);
       if (outcome === 'retry') return result;
     }
 
@@ -768,7 +920,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     // to withhold the private one, and vice versa. Each row has its own claim and its own
     // at-most-once guarantee.
     if (privateDraft !== null && privateDraft.ok) {
-      const outcome = await sendPrivate(fx, input, comment.commentId, privateDraft.row.id, result);
+      const outcome = await sendPrivate(fx, input, comment.commentId, privateDraft.row.id, result, gate);
       if (outcome === 'retry') return result;
     }
   }
@@ -826,14 +978,18 @@ async function resumePending(
     return 'done';
   }
   fx.log('info', 'comment_resuming', { commentId: comment.commentId, public: pub.id !== null, private: priv.id !== null });
-  if (pub.id !== null && (await sendPublic(fx, input, comment.commentId, pub.id, result)) === 'retry') return 'retry';
-  if (priv.id !== null && (await sendPrivate(fx, input, comment.commentId, priv.id, result)) === 'retry') return 'retry';
+  // A resumed row was decided earlier, possibly before the staff answered, so this is where
+  // the check before sending matters most.
+  const gate = staffGateFor(fx, input, comment, result);
+  if (pub.id !== null && (await sendPublic(fx, input, comment.commentId, pub.id, result, gate)) === 'retry') return 'retry';
+  if (priv.id !== null && (await sendPrivate(fx, input, comment.commentId, priv.id, result, gate)) === 'retry') return 'retry';
   return 'done';
 }
 
 /** Claim and post one public reply. 'retry' means the job must 503; the caller returns. */
 async function sendPublic(
   fx: CommentEffects, input: CommentJobInput, commentId: string, rowId: string, result: CommentJobResult,
+  gate: () => Promise<StaffGate>,
 ): Promise<'done' | 'retry'> {
   const held = await claim(fx.db, { id: rowId, tenantId: input.tenantId, now: fx.now });
   if (held.outcome === 'unavailable') {
@@ -846,6 +1002,9 @@ async function sendPublic(
     count(result.refused, 'thread_already_answered');
     return 'done';
   }
+  // Held, and not yet posted: the last moment the staff check can still stop it.
+  const hold = await holdForStaff(fx, input, held, result, gate);
+  if (hold !== 'send') return hold === 'retry' ? 'retry' : 'done';
   const sent = await fx.replyToComment({
     tenantId: input.tenantId,
     channelId: input.channelId,
@@ -884,6 +1043,7 @@ async function sendPublic(
 /** Claim and send one private reply. Same shape as `sendPublic`, on the Messenger send. */
 async function sendPrivate(
   fx: CommentEffects, input: CommentJobInput, commentId: string, rowId: string, result: CommentJobResult,
+  gate: () => Promise<StaffGate>,
 ): Promise<'done' | 'retry'> {
   const held = await claim(fx.db, { id: rowId, tenantId: input.tenantId, now: fx.now });
   if (held.outcome === 'unavailable') {
@@ -892,6 +1052,8 @@ async function sendPrivate(
     return 'retry';
   }
   if (held.outcome !== 'claimed') return 'done';
+  const hold = await holdForStaff(fx, input, held, result, gate);
+  if (hold !== 'send') return hold === 'retry' ? 'retry' : 'done';
   const sent = await fx.sendPrivateReply({
     tenantId: input.tenantId,
     channelId: input.channelId,

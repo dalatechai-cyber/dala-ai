@@ -9253,6 +9253,68 @@ because there it answers the question. A `deterministic_replies` UPDATE, live on
 republish; read back NFC. Reply case 1 expects `tara_name` and is unaffected; the old append
 text survives only inside recorded case histories, where it is what the customer saw.
 
+**Addendum, 2026-09-25 evening (founder): a location question with a laugh, and the staff
+who answer by hand.**
+
+*Laughter.* «Tara salon яармаг салбар yarmagtaa bizdee hehe» (webhook 749) — the Page and its
+branch named, then *it is at Yarmag, right?* — was silent: every reply rule excluded laughter.
+The founder wants it answered and the ≥30 jokes kept silent. Rows only: `location` and
+`location_branch` no longer exclude laughter (no joke in the corpus carries a location word,
+and a location question with a laugh on the end is still one), and `location_branch` accepts
+the confirmation particle «биз / biz / биздээ / bizdee / биздэ / bizde» as a question word.
+Every other reply rule keeps the exclusion — that is where the jokes are («Халзан хүнд хэд вэ
+хаха») — and `salonRules.test.ts` now asserts the two location rules are the only exceptions.
+749 fires because it contains «салбар» (inside the Page's name); a bare «yarmagtaa bizdee
+hehe» stays silent, since a place name is tenant data (`tenant_branches.stems` is where it
+would come from). 749 and «Үнэ хаяг» (784) are in `REAL_COMMENTS` expecting a reply: 43 real
+comments, 78 deliveries, 35 the Page's own. Matrix's live `location` and `location_branch`
+rows were updated to the template the same evening (compare-and-set on the old matcher hash,
+read back: 40 enabled rows equal the template); comments stay `shadow`. Note that 749 is a
+reply inside a thread where the platform had not drafted: had the bot answered 412 in that
+thread on 09-22, the one-reply-per-thread rule would silence 749. That rule is unchanged.
+
+*Staff first.* The salon's staff answer comments from the Page, and every such comment is
+already stored — the Page's own comments arrive on the `feed` subscription (35 of 78). So
+before drafting, and again before any live send, the comment path now reads the Page's
+comments on the post from `webhook_events` (jsonb containment on `raw_payload`, one query per
+post, `comments/staff.ts`) and refuses when **(a)** a Page comment's `parent_id` is this
+comment (`staff_replied`) or **(b)** a Page comment on the same post names this commenter
+(`staff_tagged_commenter`); an unreadable check or a missing `from.name` refuses
+(`staff_check_unknown`). Each writes `quality_flags.comment_staff_answered` with the proving
+Page comment's id and `at: decision | before_send`, never the text or the name. Our own
+posted replies (`provider_message_id`) are excluded. The check sits after the verdict (praise
+stays `comment_not_worth_reply`, a complaint still escalates) and before the person and thread
+rules, which is what stops `resumePending` from posting a draft decided before the staff
+answered. Before a live send it runs after the claim and before the Graph call; answered means
+the row goes to `refused`, unreadable means `failed` and a 503.
+
+The tag is read from the NAME because the webhook has nothing else (0 of 78 deliveries carry
+`message_tags`): the commenter's `from.name`, as whole words in order, anywhere in the Page
+comment, on `messageWords` (NFC, `mn-MN` fold, punctuation and emoji stripped) — no `\b`. A
+tag the staff shortened to one name is not recognised. "The Page is somewhere in this thread"
+is deliberately NOT a refusal: 749 sits in a thread the Page answered for someone else.
+
+*No Graph read.* It would add Page comments whose webhook never arrived (before 2026-09-20,
+or dropped) and ones whose payload the purge has nulled (Matrix: 30 days). It is not made:
+the decision follows the comment by seconds, a staff reply's webhook arrives within seconds
+(751: created 14:10:21, received 14:10:27), and a fail-closed gate on the live send that
+cannot be exercised from here is a gate nobody has seen work.
+
+*What the re-check does not do.* The Page's 29 replies on record came **47 s to 7.5 h** after
+the comment (median 28 min; 4 of 29 inside 2 min); a live send follows its decision by about a second. So the
+re-check catches a draft resumed later, not a staff member typing at the same time — on
+2026-09-25 the bot, live, would have answered «Үнэ хаяг» at 06:49 and the staff would have
+answered it again at 14:19. Closing that needs a hold before sending (a delay, then this same
+check), which is a separate decision for the founder. And (b) cannot tell a thank-you from an
+answer: 751 thanked Saran Tuul for her praise, so once it exists her question (749) reads as
+handled.
+
+Tested: `staff.test.ts` (the matcher and the decision), `eligibility.test.ts` (ordering),
+`worker/comments.test.ts` (shadow refusal and flag, the read's filters, our own reply excluded,
+unreadable ⇒ retry, live re-check refusing both lines once, a resumed draft stopped), and
+`worker/comments.realThreads.test.ts`, which replays the real threads of 2026-09-22 to 09-25
+(`realThreads.fixtures.ts`) through `runCommentJob` over an in-memory store.
+
 ## D-123 — the morning report reads what a reply says: former names and internal instructions
 
 **Founder, 2026-09-25:** the morning report missed «ci henbe», where the bot called the salon

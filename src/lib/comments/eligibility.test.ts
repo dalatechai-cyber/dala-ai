@@ -22,6 +22,7 @@ const base: CommentDecisionInput = {
   },
   threadAlreadyAnswered: false,
   personAlreadyAnswered: false,
+  staff: { handled: false },
   postRepliesInWindow: 0,
   now: NOW,
 };
@@ -299,4 +300,44 @@ test('DONE-TEST: the POST\u2019s age is NOT checked, and this is the case that p
   });
   assert.equal(freshCommentOnAncientPost.reply, true,
     'the post-age rule is not implemented; closing it needs GET /{post-id}?fields=created_time');
+});
+
+// ---------------------------------------------------------------------------
+// Staff already answered (D-122 addendum)
+// ---------------------------------------------------------------------------
+
+test('D-122 addendum: the Page replied under the comment — refused, with its own reason', () => {
+  const r = decide({ staff: { handled: true, how: 'replied', staffCommentId: 's1' } });
+  assert.equal(r.reply, false);
+  assert.equal(!r.reply && r.refusal, 'staff_replied');
+  assert.match(!r.reply ? r.detail : '', /s1/);
+});
+
+test('D-122 addendum: the Page tagged the commenter on the post — refused, a different reason', () => {
+  const r = decide({ staff: { handled: true, how: 'tagged', staffCommentId: 's2' } });
+  assert.equal(!r.reply && r.refusal, 'staff_tagged_commenter');
+});
+
+test('D-122 addendum: an unreadable staff check refuses — unknown is not "nobody answered"', () => {
+  const r = decide({ staff: { handled: null, detail: 'no name' } });
+  assert.equal(!r.reply && r.refusal, 'staff_check_unknown');
+});
+
+test('D-122 addendum: the verdict is attributed first — praise the staff thanked stays noise, a complaint still escalates', () => {
+  const staff = { handled: true, how: 'replied', staffCommentId: 's1' } as const;
+  const praise = decide({ verdict: 'ignore', staff });
+  assert.equal(!praise.reply && praise.refusal, 'comment_not_worth_reply');
+  const complaint = decide({ verdict: 'escalate', staff });
+  assert.equal(!complaint.reply && complaint.refusal, 'comment_escalated');
+});
+
+test('D-122 addendum: staff is decided BEFORE our own person and thread rules', () => {
+  // Those two trigger `resumePending` on a delivering channel, which would send a draft
+  // decided before the staff answered. Staff first means the resume is never reached.
+  const r = decide({
+    staff: { handled: true, how: 'tagged', staffCommentId: 's2' },
+    personAlreadyAnswered: true,
+    threadAlreadyAnswered: true,
+  });
+  assert.equal(!r.reply && r.refusal, 'staff_tagged_commenter');
 });

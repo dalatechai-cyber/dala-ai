@@ -68,7 +68,7 @@ function stubDb(over: Record<string, Reply | Reply[]> = {}) {
     const rec = { table, op: 'select' } as (typeof ops)[number];
     ops.push(rec);
     const chain: Record<string, unknown> = {};
-    for (const m of ['select', 'eq', 'in', 'is', 'or', 'lt', 'gt', 'gte', 'order', 'limit']) {
+    for (const m of ['select', 'eq', 'in', 'is', 'not', 'or', 'lt', 'gt', 'gte', 'order', 'limit']) {
       chain[m] = () => chain;
     }
     // A jsonb containment read is its own queue (`<table>:contains`), so the pre-send echo
