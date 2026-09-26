@@ -196,7 +196,12 @@ export async function runCases(input: {
       markCalled: async () => true,
       settle: async () => ({ ok: true }),
       release: async () => {},
-      flag: async (f) => { record.flags.push(f.code); },
+      // A model failure keeps the API's own words: «model_invalid_request» alone cannot say
+      // whether the account is out of credit or the request is malformed. Only for `model_`
+      // codes — their detail is the provider's error, never a customer's text.
+      flag: async (f) => {
+        record.flags.push(f.code.startsWith('model_') && f.detail ? `${f.code} — ${f.detail.replace(/\s+/gu, ' ').slice(0, 240)}` : f.code);
+      },
       observe: async () => {},
     };
     try {

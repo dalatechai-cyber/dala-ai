@@ -159,3 +159,10 @@ test('a failing case names how it was answered and the flag codes — a model th
   ] }]);
   assert.match(r.text, /case 20 FAILS: missing «10%» \(answered by canned; flags: model_auth\)/);
 });
+
+test('a model failure carries the provider\'s own error into the flag, trimmed — never a guard\'s detail', async () => {
+  const [r] = await runCases({ cases: [kase({ customerMessage: 'Сор хэд вэ?', expectedBody: 'Сор: 120,000₮–190,000₮' })],
+    ctx: CTX, timezone: 'Asia/Ulaanbaatar', now: new Date(),
+    callModel: async () => ({ kind: 'terminal', reason: 'invalid_request', detail: '400 {"error":{"message":"Your credit balance is too low"}}' }) });
+  assert.ok(r?.flags.some((f) => f.startsWith('model_invalid_request — 400') && f.includes('credit balance')), JSON.stringify(r?.flags));
+});
