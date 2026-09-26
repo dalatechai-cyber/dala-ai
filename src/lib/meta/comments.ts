@@ -90,7 +90,10 @@ function permalinkOf(post: unknown): string | null {
  * salon's own comment from a customer's, and a caller who forgot it would get a bot that
  * replies to itself — so the type refuses to let them forget.
  */
-export function extractComments(entry: unknown, pageExternalId: string): CommentExtractResult {
+export function extractComments(
+  entry: unknown, pageExternalId: string, provider: 'facebook_page' | 'instagram' = 'facebook_page',
+): CommentExtractResult {
+  if (provider === 'instagram') return extractInstagramComments(entry, pageExternalId);
   const comments: InboundComment[] = [];
   const skipped: CommentSkipReason[] = [];
 
@@ -186,5 +189,61 @@ export function extractComments(entry: unknown, pageExternalId: string): Comment
     });
   }
 
+  return { comments, skipped };
+}
+
+/**
+ * Instagram comments (D-145): `object: instagram`, `entry.id` = the Instagram account,
+ * `changes[].field = 'comments'`, and a value that is NOT the Page `feed` shape —
+ *
+ *     { id | comment_id, text, parent_id?, from: { id, username, self_ig_scoped_id? },
+ *       media: { id, media_product_type, ad_id?, ... } }
+ *
+ * (Meta's Instagram webhooks reference; the example pages disagree on `id` vs `comment_id`,
+ * so both are read). There is no verb: every change is a new comment. The comment carries no
+ * time of its own, so `entry.time` — when Meta sent it — stands in; a missing one is an
+ * invalid date, which the eligibility layer refuses as `comment_age_unknown`.
+ *
+ * `accountId` is the Instagram account's id. A comment from it, or carrying
+ * `self_ig_scoped_id` (Meta marks the account commenting on its own media that way), is
+ * our own and skipped as `comment_self`, exactly as the Page's own comment is on Facebook.
+ */
+export function extractInstagramComments(entry: unknown, accountId: string): CommentExtractResult {
+  const comments: InboundComment[] = [];
+  const skipped: CommentSkipReason[] = [];
+  const e = asRecord(entry);
+  const changes = e === null ? null : e['changes'];
+  if (!Array.isArray(changes)) return { comments, skipped };
+  const time = e === null ? undefined : e['time'];
+  const createdAt = typeof time === 'string' && /^\d+$/u.test(time) ? secondsToDate(Number(time)) : secondsToDate(time);
+
+  for (const rawChange of changes) {
+    const change = asRecord(rawChange);
+    if (change === null) { skipped.push('malformed'); continue; }
+    if (change['field'] !== 'comments') { skipped.push('not_a_comment'); continue; }
+    const value = asRecord(change['value']);
+    if (value === null) { skipped.push('malformed'); continue; }
+
+    const commentId = String(value['id'] ?? value['comment_id'] ?? '');
+    const postId = String(asRecord(value['media'])?.['id'] ?? '');
+    const from = asRecord(value['from']);
+    const fromId = from === null ? '' : String(from['id'] ?? '');
+    if (commentId === '' || postId === '' || fromId === '') { skipped.push('malformed'); continue; }
+    if (fromId === accountId || (from !== null && from['self_ig_scoped_id'] !== undefined)) {
+      skipped.push('comment_self');
+      continue;
+    }
+    const parentId = typeof value['parent_id'] === 'string' ? value['parent_id'] : '';
+    comments.push({
+      commentId,
+      postId,
+      fromId,
+      fromName: from !== null && typeof from['username'] === 'string' ? nfc(from['username']) : null,
+      text: typeof value['text'] === 'string' ? nfc(value['text']) : '',
+      createdAt,
+      threadId: parentId !== '' ? parentId : commentId,
+      postPermalink: null,
+    });
+  }
   return { comments, skipped };
 }

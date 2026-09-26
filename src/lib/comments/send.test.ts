@@ -165,3 +165,14 @@ test('a real 200 over a real socket, with a Cyrillic body, parses as sent', asyn
     },
   );
 });
+
+test('D-145: an Instagram comment is answered at /replies', async () => {
+  const urls: string[] = [];
+  const fetchImpl = (async (url: string) => {
+    urls.push(url);
+    return new Response(JSON.stringify({ id: 'r1' }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const r = await sendCommentReply({ commentId: '1789', body: 'Сайн байна уу!', token: 't', graphVersion: 'v21.0', edge: 'replies', fetchImpl });
+  assert.equal(r.outcome, 'sent');
+  assert.ok(urls[0]?.endsWith('/1789/replies'));
+});

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lookupComment, parseGraphTime, tagsAPerson } from './lookup.ts';
+import { instagramTagsPerson, lookupComment, lookupInstagramComment, parseGraphTime, tagsAPerson } from './lookup.ts';
 import { complaintAlertBody } from './complaint.ts';
 
 const PAGE = '1520409424715591';
@@ -77,4 +77,21 @@ test('the complaint alert quotes the comment, truncated by CHARACTER, and carrie
   assert.ok(body.includes('Tara Salon'));
   const long = complaintAlertBody({ tenantName: 't', text: '😡'.repeat(400), link: 'l' });
   assert.ok(long.includes(`«${'😡'.repeat(280)}…»`), 'code points, never UTF-16 units');
+});
+
+test('D-145: an Instagram mention is @username in the text', () => {
+  for (const t of ['@bold_99 хар', 'хар @bold.b', '1 @x']) assert.equal(instagramTagsPerson(t), true, t);
+  for (const t of ['1', 'mail@site.mn', '1 👍', 'Үнэ хэд вэ?']) assert.equal(instagramTagsPerson(t), false, t);
+});
+
+test('D-145: the Instagram lookup reads the media timestamp and never the Page fields', async () => {
+  const urls: string[] = [];
+  const fetchImpl = (async (url: string) => {
+    urls.push(url);
+    return new Response(JSON.stringify({ timestamp: '2026-09-20T10:00:00+0000', id: 'm1' }), { status: 200 });
+  }) as unknown as typeof fetch;
+  const r = await lookupInstagramComment({ commentId: 'c1', postId: 'm1', pageId: 'ig', token: 't', graphVersion: 'v21.0', text: '1', fetchImpl });
+  assert.equal(urls.length, 1);
+  assert.ok(urls[0]?.endsWith('/m1?fields=timestamp'));
+  assert.deepEqual(r, { tagsPerson: false, postCreatedAt: new Date('2026-09-20T10:00:00Z'), problems: [] });
 });

@@ -454,7 +454,7 @@ async function runReceptionDelivery(
       .maybeSingle(),
     db
       .from('tenant_channels')
-      .select('provider, external_id, via_channel_id, test_sender_ids, status, delivery_mode, token_status, meta_app_id, graph_version_override, comment_policy, comment_delivery_mode, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day, automation_texts')
+      .select('provider, external_id, via_channel_id, test_sender_ids, comment_rule_keys, status, delivery_mode, token_status, meta_app_id, graph_version_override, comment_policy, comment_delivery_mode, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day, automation_texts')
       .eq('id', channelId)
       .eq('tenant_id', tenantId)
       .maybeSingle(),
@@ -756,6 +756,16 @@ async function runReceptionDelivery(
         tenantId,
         channelId,
         pageExternalId: pageId,
+        // Instagram (D-145): the account the posts belong to, and the Page's token.
+        ...(provider === 'instagram' ? {
+          provider: 'instagram' as const,
+          selfId: String(c['external_id'] ?? ''),
+          ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
+        } : {}),
+        ruleKeys: Array.isArray(c['comment_rule_keys'])
+          ? (c['comment_rule_keys'] as unknown[]).filter((k): k is string => typeof k === 'string') : null,
+        testSenderIds: Array.isArray(c['test_sender_ids'])
+          ? (c['test_sender_ids'] as unknown[]).filter((k): k is string => typeof k === 'string') : [],
         automationTexts,
         commentMode,
         tokenStatus: String(c['token_status'] ?? ''),

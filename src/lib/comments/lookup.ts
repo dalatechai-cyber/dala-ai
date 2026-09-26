@@ -120,3 +120,31 @@ export async function lookupComment(input: LookupInput): Promise<CommentLookup> 
   }
   return { tagsPerson, postCreatedAt, problems };
 }
+
+/**
+ * Does an Instagram comment tag somebody? (D-145) Instagram comments carry no
+ * `message_tags`; a mention is written into the text as `@username`. Instagram usernames are
+ * ASCII letters, digits, periods and underscores, so the match is on those.
+ */
+// ascii-safe: Instagram usernames are ASCII by Instagram's own rule; this finds a mention, it does not read Mongolian.
+const IG_MENTION = /(^|\s)@[A-Za-z0-9._]{1,30}/u;
+export function instagramTagsPerson(text: string): boolean {
+  return IG_MENTION.test(text);
+}
+
+/**
+ * The two facts `decideAfterLookup` needs, for an Instagram comment (D-145): whether it tags
+ * somebody (from its text) and when the post was published (the media's `timestamp`).
+ */
+export async function lookupInstagramComment(input: LookupInput & { text: string }): Promise<CommentLookup> {
+  const media = await graphGet(input, input.postId, 'timestamp');
+  const problems: string[] = [];
+  let postCreatedAt: Date | null = null;
+  if (media.ok) {
+    postCreatedAt = parseGraphTime(media.body['timestamp']);
+    if (postCreatedAt === null) problems.push('media timestamp missing or unparseable');
+  } else {
+    problems.push(media.detail);
+  }
+  return { tagsPerson: instagramTagsPerson(input.text), postCreatedAt, problems };
+}

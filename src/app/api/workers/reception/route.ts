@@ -22,7 +22,7 @@ import { deliverOutbound } from '@/lib/outbound/deliver';
 import { loadTenantSecret } from '@/lib/secrets/tenantSecret';
 import { sendCommentReply } from '@/lib/comments/send';
 import { sendMessage, sendSenderAction } from '@/lib/meta/send';
-import { lookupComment } from '@/lib/comments/lookup';
+import { lookupComment, lookupInstagramComment } from '@/lib/comments/lookup';
 import { raiseCommentComplaint } from '@/lib/comments/complaint';
 import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
@@ -158,8 +158,8 @@ function effects(now: Date): WorkerEffects {
     // The public surface, on the same per-request token as the DM path. `loadTenantSecret`
     // is called per reply rather than hoisted, for the reason in secrets/tenantSecret.ts:
     // a warm lambda is reused across tenants and there must be nothing cached to leak.
-    replyToComment: async ({ tenantId, channelId, commentId, body, graphVersion }) => {
-      const secret = await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+    replyToComment: async ({ tenantId, channelId, commentId, body, graphVersion, provider, tokenChannelId }) => {
+      const secret = await loadTenantSecret(db, { tenantId, channelId: tokenChannelId ?? channelId, kind: 'page_token' });
       if (!secret.ok) {
         return {
           outcome: 'failed', failure: 'unknown', retryable: secret.retryable,
@@ -167,12 +167,15 @@ function effects(now: Date): WorkerEffects {
           detail: `no credential: ${secret.code}`,
         };
       }
-      return sendCommentReply({ commentId, body, token: secret.secret, graphVersion });
+      // An Instagram comment is answered at `/replies`, a Page comment at `/comments` (D-145).
+      return sendCommentReply({
+        commentId, body, token: secret.secret, graphVersion, ...(provider === 'instagram' ? { edge: 'replies' as const } : {}),
+      });
     },
 
     // The private message to a commenter (D-122): the Messenger send, addressed by comment.
-    sendPrivateReply: async ({ tenantId, channelId, pageId, commentId, body, graphVersion }) => {
-      const secret = await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+    sendPrivateReply: async ({ tenantId, channelId, pageId, commentId, body, graphVersion, tokenChannelId }) => {
+      const secret = await loadTenantSecret(db, { tenantId, channelId: tokenChannelId ?? channelId, kind: 'page_token' });
       if (!secret.ok) {
         return { outcome: 'failed', retryable: secret.retryable, failure: 'unknown', detail: `no credential: ${secret.code}` };
       }
@@ -183,10 +186,13 @@ function effects(now: Date): WorkerEffects {
     },
 
     // Tags and post age (D-122). An unloadable credential is two unknowns, which refuse.
-    lookupComment: async ({ tenantId, channelId, pageId, commentId, postId, graphVersion }) => {
-      const secret = await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+    lookupComment: async ({ tenantId, channelId, pageId, commentId, postId, graphVersion, provider, text, tokenChannelId }) => {
+      const secret = await loadTenantSecret(db, { tenantId, channelId: tokenChannelId ?? channelId, kind: 'page_token' });
       if (!secret.ok) return { tagsPerson: null, postCreatedAt: null, problems: [`no credential: ${secret.code}`] };
-      return lookupComment({ commentId, postId, pageId, token: secret.secret, graphVersion });
+      // Instagram: tags from the text, the post's age from the media (D-145).
+      return provider === 'instagram'
+        ? lookupInstagramComment({ commentId, postId, pageId, token: secret.secret, graphVersion, text: text ?? '' })
+        : lookupComment({ commentId, postId, pageId, token: secret.secret, graphVersion });
     },
 
     alertComplaint: async (input) => {

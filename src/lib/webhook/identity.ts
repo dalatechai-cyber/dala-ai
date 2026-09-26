@@ -101,7 +101,10 @@ export function entryEventIds(entry: unknown): string[] {
     }
   }
   for (const raw of asArray(e.changes)) {
-    const commentId = nonEmptyString(asRecord(asRecord(raw)['value'])['comment_id']);
+    const value = asRecord(asRecord(raw)['value']);
+    // An Instagram comment names itself `id` (D-145); a Page comment, `comment_id`.
+    const commentId = nonEmptyString(value['comment_id'])
+      ?? (asRecord(raw)['field'] === 'comments' ? nonEmptyString(value['id']) : null);
     if (commentId !== null) ids.push(commentId);
   }
 

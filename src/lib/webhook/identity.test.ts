@@ -135,3 +135,9 @@ test('an empty or blank mid is not an id', () => {
   assert.deepEqual(entryEventIds({ messaging: [{ message: { mid: '' } }, { message: { mid: '   ' } }] }), []);
   assert.equal(entryIdentity({ messaging: [{ message: { mid: '' } }] }).kind, 'digest');
 });
+
+test('D-145: an Instagram comment is keyed by its own id, so two comments never collide', () => {
+  const e = (id: string) => ({ id: '17841417491117031', changes: [{ field: 'comments', value: { id, text: '1', from: { id: 'u' }, media: { id: 'm' } } }] });
+  assert.deepEqual(entryEventIds(e('c1')), ['c1']);
+  assert.notEqual(entryIdentity(e('c1')).digest, entryIdentity(e('c2')).digest);
+});
