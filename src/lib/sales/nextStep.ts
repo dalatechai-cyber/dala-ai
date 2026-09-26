@@ -81,6 +81,8 @@ export type RowState = 'missing' | 'unwritten' | 'unreviewed' | 'reviewed';
 export type PlaybookStep = {
   kind: StepRowKind;
   body: string | null;
+  /** The approved website wording (`web_body`, `0056`, D-140); swapped in by `website/ownSite.ts`. */
+  webBody?: string | null;
   reviewed: boolean;
   priority: number;
   isDefault: boolean;
@@ -443,6 +445,7 @@ export function parsePlaybook(raw: RawPlaybook): { ok: true; playbook: Playbook 
     steps.push({
       kind,
       body: typeof r['body'] === 'string' ? nfc(r['body']) : null,
+      webBody: typeof r['web_body'] === 'string' && r['web_body'].trim() !== '' ? nfc(r['web_body']) : null,
       reviewed: r['reviewed_at'] !== null && r['reviewed_at'] !== undefined,
       priority: Number(r['priority'] ?? 100),
       isDefault: r['is_default'] === true,

@@ -71,6 +71,7 @@ import type { ReceptionContext } from '../reception/load.ts';
 import type { Turn } from '../inbound/persist.ts';
 import type { Reservation } from '../spend/reserve.ts';
 import { SALES_SHADOW_WAIT_MS, type SalesShadowArgs } from '../worker/reception.ts';
+import { ownSiteHosts, websiteContext } from './ownSite.ts';
 
 /** A widget conversation is private. D-082. */
 const WEB_SURFACE: VolatileSurface = 'direct_message';
@@ -131,6 +132,8 @@ export type MessageEffects = {
     promptVolatile: string;
     ctx: ReceptionContext;
     historyEmpty: boolean;
+    /** The site the visitor is on: the tenant's verified widget hosts (D-140). */
+    ownSiteHosts: readonly string[];
   }) => Promise<ReceptionOutcome>;
   /**
    * The sales record, with the Messenger worker's contract (`WorkerEffects.salesShadow`):
@@ -221,6 +224,9 @@ export async function runMessageJob(effects: MessageEffects, req: MessageRequest
       .filter((r) => r['verified_at'] !== null && r['verified_at'] !== undefined)
       .map((r) => String(r['host']).toLowerCase()),
   );
+
+  // The same verified rows are the site the visitor is ON (D-140): never where they are sent.
+  const siteHosts = ownSiteHosts((Array.isArray(domains) ? domains : []) as { host: unknown; verified_at: unknown }[]);
 
   let allowOrigin: string | undefined;
   if (req.origin !== null && req.origin !== '') {
@@ -330,7 +336,9 @@ export async function runMessageJob(effects: MessageEffects, req: MessageRequest
     // are different lines in the log and only one of them is somebody's to fix.
     return withOrigin(refuse(503, `context_${loaded.code}`, { tenantId, detail: loaded.detail }));
   }
-  const ctx = loaded.context;
+  // The website's wording (D-140): every approved website version in place of its body, for
+  // the reply, the sales record and the hand-off alert alike.
+  const ctx = websiteContext(loaded.context);
 
   const promptVolatile = renderVolatile({
     now, timezone, surface: WEB_SURFACE, hours: ctx.hours, closures: ctx.closures, branches: ctx.branches,
@@ -421,6 +429,7 @@ export async function runMessageJob(effects: MessageEffects, req: MessageRequest
     promptVolatile,
     ctx,
     historyEmpty: priorTurns.length === 0,
+    ownSiteHosts: siteHosts,
   });
 
   if (outcome.kind === 'retry') {

@@ -567,3 +567,27 @@ test('DONE-TEST: a spent budget on the website serves the callback line and aler
   assert.equal(alerted, 1);
   assert.equal(db.trace.indexOf('MODEL'), -1);
 });
+
+// ---------------------------------------------------------------------------
+// D-140: the reply is written for the site the visitor is on
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: the reply gets the verified widget hosts and the website versions of approved rows', async () => {
+  const db = stubDb({ domains: { data: [
+    { host: 'www.dalatech.online', verified_at: NOW.toISOString() },
+    { host: 'pending.example', verified_at: null },
+  ] } });
+  const seen: Record<string, unknown>[] = [];
+  const r = await runMessageJob(effects(db, {
+    loadContext: async () => ({
+      ok: true,
+      context: { ...(CTX as object), deterministic: [{ intent: 'x', body: 'Page body', webBody: 'Web body' }], sales: null } as never,
+      timings: { snapshot: 0, batch: 0 },
+    }),
+    generateReply: async (a) => { seen.push(a as never); return { kind: 'drafted', outboundId: 'out-1', answeredBy: 'model' }; },
+  }), req());
+  assert.equal(r.status, 200);
+  assert.deepEqual(seen[0]?.['ownSiteHosts'], ['dalatech.online']);
+  const ctx = seen[0]?.['ctx'] as { deterministic: { body: string }[] };
+  assert.equal(ctx.deterministic[0]?.body, 'Web body');
+});

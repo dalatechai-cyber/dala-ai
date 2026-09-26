@@ -125,6 +125,8 @@ async function ask(id: string, text: string, history: Turn[], expect: Record<str
     expected_body: expect?.['expected_body'] ?? null,
     must_include: expect?.['must_include'] ?? [], must_not_include: expect?.['must_not_include'] ?? [],
     note: null,
+    // `reply_cases.channel` (`0056`, D-140): the bake-off asks as the Page does.
+    channel: 'facebook_page',
   };
   bucket = [];
   const t0 = Date.now();

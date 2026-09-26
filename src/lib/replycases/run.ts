@@ -37,6 +37,7 @@ import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '../../config/plat
 import type { CallOutcome, ReceptionRequest } from '../model/reception.ts';
 import { fold, nfc } from '../mn/text.ts';
 import { tenantClock } from '../time/clock.ts';
+import { ownSiteHosts, websiteContext } from '../website/ownSite.ts';
 
 export type Turn = { role: 'user' | 'assistant'; content: string };
 
@@ -48,6 +49,12 @@ export type ReplyCase = {
   mustInclude: string[];
   mustNotInclude: string[];
   note: string | null;
+  /**
+   * The channel the case is answered as (`reply_cases.channel`, `0056`, D-140). `web` runs
+   * with the website's wording, its site rule and no inbox — what `/api/web/message` does;
+   * absent is the Page, which is what every case before `0056` meant.
+   */
+  channel?: 'facebook_page' | 'web';
 };
 
 export type CaseResult = {
@@ -111,7 +118,7 @@ export async function loadCases(
 ): Promise<{ ok: true; cases: ReplyCase[] } | { ok: false; detail: string }> {
   const { data, error } = await db
     .from('reply_cases')
-    .select('id, customer_message, history, expected_body, must_include, must_not_include, note')
+    .select('id, customer_message, history, expected_body, must_include, must_not_include, note, channel')
     .eq('tenant_id', tenantId)
     .eq('active', true)
     .order('id', { ascending: true });
@@ -129,6 +136,7 @@ export async function loadCases(
         mustInclude: strings(r['must_include']),
         mustNotInclude: strings(r['must_not_include']),
         note: typeof r['note'] === 'string' ? r['note'] : null,
+        channel: r['channel'] === 'web' ? 'web' as const : 'facebook_page' as const,
       };
     }),
   };
@@ -211,11 +219,17 @@ export async function runCases(input: {
    * the model means that row stopped answering, which is exactly what the gate is for.
    */
   modelCases?: 'fail' | 'skip';
+  /** The tenant's verified widget hosts, for `web` cases (D-140). Page cases ignore it. */
+  siteHosts?: readonly string[];
 }): Promise<CaseResult[]> {
-  const { ctx, now } = input;
+  const { now } = input;
+  // The website's context once, not per case: the same substitution `/api/web/message` makes.
+  const webCtx = websiteContext(input.ctx);
   const results: CaseResult[] = [];
   for (const c of input.cases) {
     const record: { body: string | null; answeredBy: string | null; flags: string[] } = { body: null, answeredBy: null, flags: [] };
+    const web = c.channel === 'web';
+    const ctx = web ? webCtx : input.ctx;
     const deps: ReceptionDeps = {
       callModel: async (req) => {
         if (input.callModel === null) throw new NeedsModel('this case reaches the model and no ANTHROPIC_API_KEY was given');
@@ -265,8 +279,10 @@ export async function runCases(input: {
         faqAnswers: faqAnswersFromPrefix(ctx.promptStable, SECTION_LABELS.faqs),
         cannedHash: ctx.cannedHash,
         fallbackLine: ctx.fallbackLine,
-        // The cases are the Page's: a person reads the inbox there (D-139).
-        noInbox: false,
+        // A Page case: a person reads the inbox (D-139), and linking the site is fine (D-140).
+        // A website case: neither, exactly as `/api/web/message` answers.
+        noInbox: web,
+        ownSiteHosts: web ? input.siteHosts ?? [] : [],
         complaintRules: ctx.complaintRules,
         sales: ctx.sales,
         replyStyle: ctx.replyStyle,
@@ -328,6 +344,11 @@ export async function gateTenant(
   const cases = await loadCases(db, tenantId);
   if (!cases.ok) return { ok: false, slug: input.slug, detail: cases.detail };
   if (cases.cases.length === 0) return { ok: true, slug: input.slug, results: [] };
+  // The website cases' "site the visitor is on" (D-140). Unreadable is a failed gate, never
+  // an empty list: an empty list would pass a website case that links the site.
+  const domains = await db.from('tenant_domains').select('host, verified_at').eq('tenant_id', tenantId);
+  if (domains.error) return { ok: false, slug: input.slug, detail: `tenant_domains unreadable: ${domains.error.message}` };
+  const siteHosts = ownSiteHosts((domains.data ?? []) as { host: unknown; verified_at: unknown }[]);
 
   const loaded = await loadReceptionContext(db, {
     tenantId,
@@ -357,7 +378,9 @@ export async function gateTenant(
   return {
     ok: true,
     slug: input.slug,
-    results: await runCases({ cases: cases.cases, ctx, timezone, now: input.now, callModel: input.callModel, modelCases: input.modelCases ?? 'fail' }),
+    results: await runCases({
+      cases: cases.cases, ctx, timezone, now: input.now, callModel: input.callModel, modelCases: input.modelCases ?? 'fail', siteHosts,
+    }),
   };
 }
 

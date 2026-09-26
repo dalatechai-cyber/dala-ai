@@ -117,7 +117,7 @@ const base: ReceptionInput = {
   serviceNames: [{ name: 'Чёлк тайралт', prices: ['22000'], rows: [] }],
   depositRows: [],
   faqAnswers: [],
-  cannedHash: null, fallbackLine: null, noInbox: false, complaintRules: [], sales: null, replyStyle: null,
+  cannedHash: null, fallbackLine: null, noInbox: false, ownSiteHosts: [], complaintRules: [], sales: null, replyStyle: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -1316,4 +1316,49 @@ test('an answer is not a hand-off; nor is a callback row the customer\'s words a
   assert.equal(asked.drafts.at(-1)?.body, CALLBACK);
   assert.equal(a.kind === 'drafted' && a.answeredBy, 'deterministic');
   assert.equal(a.kind === 'drafted' && a.handedOff, undefined);
+});
+
+// ---- D-140: the site the visitor is on is never where they are sent -------------------------
+
+const SITE = ['dalatech.online'];
+const SITE_GUARD = { ...GUARD_VIEW, allowedUrls: ['https://dalatech.online'], scriptShareExclusions: ['https://dalatech.online'] };
+
+test('DONE-TEST: ON THE WEBSITE THE MODEL\'S «SEE dalatech.online» SENTENCE IS NOT SENT; ON THE PAGE IT IS', async () => {
+  const text = 'Бид Улаанбаатарт байрладаг. Дэлгэрэнгүй мэдээллийг https://dalatech.online хуудаснаас үзнэ үү.';
+  const web = deps({ result: { ...OK_REPLY, text } });
+  const r = await handleReception(web.deps, {
+    ...base, customerMessage: 'Танай оффис хаана байдаг вэ?', tenantGuard: SITE_GUARD, ownSiteHosts: SITE, noInbox: true,
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model');
+  assert.equal(web.drafts.at(-1)?.body, 'Бид Улаанбаатарт байрладаг.');
+  assert.ok(web.flags.some((f) => f.code === 'own_site_removed'));
+
+  const page = deps({ result: { ...OK_REPLY, text } });
+  await handleReception(page.deps, { ...base, customerMessage: 'Танай оффис хаана байдаг вэ?', tenantGuard: SITE_GUARD, ownSiteHosts: [] });
+  assert.equal(page.drafts.at(-1)?.body, text);
+  assert.ok(!page.flags.some((f) => f.code === 'own_site_removed'));
+});
+
+test('a website reply that was only a pointer to the site becomes the general line, as a hand-off', async () => {
+  const web = deps({ result: { ...OK_REPLY, text: 'Энэ талаар https://dalatech.online хуудаснаас үзнэ үү.' } });
+  const r = await handleReception(web.deps, {
+    ...base, customerMessage: 'Танай ажилтнууд хэн бэ?', tenantGuard: SITE_GUARD, ownSiteHosts: SITE, noInbox: true, fallbackLine: CALLBACK,
+  });
+  assert.equal(web.drafts.at(-1)?.body, CALLBACK);
+  assert.equal(r.kind === 'drafted' && r.handedOff, true);
+});
+
+test('the rule reaches the sales line too: a step with no website version loses only its own-site line', async () => {
+  const { parsePlaybook: parse } = await import('../sales/nextStep.ts');
+  const followUp = '🤖 24/7 хариулна.\n🎁 Демо: https://app.dalatech.online\n👉 Бусад: https://dalatech.online';
+  const parsed = parse({
+    mode: 'live', lead_route: 'founder_telegram', small_talk: [], pairings: [],
+    steps: [{ kind: 'follow_up', body: followUp, reviewed_at: '2026-09-26', link: 'https://app.dalatech.online', priority: 50, is_default: true, intent_matcher: null, enabled: true }],
+  });
+  assert.ok(parsed.ok);
+  const web = deps({ result: { ...OK_REPLY, text: 'Чёлк тайралт 33,000₮.' } });
+  await handleReception(web.deps, { ...base, sales: parsed.playbook, ownSiteHosts: SITE, noInbox: true });
+  // The answer line is the facts guard's business; the sales line is what this is about.
+  assert.ok(web.drafts.at(-1)?.body.endsWith('\n\n🤖 24/7 хариулна.\n🎁 Демо: https://app.dalatech.online'), web.drafts.at(-1)?.body);
+  assert.ok(!web.drafts.at(-1)?.body.includes('https://dalatech.online'));
 });

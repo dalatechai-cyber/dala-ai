@@ -10,7 +10,7 @@ const WHO = 'Сайн байна уу! Би Tara Salon-ы AI туслах бай
 function row(tenantId: unknown, over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 1, tenant_id: tenantId, active: true, customer_message: 'chi henbe', history: [],
-    expected_body: WHO, must_include: [], must_not_include: [], note: null, ...over,
+    expected_body: WHO, must_include: [], must_not_include: [], note: null, channel: 'facebook_page', ...over,
   };
 }
 

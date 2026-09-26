@@ -182,3 +182,28 @@ test('DONE-TEST: the no-spend gate (D-137) — a model case is listed as not run
   const [r] = await runCases({ ...base, cases: [kase({})] });
   assert.equal(r?.outcome, 'pass');
 });
+
+// ---- D-140: a case answered as the website answers it -------------------------------------
+
+test('DONE-TEST: a WEBSITE case gets the row\'s website version and no own-site sentence; the same case on the Page does not', async () => {
+  const office: DeterministicRule = {
+    ...WHO, intent: 'office_location', body: 'Бид Улаанбаатарт. Дэлгэрэнгүй: https://dalatech.online',
+    webBody: null, stems: ['оффис'], coverWords: ['танай', 'хаана', 'байдаг', 'вэ'], matchMode: 'covers_message',
+  };
+  const who: DeterministicRule = { ...WHO, webBody: 'Би Дали, вэб туслах.' };
+  const ctx = { ...CTX, deterministic: [who, office] };
+  const msg = 'Танай оффис хаана байдаг вэ?';
+  const [web, page, webWho, pageWho] = await runCases({
+    ctx, timezone: 'Asia/Ulaanbaatar', now: new Date(), callModel: null, siteHosts: ['dalatech.online'],
+    cases: [
+      kase({ id: 1, customerMessage: msg, expectedBody: 'Бид Улаанбаатарт.', channel: 'web' }),
+      kase({ id: 2, customerMessage: msg, expectedBody: 'Бид Улаанбаатарт. Дэлгэрэнгүй: https://dalatech.online' }),
+      kase({ id: 3, expectedBody: 'Би Дали, вэб туслах.', channel: 'web' }),
+      kase({ id: 4, expectedBody: WHO.body, channel: 'facebook_page' }),
+    ],
+  });
+  assert.equal(web?.pass, true, web?.why.join('; '));
+  assert.equal(page?.pass, true, page?.why.join('; '));
+  assert.equal(webWho?.pass, true, webWho?.why.join('; '));
+  assert.equal(pageWho?.pass, true, pageWho?.why.join('; '));
+});
