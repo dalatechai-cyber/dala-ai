@@ -598,6 +598,9 @@ export const MODEL_INVISIBLE_KINDS: readonly string[] = [
   // no tenant has a row — the same order the handover pair was shipped in, for the same
   // reason: a row inserted before the filter moves `canned_hash` and 503s every DM reply.
   'clarify_branch',
+  // D-144. A comment rule's own pair of lines, served only by the comment worker. Listed
+  // while `0058` registers the kinds and no tenant has a row, for the reason above.
+  'comment_cta_public_reply', 'comment_cta_private_reply',
 ];
 
 /**

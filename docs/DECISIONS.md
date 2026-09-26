@@ -10455,3 +10455,50 @@ echo is never read as a person — nobody can type buttons in an inbox — and a
 matched against the form the reply was sent in as well as the stored one.
 
 Not verifiable from here: how each app renders the template. The founder's test settles it.
+
+## D-144 — «Comment 1»: a comment rule with its own pair of lines (2026-09-26)
+
+Founder, 2026-09-26, DalaTech's own Page only (Tara unchanged): a post invites «1 гэж
+комментод бичээрэй»; everyone who comments «1» gets the public reply «Сайн байна уу!
+Дэлгэрэнгүй мэдээллийг чатаар илгээлээ 😊» and the private message «Сайн байна уу! Би
+DalaTech-ийн AI туслах Дали байна. Энэ чатаар надаас хүссэн зүйлээ асуугаарай — үнэ,
+үйлчилгээ, үнэгүй демо, бүгдийг тайлбарлая.» (both approved exactly). Their answer goes to
+Дали as any DM does.
+
+**Rows, not code.** `0058` lets a `comment_rules` row name its own `public_kind` /
+`private_kind`. Tenant #0's rule `cta_one` is a `whole_message` matcher on «1» (with «1️⃣»,
+«1⃣», «１» listed; punctuation, spaces and emoji are already stripped by the whole-message
+key), so «1», « 1 », «1!», «1 👍» fire it and anything with words in it does not — a question
+keeps today's lines. Every post, no setup per post. No model call anywhere on the comment path.
+
+**The rules around it:**
+- The general lines are used whenever the fired `reply` rules do not all name the same pair,
+  the policy is not `both`, or either line is unreviewed.
+- **The chat goes first.** The public line claims the chat was sent, so the private message is
+  sent first and the public line is posted as written only if it was DELIVERED. If Meta refused
+  it (or it is indeterminate), the public row is rewritten to the tenant's general line
+  («… Мессеж бичээрэй …»), which invites a message rather than claiming one. A retried job
+  keeps that order (`resumePending` recognises a pending call-to-action line).
+- **No spam, within Meta's limits:** one reply per person per post (the existing rule, keyed
+  `pr:{post}:{person}`), so a second «1» from the same person on the same post gets nothing;
+  Meta allows one private reply per comment within seven days, and we send at most one per
+  person per post. One public reply per thread as before.
+- **The daily per-post cap** (tenant #0: 20 public replies per post per 24 h) still withholds
+  the public line, but a capped «1» still gets the private message: everyone who answers the
+  post is owed the chat, and a flood of identical public replies is what the cap prevents.
+- Our own comments never trigger it (`comment_self`, replies under our replies).
+
+**Order of deployment:** the two kinds are in `MODEL_INVISIBLE_KINDS`. The rows
+(`scripts/provision/dalatech-comment-one-2026-09-26.sql`) go in only after that code is live.
+Before then, a row would move `canned_hash` and refuse every DalaTech DM.
+
+**Instagram comments — not built.** The same rows would carry over, but the surface does
+not exist yet:
+- Meta: `instagram_manage_comments` on DALA_AI (check its access level), in the system-user
+  token, and the Instagram webhook field `comments`.
+- Code: an extractor for Instagram's `comments` change (it is not the Page `feed` shape); the
+  public reply endpoint `POST /{ig-comment-id}/replies`; the private reply as
+  `recipient.comment_id` through the Page (Instagram supports private replies to comments, one
+  per comment, within 7 days); the post-age read from the media's `timestamp`. Staff and tag
+  checks need an Instagram equivalent.
+- Then the Instagram channel's `comment_policy`, shadow first.

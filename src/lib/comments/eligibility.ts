@@ -197,6 +197,13 @@ export type CommentDecisionInput = {
    */
   postRepliesInWindow: number;
   now: Date;
+  /**
+   * A post whose public replies are capped still gets the PRIVATE message (D-144). Set for a
+   * rule with its own lines — the call to action, where the private message is the point and
+   * everyone who answers the post is owed it. The public line is withheld as the cap says.
+   * Absent or false: the cap refuses both, as it always has.
+   */
+  privateWhenCapped?: boolean;
 };
 
 /**
@@ -305,7 +312,10 @@ export function decideCommentReply(input: CommentDecisionInput): CommentDecision
   // already-answered thread is `thread_already_answered`, which is the more specific
   // truth; `post_cap_reached` is then reserved for what the thread rule does not catch,
   // which is the case this cap exists for: separate people, separate threads, one post.
-  if (input.postRepliesInWindow >= config.repliesPerPostPerDay) {
+  const capped = input.postRepliesInWindow >= config.repliesPerPostPerDay;
+  const privateOnly = capped && input.privateWhenCapped === true
+    && (config.policy === 'private_only' || config.policy === 'both');
+  if (capped && !privateOnly) {
     return {
       reply: false,
       refusal: 'post_cap_reached',
@@ -341,7 +351,7 @@ export function decideCommentReply(input: CommentDecisionInput): CommentDecision
   // here can transform it.
   return {
     reply: true,
-    publicBody: wantsPublic && input.pinnedLine !== null ? input.pinnedLine.body : null,
+    publicBody: wantsPublic && !privateOnly && input.pinnedLine !== null ? input.pinnedLine.body : null,
     privateBody: wantsPrivate && input.privateLine !== null ? input.privateLine.body : null,
     threadId: comment.threadId,
     postId: comment.postId,

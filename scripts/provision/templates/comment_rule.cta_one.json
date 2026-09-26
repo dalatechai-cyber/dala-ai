@@ -1,0 +1,14 @@
+{
+  "_doc": "D-144. DalaTech's «comment 1» call to action (tenant #0 only). A comment that is only «1» — with any punctuation, spacing or emoji beside it — answers the post's call to action and gets the tenant's comment_cta_* pair. Anything with words in it is not this rule. Read by src/lib/comments/ctaOne.test.ts and inserted by scripts/provision/dalatech-comment-one-2026-09-26.sql; the test fails if the two differ.",
+  "rule": {
+    "rule_key": "cta_one",
+    "verdict": "reply",
+    "matcher": { "mode": "whole_message", "phrases": ["1", "1️⃣", "1⃣", "１"] },
+    "public_kind": "comment_cta_public_reply",
+    "private_kind": "comment_cta_private_reply"
+  },
+  "lines": {
+    "comment_cta_public_reply": "Сайн байна уу! Дэлгэрэнгүй мэдээллийг чатаар илгээлээ 😊",
+    "comment_cta_private_reply": "Сайн байна уу! Би DalaTech-ийн AI туслах Дали байна. Энэ чатаар надаас хүссэн зүйлээ асуугаарай — үнэ, үйлчилгээ, үнэгүй демо, бүгдийг тайлбарлая."
+  }
+}
