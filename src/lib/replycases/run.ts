@@ -335,7 +335,15 @@ export function renderGate(gates: readonly TenantGate[]): { text: string; pass: 
     const failed = g.results.filter((r) => !r.pass);
     if (failed.length > 0) pass = false;
     lines.push(`${g.slug}: ${g.results.length - failed.length}/${g.results.length} reply cases pass`);
-    for (const f of failed) lines.push(`  case ${f.id} FAILS: ${f.why.join('; ')}`);
+    // How it was answered, and the flag codes the reply path raised. «missing «10%»» alone
+    // cannot tell a model that answered badly from a model that never answered: on
+    // 2026-09-26 ten cases failed exactly so, and the cause was in the codes (`model_…`).
+    // Codes only — never the reply's words, which may be a real customer's (see below).
+    for (const f of failed) {
+      const how = [f.answeredBy === null ? '' : `answered by ${f.answeredBy}`, f.flags.length === 0 ? '' : `flags: ${f.flags.join(', ')}`]
+        .filter((x) => x !== '').join('; ');
+      lines.push(`  case ${f.id} FAILS: ${f.why.join('; ')}${how === '' ? '' : ` (${how})`}`);
+    }
   }
   return { text: lines.join('\n'), pass };
 }
