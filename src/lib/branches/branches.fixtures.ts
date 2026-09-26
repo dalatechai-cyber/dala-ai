@@ -223,7 +223,7 @@ export function scenarioInput(
     cannedLabel: SECTION_LABELS.canned,
     cannedHash: null,
     fallbackLine: null,
-    complaintRules: [], sales: null,
+    complaintRules: [], sales: null, replyStyle: null,
     serviceNames: servicesFromPrefix(promptStable, SECTION_LABELS.priceList),
     serviceAliases: [],
     depositRows: sectionRows(promptStable, SECTION_LABELS.deposits),

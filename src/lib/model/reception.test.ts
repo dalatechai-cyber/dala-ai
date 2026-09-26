@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import Anthropic from '@anthropic-ai/sdk';
 import {
-  buildRequest, classifyError, classifyResponse, isStale,
+  buildRequest, classifyError, classifyResponse, isStale, replyOf,
   RECEPTION_HISTORY_TURNS, RECEPTION_MAX_TOKENS, type ReceptionRequest,
 } from './reception.ts';
 
@@ -208,4 +208,48 @@ test('an event older than the deadline is dropped BEFORE the call, so it costs n
   const now = new Date('2026-09-04T12:00:00Z');
   assert.equal(isStale(new Date('2026-09-03T15:00:00Z'), now), true, '21 hours old');
   assert.equal(isStale(new Date('2026-09-04T00:00:00Z'), now), false, '12 hours old');
+});
+
+// ---------------------------------------------------------------------------
+// D-133: the checklist has a place of its own, and only the reply leaves.
+// ---------------------------------------------------------------------------
+
+// The shape of every leak caught before D-133, case 20 among them: the Ш-walk as the first
+// paragraph, then the real answer.
+const LEAKED = 'Ш0 (суваг) болон Ш2 (үнэ) хамаарч байна.\n\nХоёр ажилтан авбал 10% хөнгөлөлттэй.';
+
+test('D-133: the <reply> body is what leaves; the <check> walk never does', () => {
+  const r = classifyResponse({
+    stop_reason: 'end_turn',
+    content: [{ type: 'text', text: '<check>Ш0 DM. Ш2 үнэ байна.</check>\n<reply>\nХоёр ажилтан авбал 10% хөнгөлөлттэй.\n</reply>' }],
+    usage: {},
+  });
+  assert.equal(r.kind === 'ok' && r.text, 'Хоёр ажилтан авбал 10% хөнгөлөлттэй.');
+  assert.equal(JSON.stringify(r).includes('Ш0'), false);
+});
+
+test('D-133: a model that ignores the format loses nothing — untagged text is the reply, as before', () => {
+  assert.equal(replyOf('Сайн байна уу!'), 'Сайн байна уу!');
+  // …and a leak written without tags still reaches the guard unchanged, which refuses it.
+  assert.equal(replyOf(LEAKED), LEAKED);
+});
+
+test('D-133: checks without a reply tag are removed; an unclosed check is not an answer', () => {
+  assert.equal(replyOf('<check>Ш0 DM</check>\nСайн байна уу!'), 'Сайн байна уу!');
+  assert.equal(replyOf('Сайн байна уу!\n<check>Ш0 DM, Ш2'), 'Сайн байна уу!');
+  assert.equal(replyOf('<check>Ш0 DM, Ш2 үнэ'), '');
+});
+
+test('D-133: an unclosed <reply> runs to the end; text after </reply> is dropped', () => {
+  assert.equal(replyOf('<check>ok</check><reply>Тийм, болно.'), 'Тийм, болно.');
+  assert.equal(replyOf('<reply>Тийм.</reply>\nШ3 дагуу.'), 'Тийм.');
+});
+
+test('D-133: a check with nothing after it is EMPTY, which the caller retries once', () => {
+  const r = classifyResponse({ stop_reason: 'end_turn', content: [{ type: 'text', text: '<check>Ш0</check><reply></reply>' }], usage: {} });
+  assert.equal(r.kind === 'terminal' && r.reason, 'empty');
+});
+
+test('D-133: a label written INSIDE the reply is returned as written, for the guard to refuse', () => {
+  assert.equal(replyOf('<reply>Ш2 дагуу: 10% хөнгөлөлт.</reply>'), 'Ш2 дагуу: 10% хөнгөлөлт.');
 });

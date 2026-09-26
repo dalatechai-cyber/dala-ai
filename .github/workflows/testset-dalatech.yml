@@ -40,6 +40,11 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --set scripts/bakeoff/dalatech-sales-set.json --tag ci --max-calls 30
+      - name: Answer the repeat set (D-133, x02 eight times)
+        if: always()
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --set scripts/bakeoff/dalatech-repeat-set.json --tag ci --max-calls 16
       - name: Report
         if: always()
         run: |
@@ -47,6 +52,8 @@ jobs:
           cat docs/reports/dalatech-testset.md >> "$GITHUB_STEP_SUMMARY"
           cat docs/reports/dalatech-sales-testset.md || true
           cat docs/reports/dalatech-sales-testset.md >> "$GITHUB_STEP_SUMMARY" || true
+          cat docs/reports/dalatech-repeat-testset.md || true
+          cat docs/reports/dalatech-repeat-testset.md >> "$GITHUB_STEP_SUMMARY" || true
       - if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -55,4 +62,5 @@ jobs:
             scripts/bakeoff/runs/testset-dalatech-ci.json
             docs/reports/dalatech-testset.md
             docs/reports/dalatech-sales-testset.md
+            docs/reports/dalatech-repeat-testset.md
           if-no-files-found: warn

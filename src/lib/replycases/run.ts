@@ -234,6 +234,7 @@ export async function runCases(input: {
         fallbackLine: ctx.fallbackLine,
         complaintRules: ctx.complaintRules,
         sales: ctx.sales,
+        replyStyle: ctx.replyStyle,
         spellings: ctx.spellings,
         branches: ctx.branches,
       });

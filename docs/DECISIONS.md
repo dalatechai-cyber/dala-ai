@@ -10040,3 +10040,49 @@ Checked without the model after the change:
 
 `sd3`, a question about the demo, is new. It is proven only by the production gate after the
 switch.
+
+## D-133 — DalaTech's look, its thanks and greeting replies, and why gate labels leaked (2026-09-26)
+
+Founder, 2026-09-26: four changes for DalaTech. Tara is not affected except by the fourth,
+which is platform-wide.
+
+**1. The look, as a row (`0055`, `tenants.reply_style`).** Option A, approved: a staff
+member's price reads «💬 Дали — AI хүлээн авагч» / «💰 Сарын төлбөр: 250,000₮».
+`reception/style.ts` re-lays only lines that ARE price-list rows, character for character,
+after the facts guard has served them. It types no number, and every digit comes from the
+row. The same row carries `max_emoji: 1`. It caps emoji in the model's own words, and keeps
+none on a complaint or on a reply carrying a reviewed refusal or handoff row. Approved lines
+keep their own emoji. A tenant with no row gets exactly what it got. The follow-up row is
+replaced by the approved text. The service is renamed «Дали — AI хүлээн авагч» to match the
+approved look. That rename reaches the prefix only on a republish. Before the republish the
+header reads the old name, and the permanent cases assert only «💬 Дали», so they hold both
+before and after.
+
+**2. Thanks.** «Баярлалаа» got «Тавтай морил!», which welcomes an arrival. A whole-message
+`thanks` row now serves the approved «Зүгээр ээ 😊 Өөр асуух зүйл байвал бичээрэй.»
+
+**3. The invented name.** A plain greeting was answered «Дала апп» plus the coming-soon
+line. The cause is in the data, not the model: DalaTech's compiled prefix never contained
+the word DalaTech. Its data marker section is empty, `display_name` is rendered nowhere
+(D-033), and no document names the company. The model named the product after the demo URL.
+Two changes follow:
+- a whole-message `greeting` row serves the approved introduction, so a greeting gets a
+  short greeting only;
+- a knowledge document «Нэр» states the company and assistant names, reaching the prefix on
+  the republish.
+
+**4. Gate labels, at the source.** Every caught leak had one shape: the Ш-rule walk as the
+first paragraph («Ш0 (…) болон Ш2 (…) хамаарч байна.»), a blank line, then the real answer.
+The guard refused the whole reply, so case 20's discount question got the handoff line.
+The instruction not to write the labels was already in L4. The reason it failed is that
+the checklist block asks the model to walk the rules before answering, and thinking is off
+(D-014). The walk had nowhere to go but the reply.
+
+It has a place now. L4 tells the model to do the walk inside `<check>` and write the
+customer's reply inside `<reply>`. `model/reception.ts` `replyOf` returns only the `<reply>`
+body. Without tags, the `<check>` blocks are removed and the rest is the reply, exactly as
+before. Every guard, the label guard included, still reads what is returned, so a label
+written inside `<reply>` is refused as it always was. This applies to every tenant.
+
+Case 20 goes back on only after `dalatech-repeat-set.json` (x02 eight times, real model)
+passes eight of eight.

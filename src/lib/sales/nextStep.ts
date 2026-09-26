@@ -130,6 +130,8 @@ export type ReplyFacts =
       smallTalk: boolean;
       /** The reply carries a link one of the tenant's next steps carries. */
       carriesStepLink: boolean;
+      /** Which of those hosts it carries. Absent reads as "unknown": the link then counts for any step. */
+      linkHosts?: readonly string[];
     };
 
 export type DecisionInput = {
@@ -313,10 +315,16 @@ export function decide(input: DecisionInput): Decision {
   const nextStep = ((): NextStepVerdict => {
     if (hard !== null) return { verdict: 'skip', reason: hard };
     if (leadEarlier) return { verdict: 'skip', reason: 'lead_given_earlier' };
-    if (reply.exists && reply.carriesStepLink) return { verdict: 'in_reply' };
+    const chosen = chooseStep(playbook.steps, input.customerMessage, input.respelled ?? null);
+    // A link in the reply is the step already offered — unless the customer ASKED for a step
+    // and the link is not that step's own. «Надад залгаж болох уу?» answered with the homepage
+    // link is not a callback offered (D-133, CI sk1): the approved callback line still applies.
+    if (reply.exists && reply.carriesStepLink) {
+      const own = chosen?.chosenBy === 'intent' && reply.linkHosts !== undefined ? stepHosts([chosen.step]) : null;
+      if (own === null || own.some((h) => reply.linkHosts?.includes(h) === true)) return { verdict: 'in_reply' };
+    }
     if (input.offeredBefore) return { verdict: 'skip', reason: 'already_offered' };
     if (moment !== null) return { verdict: 'skip', reason: moment };
-    const chosen = chooseStep(playbook.steps, input.customerMessage, input.respelled ?? null);
     if (chosen === null) return { verdict: 'skip', reason: 'no_step_configured' };
     const kind = chosen.step.kind as NextStepKind;
     return { verdict: 'offer', kind, chosenBy: chosen.chosenBy, row: rowState(playbook.steps, kind) };
@@ -387,6 +395,7 @@ export function classifyReply(input: {
     asksQuestion: tail.endsWith('?') || tail.endsWith('？'),
     smallTalk: input.smallTalkBodies.some((b) => nfc(b).trim() === trimmed),
     carriesStepLink: input.hosts.some((h) => reply.includes(h)),
+    linkHosts: input.hosts.filter((h) => reply.includes(h)),
   };
 }
 

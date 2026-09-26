@@ -122,3 +122,17 @@ test('an unreviewed follow-up is never sent', () => {
   assert.ok(p.ok);
   assert.equal(line('Дали сард хэд вэ?', PRICES, [], p.ok ? p.playbook : dalatech()), null);
 });
+
+test('DONE-TEST: "call me" answered with the homepage link still gets the approved callback line (CI sk1, D-133)', () => {
+  // The model's real reply in CI run 36221311221: it quoted the homepage, which the follow-up
+  // row also carries, and that link was read as a next step already offered.
+  const reply = 'Бид одоогоор зөвхөн Facebook, Instagram болон вэбсайтаар зурваст хариулж байна. '
+    + 'Хүсэлтэй бол dalatech.ai@gmail.com эсвэл https://dalatech.online руу хандаж болно.';
+  const call = line('Надад залгаж болох уу?', reply);
+  assert.equal(call?.kind, 'callback');
+  assert.equal(call?.body, CALLBACK);
+  // The step's OWN link still counts as offered: a demo request answered with the demo link.
+  assert.equal(line('Демо үзмээр байна', 'Демог https://app.dalatech.online дээр захиална.'), null);
+  // And with no step asked for, any step link in the reply still counts.
+  assert.equal(line('Хэр хурдан ажиллаж эхлэх вэ?', 'Дэлгэрэнгүйг https://dalatech.online дээр үзнэ үү.'), null);
+});

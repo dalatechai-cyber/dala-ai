@@ -98,6 +98,7 @@ function effects(now: Date): WorkerEffects {
           fallbackLine: a.ctx.fallbackLine,
           complaintRules: a.ctx.complaintRules,
           sales: a.ctx.sales,
+          replyStyle: a.ctx.replyStyle,
         },
       ),
 

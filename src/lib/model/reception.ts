@@ -127,6 +127,40 @@ function readUsage(raw: unknown): Usage {
 }
 
 /**
+ * The customer's reply out of what the model wrote (D-133).
+ *
+ * Why this exists: the gate checklist asks the model to walk the Ш-rules before answering,
+ * thinking is off (D-014), and so the model walked them IN the reply. Every caught leak had
+ * the same shape — a first paragraph «Ш0 (…) болон Ш2 (…) хамаарч байна.», a blank line,
+ * then the real answer — and the guard then threw the real answer away with it (case 20,
+ * «2 ajiltan avbal hungulult bga yu», served the handoff line instead of the discounts).
+ * The instruction «never write the labels» was already in the prompt; it was a request the
+ * model kept breaking because the checklist had nowhere else to go.
+ *
+ * So it gets somewhere: `<check>…</check>` for the walk, `<reply>…</reply>` for the customer
+ * (`reception/volatile.ts`). This returns the `<reply>` body. A model that ignores the
+ * format loses nothing: with no `<reply>`, every `<check>` block is removed and the rest is
+ * the reply, exactly as before. Everything downstream — every guard, the label guard
+ * included — still reads what is returned here, so a label written INSIDE `<reply>` is
+ * refused as it always was.
+ */
+export function replyOf(text: string): string {
+  const open = text.indexOf('<reply>');
+  if (open !== -1) {
+    const from = open + '<reply>'.length;
+    const close = text.indexOf('</reply>', from);
+    return stripTags(close === -1 ? text.slice(from) : text.slice(from, close)).trim();
+  }
+  // No reply tag: drop the checks (a check left unclosed runs to the end — it is not an answer).
+  const noChecks = text.replace(/<check>[\s\S]*?(?:<\/check>|$)/gu, '');
+  return stripTags(noChecks).trim();
+}
+
+function stripTags(t: string): string {
+  return t.replace(/<\/?(?:reply|check)>/gu, '');
+}
+
+/**
  * Classify a response the API returned successfully. Exported because it is the part
  * worth testing exhaustively, and it has no network in it.
  *
@@ -163,11 +197,13 @@ export function classifyResponse(response: unknown): CallOutcome {
     .join('')
     .trim();
 
-  if (text === '') {
-    return { kind: 'terminal', reason: 'empty', detail: `no text block with stop_reason ${stopReason || '<absent>'}`, usage };
+  // 4. Only the reply leaves this function; the model's own check never does (D-133).
+  const reply = replyOf(text);
+  if (reply === '') {
+    return { kind: 'terminal', reason: 'empty', detail: `no reply text with stop_reason ${stopReason || '<absent>'}`, usage };
   }
 
-  return { kind: 'ok', text: nfc(text), usage, modelReturned, stopReason };
+  return { kind: 'ok', text: nfc(reply), usage, modelReturned, stopReason };
 }
 
 /**

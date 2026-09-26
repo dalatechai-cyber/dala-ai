@@ -10,6 +10,8 @@ import type { CallOutcome } from '../model/reception.ts';
 import type { GateRule } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
+import { replyStyleOf } from './style.ts';
+import { servicesFromPrefix } from '../quality/serviceNames.ts';
 
 const REVIEWED = '2026-09-04T00:00:00Z';
 
@@ -113,7 +115,7 @@ const base: ReceptionInput = {
   serviceNames: [{ name: 'Чёлк тайралт', prices: ['22000'], rows: [] }],
   depositRows: [],
   faqAnswers: [],
-  cannedHash: null, fallbackLine: null, complaintRules: [], sales: null,
+  cannedHash: null, fallbackLine: null, complaintRules: [], sales: null, replyStyle: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -1161,4 +1163,29 @@ test('asked about its instructions, the bot may answer; and ordinary words are n
     'Будсаны дараа үсчин арчилгааны заавар өгнө.',
     'Дали таны мэдээллийн сантай холбогдож ажиллана.',
   ]) assert.equal(instructionLeakIn(ok, 'үнэ хэд вэ', []), null, ok);
+});
+
+// D-133: a tenant's LOOK, applied on the reply path to rows the facts guard already served.
+const DALI = 'Дали — AI хүлээн авагч';
+const STAFF_PRICED = `STABLE\n=== ${SECTION_LABELS.dataMarker} ===\n=== ${SECTION_LABELS.priceList} ===\n`
+  + `- ${DALI} (Нэг удаагийн суурилуулалт): 150,000₮\n- ${DALI} (Сарын төлбөр): 250,000₮`;
+const LOOK = replyStyleOf({ price_header: '💬 {service}', price_line: '💰 {option}: {price}', max_emoji: 1 });
+
+test('DONE-TEST: DalaTech\'s approved look — a staff member\'s price is served as «💬 name» / «💰 option: price»', async () => {
+  const { deps: d, drafts } = deps({ result: { ...OK_REPLY, text: 'Дали — AI хүлээн авагчийн сарын төлбөр 250,000₮ байна.' } });
+  await handleReception(d, {
+    ...base, customerMessage: 'Дали сард хэд вэ?', promptStable: STAFF_PRICED, replyStyle: LOOK,
+    serviceNames: servicesFromPrefix(STAFF_PRICED, SECTION_LABELS.priceList),
+    tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['150,000', '250,000'] },
+  });
+  assert.equal(drafts.at(-1)?.body, `💬 ${DALI}\n💰 Сарын төлбөр: 250,000₮`);
+});
+
+test('DONE-TEST: at most one emoji in the model\'s words; a tenant with no look is untouched (Tara)', async () => {
+  const text = 'Тийм, болно 😊 Та асуух зүйлээ бичээрэй 👍';
+  for (const [style, want] of [[LOOK, 'Тийм, болно 😊 Та асуух зүйлээ бичээрэй'], [null, text]] as const) {
+    const { deps: d, drafts } = deps({ result: { ...OK_REPLY, text } });
+    await handleReception(d, { ...base, customerMessage: 'Вэбсайт хийдэг үү', replyStyle: style });
+    assert.equal(drafts.at(-1)?.body, want);
+  }
 });
