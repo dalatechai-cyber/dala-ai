@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Reviews Dala AI changes against the platform's non-negotiables and verifies claims against primary sources — git history, live endpoints, database catalog. Use before anything is proposed for merge. Reads the world; changes nothing.
+description: Reviews Dala AI changes to the live-customer path — anything under src/, supabase/migrations/, prompt/ or scripts/publish/ — against the platform's non-negotiables, and verifies claims against primary sources (git history, live endpoints, database catalog). Use before merging such changes. For docs-, test-, CI- or config-only diffs use reviewer-routine instead. Reads the world; changes nothing.
 tools: Read, Grep, Glob, Bash, WebFetch
 model: opus
 ---
