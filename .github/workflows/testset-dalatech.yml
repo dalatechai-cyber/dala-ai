@@ -47,7 +47,7 @@ jobs:
         if: always()
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --set scripts/bakeoff/dalatech-gate-repeat-set.json --tag ci --max-calls 60
+        run: node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --set scripts/bakeoff/dalatech-gate-repeat-set.json --tag ci --max-calls 60 --now "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       - name: Report
         if: always()
         run: |
