@@ -86,7 +86,7 @@ test('the body carries counts, never the verdicts themselves', async () => {
   // This lands in QStash's delivery log. A channel's health belongs in `channel_health`
   // and in the alert, not in a queue receipt somebody may or may not read.
   const r = await runHealthJob(effects(), { rawBody: '{}', signature: 'sig' });
-  assert.deepEqual(Object.keys(r.body).sort(), ['checked', 'secrets', 'states', 'swept']);
+  assert.deepEqual(Object.keys(r.body).sort(), ['catch_up', 'checked', 'secrets', 'states', 'swept']);
   // The expiry clause obeys the same rule one level down: which tenant's credential is
   // running out is in the alert, and a receipt that named it would put a tenant id and a
   // credential kind into a third party's delivery log for no gain.

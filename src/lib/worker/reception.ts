@@ -39,6 +39,7 @@ import { recordHandover, readThreadState } from '../handover/record.ts';
 import { personRepliedSince } from '../handover/presend.ts';
 import { humanHoldsThread } from '../handover/control.ts';
 import { CREDENTIAL_FAILURE_STATUS, clearCredentialFailure } from '../channel/recover.ts';
+import { CATCH_UP_WINDOW_MINUTES, HELD_FLAG } from '../channel/catchup.ts';
 import { loadReceptionContext } from '../reception/load.ts';
 import { renderVolatile } from '../reception/volatile.ts';
 import type { Surface } from '../reception/volatile.ts';
@@ -171,7 +172,7 @@ export type WorkerEffects = {
    * person to read later, never a control, and a flag that cannot be written must not
    * change what the customer gets.
    */
-  flagQuality: (args: { tenantId: string; conversationId: string; code: string; detail: string }) => Promise<void>;
+  flagQuality: (args: { tenantId: string; conversationId: string; code: string; detail: string; messageId?: string }) => Promise<void>;
   /**
    * The sales shadow (D-127): after a reply is DRAFTED, record whether a next step would be
    * offered and whether the customer's message was a lead. It reads the stored reply and
@@ -377,7 +378,7 @@ async function runReceptionDelivery(
     return { status: 401, body: { error: 'worker.signature_invalid' } };
   }
 
-  let job: { eventId?: unknown; tenantId?: unknown; channelId?: unknown };
+  let job: { eventId?: unknown; tenantId?: unknown; channelId?: unknown; catchUpMid?: unknown };
   try {
     job = JSON.parse(request.rawBody) as typeof job;
   } catch {
@@ -390,6 +391,9 @@ async function runReceptionDelivery(
   const eventId = typeof job.eventId === 'number' ? job.eventId : null;
   const tenantId = typeof job.tenantId === 'string' ? job.tenantId : null;
   const channelId = typeof job.channelId === 'string' ? job.channelId : null;
+  // A catch-up job (`channel/catchup.ts`): answer this ONE message, held while the channel
+  // was halted, and nothing else in the entry. Null on every ordinary delivery.
+  const catchUpMid = typeof job.catchUpMid === 'string' && job.catchUpMid !== '' ? job.catchUpMid : null;
   if (eventId === null || tenantId === null || channelId === null) {
     fx.log('error', 'job_missing_fields');
     return ok({ dropped: 'job_missing_fields' });
@@ -453,7 +457,14 @@ async function runReceptionDelivery(
   trace.ageMinutes = Number.isNaN(receivedMs) ? Number.NaN : (now.getTime() - receivedMs) / 60_000;
 
   const rawPayload = eventRow['raw_payload'];
-  const { messages, skipped, standby } = extractInboundMessages(rawPayload);
+  const extracted = extractInboundMessages(rawPayload);
+  // In catch-up mode only the held message is re-run. The entry's echoes, stickers,
+  // photographs and standby count were all handled when it first arrived; repeating them
+  // would re-count handovers and re-answer pictures.
+  const messages = catchUpMid === null
+    ? extracted.messages : extracted.messages.filter((m) => m.externalId === catchUpMid);
+  const skipped = catchUpMid === null ? extracted.skipped : [];
+  const standby = catchUpMid === null ? extracted.standby : 0;
   trace.turns = messages.map((m) => ({ psid: m.senderId, sentAt: m.sentAt }));
 
   // --- Tenant settings, read once for the whole entry. ----------------------
@@ -673,7 +684,7 @@ async function runReceptionDelivery(
   // pays nothing for the `feed` firehose.
   let commentResult: CommentJobResult | null = null;
   const commentMode = String(c['comment_delivery_mode'] ?? 'off');
-  if (String(c['comment_policy'] ?? 'none') !== 'none' && commentMode !== 'off') {
+  if (catchUpMid === null && String(c['comment_policy'] ?? 'none') !== 'none' && commentMode !== 'off') {
     commentResult = await runCommentJob(
       {
         db, now, log: fx.log,
@@ -815,7 +826,9 @@ async function runReceptionDelivery(
         fx.log('error', 'reply_lookup_failed', { eventId, detail: answered.detail });
         return unavailable('worker.reply_lookup_failed');
       }
-      if (answered.outcome === 'answered') {
+      // A catch-up may claim a reply that FAILED on the credential: it is the latest message
+      // in its conversation (the sweep checked), so its stored body answers exactly it.
+      if (answered.outcome === 'answered' && !(catchUpMid !== null && answered.state === 'failed')) {
         fx.log('info', 'already_answered', { eventId, outboundId: answered.outboundId, state: answered.state });
         continue;
       }
@@ -865,6 +878,14 @@ async function runReceptionDelivery(
     // `shadow` deliberately does NOT stop here — the mirror phase generates and withholds,
     // and `delivery.deliver` below is what withholds it.
     if (!delivery.generate) {
+      // Held because the channel is HALTED (a credential failure), not because somebody
+      // switched it off: the evidence the catch-up sweep answers from when it comes back.
+      if (channelStatus === CREDENTIAL_FAILURE_STATUS) {
+        await fx.flagQuality({
+          tenantId, conversationId, messageId: stored.value.messageId, code: HELD_FLAG,
+          detail: 'stored while the channel was halted; answered when it returns if under 24h and nobody has',
+        });
+      }
       fx.log('info', 'not_generating', {
         tenantId, channelId, externalId: message.externalId, detail: delivery.detail,
       });
@@ -875,16 +896,19 @@ async function runReceptionDelivery(
     // §3.9's check 7. AFTER the message is persisted — §3.4.5's "persist everything,
     // generate nothing" — and before the reservation, so a message nobody wants answered
     // costs three rows and not a reservation, a model call or a send.
-    if (!isFresh(eventAt, now, replyAgeLimit)) {
+    // A catch-up message waited out a halt, so it is measured against Meta's 24-hour window,
+    // not the tenant's ordinary limit — the whole point is that it is late.
+    const ageLimit = catchUpMid === null ? replyAgeLimit : CATCH_UP_WINDOW_MINUTES;
+    if (!isFresh(eventAt, now, ageLimit)) {
       const ageMinutes = Math.round((now.getTime() - eventAt.getTime()) / 60_000);
-      fx.log('warn', 'reply_too_late', { tenantId, externalId: message.externalId, ageMinutes, limitMinutes: replyAgeLimit });
+      fx.log('warn', 'reply_too_late', { tenantId, externalId: message.externalId, ageMinutes, limitMinutes: ageLimit });
       // The customer's question is stored and now visible to the Quality layer as one
       // nobody answered, which is exactly what it is.
       await fx.flagQuality({
         tenantId,
         conversationId,
         code: 'reply_too_late',
-        detail: `${ageMinutes} minutes old; the tenant's limit is ${replyAgeLimit}`,
+        detail: `${ageMinutes} minutes old; the limit is ${ageLimit}`,
       });
       stale.push(message.externalId);
       continue;

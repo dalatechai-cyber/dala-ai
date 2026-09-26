@@ -144,6 +144,25 @@ test('a 190 revokes the credential, halts the channel, and pages — once, with 
   assert.match(alerts[0]?.body ?? '', /inbound is still being persisted/);
 });
 
+test('DONE-TEST: THE HALT PAGE SAYS HOW MANY CUSTOMERS ARE WAITING, and that they will be answered (2026-09-26)', async () => {
+  const { deps, alerts, calls } = stubDeps({
+    send: failed({ failure: 'token_revoked', code: 190, subcode: 460, detail: 'graph 401 code=190 subcode=460' }),
+  });
+  let counted = 0;
+  deps.countWaiting = async () => { counted += 1; calls.push('countWaiting'); return 1; };
+  await deliverOutbound(deps, input);
+  assert.equal(counted, 1);
+  assert.ok(calls.indexOf('countWaiting') > calls.findIndex((c) => c.startsWith('markFailed')), 'counted after this message is marked');
+  assert.match(alerts[0]?.body ?? '', /1 customer message\(s\) waiting/);
+  assert.match(alerts[0]?.body ?? '', /answered automatically within an hour of the channel coming back, unless a person replies first/);
+
+  // Unreadable: the page still goes out, and says it does not know the number.
+  const broken = stubDeps({ send: failed({ failure: 'token_revoked', code: 190, detail: 'graph 401 code=190' }) });
+  broken.deps.countWaiting = async () => { throw new Error('reset'); };
+  await deliverOutbound(broken.deps, input);
+  assert.match(broken.alerts[0]?.body ?? '', /An unknown number of customer message\(s\) waiting/);
+});
+
 test('a permission error records the code against the credential and pages', async () => {
   for (const code of [200, 10]) {
     const { deps, calls, alerts } = stubDeps({

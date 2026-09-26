@@ -9913,3 +9913,50 @@ side to remove. Nothing in Tara's compiled prompt asks for a phone number; its l
 salon's numbers only. DalaTech keeps its approved `callback` and `lead_thanks`. The salon
 template (`sales_playbook.salon.json`) keeps a callback step, because it is per-vertical, and
 another salon may call back.
+
+## D-131 — a channel that comes back answers the customers its halt left waiting (2026-09-26)
+
+**What happened.** At 01:09 UTC Tara's Page token was cancelled (190/460). The reply to
+«Сайн уу танай хаяг хаана бэ» was marked `failed`, the channel halted, and a new token
+brought it back. Nothing then answered that customer: no path ever re-drives a `failed`
+reply, and a message arriving during a halt is stored and deliberately not generated. The
+founder answered by hand.
+
+**Decision (founder).** When a channel comes back after a halt, answer each message that
+failed on the token error, if it is under 24 hours old and no person or later reply has
+answered it since. Page the founder at halt time with the number waiting.
+
+- **Held is recorded at the time, never inferred afterwards.** Two kinds of message count:
+  - a reply `failed` with Graph `code=190`, or with the breaker's `no credential:` prefix;
+  - a `held_channel_halted` quality flag, carrying `message_id`, which the worker writes when
+    it stores a message it will not generate for because the channel is HALTED
+    (`status = 'authorization_error'`). A channel switched off for any other reason writes
+    none, so it is never caught up.
+- **One reply per conversation, to its latest customer message**, generated with the whole
+  conversation in view. If the customer wrote again after the channel came back, the normal
+  path owns the newer message and there is nothing to catch up.
+- **Skips:**
+  - older than 24 hours (Meta's window);
+  - a `sent` reply of ours after the message;
+  - a person replied. This uses `personRepliedSince`, the same check a live send makes. It
+    reads the stored echoes, so it sees a hand reply typed DURING the halt, when
+    `delivery_mode = 'off'` meant no echo could move `thread_control`. Measured: the
+    founder's reply this morning is `webhook_events` 833, an echo from the Page inbox app
+    `263902037430900`, not DALA_AI, so it counts as a person;
+  - already attempted (a `catch_up_enqueued` flag; one attempt per message, ever);
+  - anything unreadable (retried next hour, never guessed).
+- **How it answers.** The hourly health run enqueues the message's own stored event with
+  `catchUpMid`. The worker then re-runs only that message, against a 24-hour limit instead
+  of the tenant's, and may claim a reply that failed on the credential. Every gate a live
+  reply passes still applies, including the person-replied re-check before the send.
+- **The halt page** (Graph 190 and the breaker's halt) now says how many customers are
+  waiting and that they will be answered within an hour of the channel coming back, unless
+  a person replies first. An unreadable count still pages, as "an unknown number".
+- **Cost, stated.** When the held message's reply had already failed, the worker still makes
+  one model call before it finds the stored body and sends that. At most one call per
+  halted conversation.
+- **The first run, predicted against live data (2026-09-26 03:4x UTC):**
+  - DalaTech's 190/467 message from 09-25: the customer wrote again and was answered →
+    `newer_message`.
+  - Tara's 01:09:56 message: answered by hand, echo 833 → `person_replied`.
+  - Nothing is sent.

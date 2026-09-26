@@ -27,13 +27,19 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { runSilenceWatch } from '../health/watch.ts';
 import { sweepStrandedEvents, type SweepInput } from '../health/stranded.ts';
 import { checkSecretExpiry, raiseExpiryAlerts } from '../health/secretExpiry.ts';
+import { catchUpHeldMessages } from '../channel/catchup.ts';
+import { quietRoute, raiseAlert } from '../alerts/alert.ts';
+import type { EnqueueResult } from '../queue/qstash.ts';
 
 export type HealthEffects = {
   db: SupabaseClient;
   now: Date;
   verifySignature: (rawBody: string, signature: string | null) => Promise<boolean>;
-  /** How the sweep re-publishes a job that never reached the queue. */
-  enqueue: SweepInput['enqueue'];
+  /**
+   * How the sweep re-publishes a job that never reached the queue, and how the catch-up
+   * hands a held message back to the worker (`catchUpMid`).
+   */
+  enqueue: (job: Parameters<SweepInput['enqueue']>[0] & { catchUpMid?: string }) => Promise<EnqueueResult>;
 };
 
 export type HealthJobResult = { status: number; body: Record<string, unknown> };
@@ -67,6 +73,23 @@ export async function runHealthJob(
   if (!expiry.ok) return { status: 503, body: { error: 'unavailable', detail: expiry.detail } };
   const expiryAlerts = await raiseExpiryAlerts(effects.db, expiry.findings, { now: effects.now });
 
+  // Fourth: a channel that has come back after a halt answers the customers it left waiting
+  // (founder, 2026-09-26). Hourly is the latency: the halt page says so. Unreadable is a 503
+  // like the rest — "nobody is waiting" and "I could not look" must not read the same.
+  const caught = await catchUpHeldMessages(effects.db, { now: effects.now, enqueue: effects.enqueue });
+  if (!caught.ok) return { status: 503, body: { error: 'unavailable', detail: caught.detail } };
+  const caughtCounts: Record<string, number> = {};
+  for (const r of caught.results) caughtCounts[r.action] = (caughtCounts[r.action] ?? 0) + 1;
+  for (const r of caught.results.filter((x) => x.action === 'enqueued')) {
+    // For the daily report, not a page: the halt already paged, and the founder should not
+    // answer by hand a customer the platform has just answered.
+    await raiseAlert(effects.db, {
+      tenantId: null, severity: 'info', kind: 'channel.catch_up',
+      dedupKey: `channel_catch_up:${r.externalId}`, route: quietRoute(), repeat: 'once',
+      body: `A message held while its channel was halted was answered after it came back (conversation ${r.conversationId}).`,
+    });
+  }
+
   // The counts, not the verdicts: this body goes to QStash's delivery log, and a channel's
   // health belongs in `channel_health` and the alert rather than in a queue receipt.
   const counts: Record<string, number> = {};
@@ -80,7 +103,7 @@ export async function runHealthJob(
   return {
     status: 200,
     body: {
-      checked: run.checked, states: counts, swept: sweptCounts,
+      checked: run.checked, states: counts, swept: sweptCounts, catch_up: caughtCounts,
       // `unknown` is reported beside the findings rather than folded into them: a run that
       // examined ten credentials and knows the expiry of none is not a clean run, and the
       // receipt should not read like one.

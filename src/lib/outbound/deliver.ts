@@ -109,7 +109,20 @@ export type DeliverDeps = {
    * must not change what this send reports, which is already `no_credential`.
    */
   onCredentialFailure: (code: string) => Promise<void>;
+  /**
+   * Customers this channel's halt has left waiting (credential-failed replies in the last
+   * 24h), for the halt page (founder, 2026-09-26). Null when it cannot be read — the page
+   * still goes out, without the number.
+   */
+  countWaiting?: () => Promise<number | null>;
 };
+
+/** The halt page's promise, in one place so the page and the catch-up cannot disagree. */
+export function waitingLine(waiting: number | null): string {
+  const n = waiting === null ? 'An unknown number of' : String(waiting);
+  return ` ${n} customer message(s) waiting. Each still unanswered and under 24h is answered `
+    + 'automatically within an hour of the channel coming back, unless a person replies first.';
+}
 
 export type DeliverOutcome =
   | { outcome: 'sent'; providerMessageId: string; bookkeeping?: string }
@@ -223,6 +236,9 @@ export async function deliverOutbound(deps: DeliverDeps, input: DeliverInput): P
   }
 
   if (PAGES_SOMEONE.has(sent.failure)) {
+    // After `markFailed`, so this message is one of the ones counted.
+    const waiting = sent.failure === 'token_revoked' && deps.countWaiting !== undefined
+      ? await deps.countWaiting().catch(() => null) : null;
     await deps.alert({
       severity: 'critical',
       kind: `outbound.${sent.failure}`,
@@ -235,6 +251,7 @@ export async function deliverOutbound(deps: DeliverDeps, input: DeliverInput): P
       body:
         sent.failure === 'token_revoked'
           ? `Tenant ${input.tenantId}: Meta rejected the page token (${sent.detail}). Outbound on channel ${input.channelId} is halted; inbound is still being persisted.`
+            + (deps.countWaiting === undefined ? '' : waitingLine(waiting))
           : `Tenant ${input.tenantId}: Meta refused the send on a permission (${sent.detail}). Usually a scope lost at App Review or a task role removed.`,
     });
   }

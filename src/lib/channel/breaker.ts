@@ -261,7 +261,9 @@ export async function runCredentialBreaker(
     dedupKey: `channel_credential_halt:${input.channelId}:${input.now.toISOString().slice(0, 13)}`,
     body: `Channel ${input.channelId} stopped: ${decision.streak} consecutive credential failures `
       + `(${input.code}). Nothing further is generated for it until the credential is re-sealed `
-      + `and delivery_mode is set back to live.`,
+      + `and delivery_mode is set back to live. ${decision.streak} customer message(s) waiting; each `
+      + `still unanswered and under 24h is answered automatically within an hour of the channel `
+      + `coming back, unless a person replies first.`,
   });
   return decision;
 }
