@@ -22,6 +22,7 @@ import { branchNamesFromPrefix } from '../branches/branches.ts';
 import { hasTomorrowSlot, nextLocalDate, renderTomorrowSlots } from './daySlots.ts';
 import { loadBranchContext, type BranchContext } from '../branches/load.ts';
 import { parsePlaybook, type Playbook } from '../sales/nextStep.ts';
+import { replyStyleOf, type ReplyStyle } from './style.ts';
 
 export type TenantSettings = {
   defaultLocale: string;
@@ -72,6 +73,8 @@ export type ReceptionContext = {
    * behaviour before sales went live — no line is added, and the reply is never refused.
    */
   sales: Playbook | null;
+  /** `tenants.reply_style` (D-133), best-effort like `sales`: a failed read is null. */
+  replyStyle: ReplyStyle | null;
   /**
    * Today's and tomorrow's weekday on the tenant's clock (0 = Sunday), and which of the two a
    * closure covers, for the facts guard (D-126).
@@ -288,6 +291,10 @@ export async function loadReceptionContext(
         .eq('tenant_id', input.tenantId),
     ]);
     return salesPlaybookOf(pb, steps);
+  })().then((r) => r, () => null);
+  const styleRead = (async () => {
+    const r = await db.from('tenants').select('reply_style').eq('id', input.tenantId).maybeSingle();
+    return r.error || r.data === null ? null : replyStyleOf((r.data as Record<string, unknown>)['reply_style']);
   })().then((r) => r, () => null);
   const complaintRead = (async () => db.from('comment_rules').select('rule_key, verdict, matcher')
     .eq('tenant_id', input.tenantId).eq('enabled', true).eq('verdict', 'escalate'))()
@@ -513,6 +520,7 @@ export async function loadReceptionContext(
       fallbackLine: fallbackLineOf(await fallbackRead),
       complaintRules: complaintRulesOf(await complaintRead),
       sales: await salesRead,
+      replyStyle: await styleRead,
       canned: cannedRows,
       tenantGuard,
       cacheMode,

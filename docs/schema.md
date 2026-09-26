@@ -711,6 +711,15 @@ anyway is still detected and masked by the shadow; only the routing claim is `no
 - `sales_next_steps.kind` admits `follow_up`, the default line after an answer, and it may be
   the tenant's default step.
 
+### `0055_tenant_reply_style`
+
+**Additive.** `tenants.reply_style jsonb` (nullable, no default): a tenant's reply look (D-133).
+`price_header` (must carry `{service}`) and `price_line` (must carry `{price}`, may carry
+`{option}`) re-lay the price-list rows a reply already carries — the service name once, then
+one line per option; both or neither. `max_emoji` caps emoji in the model's own words, and
+none are kept on a complaint or a refusal. NULL, or a malformed value, changes nothing
+(`reception/style.ts`).
+
 ### `0052_demo_url_contact_kind`
 
 **Widens two CHECKs.** `contact_points.kind` and `branch_contact_points.kind` gain `demo_url`: a

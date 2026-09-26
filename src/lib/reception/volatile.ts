@@ -121,7 +121,7 @@ const LABELS = {
 } as const;
 
 /**
- * Three reminders, read LAST — the recency the stable prefix cannot have (founder,
+ * Four reminders, read LAST — the recency the stable prefix cannot have (founder,
  * 2026-09-26, DalaTech's test set). Scaffolding the model reads, like `LABELS`, never a
  * sentence a customer sees; the signed gate blocks already say the second one, and the
  * model broke it anyway from 14,000 characters away.
@@ -131,12 +131,17 @@ const LABELS = {
  *    «…мэдээлэл надад байхгүй». Answering in Mongolian is the product.
  *  - The gate's own labels. «Ш2 дагуу хариулъя —» (q04) and «Ш9» (i04) were written into
  *    replies; the guard catches them, but a caught reply is a lost answer.
+ *  - Where the checklist goes (D-133). The walk through the Ш-rules has a place of its own,
+ *    `<check>`, and only `<reply>` reaches anyone (`model/reception.ts` `replyOf`). Before
+ *    it existed the walk landed in the reply's first paragraph and the label guard threw the
+ *    whole answer away.
  *  - Answer first. «Уучлаарай, тодруулбал… байна уу?» before an answer the model then gave
  *    anyway (s01), and a clarifying question instead of the price list (p03).
  */
 export const REPLY_REMINDERS: readonly string[] = [
   'ХАРИУЛТЫН ХЭЛ: зөвхөн монгол хэлээр, кирилл үсгээр бич — хэрэглэгч англиар эсвэл латин үсгээр бичсэн ч.',
-  'ХАРИУЛТАД ХЭЗЭЭ Ч БИЧИХГҮЙ: шалгалтын нэр, дугаар (Ш0–Ш11, 2а гэх мэт), «БЭЛЭН ХАРИУЛТ»-ын мөрийн түлхүүр, аль шалгалтаар шийдсэнээ.',
+  'ХАРИУЛТЫН ХЭЛБЭР: шалгалтуудаа (Ш0–Ш11 гэх мэт) зөвхөн <check>…</check> дотор нэг богино мөрөөр хий — үүнийг хэрэглэгч ХЭЗЭЭ Ч харахгүй. Хэрэглэгчид илгээх хариултаа бүхэлд нь <reply>…</reply> дотор бич.',
+  '<reply> ДОТОР ХЭЗЭЭ Ч БИЧИХГҮЙ: шалгалтын нэр, дугаар (Ш0–Ш11, 2а гэх мэт), «БЭЛЭН ХАРИУЛТ»-ын мөрийн түлхүүр, аль шалгалтаар шийдсэнээ.',
   'ЭХЛЭЛ: асуусан зүйлд нь шууд хариул. «Уучлаарай», «тодруулбал» гэж эхэлж хариултаа хойшлуулахгүй; хариулж чадах асуултад тодруулга асуухгүй.',
 ];
 

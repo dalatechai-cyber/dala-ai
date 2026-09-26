@@ -40,6 +40,7 @@ import type { CommentRule } from '../comments/classify.ts';
 import { isComplaint, type Playbook } from '../sales/nextStep.ts';
 import { leadThanksFor, salesLineFor } from '../sales/live.ts';
 import { publishedNumbers } from '../sales/phone.ts';
+import { capEmoji, stylePriceRows, type ReplyStyle } from './style.ts';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
 import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '../services/match.ts';
 import { containsStem, findStem } from '../mn/match.ts';
@@ -180,6 +181,11 @@ export type ReceptionInput = {
    * a tenant silently not selling.
    */
   sales: Playbook | null;
+  /**
+   * The tenant's reply look (`tenants.reply_style`, D-133): price rows laid out under its
+   * templates, and a cap on emoji in the model's own words. Null changes nothing.
+   */
+  replyStyle: ReplyStyle | null;
   /**
    * The service names the tenant's price list renders, for the name-fidelity COUNTER.
    *
@@ -752,7 +758,19 @@ export async function handleReception(
         // including an on-topic line deliberately left off a reviewed refusal.
         .filter((a) => a.body.trim() !== '' && !appends.some((b) => b.intent === a.intent || b.body.trim() === a.body.trim())
           && !fold(x.body).includes(fold(a.body.trim())));
-      const body = withAppended(withDeposits(x.body, bookingRow, input.depositRows), [...own, ...onReply]);
+      // The tenant's look (D-133): at most N emoji in the model's own words, and none on a
+      // complaint or a refusal (a reply carrying a reviewed refusal or handoff row); then every
+      // price-list row in the reply laid out under its templates.
+      if (x.answeredBy === 'model' && input.replyStyle !== null) {
+        const said = fold(x.body);
+        const refusal = input.canned.some((c) => (c.kind === 'handoff' || c.kind.startsWith('refusal'))
+          && c.body.trim() !== '' && said.includes(fold(c.body.trim())));
+        x = { ...x, body: capEmoji(x.body, input.replyStyle.maxEmoji,
+          refusal || isComplaint(input.customerMessage, input.complaintRules, respelled)) };
+      }
+      const body = stylePriceRows(
+        withAppended(withDeposits(x.body, bookingRow, input.depositRows), [...own, ...onReply]),
+        input.serviceNames, input.replyStyle);
       // A correction answered with the same reply is not sent (founder, 2026-09-24, live:
       // «us bish usnii himi» got «Буруу ойлголоо. Усан хими 132,000₮–154,000₮» — the same
       // answer it was correcting). Every path ends here, so no path can repeat itself.
