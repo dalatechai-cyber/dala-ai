@@ -70,6 +70,7 @@ import type { ReceptionOutcome } from '../reception/handle.ts';
 import type { ReceptionContext } from '../reception/load.ts';
 import type { Turn } from '../inbound/persist.ts';
 import type { Reservation } from '../spend/reserve.ts';
+import { SALES_SHADOW_WAIT_MS, type SalesShadowArgs } from '../worker/reception.ts';
 
 /** A widget conversation is private. D-082. */
 const WEB_SURFACE: VolatileSurface = 'direct_message';
@@ -131,6 +132,22 @@ export type MessageEffects = {
     ctx: ReceptionContext;
     historyEmpty: boolean;
   }) => Promise<ReceptionOutcome>;
+  /**
+   * The sales record, with the Messenger worker's contract (`WorkerEffects.salesShadow`):
+   * after the reply is drafted, record the next step and, for a `live` playbook that routes
+   * leads, send a new lead to the founder's Telegram. Without it a phone number left in the
+   * widget got the thank-you line and reached nobody. Must never reject; waited on for at
+   * most `SALES_SHADOW_WAIT_MS`, beside the claim.
+   */
+  salesShadow: (args: SalesShadowArgs) => Promise<void>;
+  /**
+   * Keep the function alive until `work` settles, AFTER the response is sent — Next.js
+   * `after()`. On this path the HTTP response IS the delivery, and a serverless function may
+   * be frozen the moment it returns: a sales record still running past its wait (a Telegram
+   * call for a new lead) would be cut off with nothing in any log. The Messenger worker has a
+   * Graph send after the wait to cover it; this path has nothing after the claim.
+   */
+  afterResponse: (work: Promise<unknown>) => void;
   log: (level: 'info' | 'warn' | 'error', event: string, fields?: Record<string, unknown>) => void;
 };
 
@@ -157,6 +174,16 @@ const SESSION_STATUS: Record<SessionRefusal, number> = {
   session_exhausted: 429,
   session_unavailable: 503,
 };
+
+/** Resolve when `p` settles or after `ms`, whichever is first; never rejects, never lingers. */
+async function settleWithin(p: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    p.then(() => undefined, () => undefined),
+    new Promise<void>((resolve) => { timer = setTimeout(resolve, ms); }),
+  ]);
+  if (timer !== undefined) clearTimeout(timer);
+}
 
 export async function runMessageJob(effects: MessageEffects, req: MessageRequest): Promise<MessageResult> {
   const { db, now } = effects;
@@ -202,6 +229,26 @@ export async function runMessageJob(effects: MessageEffects, req: MessageRequest
 
   const withOrigin = (r: MessageResult): MessageResult =>
     allowOrigin === undefined ? r : { ...r, allowOrigin };
+
+  // --- 2b. The channel is still switched on. ---------------------------------
+  // The mint refuses a channel that is not `active` and `live`, but a session outlives the
+  // mint by up to `WEB_SESSION_TTL_MS`. Without this read, switching the channel off stopped
+  // new visitors and left every open conversation answering — and costing — for two more
+  // hours: a switch that reads like a control and is only half of one (D-064's shape). One
+  // indexed read per turn makes `delivery_mode = 'off'` an immediate stop, needing no deploy.
+  const { data: channelRow, error: channelErr } = await db
+    .from('tenant_channels')
+    .select('status, delivery_mode')
+    .eq('id', channelId)
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (channelErr) return withOrigin(refuse(503, 'channel_unavailable', { tenantId, detail: channelErr.message }));
+  const ch = (channelRow ?? {}) as Record<string, unknown>;
+  if (ch['status'] !== 'active' || ch['delivery_mode'] !== 'live') {
+    return withOrigin(refuse(503, 'channel_not_delivering', {
+      tenantId, channelId, status: ch['status'] ?? null, deliveryMode: ch['delivery_mode'] ?? null,
+    }));
+  }
 
   // --- 3. The message itself. -----------------------------------------------
   // Measured with the spread operator, which iterates code points, so an emoji or a
@@ -377,11 +424,26 @@ export async function runMessageJob(effects: MessageEffects, req: MessageRequest
   });
   if (!traced.ok) effects.log('error', 'trace_failed', { tenantId, conversationId, detail: traced.detail ?? '' });
 
+  // The sales record (D-127/D-132), after the draft and never before: it reads the stored
+  // reply and cannot change it. A web thread has no Page inbox, so no person can hold it;
+  // its `thread_control` is the column default, passed as the worker passes a read one.
+  let salesSettled = false;
+  // `Promise.resolve().then` so even a synchronous throw lands in the `.catch`.
+  const salesWork = Promise.resolve().then(() => effects.salesShadow({
+    tenantId, conversationId, messageId: stored.value.messageId, outboundId: outcome.outboundId,
+    customerMessage: text, customerSentPhoto: false, history: priorTurns,
+    refusal: outcome.refusal !== undefined, threadControl: 'unknown', ctx,
+  })).catch(() => undefined).finally(() => { salesSettled = true; });
+  // Registered before anything below can return, so every exit path keeps it alive.
+  effects.afterResponse(salesWork);
+  const selling = settleWithin(salesWork, SALES_SHADOW_WAIT_MS);
+
   // --- 10. Claim the draft and hand it over. --------------------------------
   // The transport IS this HTTP response, so claim/markSent still apply: the same CAS that
   // stops two Messenger workers sending twice stops two concurrent requests handing the
   // same draft to the visitor twice, and the row records that it was delivered.
-  const held = await claim(db, { id: outcome.outboundId, tenantId, now });
+  const [held] = await Promise.all([claim(db, { id: outcome.outboundId, tenantId, now }), selling]);
+  if (!salesSettled) effects.log('info', 'sales_shadow_late', { tenantId, conversationId, outboundId: outcome.outboundId });
   if (held.outcome === 'unavailable') {
     return withOrigin(refuse(503, 'claim_unavailable', { tenantId, detail: held.detail }));
   }

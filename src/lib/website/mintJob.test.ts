@@ -357,3 +357,29 @@ test('a `live` channel still mints — the gate can pass as well as fail', async
   const r = await runMintJob(effects(db), { rawBody: b, channelHeader: CHANNEL, signatureHeader: sign(b), clientIp: IP });
   assert.equal(r.status, 200);
 });
+
+test('Turnstile is told the VISITOR\'s address from the signed body, not the relaying server\'s', async () => {
+  // The mint is server-to-server, so the connecting address is the tenant's relay — the
+  // same for every visitor. The visitor's own address travels inside the signed bytes.
+  const seen: (string | undefined)[] = [];
+  const db = stubDb();
+  const b = body({ visitor_ip: '198.51.100.23' });
+  await runMintJob(
+    effects(db, { verifyTurnstile: async (_t, ip) => { seen.push(ip); return { ok: true }; } }),
+    { rawBody: b, channelHeader: CHANNEL, signatureHeader: sign(b), clientIp: IP },
+  );
+  assert.deepEqual(seen, ['198.51.100.23']);
+});
+
+test('an absent or malformed visitor_ip falls back to the connecting address', async () => {
+  for (const visitorIp of [undefined, '', 'not an ip; drop table', 12345, '1'.repeat(60)]) {
+    const seen: (string | undefined)[] = [];
+    const db = stubDb();
+    const b = body(visitorIp === undefined ? {} : { visitor_ip: visitorIp });
+    await runMintJob(
+      effects(db, { verifyTurnstile: async (_t, ip) => { seen.push(ip); return { ok: true }; } }),
+      { rawBody: b, channelHeader: CHANNEL, signatureHeader: sign(b), clientIp: IP },
+    );
+    assert.deepEqual(seen, [IP], `visitor_ip ${JSON.stringify(visitorIp)}`);
+  }
+});

@@ -129,8 +129,10 @@ function refuse(
  * Returns nulls rather than throwing. A body that is not JSON is indistinguishable, here,
  * from one whose signature is wrong, and the verifier is what says so.
  */
-function peek(rawBody: Buffer): { issuedAt: Date | null; turnCap: number | null; turnstileToken: string | null } {
-  const absent = { issuedAt: null, turnCap: null, turnstileToken: null };
+function peek(rawBody: Buffer): {
+  issuedAt: Date | null; turnCap: number | null; turnstileToken: string | null; visitorIp: string | null;
+} {
+  const absent = { issuedAt: null, turnCap: null, turnstileToken: null, visitorIp: null };
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawBody.toString('utf8'));
@@ -155,7 +157,16 @@ function peek(rawBody: Buffer): { issuedAt: Date | null; turnCap: number | null;
   const rawTurnstile = obj['turnstile_token'];
   const turnstileToken = typeof rawTurnstile === 'string' && rawTurnstile !== '' ? rawTurnstile : null;
 
-  return { issuedAt, turnCap, turnstileToken };
+  // The visitor's address as the tenant's server saw it, inside the SIGNED body. Without it
+  // Cloudflare is told the address of the server that relayed the mint — the same for every
+  // visitor — which is worse than telling it nothing. Used for Turnstile's scoring only: it
+  // is the tenant server's claim, so it never keys a rate bucket here. Shape-checked, since
+  // it is sent on to a third party.
+  const rawIp = obj['visitor_ip'];
+  // ascii-safe: an IPv4/IPv6 literal, never customer text.
+  const visitorIp = typeof rawIp === 'string' && /^[0-9a-f.:]{2,45}$/i.test(rawIp) ? rawIp : null;
+
+  return { issuedAt, turnCap, turnstileToken, visitorIp };
 }
 
 export async function runMintJob(effects: MintEffects, req: MintRequest): Promise<MintResult> {
@@ -237,7 +248,7 @@ export async function runMintJob(effects: MintEffects, req: MintRequest): Promis
       : refuse(effects, 'mint_unauthorised', 'secret_missing', 401, { tenantId, code: secret.code });
   }
 
-  const { issuedAt, turnCap, turnstileToken } = peek(req.rawBody);
+  const { issuedAt, turnCap, turnstileToken, visitorIp } = peek(req.rawBody);
   const verified = verifyMintSignature(req.rawBody, req.signatureHeader, secret.secret, issuedAt, now);
   if (!verified.ok) {
     const status = verified.refusal === 'mint_unavailable' ? 503 : 401;
@@ -251,7 +262,7 @@ export async function runMintJob(effects: MintEffects, req: MintRequest): Promis
   }
 
   // 5. Turnstile, behind the HMAC.
-  const human = await effects.verifyTurnstile(turnstileToken, req.clientIp);
+  const human = await effects.verifyTurnstile(turnstileToken, visitorIp ?? req.clientIp);
   if (!human.ok) {
     if (human.reason === 'turnstile_unavailable') {
       return refuse(effects, 'mint_unavailable', 'turnstile_unavailable', 503, { tenantId, detail: human.detail });
