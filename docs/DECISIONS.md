@@ -10544,3 +10544,64 @@ Page's rules (or NULL). Instagram's staff-reply check is blind today: the Page's
 
 Not verifiable here: whether Standard access delivers comments from accounts with no role on
 the app. The founder's first test from a second, non-role account settles it.
+
+## D-146 — Instagram comments by polling, until App Review (2026-09-26)
+
+Founder, 2026-09-26: «comment 1» on Instagram (D-145) does not fire. Meta's Test comment
+reached the route (webhook_events 883), but a real «1» under a @dalatech_ post never arrived:
+Meta sends Instagram `comments` webhooks only to apps with **Advanced** access to
+instagram_manage_comments, and DALA_AI has Standard. App Review is later. Until then, the
+customer who comments «1» must get the same private message and public reply within 1–2
+minutes, under the same rules, without answering comments that existed before, and without
+double answers when webhooks start arriving after App Review.
+
+**The poll feeds the existing pipeline; it is not a second one.** `comments/poll.ts`, called
+by a QStash schedule at `/api/workers/ig-comments`, reads each Instagram channel whose comment
+switch is on (`comment_delivery_mode` ≠ `off`, `comment_policy` ≠ `none`). Every NEW comment
+becomes the Instagram `comments` entry a webhook would have carried and goes through
+`handleMetaEntry`, the webhook route's own claim-and-queue, with `source = 'poll'` (`0060`).
+The reception worker, the rules, «comment 1», the shadow switch and tester list, private
+first, the public reply claiming the chat only if it went, one per person per post, our own
+comments ignored: all D-144/D-145, unchanged. No model call anywhere.
+
+**Never an old comment.** The first poll of a channel writes `comment_poll_state.since` and
+answers nothing. After that only comments stamped at or after it are queued, and never one
+older than Meta's 7-day private-reply window (less an hour), whatever the watermark says.
+Turning the comment switch off clears the state, so turning it on again starts a new
+watermark instead of answering the gap.
+
+**Never twice.**
+- The event key is built from Meta's comment id with index 0 and the channel's slug, exactly
+  as Meta's own one-comment delivery is keyed (`identity.ts`). So a re-poll is a duplicate of
+  the same row, and so is a webhook for the same comment after App Review (asserted in
+  `poll.test.ts` against 883's shape).
+- Below that, the reply's own keys hold whatever the event key does: one public reply per
+  thread, `pr:{post}:{person}`.
+
+**Cost and Meta's limits.** One Graph read per channel per run: the 50 most recent posts
+with their `comments_count`. A post's comments (with nested replies) are read only when its
+count went UP. At most 5 posts and 4 pages each per run, inside a 40-second budget. A quiet
+run writes nothing to QStash; one QStash message goes out per new comment. Graph's throttling
+codes (4, 17, 32, 613, 80002) leave the channel alone for 15 minutes. The token is the
+connected Page channel's `page_token`, loaded per run (rule 7).
+
+**Readable state.** `comment_poll_state` carries `lastRunAt` and `lastError`, so a quiet poll
+and a dead one do not look the same: `lastRunAt` older than a few minutes means the schedule
+is not firing.
+
+**What it cannot see, stated:**
+- posts beyond the 50 most recent;
+- a comment added and another deleted between two runs (the count does not move);
+- a reply that does not move `comments_count`, if Meta counts only top-level comments;
+- a comment Graph returns without `from` (skipped, counted as `noFrom`), since it cannot be
+  held to one-per-person.
+
+**Unverified here** (graph.facebook.com is refused by this environment's proxy):
+- that the Page token carries `instagram_basic` for `/{ig-user-id}/media` — the D-145 lookup
+  already assumed it;
+- that Standard access returns `from` for commenters with no role on the app.
+
+`comment_poll_state.lastError` names the Graph code on the first run either fails.
+
+**After App Review** the poll can stay on: a pushed comment and a polled one are the same
+event. Removing it is a separate decision.

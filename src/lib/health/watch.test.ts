@@ -53,6 +53,7 @@ function stub(over: Record<string, Answer | Answer[]> = {}) {
     chain['gte'] = (col: string, val: unknown) => (rec.filters.push(`${col}>=${String(val)}`), chain);
     chain['in'] = (col: string, vals: readonly unknown[]) => (rec.filters.push(`${col} in ${vals.join(',')}`), chain);
     chain['is'] = (col: string, val: unknown) => (rec.filters.push(`${col} is ${String(val)}`), chain);
+    chain['neq'] = (col: string, val: unknown) => (rec.filters.push(`${col}!=${String(val)}`), chain);
     chain['like'] = (col: string, val: unknown) => (rec.filters.push(`${col} like ${String(val)}`), chain);
     chain['order'] = () => chain;
     chain['limit'] = () => chain;
@@ -185,6 +186,17 @@ test('every channel that EXPECTS traffic is watched, not only the ones that answ
   const filters = reads.find((c) => c.table === 'tenant_channels')?.filters ?? [];
   assert.deepEqual(filters, ['delivery_mode in shadow_routing,shadow,live']);
   assert.equal(filters.some((f) => f === 'delivery_mode=live'), false, 'no longer live-only');
+});
+
+test('a comment the platform FETCHED is not evidence Meta is delivering (D-146)', async () => {
+  // The Instagram poller writes `webhook_events` rows with `source = 'poll'`. Counted here,
+  // they would keep a channel whose webhook died reading healthy for as long as its posts
+  // get comments. Both delivery reads — attributed and unattributed — exclude them.
+  const { db, reads } = stub();
+  await runSilenceWatch(db, { now: NOW });
+  const eventReads = reads.filter((c) => c.table === 'webhook_events');
+  assert.equal(eventReads.length, 2);
+  for (const r of eventReads) assert.ok(r.filters.includes('source!=poll'), r.filters.join(' '));
 });
 
 test('DONE-TEST: NO DATE IN THE KEY — that is what made it repeat', async () => {
