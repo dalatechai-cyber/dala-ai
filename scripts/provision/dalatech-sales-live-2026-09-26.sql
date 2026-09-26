@@ -12,6 +12,7 @@
 --     followed by the follow-up — that is what a live DalaTech sends for a first price
 --     question. Found by their expected body, not by id.
 --  4. `mode = 'live'`. Tara is not touched: it stays `shadow`.
+--  5. `demo_request`: see below.
 --
 -- Needs 0054. Run AFTER the code that reads `live` is deployed.
 begin;
@@ -39,6 +40,21 @@ update reply_cases r
    and d.tenant_id = t.id and d.intent = 'price_overview'
    and r.expected_body = d.body
    and jsonb_array_length(r.history) = 0;
+
+-- 5. A request for a demo, and nothing else («Демо үзмээр байна», «turshij uzej boloh uu»),
+--    gets the approved demo line itself, with no model call: a `covers_message` row, so every
+--    word must be a demo word or one of the filler words below. A question ABOUT the demo
+--    («Демо хэдэн цагт бэлэн болох вэ?») still goes to the model, and the demo line follows it
+--    as the intent step unless the answer already gave the link.
+insert into deterministic_replies (tenant_id, intent, body, enabled, match_mode, stems, cover_words,
+                                   placement, quote_services, requires_empty_history, provenance)
+select t.id, 'demo_request', s.body, true, 'covers_message',
+       array['демо','demo','турши','turshi','туршилт','turshilt']::text[],
+       array['үзмээр','үзэх','үзье','үзэж','үзэхийг','хүсэж','хүсч','хүсэн','авмаар','авах','авъя','авч','хийлгэх','хийлгэмээр','захиалах','захиалъя','захиалмаар','боломж','боломжтой','бий','байна','байгаа','байдаг','уу','үү','юу','вэ','бэ','болох','болно','хэрэгтэй','үнэгүй','надад','бид','би','манайд','манай','нэг','хувилбар','uzmeer','uzeh','uzye','uzie','uzej','uzeh','huseh','husej','husch','avmaar','avah','avya','avii','avch','hiilgeh','zahialah','zahialya','zahialmaar','bolomj','bolomjtoi','bii','baina','bna','bga','baigaa','uu','yu','ve','be','boloh','bolno','heregtei','unegui','nadad','bi','manaid','manai','neg','huvilbar','please']::text[],
+       'replace', '{}'::text[], false, 'tenant_confirmed'
+  from tenants t join sales_next_steps s on s.tenant_id = t.id and s.kind = 'demo' and s.reviewed_at is not null
+ where t.slug = 'dalatech'
+   and not exists (select 1 from deterministic_replies x where x.tenant_id = t.id and x.intent = 'demo_request');
 
 do $$ begin
   if (select mode from sales_playbooks p join tenants t on t.id = p.tenant_id where t.slug = 'dalatech') <> 'live' then

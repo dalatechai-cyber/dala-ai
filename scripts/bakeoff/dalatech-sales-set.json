@@ -176,28 +176,16 @@
    "category": "demo",
    "source": "constructed",
    "text": "Демо үзмээр байна",
-   "expect": "Asks for a demo: the approved demo line (or the demo link in the answer), never the general follow-up.",
-   "must_include": [
-    "app.dalatech.online"
-   ],
-   "must_not_include": [
-    "24/7 хариулдаг AI ажилтан",
-    "Үнэгүй демо вэбсайт авахыг хүсвэл"
-   ]
+   "expect": "Asks for a demo, and only that: the approved demo line, exactly, with no model call.",
+   "expected_body": "Өөрийн бизнест зориулсан демог https://app.dalatech.online хаягаар захиалж болно. Эсвэл нэр, утасны дугаараа энд бичиж үлдээвэл хамт олон маань тантай холбогдоно."
   },
   {
    "id": "sd2",
    "category": "demo",
    "source": "constructed",
    "text": "turshij uzej boloh uu",
-   "expect": "Latin 'can I try it': the demo line or link, not the general follow-up.",
-   "must_include": [
-    "app.dalatech.online"
-   ],
-   "must_not_include": [
-    "24/7 хариулдаг AI ажилтан",
-    "Үнэгүй демо вэбсайт авахыг хүсвэл"
-   ]
+   "expect": "Asks for a demo, and only that: the approved demo line, exactly, with no model call.",
+   "expected_body": "Өөрийн бизнест зориулсан демог https://app.dalatech.online хаягаар захиалж болно. Эсвэл нэр, утасны дугаараа энд бичиж үлдээвэл хамт олон маань тантай холбогдоно."
   },
   {
    "id": "sk1",
@@ -238,6 +226,16 @@
    "must_include": [
     "хүлээн авагч",
     "24/7 хариулдаг AI ажилтан"
+   ]
+  },
+  {
+   "id": "sd3",
+   "category": "demo",
+   "source": "constructed",
+   "text": "Демо хэдэн цагт бэлэн болох вэ?",
+   "expect": "A question ABOUT the demo, not just a request: answered by the model, and it names the demo page.",
+   "must_include": [
+    "app.dalatech.online"
    ]
   }
  ]

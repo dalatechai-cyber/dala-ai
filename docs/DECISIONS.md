@@ -10015,3 +10015,28 @@ Tara is untouched.
 - They are answered in CI over the dump carrying the live configuration, beside the 53-case
   set, whose four exact price cases now expect the follow-up.
 - They then become permanent `reply_cases`.
+
+**Replayed before the switch (CI run 36218713869, real model, the live configuration dumped).**
+Results: 53/53 on the existing set and 14/14 on the sales set.
+
+What the replies showed:
+- **Price:** the price rows, then the follow-up, exactly.
+- **A second question:** answered, with no second follow-up.
+- **Greeting and thanks:** greeted or thanked back, with no line.
+- **Complaint:** «Уучлаарай…», with no line.
+- **Number:** the thank-you line, with no model call.
+- **Call:** answered, then the approved callback line.
+
+One gap, fixed before the switch. «Демо үзмээр байна» was answered by the model's own
+sentence with the demo link. That counts as the step already carried in the reply, so the
+approved demo line never appeared. The founder's rule is that the approved demo line applies
+when the customer asks for a demo, so the switch adds `demo_request`: a `covers_message` row
+whose body IS the reviewed demo row. It fires only when every word is a demo word or a filler
+word, so a question ABOUT the demo still goes to the model.
+
+Checked without the model after the change:
+- `sd1` and `sd2` now expect the demo line exactly, and pass;
+- `e01` and `e02` in the 53-case set still pass.
+
+`sd3`, a question about the demo, is new. It is proven only by the production gate after the
+switch.
