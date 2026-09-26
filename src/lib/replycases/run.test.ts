@@ -166,3 +166,19 @@ test('a model failure carries the provider\'s own error into the flag, trimmed �
     callModel: async () => ({ kind: 'terminal', reason: 'invalid_request', detail: '400 {"error":{"message":"Your credit balance is too low"}}' }) });
   assert.ok(r?.flags.some((f) => f.startsWith('model_invalid_request — 400') && f.includes('credit balance')), JSON.stringify(r?.flags));
 });
+
+test('DONE-TEST: the no-spend gate (D-137) — a model case is listed as not run and does not block; an exact case still does', async () => {
+  const base = { ctx: CTX, timezone: 'Asia/Ulaanbaatar', now: new Date(), callModel: null, modelCases: 'skip' as const };
+  // A model-answered case (no exact body): not run, and not a failure.
+  const [m] = await runCases({ ...base, cases: [kase({ customerMessage: 'Сор хэд вэ?', expectedBody: null, mustInclude: ['120,000'] })] });
+  assert.equal(m?.outcome, 'not_run');
+  assert.equal(renderGate([{ ok: true, slug: 's', results: [m!] }]).pass, true);
+  assert.match(renderGate([{ ok: true, slug: 's', results: [m!] }]).text, /0\/0 reply cases pass · 1 need the model and were not run/);
+  // An EXACT case that reaches the model: its row stopped answering it — that blocks.
+  const [x] = await runCases({ ...base, cases: [kase({ customerMessage: 'Сор хэд вэ?', expectedBody: 'Сор: 120,000₮–190,000₮' })] });
+  assert.equal(x?.pass, false);
+  assert.match(x?.why.join(' ') ?? '', /exact case reached the model/);
+  // And a row-answered case is judged as always.
+  const [r] = await runCases({ ...base, cases: [kase({})] });
+  assert.equal(r?.outcome, 'pass');
+});

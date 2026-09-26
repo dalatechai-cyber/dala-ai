@@ -1069,6 +1069,13 @@ somebody wrote rather than a filename that happened to match.
 each case through `handleReception` over the live configuration and runs in the Vercel
 production build after preflight. `scripts/publish/tenant.ts` runs the same cases against the
 prefix it is about to publish. **A failing case, or one that cannot be checked, stops both.**
+**Both spend nothing (D-137, founder 2026-09-26: *"Live customers are the only thing allowed to
+spend."*):**
+- only the cases that never reach the model block a deploy or a publish;
+- a case that needs the model is listed as not run;
+- an EXACT case that reaches the model still blocks, because its row stopped answering.
+- `REPLY_GATE_MODEL=1` / `--with-model` run the model cases by hand, and spend.
+- The CI test set runs only when the founder starts it.
 CI cannot see this gate, because it has no live database, so a green PR can still fail its
 production build here. Read the build log before concluding a deploy happened. **Its only
 bypass is the founder's signed emergency override** (D-121): an Ed25519 token for one
