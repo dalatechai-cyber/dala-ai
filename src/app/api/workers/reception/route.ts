@@ -98,6 +98,8 @@ function effects(now: Date): WorkerEffects {
           fallbackLine: a.ctx.fallbackLine,
           // The Page's inbox is read by a person, so the handoff line's promise holds.
           noInbox: false,
+          // The Page's customer is not on the tenant's website: linking it is fine (D-140).
+          ownSiteHosts: [],
           complaintRules: a.ctx.complaintRules,
           sales: a.ctx.sales,
           replyStyle: a.ctx.replyStyle,

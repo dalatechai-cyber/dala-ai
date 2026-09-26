@@ -213,6 +213,7 @@ export function toDeterministic(rows: unknown): DeterministicRule[] {
     return {
       intent: String(r['intent']),
       body: String(r['body']),
+      webBody: typeof r['web_body'] === 'string' && r['web_body'].trim() !== '' ? String(r['web_body']) : null,
       enabled: r['enabled'] === true,
       // An unrecognised mode falls to whole_message, the high-precision one. A typo must
       // not silently widen a matcher into the mode that steals questions.
@@ -287,7 +288,7 @@ export async function loadReceptionContext(
     const [pb, steps] = await Promise.all([
       db.from('sales_playbooks').select('mode, lead_route, small_talk').eq('tenant_id', input.tenantId).maybeSingle(),
       db.from('sales_next_steps')
-        .select('kind, body, reviewed_at, link, priority, is_default, intent_matcher, enabled')
+        .select('kind, body, web_body, reviewed_at, link, priority, is_default, intent_matcher, enabled')
         .eq('tenant_id', input.tenantId),
     ]);
     return salesPlaybookOf(pb, steps);
@@ -327,7 +328,7 @@ export async function loadReceptionContext(
       .eq('tenant_id', input.tenantId)
       .gte('ends_on', input.localDate),
     db.from('deterministic_replies')
-      .select('intent, body, enabled, match_mode, stems, cover_words, placement, quote_services, requires_empty_history, provenance, matcher')
+      .select('intent, body, web_body, enabled, match_mode, stems, cover_words, placement, quote_services, requires_empty_history, provenance, matcher')
       .eq('tenant_id', input.tenantId),
     // Read for `allowedUrls` only. The section body itself is compiled at publish time by
     // `prompt/sections.ts`; this is the request-path half, because the URL guard runs

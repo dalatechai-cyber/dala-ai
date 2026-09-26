@@ -120,6 +120,8 @@ function effects(now: Date): MessageEffects {
           fallbackLine: a.ctx.fallbackLine,
           // A widget has no inbox: nobody reads this conversation unless told (D-139).
           noInbox: true,
+          // The site the visitor is on is never where they are sent (D-140).
+          ownSiteHosts: a.ownSiteHosts,
           complaintRules: a.ctx.complaintRules,
           sales: a.ctx.sales,
           replyStyle: a.ctx.replyStyle,

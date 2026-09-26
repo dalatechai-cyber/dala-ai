@@ -41,6 +41,7 @@ import { isComplaint, type Playbook } from '../sales/nextStep.ts';
 import { leadThanksFor, salesLineFor, withoutSalesLines } from '../sales/live.ts';
 import { publishedNumbers } from '../sales/phone.ts';
 import { capEmoji, stylePriceRows, type ReplyStyle } from './style.ts';
+import { withoutOwnSite } from '../website/ownSite.ts';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
 import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '../services/match.ts';
 import { containsStem, findStem } from '../mn/match.ts';
@@ -178,6 +179,13 @@ export type ReceptionInput = {
    * so no caller gets either behaviour by forgetting.
    */
   noInbox: boolean;
+  /**
+   * The site the customer is already on (D-140): the tenant's verified `tenant_domains` hosts
+   * on the website channel, `[]` everywhere else. A sentence naming one of them is not sent
+   * (`website/ownSite.ts`) — «see dalatech.online» to a visitor on dalatech.online. Required,
+   * so the Page cannot inherit the website's rule or the website lose it by omission.
+   */
+  ownSiteHosts: readonly string[];
   /**
    * The tenant's complaint rows (`ReceptionContext.complaintRules`). Required for the same
    * reason as `fallbackLine`; `[]` means no message is read as a complaint.
@@ -833,10 +841,28 @@ async function receive(
       // A correction answered with the same reply is not sent (founder, 2026-09-24, live:
       // «us bish usnii himi» got «Буруу ойлголоо. Усан хими 132,000₮–154,000₮» — the same
       // answer it was correcting). Every path ends here, so no path can repeat itself.
+      // THE SITE THEY ARE ON (D-140), on the reply exactly as it will be sent, sales line
+      // included: on the website, no sentence sends the visitor to the tenant's own site. An
+      // approved website version was already swapped in upstream; this catches the model's
+      // words and any row without one. Emptied entirely: the general line, as a hand-off.
+      const finish = async (y: typeof x): Promise<Awaited<ReturnType<ReceptionDeps['draft']>>> => {
+        const cut = withoutOwnSite(y.body, input.ownSiteHosts);
+        if (cut.removed.length === 0) return deps.draft(y);
+        await deps.flag({
+          code: 'own_site_removed',
+          detail: `${cut.removed.length} sentence(s) naming the site the visitor is on, from a ${y.answeredBy} reply`,
+          attempted: y.body,
+        });
+        if (cut.body !== '') return deps.draft({ ...y, body: cut.body });
+        const general = generalLine(input);
+        if (general === null) return { ok: false, detail: 'own_site_removed: nothing left and no general line' };
+        state.handedOff = true;
+        return deps.draft({ ...y, body: general.body, answeredBy: 'canned' });
+      };
       const correction = correctionFor(input.deterministic, input.customerMessage, body, previousReply);
       if (correction !== null) {
         await deps.flag({ code: 'correction_repeat_blocked', detail: `served ${correction.intent}`, attempted: body });
-        return deps.draft({ ...x, body: correction.body, answeredBy: 'deterministic' });
+        return finish({ ...x, body: correction.body, answeredBy: 'deterministic' });
       }
       // THE SALES LINE (D-132), last, on the reply exactly as it will be sent: the approved
       // follow-up, or the demo / callback line when the customer's words asked for one. Only
@@ -849,9 +875,9 @@ async function receive(
       });
       if (sale !== null) {
         await deps.flag({ code: 'sales_line_added', detail: sale.kind });
-        return deps.draft({ ...x, body: `${body.trim()}\n\n${sale.body}` });
+        return finish({ ...x, body: `${body.trim()}\n\n${sale.body}` });
       }
-      return deps.draft({ ...x, body });
+      return finish({ ...x, body });
     },
   };
   // The other direction of the same rule: this row MATCHED and was withheld, because its

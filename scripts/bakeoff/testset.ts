@@ -151,6 +151,8 @@ for (const [i, c] of set.cases.entries()) {
   const row = {
     id: rc.id, tenant_id: tenantId, active: true, customer_message: rc.customerMessage, history: rc.history,
     expected_body: rc.expectedBody, must_include: rc.mustInclude, must_not_include: rc.mustNotInclude, note: null,
+    // `reply_cases.channel` (`0056`, D-140): the test set is asked as the Page asks it.
+    channel: 'facebook_page',
   };
   bucket = [];
   const t0 = Date.now();

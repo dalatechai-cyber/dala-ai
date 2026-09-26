@@ -223,6 +223,8 @@ export function scenarioInput(
     cannedLabel: SECTION_LABELS.canned,
     cannedHash: null,
     fallbackLine: null,
+    // The Page's terms (D-139, D-140): a person reads the inbox, and no site is the visitor's own.
+    noInbox: false, ownSiteHosts: [],
     complaintRules: [], sales: null, replyStyle: null,
     serviceNames: servicesFromPrefix(promptStable, SECTION_LABELS.priceList),
     serviceAliases: [],

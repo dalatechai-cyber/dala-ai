@@ -261,7 +261,8 @@
    "expected_body": "Тийм, манай салон одоо Tara Salon нэртэй болсон. Шинэ мэдээллийг удахгүй хүргэнэ.",
    "customer_message": "tnah matrix salonu",
    "must_not_include": [],
-   "source_outbound_id": "dd722f47-c21d-4a45-8d74-56f00b8f1d03"
+   "source_outbound_id": "dd722f47-c21d-4a45-8d74-56f00b8f1d03",
+   "channel": "facebook_page"
   },
   {
    "id": 2,
@@ -315,7 +316,8 @@
    "expected_body": "Усан хими: 132,000₮–154,000₮\nЭмчилгээний хими: 220,000₮–255,000₮\nШулуун хими: 430,000₮–510,000₮\nАфро хими: 430,000₮–510,000₮\n\nТа аль химийг хийлгэх вэ?",
    "customer_message": "usnii himi",
    "must_not_include": [],
-   "source_outbound_id": "1e84c416-c1f6-422e-bf92-d2d77369e9f4"
+   "source_outbound_id": "1e84c416-c1f6-422e-bf92-d2d77369e9f4",
+   "channel": "facebook_page"
   },
   {
    "id": 3,
@@ -369,7 +371,8 @@
    "expected_body": "Усан хими: 132,000₮–154,000₮\nЭмчилгээний хими: 220,000₮–255,000₮\nШулуун хими: 430,000₮–510,000₮\nАфро хими: 430,000₮–510,000₮\n\nТа аль химийг хийлгэх вэ?",
    "customer_message": "us bish usnii himi",
    "must_not_include": [],
-   "source_outbound_id": "84f13ae0-4e37-4f40-a121-2791db598228"
+   "source_outbound_id": "84f13ae0-4e37-4f40-a121-2791db598228",
+   "channel": "facebook_page"
   },
   {
    "id": 4,
@@ -423,7 +426,8 @@
    "expected_body": "Сайн байна уу! Би Tara Salon-ы AI туслах байна. Хүссэн зүйлээ асуугаарай.",
    "customer_message": "ci henbe",
    "must_not_include": [],
-   "source_outbound_id": "98476b29-b22f-4664-9919-eb94ef21e6a0"
+   "source_outbound_id": "98476b29-b22f-4664-9919-eb94ef21e6a0",
+   "channel": "facebook_page"
   },
   {
    "id": 5,
@@ -477,7 +481,8 @@
    "expected_body": "Намайг DalaTech.ai бүтээсэн. Салоны талаар хүссэн зүйлээ асуугаарай.",
    "customer_message": "cmg hen hiisen be",
    "must_not_include": [],
-   "source_outbound_id": "c45f106b-6e4a-4965-9f45-906aa8966c34"
+   "source_outbound_id": "c45f106b-6e4a-4965-9f45-906aa8966c34",
+   "channel": "facebook_page"
   },
   {
    "id": 6,
@@ -531,7 +536,8 @@
    "expected_body": "Сайн байна уу! Tara Salon-д тавтай морил. Танд юугаар туслах вэ?",
    "customer_message": "sain bnuu",
    "must_not_include": [],
-   "source_outbound_id": "359cb5d8-1fa3-4681-a5b8-190d2b874476"
+   "source_outbound_id": "359cb5d8-1fa3-4681-a5b8-190d2b874476",
+   "channel": "facebook_page"
   }
  ],
  "branch_hours": null,
@@ -2035,7 +2041,8 @@
    "provenance": "tenant_confirmed",
    "cover_words": [],
    "quote_services": [],
-   "requires_empty_history": false
+   "requires_empty_history": false,
+   "web_body": null
   },
   {
    "body": "Сайн байна уу! Би Tara Salon-ы AI туслах байна. Хүссэн зүйлээ асуугаарай.",
@@ -2166,7 +2173,8 @@
    "provenance": "tenant_confirmed",
    "cover_words": [],
    "quote_services": [],
-   "requires_empty_history": false
+   "requires_empty_history": false,
+   "web_body": null
   },
   {
    "body": "Уучлаарай, би буруу ойлгосон байна. Та юу асууж байгаагаа арай дэлгэрэнгүй бичнэ үү?",
@@ -2188,7 +2196,8 @@
    "provenance": "tenant_confirmed",
    "cover_words": [],
    "quote_services": [],
-   "requires_empty_history": false
+   "requires_empty_history": false,
+   "web_body": null
   },
   {
    "body": "Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?",
@@ -2279,7 +2288,8 @@
     "Дунд үсний будаг",
     "Урт үсний будаг"
    ],
-   "requires_empty_history": false
+   "requires_empty_history": false,
+   "web_body": null
   },
   {
    "body": "Сайн байна уу! Tara Salon-д тавтай морил. Танд юугаар туслах вэ?",
@@ -2317,7 +2327,8 @@
    "provenance": "tenant_confirmed",
    "cover_words": [],
    "quote_services": [],
-   "requires_empty_history": false
+   "requires_empty_history": false,
+   "web_body": null
   },
   {
    "body": "Та аль химийг хийлгэх вэ?",
@@ -2403,7 +2414,8 @@
     "Шулуун хими",
     "Афро хими"
    ],
-   "requires_empty_history": false
+   "requires_empty_history": false,
+   "web_body": null
   },
   {
    "body": "Тийм, зургаа явуулаарай. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.",
@@ -2475,7 +2487,8 @@
     "ruu"
    ],
    "quote_services": [],
-   "requires_empty_history": false
+   "requires_empty_history": false,
+   "web_body": null
   },
   {
    "body": "Мастер болон 1-р зэргийн үсчний ялгаа нь зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.",
@@ -2569,7 +2582,8 @@
     "biz"
    ],
    "quote_services": [],
-   "requires_empty_history": false
+   "requires_empty_history": false,
+   "web_body": null
   },
   {
    "body": "Үсэнд тань аль нь тохирохыг манай үсчин зөвлөж өгнө.",
@@ -2592,7 +2606,8 @@
    "provenance": "tenant_confirmed",
    "cover_words": [],
    "quote_services": [],
-   "requires_empty_history": false
+   "requires_empty_history": false,
+   "web_body": null
   },
   {
    "body": "Тийм, манай салон одоо Tara Salon нэртэй болсон. Шинэ мэдээллийг удахгүй хүргэнэ.",
@@ -2711,7 +2726,8 @@
     "салонуу"
    ],
    "quote_services": [],
-   "requires_empty_history": false
+   "requires_empty_history": false,
+   "web_body": null
   },
   {
    "body": "Манай салон одоо Tara Salon нэртэй болсон. Шинэ мэдээллийг удахгүй хүргэнэ.",
@@ -2742,7 +2758,9 @@
    "provenance": "tenant_confirmed",
    "cover_words": [],
    "quote_services": [],
-   "requires_empty_history": false
+   "requires_empty_history": false,
+   "web_body": null
   }
- ]
+ ],
+ "tenant_domains": []
 }

@@ -10327,3 +10327,34 @@ Page and the website.
    the same.
 
 No republish: 1 and 3 are code, and `deterministic_replies` is read per request, not compiled.
+
+## D-140 — the website never sends a visitor to the site they are on (2026-09-26)
+
+Founder, 2026-09-26: on dalatech.online, «Танай оффис хаана байдаг вэ?» was answered «…
+Дэлгэрэнгүй мэдээллийг https://dalatech.online хуудаснаас үзэх боломжтой.», and the follow-up
+ends «👉 Бусад AI ажилтнууд: https://dalatech.online». Right on the Page; wrong in a widget on
+that page. *"Build it so any tenant with a website channel gets the same behaviour."*
+
+- **The rule is code, for every tenant** (`website/ownSite.ts`). On the website channel, the
+  tenant's VERIFIED `tenant_domains` hosts — the registry `/api/web/message` already reads for
+  CORS — are the site the visitor is on. A sentence in the reply naming one of them is not sent,
+  whoever wrote it: the model, a canned line, a row with no website version, the sales line.
+  Flagged `own_site_removed`, so a row that needs a website version shows up. A reply with
+  nothing left is the general line, as a hand-off. A subdomain that is not listed is another
+  site: `app.dalatech.online`, the demo app, stays. A Mongolian suffix after the host
+  («dalatech.online-д») is caught; `\b` is not used (rule 6).
+- **Approved lines may have a website version** (`web_body`, `0056`) on `sales_next_steps` and
+  `deterministic_replies` — the two tables read per request. `/api/web/message` swaps it in
+  (`websiteContext`) before the reply path, the sales record and the hand-off alert see the
+  row. Not on `canned_responses`: those are compiled and hashed into the prefix, so a second
+  body there would be a second source of one fact; the rule covers them.
+- **Reply cases per channel** (`reply_cases.channel`, `0056`). A `web` case runs exactly as the
+  website answers: website versions, the site rule, no inbox. Every earlier case is the Page.
+- **Data** (`scripts/provision/dalatech-website-versions-2026-09-26.sql`): the follow-up's
+  website version, approved exactly; `office_location` «Бид Улаанбаатарт байрладаг,
+  онлайнаар ажилладаг.» on both channels (covers the question only when every word is an
+  office word or filler, so «Имэйл хаяг», «Вэбсайтын хаяг», «Демо хаана» still go to the
+  model); five cases.
+
+What it cannot see: a reference with no host in it («манай вэбсайтаас»). No republish: the
+rule is code, and both new columns are read per request.

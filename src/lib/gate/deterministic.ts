@@ -43,6 +43,12 @@ export type DeterministicRule = {
   intent: string;
   /** The sentence to send. Tenant data, and subject to the same review as any other. */
   body: string;
+  /**
+   * The approved wording for the website channel (`web_body`, `0056`, D-140), or null/absent
+   * for the same wording on both channels. Swapped in for `body` by `website/ownSite.ts`
+   * before the reply path sees the row; nothing else reads it.
+   */
+  webBody?: string | null;
   enabled: boolean;
   /**
    * `on_topic` (`0042`): `stems` are gate `topic_key`s, and the row fires when one of those

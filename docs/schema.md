@@ -720,6 +720,15 @@ one line per option; both or neither. `max_emoji` caps emoji in the model's own 
 none are kept on a complaint or a refusal. NULL, or a malformed value, changes nothing
 (`reception/style.ts`).
 
+### `0056_website_versions`
+
+**Additive.** A website wording for an approved line, and reply cases per channel (D-140):
+- `sales_next_steps.web_body` and `deterministic_replies.web_body` (text, nullable): served on
+  the website channel in place of `body`; NULL reads the same on both channels. Not on
+  `canned_responses`, which is compiled and hashed into the prefix.
+- `reply_cases.channel text not null default 'facebook_page'`, CHECK `facebook_page | web`: the
+  channel a case is answered as. Every existing case keeps its meaning.
+
 ### `0052_demo_url_contact_kind`
 
 **Widens two CHECKs.** `contact_points.kind` and `branch_contact_points.kind` gain `demo_url`: a
