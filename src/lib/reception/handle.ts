@@ -170,6 +170,15 @@ export type ReceptionInput = {
    */
   fallbackLine: string | null;
   /**
+   * Nobody reads this conversation: a website widget has no inbox (founder, 2026-09-26). The
+   * handoff line promises «Хамт олон маань хариулах болно», which is true on the Page, where
+   * a person reads the inbox, and false here. With this set, wherever the handoff line would
+   * be served the tenant's reviewed callback line (`fallbackLine`) is served instead, asking
+   * for a name and a number. A tenant with no callback line keeps the handoff line. Required,
+   * so no caller gets either behaviour by forgetting.
+   */
+  noInbox: boolean;
+  /**
    * The tenant's complaint rows (`ReceptionContext.complaintRules`). Required for the same
    * reason as `fallbackLine`; `[]` means no message is read as a complaint.
    */
@@ -237,7 +246,15 @@ export type ReceptionInput = {
 
 export type ReceptionOutcome =
   /** A reply row exists and is ready for the send path. */
-  | { kind: 'drafted'; outboundId: string; answeredBy: AnsweredBy; refusal?: string }
+  | {
+    kind: 'drafted'; outboundId: string; answeredBy: AnsweredBy; refusal?: string;
+    /**
+     * The reply hands the customer to a person: the handoff line, or the callback line served
+     * in its place (`generalLine`). Never set for a row the customer's words asked for, such
+     * as a callback request (`deterministic`). The website alerts on it (`noInbox`).
+     */
+    handedOff?: true;
+  }
   /** Could not determine something. The caller must 503 so QStash retries. */
   | { kind: 'retry'; detail: string }
   /** Determinate and unanswerable. ACK and stop; retrying cannot change it. */
@@ -537,6 +554,17 @@ export async function handleReception(
   deps: ReceptionDeps,
   input: ReceptionInput,
 ): Promise<ReceptionOutcome> {
+  // Set by the draft wrapper, which every draft passes, so no return path has to remember it.
+  const state = { handedOff: false };
+  const out = await receive(deps, input, state);
+  return out.kind === 'drafted' && state.handedOff ? { ...out, handedOff: true } : out;
+}
+
+async function receive(
+  deps: ReceptionDeps,
+  input: ReceptionInput,
+  state: { handedOff: boolean },
+): Promise<ReceptionOutcome> {
   // ---- Free refusals, all three before a token is spent -------------------
 
   // 1. Older than the messaging window allows. Dropping costs nothing; generating a
@@ -628,6 +656,8 @@ export async function handleReception(
   // the name gets the line on its own."* Every draft below goes through `d`, handoff
   // included, so no path can serve an answer without the line or the line without an answer.
   const appends = shortcut.appends;
+  // The set row this message matched, as it will be served (quoted prices rendered).
+  const shortcutBody = shortcut.hit === null ? null : composeQuoted(shortcut.hit, input.serviceNames);
   const bookingRow = canned(input.canned, 'booking_line');
   const previousReply = [...input.history].reverse().find((h) => h.role === 'assistant')?.content ?? null;
   // Prices, the address, phone numbers, hours and deposits come from the data, never from
@@ -746,13 +776,34 @@ export async function handleReception(
           x = { ...x, body: line, answeredBy: 'canned' };
         }
       }
+      // A HAND-OFF, whichever path served it: the reviewed handoff row, or the callback line
+      // served as the general line. Compared whole, so a reply that merely quotes one inside
+      // an answer is not one. With no inbox (the website), the handoff row's promise that a
+      // colleague will answer is replaced by the callback line, which asks for a number.
+      if (x.answeredBy === 'canned') {
+        const said = x.body.trim();
+        const handoffRow = canned(input.canned, 'handoff')?.trim() ?? null;
+        const callback = typeof input.fallbackLine === 'string' && input.fallbackLine.trim() !== ''
+          ? input.fallbackLine.trim() : null;
+        if (handoffRow !== null && said === handoffRow) {
+          state.handedOff = true;
+          if (input.noInbox && callback !== null) x = { ...x, body: callback };
+        } else if (callback !== null && said === callback) {
+          state.handedOff = true;
+        }
+      }
       // A topic append («the stylist decides») is not added to a reviewed line: the refusal
       // it would follow already says it, in the tenant's own words.
       // Append rows that read the REPLY (`in_reply`) can only be judged now that there is
       // one (founder, 2026-09-26: whenever a coming-soon staff member comes up, prices
       // included, the reply says so). A line the reply already carries is not added again.
       const own = x.answeredBy === 'canned' ? appends.filter((a) => a.onTopic !== true) : appends;
-      const onReply = matchDeterministic(input.customerMessage, input.deterministic, input.historyState,
+      // Not on the tenant's own set answer (founder, 2026-09-26): the approved price overview
+      // says «⏳ Удахгүй: Вира, Эхо, Нова, Ора — урьдчилан бүртгэл авч байна» in its own
+      // words, and the reply-matched row would have added the same fact a second time. The
+      // tenant wrote that row whole; what it says about the names in it is already decided.
+      const setAnswer = x0.answeredBy === 'deterministic' && shortcutBody !== null && x0.body === shortcutBody;
+      const onReply = setAnswer ? [] : matchDeterministic(input.customerMessage, input.deterministic, input.historyState,
         { ...matchOpts, reply: x.body }).appends
         // Only rows the message alone did not fire: the rest were already judged above,
         // including an on-topic line deliberately left off a reviewed refusal.
@@ -849,7 +900,6 @@ export async function handleReception(
   // A row that quotes prices renders them from the compiled price list. If one of its
   // services is not on the list, the row does not answer and the model does — with a flag,
   // because a set row that silently stopped firing is a dead row nobody can see.
-  const shortcutBody = shortcut.hit === null ? null : composeQuoted(shortcut.hit, input.serviceNames);
   if (shortcut.hit !== null && shortcutBody === null) {
     await deps.flag({
       code: 'deterministic_reply_unresolved',

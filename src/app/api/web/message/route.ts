@@ -36,6 +36,7 @@ import { required } from '@/lib/env';
 import { clientIpOf } from '@/lib/website/clientIp';
 import { runMessageJob, type MessageEffects } from '@/lib/website/messageJob';
 import { salesShadowEffect } from '@/lib/sales/shadow';
+import { alertWebHandoff } from '@/lib/website/handoffAlert';
 import { servicesFromPrefix, sectionRows, faqAnswersFromPrefix } from '@/lib/quality/serviceNames';
 
 export const runtime = 'nodejs';
@@ -117,6 +118,8 @@ function effects(now: Date): MessageEffects {
           branches: a.ctx.branches,
           cannedHash: a.ctx.cannedHash,
           fallbackLine: a.ctx.fallbackLine,
+          // A widget has no inbox: nobody reads this conversation unless told (D-139).
+          noInbox: true,
           complaintRules: a.ctx.complaintRules,
           sales: a.ctx.sales,
           replyStyle: a.ctx.replyStyle,
@@ -144,6 +147,20 @@ function effects(now: Date): MessageEffects {
       }),
 
     afterResponse: (work) => after(work),
+
+    // Logged and swallowed: the reply is already on its way (D-139).
+    alertHandoff: async (a) => {
+      try {
+        const r = await alertWebHandoff(db, {
+          tenantId: a.tenantId, conversationId: a.conversationId, messageId: a.messageId,
+          question: a.question, playbook: a.ctx.sales, now,
+        });
+        if (r.outcome === 'unusable') console.error('[web] web_handoff_alert_failed', { tenantId: a.tenantId, detail: r.detail });
+        else console.info('[web] web_handoff_alert', { tenantId: a.tenantId, conversationId: a.conversationId, outcome: r.outcome });
+      } catch (e) {
+        console.error('[web] web_handoff_alert_threw', { tenantId: a.tenantId, detail: e instanceof Error ? e.message : String(e) });
+      }
+    },
 
     log: (level, event, fields) => console[level](`[web] ${event}`, fields ?? {}),
   };

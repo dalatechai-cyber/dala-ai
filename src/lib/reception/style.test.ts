@@ -53,3 +53,32 @@ test('DONE-TEST: at most one emoji in the model\'s words, none on a complaint or
   assert.equal(countEmoji('👍🏽 👨‍💻 ❤️'), 3);
   assert.equal(capEmoji('А 👨‍💻 Б 👍🏽.', 0, false), 'А Б.');
 });
+
+test('DONE-TEST: the model\'s lead-in above a styled header is dropped (DalaTech website, 2026-09-26 15:17)', () => {
+  // The measured reply: the facts guard kept the intro, the rows were styled, and the
+  // service was named twice. The header now stands alone.
+  const body = `Дали — AI хүлээн авагчийн үнэ дараах байдалтай байна:\n${DALI} (Нэг удаагийн суурилуулалт): 150,000₮\n${DALI} (Сарын төлбөр): 250,000₮`;
+  assert.equal(stylePriceRows(body, SERVICES, STYLE),
+    `💬 ${DALI}\n💰 Нэг удаагийн суурилуулалт: 150,000₮\n💰 Сарын төлбөр: 250,000₮`);
+  // A blank line between the lead-in and the rows goes with it.
+  assert.equal(stylePriceRows(`Үнийн мэдээлэл:\n\n${DALI} (Сарын төлбөр): 250,000₮`, SERVICES, STYLE),
+    `💬 ${DALI}\n💰 Сарын төлбөр: 250,000₮`);
+});
+
+test('only a lead-in is dropped: a sentence, a line with a number, or an unstyled reply keeps its line', () => {
+  const row = `${DALI} (Сарын төлбөр): 250,000₮`;
+  // A full sentence before the rows is content, not an introduction.
+  assert.equal(stylePriceRows(`Дали 24/7 ажиллана.\n${row}`, SERVICES, STYLE),
+    `Дали 24/7 ажиллана.\n💬 ${DALI}\n💰 Сарын төлбөр: 250,000₮`);
+  // A colon line that says more than one clause stays.
+  assert.equal(stylePriceRows(`Тийм, боломжтой. Үнэ нь:\n${row}`, SERVICES, STYLE),
+    `Тийм, боломжтой. Үнэ нь:\n💬 ${DALI}\n💰 Сарын төлбөр: 250,000₮`);
+  // A number may be a fact; it is never removed here.
+  assert.equal(stylePriceRows(`2 сонголт байна:\n${row}`, SERVICES, STYLE),
+    `2 сонголт байна:\n💬 ${DALI}\n💰 Сарын төлбөр: 250,000₮`);
+  // No look, no header, nothing removed.
+  assert.equal(stylePriceRows(`Үнэ нь:\n${row}`, SERVICES, null), `Үнэ нь:\n${row}`);
+  // A lead-in to a row the style does not touch (no option) stays.
+  assert.equal(stylePriceRows('Вэбсайтын үнэ:\nУхаалаг вэбсайт: 750,000₮', SERVICES, STYLE),
+    'Вэбсайтын үнэ:\nУхаалаг вэбсайт: 750,000₮');
+});

@@ -113,7 +113,7 @@ const base: ReceptionInput = {
   eventAt: new Date('2026-09-24T05:00:00Z'), now: new Date('2026-09-24T05:00:05Z'),
   promptStable: STABLE, promptVolatile: 'VOLATILE', modelId: 'm', cacheMode: '1h', timeoutMs: 25_000,
   rules: [SUIT], deterministic: [TARA_NAME, TARA_APPEND, DYE, STYLIST_ROW], historyState: { known: true, empty: false },
-  canned: CANNED, tenantGuard: GUARD, cannedLabel: 'БЭЛЭН ХАРИУЛТ', cannedHash: null, fallbackLine: null, complaintRules: [], sales: null, replyStyle: null,
+  canned: CANNED, tenantGuard: GUARD, cannedLabel: 'БЭЛЭН ХАРИУЛТ', cannedHash: null, fallbackLine: null, noInbox: false, complaintRules: [], sales: null, replyStyle: null,
   serviceNames: SERVICES, serviceAliases: ALIASES, depositRows: DEPOSITS, faqAnswers: [], spellings: [], branches: [],
 };
 
@@ -478,4 +478,43 @@ test('D-132: a greeting answered by the model gets no follow-up', async () => {
   const r = run('Сайн байна уу! Танд юугаар туслах вэ.');
   await handleReception(r.deps, { ...base, customerMessage: 'Сайн байна уу', sales: await livePlaybook('live') });
   assert.equal(r.drafts[0]?.body.includes('app.dalatech.online'), false);
+});
+
+// ---- Founder, 2026-09-26: the approved price overview, laid out ----------------------------
+// The overview names the coming-soon staff in its own words («⏳ Удахгүй: … урьдчилан бүртгэл
+// авч байна»). The reply-matched status row must not add the same fact a second time; on a
+// reply the MODEL wrote, it still does.
+
+const OVERVIEW_BODY = '💬 Дали — AI хүлээн авагч: сард 250,000₮ (суурилуулалт 150,000₮)\n'
+  + '🌐 Ухаалаг вэбсайт: 750,000₮\n🎁 Вэбсайт + Дали багц: 800,000₮\n'
+  + '⏳ Удахгүй: Вира, Эхо, Нова, Ора — урьдчилан бүртгэл авч байна';
+const OVERVIEW: DeterministicRule = {
+  ...confirmed, intent: 'price_overview', body: OVERVIEW_BODY, matchMode: 'covers_message',
+  stems: ['үнэ'], coverWords: ['хэд', 'вэ'], placement: 'replace', quoteServices: [],
+};
+const SOON_STATUS: DeterministicRule = {
+  ...confirmed, intent: 'coming_soon_status', body: SOON, matchMode: 'matcher', stems: [], coverWords: [],
+  placement: 'append', quoteServices: [],
+  matcher: { mode: 'has_word', words: ['вира', 'вирагийн'] },
+};
+
+test('DONE-TEST: THE PRICE OVERVIEW IS SERVED WHOLE — NO SECOND PRE-REGISTRATION SENTENCE, NO MODEL CALL', async () => {
+  const t = run('never asked');
+  const r = await handleReception(t.deps, {
+    ...base, customerMessage: 'үнэ хэд вэ', deterministic: [OVERVIEW, SOON_IN_REPLY, SOON_STATUS],
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.deepEqual(t.drafts, [{ body: OVERVIEW_BODY, answeredBy: 'deterministic' }]);
+  assert.equal(t.requests.length, 0);
+});
+
+test('one coming-soon agent\'s price still gets the pre-registration line, and the overview does not answer it', async () => {
+  // «Вирагийн үнэ хэд вэ?» is not covered by the overview («вирагийн» is not a cover word),
+  // so the model answers and the message-matched status row adds the line.
+  const t = run('Вира бизнес аналитик.');
+  await handleReception(t.deps, {
+    ...base, customerMessage: 'Вирагийн үнэ хэд вэ?', deterministic: [OVERVIEW, SOON_IN_REPLY, SOON_STATUS],
+  });
+  assert.equal(t.requests.length, 1, 'the model is asked');
+  assert.equal(t.drafts[0]?.body, `Вира бизнес аналитик.\n\n${SOON}`);
 });

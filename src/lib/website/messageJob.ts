@@ -148,6 +148,13 @@ export type MessageEffects = {
    * Graph send after the wait to cover it; this path has nothing after the claim.
    */
   afterResponse: (work: Promise<unknown>) => void;
+  /**
+   * Tell the founder a visitor was handed to a person (D-139, `website/handoffAlert.ts`): the
+   * handoff line or the callback line was served, and nobody reads this conversation. Must
+   * never reject; handed to `afterResponse` like the sales record, so the reply never waits
+   * on Telegram.
+   */
+  alertHandoff: (args: { tenantId: string; conversationId: string; messageId: string; question: string; ctx: ReceptionContext }) => Promise<void>;
   log: (level: 'info' | 'warn' | 'error', event: string, fields?: Record<string, unknown>) => void;
 };
 
@@ -379,10 +386,18 @@ export async function runMessageJob(effects: MessageEffects, req: MessageRequest
     // §5.7: never silence. A determinate refusal still answers, with the tenant's own
     // reviewed handoff line — the same sentence `handleReception` would have served, from
     // the same rows, rather than a bare error code rendered in a chat bubble.
+    //
+    // With no inbox, the tenant's reviewed callback line rather than the handoff line (D-139):
+    // «a colleague will answer» is not true of a conversation nobody reads, and a spent budget
+    // is exactly when the visitor needs a person. The founder is told, as for any hand-off.
     if (refusal.status !== 503) {
       const handoff = ctx.canned.find((c) => c.kind === 'handoff' && c.reviewedAt !== null);
-      if (handoff !== undefined) {
-        return withOrigin({ status: 200, body: { reply: handoff.body, answered_by: 'canned', refusal: refusal.code } });
+      const line = ctx.fallbackLine ?? handoff?.body;
+      if (line !== undefined) {
+        effects.afterResponse(Promise.resolve().then(() => effects.alertHandoff({
+          tenantId, conversationId, messageId: stored.value.messageId, question: text, ctx,
+        })).catch(() => undefined));
+        return withOrigin({ status: 200, body: { reply: line, answered_by: 'canned', refusal: refusal.code } });
       }
     }
     return withOrigin({ status: refusal.status === 503 ? 503 : 200, body: { error: refusal.code } });
@@ -436,6 +451,13 @@ export async function runMessageJob(effects: MessageEffects, req: MessageRequest
   })).catch(() => undefined).finally(() => { salesSettled = true; });
   // Registered before anything below can return, so every exit path keeps it alive.
   effects.afterResponse(salesWork);
+  // A hand-off nobody would otherwise see (D-139). Off the reply's path entirely: Telegram
+  // is not waited on, only kept alive past the response.
+  if (outcome.handedOff === true) {
+    effects.afterResponse(Promise.resolve().then(() => effects.alertHandoff({
+      tenantId, conversationId, messageId: stored.value.messageId, question: text, ctx,
+    })).catch(() => undefined));
+  }
   const selling = settleWithin(salesWork, SALES_SHADOW_WAIT_MS);
 
   // --- 10. Claim the draft and hand it over. --------------------------------

@@ -10292,3 +10292,38 @@ unless the visitor leaves a number (which now reaches Telegram).
 Nothing is live: no web mint secret is sealed (`tenant_secrets` holds only the Page token),
 `TURNSTILE_SECRET_KEY` is unset here, `CHAT_BACKEND` is unset there, and `web_sessions` has
 never held a row.
+
+## D-139 — DalaTech polish: one price header, the approved price layout, website hand-offs told (2026-09-26)
+
+The founder, after the site chat went live on Dala AI (D-138): three items, for DalaTech on the
+Page and the website.
+
+1. **The first price answer named the service twice.** Measured on the website at 15:17:
+   «Дали — AI хүлээн авагчийн үнэ дараах байдалтай байна:» then «💬 Дали — AI хүлээн авагч».
+   The model wrote the intro and two price lines; the facts guard replaced the two lines with
+   rows and KEPT the intro (`fact_restated`: *2 sentence(s) replaced by rows, 1 kept*); the look
+   (D-133) then put its header under it. `stylePriceRows` now drops a lead-in directly above a
+   header it adds: one clause ending in a colon, no digit in it. A sentence, a line with a
+   number, or an unstyled reply keeps its line.
+2. **The general price answer is the founder's layout** — four lines, verbatim, in
+   `price_overview` (`scripts/provision/dalatech-price-layout-2026-09-26.sql`, applied after the
+   code deploy, with the six exact reply cases that quoted the old paragraph). One code change
+   came with it: the reply-matched `coming_soon_in_reply` row no longer appends to the SET ROW
+   the message matched. The layout says «⏳ Удахгүй: Вира, Эхо, Нова, Ора — урьдчилан бүртгэл
+   авч байна» in the tenant's own words; the old paragraph carried the status sentence verbatim,
+   which is the only reason the row had not fired on it before. A model reply naming a
+   coming-soon staff member still gets it, and «Вирагийн үнэ хэд вэ?» is not the overview's (it
+   does not cover «вирагийн»), so it still gets Вира's price and the pre-registration line.
+3. **A website hand-off asks for a number and is told to the founder.** `ReceptionInput.noInbox`
+   (required; `true` only on `/api/web/message`): wherever the handoff row would be served, the
+   tenant's reviewed callback line is served instead. The draft wrapper, which every draft
+   passes, marks the outcome `handedOff` — the handoff row, or the callback line served as the
+   general line; never a callback row the customer's words asked for (`deterministic`). The
+   website then sends `🙋 Website visitor needs a person` with the visitor's question to
+   Telegram (`website/handoffAlert.ts`), off the reply's path via `after()`. Only where the
+   tenant's `lead_route` is `founder_telegram` — the chat is DalaTech's and shared with the demo
+   form — and at most three per conversation, counted in `quality_flags` rows that carry no
+   customer text. The ceiling path, which serves a line without calling `handleReception`, does
+   the same.
+
+No republish: 1 and 3 are code, and `deterministic_replies` is read per request, not compiled.
