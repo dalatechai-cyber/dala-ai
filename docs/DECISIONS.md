@@ -10637,3 +10637,10 @@ prefix. A customer reads them as the colour price (135,000 / 176,000 / 200,000�
   a greeting plus an invitation to ask (Tara's «хаая» reply).
 - Tara's `small_talk` is now DalaTech's list, and the small-talk check reads the respelled text.
 - The weekly numbers: `scripts/diagnose/sales-shadow-report.sql`.
+
+**Addendum, 2026-09-27 (founder):**
+- The deposit wording is approved as «Урьдчилгаа төлбөр — {row}».
+- Tara gets a `thanks` row, approved exactly: «Зүгээр ээ 😊 Өөр асуух зүйл байвал бичээрэй.».
+  Its stems are DalaTech's thanks stems (`scripts/provision/tara-thanks-2026-09-27.sql`).
+- The platform thanks forms gain «баярла» and the mixed-script «ok баярлалаа».
+- No republish: deterministic rows are read at request time.

@@ -65,7 +65,9 @@ const FORMS: Readonly<Record<ChatKind, readonly string[]>> = {
   ],
   thanks: [
     'баярлалаа', 'баярллаа', 'баярлаа', 'их баярлалаа', 'за баярлалаа', 'маш их баярлалаа',
-    'баярлалаа танд', 'танд баярлалаа', 'баярлалаа та', 'ок баярлалаа',
+    'баярлалаа танд', 'танд баярлалаа', 'баярлалаа та', 'ок баярлалаа', 'баярла', 'баярлалаа ок',
+    // Mixed script, as typed: a Latin «ok» or «za» before Cyrillic thanks.
+    'ok баярлалаа', 'ok баярллаа', 'ok баярла', 'za баярлалаа', 'баярлалаа ok',
     'bayarlalaa', 'bayrlalaa', 'bayarllaa', 'bayrllaa', 'bayarlaa', 'bayrlaa', 'bayrla', 'bayarla',
     'ih bayarlalaa', 'ih bayrlalaa', 'za bayarlalaa', 'za bayrlalaa', 'mash ih bayarlalaa',
     'mash ih bayrlalaa', 'bayarlalaa tand', 'bayrlalaa tand', 'tand bayarlalaa', 'tand bayrlalaa',

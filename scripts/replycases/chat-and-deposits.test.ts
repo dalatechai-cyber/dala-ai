@@ -86,3 +86,23 @@ test('DONE-TEST: TARA\'S LIVE 12:39 COLOUR-BOOKING REPLY NOW REACHES THE CUSTOME
   for (const line of amountLines) assert.ok(line.startsWith('Урьдчилгаа төлбөр — '), line);
   assert.ok(reply.includes('https://www.matrixecosalon.org/'), 'the booking line stays');
 });
+
+// Founder, 2026-09-27: Tara's thanks row, approved exactly — answering «баярлалаа» and its Latin
+// and shorthand forms the way DalaTech's thanks row does, with no model.
+const TARA_THANKS = 'Зүгээр ээ 😊 Өөр асуух зүйл байвал бичээрэй.';
+const THANKS = ['баярлалаа', 'Баярлалаа!', 'bayrlalaa', 'bayarlalaa', 'bayrla', 'баярла', 'ok баярлалаа', 'ih bayrlalaa',
+  'баярллаа', 'thx', 'za bayarlalaa'];
+
+test('DONE-TEST: TARA ANSWERS «баярлалаа» AND EVERY LATIN / SHORTHAND FORM WITH ITS THANKS ROW — NO MODEL', async () => {
+  const results = await answers(taraDump(), 'matrix-eco-salon', THANKS.map((message) => ({ message, expected: TARA_THANKS })));
+  assert.equal(results.length, THANKS.length);
+  for (const r of results) {
+    assert.equal(r.pass, true, JSON.stringify(r));
+    assert.equal(r.answeredBy, 'deterministic', JSON.stringify(r));
+  }
+});
+
+test('thanks INSIDE a question is not the thanks row: the question is still answered', async () => {
+  const [r] = await answers(taraDump(), 'matrix-eco-salon', [{ message: 'баярлалаа, хаяг хаана вэ', expected: TARA_THANKS }]);
+  assert.notEqual(r?.reply, TARA_THANKS, 'a question with thanks in it is not answered by «Зүгээр ээ»');
+});
