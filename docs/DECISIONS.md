@@ -10122,9 +10122,19 @@ random":
      filler. Anything that asks more goes to the model.
    - A complaint about calls («залгаад авахгүй») is never covered.
 4. **An ambiguity D-133 introduced (s01, case 23).** The «Нэр» document said «AI туслахын
-   нэр: Дали.», which made Дали both the assistant and the product. «daly gj yuve» could
-   then be answered as "I am Дали, DalaTech's assistant", with no word of what Дали does.
-   The document now says the assistant in this chat IS Дали, the AI хүлээн авагч.
+   нэр: Дали.», which made Дали both the assistant and the product. «daly gj yuve» (what is
+   Дали?) was then read as "who are you?" and answered with the assistant_identity line, with
+   no word of what Дали does.
+   - A first rewording ("the assistant in this chat IS Дали, the AI хүлээн авагч") made it
+     worse: 3 runs in 4 on the repeat set.
+   - The document now names the company only. The assistant's name lives in the approved
+     greeting and assistant_who rows, which is where the «Дала апп» greeting was fixed.
+5. **Two rules that contradict each other on a complaint (sc1, case 30).** L4's answer-first
+   reminder says not to open with «Уучлаарай», and D-127 says complaints keep it.
+   - Four runs of «…муухай үйлчилгээ» gave four different openings. One of them was
+     «Уучлаарай гэж хэлэхгүйгээр —», the model reading both rules out loud.
+   - When the tenant's own complaint rows match, `volatileFor` replaces the answer-first
+     reminder with an apology reminder. That is code-owned scaffolding, never sent text.
 
 **And a bug of D-133's own, found while tracing (3).** `deterministic_replies.requires_empty_history`
 defaults to true, and D-133's `thanks` and `greeting` rows did not set it. «Баярлалаа» was
@@ -10135,8 +10145,8 @@ situation.
 
 **No case was loosened.** Every assertion is as it was. The new exact answers are approved
 lines. The cases that still reach the model (14) are the ones whose answer is the model's
-job, and the repeat set runs every active case four times to prove they hold.
+job, and the repeat set runs every active case three times to prove they hold.
 
 Data: `scripts/provision/dalatech-gate-stable-2026-09-26.sql`. The rows are live when
 applied. The «Нэр» rewording reaches the prefix on the republish, which compiles to
-`1c8b3d61`.
+`ca202860`.

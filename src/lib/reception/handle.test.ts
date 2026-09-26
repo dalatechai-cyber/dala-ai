@@ -11,6 +11,7 @@ import type { GateRule } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
 import { replyStyleOf } from './style.ts';
+import { ANSWER_FIRST_REMINDER, COMPLAINT_REMINDER } from './volatile.ts';
 import { servicesFromPrefix } from '../quality/serviceNames.ts';
 
 const REVIEWED = '2026-09-04T00:00:00Z';
@@ -1206,4 +1207,17 @@ test('DONE-TEST: a price stated beside a reworded FAQ answer SURVIVES the swap, 
   assert.ok(body.includes('💰 Сарын төлбөр: 250,000₮'), body);
   assert.ok(body.endsWith(FAQ), 'the published FAQ answer, as written');
   assert.match(flags.find((x) => x.code === 'faq_paraphrased')?.detail ?? '', /price row\(s\) the reply stated kept/);
+});
+
+test('DONE-TEST: a complaint reaches the model with the apology reminder, never "don\'t open with «Уучлаарай»" (sc1, D-134)', async () => {
+  const reminders = ['ХАРИУЛТЫН ХЭЛ: x', ANSWER_FIRST_REMINDER].join('\n');
+  const complaint = [{ ruleKey: 'complaint', verdict: 'escalate' as const, matcher: { mode: 'contains_stem', stems: ['муухай'] } }];
+  for (const [message, wantApology] of [['Та нар яагаад хариулахгүй байгаа юм бэ, муухай үйлчилгээ', true], ['Вэбсайт хийдэг үү', false]] as const) {
+    const { deps: d } = deps();
+    let sent = '';
+    d.callModel = async (req) => { sent = req.promptVolatile; return OK_REPLY; };
+    await handleReception(d, { ...base, customerMessage: message, promptVolatile: reminders, complaintRules: complaint });
+    assert.equal(sent.includes(COMPLAINT_REMINDER), wantApology, message);
+    assert.equal(sent.includes(ANSWER_FIRST_REMINDER), !wantApology, message);
+  }
 });

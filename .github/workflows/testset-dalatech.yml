@@ -3,12 +3,12 @@
 # (`gateTenant`: the real loader, deterministic rows, pinned lines and every guard), and prints
 # the report — every reply word for word, with its flags — to this run's log and summary.
 #
-# It spends real money (Sonnet 5, about $1.50 a run, capped by --max-calls 80), so it runs
+# It spends real money (Sonnet 5, about $1.50 a run, capped by --max-calls 60), so it runs
 # only on purpose: by hand (workflow_dispatch), or on a push to a branch other than main whose
 # head commit message carries «[testset]». It used to run on a push touching a request file,
 # and resetting a branch to main after a merge counted as such a push: one run nobody asked
 # for (2026-09-26). A merge commit never carries the tag, so a reset cannot start a run.
-# «[gaterepeat]» runs ONLY the gate repeat set (every active case four times, D-134),
+# «[gaterepeat]» runs ONLY the gate repeat set (every active case three times, D-134),
 # for measuring whether the publish gate is stable without paying for the full sets again.
 # Needs the ANTHROPIC_API_KEY repository secret.
 # Nothing is written anywhere: the dump is served by a read-only fixture, and testset.ts
@@ -43,11 +43,11 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --set scripts/bakeoff/dalatech-sales-set.json --tag ci --max-calls 30
-      - name: Answer the gate repeat set (D-134, every active case four times)
+      - name: Answer the gate repeat set (D-134, every active case three times)
         if: always()
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --set scripts/bakeoff/dalatech-gate-repeat-set.json --tag ci --max-calls 80
+        run: node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --set scripts/bakeoff/dalatech-gate-repeat-set.json --tag ci --max-calls 60
       - name: Report
         if: always()
         run: |

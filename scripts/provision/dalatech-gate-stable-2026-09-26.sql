@@ -25,10 +25,13 @@
 --     The column defaults to true, the D-133 file did not set it, and so «Баярлалаа» was
 --     answered from the row only as a conversation's FIRST message — a thank-you comes after
 --     an answer, i.e. never. The founder's own «Баярлалаа → Тавтай морил!» was mid-chat.
---  5. The «Нэр» document (D-133) said «AI туслахын нэр: Дали.» — which made «Дали» two
---     things, the assistant and the product, and «daly gj yuve» was then sometimes answered
---     as «I am Дали, DalaTech's assistant» with no word of what Дали is (case 23). It now
---     says the assistant in this chat IS Дали, the AI хүлээн авагч. [prefix: republish]
+--  5. The «Нэр» document (D-133) said «AI туслахын нэр: Дали.», which made «Дали» two
+--     things, the assistant and the product. «daly gj yuve» (what is Дали?) was then answered
+--     as «who are you?» — the assistant_identity line, with no word of what Дали does. A
+--     first rewording («the assistant in this chat IS Дали») made it worse, 3 runs in 4. The
+--     document now names the company only; the assistant's name lives in the approved
+--     greeting and assistant_who rows, which is where the «Дала апп» greeting was fixed.
+--     [prefix: republish]
 begin;
 
 do $$
@@ -89,7 +92,7 @@ update deterministic_replies d set requires_empty_history = false
 from tenants t where d.tenant_id = t.id and t.slug = 'dalatech' and d.intent in ('thanks', 'greeting');
 
 update knowledge_documents k
-set body = normalize(E'- Манай компанийн нэр: DalaTech.\n- Энэ чатад хариулж буй AI туслах бол Дали — манай AI хүлээн авагч ажилтан.\n- Компани, бүтээгдэхүүн, ажилтанд өөр нэр зохиож хэрэглэхгүй.', NFC)
+set body = normalize(E'- Манай компанийн нэр: DalaTech.\n- Компани, бүтээгдэхүүн, ажилтанд өөр нэр зохиож хэрэглэхгүй.', NFC)
 from tenants t where k.tenant_id = t.id and t.slug = 'dalatech' and k.title = 'Нэр';
 
 commit;

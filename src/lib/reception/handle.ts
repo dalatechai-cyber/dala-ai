@@ -32,7 +32,7 @@ import {
   composeQuoted, correctionFor, matchDeterministic, withAppended, type DeterministicRule, type HistoryState,
 } from '../gate/deterministic.ts';
 import { isTenantConfirmed } from '../provenance.ts';
-import { REPLY_REMINDERS, appendedNotice } from './volatile.ts';
+import { REPLY_REMINDERS, appendedNotice, volatileFor } from './volatile.ts';
 import { tenantRegion, ungroundedSentences } from '../guard/grounding.ts';
 import { refusalMarkerFrom, unwarrantedApology } from '../guard/apology.ts';
 import { fold } from '../mn/text.ts';
@@ -927,9 +927,11 @@ export async function handleReception(
 
   // The lines an `append` row will add, so the model does not contradict them — per
   // request, in L4, never in the cached prefix: they depend on this customer's message.
+  // A complaint gets the apology reminder in place of answer-first (D-134).
+  const perMessage = volatileFor(input.promptVolatile, isComplaint(input.customerMessage, input.complaintRules, respelled));
   const volatile = appends.length === 0
-    ? input.promptVolatile
-    : `${input.promptVolatile}\n${appendedNotice(appends.map((a) => a.body))}`;
+    ? perMessage
+    : `${perMessage}\n${appendedNotice(appends.map((a) => a.body))}`;
 
   const result = await deps.callModel({
     modelId: input.modelId,
