@@ -1,7 +1,14 @@
-# Telegram cleanup — what changed, the new 09:00 report, and where the new tokens go
+# Telegram cleanup — what changed, the new daily report, and where the new tokens go
 
 2026-09-26. Follows `2026-09-25-telegram-inventory.md`, whose proposal the founder approved
-(immediate / one 09:00 daily report / stop).
+(immediate / one daily report / stop).
+
+**Status (2026-09-26, founder): switched over and verified.** The report runs at **00:05
+Ulaanbaatar, QStash `5 16 * * *`**, the only digest schedule. `DAILY_REPORT_SECRET` is set in
+both projects, `DAILY_REPORT_V2=true` in dala-ai, `DAILY_REPORT_MERGED=true` and `CRON_SECRET`
+in dalatech-app, all three projects are redeployed, dalatech-app's webhook is re-registered
+with the new token, and both bot tokens are rotated. A triggered run delivered one merged report
+in order: DalaTech лидүүд → Dala AI → Flaws.
 
 ## 1. Done
 
@@ -12,24 +19,24 @@
 | Test demo requests send nothing | dalatech-online #46 | Same rule on the website's «Хүсэлт илгээх» form; the answer says `skipped_test`. |
 | The 30-day credential warning | dala-ai (this PR) | It used to be written and shown nowhere. Now it is an open item that the daily report lists every morning until the credential is re-sealed. |
 | Criticals that could fire once ever | dala-ai (this PR) | Retired model, KEK unavailable, credential will not decrypt, token revoked, permission refused, credential expiring. Each is now an episode: it pages once, closes when the thing works again (a successful reply or send, or a re-seal), and pages again if it recurs. Closing is silent. |
-| One 09:00 report | dala-ai (this PR) + dalatech-app #8 | Built and switched **off**. Nothing changes until the switch in §3. |
+| One daily report, 00:05 Ulaanbaatar | dala-ai #192, #194 + dalatech-app #8, #9 | Built, and switched on by the founder on 2026-09-26 (§3). |
 
 Nothing will page at deploy. The only old rows under these keys are two `token_revoked` and two
 `undecryptable` events (DalaTech's and Matrix's Page, the latest 2026-09-25 18:53 UTC), and an
 episode opens only on a new failure. Both page tokens' data access runs to 2026-12-20 and
 2026-12-24, so the 30-day warning first appears around 2026-11-20.
 
-## 2. Sample of the new 09:00 report
+## 2. Sample of the new daily report (00:05 Ulaanbaatar)
 
 Rendered by the production code (`node scripts/alerts/sample-daily-report.ts`). The data is
 invented, and the DalaTech section is exactly what dalatech-app's own sample prints. This is
-the only Telegram message of the morning. It is split into (1/2), (2/2) only past ~3,900
+the only scheduled Telegram message of the day. It is split into (1/2), (2/2) only past ~3,900
 characters. Anything a person must act on at once (a real lead, a failed demo, a halted
 channel, a critical) still arrives immediately, as before.
 
 ```
 DalaTech — лидүүд
-📊 Нийт: 7 · Шинэ хүсэлт (өнөөдөр): 1 · Демо бэлдэж байна: 1 · Демо илгээгдсэн: 3 · Загвар сонгосон: 1
+📊 Нийт: 7 · Шинэ хүсэлт (өчигдөр): 2 · Демо бэлдэж байна: 1 · Демо илгээгдсэн: 3 · Загвар сонгосон: 1
 ⚡ ЯАРАЛТАЙ:
 - #029 Хан Моторс — демо зогссон (generate:2) → RELEASE #029
 - #030 Алтай Тур ХХК — хүлээлгэсэн → RELEASE #030
@@ -77,7 +84,7 @@ Mark one wrong: select mark_reply_wrong('<ref>', '<the right reply>');
 If the DalaTech section cannot be fetched, its place reads `DalaTech app section UNREADABLE —
 <reason>`. It is never silently missing.
 
-## 3. Switching over (founder, after approving the sample)
+## 3. Switching over — done by the founder on 2026-09-26
 
 1. Generate one long random value for `DAILY_REPORT_SECRET`. Set the same value in Vercel
    **dalatech-app** and **dala-ai** (Production).
@@ -90,11 +97,13 @@ If the DalaTech section cannot be fetched, its place reads `DalaTech app section
    `0 1 * * *` (09:00) schedule, or the report arrives twice.
 5. Redeploy both projects.
 
+The only QStash schedule for the report is `5 16 * * *`; `0 1 * * *` must not exist.
+
 To undo: delete `DAILY_REPORT_V2` in dala-ai and `DAILY_REPORT_MERGED` in dalatech-app.
 
-Also set `CRON_SECRET` in dalatech-app. While it is unset, its three cron endpoints are open to
-anyone who knows the URL. They were left open rather than closed so the 09:00 report cannot
-die silently.
+Also set `CRON_SECRET` in dalatech-app (done 2026-09-26). While it was unset, its three cron
+endpoints were open to anyone who knew the URL. They were left open rather than closed so the
+report could not die silently.
 
 ## 4. Keeping DalaTech and Core Language apart
 
