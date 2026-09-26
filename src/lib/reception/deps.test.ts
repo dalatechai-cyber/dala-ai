@@ -107,10 +107,12 @@ test('DONE-TEST: A SUCCESSFUL CALL RESOLVES THE MODEL EPISODE IN ONE CONDITIONAL
   assert.equal(statements.length, 1, 'exactly one statement on alerts per clean reply');
   assert.deepEqual(statements[0], [
     `update(${JSON.stringify([{ resolved_at: '2026-09-07T04:00:00.000Z' }])})`,
-    `in(${JSON.stringify(['dedup_key', ['model_not_found:claude-sonnet-5']])})`,
+    // The account episodes (2026-09-26) close in the SAME statement: a clean call proves the
+    // key works and the account can pay, so this is still one UPDATE per clean reply.
+    `in(${JSON.stringify(['dedup_key', ['model_not_found:claude-sonnet-5', 'model_account:auth', 'model_account:billing']])})`,
     `is(${JSON.stringify(['resolved_at', null])})`,
     `eq(${JSON.stringify(['repeat_policy', 'on_change'])})`,
-    `select(${JSON.stringify(['id'])})`,
+    `select(${JSON.stringify(['id, dedup_key'])})`,
   ]);
 });
 
@@ -126,4 +128,26 @@ test('a terminal outcome resolves nothing; a 404 raises the episode instead', as
   assert.match(insert ?? '', /"dedup_key":"model_not_found:claude-sonnet-5"/);
   assert.match(insert ?? '', /"repeat_policy":"on_change"/);
   assert.ok(!gone.statements.flat().some((o) => o.startsWith('update([{"resolved_at"')), 'a 404 never closes its own episode');
+});
+
+test('DONE-TEST: credit or key failure raises the platform-wide ACCOUNT episode, critical and immediate', async () => {
+  // 2026-09-25: credit ran out and the 400 was only a per-reply flag. Now it pages.
+  process.env['ALERTS_ENABLED'] = 'false';
+  for (const fault of ['billing', 'auth'] as const) {
+    const s = alertsStub();
+    await depsFor('1h', s.db).observe({
+      requestedModel: 'claude-sonnet-5', servedModel: '', terminalReason: fault, terminalDetail: 'credit balance is too low',
+    });
+    const insert = s.statements.flat().find((o) => o.startsWith('insert('));
+    assert.match(insert ?? '', new RegExp(`"dedup_key":"model_account:${fault}"`));
+    assert.match(insert ?? '', /"severity":"critical"/);
+    assert.match(insert ?? '', /"route":"now"/);
+    assert.match(insert ?? '', /"repeat_policy":"on_change"/);
+    assert.match(insert ?? '', /"tenant_id":null/);
+    assert.ok(!s.statements.flat().some((o) => o.startsWith('update([{"resolved_at"')), 'a failure never closes its own episode');
+  }
+  // An ordinary bad request is NOT the account: still only the per-reply flag.
+  const bad = alertsStub();
+  await depsFor('1h', bad.db).observe({ requestedModel: 'claude-sonnet-5', servedModel: '', terminalReason: 'invalid_request' });
+  assert.ok(!bad.statements.flat().some((o) => o.startsWith('insert(')));
 });

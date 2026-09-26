@@ -11,7 +11,8 @@ import { callReception } from '../model/reception.ts';
 import { draftOnce, replyDedupKey } from '../outbound/claim.ts';
 import { markCalled, release, type Reservation } from '../spend/reserve.ts';
 import {
-  alertCacheCold, alertModelRetired, alertModelSwapped, checkCacheHealth, checkServedModel, resolveModelRetired,
+  alertCacheCold, alertModelAccount, alertModelRetired, alertModelSwapped, checkCacheHealth, checkServedModel,
+  resolveModelHealth,
 } from '../model/health.ts';
 import { dayKey } from '../spend/periods.ts';
 import { settle, type Usage } from '../spend/settle.ts';
@@ -83,7 +84,7 @@ export function buildDeps(input: DepsInput): ReceptionDeps {
      * §6.10.5's two bills-not-errors. Every branch is best-effort: an observability
      * failure must never refuse a reply the customer is owed.
      */
-    observe: async ({ requestedModel, servedModel, terminalReason }) => {
+    observe: async ({ requestedModel, servedModel, terminalReason, terminalDetail }) => {
       // The tenant's calendar, off the reservation this reply already holds. Reading it
       // there rather than from a second source is what stops an alert about a day's spend
       // from naming a different day than the counter it is about.
@@ -93,6 +94,11 @@ export function buildDeps(input: DepsInput): ReceptionDeps {
         await alertModelRetired(db, { modelId: requestedModel, detail: 'the API returned 404 for this model id' });
         return;   // A retired model makes every other signal meaningless.
       }
+      if (terminalReason === 'auth' || terminalReason === 'billing') {
+        // The account, not this request: every tenant is on the handoff line (2026-09-25).
+        await alertModelAccount(db, { fault: terminalReason, modelId: requestedModel, detail: terminalDetail ?? '' });
+        return;
+      }
 
       // A call on this id answered, so a retired-model episode for it is over and the next
       // 404 must page again (D-128). Only on a clean answer — the narrowest reading of "a call
@@ -101,7 +107,7 @@ export function buildDeps(input: DepsInput): ReceptionDeps {
       // and awaited beside the cache read below, so it adds a statement per reply but no
       // serial round trip — this runs before the reply is drafted.
       const clearing = terminalReason === undefined
-        ? resolveModelRetired(db, { modelId: requestedModel, now }).then((cleared) => {
+        ? resolveModelHealth(db, { modelId: requestedModel, now }).then((cleared) => {
           if (!cleared.ok) {
             console.warn('[reception] model_episode_unresolvable', { modelId: requestedModel, detail: cleared.detail });
           } else if (cleared.resolved > 0) {

@@ -87,7 +87,14 @@ export type TerminalReason =
   | 'empty'
   /** The model id is gone. Pages the founder — never fall back to a different model. */
   | 'model_not_found'
+  /** 401/403: the key is invalid, revoked or not permitted. Pages the founder at once. */
   | 'auth'
+  /**
+   * The account cannot pay: HTTP 402 / `billing_error`, or the 400 Anthropic actually sent
+   * on 2026-09-25 when credit ran out. Every reply on the platform is the handoff line until
+   * a human tops up, so it pages the founder at once, like `auth`.
+   */
+  | 'billing'
   | 'invalid_request'
   /** We refused to call at all — the event is older than the messaging window allows. */
   | 'stale_event';
@@ -164,6 +171,24 @@ export function classifyResponse(response: unknown): CallOutcome {
 }
 
 /**
+ * Is this the account being unable to pay?
+ *
+ * The one place this file reads message text, and why: when credit ran out on 2026-09-25
+ * Anthropic answered **HTTP 400, `invalid_request_error`**, «Your credit balance is too low
+ * to access the Anthropic API» — the same status and type as a malformed request, so status
+ * alone cannot tell "we sent something wrong" from "nobody is paying". The documented
+ * `402 billing_error` is checked first, by status and by body type; the message is the
+ * fallback for the shape actually observed. If the wording changes, the error falls back to
+ * `invalid_request` and is still flagged per reply — quieter, never refused.
+ */
+export function isBillingError(err: InstanceType<typeof Anthropic.APIError>): boolean {
+  if (err.status === 402) return true;
+  const body = err.error as { error?: { type?: unknown } } | undefined;
+  if (body?.error?.type === 'billing_error') return true;
+  return err.status === 400 && /credit balance|purchase credits|plans\s*&\s*billing/i.test(err.message);
+}
+
+/**
  * Classify a thrown error. Retryable and terminal are decided by status, not by message
  * text — string-matching an error message is how a retry loop survives a rename.
  */
@@ -180,6 +205,9 @@ export function classifyError(err: unknown): CallOutcome {
   }
   if (err instanceof Anthropic.RateLimitError) {
     return { kind: 'retryable', reason: 'rate_limited', detail: err.message };
+  }
+  if (err instanceof Anthropic.APIError && isBillingError(err)) {
+    return { kind: 'terminal', reason: 'billing', detail: err.message };
   }
   if (err instanceof Anthropic.BadRequestError || err instanceof Anthropic.UnprocessableEntityError) {
     return { kind: 'terminal', reason: 'invalid_request', detail: err.message };

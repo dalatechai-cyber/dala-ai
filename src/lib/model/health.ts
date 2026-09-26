@@ -22,7 +22,7 @@
  * could drift — and it needs no new table.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { quietRoute, raiseAlert, resolveEpisodes, type AlertOutcome } from '../alerts/alert.ts';
+import { quietRoute, raiseAlert, resolveEpisodes, sendTelegram, type AlertOutcome } from '../alerts/alert.ts';
 
 /**
  * How many recent calls must ALL be cache-cold before this is a problem.
@@ -179,16 +179,69 @@ export async function alertModelRetired(
   });
 }
 
+/** The two ways the ACCOUNT, not the request, stops every model call. */
+export type ModelAccountFault = 'auth' | 'billing';
+
+/** The account episode's key. Platform-wide: one API key serves every tenant. */
+export function modelAccountKey(fault: ModelAccountFault): string {
+  return `model_account:${fault}`;
+}
+
 /**
- * A call on `modelId` succeeded, so a retired-model episode for it is over.
+ * Raise the account alarm: Anthropic refused a call because the key is invalid or revoked
+ * (`auth`), or because nobody is paying (`billing`). **Critical, immediate, never demoted.**
  *
- * Runs on every successful reply, which is why it is `resolveEpisodes` — one conditional
- * UPDATE over the partial open-key index, zero rows on every ordinary day — and not a read
- * followed by a write, nor a module-scope flag remembering that nothing was open.
+ * On 2026-09-25 credit ran out and every reply on the platform became the handoff line for
+ * hours with nothing on Telegram: the 400 was classified `invalid_request` and only flagged
+ * per reply. Neither fault is about one conversation and neither clears by retrying, so it
+ * is an `on_change` EPISODE like `model_not_found`: it pages once, holds while calls keep
+ * failing, a clean call closes it (`resolveModelHealth`), and the next failure pages again.
  */
-export async function resolveModelRetired(
+export async function alertModelAccount(
+  db: SupabaseClient,
+  input: { fault: ModelAccountFault; modelId: string; detail: string },
+): Promise<AlertOutcome> {
+  const what = input.fault === 'billing'
+    ? 'Anthropic refused a model call for CREDIT / BILLING. Top up or fix billing in the Anthropic console.'
+    : 'Anthropic REJECTED THE API KEY (invalid, revoked or not permitted). Check ANTHROPIC_API_KEY in Vercel production.';
+  return raiseAlert(db, {
+    tenantId: null,
+    severity: 'critical',
+    kind: `model.${input.fault}`,
+    dedupKey: modelAccountKey(input.fault),
+    route: 'now',
+    repeat: 'on_change',
+    body:
+      `${what} EVERY tenant's model replies are the handoff line until it is fixed. ` +
+      `You will get one more message when a call succeeds again. ` +
+      `Model ${input.modelId}. Detail: ${input.detail.slice(0, 300)}`,
+  });
+}
+
+/**
+ * A call on `modelId` succeeded: close the retired-model episode for it and any account
+ * episode, in ONE conditional UPDATE — zero rows on every ordinary day.
+ *
+ * Runs on every successful reply, which is why it is `resolveEpisodes` and not a read
+ * followed by a write, nor a module-scope flag remembering that nothing was open. When an
+ * account episode closes, the founder is told once (the UPDATE hands each closed key to
+ * exactly one caller): the page said a second message would come, and a recovery nobody
+ * hears about looks the same as an alarm that stopped working.
+ */
+export async function resolveModelHealth(
   db: SupabaseClient,
   input: { modelId: string; now: Date },
+  notify: (text: string) => Promise<unknown> = sendTelegram,
 ): Promise<{ ok: true; resolved: number } | { ok: false; detail: string }> {
-  return resolveEpisodes(db, { dedupKeys: [modelNotFoundKey(input.modelId)], now: input.now });
+  const r = await resolveEpisodes(db, {
+    dedupKeys: [modelNotFoundKey(input.modelId), modelAccountKey('auth'), modelAccountKey('billing')],
+    now: input.now,
+  });
+  if (!r.ok) return r;
+  const closed = r.keys.filter((k) => k !== modelNotFoundKey(input.modelId));
+  if (closed.length > 0) {
+    await notify(`✅ Model calls are answering again (${input.modelId}); closed: ${closed.join(', ')}.`)
+      .catch(() => undefined);
+  }
+  return { ok: true, resolved: r.resolved };
 }

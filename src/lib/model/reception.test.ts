@@ -164,6 +164,22 @@ test('auth and bad-request failures are terminal; retrying cannot change them', 
   assert.equal(classifyError(apiError(Anthropic.BadRequestError as never, 400)).kind, 'terminal');
 });
 
+test('credit exhaustion is BILLING, not a bad request — the 400 Anthropic actually sent on 2026-09-25', () => {
+  // Same status and type as a malformed request, which is why it was only a per-reply flag
+  // while every reply on the platform became the handoff line.
+  const body = { type: 'error', error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.' } };
+  const credit = classifyError(new Anthropic.BadRequestError(400, body, undefined, new Headers()));
+  assert.equal(credit.kind === 'terminal' && credit.reason, 'billing');
+  // The documented shape too: 402, or a body typed billing_error.
+  const paid = classifyError(new Anthropic.APIError(402, { type: 'error', error: { type: 'billing_error', message: 'x' } }, undefined, new Headers()));
+  assert.equal(paid.kind === 'terminal' && paid.reason, 'billing');
+  // An ordinary bad request stays one, and an auth failure stays auth.
+  const bad = classifyError(new Anthropic.BadRequestError(400, { type: 'error', error: { type: 'invalid_request_error', message: 'messages: text content blocks must be non-empty' } }, undefined, new Headers()));
+  assert.equal(bad.kind === 'terminal' && bad.reason, 'invalid_request');
+  const key = classifyError(apiError(Anthropic.AuthenticationError as never, 401));
+  assert.equal(key.kind === 'terminal' && key.reason, 'auth');
+});
+
 test('429 and 5xx are retryable — the only cases QStash\'s retries are for', () => {
   const limited = classifyError(apiError(Anthropic.RateLimitError as never, 429));
   assert.equal(limited.kind === 'retryable' && limited.reason, 'rate_limited');

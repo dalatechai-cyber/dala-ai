@@ -186,7 +186,7 @@ function episodeDb() {
             if ('delivered' in patch) r.delivered = patch['delivered'] === true;
           }
           // `update(…).select('id')` answers with the rows it changed, as PostgREST does.
-          return res({ data: hit.map((r) => ({ id: r.id })), error: null });
+          return res({ data: hit.map((r) => ({ id: r.id, dedup_key: r.dedup_key })), error: null });
         }
         return res({ data: rows.filter(matches), error: null });
       };
@@ -339,7 +339,7 @@ test('DONE-TEST: AN ON_CHANGE CRITICAL ROUTED NOW PAGES AT OPEN, HOLDS, AND PAGE
     assert.equal(sent.length, 1, 'while it holds, it is silent');
 
     const closed = await resolveEpisodes(db, { dedupKeys: [input.dedupKey], now: new Date('2026-09-25T00:00:00Z') });
-    assert.deepEqual(closed, { ok: true, resolved: 1 });
+    assert.deepEqual(closed, { ok: true, resolved: 1, keys: ['model_not_found:claude-sonnet-5'] });
 
     assert.equal((await raiseAlert(db, input)).outcome, 'sent');
     assert.equal(sent.length, 2, 'a recurrence after recovery is a new page');
@@ -357,13 +357,13 @@ test('resolveEpisodes closes only OPEN ON_CHANGE rows under exactly the given ke
   legacyRow(rows, { dedup_key: 'model_not_found:a' });
 
   const r = await resolveEpisodes(db, { dedupKeys: ['model_not_found:a'], now: new Date('2026-09-25T00:00:00Z') });
-  assert.deepEqual(r, { ok: true, resolved: 1 });
+  assert.deepEqual(r, { ok: true, resolved: 1, keys: ['model_not_found:a'] });
   assert.equal(rows.find((x) => x.dedup_key === 'model_not_found:a' && x.repeat_policy === 'on_change')?.resolved_at,
     '2026-09-25T00:00:00.000Z');
   assert.equal(rows.find((x) => x.dedup_key === 'model_not_found:ab')?.resolved_at, null, 'exact key, never a prefix');
   assert.equal(rows.find((x) => x.repeat_policy === 'daily')?.resolved_at, null, 'an event is never "resolved"');
 
-  assert.deepEqual(await resolveEpisodes(db, { dedupKeys: [], now: new Date() }), { ok: true, resolved: 0 });
+  assert.deepEqual(await resolveEpisodes(db, { dedupKeys: [], now: new Date() }), { ok: true, resolved: 0, keys: [] });
 });
 
 test('resolveOpenAlerts keeps EVERY key in exceptKeys', async () => {
@@ -394,4 +394,78 @@ test('DONE-TEST: quietRoute is now unless DAILY_REPORT_V2 is exactly "true"', ()
   } finally {
     if (saved === undefined) delete process.env['DAILY_REPORT_V2']; else process.env['DAILY_REPORT_V2'] = saved;
   }
+});
+
+// --------------------------------------------------------------------------
+// The account alarm, end to end with Telegram stubbed: no key, no credit spent.
+// --------------------------------------------------------------------------
+
+test('DONE-TEST: credit running out pages ONCE per episode, says when it recovers, and pages again if it returns', async () => {
+  // 2026-09-25: credit ran out and every reply became the handoff line with nothing on
+  // Telegram. This drives the real classifier on the 400 Anthropic actually sent, through the
+  // real raise and resolve, and counts what would have reached the founder's phone.
+  const { classifyError } = await import('../model/reception.ts');
+  const { alertModelAccount, resolveModelHealth } = await import('../model/health.ts');
+  const Anthropic = (await import('@anthropic-ai/sdk')).default;
+
+  const saved = { ...process.env };
+  const realFetch = globalThis.fetch;
+  const sent: string[] = [];
+  process.env['TELEGRAM_BOT_TOKEN'] = 'stub';
+  process.env['TELEGRAM_ALERT_CHAT_ID'] = 'stub';
+  delete process.env['ALERTS_ENABLED'];
+  delete process.env['DAILY_REPORT_V2'];
+  globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+    sent.push(String((JSON.parse(String(init?.body)) as { text: string }).text));
+    return new Response(JSON.stringify({ ok: true, result: { message_id: sent.length } }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    const { db, rows } = episodeDb();
+    const credit = classifyError(new Anthropic.BadRequestError(400, { type: 'error', error: {
+      type: 'invalid_request_error',
+      message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.',
+    } }, undefined, new Headers()));
+    assert.equal(credit.kind === 'terminal' && credit.reason, 'billing');
+    const fail = () => alertModelAccount(db, { fault: 'billing', modelId: 'claude-sonnet-5', detail: credit.kind === 'terminal' ? credit.detail : '' });
+
+    // Five replies fail in a row: one page, immediately, critical, naming credit.
+    const outcomes = [];
+    for (let i = 0; i < 5; i += 1) outcomes.push((await fail()).outcome);
+    assert.deepEqual(outcomes, ['sent', 'suppressed_duplicate', 'suppressed_duplicate', 'suppressed_duplicate', 'suppressed_duplicate']);
+    assert.equal(sent.length, 1);
+    assert.match(sent[0] ?? '', /CREDIT \/ BILLING/);
+    assert.equal(rows[0]?.severity, 'critical');
+    assert.equal(rows[0]?.route, 'now');
+    assert.equal(rows[0]?.tenant_id, null, 'one API key serves every tenant');
+
+    // A clean call: the episode closes and the founder hears so, once.
+    await resolveModelHealth(db, { modelId: 'claude-sonnet-5', now: new Date() });
+    await resolveModelHealth(db, { modelId: 'claude-sonnet-5', now: new Date() });
+    assert.equal(sent.length, 2);
+    assert.match(sent[1] ?? '', /answering again.*model_account:billing/);
+
+    // It comes back: a second episode, a second page.
+    assert.equal((await fail()).outcome, 'sent');
+    assert.equal(sent.length, 3);
+
+    // A revoked key is its own episode with its own words.
+    assert.equal((await alertModelAccount(db, { fault: 'auth', modelId: 'claude-sonnet-5', detail: '401' })).outcome, 'sent');
+    assert.match(sent[3] ?? '', /REJECTED THE API KEY/);
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_ALERT_CHAT_ID', 'ALERTS_ENABLED', 'DAILY_REPORT_V2']) {
+      if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
+    }
+  }
+});
+
+test('a clean call that closes only a retired-model episode sends no account recovery line', async () => {
+  const { resolveModelHealth, alertModelRetired } = await import('../model/health.ts');
+  process.env['ALERTS_ENABLED'] = 'false';
+  const { db } = episodeDb();
+  await alertModelRetired(db, { modelId: 'm', detail: '404' });
+  const notes: string[] = [];
+  const r = await resolveModelHealth(db, { modelId: 'm', now: new Date() }, async (t) => { notes.push(t); });
+  assert.equal(r.ok && r.resolved, 1);
+  assert.deepEqual(notes, []);
 });
