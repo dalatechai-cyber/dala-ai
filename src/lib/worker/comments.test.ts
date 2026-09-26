@@ -93,7 +93,7 @@ function stubDb(over: Record<string, Reply | Reply[]> = {}, outbound: OutboundSt
       if ((rec.cols ?? '').includes('comment_post_id')) return outbound.posts ?? { data: [], error: null };
       if ((rec.cols ?? '').includes('attempts')) return outbound.reread ?? { data: null, error: null };
       if (rec.cols === 'state') return outbound.state ?? { data: null, error: null };
-      if (rec.cols === 'id, state') return outbound.pending ?? { data: null, error: null };
+      if (rec.cols === 'id, state' || rec.cols === 'id, state, body') return outbound.pending ?? { data: null, error: null };
       return outbound.existing ?? { data: [], error: null };
     }
     // A LIST answers successive reads in order, the last one sticking — how a test says
@@ -1034,4 +1034,127 @@ test('DONE-TEST: a RESUMED draft is re-checked — a staff tag since the draft s
   assert.equal(r.refused['person_already_answered'], 1);
   assert.equal(posted.length + privates.length, 0, 'the stale draft is not posted under the staff answer');
   assert.equal(r.refused['staff_tagged_commenter'], 1);
+});
+
+// ---------------------------------------------------------------------------
+// D-144: the «comment 1» call to action — a rule with its own pair of lines
+// ---------------------------------------------------------------------------
+
+const CTA_PUBLIC = 'Сайн байна уу! Дэлгэрэнгүй мэдээллийг чатаар илгээлээ 😊';
+const CTA_PRIVATE = 'Сайн байна уу! Би DalaTech-ийн AI туслах Дали байна. Энэ чатаар надаас хүссэн зүйлээ асуугаарай — үнэ, үйлчилгээ, үнэгүй демо, бүгдийг тайлбарлая.';
+const GENERAL_PUBLIC = 'Сайн байна уу! Мессеж бичээрэй, манай AI туслах шууд хариулна.';
+const GENERAL_PRIVATE = 'Сайн байна уу! Би DalaTech-ийн AI туслах Дали байна. Хүссэн зүйлээ асуугаарай.';
+const REVIEWED = '2026-09-26T00:00:00Z';
+/** Fresh per test: the stub consumes a list as it answers. */
+const ctaTables = (): Record<string, Reply | Reply[]> => ({
+  comment_rules: {
+    data: [...RULE_ROWS, {
+      rule_key: 'cta_one', verdict: 'reply', matcher: { mode: 'whole_message', phrases: ['1', '1️⃣'] },
+      public_kind: 'comment_cta_public_reply', private_kind: 'comment_cta_private_reply',
+    }],
+    error: null,
+  },
+  // Read in this order: the general public and private lines, then the rule's pair.
+  canned_responses: [
+    { data: { body: GENERAL_PUBLIC, reviewed_at: REVIEWED }, error: null },
+    { data: { body: GENERAL_PRIVATE, reviewed_at: REVIEWED }, error: null },
+    { data: { body: CTA_PUBLIC, reviewed_at: REVIEWED }, error: null },
+    { data: { body: CTA_PRIVATE, reviewed_at: REVIEWED }, error: null },
+  ],
+});
+const ONE = entry([comment({ message: '1 👍' })]);
+const drafts = (ops: { table: string; op: string; patch?: Record<string, unknown> }[]) =>
+  ops.filter((o) => o.table === 'outbound_messages' && o.op === 'insert').map((o) => [o.patch?.['kind'], o.patch?.['body']]);
+
+/** Which send happened first: the harness records each effect into one shared sequence. */
+function ordered(over: Parameters<typeof stubFx>[0], input: Partial<CommentJobInput>) {
+  const s = stubFx(over);
+  const seq: string[] = [];
+  const pub = s.fx.replyToComment;
+  const priv = s.fx.sendPrivateReply;
+  s.fx.replyToComment = async (a) => { seq.push('public'); return pub(a); };
+  s.fx.sendPrivateReply = async (a) => { seq.push('private'); return priv(a); };
+  return { ...s, seq, result: runCommentJob(s.fx, { ...baseInput, ...input }) };
+}
+
+test('DONE-TEST: «1» GETS THE CALL-TO-ACTION PAIR — THE CHAT FIRST, THEN THE PUBLIC LINE THAT SAYS SO', async () => {
+  const { ops, seq, result } = ordered({ tables: ctaTables() }, { config: BOTH, rawPayload: ONE });
+  const r = await result;
+  assert.deepEqual(drafts(ops), [['comment_reply', CTA_PUBLIC], ['private_reply', CTA_PRIVATE]]);
+  assert.deepEqual(seq, ['private', 'public'], 'the public line claims the chat was sent, so the chat goes first');
+  assert.equal(r.privateSent, 1);
+  assert.equal(r.replied, 1);
+});
+
+test('DONE-TEST: IF META REFUSES THE CHAT, THE PUBLIC LINE DOES NOT CLAIM IT WAS SENT', async () => {
+  const { ops, seq, result } = ordered({
+    tables: ctaTables(),
+    privateSend: { outcome: 'failed', failure: 'unknown', retryable: false, detail: 'graph 400 code=10900' },
+    outbound: { state: { data: { state: 'failed' }, error: null } },
+  }, { config: BOTH, rawPayload: ONE });
+  const r = await result;
+  const rewrite = ops.find((o) => o.table === 'outbound_messages' && o.op === 'update' && o.patch?.['body'] !== undefined);
+  assert.equal(rewrite?.patch?.['body'], GENERAL_PUBLIC, 'rewritten to the line that invites a message');
+  assert.deepEqual(seq, ['private', 'public']);
+  assert.equal(r.refused['private_not_delivered'], 1);
+});
+
+test('the same person commenting «1» again on the same post gets nothing new', async () => {
+  const { posted, privates, result } = run({
+    tables: ctaTables(),
+    outbound: { persons: { data: [{ comment_post_id: `${PAGE}_p1`, comment_from_id: 'customer_1' }], error: null } },
+  }, { config: BOTH, rawPayload: ONE });
+  const r = await result;
+  assert.equal(posted.length + privates.length, 0);
+  assert.equal(r.refused['person_already_answered'], 1);
+});
+
+test('a post at its daily public cap still sends the chat to a «1», and posts nothing public', async () => {
+  const { ops, posted, privates, result } = run({
+    tables: ctaTables(),
+    outbound: { posts: { data: [{ comment_post_id: `${PAGE}_p1` }], error: null } },
+  }, { config: { ...BOTH, repliesPerPostPerDay: 1 }, rawPayload: ONE });
+  await result;
+  assert.deepEqual(drafts(ops), [['private_reply', CTA_PRIVATE]]);
+  assert.equal(privates.length, 1);
+  assert.equal(posted.length, 0);
+});
+
+test('a question gets today\'s handling — the general lines, public first — even on the same post', async () => {
+  const { ops, seq, result } = ordered({ tables: ctaTables() }, {
+    config: BOTH, rawPayload: entry([comment({ message: 'Үнэ хэд вэ?' })]),
+  });
+  await result;
+  assert.deepEqual(drafts(ops), [['comment_reply', GENERAL_PUBLIC], ['private_reply', GENERAL_PRIVATE]]);
+  assert.deepEqual(seq, ['public', 'private']);
+});
+
+test('a channel that sends no private message never posts the line claiming one was sent', async () => {
+  const { ops, result } = run({ tables: ctaTables() }, { config: baseInput.config, rawPayload: ONE });
+  await result;
+  assert.deepEqual(drafts(ops), [['comment_reply', GENERAL_PUBLIC]]);
+});
+
+test('our own «1» (the Page commenting) never triggers it', async () => {
+  const { posted, privates, result } = run({ tables: ctaTables() }, {
+    config: BOTH, rawPayload: entry([comment({ message: '1', from: { id: PAGE, name: 'DalaTech' } })]),
+  });
+  const r = await result;
+  assert.equal(posted.length + privates.length, 0);
+  assert.deepEqual(r.skipped, ['comment_self']);
+});
+
+test('a retried «1» still sends the chat before the public line that claims it', async () => {
+  // The chat failed retryably and the job 503'd; on the redelivery both rows are pending.
+  const { seq, result } = ordered({
+    tables: ctaTables(),
+    outbound: {
+      existing: { data: [{ provider_message_id: null, dedup_key: `${PAGE}_c1` }], error: null },
+      pending: { data: { id: 'om-9', state: 'failed', body: CTA_PUBLIC }, error: null },
+      state: { data: { state: 'sent' }, error: null },
+    },
+  }, { config: BOTH, rawPayload: ONE });
+  const r = await result;
+  assert.equal(r.refused['thread_already_answered'], 1);
+  assert.deepEqual(seq, ['private', 'public']);
 });

@@ -70,7 +70,12 @@ export type CommentRule = {
   verdict: RuleVerdict;
   /** The raw `matcher` jsonb, the SAME shape `out_of_scope_topics` carries. */
   matcher: unknown;
+  /** The rule's own pair of lines (D-144). Null or absent: the tenant's general comment lines. */
+  lines?: RuleLines | null;
 };
+
+/** A rule's own pair of lines (D-144): canned kinds, answered with instead of the general pair. */
+export type RuleLines = { publicKind: string; privateKind: string };
 
 export type ClassifyResult =
   | {
@@ -81,6 +86,13 @@ export type ClassifyResult =
        * decided by precedence over these, never by the first one.
        */
       firedRules: string[];
+      /**
+       * The lines to answer a `reply` with, when EVERY `reply` rule that fired names the same
+       * pair (D-144). Null otherwise — including when a rule with its own lines fired beside
+       * one without: two rules disagreeing about the words is not settled by picking one, so
+       * the comment gets the tenant's general lines, which is what it got before D-144.
+       */
+      lines: RuleLines | null;
     }
   /**
    * The caller must refuse the whole job. Both codes fail CLOSED — nothing is posted.
@@ -109,15 +121,21 @@ export function classifyComment(subject: MatchSubject, rules: readonly CommentRu
     return { ok: false, code: 'no_rules', detail: 'this tenant has no comment rules; refusing rather than treating every comment as noise' };
   }
 
-  const fired: { ruleKey: string; verdict: RuleVerdict }[] = [];
+  const fired: { ruleKey: string; verdict: RuleVerdict; lines: RuleLines | null }[] = [];
   for (const rule of rules) {
     const parsed = parseMatcher(rule.matcher);
     if (!parsed.ok) {
       return { ok: false, code: 'malformed_rule', detail: `comment rule ${rule.ruleKey}: ${parsed.detail}` };
     }
-    if (matcherFires(subject, parsed.spec)) fired.push({ ruleKey: rule.ruleKey, verdict: rule.verdict });
+    if (matcherFires(subject, parsed.spec)) {
+      fired.push({ ruleKey: rule.ruleKey, verdict: rule.verdict, lines: rule.lines ?? null });
+    }
   }
 
   const verdict = PRECEDENCE.find((v) => fired.some((f) => f.verdict === v)) ?? 'unclassified';
-  return { ok: true, verdict, firedRules: fired.map((f) => f.ruleKey) };
+  const replying = verdict === 'reply' ? fired.filter((f) => f.verdict === 'reply') : [];
+  const first = replying[0]?.lines ?? null;
+  const agreed = first !== null && replying.every((f) => f.lines !== null
+    && f.lines.publicKind === first.publicKind && f.lines.privateKind === first.privateKind);
+  return { ok: true, verdict, firedRules: fired.map((f) => f.ruleKey), lines: agreed ? first : null };
 }

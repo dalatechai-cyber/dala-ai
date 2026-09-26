@@ -244,7 +244,7 @@ export type CommentJobResult = {
   /** Comments seen and deliberately not answered, by reason. */
   refused: Partial<Record<
     CommentRefusal | 'not_generating' | 'not_delivering' | 'send_failed' | 'indeterminate'
-      | 'private_send_failed' | 'private_indeterminate',
+      | 'private_send_failed' | 'private_indeterminate' | 'private_not_delivered',
     number
   >>;
   /** Extractor skips — the `feed` firehose, counted so its volume is visible. */
@@ -290,7 +290,7 @@ async function readCommentRules(
 ): Promise<{ ok: true; rules: CommentRule[] } | { ok: false; detail: string }> {
   const { data, error } = await db
     .from('comment_rules')
-    .select('rule_key, verdict, matcher')
+    .select('rule_key, verdict, matcher, public_kind, private_kind')
     .eq('tenant_id', input.tenantId)
     .eq('enabled', true);
   if (error) return { ok: false, detail: `comment_rules unreadable: ${error.message}` };
@@ -306,6 +306,9 @@ async function readCommentRules(
         // nothing, which is why the constraint and not the cast is what is relied on.
         verdict: String(row['verdict']) as CommentRule['verdict'],
         matcher: row['matcher'],
+        // D-144. `comment_rule_lines_paired` makes these both-or-neither.
+        lines: typeof row['public_kind'] === 'string' && typeof row['private_kind'] === 'string'
+          ? { publicKind: row['public_kind'], privateKind: row['private_kind'] } : null,
       };
     }),
   };
@@ -388,10 +391,10 @@ async function parentsWeWrote(
 async function readPending(
   db: SupabaseClient,
   input: { tenantId: string; kind: 'comment_reply' | 'private_reply'; dedupKey: string },
-): Promise<{ ok: true; id: string | null } | { ok: false; detail: string }> {
+): Promise<{ ok: true; id: string | null; body?: string } | { ok: false; detail: string }> {
   const { data, error } = await db
     .from('outbound_messages')
-    .select('id, state')
+    .select('id, state, body')
     .eq('tenant_id', input.tenantId)
     .eq('kind', input.kind)
     .eq('dedup_key', input.dedupKey)
@@ -400,7 +403,9 @@ async function readPending(
   const row = data as Record<string, unknown> | null;
   if (row === null) return { ok: true, id: null };
   const state = String(row['state'] ?? '');
-  return { ok: true, id: state === 'draft' || state === 'failed' ? String(row['id']) : null };
+  return state === 'draft' || state === 'failed'
+    ? { ok: true, id: String(row['id']), body: String(row['body'] ?? '') }
+    : { ok: true, id: null };
 }
 
 /** Which of these threads already carry their one public reply. */
@@ -676,6 +681,25 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     return result;
   }
 
+  // A rule's own pair of lines (D-144), read once per job for the kinds the live rules name.
+  const ruleLines = new Map<string, { body: string; reviewedAt: string | null } | null>();
+  for (const kind of new Set(rules.rules.flatMap((r) => (r.lines ? [r.lines.publicKind, r.lines.privateKind] : [])))) {
+    const read = await readPinnedLine(fx.db, { tenantId: input.tenantId, locale: input.locale, kind });
+    if (!read.ok) {
+      fx.log('error', 'comment_rule_line_unreadable', { tenantId: input.tenantId, kind, detail: read.detail });
+      result.retry = true;
+      return result;
+    }
+    ruleLines.set(kind, read.line);
+  }
+  // The rule lines that CLAIM the private message was sent: a pending public row carrying one
+  // is posted only after the private one went (see `sendClaimingPair`).
+  const claimingBodies = new Set(rules.rules.flatMap((r) => {
+    const l = r.lines ? ruleLines.get(r.lines.publicKind) : null;
+    return l ? [l.body] : [];
+  }));
+  const general = line.line;
+
   const parents = await parentsWeWrote(fx.db, {
     tenantId: input.tenantId,
     // Only replies have a parent that could be ours: a top-level comment is its own root.
@@ -758,11 +782,26 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       return result;
     }
     const staff = staffHandled({ comment, pageComments: staffActivity.pageComments, ours: staffActivity.ours });
+    // The rule's own lines (D-144), when the rules that fired agree on one pair, both rows are
+    // reviewed, and the policy sends both — a public line saying the details went by chat has
+    // no business on a channel that does not send them. Otherwise the general pair, exactly as
+    // before.
+    const own = classified.lines;
+    const ownPublic = own === null ? null : ruleLines.get(own.publicKind) ?? null;
+    const ownPrivate = own === null ? null : ruleLines.get(own.privateKind) ?? null;
+    const useOwn = own !== null && input.config.policy === 'both'
+      && reviewed(ownPublic) && reviewed(ownPrivate);
+    if (own !== null && !useOwn) {
+      fx.log('warn', 'comment_rule_lines_unusable', {
+        tenantId: input.tenantId, commentId: comment.commentId, rules: classified.firedRules, policy: input.config.policy,
+      });
+    }
     const decision = decideCommentReply({
       config: input.config,
       verdict: classified.verdict,
-      pinnedLine: line.line,
-      privateLine: privateLine.line,
+      pinnedLine: useOwn ? ownPublic : line.line,
+      privateLine: useOwn ? ownPrivate : privateLine.line,
+      privateWhenCapped: useOwn,
       comment: {
         commentId: comment.commentId,
         threadId: comment.threadId,
@@ -821,7 +860,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       // claim's CAS keeps a second worker from sending the same row twice.
       if (delivery.deliver
           && (decision.refusal === 'thread_already_answered' || decision.refusal === 'person_already_answered')) {
-        const resumed = await resumePending(fx, input, comment, result);
+        const resumed = await resumePending(fx, input, comment, result, { bodies: claimingBodies, fallback: general });
         if (resumed === 'retry') return result;
       }
       if (decision.refusal === 'comment_escalated') {
@@ -919,6 +958,17 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     // sent, leased, failed and draft, and refusing before it would turn every retry of a
     // `failed` row into a redelivery that did nothing.
     const gate = staffGateFor(fx, input, comment, result);
+    if (useOwn) {
+      // The public line says the details were sent by chat, so the chat goes FIRST, and the
+      // public line is only posted as written if it arrived (D-144).
+      const outcome = await sendClaimingPair(fx, input, comment, {
+        publicId: publicDraft?.ok === true ? publicDraft.row.id : null,
+        privateId: privateDraft?.ok === true ? privateDraft.row.id : null,
+        fallback: general,
+      }, result, gate);
+      if (outcome === 'retry') return result;
+      continue;
+    }
     if (publicDraft !== null && publicDraft.ok) {
       const outcome = await sendPublic(fx, input, comment.commentId, publicDraft.row.id, result, gate);
       if (outcome === 'retry') return result;
@@ -962,6 +1012,7 @@ async function safeLookup(fx: CommentEffects, input: CommentJobInput, comment: I
  */
 async function resumePending(
   fx: CommentEffects, input: CommentJobInput, comment: InboundComment, result: CommentJobResult,
+  claims: { bodies: ReadonlySet<string>; fallback: { body: string; reviewedAt: string | null } | null },
 ): Promise<'done' | 'retry'> {
   const wantsPrivate = input.config.policy === 'both' || input.config.policy === 'private_only';
   const wantsPublic = input.config.policy === 'both' || input.config.policy === 'public_only';
@@ -991,9 +1042,71 @@ async function resumePending(
   // A resumed row was decided earlier, possibly before the staff answered, so this is where
   // the check before sending matters most.
   const gate = staffGateFor(fx, input, comment, result);
+  if (pub.id !== null && pub.body !== undefined && claims.bodies.has(pub.body)) {
+    // A call-to-action line still waiting (D-144): the chat first, as when it was decided.
+    return sendClaimingPair(fx, input, comment, {
+      publicId: pub.id, privateId: priv.id, fallback: claims.fallback,
+    }, result, gate);
+  }
   if (pub.id !== null && (await sendPublic(fx, input, comment.commentId, pub.id, result, gate)) === 'retry') return 'retry';
   if (priv.id !== null && (await sendPrivate(fx, input, comment.commentId, priv.id, result, gate)) === 'retry') return 'retry';
   return 'done';
+}
+
+/** A line that exists, is reviewed and says something. */
+function reviewed(l: { body: string; reviewedAt: string | null } | null): l is { body: string; reviewedAt: string } {
+  return l !== null && l.reviewedAt !== null && l.body.trim() !== '';
+}
+
+/**
+ * Send a call-to-action pair (D-144): the private message first, then the public line —
+ * as written only if the private message was DELIVERED. If it was not (Meta refused it, it
+ * is indeterminate, or it was never drafted), the public row is rewritten to the tenant's
+ * general public line, which invites a message rather than claiming one was sent; with no
+ * reviewed general line the public row is refused and nothing is posted.
+ */
+async function sendClaimingPair(
+  fx: CommentEffects, input: CommentJobInput, comment: InboundComment,
+  rows: { publicId: string | null; privateId: string | null; fallback: { body: string; reviewedAt: string | null } | null },
+  result: CommentJobResult, gate: () => Promise<StaffGate>,
+): Promise<'done' | 'retry'> {
+  if (rows.privateId !== null
+      && (await sendPrivate(fx, input, comment.commentId, rows.privateId, result, gate)) === 'retry') return 'retry';
+  if (rows.publicId === null) return 'done';
+
+  const { data, error } = await fx.db
+    .from('outbound_messages')
+    .select('state')
+    .eq('tenant_id', input.tenantId)
+    .eq('kind', 'private_reply')
+    .eq('dedup_key', privateReplyDedupKey(comment.postId, comment.fromId))
+    .maybeSingle();
+  if (error) {
+    fx.log('error', 'comment_private_state_unreadable', { commentId: comment.commentId, detail: error.message });
+    result.retry = true;
+    return 'retry';
+  }
+  const delivered = String((data as Record<string, unknown> | null)?.['state'] ?? '') === 'sent';
+  if (!delivered) {
+    const fallback = reviewed(rows.fallback) ? rows.fallback.body : null;
+    const { error: rewriteErr } = await fx.db
+      .from('outbound_messages')
+      .update(fallback === null
+        ? { state: 'refused', refused_reason: 'private_not_delivered', lease_until: null }
+        : { body: fallback })
+      .eq('id', rows.publicId)
+      .eq('tenant_id', input.tenantId)
+      .in('state', ['draft', 'failed']);
+    if (rewriteErr) {
+      fx.log('error', 'comment_public_rewrite_failed', { commentId: comment.commentId, detail: rewriteErr.message });
+      result.retry = true;
+      return 'retry';
+    }
+    count(result.refused, 'private_not_delivered');
+    fx.log('info', 'comment_public_line_general', { commentId: comment.commentId, posted: fallback !== null });
+    if (fallback === null) return 'done';
+  }
+  return sendPublic(fx, input, comment.commentId, rows.publicId, result, gate);
 }
 
 /** Claim and post one public reply. 'retry' means the job must 503; the caller returns. */

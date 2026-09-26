@@ -729,6 +729,15 @@ none are kept on a complaint or a refusal. NULL, or a malformed value, changes n
 - `reply_cases.channel text not null default 'facebook_page'`, CHECK `facebook_page | web`: the
   channel a case is answered as. Every existing case keeps its meaning.
 
+### `0058_comment_rule_lines`
+
+**Additive.** A comment rule may answer with its own pair of lines (D-144):
+- `canned_response_kinds` gains `comment_cta_public_reply` and `comment_cta_private_reply`
+  (model-invisible, `MODEL_INVISIBLE_KINDS`; insert rows only after that code is deployed);
+- `comment_rules.public_kind` / `private_kind` (text, nullable, FK to `canned_response_kinds`),
+  CHECK both-or-neither and only on `verdict = 'reply'`. NULL on every existing row: the
+  tenant's general comment lines, as before.
+
 ### `0057_instagram_channel`
 
 **Additive.** An Instagram account as a channel of its own, messaged through its Page (D-141):
