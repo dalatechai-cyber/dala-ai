@@ -201,7 +201,7 @@ function effects(now: Date): WorkerEffects {
       }
     },
 
-    flagQuality: async ({ tenantId, conversationId, code, detail }) => {
+    flagQuality: async ({ tenantId, conversationId, code, detail, messageId }) => {
       // Best-effort, exactly as `reception/deps.ts` treats its own flags: evidence for a
       // person to read later, never a control. A flag that cannot be written must not
       // change what the customer gets.
@@ -212,6 +212,9 @@ function effects(now: Date): WorkerEffects {
       const { error } = await db.from('quality_flags').insert({
         tenant_id: tenantId,
         conversation_id: conversationId,
+        // The message the flag is about, when the caller has one: the catch-up sweep finds a
+        // held message by it (`channel/catchup.ts`).
+        message_id: messageId ?? null,
         flag: code,
         detail: { detail },
         at: now.toISOString(),

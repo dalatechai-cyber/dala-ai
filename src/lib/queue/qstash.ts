@@ -55,6 +55,8 @@ export async function enqueueReception(payload: {
   eventId: number;
   tenantId: string;
   channelId: string;
+  /** A catch-up job: re-run only this held message (`channel/catchup.ts`). */
+  catchUpMid?: string;
 }): Promise<EnqueueResult> {
   try {
     const client = new Client({ token: required('QSTASH_TOKEN') });

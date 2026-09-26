@@ -13,6 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { MESSENGER_SEND_UNIT_COST } from '../../config/platform.ts';
 import { haltChannelOutbound } from '../channel/halt.ts';
 import { runCredentialBreaker } from '../channel/breaker.ts';
+import { countWaiting } from '../channel/catchup.ts';
 import { sendMessage } from '../meta/send.ts';
 import { quietRoute, raiseAlert, resolveEpisodes } from '../alerts/alert.ts';
 import { loadTenantSecret, recordSecretError, recordSecretOk, revokeSecret, type SecretRef } from '../secrets/tenantSecret.ts';
@@ -123,5 +124,8 @@ export function buildDeliverDeps(input: DeliverDepsInput): DeliverDeps {
         console.error('[breaker] unreadable', { channelId, detail: decision.detail });
       }
     },
+
+    // For the halt page: how many customers this channel has left waiting (2026-09-26).
+    countWaiting: () => countWaiting(db, { tenantId, channelId, now: clock() }),
   };
 }

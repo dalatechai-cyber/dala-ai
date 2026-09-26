@@ -1438,3 +1438,92 @@ test('D-127: a shadow channel is shadowed too — the mirror is where the number
   assert.equal(delivered.length, 0);
   assert.equal(shadowed.length, 1);
 });
+
+// ---------------------------------------------------------------------------
+// Catch-up after a halt (founder, 2026-09-26)
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: A MESSAGE STORED WHILE THE CHANNEL IS HALTED IS MARKED HELD, with its message id', async () => {
+  // Tara, 2026-09-26: the token died at 01:09 and every later message was stored and not
+  // generated. The flag is the evidence the catch-up sweep answers from when it comes back.
+  const { fx, generated, flags } = stubEffects({
+    tables: {
+      tenant_channels: { data: { external_id: '1', delivery_mode: 'off', status: 'authorization_error', graph_version_override: null } },
+    },
+  });
+  const r = await run(fx);
+  assert.equal(generated.length, 0);
+  assert.equal(r.body['notGenerated'], 1);
+  const held = flags.find((f) => f.code === 'held_channel_halted') as { messageId?: string } | undefined;
+  assert.ok(held !== undefined, 'held flag written');
+  assert.equal(held?.messageId, 'msg-1');
+});
+
+test('a channel switched OFF by an operator (not halted) is not marked held — it is never caught up', async () => {
+  const { fx, flags } = stubEffects({
+    tables: { tenant_channels: { data: { external_id: '1', delivery_mode: 'off', status: 'active', graph_version_override: null } } },
+  });
+  await run(fx);
+  assert.equal(flags.some((f) => f.code === 'held_channel_halted'), false);
+});
+
+test('DONE-TEST: A CATCH-UP JOB ANSWERS A 2-HOUR-OLD HELD MESSAGE whose reply failed on the token', async () => {
+  // Past the tenant's 30 minutes, inside Meta's 24 hours; the reply row exists as `failed`.
+  const old = NOW.getTime() - 2 * 60 * 60_000;
+  const { fx, generated, delivered, logs } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ ts: old }) } },
+      messages: DUPLICATE_INBOUND,
+      outbound_messages: [
+        { data: { id: 'om-7', state: 'failed' }, error: null },                        // findReplyFor
+        { data: { id: 'om-7', body: 'ХАРИУЛТ', state: 'failed', attempts: 1 }, error: null },
+      ],
+    },
+  });
+  const r = await run(fx, job({ catchUpMid: MID }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body['stale'], 0, 'measured against 24h, not the tenant\'s 30 minutes');
+  assert.equal(generated.length, 1);
+  assert.equal(delivered.length, 1, 'and sent');
+  assert.equal(reasons(logs).includes('already_answered'), false);
+});
+
+test('an ORDINARY redelivery still treats a failed reply as answered — only a catch-up re-drives it', async () => {
+  const { fx, generated } = stubEffects({
+    tables: {
+      messages: DUPLICATE_INBOUND,
+      outbound_messages: { data: { id: 'om-7', state: 'failed' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(generated.length, 0);
+});
+
+test('a catch-up job answers ONLY its message, and a sent reply is never sent twice', async () => {
+  const two = {
+    ...payload(),
+    messaging: [
+      ...payload().messaging,
+      { sender: { id: PSID }, recipient: { id: '100000000000001' }, timestamp: SENT_AT.getTime(), message: { mid: 'm_other', text: 'бас нэг' } },
+    ],
+  };
+  const { fx, generated } = stubEffects({ tables: { webhook_events: { data: { raw_payload: two } } } });
+  await run(fx, job({ catchUpMid: MID }));
+  assert.equal(generated.length, 1, 'one message, not the whole entry');
+  assert.equal(generated[0]?.inboundExternalId, MID);
+
+  const sentAlready = stubEffects({
+    tables: { messages: DUPLICATE_INBOUND, outbound_messages: { data: { id: 'om-7', state: 'sent' }, error: null } },
+  });
+  await run(sentAlready.fx, job({ catchUpMid: MID }));
+  assert.equal(sentAlready.generated.length, 0);
+});
+
+test('a catch-up past 24 hours is still refused as too late', async () => {
+  const { fx, generated } = stubEffects({
+    tables: { webhook_events: { data: { raw_payload: payload({ ts: NOW.getTime() - 25 * 60 * 60_000 }) } } },
+  });
+  const r = await run(fx, job({ catchUpMid: MID }));
+  assert.equal(r.body['stale'], 1);
+  assert.equal(generated.length, 0);
+});
