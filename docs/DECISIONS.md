@@ -10194,3 +10194,16 @@ pass three CI runs and fail the next publish. Two real differences are also remo
 
 A failing `outbound_price` case now prints the numerals it refused, so the next one explains
 itself.
+
+## D-136 — the account's spend cap, read as a bad request (2026-09-26)
+
+The production deploy of D-135 failed its gate on 33/38. The five cases were not answered
+wrongly: every call returned 400 «You have reached your specified API usage limits. You will
+regain access on 2026-10-01 at 00:00 UTC.»
+- That is the Anthropic account's own spend cap. Raising or lifting it is the founder's
+  (money), and until then every deploy and every publish fails its gate on the model cases.
+- D-129's `isBillingError` recognised the credit-balance 400 but not this one, so it was
+  filed `invalid_request`, a per-reply flag, and paged nobody.
+- It is now billing: a live reply that hits it raises the account alert.
+- No live customer reply had hit it when it was found. The last model failure in
+  `quality_flags` was the 01:09 credit episode.

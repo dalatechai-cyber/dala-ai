@@ -221,7 +221,10 @@ export function isBillingError(err: InstanceType<typeof Anthropic.APIError>): bo
   if (err.status === 402) return true;
   const body = err.error as { error?: { type?: unknown } } | undefined;
   if (body?.error?.type === 'billing_error') return true;
-  return err.status === 400 && /credit balance|purchase credits|plans\s*&\s*billing/i.test(err.message);
+  // «You have reached your specified API usage limits. You will regain access on …» is the
+  // account's own spend cap, a 400 like the credit one (D-136, measured 2026-09-26 on the
+  // production deploy's gate). Filed as a bad request it paged nobody.
+  return err.status === 400 && /credit balance|purchase credits|plans\s*&\s*billing|usage limits?/i.test(err.message);
 }
 
 /**
