@@ -10407,3 +10407,18 @@ arguments; creates the channel `off`), then one republish. The channel does noth
 «DalaTech.ai-тэй холбогдсонд баярлалаа…» and tenant #0's `automation_texts` holds that exact
 text. When it is reworded in Meta, add the new text to `automation_texts` first, or Dali reads
 the automated message as a person and goes quiet for thirty minutes.
+
+## D-142 — "Nothing to publish" is judged over every channel (2026-09-26)
+
+Founder, 2026-09-26: after D-141's Instagram channel was created (`72a58a39…`, off, via Page
+863503883522801), `scripts/publish/tenant.ts --slug dalatech` answered «byte-identical to the
+live one. Nothing to publish», while `config_snapshots` held rows for `facebook_page` and
+`web` only. Every Instagram message would have been refused `no_snapshot`.
+
+The command read ONE live snapshot — `channels[0]` — and skipped when its hash matched. A
+channel added since the last publish has no snapshot to be identical to. The decision is now
+`publishNeeded` (`prompt/publish.ts`): every channel's live snapshot is read; a channel with
+none, or with a different `content_hash` or `canned_hash`, needs the publish, and the run says
+which. An unreadable read stops the run. The read-back after the write checks every channel,
+where it too checked only the first. Same shape as D-058's: a check that asked the one row
+it happened to fetch.
