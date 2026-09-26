@@ -26,7 +26,7 @@
  * mode, and it does not depend on us being the one who sends.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { isAutomationText } from './automation.ts';
+import { automationKey, isAutomationText } from './automation.ts';
 import {
   controlAfter, controlFromEcho, parseHandoverEvents,
   type HandoverEvent, type ThreadControl, type ThreadState,
@@ -82,6 +82,51 @@ export async function echoIsOurs(
     .maybeSingle();
   if (error) return 'unreadable';
   return data !== null;
+}
+
+/** An echo text shorter than this is only "ours" when it is a whole reply we sent. */
+const MIN_CONTAINED_ECHO_CHARS = 20;
+
+/** How far back a sent reply can be the source of an echo. Echoes arrive in seconds. */
+const OWN_SEND_WINDOW_MS = 60 * 60_000;
+
+/**
+ * Is this echo one of our own sends, when Meta did not say which app sent it? (D-141)
+ *
+ * On Messenger every send through our token comes back stamped with our app id, and that is
+ * what keeps the bot from reading its own reply as a person (`controlFromEcho`). An echo
+ * carrying NO app id has only two other ways to be recognised: its `mid` matching the
+ * `provider_message_id` we recorded — which loses the race when the echo outruns `markSent`,
+ * and cannot match the second part of a reply Instagram's 1000-byte limit split in two —
+ * and its text. So the text is asked too: an echo that is exactly one of this channel's
+ * replies from the last hour, or a run of 20+ characters inside one, is ours. A short human
+ * reply («Тийм») inside a long bot reply is exactly what the 20-character floor refuses.
+ *
+ * Tristate like `echoIsOurs`: unreadable is not "no".
+ */
+export async function echoIsOursWithoutAppId(
+  db: SupabaseClient,
+  input: { tenantId: string; channelId: string; mid: string; text: string | null; now: Date },
+): Promise<boolean | 'unreadable'> {
+  const byMid = await echoIsOurs(db, { tenantId: input.tenantId, mid: input.mid });
+  if (byMid !== false) return byMid;
+  const echo = input.text === null ? '' : automationKey(input.text);
+  if (echo === '') return false;
+  const { data, error } = await db
+    .from('outbound_messages')
+    .select('body')
+    .eq('tenant_id', input.tenantId)
+    .eq('channel_id', input.channelId)
+    .in('state', ['sending', 'sent', 'indeterminate'])
+    .gte('created_at', new Date(input.now.getTime() - OWN_SEND_WINDOW_MS).toISOString())
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) return 'unreadable';
+  const contained = [...echo].length >= MIN_CONTAINED_ECHO_CHARS;
+  return (Array.isArray(data) ? data : []).some((row) => {
+    const body = automationKey(String((row as Record<string, unknown>)['body'] ?? ''));
+    return body === echo || (contained && body.includes(echo));
+  });
 }
 
 /** Write the new owner. Idempotent: re-applying the same control is not a change. */
@@ -216,6 +261,12 @@ export async function recordHandover(
     automationTexts?: readonly string[];
     /** Only `live` lets an echo move control. See this file's header. */
     deliveryMode: string;
+    /**
+     * Customers answered live on a `shadow` channel (`tenant_channels.test_sender_ids`,
+     * D-141): their echoes move control as on a live channel, so a tester can try the
+     * handover too. Nobody else's do.
+     */
+    liveFor?: ReadonlySet<string>;
     now: Date;
   },
 ): Promise<HandoverOutcome> {
@@ -258,9 +309,15 @@ export async function recordHandover(
   )].sort(); // bare sort = code-unit order, which is deterministic. No locale involved.
 
   // The echo half, and the mode gate that makes it honest.
-  if (input.deliveryMode === 'live') {
+  const liveFor = input.liveFor ?? new Set<string>();
+  if (input.deliveryMode === 'live' || liveFor.size > 0) {
     for (const echo of input.echoes) {
-      const ours = await echoIsOurs(db, { tenantId: input.tenantId, mid: echo.mid });
+      if (input.deliveryMode !== 'live' && !liveFor.has(echo.psid)) continue;
+      const ours = echo.appId === null
+        ? await echoIsOursWithoutAppId(db, {
+          tenantId: input.tenantId, channelId: input.channelId, mid: echo.mid, text: echo.text ?? null, now: input.now,
+        })
+        : await echoIsOurs(db, { tenantId: input.tenantId, mid: echo.mid });
       const { control, kind } = controlFromEcho(ours, echo.appId, input.ourAppId,
         isAutomationText(echo.text, input.automationTexts ?? []));
       if (kind === 'app') out.echoesFromApp += 1;

@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { classify, sendMessage, type SendInput } from './send.ts';
+import {
+  classify, INSTAGRAM_MAX_TEXT_BYTES, sendMessage, sendMessageParts, splitForLimit, type SendInput,
+} from './send.ts';
 
 const TOKEN = 'EAAsecretTokenValueThatMustNeverAppearAnywhere';
 const PAGE = '100000000000001';
@@ -294,4 +296,74 @@ test('the timeout is armed and cleared, so a fast send does not hold the process
       assert.ok(Date.now() - started < 5_000);
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// Instagram's 1000-byte limit (D-141)
+// ---------------------------------------------------------------------------
+
+
+const bytes = (s: string) => Buffer.byteLength(s, 'utf8');
+const SENTENCE = 'Дали бол манай AI хүлээн авагч бөгөөд таны асуултад хариулна. ';
+
+test('a reply that fits is one part, byte for byte', () => {
+  assert.deepEqual(splitForLimit('Сайн байна уу?', INSTAGRAM_MAX_TEXT_BYTES), ['Сайн байна уу?']);
+});
+
+test('a long Cyrillic reply is cut at sentence ends, every part under 1000 BYTES, nothing lost', () => {
+  const text = SENTENCE.repeat(20).trim();
+  assert.ok(text.length < 2000 && bytes(text) > 1000, 'fits Messenger, not Instagram');
+  const parts = splitForLimit(text, INSTAGRAM_MAX_TEXT_BYTES);
+  assert.ok(parts.length >= 2);
+  for (const p of parts) {
+    assert.ok(bytes(p) <= INSTAGRAM_MAX_TEXT_BYTES, `${bytes(p)} bytes`);
+    assert.ok(p.endsWith('.'), 'cut at a sentence end');
+  }
+  assert.equal(parts.join(' '), text);
+});
+
+test('a paragraph break is preferred, and an emoji is never split', () => {
+  const para = `${'Ө'.repeat(300)}\n\n${'🙂'.repeat(100)}`;
+  const parts = splitForLimit(para, INSTAGRAM_MAX_TEXT_BYTES);
+  assert.deepEqual(parts, ['Ө'.repeat(300), '🙂'.repeat(100)]);
+  const one = splitForLimit('🙂'.repeat(400), INSTAGRAM_MAX_TEXT_BYTES);
+  assert.equal(one.join(''), '🙂'.repeat(400));
+  for (const p of one) assert.ok(bytes(p) <= INSTAGRAM_MAX_TEXT_BYTES);
+});
+
+function graph(answers: Response[]) {
+  const bodies: string[] = [];
+  const fetchImpl = (async (_url: string, init: RequestInit) => {
+    bodies.push(String(init.body));
+    return answers.shift() ?? new Response('{}', { status: 500 });
+  }) as unknown as typeof fetch;
+  return { bodies, fetchImpl };
+}
+const okMid = (mid: string) => new Response(JSON.stringify({ message_id: mid, recipient_id: 'r' }), { status: 200 });
+const BASE = { pageId: '863503883522801', recipientId: 'igsid', token: 't', graphVersion: 'v21.0' };
+
+test('parts go out in order through the Page, and the first part is the send', async () => {
+  const g = graph([okMid('m1'), okMid('m2')]);
+  const r = await sendMessageParts({ ...BASE, text: SENTENCE.repeat(12).trim(), maxBytes: 1000, fetchImpl: g.fetchImpl });
+  assert.equal(g.bodies.length, 2);
+  assert.deepEqual(r, { outcome: 'sent', providerMessageId: 'm1', recipientId: 'r' });
+});
+
+test('a failure after the first part is INDETERMINATE: the customer already has part of it', async () => {
+  const g = graph([okMid('m1'), new Response(JSON.stringify({ error: { code: 100 } }), { status: 400 })]);
+  const r = await sendMessageParts({ ...BASE, text: SENTENCE.repeat(20).trim(), maxBytes: 1000, fetchImpl: g.fetchImpl });
+  assert.equal(r.outcome, 'indeterminate');
+});
+
+test('a failure on the first part is that failure, and nothing more is sent', async () => {
+  const g = graph([new Response(JSON.stringify({ error: { code: 190 } }), { status: 400 })]);
+  const r = await sendMessageParts({ ...BASE, text: SENTENCE.repeat(20).trim(), maxBytes: 1000, fetchImpl: g.fetchImpl });
+  assert.equal(g.bodies.length, 1);
+  assert.equal(r.outcome === 'failed' ? r.failure : r.outcome, 'token_revoked');
+});
+
+test('without a limit (Messenger) a long reply is one send', async () => {
+  const g = graph([okMid('m1')]);
+  await sendMessageParts({ ...BASE, text: SENTENCE.repeat(20).trim(), fetchImpl: g.fetchImpl });
+  assert.equal(g.bodies.length, 1);
 });

@@ -61,6 +61,11 @@ export type SalesShadowInput = {
   deterministic: readonly DeterministicRule[];
   spellings: readonly Spelling[];
   now: Date;
+  /**
+   * Where the customer wrote, when it is not the Page: `Instagram` (D-141). Named in the lead
+   * notice so the founder knows which inbox the conversation is in. Absent: the Page.
+   */
+  channelLabel?: string;
 };
 
 export type SalesShadowOutcome =
@@ -132,13 +137,16 @@ async function load(db: SupabaseClient, input: SalesShadowInput): Promise<{ ok: 
  * message — somebody has to call it — so it is sent as digits here, and only here: the flag
  * rows keep the masked form. A repeat of a number already given is not sent twice.
  */
-export function leadNotice(input: { decision: Decision; playbook: Playbook; customerMessage: string; conversationId: string }): string | null {
+export function leadNotice(input: {
+  decision: Decision; playbook: Playbook; customerMessage: string; conversationId: string; channelLabel?: string;
+}): string | null {
   const l = input.decision.lead;
   if (input.playbook.mode !== 'live' || !l.detected || l.repeat || input.playbook.leadRoute !== 'founder_telegram') return null;
   const digits = [...new Set(input.decision.phones.map((p) => p.digits))];
   const said = [...input.customerMessage.replace(/\s+/gu, ' ').trim()];
   const text = said.length <= 200 ? said.join('') : `${said.slice(0, 199).join('')}…`;
-  return `📞 New lead: ${digits.join(', ')}\nThey wrote: «${text}»\nConversation ${input.conversationId}`;
+  const on = input.channelLabel === undefined ? '' : ` (${input.channelLabel})`;
+  return `📞 New lead${on}: ${digits.join(', ')}\nThey wrote: «${text}»\nConversation ${input.conversationId}`;
 }
 
 export async function recordSalesShadow(
@@ -203,7 +211,10 @@ export async function recordSalesShadow(
       at: input.now.toISOString(),
     });
     if (lead.error) return { outcome: 'unusable', detail: `quality_flags lead insert failed: ${lead.error.message}` };
-    const notice = leadNotice({ decision, playbook, customerMessage: input.customerMessage, conversationId: input.conversationId });
+    const notice = leadNotice({
+      decision, playbook, customerMessage: input.customerMessage, conversationId: input.conversationId,
+      ...(input.channelLabel === undefined ? {} : { channelLabel: input.channelLabel }),
+    });
     if (notice !== null) {
       // After the lead row, so a lead that could not be sent is still on record (masked).
       const sent = await notify(notice).catch((e: unknown) => ({ ok: false, detail: e instanceof Error ? e.message : String(e) }));

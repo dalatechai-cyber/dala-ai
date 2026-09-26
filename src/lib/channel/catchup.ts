@@ -144,7 +144,8 @@ export async function catchUpHeldMessages(db: SupabaseClient, input: CatchUpInpu
   const channels = await db
     .from('tenant_channels')
     .select('id, tenant_id, meta_app_id, automation_texts')
-    .eq('provider', 'facebook_page')
+    // Instagram too (D-141): its worker job is the same job, sent through its Page.
+    .in('provider', ['facebook_page', 'instagram'])
     .eq('delivery_mode', 'live')
     .eq('token_status', 'active');
   if (channels.error) return { ok: false, detail: `tenant_channels unreadable: ${channels.error.message}` };

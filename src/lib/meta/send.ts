@@ -380,3 +380,83 @@ export async function sendSenderAction(input: {
     clearTimeout(timer);
   }
 }
+
+/**
+ * Instagram refuses a text message over 1000 BYTES (Meta's Instagram messaging reference:
+ * "UTF-8 encoded and under 1000 bytes"). Mongolian Cyrillic is two bytes a letter, so the
+ * limit is ~500 characters — a price overview or a long answer passes Messenger's 2000 and
+ * fails here with a Graph 100, which `classify` files as `recipient_unreachable`: terminal,
+ * and the customer gets nothing. D-141.
+ */
+export const INSTAGRAM_MAX_TEXT_BYTES = 1000;
+
+const utf8Bytes = (s: string): number => Buffer.byteLength(s, 'utf8');
+
+/**
+ * Cut `text` into parts of at most `maxBytes`, at the largest boundary that fits: a blank
+ * line, then a line break, then a sentence end, then a space, and only then between code
+ * points. Never inside a code point (an emoji is one part or the other), and nothing is
+ * dropped except the whitespace at a cut. A text that fits is returned whole.
+ */
+export function splitForLimit(text: string, maxBytes: number): string[] {
+  if (utf8Bytes(text) <= maxBytes) return [text];
+  const parts: string[] = [];
+  let rest = text;
+  while (utf8Bytes(rest) > maxBytes) {
+    // The longest prefix, in code points, that fits.
+    const cps = Array.from(rest);
+    let fit = 0;
+    let bytes = 0;
+    for (const cp of cps) {
+      const b = utf8Bytes(cp);
+      if (bytes + b > maxBytes) break;
+      bytes += b;
+      fit += 1;
+    }
+    const head = cps.slice(0, fit).join('');
+    // Prefer the last boundary in the second half of the window, so a boundary near the
+    // start does not produce a tiny part.
+    const floor = Math.floor(head.length / 2);
+    const cut = [
+      head.lastIndexOf('\n\n'),
+      head.lastIndexOf('\n'),
+      Math.max(head.lastIndexOf('. '), head.lastIndexOf('! '), head.lastIndexOf('? ')) + 1,
+      head.lastIndexOf(' '),
+    ].find((i) => i >= floor && i > 0) ?? head.length;
+    const part = head.slice(0, cut).trimEnd();
+    parts.push(part === '' ? head : part);
+    rest = rest.slice(part === '' ? head.length : cut).trimStart();
+  }
+  if (rest !== '') parts.push(rest);
+  return parts;
+}
+
+/**
+ * `sendMessage`, cut to a byte limit when the channel has one. Parts go in order; the first
+ * part's outcome is the send's outcome. A failure AFTER the first part went out is
+ * `indeterminate`, never `failed`: the customer already has part of the answer, so a retry
+ * would repeat it and a `failed` row is claimable again. A person decides, as for any
+ * indeterminate send.
+ */
+export async function sendMessageParts(input: SendInput & { maxBytes?: number }): Promise<SendOutcome> {
+  const { maxBytes, ...one } = input;
+  if (maxBytes === undefined || one.recipientCommentId !== undefined) return sendMessage(one);
+  const parts = splitForLimit(one.text, maxBytes);
+  if (parts.length === 1) return sendMessage(one);
+  let first: SendOutcome | null = null;
+  for (const [i, text] of parts.entries()) {
+    const sent = await sendMessage({ ...one, text });
+    if (i === 0) {
+      first = sent;
+      if (sent.outcome !== 'sent') return sent;
+      continue;
+    }
+    if (sent.outcome !== 'sent') {
+      return {
+        outcome: 'indeterminate',
+        detail: `partial send: ${i} of ${parts.length} parts delivered, then ${sent.detail}`,
+      };
+    }
+  }
+  return first as SendOutcome;
+}

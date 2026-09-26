@@ -14,7 +14,7 @@ import { MESSENGER_SEND_UNIT_COST } from '../../config/platform.ts';
 import { haltChannelOutbound } from '../channel/halt.ts';
 import { runCredentialBreaker } from '../channel/breaker.ts';
 import { countWaiting } from '../channel/catchup.ts';
-import { sendMessage } from '../meta/send.ts';
+import { sendMessageParts } from '../meta/send.ts';
 import { quietRoute, raiseAlert, resolveEpisodes } from '../alerts/alert.ts';
 import { loadTenantSecret, recordSecretError, recordSecretOk, revokeSecret, type SecretRef } from '../secrets/tenantSecret.ts';
 import { markFailed, markIndeterminate, markSent } from './claim.ts';
@@ -42,12 +42,18 @@ export type DeliverDepsInput = {
    * clock, which is what the route wants and what a caller forgetting it should get.
    */
   clock?: () => Date;
+  /**
+   * The channel whose `page_token` this send uses, when it is not `channelId` itself: an
+   * Instagram channel sends through its connected Page with the Page's token (D-141). The
+   * halt and the alerts stay on `channelId`, the channel that could not send.
+   */
+  tokenChannelId?: string;
 };
 
 export function buildDeliverDeps(input: DeliverDepsInput): DeliverDeps {
   const { db, tenantId, channelId, outboundId, now } = input;
   const clock = input.clock ?? (() => new Date());
-  const ref: SecretRef = { tenantId, channelId, kind: 'page_token' };
+  const ref: SecretRef = { tenantId, channelId: input.tokenChannelId ?? channelId, kind: 'page_token' };
   const scope = { id: outboundId, tenantId };
 
   // One binding for the delivery's alerts and the breaker's, so `quiet` means the same
@@ -62,7 +68,7 @@ export function buildDeliverDeps(input: DeliverDepsInput): DeliverDeps {
     loadSecret: () => loadTenantSecret(db, ref),
 
     // The real `fetch`, and the token passed in by the caller rather than fetched here.
-    send: (i) => sendMessage(i),
+    send: (i) => sendMessageParts(i),
 
     // `clock()`, not `now`: this runs AFTER the Graph call returned, and that is the
     // instant `sent_at` claims to record.

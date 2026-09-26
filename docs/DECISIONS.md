@@ -10358,3 +10358,52 @@ that page. *"Build it so any tenant with a website channel gets the same behavio
 
 What it cannot see: a reference with no host in it («манай вэбсайтаас»). No republish: the
 rule is code, and both new columns are read per request.
+
+## D-141 — Instagram DMs: tenant #0's own channel, through its Page, behind a switch that is off (2026-09-26)
+
+Founder, 2026-09-26: the Page is «DalaTech» (863503883522801), @dalatech_ is an Instagram
+professional account connected to it with "Allow access to messages" on, and a customer who
+writes to @dalatech_ must get exactly the Dali the Page and the website give — same data,
+approved lines, follow-up once per conversation, guards, handover, leads to Telegram.
+
+**The shape.** Facebook-login Instagram messaging: Meta posts `object: instagram` with
+`entry.id` = the Instagram account id, and the reply is a Page send
+(`POST /{page-id}/messages`, recipient = the IGSID) made with the **Page** token. So an
+`instagram` channel is its own `tenant_channels` row routed by `channel_identity (instagram,
+<account id>)`, and `via_channel_id` (`0057`) names the Page channel it sends through and
+whose sealed `page_token` it uses — one credential, rotated once. Its own conversations, its
+own follow-up-once, its own `instagram` snapshot compiled from the same rows by the same
+publish. Nothing per tenant in `src/`: a second tenant's Instagram is the same rows.
+
+**What changed in code.**
+- The worker reads the channel's `provider` for the snapshot, the consent channel and the
+  person kind (`igsid`); a Page channel reads exactly what it did.
+- Instagram refuses a text over **1000 bytes** (~500 Cyrillic letters). A longer reply goes
+  out in parts cut at a paragraph, line or sentence end (`sendMessageParts`); a failure after
+  the first part is `indeterminate` (parked, never re-sent), because the customer already has
+  part of it.
+- `test_sender_ids` (`0057`): in `shadow` a listed sender is answered for real, handover
+  included; everyone else is drafted only. This is the switch the founder tests behind.
+- An echo with **no app id** is checked against our own recent sends to that channel (mid,
+  or the exact text, or a run of 20+ characters inside one) before it is read as a person.
+  Messenger stamps our app id on every send; whether Instagram's echoes carry `app_id` is not
+  verifiable from here, and without this our own reply — or the second part of a split one —
+  would mark the conversation `human` and mute Dali for the cooldown.
+- The lead notice says `(Instagram)`; the catch-up sweep includes Instagram channels.
+
+**Not verifiable from this environment** (`developers.facebook.com` and `graph.facebook.com`
+are refused by the proxy), so each is a claim the founder's first test settles, not a fact:
+the send endpoint (Meta's docs, read through Context7, say the Instagram Messaging API with
+Facebook Login needs a Page access token; the Page-id path is inferred), whether echoes
+carry `app_id`, whether the typing bubble works on Instagram (cosmetic; a refusal is
+swallowed), and the access level of `instagram_manage_messages` on DALA_AI.
+
+**Provisioning** is `scripts/provision/instagram-channel.sql` (tenant slug and account id as
+arguments; creates the channel `off`), then one republish. The channel does nothing until
+`delivery_mode` moves: `off` → `shadow` + the founder's IGSID in `test_sender_ids` → `live`.
+`delivery_mode = 'off'` stops it instantly with no deploy.
+
+**Found, not changed:** the Page's Meta Business Suite instant reply still says
+«DalaTech.ai-тэй холбогдсонд баярлалаа…» and tenant #0's `automation_texts` holds that exact
+text. When it is reworded in Meta, add the new text to `automation_texts` first, or Dali reads
+the automated message as a person and goes quiet for thirty minutes.

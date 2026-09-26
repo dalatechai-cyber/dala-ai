@@ -253,7 +253,7 @@ function provisioned(opts: { metaAppId?: string } = {}) {
     max_reply_age_minutes: 30, live_revision_id: 'rev-1',
   });
   s.seed('tenant_channels', {
-    id: CHANNEL, tenant_id: TENANT, external_id: PAGE, delivery_mode: 'live',
+    id: CHANNEL, tenant_id: TENANT, provider: 'facebook_page', external_id: PAGE, delivery_mode: 'live',
     graph_version_override: null, comment_policy: 'none', meta_app_id: opts.metaAppId ?? null,
   });
   s.seed('config_snapshots', {

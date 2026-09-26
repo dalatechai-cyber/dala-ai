@@ -30,7 +30,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { controlFromEcho } from './control.ts';
 import { isAutomationText } from './automation.ts';
-import { readThreadState } from './record.ts';
+import { echoIsOursWithoutAppId, readThreadState } from './record.ts';
 
 /** More echoes than this after one customer message is a conversation, not a race. */
 const MAX_ROWS = 50;
@@ -44,10 +44,23 @@ export type PersonReplied =
 export function personEchoesIn(
   payload: unknown, psid: string, ourAppId: string | null, automationTexts: readonly string[] = [],
 ): number {
-  if (payload === null || typeof payload !== 'object') return 0;
+  return personEchoCandidates(payload, psid, ourAppId, automationTexts).length;
+}
+
+/** An echo `personEchoesIn` counts as a person, with what is needed to double-check it. */
+export type EchoCandidate = { mid: string; appId: string | null; text: string | null };
+
+/**
+ * The echoes in one stored entry that read as a person. One whose app id is absent is only a
+ * CANDIDATE: `personRepliedSince` asks `echoIsOursWithoutAppId` before believing it (D-141).
+ */
+export function personEchoCandidates(
+  payload: unknown, psid: string, ourAppId: string | null, automationTexts: readonly string[] = [],
+): EchoCandidate[] {
+  if (payload === null || typeof payload !== 'object') return [];
   const messaging = (payload as Record<string, unknown>)['messaging'];
-  if (!Array.isArray(messaging)) return 0;
-  let n = 0;
+  if (!Array.isArray(messaging)) return [];
+  const out: EchoCandidate[] = [];
   for (const m of messaging) {
     if (m === null || typeof m !== 'object') continue;
     const ev = m as Record<string, unknown>;
@@ -57,9 +70,15 @@ export function personEchoesIn(
     const app = message['app_id'];
     const appId = typeof app === 'number' || typeof app === 'string' ? String(app) : null;
     const automated = isAutomationText(typeof message['text'] === 'string' ? message['text'] : null, automationTexts);
-    if (controlFromEcho(false, appId, ourAppId, automated).control === 'human') n += 1;
+    if (controlFromEcho(false, appId, ourAppId, automated).control === 'human') {
+      out.push({
+        mid: typeof message['mid'] === 'string' ? message['mid'] : '',
+        appId,
+        text: typeof message['text'] === 'string' ? message['text'].normalize('NFC') : null,
+      });
+    }
   }
-  return n;
+  return out;
 }
 
 export async function personRepliedSince(
@@ -99,7 +118,16 @@ export async function personRepliedSince(
   if (!echoes.error) {
     for (const row of Array.isArray(echoes.data) ? echoes.data : []) {
       const r = row as Record<string, unknown>;
-      if (personEchoesIn(r['raw_payload'], input.psid, input.ourAppId, input.automationTexts ?? []) > 0) {
+      for (const echo of personEchoCandidates(r['raw_payload'], input.psid, input.ourAppId, input.automationTexts ?? [])) {
+        // No app id (Instagram, D-141): our own earlier reply to this customer looks exactly
+        // like this until its text or mid is checked. Unreadable counts as a person, as the
+        // app-id rule always has — a check that cannot run must not unmute the bot.
+        if (echo.appId === null) {
+          const ours = await echoIsOursWithoutAppId(db, {
+            tenantId: input.tenantId, channelId: input.channelId, mid: echo.mid, text: echo.text, now: input.since,
+          });
+          if (ours === true) continue;
+        }
         return { replied: true, via: 'echo', detail: `a person replied in webhook event ${String(r['id'])}` };
       }
     }

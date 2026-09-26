@@ -78,11 +78,16 @@ export type DeliverInput = {
   body: string;
   attempts: number;
   graphVersion: string;
+  /**
+   * The channel's text limit in UTF-8 bytes, when it has one (Instagram: 1000, D-141). A
+   * longer body goes out in parts. Absent: one message, as on Messenger.
+   */
+  maxTextBytes?: number;
 };
 
 export type DeliverDeps = {
   loadSecret: () => Promise<SecretOutcome>;
-  send: (input: Omit<SendInput, 'fetchImpl'>) => Promise<SendOutcome>;
+  send: (input: Omit<SendInput, 'fetchImpl'> & { maxBytes?: number }) => Promise<SendOutcome>;
   markSent: (providerMessageId: string) => Promise<{ ok: boolean; detail?: string }>;
   markFailed: (reason: string) => Promise<{ ok: boolean; detail?: string }>;
   markIndeterminate: (reason: string) => Promise<{ ok: boolean; detail?: string }>;
@@ -185,6 +190,7 @@ export async function deliverOutbound(deps: DeliverDeps, input: DeliverInput): P
     text: input.body,
     token: secret.secret,
     graphVersion: input.graphVersion,
+    ...(input.maxTextBytes === undefined ? {} : { maxBytes: input.maxTextBytes }),
   });
 
   // 3. What it cost.

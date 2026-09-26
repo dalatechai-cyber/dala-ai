@@ -169,6 +169,9 @@ test('D-132: a live playbook sends a NEW lead to the founder\'s Telegram with th
   const n = leadNotice({ decision: decision(live, 'Бат 99112233'), playbook: live, customerMessage: 'Бат 99112233', conversationId: 'c-1' });
   assert.match(n ?? '', /New lead: 99112233/);
   assert.match(n ?? '', /Conversation c-1/);
+  // An Instagram lead says so, so the founder opens the right inbox (D-141).
+  const ig = leadNotice({ decision: decision(live, 'Бат 99112233'), playbook: live, customerMessage: 'Бат 99112233', conversationId: 'c-2', channelLabel: 'Instagram' });
+  assert.match(ig ?? '', /^📞 New lead \(Instagram\): 99112233/);
   const shadow = pb('shadow', 'founder_telegram');
   assert.equal(leadNotice({ decision: decision(shadow, 'Бат 99112233'), playbook: shadow, customerMessage: 'x', conversationId: 'c' }), null);
   assert.equal(leadNotice({ decision: decision(live, '99112233', ['99112233']), playbook: live, customerMessage: 'x', conversationId: 'c' }), null);

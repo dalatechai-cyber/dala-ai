@@ -729,6 +729,21 @@ none are kept on a complaint or a refusal. NULL, or a malformed value, changes n
 - `reply_cases.channel text not null default 'facebook_page'`, CHECK `facebook_page | web`: the
   channel a case is answered as. Every existing case keeps its meaning.
 
+### `0057_instagram_channel`
+
+**Additive.** An Instagram account as a channel of its own, messaged through its Page (D-141):
+- `tenant_channels.via_channel_id uuid` (nullable): the Page channel this channel sends through
+  and whose `page_token` it uses. Composite FK `(tenant_id, via_channel_id)` →
+  `tenant_channels (tenant_id, id)`, so it never crosses tenants; CHECK it is not the row
+  itself. NULL (every existing row) sends as itself with its own token.
+- `tenant_channels.test_sender_ids text[] not null default '{}'`: in `shadow`, these sender ids
+  are answered live, handover included; ignored in `off` and `live`.
+
+An `instagram` channel row carries `external_id` = the Instagram account id, a matching
+`channel_identity (provider 'instagram', external_id)` row, and no `tenant_secrets` row of its
+own. The reply path reads the `instagram` snapshot, so the tenant must be republished once
+after the row exists.
+
 ### `0052_demo_url_contact_kind`
 
 **Widens two CHECKs.** `contact_points.kind` and `branch_contact_points.kind` gain `demo_url`: a
