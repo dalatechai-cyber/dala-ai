@@ -58,8 +58,11 @@ export type CaseResult = {
    * no answer could be judged — the reply path asked for a retry (the model or the database
    * unavailable, a stale configuration), threw, or needed a model key it was not given. The
    * emergency override (D-121) treats the two differently, so they are never merged.
+   * `not_run`: the case needs the model and this run spends nothing (D-137) — the deploy and
+   * publish gates. It does not block; it is listed. `pass` is true for it only so that every
+   * "did anything fail" count leaves it out.
    */
-  outcome: 'pass' | 'wrong' | 'unchecked';
+  outcome: 'pass' | 'wrong' | 'unchecked' | 'not_run';
   /** What the customer wrote, so a printed reply can be read beside it (`renderReplies`). */
   message?: string;
   reply: string | null;
@@ -200,6 +203,14 @@ export async function runCases(input: {
   timezone: string;
   now: Date;
   callModel: ((req: ReceptionRequest) => Promise<CallOutcome>) | null;
+  /**
+   * With no model (`callModel` null): `fail` makes a case that reaches the model UNCHECKED,
+   * which blocks (the test harness's `--no-model`, as before). `skip` makes it `not_run`, which
+   * does not — the deploy and publish gates (D-137: the founder pays for live customers only).
+   * An EXACT case (`expected_body`) is never skipped: its answer comes from a row, so reaching
+   * the model means that row stopped answering, which is exactly what the gate is for.
+   */
+  modelCases?: 'fail' | 'skip';
 }): Promise<CaseResult[]> {
   const { ctx, now } = input;
   const results: CaseResult[] = [];
@@ -266,9 +277,18 @@ export async function runCases(input: {
         id: c.id, pass: why.length === 0, outcome, message: c.customerMessage, reply: record.body, answeredBy: record.answeredBy, why, flags: record.flags,
       });
     } catch (err) {
+      if (err instanceof NeedsModel && input.modelCases === 'skip' && c.expectedBody === null) {
+        results.push({
+          id: c.id, pass: true, outcome: 'not_run', message: c.customerMessage, reply: null, answeredBy: null, flags: record.flags,
+          why: ['needs the model; not run (this gate spends nothing)'],
+        });
+        continue;
+      }
       results.push({
         id: c.id, pass: false, outcome: 'unchecked', message: c.customerMessage, reply: null, answeredBy: null, flags: record.flags,
-        why: [err instanceof NeedsModel ? err.message : `threw: ${err instanceof Error ? err.message : String(err)}`],
+        why: [err instanceof NeedsModel
+          ? (input.modelCases === 'skip' && c.expectedBody !== null ? 'an exact case reached the model: the row that answers it no longer does' : err.message)
+          : `threw: ${err instanceof Error ? err.message : String(err)}`],
       });
     }
   }
@@ -290,6 +310,8 @@ export async function gateTenant(
     now: Date;
     callModel: ((req: ReceptionRequest) => Promise<CallOutcome>) | null;
     compiled?: { promptStable: string; allowedNumbers: string[]; cannedHash: string | null; promptGate: string | null };
+    /** See `runCases`. The deploy and publish gates pass `skip` (D-137). */
+    modelCases?: 'fail' | 'skip';
   },
 ): Promise<TenantGate> {
   const { data: t, error } = await db
@@ -333,7 +355,7 @@ export async function gateTenant(
   return {
     ok: true,
     slug: input.slug,
-    results: await runCases({ cases: cases.cases, ctx, timezone, now: input.now, callModel: input.callModel }),
+    results: await runCases({ cases: cases.cases, ctx, timezone, now: input.now, callModel: input.callModel, modelCases: input.modelCases ?? 'fail' }),
   };
 }
 
@@ -363,7 +385,10 @@ export function renderGate(gates: readonly TenantGate[]): { text: string; pass: 
     }
     const failed = g.results.filter((r) => !r.pass);
     if (failed.length > 0) pass = false;
-    lines.push(`${g.slug}: ${g.results.length - failed.length}/${g.results.length} reply cases pass`);
+    const notRun = g.results.filter((r) => r.outcome === 'not_run').length;
+    const judged = g.results.length - notRun;
+    lines.push(`${g.slug}: ${judged - failed.length}/${judged} reply cases pass`
+      + (notRun > 0 ? ` · ${notRun} need the model and were not run (no spend; run by hand before a big change)` : ''));
     // How it was answered, and the flag codes the reply path raised. «missing «10%»» alone
     // cannot tell a model that answered badly from a model that never answered: on
     // 2026-09-26 ten cases failed exactly so, and the cause was in the codes (`model_…`).

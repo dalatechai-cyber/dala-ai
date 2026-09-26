@@ -58,8 +58,14 @@ if ((process.env['NEXT_PUBLIC_SUPABASE_URL'] ?? '') === '' || (!hasWorker && !ha
 }
 const db: SupabaseClient = hasWorker ? supabaseWorker() : supabasePublish();
 
-const key = process.env['ANTHROPIC_API_KEY'] ?? '';
+// NO SPEND BY DEFAULT (D-137, founder 2026-09-26: *"Live customers are the only thing allowed to
+// spend."*). The build has ANTHROPIC_API_KEY because the reply worker needs it; the gate does not
+// use it. Only the cases that never reach the model block a deploy; a case that needs the model
+// is listed as not run. REPLY_GATE_MODEL=1 runs them too, by hand, before a big change.
+const withModel = process.env['REPLY_GATE_MODEL'] === '1';
+const key = withModel ? (process.env['ANTHROPIC_API_KEY'] ?? '') : '';
 const callModel = key === '' ? null : caseModelSeat((req: Parameters<typeof callReception>[0]) => callReception(req, key));
+const modelCases = withModel ? 'fail' as const : 'skip' as const;
 
 /** Past this, the database or the model is not answering, and that is a finding, not a hang. */
 const GATE_TIMEOUT_MS = 180_000;
@@ -75,7 +81,7 @@ function within<T>(ms: number, work: Promise<T>, onTimeout: () => T): Promise<T>
 /** Run every case. A read that fails is a finding (`unchecked`), never an exit of its own. */
 async function check(): Promise<{ gates: TenantGate[]; setup: string[] }> {
   const only = arg('slug');
-  if (only !== undefined) return { gates: [await gateTenant(db, { slug: only, now: new Date(), callModel })], setup: [] };
+  if (only !== undefined) return { gates: [await gateTenant(db, { slug: only, now: new Date(), callModel, modelCases })], setup: [] };
   const { data, error } = await db.from('reply_cases').select('tenant_id').eq('active', true);
   if (error) return { gates: [], setup: [`reply_cases unreadable: ${error.message}`] };
   const ids = [...new Set((data ?? []).map((r) => String((r as Record<string, unknown>)['tenant_id'])))];
@@ -85,7 +91,7 @@ async function check(): Promise<{ gates: TenantGate[]; setup: string[] }> {
   const slugs = (tenants ?? []).map((t) => String((t as Record<string, unknown>)['slug'])).sort();
   const setup = slugs.length === ids.length ? [] : ['a tenant with active cases could not be read'];
   const gates: TenantGate[] = [];
-  for (const slug of slugs) gates.push(await gateTenant(db, { slug, now: new Date(), callModel }));
+  for (const slug of slugs) gates.push(await gateTenant(db, { slug, now: new Date(), callModel, modelCases }));
   return { gates, setup };
 }
 

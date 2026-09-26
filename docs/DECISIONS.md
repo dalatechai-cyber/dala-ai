@@ -10207,3 +10207,38 @@ regain access on 2026-10-01 at 00:00 UTC.»
 - It is now billing: a live reply that hits it raises the account alert.
 - No live customer reply had hit it when it was found. The last model failure in
   `quality_flags` was the 01:09 credit episode.
+
+## D-137 — the gates spend nothing; paid test runs only by hand (2026-09-26)
+
+Founder, 2026-09-26: *"No paid model runs for testing … unless I explicitly start one. …
+Live customers (Tara and DalaTech) are the only thing allowed to spend."*
+
+- **Deploy gate and publish script** now judge only the cases that never reach the model.
+  A case that needs the model is reported `not_run` ("N need the model and were not run")
+  and does not block. An EXACT case (one with an expected body) that reaches the model still
+  fails: the row that answered it stopped answering, which needs no model to know.
+- **By hand, and spending:** `REPLY_GATE_MODEL=1` on the build gate, `--with-model` on
+  `scripts/publish/tenant.ts`. Both keep the old rule: a model case without a key fails.
+- **`testset-dalatech.yml`** runs only on `workflow_dispatch`; the repeat set is an input,
+  off by default. `bakeoff-arms.yml` already was dispatch-only. A `[testset]` commit tag
+  starts nothing now.
+- What that gives up, said plainly: a prefix or rule change that makes a model case answer
+  wrongly is no longer caught on deploy. It is caught when the founder runs the cases by hand
+  before a big change, or by a customer.
+
+**Spend on 2026-09-26 (Ulaanbaatar day, from 16:00 UTC on the 25th), by source:**
+- CI test sets: 13 paid runs, ~$17.6 (seven read from their logs: 1.59, 1.70, 1.61, 1.76,
+  1.32, 0.47, 1.69; six earlier ones ~$1.25 each).
+- Production-build gates: 35 builds, ~$0.6 each, ~$20. **Estimate**: builds write no ledger.
+- The founder's local publish runs: ~$3, **estimate**.
+- Live customers: DalaTech 15 calls, $0.46 (`spend_ledger`). Tara $0: its Page token has
+  failed since 01:09 (`authorization_error`) and needs a new one from the founder.
+- Demo app (`dalatech-app`): $0 today. Two test demos yesterday, ~$1.50 each.
+
+Testing was ~98% of the day's model spend and customers ~1%.
+
+**The demo app:** each demo is three designs (minimal, bold, elegant) on Opus 5.5, ~9k tokens
+in and 20–25k out each, ~$0.45–0.54 each. `LEAD_LIMIT_PER_DAY` defaults to 10, so the worst
+day is ~$15. The safest cheap lever is that env var (e.g. 3 → ≤ ~$4.50/day), which changes no
+code and no output. Fewer designs per demo, or a cheaper model, cut the per-demo cost but
+change what a prospect sees. Both are the founder's call, in that repository.

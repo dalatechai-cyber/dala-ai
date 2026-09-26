@@ -197,11 +197,15 @@ if (before !== null && before.contentHash === rendered.contentHash) {
 // Founder, 2026-09-24: *"No publish … that touches replies can go out unless every test
 // passes, including all past failures."* The cases are answered by `handleReception` over
 // the prefix just compiled, not the live one, so what is judged is what would go live. A
-// case that reaches the model needs ANTHROPIC_API_KEY in this shell; without it that case
-// FAILS rather than being skipped.
-const modelKey = process.env['ANTHROPIC_API_KEY'] ?? '';
+// case that reaches the model is listed as not run and does not block (D-137: no spend by
+// default), unless it is an exact case, whose row stopped answering, and that fails.
+// `--with-model` answers the model cases too, spending, by hand before a big change; it
+// needs ANTHROPIC_API_KEY in this shell, and without it a model case FAILS.
+const withModel = process.argv.includes('--with-model');
+const modelKey = withModel ? (process.env['ANTHROPIC_API_KEY'] ?? '') : '';
 const gate = await gateTenant(db, {
   slug, now,
+  modelCases: withModel ? 'fail' : 'skip',
   callModel: modelKey === '' ? null : caseModelSeat((req) => callReception(req, modelKey)),
   compiled: {
     promptStable: rendered.promptStable, allowedNumbers: rendered.allowedNumbers,
