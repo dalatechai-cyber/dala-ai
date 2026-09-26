@@ -1189,3 +1189,21 @@ test('DONE-TEST: at most one emoji in the model\'s words; a tenant with no look 
     assert.equal(drafts.at(-1)?.body, want);
   }
 });
+
+test('DONE-TEST: a price stated beside a reworded FAQ answer SURVIVES the swap, as its row (CI q01r2, D-134)', async () => {
+  // The real reply: the price, then DalaTech's «what the monthly fee covers» FAQ reworded.
+  // Serving the stored FAQ alone left a price question with no price.
+  const FAQ = 'Сарын төлбөрт сервер, загварын ашиглалт, хяналт, мэдээллийн шинэчлэлт, дэмжлэг багтана.';
+  const text = 'Дали — AI хүлээн авагчийн сарын төлбөр 250,000₮. Үүнд сервер, загварын ашиглалт, хяналт, '
+    + 'мэдээллийн шинэчлэлт, дэмжлэг багтдаг. Нэг удаагийн суурилуулалтын төлбөр нь 150,000₮.';
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text } });
+  await handleReception(d, {
+    ...base, customerMessage: 'Дали сард хэд вэ?', promptStable: STAFF_PRICED, replyStyle: LOOK, faqAnswers: [FAQ],
+    serviceNames: servicesFromPrefix(STAFF_PRICED, SECTION_LABELS.priceList),
+    tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['150,000', '250,000'] },
+  });
+  const body = drafts.at(-1)?.body ?? '';
+  assert.ok(body.includes('💰 Сарын төлбөр: 250,000₮'), body);
+  assert.ok(body.endsWith(FAQ), 'the published FAQ answer, as written');
+  assert.match(flags.find((x) => x.code === 'faq_paraphrased')?.detail ?? '', /price row\(s\) the reply stated kept/);
+});

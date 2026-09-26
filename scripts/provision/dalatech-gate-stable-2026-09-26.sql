@@ -15,7 +15,17 @@
 --     A message carrying a number is still thanked first (`leadThanksFor` runs before any
 --     row), and a complaint about calls («залгаад авахгүй») is never covered: «авахгүй» is
 --     not a cover word.
---  3. The «Нэр» document (D-133) said «AI туслахын нэр: Дали.» — which made «Дали» two
+--  3. purchase_request — «За тэгвэл Дали авъя. Яах вэ?». The model answered a purchase with
+--     «холбоо барих мэдээллээ энд бичээрэй» one run and the approved callback line the next,
+--     and once claimed Дали could be ordered at the DEMO link. The approved callback line is
+--     the answer to "I'll take it, what now?", so it is served whole. covers_message: every
+--     word must be a buying word, a product name or filler, so a purchase question that
+--     also asks something else («Дали авъя, үнэ хэд вэ?») still goes to the model.
+--  4. requires_empty_history = false on these rows AND on D-133's `thanks` and `greeting`.
+--     The column defaults to true, the D-133 file did not set it, and so «Баярлалаа» was
+--     answered from the row only as a conversation's FIRST message — a thank-you comes after
+--     an answer, i.e. never. The founder's own «Баярлалаа → Тавтай морил!» was mid-chat.
+--  5. The «Нэр» document (D-133) said «AI туслахын нэр: Дали.» — which made «Дали» two
 --     things, the assistant and the product, and «daly gj yuve» was then sometimes answered
 --     as «I am Дали, DalaTech's assistant» with no word of what Дали is (case 23). It now
 --     says the assistant in this chat IS Дали, the AI хүлээн авагч. [prefix: republish]
@@ -33,30 +43,50 @@ begin
 end
 $$;
 
-insert into deterministic_replies (tenant_id, intent, body, enabled, match_mode, stems, cover_words, placement, provenance)
+insert into deterministic_replies (tenant_id, intent, body, enabled, match_mode, stems, cover_words, placement, provenance, requires_empty_history)
 select t.id, 'demo_timing', normalize('🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online', NFC), true, 'covers_message',
        array['демо', 'demo']::text[],
        array['хэдэн', 'хэд', 'цагт', 'цаг', 'цагийн', 'цагаар', 'дотор', 'бэлэн', 'болох', 'болдог', 'болно', 'хийгдэх', 'хийгддэг',
              'хэзээ', 'удах', 'удаан', 'удах уу', 'хугацаа', 'хугацаанд', 'хэр', 'вэ', 'бэ', 'юм', 'нь',
              'heden', 'hed', 'tsagt', 'tsag', 'tsagiin', 'dotor', 'belen', 'boloh', 'boldog', 'bolno', 'hezee',
              'udah', 'udaan', 'hugatsaa', 'her', 've', 'be', 'yum', 'ni']::text[],
-       'replace', 'tenant_confirmed'
+       'replace', 'tenant_confirmed', false
 from tenants t where t.slug = 'dalatech'
 on conflict (tenant_id, intent) do update set body = excluded.body, stems = excluded.stems, cover_words = excluded.cover_words,
-  enabled = true, match_mode = excluded.match_mode, placement = excluded.placement, provenance = excluded.provenance;
+  enabled = true, match_mode = excluded.match_mode, placement = excluded.placement, provenance = excluded.provenance,
+  requires_empty_history = false;
 
-insert into deterministic_replies (tenant_id, intent, body, enabled, match_mode, stems, cover_words, placement, provenance)
+insert into deterministic_replies (tenant_id, intent, body, enabled, match_mode, stems, cover_words, placement, provenance, requires_empty_history)
 select t.id, 'callback_request', n.body, true, 'covers_message',
        array['залга', 'zalga']::text[],
        array['надад', 'над', 'намайг', 'руу', 'та', 'нар', 'та нар', 'бид', 'болох', 'болно', 'уу', 'үү', 'юу', 'вэ', 'одоо',
              'эргээд', 'гуйя', 'хүсье', 'хүсэж', 'байна', 'боломжтой', 'боломж',
              'nadad', 'nad', 'namaig', 'ruu', 'ta', 'nar', 'bid', 'boloh', 'bolno', 'uu', 'yu', 've', 'odoo',
              'ergeed', 'guiya', 'husye', 'husej', 'baina', 'bna', 'bolomjtoi', 'bolomj', 'please', 'me', 'call', 'can', 'you']::text[],
-       'replace', 'tenant_confirmed'
+       'replace', 'tenant_confirmed', false
 from tenants t join sales_next_steps n on n.tenant_id = t.id and n.kind = 'callback'
 where t.slug = 'dalatech'
 on conflict (tenant_id, intent) do update set body = excluded.body, stems = excluded.stems, cover_words = excluded.cover_words,
-  enabled = true, match_mode = excluded.match_mode, placement = excluded.placement, provenance = excluded.provenance;
+  enabled = true, match_mode = excluded.match_mode, placement = excluded.placement, provenance = excluded.provenance,
+  requires_empty_history = false;
+
+insert into deterministic_replies (tenant_id, intent, body, enabled, match_mode, stems, cover_words, placement, provenance, requires_empty_history)
+select t.id, 'purchase_request', n.body, true, 'covers_message',
+       array['авъя', 'авмаар', 'захиалъя', 'захиалмаар', 'худалдаж', 'avya', 'avii', 'avmaar', 'zahialya', 'zahialmaar']::text[],
+       array['за', 'тэгвэл', 'тэгээд', 'тэгье', 'тэгэх', 'дали', 'далийг', 'вира', 'вираг', 'эхо', 'эхог', 'нова', 'новаг', 'ора', 'ораг',
+             'вэбсайт', 'вэбсайтаа', 'багц', 'багцыг', 'ажилтан', 'ажилтныг', 'нэгийг', 'би', 'бид', 'манайд', 'надад', 'одоо',
+             'яах', 'яаж', 'хэрхэн', 'хийх', 'вэ', 'бэ', 'юу', 'уу', 'үү', 'гэсэн', 'байна', 'хүсэж', 'хүсэн', 'ok', 'ок',
+             'za', 'tegvel', 'tegeed', 'tegye', 'dali', 'daliig', 'vira', 'eho', 'echo', 'nova', 'ora', 'websait', 'website', 'bagts',
+             'ajiltan', 'bi', 'bid', 'nadad', 'odoo', 'yah', 'yaj', 'herhen', 'hiih', 've', 'be', 'yu', 'uu', 'gesen', 'baina', 'bna']::text[],
+       'replace', 'tenant_confirmed', false
+from tenants t join sales_next_steps n on n.tenant_id = t.id and n.kind = 'callback'
+where t.slug = 'dalatech'
+on conflict (tenant_id, intent) do update set body = excluded.body, stems = excluded.stems, cover_words = excluded.cover_words,
+  enabled = true, match_mode = excluded.match_mode, placement = excluded.placement, provenance = excluded.provenance,
+  requires_empty_history = false;
+
+update deterministic_replies d set requires_empty_history = false
+from tenants t where d.tenant_id = t.id and t.slug = 'dalatech' and d.intent in ('thanks', 'greeting');
 
 update knowledge_documents k
 set body = normalize(E'- Манай компанийн нэр: DalaTech.\n- Энэ чатад хариулж буй AI туслах бол Дали — манай AI хүлээн авагч ажилтан.\n- Компани, бүтээгдэхүүн, ажилтанд өөр нэр зохиож хэрэглэхгүй.', NFC)

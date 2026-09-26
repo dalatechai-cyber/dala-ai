@@ -1043,15 +1043,25 @@ export async function handleReception(
 
   const faqDrift = faqAdaptation(result.text, input.faqAnswers);
   if (faqDrift !== null) {
+    // The model's PRICES survive the swap, as their rows (D-134). «Дали сард хэд вэ?» was
+    // answered «…сарын төлбөр 250,000₮. Үүнд сервер, … дэмжлэг багтдаг.» — the price, then a
+    // FAQ answer reworded — and serving the stored FAQ answer alone threw the price away, so
+    // a price question got no price one run in three. Only rows the facts guard can show the
+    // reply stated are kept (never the model's wording), and none the FAQ answer already has.
+    const stated = checkFacts(result.text, facts, input.customerMessage);
+    const rows = stated.restated && stated.served !== null
+      ? asSet(stated.served).split('\n').filter((l) => l.trim() !== '' && !faqDrift.answer.includes(l.trim()))
+      : [];
     await deps.flag({
       code: 'faq_paraphrased',
       detail: `a FAQ answer was reproduced and altered; served the published text instead `
-        + `(${faqDrift.run} characters shared)`,
+        + `(${faqDrift.run} characters shared)${rows.length > 0 ? `; ${rows.length} price row(s) the reply stated kept` : ''}`,
       attempted: result.text,
     });
-    const served = await d.draft({ body: faqDrift.answer, answeredBy: 'canned' });
+    const body = rows.length > 0 ? `${rows.join('\n')}\n${faqDrift.answer}` : faqDrift.answer;
+    const served = await d.draft({ body, answeredBy: rows.length > 0 ? 'deterministic' : 'canned' });
     return served.ok
-      ? { kind: 'drafted', outboundId: served.id, answeredBy: 'canned' }
+      ? { kind: 'drafted', outboundId: served.id, answeredBy: rows.length > 0 ? 'deterministic' : 'canned' }
       : { kind: 'retry', detail: served.detail };
   }
 

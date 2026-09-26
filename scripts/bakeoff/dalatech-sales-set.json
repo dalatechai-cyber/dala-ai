@@ -161,6 +161,18 @@
    ]
   },
   {
+   "id": "st2",
+   "category": "thanks",
+   "source": "real",
+   "text": "Баярлалаа",
+   "history": [
+    {"role": "user", "content": "Хэр хурдан ажиллаж эхлэх вэ?"},
+    {"role": "assistant", "content": "AI ажилтан 1–2 долоо хоногт ажиллаж эхэлнэ."}
+   ],
+   "expect": "A thanks AFTER an answer — how a thank-you really arrives (founder, 2026-09-26: «Баярлалаа» got «Тавтай морил!» mid-chat): the approved reply to thanks, exactly. No sales line.",
+   "expected_body": "Зүгээр ээ 😊 Өөр асуух зүйл байвал бичээрэй."
+  },
+  {
    "id": "sc1",
    "category": "complaint",
    "source": "constructed",
