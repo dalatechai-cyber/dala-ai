@@ -11,7 +11,7 @@ const GREETINGS = [
   'бну', 'бнуу', 'байна уу', 'бна уу', 'сн бну', 'сайн бну', 'Сайн байна уу?', 'сайн уу', 'мэнд',
 ];
 const THANKS = ['bayrlalaa', 'bayarlalaa', 'Bayrllaa!', 'ih bayrlalaa', 'za bayarlalaa', 'thx', 'thank you',
-  'баярлалаа', 'баярллаа', 'их баярлалаа', 'Баярлалаа 🙏'];
+  'баярлалаа', 'баярллаа', 'их баярлалаа', 'Баярлалаа 🙏', 'bayrla', 'баярла', 'ok баярлалаа', 'OK баярлалаа!', 'баярлалаа ок'];
 const ACKS = ['ok', 'OK', 'okey', 'oki', 'za', 'zaa', 'за', 'ок', 'заа'];
 
 test('DONE-TEST: EVERY COMMON GREETING, THANKS AND «OK» — LATIN OR SHORTHAND — READS AS ITS CYRILLIC FORM', () => {

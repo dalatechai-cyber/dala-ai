@@ -2760,6 +2760,40 @@
    "quote_services": [],
    "requires_empty_history": false,
    "web_body": null
+  },
+  {
+   "body": "Зүгээр ээ 😊 Өөр асуух зүйл байвал бичээрэй.",
+   "stems": [
+    "баярлалаа",
+    "их баярлалаа",
+    "за баярлалаа",
+    "баярлалаа танд",
+    "танд баярлалаа",
+    "маш их баярлалаа",
+    "bayarlalaa",
+    "bayrlalaa",
+    "bayarllaa",
+    "bayrllaa",
+    "ih bayarlalaa",
+    "za bayarlalaa",
+    "mash ih bayarlalaa",
+    "thanks",
+    "thank you",
+    "thanks a lot",
+    "thx",
+    "ok thanks"
+   ],
+   "intent": "thanks",
+   "enabled": true,
+   "placement": "replace",
+   "tenant_id": "8f2826f5-bd33-4d6c-ab70-b6c5ba7f3f06",
+   "match_mode": "whole_message",
+   "provenance": "tenant_confirmed",
+   "cover_words": [],
+   "quote_services": [],
+   "requires_empty_history": false,
+   "matcher": null,
+   "web_body": null
   }
  ],
  "tenant_domains": []
