@@ -180,6 +180,12 @@ test('credit exhaustion is BILLING, not a bad request — the 400 Anthropic actu
   assert.equal(key.kind === 'terminal' && key.reason, 'auth');
 });
 
+test('the account\'s spend cap is BILLING too — the 400 the production gate got on 2026-09-26 (D-136)', () => {
+  const body = { type: 'error', error: { type: 'invalid_request_error', message: 'You have reached your specified API usage limits. You will regain access on 2026-10-01 at 00:00 UTC.' } };
+  const capped = classifyError(new Anthropic.BadRequestError(400, body, undefined, new Headers()));
+  assert.equal(capped.kind === 'terminal' && capped.reason, 'billing');
+});
+
 test('429 and 5xx are retryable — the only cases QStash\'s retries are for', () => {
   const limited = classifyError(apiError(Anthropic.RateLimitError as never, 429));
   assert.equal(limited.kind === 'retryable' && limited.reason, 'rate_limited');
