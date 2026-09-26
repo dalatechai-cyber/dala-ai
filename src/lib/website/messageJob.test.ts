@@ -30,6 +30,7 @@ function stubDb(over: {
   rate?: number;
   draft?: { id: string; body: string };
   claimOutcome?: 'claimed' | 'already_sent';
+  channel?: { data?: unknown; error?: unknown };
 } = {}) {
   const trace: string[] = [];
   let sessionReads = 0;
@@ -75,6 +76,11 @@ function stubDb(over: {
               : over.tenant,
             error: null,
           };
+        case 'tenant_channels': {
+          trace.push('tenant_channels');
+          const c = over.channel ?? { data: { status: 'active', delivery_mode: 'live' } };
+          return { data: c.data ?? null, error: c.error ?? null };
+        }
         case 'contacts': return { data: { id: 'contact-1', person_id: null }, error: null };
         case 'conversations': return { data: { id: 'conv-1' }, error: null };
         case 'messages': return { data: { id: 'msg-1' }, error: null };
@@ -146,6 +152,8 @@ function effects(db: ReturnType<typeof stubDb>, over: Partial<MessageEffects> = 
       db.trace.push('MODEL');
       return { kind: 'drafted', outboundId: 'out-1', answeredBy: 'model' };
     },
+    salesShadow: async () => { db.trace.push('salesShadow'); },
+    afterResponse: () => { db.trace.push('afterResponse'); },
     log: () => {},
     ...over,
   };
@@ -403,4 +411,99 @@ test('a retry outcome is 503 rather than a silent non-answer', async () => {
     req(),
   );
   assert.equal(r.status, 503);
+});
+
+// ---------------------------------------------------------------------------
+// The sales record: a lead left in the widget reaches the same place as one on the Page
+// ---------------------------------------------------------------------------
+
+test('the sales record runs after the draft, with the visitor\'s words and the stored ids', async () => {
+  const db = stubDb();
+  const seen: Record<string, unknown>[] = [];
+  const r = await runMessageJob(effects(db, {
+    salesShadow: async (a) => { db.trace.push('salesShadow'); seen.push(a as never); },
+  }), req({ text: 'Миний дугаар 99112233' }));
+  assert.equal(r.status, 200);
+  assert.equal(seen.length, 1, 'no sales record was taken for an answered turn');
+  const a = seen[0]!;
+  assert.equal(a['customerMessage'], 'Миний дугаар 99112233');
+  assert.equal(a['outboundId'], 'out-1');
+  assert.equal(a['messageId'], 'msg-1');
+  assert.equal(a['conversationId'], 'conv-1');
+  assert.equal(a['customerSentPhoto'], false);
+  assert.equal(a['threadControl'], 'unknown');
+  assert.ok(db.trace.indexOf('MODEL') < db.trace.indexOf('salesShadow'), db.trace.join(' → '));
+});
+
+test('a sales record that throws or hangs never costs the visitor the reply', async () => {
+  for (const salesShadow of [
+    async () => { throw new Error('boom'); },
+    () => { throw new Error('sync boom'); },
+    () => new Promise<void>(() => {}),
+  ]) {
+    const db = stubDb();
+    const started = Date.now();
+    const r = await runMessageJob(effects(db, { salesShadow: salesShadow as never }), req());
+    assert.equal(r.status, 200);
+    assert.equal(r.body['reply'], 'Сайн байна уу');
+    assert.ok(Date.now() - started < 2_000, 'a hung sales record held the reply');
+  }
+});
+
+test('no sales record for a turn that was never answered', async () => {
+  const db = stubDb();
+  await runMessageJob(effects(db, {
+    checkGuard: async () => ({ ok: false, refusal: { status: 429, code: 'ceiling_reached' } }) as never,
+  }), req());
+  assert.equal(db.trace.indexOf('salesShadow'), -1);
+});
+
+// ---------------------------------------------------------------------------
+// The channel switch applies to every turn, not only to the mint
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: a channel switched off stops an OPEN session before any work or spend', async () => {
+  for (const data of [
+    { status: 'active', delivery_mode: 'off' },
+    { status: 'active', delivery_mode: 'shadow' },
+    { status: 'suspended', delivery_mode: 'live' },
+    null,
+  ]) {
+    const db = stubDb({ channel: { data } });
+    const r = await runMessageJob(effects(db), req());
+    assert.equal(r.status, 503, JSON.stringify(data));
+    assert.equal(r.body['error'], 'channel_not_delivering');
+    // Readable by the widget, so it can say so politely rather than show a network error.
+    assert.equal(r.allowOrigin, ORIGIN);
+    for (const step of ['guard', 'claimTurn', 'MODEL', 'insert:messages', 'rate']) {
+      assert.equal(db.trace.indexOf(step), -1, `${step} ran for ${JSON.stringify(data)}: ${db.trace.join(' → ')}`);
+    }
+  }
+});
+
+test('an unreadable channel row fails closed', async () => {
+  const db = stubDb({ channel: { error: { message: 'boom' } } });
+  const r = await runMessageJob(effects(db), req());
+  assert.equal(r.status, 503);
+  assert.equal(r.body['error'], 'channel_unavailable');
+  assert.equal(db.trace.indexOf('MODEL'), -1);
+});
+
+test('DONE-TEST: a sales record still running when the reply is ready is kept alive past the response', async () => {
+  // Serverless: a function may be frozen when it returns. A lead's Telegram call that
+  // outlives the wait must be handed to after(), or it is lost with no log line.
+  const db = stubDb();
+  let release: () => void = () => {};
+  let finished = false;
+  const kept: Promise<unknown>[] = [];
+  const r = await runMessageJob(effects(db, {
+    salesShadow: () => new Promise<void>((resolve) => { release = () => { finished = true; resolve(); }; }),
+    afterResponse: (w) => { kept.push(w); },
+  }), req());
+  assert.equal(r.status, 200, 'the reply waited on the sales record');
+  assert.equal(kept.length, 1, 'the running sales record was not handed to after()');
+  assert.equal(finished, false);
+  release();
+  await kept[0];
+  assert.equal(finished, true);
 });

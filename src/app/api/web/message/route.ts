@@ -22,7 +22,7 @@
  * channel is built around: CORS is a browser control, not an authorization gate. The token
  * is the authorization. Nothing here is load-bearing against a caller who is not a browser.
  */
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { supabaseWorker } from '@/lib/supabase/clients';
 import { handleReception } from '@/lib/reception/handle';
 import { loadReceptionContext } from '@/lib/reception/load';
@@ -35,6 +35,7 @@ import { SECTION_LABELS } from '@/lib/prompt/tenant';
 import { required } from '@/lib/env';
 import { clientIpOf } from '@/lib/website/clientIp';
 import { runMessageJob, type MessageEffects } from '@/lib/website/messageJob';
+import { salesShadowEffect } from '@/lib/sales/shadow';
 import { servicesFromPrefix, sectionRows, faqAnswersFromPrefix } from '@/lib/quality/serviceNames';
 
 export const runtime = 'nodejs';
@@ -121,6 +122,28 @@ function effects(now: Date): MessageEffects {
           replyStyle: a.ctx.replyStyle,
         },
       ),
+
+    // The SAME binding the Messenger worker uses (`api/workers/reception/route.ts`), so a
+    // lead left in the widget is recorded and routed exactly as one left on the Page.
+    salesShadow: (a) =>
+      salesShadowEffect(db, {
+        tenantId: a.tenantId,
+        conversationId: a.conversationId,
+        messageId: a.messageId,
+        outboundId: a.outboundId,
+        customerMessage: a.customerMessage,
+        customerSentPhoto: a.customerSentPhoto,
+        history: a.history,
+        refusal: a.refusal,
+        threadControl: a.threadControl,
+        promptStable: a.ctx.promptStable,
+        canned: a.ctx.canned,
+        deterministic: a.ctx.deterministic,
+        spellings: a.ctx.spellings,
+        now,
+      }),
+
+    afterResponse: (work) => after(work),
 
     log: (level, event, fields) => console[level](`[web] ${event}`, fields ?? {}),
   };

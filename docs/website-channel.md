@@ -232,6 +232,11 @@ For the record, because it is smaller than it looks once the above is separated 
 
 `dalatech-chatbot` retires when tenant #0's website channel serves the same widget.
 
+**2026-09-26 (D-138):** the relay is built in `dalatech-chatbot` behind `CHAT_BACKEND`, off.
+Its server signs the mint; the page then calls `/api/web/message` directly. The web path now
+records leads like the Messenger worker, re-reads the channel switch on every turn, and hands
+Turnstile the visitor's address from the signed body.
+
 ## Not done, and why
 
 Nothing in this document has been built. The founder's overnight instruction is to stop and

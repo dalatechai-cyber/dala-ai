@@ -10242,3 +10242,53 @@ in and 20–25k out each, ~$0.45–0.54 each. `LEAD_LIMIT_PER_DAY` defaults to 1
 day is ~$15. The safest cheap lever is that env var (e.g. 3 → ≤ ~$4.50/day), which changes no
 code and no output. Fewer designs per demo, or a cheaper model, cut the per-demo cost but
 change what a prospect sees. Both are the founder's call, in that repository.
+
+## D-138 — the site chatbot moves onto tenant #0's web channel, behind a switch that is off (2026-09-26)
+
+The founder's brief: the dalatech.online chat answers exactly as DalaTech's Facebook Page
+does — same data, guards, sales follow-up, leads to Telegram — with per-visitor limits and
+the tenant's daily budget still binding, a polite line when Dala AI is down, and nothing live
+until the founder switches it. Built to `docs/reports/2026-09-25-tenant0-data.md` §5 B/C and
+`2026-09-25-site-chatbot-overnight.md` §4, with three corrections found on the way.
+
+**Where the pieces sit.** dalatech.online embeds an IFRAME of `dalatech-chatbot.vercel.app`
+(`dalatech-online/index.html`), so the chat page is that repository's `public/index.html` +
+`app.js`, not `widget.js`. Its server (`api/session.js`) signs the mint with the web mint
+secret; the page then talks to `/api/web/message` directly, so every per-address limit here
+sees the visitor and not the relay. `CHAT_BACKEND=dala` turns it on; anything else, or `dala`
+with a variable missing, serves the old bot.
+
+**Three gaps on this side, fixed:**
+1. **A lead left in the widget reached nobody.** The web path drafted the thank-you line
+   (`leadThanksFor` runs inside `handleReception`) but never called the sales record, which is
+   what writes `sales_lead_shadow` and sends the number to Telegram. `runMessageJob` now calls
+   the same `salesShadowEffect` the Messenger worker binds, after the draft, bounded by
+   `SALES_SHADOW_WAIT_MS`, and unable to cost the visitor the reply. What outlives that wait
+   is handed to Next.js `after()`: here the response IS the delivery, and a function frozen on
+   return would drop a lead's Telegram call with no log line. (The Messenger worker has the
+   Graph send after its wait to cover the same gap; it does not use `after()` and was not
+   changed tonight.)
+2. **Switching the channel off stopped only new visitors.** The mint refuses a channel that is
+   not `active`/`live`; `/api/web/message` never re-read it, so an open session kept answering
+   and spending for up to two hours. Each turn now reads `tenant_channels` first, so
+   `delivery_mode = 'off'` is an immediate, no-deploy stop. Refused as a 503 with CORS headers
+   so the widget can say so politely.
+3. **Turnstile was told the relay's address.** The mint is server-to-server, so `clientIp` is
+   the chatbot server's — the same for every visitor. The relay now puts `visitor_ip` inside the
+   SIGNED body and the mint passes it to siteverify. Scoring only: it never keys a rate bucket,
+   because it is the tenant server's claim.
+
+**Two corrections to the earlier plan.** "A switch (`CHAT_BACKEND`) lets you flip back in one
+env change without a deploy" was wrong: a Vercel environment change reaches a function only on
+the next deployment. The instant way back is Vercel's Instant Rollback to the previous
+production deployment, or `delivery_mode = 'off'` here. And the relay does not send every
+message through the chatbot server: only the mint goes that way.
+
+**Found, not changed (customer-visible, the founder's):** tenant #0's reviewed `handoff` line
+ends «Хамт олон маань хариулах болно». On the Page a person reads the inbox; on the website
+nobody is told about the conversation as it happens, so the promise has nothing behind it
+unless the visitor leaves a number (which now reaches Telegram).
+
+Nothing is live: no web mint secret is sealed (`tenant_secrets` holds only the Page token),
+`TURNSTILE_SECRET_KEY` is unset here, `CHAT_BACKEND` is unset there, and `web_sessions` has
+never held a row.
