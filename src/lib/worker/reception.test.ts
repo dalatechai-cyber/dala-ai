@@ -53,7 +53,7 @@ const job = (over: Record<string, unknown> = {}) =>
 type Reply = { data?: unknown; error?: unknown };
 
 function stubDb(over: Record<string, Reply | Reply[]> = {}) {
-  const ops: { table: string; op: string; patch?: Record<string, unknown> }[] = [];
+  const ops: { table: string; op: string; patch?: Record<string, unknown>; eq?: [string, unknown][] }[] = [];
   const queues = new Map<string, Reply[]>();
   queues.set('tenants', [...TENANTS_QUEUE]);
   for (const [table, v] of Object.entries(over)) queues.set(table, Array.isArray(v) ? [...v] : [v]);
@@ -71,6 +71,8 @@ function stubDb(over: Record<string, Reply | Reply[]> = {}) {
     for (const m of ['select', 'eq', 'in', 'is', 'not', 'or', 'lt', 'gt', 'gte', 'order', 'limit']) {
       chain[m] = () => chain;
     }
+    // Recorded, so a test can say WHICH snapshot or channel a read asked for (D-141).
+    chain['eq'] = (k: string, v: unknown) => { (rec.eq ??= []).push([k, v]); return chain; };
     // A jsonb containment read is its own queue (`<table>:contains`), so the pre-send echo
     // scan can be steered without disturbing the event read on the same table.
     let key = table;
@@ -1526,4 +1528,77 @@ test('a catch-up past 24 hours is still refused as too late', async () => {
   const r = await run(fx, job({ catchUpMid: MID }));
   assert.equal(r.body['stale'], 1);
   assert.equal(generated.length, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Instagram: its own channel, sent through its Page (D-141)
+// ---------------------------------------------------------------------------
+
+const IG_ACCOUNT = '17841400000000001';
+const IG_PAGE = '863503883522801';
+const IG_ROW = {
+  provider: 'instagram', external_id: IG_ACCOUNT, via_channel_id: 'c-page', delivery_mode: 'live',
+  graph_version_override: null, test_sender_ids: [],
+};
+const PAGE_ROW = { external_id: IG_PAGE };
+
+test('DONE-TEST: AN INSTAGRAM MESSAGE IS ANSWERED THROUGH ITS PAGE, FROM ITS OWN SNAPSHOT', async () => {
+  const { fx, delivered, typed, shadowed, ops } = stubEffects({
+    tables: { tenant_channels: [{ data: IG_ROW }, { data: PAGE_ROW }] },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(r.body['sent'], 1);
+  // The send is a Page send, with the Page channel's token, cut to Instagram's byte limit.
+  assert.equal(delivered[0]?.pageId, IG_PAGE);
+  assert.equal(delivered[0]?.tokenChannelId, 'c-page');
+  assert.equal(delivered[0]?.maxTextBytes, 1000);
+  assert.equal(delivered[0]?.recipientId, PSID);
+  assert.equal((typed[0] as { pageId?: string } | undefined)?.pageId, IG_PAGE);
+  // Same data: the `instagram` snapshot, compiled by the same publish as the Page's.
+  const snap = ops.find((o) => o.table === 'config_snapshots');
+  assert.ok(snap?.eq?.some(([k, v]) => k === 'channel' && v === 'instagram'), 'reads the instagram snapshot');
+  // The founder's Telegram says where the lead is.
+  assert.equal(shadowed[0]?.channelLabel, 'Instagram');
+});
+
+test('a Page channel is unchanged: its own id, its own token, no byte limit, no label', async () => {
+  const { fx, delivered, shadowed } = stubEffects({
+    tables: { tenant_channels: { data: { provider: 'facebook_page', external_id: '100000000000001', delivery_mode: 'live', graph_version_override: null } } },
+  });
+  await run(fx);
+  assert.equal(delivered[0]?.pageId, '100000000000001');
+  assert.equal(delivered[0]?.tokenChannelId, undefined);
+  assert.equal(delivered[0]?.maxTextBytes, undefined);
+  assert.equal(shadowed[0]?.channelLabel, undefined);
+});
+
+test('the Page an Instagram channel sends through is read, never guessed', async () => {
+  const unreadable = stubEffects({ tables: { tenant_channels: [{ data: IG_ROW }, { error: { message: 'reset' } }] } });
+  assert.equal((await run(unreadable.fx)).status, 503);
+  assert.equal(unreadable.delivered.length, 0);
+  const missing = stubEffects({ tables: { tenant_channels: [{ data: IG_ROW }, { data: null }] } });
+  const r = await run(missing.fx);
+  assert.equal(r.body['dropped'], 'via_channel_missing');
+  assert.equal(missing.delivered.length, 0);
+});
+
+test('DONE-TEST: IN SHADOW, A LISTED TESTER IS ANSWERED FOR REAL AND NOBODY ELSE IS', async () => {
+  const shadow = { ...IG_ROW, delivery_mode: 'shadow' };
+  const tester = stubEffects({ tables: { tenant_channels: [{ data: { ...shadow, test_sender_ids: [PSID] } }, { data: PAGE_ROW }] } });
+  await run(tester.fx);
+  assert.equal(tester.delivered.length, 1, 'the founder, trying it from their own account');
+  assert.equal(tester.typed.length, 1);
+
+  const stranger = stubEffects({ tables: { tenant_channels: [{ data: { ...shadow, test_sender_ids: ['someone-else'] } }, { data: PAGE_ROW }] } });
+  const r = await run(stranger.fx);
+  assert.equal(r.body['drafted'], 1, 'drafted, as the mirror always is');
+  assert.equal(stranger.delivered.length, 0, 'but never sent to anybody not listed');
+  assert.equal(stranger.typed.length, 0);
+
+  // `off` answers nobody, testers included: the list is only read in shadow.
+  const off = stubEffects({ tables: { tenant_channels: [{ data: { ...IG_ROW, delivery_mode: 'off', test_sender_ids: [PSID] } }, { data: PAGE_ROW }] } });
+  await run(off.fx);
+  assert.equal(off.delivered.length, 0);
+  assert.equal(off.generated.length, 0);
 });

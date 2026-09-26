@@ -74,3 +74,65 @@ test('either read failing is unreadable, never "no reply"', async () => {
   const b = await personRepliedSince(db({ data: { thread_control: 'unknown' } }, { error: { message: 'reset' } }), INPUT);
   assert.equal(b.replied, 'unreadable');
 });
+
+// ---------------------------------------------------------------------------
+// Instagram (D-141): an echo with NO app id is checked against what we sent
+// ---------------------------------------------------------------------------
+
+/** Three tables: the thread, the echo scan, and our recent sends for the text check. */
+function dbWithSends(events: unknown[], sends: { data?: unknown; error?: unknown }) {
+  const from = (table: string) => {
+    const chain: Record<string, unknown> = {};
+    for (const m of ['select', 'eq', 'gt', 'gte', 'in', 'contains', 'order', 'limit']) chain[m] = () => chain;
+    const reply = table === 'conversations'
+      ? { data: { thread_control: 'unknown', thread_control_at: null } }
+      : table === 'webhook_events' ? { data: events }
+        : table === 'outbound_messages' ? sends : { data: null };
+    // `echoIsOurs` reads by mid with maybeSingle: never a match here, so the text decides.
+    chain['maybeSingle'] = async () => ({ data: null, error: null, ...(table === 'conversations' ? reply : {}) });
+    chain['then'] = (res: (v: unknown) => unknown) => res({ data: null, error: null, ...reply });
+    return chain;
+  };
+  return { from } as never;
+}
+
+const IG_REPLY = 'Дали бол AI хүлээн авагч. Таны асуултад 24/7 хариулна.';
+
+test('an app-id-less echo that IS our earlier reply to this customer does not stop the next reply', async () => {
+  const r = await personRepliedSince(
+    dbWithSends([{ id: 900, raw_payload: { messaging: [{ recipient: { id: PSID }, message: { mid: 'ig_1', text: IG_REPLY, is_echo: true } }] } }],
+      { data: [{ body: IG_REPLY }] }),
+    INPUT,
+  );
+  assert.deepEqual(r, { replied: false });
+});
+
+test('the second half of a reply Instagram made us split is ours too', async () => {
+  const tail = 'Таны асуултад 24/7 хариулна.';
+  const r = await personRepliedSince(
+    dbWithSends([{ id: 900, raw_payload: { messaging: [{ recipient: { id: PSID }, message: { mid: 'ig_2', text: tail, is_echo: true } }] } }],
+      { data: [{ body: IG_REPLY }] }),
+    INPUT,
+  );
+  assert.deepEqual(r, { replied: false });
+});
+
+test('a person typing on Instagram is still a person — including a short word inside our reply', async () => {
+  for (const text of ['Сайн байна уу, би өөрөө хариулъя', 'Дали']) {
+    const r = await personRepliedSince(
+      dbWithSends([{ id: 901, raw_payload: { messaging: [{ recipient: { id: PSID }, message: { mid: 'ig_3', text, is_echo: true } }] } }],
+        { data: [{ body: IG_REPLY }] }),
+      INPUT,
+    );
+    assert.equal(r.replied, true, text);
+  }
+});
+
+test('an unreadable send table never unmutes: the echo counts as a person', async () => {
+  const r = await personRepliedSince(
+    dbWithSends([{ id: 902, raw_payload: { messaging: [{ recipient: { id: PSID }, message: { mid: 'ig_4', text: IG_REPLY, is_echo: true } }] } }],
+      { error: { message: 'reset' } }),
+    INPUT,
+  );
+  assert.equal(r.replied, true);
+});

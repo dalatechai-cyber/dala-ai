@@ -114,6 +114,7 @@ function effects(now: Date): WorkerEffects {
           channelId: a.channelId,
           outboundId: a.outboundId,
           attempts: a.attempts,
+          ...(a.tokenChannelId === undefined ? {} : { tokenChannelId: a.tokenChannelId }),
           now,
         }),
         a,
@@ -131,17 +132,17 @@ function effects(now: Date): WorkerEffects {
      * `secrets/tenantSecret.ts`: a warm lambda is reused across tenants and a cached
      * credential is one refactor from being the wrong salon's.
      */
-    showTyping: async ({ tenantId, channelId, recipientId, action }) => {
+    showTyping: async ({ tenantId, channelId, recipientId, pageId, tokenChannelId, action }) => {
       // One line per bubble, so the live logs can say whether it was shown (D-124): until
       // this line nothing recorded the outcome, and "the bubble works" could not be read
       // from production at all.
       const started = Date.now();
       let outcome = 'sent';
       try {
-        const { data, error } = await db
-          .from('tenant_channels').select('external_id').eq('id', channelId).maybeSingle();
-        const pageId = error !== null || data === null ? '' : String((data as Record<string, unknown>)['external_id'] ?? '');
-        const secret = pageId === '' ? null : await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+        // The worker has the Page in hand (its own, or the one an Instagram channel sends
+        // through, D-141), so the bubble no longer re-reads the channel row.
+        const secret = pageId === '' ? null
+          : await loadTenantSecret(db, { tenantId, channelId: tokenChannelId ?? channelId, kind: 'page_token' });
         const ok = secret === null || !secret.ok ? false : await sendSenderAction({
           pageId, recipientId, token: secret.secret,
           graphVersion: required('META_GRAPH_VERSION'), action: action ?? 'typing_on',
@@ -245,6 +246,7 @@ function effects(now: Date): WorkerEffects {
         deterministic: a.ctx.deterministic,
         spellings: a.ctx.spellings,
         now,
+        ...(a.channelLabel === undefined ? {} : { channelLabel: a.channelLabel }),
       }),
 
     log: (level, event, fields) => console[level](`[worker] ${event}`, fields ?? {}),

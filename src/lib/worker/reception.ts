@@ -32,6 +32,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { canDeliver } from '../channel/delivery.ts';
 import { extractInboundMessages } from '../meta/extract.ts';
+import { INSTAGRAM_MAX_TEXT_BYTES } from '../meta/send.ts';
 import { ensureContact, ensurePerson, openConversation, readHistory, recordInbound, traceAnswer } from '../inbound/persist.ts';
 import { recordDroppedInbound, skipSummary } from '../inbound/dropped.ts';
 import { draftImageReplies, planImageReplies, readImageLine } from '../inbound/imageReply.ts';
@@ -124,6 +125,10 @@ export type DeliverArgs = {
   body: string;
   attempts: number;
   graphVersion: string;
+  /** The channel whose `page_token` the send uses, when not `channelId` (Instagram, D-141). */
+  tokenChannelId?: string;
+  /** The channel's text limit in UTF-8 bytes, when it has one (Instagram: 1000, D-141). */
+  maxTextBytes?: number;
 };
 
 /**
@@ -164,6 +169,10 @@ export type WorkerEffects = {
    */
   showTyping: (args: {
     tenantId: string; channelId: string; recipientId: string;
+    /** Who the bubble is shown as: the channel's Page, or the Page it sends through (D-141). */
+    pageId: string;
+    /** The channel whose `page_token` the call uses, when not `channelId` (D-141). */
+    tokenChannelId?: string;
     /** Default `typing_on`. `typing_off` clears a bubble that landed after its reply (D-124). */
     action?: 'typing_on' | 'typing_off';
   }) => Promise<void>;
@@ -201,6 +210,8 @@ export type SalesShadowArgs = {
   refusal: boolean;
   threadControl: string;
   ctx: ReceptionContext;
+  /** Named in a lead notice when the conversation is not on the Page (D-141). */
+  channelLabel?: string;
 };
 
 /**
@@ -443,7 +454,7 @@ async function runReceptionDelivery(
       .maybeSingle(),
     db
       .from('tenant_channels')
-      .select('external_id, status, delivery_mode, token_status, meta_app_id, graph_version_override, comment_policy, comment_delivery_mode, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day, automation_texts')
+      .select('provider, external_id, via_channel_id, test_sender_ids, status, delivery_mode, token_status, meta_app_id, graph_version_override, comment_policy, comment_delivery_mode, comment_max_post_age_days, ignore_commenter_ids, comment_replies_per_post_per_day, automation_texts')
       .eq('id', channelId)
       .eq('tenant_id', tenantId)
       .maybeSingle(),
@@ -515,10 +526,18 @@ async function runReceptionDelivery(
   // rejects — a throw becomes the same `unavailable` the loader returns for a failed read —
   // because a job that returns early never awaits it, and an unhandled rejection on a warm
   // lambda would outlive this request.
+  //
+  // The snapshot is the CHANNEL's (`config_snapshots.channel` is the provider), so an
+  // Instagram message reads the `instagram` snapshot — compiled by the same publish, from the
+  // same rows, as the Page's (D-141). The channel row is already in hand: it was read above,
+  // beside the tenant. An unreadable or missing row starts nothing here; the job refuses on it
+  // below, before any context is awaited.
+  const provider = channelRead.error || channelRead.data === null
+    ? '' : String((channelRead.data as Record<string, unknown>)['provider'] ?? '');
   const startContext = (): Promise<Awaited<ReturnType<typeof loadReceptionContext>>> =>
-    loadReceptionContext(db, { tenantId, channel: 'facebook_page', settings, localDate })
+    loadReceptionContext(db, { tenantId, channel: provider, settings, localDate })
       .catch((e: unknown) => ({ ok: false as const, code: 'unavailable' as const, detail: `context load threw: ${e instanceof Error ? e.message : String(e)}` }));
-  const contextPromise = messages.length > 0 ? startContext() : null;
+  const contextPromise = messages.length > 0 && provider !== '' ? startContext() : null;
 
   // --- Secondary receiver (§3.7). Never a drop. -----------------------------
   //
@@ -555,8 +574,46 @@ async function runReceptionDelivery(
     return ok({ dropped: 'channel_missing' });
   }
   const c = channelRow as Record<string, unknown>;
-  const pageId = String(c['external_id'] ?? '');
   const deliveryMode = String(c['delivery_mode'] ?? '');
+  // --- Who the reply is sent AS, and with whose credential (D-141). -----------------------
+  //
+  // A Page channel sends as itself. An Instagram account connected to a Page is messaged
+  // THROUGH the Page, with the Page's token: `via_channel_id` names that Page channel, and
+  // the composite foreign key keeps it inside this tenant. It is read only when set, so a
+  // Page channel pays no extra round trip.
+  const viaChannelId = typeof c['via_channel_id'] === 'string' && c['via_channel_id'] !== ''
+    ? String(c['via_channel_id']) : null;
+  let pageId = String(c['external_id'] ?? '');
+  if (viaChannelId !== null) {
+    const { data: via, error: viaErr } = await db
+      .from('tenant_channels')
+      .select('external_id')
+      .eq('id', viaChannelId)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+    if (viaErr) {
+      fx.log('error', 'via_channel_unreadable', { tenantId, channelId, viaChannelId, detail: viaErr.message });
+      return unavailable('worker.via_channel_unreadable');
+    }
+    if (via === null) {
+      // The foreign key makes this unreachable while it holds. Refused rather than sent as
+      // the channel's own id, which on Instagram is not a Page and would fail every send.
+      fx.log('error', 'via_channel_missing', { tenantId, channelId, viaChannelId });
+      return ok({ dropped: 'via_channel_missing' });
+    }
+    pageId = String((via as Record<string, unknown>)['external_id'] ?? '');
+  }
+  const tokenChannelId = viaChannelId ?? undefined;
+  const viaToken = tokenChannelId === undefined ? {} : { tokenChannelId };
+  // Instagram's text limit is 1000 BYTES; Messenger's is far above any reply (D-141).
+  const maxTextBytes = provider === 'instagram' ? INSTAGRAM_MAX_TEXT_BYTES : undefined;
+  // In `shadow`, these senders are answered for real — the founder trying a channel from
+  // their own account before anyone else is (D-141). Ignored in every other mode.
+  const testSenders: ReadonlySet<string> = new Set(
+    deliveryMode === 'shadow' && Array.isArray(c['test_sender_ids'])
+      ? (c['test_sender_ids'] as unknown[]).filter((v): v is string => typeof v === 'string' && v !== '')
+      : [],
+  );
   // Read here so the recovery write at the end costs nothing on a healthy channel: the
   // common case is `active`, and then no statement is issued at all. See `channel/recover`.
   const channelStatus = String(c['status'] ?? '');
@@ -616,7 +673,7 @@ async function runReceptionDelivery(
       }));
     const handover = await recordHandover(db, {
       tenantId, channelId, ourAppId: metaAppId, entry: rawPayload, echoes,
-      automationTexts, deliveryMode, now,
+      automationTexts, deliveryMode, liveFor: testSenders, now,
     });
     // `echoes > 0` is in this condition and the other three are not enough without it.
     // In `shadow` an echo moves nothing, so `events`, `changed` and `echoTakeovers` are
@@ -744,6 +801,8 @@ async function runReceptionDelivery(
   const notGenerated: string[] = [];
 
   for (const message of messages) {
+    // Delivered for real: a `live` channel, or a listed tester on a `shadow` one (D-141).
+    const deliverThis = delivery.deliver || testSenders.has(message.senderId);
     // A missing Meta timestamp arrives as an invalid date; treating it as `now` stops it
     // reading as 1970 and being dropped as stale for the wrong reason.
     const eventAt = Number.isNaN(message.sentAt.getTime()) ? now : message.sentAt;
@@ -757,7 +816,8 @@ async function runReceptionDelivery(
       // Best-effort: the person layer exists for consent, and a first message should not
       // fail because it had a bad day. A missing person is visible in the row.
       const person = await ensurePerson(db, {
-        tenantId, contactId: contact.value.contactId, kind: 'psid', externalId: message.senderId,
+        tenantId, contactId: contact.value.contactId,
+        kind: provider === 'instagram' ? 'igsid' : 'psid', externalId: message.senderId,
       });
       if (!person.ok) fx.log('error', 'person_failed', { detail: person.detail });
     }
@@ -962,7 +1022,7 @@ async function runReceptionDelivery(
 
     // The chokepoint. Nothing downstream may re-implement any part of this.
     const guard = await withTenantRole(db, {
-      tenantId, role: 'reception', surface: 'reception', channel: 'facebook_page',
+      tenantId, role: 'reception', surface: 'reception', channel: provider,
       estimate: RECEPTION_REPLY_ESTIMATE, conversationId, webhookEventId: eventId, now, timezone,
     });
 
@@ -1015,8 +1075,8 @@ async function runReceptionDelivery(
     // by then, `typing_off` follows once it does. A model reply takes seconds, so its bubble
     // has always landed and nothing extra is sent.
     let typingSettled = false;
-    const typing: Promise<void> | null = delivery.deliver
-      ? fx.showTyping({ tenantId, channelId, recipientId: message.senderId })
+    const typing: Promise<void> | null = deliverThis
+      ? fx.showTyping({ tenantId, channelId, recipientId: message.senderId, pageId, ...viaToken })
         .catch((e: unknown) => {
           fx.log('info', 'typing_indicator_failed', {
             externalId: message.externalId, detail: e instanceof Error ? e.message : String(e),
@@ -1096,6 +1156,7 @@ async function runReceptionDelivery(
         history: priorTurns, refusal: outcome.refusal !== undefined,
         threadControl: threadState === 'unreadable' ? 'unreadable' : threadState.control,
         ctx,
+        ...(provider === 'instagram' ? { channelLabel: 'Instagram' } : {}),
       })).catch(() => undefined).finally(() => { salesSettled = true; }),
       SALES_SHADOW_WAIT_MS,
     );
@@ -1108,8 +1169,8 @@ async function runReceptionDelivery(
     // the send nothing, and as late as the send path allows.
     const [traced, held, spoke] = await Promise.all([
       tracing,
-      delivery.deliver ? claim(db, { id: outcome.outboundId, tenantId, now }) : Promise.resolve(null),
-      delivery.deliver
+      deliverThis ? claim(db, { id: outcome.outboundId, tenantId, now }) : Promise.resolve(null),
+      deliverThis
         ? personRepliedSince(db, {
           tenantId, channelId, conversationId, psid: message.senderId, eventId, since: eventAt, ourAppId: metaAppId,
           automationTexts,
@@ -1124,10 +1185,10 @@ async function runReceptionDelivery(
       });
     }
     clock.lap('trace');
-    if (held === null || !delivery.deliver) {
+    if (held === null || !deliverThis) {
       // Generated and deliberately not sent. The row stays `draft`, so the day the
       // channel goes live it is claimable rather than lost.
-      fx.log('info', 'not_delivering', { tenantId, channelId, detail: delivery.deliver ? '' : delivery.detail });
+      fx.log('info', 'not_delivering', { tenantId, channelId, detail: !deliverThis && !delivery.deliver ? delivery.detail : '' });
       continue;
     }
     clock.lap('claim');
@@ -1180,6 +1241,8 @@ async function runReceptionDelivery(
       body: held.body,
       attempts: held.attempts,
       graphVersion,
+      ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
+      ...(maxTextBytes === undefined ? {} : { maxTextBytes }),
     });
 
     if (typingLate && typing !== null) {
@@ -1187,7 +1250,7 @@ async function runReceptionDelivery(
       // decoration, and the lambda must not hang on it.
       await settleWithin(typing, TYPING_WAIT_MS);
       await settleWithin(
-        fx.showTyping({ tenantId, channelId, recipientId: message.senderId, action: 'typing_off' }).catch(() => {}),
+        fx.showTyping({ tenantId, channelId, recipientId: message.senderId, pageId, ...viaToken, action: 'typing_off' }).catch(() => {}),
         TYPING_WAIT_MS,
       );
       fx.log('info', 'typing_cleared_after_reply', { externalId: message.externalId });
