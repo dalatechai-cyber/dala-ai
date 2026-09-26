@@ -1158,3 +1158,92 @@ test('a retried «1» still sends the chat before the public line that claims it
   assert.equal(r.refused['thread_already_answered'], 1);
   assert.deepEqual(seq, ['private', 'public']);
 });
+
+// ---------------------------------------------------------------------------
+// D-145: «comment 1» on Instagram
+// ---------------------------------------------------------------------------
+
+const IG_ACCOUNT = '17841417491117031';
+const igComment = (text: string, from = 'igsid_1', id = 'igc_1') =>
+  ({ id: IG_ACCOUNT, time: Math.floor(NOW.getTime() / 1000) - 60, changes: [{ field: 'comments', value: { id, text, from: { id: from, username: 'bold' }, media: { id: 'igm_1' } } }] });
+const IG_INPUT: Partial<CommentJobInput> = {
+  config: BOTH, provider: 'instagram', selfId: IG_ACCOUNT, pageExternalId: PAGE, tokenChannelId: 'c-page', ruleKeys: ['cta_one'],
+};
+
+/** The effects' arguments, as sent: which edge, which Page, whose token. */
+function captured(over: Parameters<typeof stubFx>[0], input: Partial<CommentJobInput>) {
+  const s = stubFx(over);
+  const calls: Record<string, unknown>[] = [];
+  const seq: string[] = [];
+  const pub = s.fx.replyToComment;
+  const priv = s.fx.sendPrivateReply;
+  const look = s.fx.lookupComment;
+  s.fx.replyToComment = async (a) => { seq.push('public'); calls.push({ fn: 'public', ...a }); return pub(a); };
+  s.fx.sendPrivateReply = async (a) => { seq.push('private'); calls.push({ fn: 'private', ...a }); return priv(a); };
+  s.fx.lookupComment = async (a) => { calls.push({ fn: 'lookup', ...a }); return look(a); };
+  return { ...s, calls, seq, result: runCommentJob(s.fx, { ...baseInput, ...input }) };
+}
+
+test('DONE-TEST: «1» UNDER AN INSTAGRAM POST GETS THE SAME PAIR, CHAT FIRST, THROUGH THE PAGE', async () => {
+  const { ops, calls, seq, result } = captured({ tables: ctaTables() }, { ...IG_INPUT, rawPayload: igComment('1 👍') });
+  const r = await result;
+  assert.deepEqual(drafts(ops), [['comment_reply', CTA_PUBLIC], ['private_reply', CTA_PRIVATE]]);
+  assert.deepEqual(seq, ['private', 'public']);
+  assert.equal(r.privateSent, 1);
+  assert.equal(r.replied, 1);
+  const pub = calls.find((c) => c['fn'] === 'public');
+  const priv = calls.find((c) => c['fn'] === 'private');
+  const look = calls.find((c) => c['fn'] === 'lookup');
+  assert.equal(pub?.['provider'], 'instagram', 'answered at /replies');
+  assert.equal(pub?.['tokenChannelId'], 'c-page');
+  assert.equal(priv?.['pageId'], PAGE, 'the private reply is a Page send');
+  assert.equal(priv?.['commentId'], 'igc_1');
+  assert.equal(priv?.['tokenChannelId'], 'c-page');
+  assert.equal(look?.['provider'], 'instagram');
+  assert.equal(look?.['text'], '1 👍');
+});
+
+test('a real question on Instagram gets nothing new: silent and recorded, no model, no send', async () => {
+  const { posted, privates, ops, result } = run({ tables: ctaTables() }, { ...IG_INPUT, rawPayload: igComment('Үнэ хэд вэ?') });
+  const r = await result;
+  assert.equal(posted.length + privates.length, 0);
+  assert.equal(r.refused['comment_unclassified'], 1);
+  assert.ok(ops.some((o) => o.table === 'quality_flags' && o.op === 'insert'), 'on the to-do list');
+});
+
+test('our own Instagram comment never triggers it', async () => {
+  const { posted, privates, result } = run({ tables: ctaTables() }, { ...IG_INPUT, rawPayload: igComment('1', IG_ACCOUNT) });
+  const r = await result;
+  assert.equal(posted.length + privates.length, 0);
+  assert.deepEqual(r.skipped, ['comment_self']);
+});
+
+test('DONE-TEST: IN SHADOW ONLY THE LISTED TESTER IS ANSWERED ON INSTAGRAM', async () => {
+  const tester = run({ tables: ctaTables() }, { ...IG_INPUT, commentMode: 'shadow', testSenderIds: ['igsid_1'], rawPayload: igComment('1') });
+  const t = await tester.result;
+  assert.equal(t.privateSent, 1);
+  assert.equal(t.replied, 1);
+  const stranger = run({ tables: ctaTables() }, { ...IG_INPUT, commentMode: 'shadow', testSenderIds: ['someone_else'], rawPayload: igComment('1') });
+  const s = await stranger.result;
+  assert.equal(stranger.posted.length + stranger.privates.length, 0);
+  assert.equal(s.drafted, 1);
+  assert.equal(s.privateDrafted, 1);
+  // Off answers nobody, testers included.
+  const off = run({ tables: ctaTables() }, { ...IG_INPUT, commentMode: 'off', testSenderIds: ['igsid_1'], rawPayload: igComment('1') });
+  await off.result;
+  assert.equal(off.posted.length + off.privates.length, 0);
+});
+
+test('an allow-list naming no live rule is reported once, never retried', async () => {
+  const { posted, privates, logs, result } = run({ tables: ctaTables() }, { ...IG_INPUT, ruleKeys: ['no_such_rule'], rawPayload: igComment('1') });
+  const r = await result;
+  assert.equal(r.retry, false);
+  assert.equal(posted.length + privates.length, 0);
+  assert.ok(logs.includes('comment_rule_keys_match_nothing'));
+});
+
+test('Facebook is unchanged by the allow-list column being absent: every rule still reads', async () => {
+  const { ops, result } = run({ tables: ctaTables() }, { config: BOTH, rawPayload: entry([comment({ message: 'Үнэ хэд вэ?' })]) });
+  await result;
+  assert.deepEqual(drafts(ops), [['comment_reply', GENERAL_PUBLIC], ['private_reply', GENERAL_PRIVATE]]);
+});

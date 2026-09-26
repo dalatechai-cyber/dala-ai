@@ -57,6 +57,11 @@ export type CommentSendInput = {
   body: string;
   token: string;
   graphVersion: string;
+  /**
+   * The edge the reply is posted to: a Page comment is answered at `/{comment-id}/comments`,
+   * an Instagram comment at `/{ig-comment-id}/replies` (D-145). Default: the Page's.
+   */
+  edge?: 'comments' | 'replies';
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
 };
@@ -119,7 +124,7 @@ export async function sendCommentReply(input: CommentSendInput): Promise<Comment
   }
 
   const doFetch = input.fetchImpl ?? fetch;
-  const url = `https://graph.facebook.com/${input.graphVersion}/${encodeURIComponent(input.commentId)}/${REPLY_EDGE}`;
+  const url = `https://graph.facebook.com/${input.graphVersion}/${encodeURIComponent(input.commentId)}/${input.edge ?? REPLY_EDGE}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? DEFAULT_SEND_TIMEOUT_MS);
 

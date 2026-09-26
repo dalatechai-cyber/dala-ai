@@ -729,6 +729,12 @@ none are kept on a complaint or a refusal. NULL, or a malformed value, changes n
 - `reply_cases.channel text not null default 'facebook_page'`, CHECK `facebook_page | web`: the
   channel a case is answered as. Every existing case keeps its meaning.
 
+### `0059_channel_comment_rule_keys`
+
+**Additive.** `tenant_channels.comment_rule_keys text[]` (nullable): when set, only those
+`comment_rules` (by `rule_key`) classify the channel's comments; every other comment is
+unclassified (silent, recorded). NULL on every existing row: every rule, as before (D-145).
+
 ### `0058_comment_rule_lines`
 
 **Additive.** A comment rule may answer with its own pair of lines (D-144):

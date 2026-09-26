@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractComments } from './comments.ts';
+import { extractComments, extractInstagramComments } from './comments.ts';
 
 const PAGE = '100000000000001';
 const CREATED = 1_756_900_000; // seconds
@@ -168,4 +168,35 @@ test('several comments in one entry are all returned', () => {
     PAGE,
   );
   assert.deepEqual(comments.map((c) => c.commentId), ['a', 'b']);
+});
+
+// ---------------------------------------------------------------------------
+// Instagram comments (D-145): the `comments` field, not the Page `feed`
+// ---------------------------------------------------------------------------
+
+const IG = '17841417491117031';
+const igEntry = (value: Record<string, unknown>, field = 'comments') => ({ id: IG, time: 1790450000, changes: [{ field, value }] });
+
+test('DONE-TEST: AN INSTAGRAM COMMENT IS READ FROM ITS OWN SHAPE', () => {
+  const r = extractComments(igEntry({ id: 'c1', text: '1 👍', from: { id: 'igsid_1', username: 'bold' }, media: { id: 'm1', media_product_type: 'FEED' } }), IG, 'instagram');
+  assert.deepEqual(r.skipped, []);
+  assert.deepEqual(r.comments[0], {
+    commentId: 'c1', postId: 'm1', fromId: 'igsid_1', fromName: 'bold', text: '1 👍',
+    createdAt: new Date(1790450000 * 1000), threadId: 'c1', postPermalink: null,
+  });
+  // `comment_id` in place of `id` — Meta's reference pages show both.
+  assert.equal(extractInstagramComments(igEntry({ comment_id: 'c2', text: '1', from: { id: 'u' }, media: { id: 'm1' } }), IG).comments[0]?.commentId, 'c2');
+});
+
+test('a reply keeps its thread root; our own comment and a Page-shaped change are not customers', () => {
+  const reply = extractInstagramComments(igEntry({ id: 'c3', parent_id: 'c1', text: '1', from: { id: 'u' }, media: { id: 'm1' } }), IG);
+  assert.equal(reply.comments[0]?.threadId, 'c1');
+  assert.deepEqual(extractInstagramComments(igEntry({ id: 'c4', text: '1', from: { id: IG }, media: { id: 'm1' } }), IG).skipped, ['comment_self']);
+  assert.deepEqual(extractInstagramComments(igEntry({ id: 'c5', text: '1', from: { id: 'x', self_ig_scoped_id: 'y' }, media: { id: 'm1' } }), IG).skipped, ['comment_self']);
+  assert.deepEqual(extractInstagramComments(igEntry({ item: 'comment' }, 'feed'), IG).skipped, ['not_a_comment']);
+  assert.deepEqual(extractInstagramComments(igEntry({ id: 'c6', text: '1', from: { id: 'u' } }), IG).skipped, ['malformed']);
+});
+
+test('the Facebook reader is unchanged: it never reads an Instagram change', () => {
+  assert.deepEqual(extractComments(igEntry({ id: 'c1', text: '1', from: { id: 'u' }, media: { id: 'm1' } }), IG).skipped, ['not_a_comment']);
 });

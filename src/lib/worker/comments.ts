@@ -169,6 +169,10 @@ export type CommentEffects = {
     commentId: string;
     body: string;
     graphVersion: string;
+    /** Which surface the comment is on; decides the reply edge (D-145). Absent: the Page. */
+    provider?: CommentProvider;
+    /** The channel whose `page_token` is used, when not `channelId` (Instagram, D-145). */
+    tokenChannelId?: string;
   }) => Promise<CommentSendOutcome>;
   /**
    * The private message to the commenter (D-122): `POST /{page-id}/messages` with
@@ -181,6 +185,8 @@ export type CommentEffects = {
     commentId: string;
     body: string;
     graphVersion: string;
+    /** The channel whose `page_token` is used, when not `channelId` (Instagram, D-145). */
+    tokenChannelId?: string;
   }) => Promise<PrivateReplyOutcome>;
   /** Tags and post age from Graph (`comments/lookup.ts`). Never throws; unknown is null. */
   lookupComment: (args: {
@@ -190,6 +196,10 @@ export type CommentEffects = {
     commentId: string;
     postId: string;
     graphVersion: string;
+    /** Instagram reads tags from the text and the post's age from the media (D-145). */
+    provider?: CommentProvider;
+    text?: string;
+    tokenChannelId?: string;
   }) => Promise<CommentLookup>;
   /**
    * Tell the founder a complaint landed on the wall (D-122). Best effort: the flag row is
@@ -206,11 +216,37 @@ export type PrivateReplyOutcome =
   | { outcome: 'failed'; retryable: boolean; failure: string; detail: string }
   | { outcome: 'indeterminate'; detail: string };
 
+/** The surface a comment is on (D-145). */
+export type CommentProvider = 'facebook_page' | 'instagram';
+
 export type CommentJobInput = {
   tenantId: string;
   channelId: string;
-  /** The channel's `external_id`: the Page. Used to spot the Page's own comments. */
+  /**
+   * The Page the private reply is sent AS. On Facebook the channel's own `external_id`; on
+   * Instagram the Page the account is connected to (D-145).
+   */
   pageExternalId: string;
+  /** Absent: `facebook_page`, and every field below reads as it always has. */
+  provider?: CommentProvider;
+  /**
+   * The account the posts belong to — used to spot our OWN comments. The Page on Facebook
+   * (the default, `pageExternalId`); the Instagram account's id on Instagram.
+   */
+  selfId?: string;
+  /** The channel whose `page_token` the sends use, when not `channelId` (Instagram). */
+  tokenChannelId?: string;
+  /**
+   * `tenant_channels.comment_rule_keys` (D-145): when set, only these of the tenant's rules
+   * are read on this channel; every other comment is unclassified — silent and recorded.
+   * Null or absent: every rule.
+   */
+  ruleKeys?: readonly string[] | null;
+  /**
+   * `tenant_channels.test_sender_ids`: in comment `shadow`, a comment from one of these is
+   * answered for real (D-145), so a channel can be tried from one account first.
+   */
+  testSenderIds?: readonly string[];
   /**
    * `tenant_channels.automation_texts`: a Page comment with one of these texts is Meta's
    * auto-reply, not staff answering (D-126 addendum). Absent reads as none.
@@ -591,7 +627,7 @@ function staffGateFor(
   return () => {
     memo ??= (async (): Promise<StaffGate> => {
       const activity = await readStaffActivity(fx.db, {
-        tenantId: input.tenantId, pageId: input.pageExternalId, automationTexts: input.automationTexts ?? [], postIds: [comment.postId],
+        tenantId: input.tenantId, pageId: input.selfId ?? input.pageExternalId, automationTexts: input.automationTexts ?? [], postIds: [comment.postId],
       });
       if (!activity.ok) {
         fx.log('error', 'comment_staff_unreadable_before_send', { commentId: comment.commentId, detail: activity.detail });
@@ -642,7 +678,10 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     replied: 0, privateSent: 0, drafted: 0, privateDrafted: 0, refused: {}, skipped: [], retry: false,
   };
 
-  const { comments, skipped } = extractComments(input.rawPayload, input.pageExternalId);
+  const provider: CommentProvider = input.provider ?? 'facebook_page';
+  const selfId = input.selfId ?? input.pageExternalId;
+  const testers = new Set(input.commentMode === 'shadow' ? input.testSenderIds ?? [] : []);
+  const { comments, skipped } = extractComments(input.rawPayload, selfId, provider);
   result.skipped = skipped;
   if (comments.length === 0) return result;
 
@@ -674,10 +713,22 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
   // mechanism ships: "the classifier has no rules" and "every comment was noise" must not
   // produce the same counters, because the first is a configuration the operator has to
   // finish and the second is a quiet day.
-  const rules = await readCommentRules(fx.db, { tenantId: input.tenantId });
-  if (!rules.ok) {
-    fx.log('error', 'comment_rules_unreadable', { tenantId: input.tenantId, detail: rules.detail });
+  const read = await readCommentRules(fx.db, { tenantId: input.tenantId });
+  if (!read.ok) {
+    fx.log('error', 'comment_rules_unreadable', { tenantId: input.tenantId, detail: read.detail });
     result.retry = true;
+    return result;
+  }
+  // The channel's allow-list (D-145). Instagram answers «1» and nothing else until the
+  // founder decides otherwise; every other comment there reads as unclassified — silent,
+  // and recorded for the to-do list, which is what a comment no rule claims always gets.
+  const allowed = input.ruleKeys ?? null;
+  const rules = allowed === null ? read : { ok: true as const, rules: read.rules.filter((r) => allowed.includes(r.ruleKey)) };
+  if (allowed !== null && rules.rules.length === 0) {
+    // An allow-list naming no live rule is a configuration nobody finished, not a transient
+    // failure: retrying cannot fix it, so it is said once per entry and the entry is done.
+    fx.log('error', 'comment_rule_keys_match_nothing', { tenantId: input.tenantId, channelId: input.channelId, keys: allowed });
+    for (const _ of comments) count(result.refused, 'comment_unclassified');
     return result;
   }
 
@@ -748,7 +799,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
   // needs it in the same breath.
   const staffActivity = await readStaffActivity(fx.db, {
     tenantId: input.tenantId,
-    pageId: input.pageExternalId,
+    pageId: selfId,
     automationTexts: input.automationTexts ?? [],
     postIds: [...new Set(comments.map((c) => c.postId))],
   });
@@ -858,7 +909,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       // answered therefore looks for this thread's and this person's rows still waiting
       // (`draft` or `failed`) and sends them; a row already sent is left alone, and the
       // claim's CAS keeps a second worker from sending the same row twice.
-      if (delivery.deliver
+      if ((delivery.deliver || testers.has(comment.fromId))
           && (decision.refusal === 'thread_already_answered' || decision.refusal === 'person_already_answered')) {
         const resumed = await resumePending(fx, input, comment, result, { bodies: claimingBodies, fallback: general });
         if (resumed === 'retry') return result;
@@ -942,7 +993,8 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     // Decided and written down, and deliberately not posted. The rows stay `draft`, so the
     // day the switch goes live they are claimable rather than lost — the same disposition
     // `worker/reception.ts` gives a withheld DM.
-    if (!delivery.deliver) {
+    // A listed tester on a `shadow` channel is answered for real (D-145).
+    if (!delivery.deliver && !testers.has(comment.fromId)) {
       fx.log('info', 'comments_not_delivering', {
         tenantId: input.tenantId, threadId: decision.threadId, detail: delivery.detail,
       });
@@ -996,8 +1048,10 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
 async function safeLookup(fx: CommentEffects, input: CommentJobInput, comment: InboundComment): Promise<CommentLookup> {
   try {
     return await fx.lookupComment({
-      tenantId: input.tenantId, channelId: input.channelId, pageId: input.pageExternalId,
+      tenantId: input.tenantId, channelId: input.channelId, pageId: input.selfId ?? input.pageExternalId,
       commentId: comment.commentId, postId: comment.postId, graphVersion: input.graphVersion,
+      ...(input.provider === undefined ? {} : { provider: input.provider, text: comment.text }),
+      ...(input.tokenChannelId === undefined ? {} : { tokenChannelId: input.tokenChannelId }),
     });
   } catch (e) {
     return { tagsPerson: null, postCreatedAt: null, problems: [`lookup threw: ${e instanceof Error ? e.name : 'unknown'}`] };
@@ -1135,6 +1189,8 @@ async function sendPublic(
     // The STORED body, as everywhere else: a redelivery re-posts what was written.
     body: held.body,
     graphVersion: input.graphVersion,
+    ...(input.provider === undefined ? {} : { provider: input.provider }),
+    ...(input.tokenChannelId === undefined ? {} : { tokenChannelId: input.tokenChannelId }),
   });
   if (sent.outcome === 'sent') {
     await markSent(fx.db, {
@@ -1184,6 +1240,7 @@ async function sendPrivate(
     commentId,
     body: held.body,
     graphVersion: input.graphVersion,
+    ...(input.tokenChannelId === undefined ? {} : { tokenChannelId: input.tokenChannelId }),
   });
   if (sent.outcome === 'sent') {
     await markSent(fx.db, {

@@ -10502,3 +10502,45 @@ not exist yet:
   per comment, within 7 days); the post-age read from the media's `timestamp`. Staff and tag
   checks need an Instagram equivalent.
 - Then the Instagram channel's `comment_policy`, shadow first.
+
+## D-145 — «Comment 1» on Instagram, behind a switch that is off (2026-09-26)
+
+Founder, 2026-09-26: the same «1» call to action under DalaTech's Instagram posts (@dalatech_,
+tenant #0's live Instagram channel) — same private message, same public reply, same rules:
+chat first, the public line claims the chat only if it went, one per person per post, our own
+comments ignored, no model call. `instagram_manage_comments`: Standard access, Ready to use
+(founder, checked in the App Dashboard).
+
+**What Instagram sends and takes** (Meta's Instagram webhooks, IG Comment and Private Replies
+references, read through Context7):
+- **Webhook:** `object: instagram`, field `comments`, value `{ id | comment_id, text, parent_id?,
+  from { id, username, self_ig_scoped_id? }, media { id, … } }`, with no verb and no time of its own
+  (`entry.time` stands in). `meta/comments.ts` `extractInstagramComments` reads it. The Page
+  `feed` reader is untouched.
+- **Public reply:** `POST /{ig-comment-id}/replies`, where Facebook uses `/comments`.
+- **Private reply:** `recipient.comment_id`, sent as a Page send with the Page token, as every
+  Instagram DM is (D-141).
+- **Lookup:** post age from the media `timestamp`; a tag is an `@username` in the text.
+- **Our own comments:** `from.id` = the Instagram account, or `self_ig_scoped_id` present.
+- **Dedup:** the key now reads an Instagram comment's `id`.
+
+**One channel, not the whole tenant.** Comment rules are per tenant. `0059` adds
+`tenant_channels.comment_rule_keys`: Instagram reads `{cta_one}` only, and Facebook (NULL) keeps
+every rule. A comment with a real question on Instagram is therefore unclassified — silent, and
+recorded on the to-do list.
+
+**The switch:** the channel's `comment_delivery_mode`, `off` today.
+`scripts/provision/instagram-comments.sql` sets `shadow` with the allow-list, where
+`test_sender_ids` (the D-141 tester list) are answered for real and everyone else is drafted;
+`live` answers everybody. Caps as on the Page: 365 days, 20 public replies per post per day.
+
+**Instagram comments with a real question, today and recommended.** Today nothing happens:
+the channel's comments are off, and the Instagram webhook does not carry `comments` yet. With
+this switched on, they are still silent and recorded. Recommended (not built, founder to
+decide): the Page's treatment — the general public line «… Мессеж бичээрэй …» plus the general
+private hello, and complaints escalated to Telegram — by widening the allow-list to the
+Page's rules (or NULL). Instagram's staff-reply check is blind today: the Page's reads only the
+`feed` shape.
+
+Not verifiable here: whether Standard access delivers comments from accounts with no role on
+the app. The founder's first test from a second, non-role account settles it.
