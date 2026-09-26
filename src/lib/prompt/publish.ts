@@ -234,3 +234,44 @@ export async function loadLiveSnapshot(
     },
   };
 }
+
+export type PublishNeed =
+  | { needed: false }
+  | {
+      needed: true;
+      /** Channels with no snapshot in the live revision: every reply there refuses `no_snapshot`. */
+      missing: string[];
+      /** Channels whose live snapshot is not what this compile would publish. */
+      changed: string[];
+    };
+
+/**
+ * Is a publish needed, judged over EVERY channel the tenant has? (D-142)
+ *
+ * The publish command used to compare the compiled prefix with ONE channel's live snapshot —
+ * the first provider in its list — and print «byte-identical … Nothing to publish» when that
+ * one matched. A channel added since the last publish has no snapshot at all, so it could
+ * never be published: measured 2026-09-26, tenant #0's new Instagram channel, with rows in
+ * `config_snapshots` for `facebook_page` and `web` only, and every Instagram message bound
+ * for `no_snapshot`. Nothing is "identical" to a snapshot that does not exist.
+ *
+ * `live` is `loadLiveSnapshot` per channel. An `unavailable` read is not an answer and is
+ * refused by the caller before this is asked; `no_live_revision` and `no_snapshot` both mean
+ * that channel has nothing to serve.
+ */
+export function publishNeeded(
+  channels: readonly string[],
+  live: ReadonlyMap<string, LoadOutcome>,
+  compiled: { contentHash: string; cannedHash: string | null },
+): PublishNeed {
+  const missing: string[] = [];
+  const changed: string[] = [];
+  for (const channel of channels) {
+    const got = live.get(channel);
+    if (got === undefined || !got.ok) { missing.push(channel); continue; }
+    if (got.snapshot.contentHash !== compiled.contentHash || got.snapshot.cannedHash !== compiled.cannedHash) {
+      changed.push(channel);
+    }
+  }
+  return missing.length === 0 && changed.length === 0 ? { needed: false } : { needed: true, missing, changed };
+}

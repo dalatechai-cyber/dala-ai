@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadLiveSnapshot, publishRevision, rollbackTo } from './publish.ts';
+import { loadLiveSnapshot, publishNeeded, publishRevision, rollbackTo } from './publish.ts';
+import type { LoadOutcome } from './publish.ts';
 import type { Rendered } from './render.ts';
 
 const RENDERED: Rendered = {
@@ -199,4 +200,41 @@ test('an unreadable tenants row refuses rather than guessing', async () => {
 test('a missing snapshot for the channel refuses', async () => {
   const r = await loadLiveSnapshot(stubDb({ snapshotRow: null }).db, { tenantId: 't-1', channel: 'instagram' });
   assert.equal(!r.ok && r.code, 'no_snapshot');
+});
+
+// ---------------------------------------------------------------------------
+// D-142: a publish is judged over every channel, not the first one
+// ---------------------------------------------------------------------------
+
+const snap = (channel: string, contentHash: string, cannedHash: string | null = 'c1') => ({
+  ok: true as const,
+  snapshot: { revisionId: 'r', channel, contentHash, promptStable: '', allowedNumbers: [], cannedHash, promptGate: null },
+});
+const noSnap = { ok: false as const, code: 'no_snapshot' as const, detail: 'no snapshot for channel instagram' };
+const COMPILED = { contentHash: 'h1', cannedHash: 'c1' };
+
+test('DONE-TEST: A NEW CHANNEL WITH NO SNAPSHOT NEEDS A PUBLISH, even when the others are identical', () => {
+  // Measured 2026-09-26: tenant #0 had snapshots for facebook_page and web; its new Instagram
+  // channel had none, and the command said «Nothing to publish».
+  const live = new Map<string, LoadOutcome>([['facebook_page', snap('facebook_page', 'h1')], ['web', snap('web', 'h1')], ['instagram', noSnap]]);
+  assert.deepEqual(publishNeeded(['facebook_page', 'web', 'instagram'], live, COMPILED),
+    { needed: true, missing: ['instagram'], changed: [] });
+  // The order of the channel list does not matter: first or last, it is found.
+  assert.deepEqual(publishNeeded(['instagram', 'facebook_page'], live, COMPILED),
+    { needed: true, missing: ['instagram'], changed: [] });
+});
+
+test('every channel identical is the only "nothing to publish"', () => {
+  const live = new Map([['facebook_page', snap('facebook_page', 'h1')], ['web', snap('web', 'h1')]]);
+  assert.deepEqual(publishNeeded(['facebook_page', 'web'], live, COMPILED), { needed: false });
+});
+
+test('a changed prefix, a changed canned hash, or no live revision at all each need a publish', () => {
+  assert.deepEqual(publishNeeded(['facebook_page'], new Map([['facebook_page', snap('facebook_page', 'h0')]]), COMPILED),
+    { needed: true, missing: [], changed: ['facebook_page'] });
+  assert.deepEqual(publishNeeded(['facebook_page'], new Map([['facebook_page', snap('facebook_page', 'h1', null)]]), COMPILED),
+    { needed: true, missing: [], changed: ['facebook_page'] });
+  const none = { ok: false as const, code: 'no_live_revision' as const, detail: '' };
+  assert.deepEqual(publishNeeded(['facebook_page'], new Map([['facebook_page', none]]), COMPILED),
+    { needed: true, missing: ['facebook_page'], changed: [] });
 });

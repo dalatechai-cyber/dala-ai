@@ -38,7 +38,7 @@
  */
 import { compileAndPublish, compileStablePrefix } from '../../src/lib/prompt/sections.ts';
 import { comparePlatformBlocks, type LiveBlock } from '../prompt/blockset.ts';
-import { loadLiveSnapshot } from '../../src/lib/prompt/publish.ts';
+import { loadLiveSnapshot, publishNeeded, type LoadOutcome } from '../../src/lib/prompt/publish.ts';
 import { supabasePublish } from '../../src/lib/supabase/clients.ts';
 import { SECTION_LABELS } from '../../src/lib/prompt/tenant.ts';
 import { CLARIFY_BRANCH_KIND, branchNamesFromPrefix } from '../../src/lib/branches/branches.ts';
@@ -82,9 +82,19 @@ if (channelErr) die(`tenant_channels unreadable: ${channelErr.message}`);
 const channels = [...new Set((channelRows ?? []).map((r) => String((r as Record<string, unknown>)['provider'])))];
 if (channels.length === 0) die('this tenant has no channels; a revision with no channel cannot render a reply');
 
-// ---- what is live now ----------------------------------------------------
-const live = await loadLiveSnapshot(db, { tenantId, channel: channels[0] as string });
-const before = live.ok ? live.snapshot : null;
+// ---- what is live now, on EVERY channel -----------------------------------
+// One snapshot per channel, and each is read: a channel added since the last publish has
+// none, and judging by the first channel alone printed «Nothing to publish» for it (D-142).
+// An unreadable read is not an answer, so it stops the run rather than counting as either.
+const liveByChannel = new Map<string, LoadOutcome>();
+for (const channel of channels) {
+  const got = await loadLiveSnapshot(db, { tenantId, channel });
+  if (!got.ok && got.code === 'unavailable') die(`live snapshot for ${channel} unreadable: ${got.detail}`);
+  liveByChannel.set(channel, got);
+}
+// The diff below is printed against one live snapshot; every channel's is the same compile.
+const firstLive = channels.map((c) => liveByChannel.get(c)).find((o) => o?.ok === true);
+const before = firstLive !== undefined && firstLive.ok ? firstLive.snapshot : null;
 
 // ---- what a publish WOULD produce ----------------------------------------
 // ---- the platform blocks this project is actually serving --------------
@@ -188,10 +198,15 @@ if (!hasMarker) {
       handoff line and starts answering from its own knowledge base. Read the order above.\n`);
 }
 
-if (before !== null && before.contentHash === rendered.contentHash) {
-  process.stdout.write('\nThe compiled prefix is byte-identical to the live one. Nothing to publish.\n');
+const need = publishNeeded(channels, liveByChannel, { contentHash: rendered.contentHash, cannedHash: compiled.cannedHash });
+if (!need.needed) {
+  process.stdout.write(`\nThe compiled prefix is byte-identical to the live one on every channel (${channels.join(', ')}). Nothing to publish.\n`);
   process.exit(0);
 }
+if (need.missing.length > 0) {
+  process.stdout.write(`\nNO SNAPSHOT on ${need.missing.join(', ')}: every reply there is refused (no_snapshot) until this is published.\n`);
+}
+if (need.changed.length > 0) process.stdout.write(`\nchanged on ${need.changed.join(', ')}\n`);
 
 // ---- every reply the founder marked wrong, against THIS prefix (D-120) --------
 // Founder, 2026-09-24: *"No publish … that touches replies can go out unless every test
@@ -244,12 +259,15 @@ process.stdout.write(`\nPUBLISHED  seq ${nextSeq}  revision ${out.revisionId}  c
 
 // Read it back through the same loader the worker uses, because the evidence that a publish
 // happened is the reply path being able to see it — not the insert returning without error.
-const after = await loadLiveSnapshot(db, { tenantId, channel: channels[0] as string });
-if (!after.ok) die(`published, but the live snapshot does not load back: ${after.code}`);
-if (after.snapshot.contentHash !== rendered.contentHash) {
-  die(`published, but the live snapshot reads ${after.snapshot.contentHash}, not ${rendered.contentHash}`);
+// Every channel, for the reason the skip check reads every channel (D-142).
+for (const channel of channels) {
+  const after = await loadLiveSnapshot(db, { tenantId, channel });
+  if (!after.ok) die(`published, but the live snapshot for ${channel} does not load back: ${after.code}`);
+  if (after.snapshot.contentHash !== rendered.contentHash) {
+    die(`published, but ${channel}'s live snapshot reads ${after.snapshot.contentHash}, not ${rendered.contentHash}`);
+  }
+  if (after.snapshot.cannedHash !== compiled.cannedHash) {
+    die(`published, but ${channel}'s canned_hash reads ${String(after.snapshot.cannedHash)}, not ${compiled.cannedHash}`);
+  }
 }
-if (after.snapshot.cannedHash !== compiled.cannedHash) {
-  die(`published, but canned_hash reads ${String(after.snapshot.cannedHash)}, not ${compiled.cannedHash}`);
-}
-process.stdout.write('Read back through loadLiveSnapshot: the reply path sees it.\n');
+process.stdout.write(`Read back through loadLiveSnapshot on ${channels.join(', ')}: the reply path sees it.\n`);
