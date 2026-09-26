@@ -678,7 +678,7 @@ nothing. Numbered 0051 because 0050 is taken by parallel work.
 
 | Table | Key | Notes for hand-written INSERTs |
 |---|---|---|
-| `sales_playbooks` | `tenant_id` | `mode` is `off` (default) or `shadow` — **there is no live value**, so nothing can be switched to sending by an UPDATE. `lead_route` NOT NULL: `founder_telegram` / `tenant_telegram` / `page_label` (recorded on each shadow lead; nothing sends to it) |
+| `sales_playbooks` | `tenant_id` | `mode` is `off` (default) or `shadow` — **there is no live value**, so nothing can be switched to sending by an UPDATE. `lead_route` NOT NULL: `founder_telegram` / `tenant_telegram` / `page_label` / `none` (since `0053`) (recorded on each shadow lead; nothing sends to it) |
 | `sales_next_steps` | `(tenant_id, kind)` | `kind` ∈ `demo`/`booking`/`callback`/`related_service`/`lead_thanks`. `body` (NFC) is **NULL until the founder chooses the words**, and `reviewed_at` requires a body. `related_service`'s body must carry `{related}`. `link` is an `https://` URL or NULL. `priority` (lower wins), `is_default` (at most one per tenant, and only `demo`/`booking`/`callback`), `intent_matcher` jsonb — one gate matcher or an array of them, any firing counts |
 | `service_pairings` | `(tenant_id, service_name, related_name)` | Both names as the compiled price list writes them, not equal. **`provenance` NOT NULL with no default**: the platform's proposals are `seeded`; only the salon's yes is `tenant_confirmed` |
 
@@ -693,6 +693,13 @@ id) and `sales_lead_shadow` (when the customer's message carries a phone; `detai
 number MASKED, «7600****», never digits). `scripts/provision/sales-playbook.ts <slug>
 --template salon|software` prints the SQL that switches a tenant's shadow on; it never
 writes a body or `reviewed_at`.
+
+
+### `0053_sales_lead_route_none`
+
+**Additive.** `sales_playbooks.lead_route` also admits `none`: a tenant that takes no leads
+because its staff do not call customers back (Tara, 2026-09-26). A number a customer types
+anyway is still detected and masked by the shadow; only the routing claim is `none`.
 
 ### `0052_demo_url_contact_kind`
 

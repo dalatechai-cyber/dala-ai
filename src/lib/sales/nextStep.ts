@@ -67,7 +67,8 @@ export const LEAD_FLAG = 'sales_lead_shadow';
 export type NextStepKind = 'demo' | 'booking' | 'callback';
 /** `related_service` and `lead_thanks` are rows too, but never the next step itself. */
 export type StepRowKind = NextStepKind | 'related_service' | 'lead_thanks';
-export type LeadRoute = 'founder_telegram' | 'tenant_telegram' | 'page_label';
+/** `none`: the tenant takes no leads — its staff do not call back (Tara, 2026-09-26, `0053`). */
+export type LeadRoute = 'founder_telegram' | 'tenant_telegram' | 'page_label' | 'none';
 
 /**
  * What the tenant's row for a kind can say today. `unwritten` — the row exists with no body
@@ -383,7 +384,7 @@ export function classifyReply(input: {
 // ---- Parsing rows ----------------------------------------------------------------------
 
 const STEP_KINDS: readonly StepRowKind[] = ['demo', 'booking', 'callback', 'related_service', 'lead_thanks'];
-const ROUTES: readonly LeadRoute[] = ['founder_telegram', 'tenant_telegram', 'page_label'];
+const ROUTES: readonly LeadRoute[] = ['founder_telegram', 'tenant_telegram', 'page_label', 'none'];
 
 export type RawPlaybook = {
   mode: unknown;
