@@ -3,11 +3,13 @@
 # (`gateTenant`: the real loader, deterministic rows, pinned lines and every guard), and prints
 # the report — every reply word for word, with its flags — to this run's log and summary.
 #
-# It spends real money (Sonnet 5, about $1.50 a run, capped by --max-calls 80), so it runs
+# It spends real money (Sonnet 5, about $1.50 a run, capped by --max-calls 60), so it runs
 # only on purpose: by hand (workflow_dispatch), or on a push to a branch other than main whose
 # head commit message carries «[testset]». It used to run on a push touching a request file,
 # and resetting a branch to main after a merge counted as such a push: one run nobody asked
 # for (2026-09-26). A merge commit never carries the tag, so a reset cannot start a run.
+# «[gaterepeat]» runs ONLY the gate repeat set (every active case three times, D-134),
+# for measuring whether the publish gate is stable without paying for the full sets again.
 # Needs the ANTHROPIC_API_KEY repository secret.
 # Nothing is written anywhere: the dump is served by a read-only fixture, and testset.ts
 # refuses a dump whose prompt does not hash to its own content_hash.
@@ -20,7 +22,7 @@ on:
 
 jobs:
   testset:
-    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[testset]')
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[testset]') || contains(github.event.head_commit.message, '[gaterepeat]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -30,21 +32,22 @@ jobs:
           node-version: 22
       - run: npm ci --no-audit --no-fund
       - name: Answer the set
+        if: "!contains(github.event.head_commit.message, '[gaterepeat]')"
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           test -n "$ANTHROPIC_API_KEY" || { echo "ANTHROPIC_API_KEY secret is not set"; exit 2; }
           node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --tag ci
       - name: Answer the salesperson set (D-132)
-        if: always()
+        if: always() && !contains(github.event.head_commit.message, '[gaterepeat]')
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --set scripts/bakeoff/dalatech-sales-set.json --tag ci --max-calls 30
-      - name: Answer the repeat set (D-133, x02 eight times)
+      - name: Answer the gate repeat set (D-134, every active case three times)
         if: always()
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --set scripts/bakeoff/dalatech-repeat-set.json --tag ci --max-calls 16
+        run: node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --set scripts/bakeoff/dalatech-gate-repeat-set.json --tag ci --max-calls 60
       - name: Report
         if: always()
         run: |
@@ -52,8 +55,8 @@ jobs:
           cat docs/reports/dalatech-testset.md >> "$GITHUB_STEP_SUMMARY"
           cat docs/reports/dalatech-sales-testset.md || true
           cat docs/reports/dalatech-sales-testset.md >> "$GITHUB_STEP_SUMMARY" || true
-          cat docs/reports/dalatech-repeat-testset.md || true
-          cat docs/reports/dalatech-repeat-testset.md >> "$GITHUB_STEP_SUMMARY" || true
+          cat docs/reports/dalatech-gate-repeat.md || true
+          cat docs/reports/dalatech-gate-repeat.md >> "$GITHUB_STEP_SUMMARY" || true
       - if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -62,5 +65,5 @@ jobs:
             scripts/bakeoff/runs/testset-dalatech-ci.json
             docs/reports/dalatech-testset.md
             docs/reports/dalatech-sales-testset.md
-            docs/reports/dalatech-repeat-testset.md
+            docs/reports/dalatech-gate-repeat.md
           if-no-files-found: warn

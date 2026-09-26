@@ -10086,3 +10086,72 @@ written inside `<reply>` is refused as it always was. This applies to every tena
 
 Case 20 goes back on only after `dalatech-repeat-set.json` (x02 eight times, real model)
 passes eight of eight.
+
+## D-134 — why DalaTech's publish gate flipped, and making it stable (2026-09-26)
+
+Founder, 2026-09-26: three runs of the same configuration, `350f5f01`, minutes apart. The
+dry run passed 36/36. Publish run 1 failed case 23 and publish run 2 failed case 40. *"Find
+out why these replies vary between runs … make the gate reliable … Don't make cases so loose
+they stop catching real problems."*
+
+**Measured, not guessed.** `dalatech-gate-repeat-set.json` runs every active case that
+reaches the model three times over the dump. It is run by a commit tagged `[gaterepeat]`,
+which runs that set alone. The result was 49/51. Each flip had a cause of its own, and the
+two publish failures added two more. There were four causes, none of them "the model is
+random":
+
+1. **A guard swapped the path and dropped the answer (q01, case 25).** The model wrote the
+   price, then a reworded FAQ answer about what the monthly fee covers. `faq_paraphrased`
+   served the stored FAQ answer ALONE, so a price question got no price one run in three.
+   Fixed in code: the price rows the facts guard can show the reply stated now go in front
+   of the stored FAQ answer. Rows only, never the model's words, and none that the FAQ
+   answer already carries.
+2. **A fact the prompt did not have (sd3, case 40).** Nothing in the prefix says how long a
+   demo takes. «Демо хэдэн цагт бэлэн болох вэ?» got the link one run and the handoff line
+   (no link) the next. The founder's approved follow-up already carries the answer:
+   «🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online». A `demo_timing`
+   covers_message row serves that line whole.
+3. **Wording variance on questions that have an approved answer.**
+   - «За тэгвэл Дали авъя. Яах вэ?» (v03) was answered «холбоо барих мэдээллээ … бичээрэй»
+     one run. Another run said you could order Дали at the DEMO link.
+   - «Надад залгаж болох уу?» (sk1) got the callback line only when the reply let the
+     sales line through.
+   - Both now get the approved callback line, from the `purchase_request` and
+     `callback_request` covers_message rows.
+   - covers_message means every word must be a buying/calling word, a product name or
+     filler. Anything that asks more goes to the model.
+   - A complaint about calls («залгаад авахгүй») is never covered.
+4. **An ambiguity D-133 introduced (s01, case 23).** The «Нэр» document said «AI туслахын
+   нэр: Дали.», which made Дали both the assistant and the product. «daly gj yuve» (what is
+   Дали?) was then read as "who are you?" and answered with the assistant_identity line, with
+   no word of what Дали does.
+   - A first rewording ("the assistant in this chat IS Дали, the AI хүлээн авагч") made it
+     worse: 3 runs in 4 on the repeat set.
+   - The document now names the company only. The assistant's name lives in the approved
+     greeting and assistant_who rows, which is where the «Дала апп» greeting was fixed.
+5. **Two rules that contradict each other on a complaint (sc1, case 30).** L4's answer-first
+   reminder says not to open with «Уучлаарай», and D-127 says complaints keep it.
+   - Four runs of «…муухай үйлчилгээ» gave four different openings. One of them was
+     «Уучлаарай гэж хэлэхгүйгээр —», the model reading both rules out loud.
+   - When the tenant's own complaint rows match, `volatileFor` replaces the answer-first
+     reminder with an apology reminder. That is code-owned scaffolding, never sent text.
+
+**And a bug of D-133's own, found while tracing (3).** `deterministic_replies.requires_empty_history`
+defaults to true, and D-133's `thanks` and `greeting` rows did not set it. «Баярлалаа» was
+therefore answered from the row only as a conversation's first message, and a thank-you
+follows an answer, so in practice never. The founder's own «Баярлалаа → Тавтай морил!» was
+mid-conversation. Every row here sets it false.
+- Permanent cases `st2` (thanks) and `sg3` (greeting) are that exact situation: a message
+  arriving after an answer.
+- The founder's live re-test on the 26th confirmed it: «Баярлалаа» got «Тавтай морил!…» and
+  «Сайн байна уу» got «…Танд юугаар туслах вэ?», both from the model.
+- **This was never waiting on a publish.** Deterministic rows are read per request. The fix
+  went live the moment the rows were updated, before any deploy.
+
+**No case was loosened.** Every assertion is as it was. The new exact answers are approved
+lines. The cases that still reach the model (14) are the ones whose answer is the model's
+job, and the repeat set runs every active case three times to prove they hold.
+
+Data: `scripts/provision/dalatech-gate-stable-2026-09-26.sql`. The rows are live when
+applied. The «Нэр» rewording reaches the prefix on the republish, which compiles to
+`ca202860`.

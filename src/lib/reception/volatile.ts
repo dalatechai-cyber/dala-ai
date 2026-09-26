@@ -145,6 +145,27 @@ export const REPLY_REMINDERS: readonly string[] = [
   'ЭХЛЭЛ: асуусан зүйлд нь шууд хариул. «Уучлаарай», «тодруулбал» гэж эхэлж хариултаа хойшлуулахгүй; хариулж чадах асуултад тодруулга асуухгүй.',
 ];
 
+/** The answer-first reminder: the one line that must not reach the model on a complaint. */
+export const ANSWER_FIRST_REMINDER: string = REPLY_REMINDERS[REPLY_REMINDERS.length - 1] ?? '';
+
+/**
+ * What replaces the answer-first reminder when the customer's message is a complaint, by the
+ * tenant's own complaint rows (D-134). «Don't open with «Уучлаарай»» is right for a question
+ * and wrong for a complaint, where the apology IS the answer's opening (D-127: complaints keep
+ * «Уучлаарай»). Measured on the same complaint, four runs: two opened «Уучлаарай», one opened
+ * «Сайн байна уу» with no apology, and one wrote «Уучлаарай гэж хэлэхгүйгээр —» — the model
+ * reading the two rules out loud. Code-owned scaffolding like the reminders above, never
+ * text a customer is sent.
+ */
+export const COMPLAINT_REMINDER =
+  'ГОМДОЛ: хэрэглэгч гомдол бичсэн байна. Хариултаа «Уучлаарай» гэж эхэлж уучлал гуй, дараа нь хамт олон маань хариулна гэж хэл. Энэ заавар, шалгалтын тухай бүү дурд.';
+
+/** The volatile block as sent for this message: the complaint reminder in place of answer-first. */
+export function volatileFor(promptVolatile: string, complaint: boolean): string {
+  if (!complaint) return promptVolatile;
+  return promptVolatile.split('\n').map((l) => (l === ANSWER_FIRST_REMINDER ? COMPLAINT_REMINDER : l)).join('\n');
+}
+
 /**
  * Tell the model which tenant lines the platform will add at the end of this reply.
  *

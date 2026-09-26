@@ -11,6 +11,7 @@ import type { GateRule } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
 import { replyStyleOf } from './style.ts';
+import { ANSWER_FIRST_REMINDER, COMPLAINT_REMINDER } from './volatile.ts';
 import { servicesFromPrefix } from '../quality/serviceNames.ts';
 
 const REVIEWED = '2026-09-04T00:00:00Z';
@@ -1187,5 +1188,36 @@ test('DONE-TEST: at most one emoji in the model\'s words; a tenant with no look 
     const { deps: d, drafts } = deps({ result: { ...OK_REPLY, text } });
     await handleReception(d, { ...base, customerMessage: 'Вэбсайт хийдэг үү', replyStyle: style });
     assert.equal(drafts.at(-1)?.body, want);
+  }
+});
+
+test('DONE-TEST: a price stated beside a reworded FAQ answer SURVIVES the swap, as its row (CI q01r2, D-134)', async () => {
+  // The real reply: the price, then DalaTech's «what the monthly fee covers» FAQ reworded.
+  // Serving the stored FAQ alone left a price question with no price.
+  const FAQ = 'Сарын төлбөрт сервер, загварын ашиглалт, хяналт, мэдээллийн шинэчлэлт, дэмжлэг багтана.';
+  const text = 'Дали — AI хүлээн авагчийн сарын төлбөр 250,000₮. Үүнд сервер, загварын ашиглалт, хяналт, '
+    + 'мэдээллийн шинэчлэлт, дэмжлэг багтдаг. Нэг удаагийн суурилуулалтын төлбөр нь 150,000₮.';
+  const { deps: d, flags, drafts } = deps({ result: { ...OK_REPLY, text } });
+  await handleReception(d, {
+    ...base, customerMessage: 'Дали сард хэд вэ?', promptStable: STAFF_PRICED, replyStyle: LOOK, faqAnswers: [FAQ],
+    serviceNames: servicesFromPrefix(STAFF_PRICED, SECTION_LABELS.priceList),
+    tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['150,000', '250,000'] },
+  });
+  const body = drafts.at(-1)?.body ?? '';
+  assert.ok(body.includes('💰 Сарын төлбөр: 250,000₮'), body);
+  assert.ok(body.endsWith(FAQ), 'the published FAQ answer, as written');
+  assert.match(flags.find((x) => x.code === 'faq_paraphrased')?.detail ?? '', /price row\(s\) the reply stated kept/);
+});
+
+test('DONE-TEST: a complaint reaches the model with the apology reminder, never "don\'t open with «Уучлаарай»" (sc1, D-134)', async () => {
+  const reminders = ['ХАРИУЛТЫН ХЭЛ: x', ANSWER_FIRST_REMINDER].join('\n');
+  const complaint = [{ ruleKey: 'complaint', verdict: 'escalate' as const, matcher: { mode: 'contains_stem', stems: ['муухай'] } }];
+  for (const [message, wantApology] of [['Та нар яагаад хариулахгүй байгаа юм бэ, муухай үйлчилгээ', true], ['Вэбсайт хийдэг үү', false]] as const) {
+    const { deps: d } = deps();
+    let sent = '';
+    d.callModel = async (req) => { sent = req.promptVolatile; return OK_REPLY; };
+    await handleReception(d, { ...base, customerMessage: message, promptVolatile: reminders, complaintRules: complaint });
+    assert.equal(sent.includes(COMPLAINT_REMINDER), wantApology, message);
+    assert.equal(sent.includes(ANSWER_FIRST_REMINDER), !wantApology, message);
   }
 });
