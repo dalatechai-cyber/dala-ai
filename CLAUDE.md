@@ -514,7 +514,8 @@ Ulaanbaatar passes with no digest, check the schedule rather than the code.
 the observation that it cleared: a clean call, a send that went out, an hourly run that no
 longer classifies the credential that way. A key with no period under `daily` or `once` is
 silent for ever after its first row, so ask what closes it before you choose. The digest runs
-on ONE QStash schedule, `0 1 * * *` UTC. `DAILY_REPORT_V2=true` (with `DAILY_REPORT_SECRET`)
+on ONE QStash schedule, `5 16 * * *` UTC (00:05 Ulaanbaatar, founder 2026-09-26) and reports
+the Ulaanbaatar day that has just ended. `DAILY_REPORT_V2=true` (with `DAILY_REPORT_SECRET`)
 merges it into one report and moves non-actionable warnings there via `quietRoute()`. Unset,
 nothing changes.
 

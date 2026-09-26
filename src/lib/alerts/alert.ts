@@ -47,7 +47,7 @@ import { required } from '../env.ts';
 
 export type Severity = 'info' | 'warn' | 'critical';
 
-/** Where the FIRST notification goes. `digest` records it and says nothing until 09:00. */
+/** Where the FIRST notification goes. `digest` records it and says nothing until the daily report. */
 export type AlertRoute = 'now' | 'digest';
 
 /** Whether this condition may raise another row. See the module docstring. */
@@ -218,7 +218,7 @@ export async function raiseAlert(db: SupabaseClient, input: AlertInput): Promise
   if (claimed === 'error') return { outcome: 'failed', detail: 'alerts insert failed' };
 
   // Recorded on purpose and not sent. NOT a failure, and it must not read as one: the row
-  // IS the deliverable here, and 09:00 is when a human meets it.
+  // IS the deliverable here, and the daily report is when a human meets it.
   if (route === 'digest') return { outcome: 'recorded_for_digest' };
 
   // ALERTS_ENABLED=false is the documented dev/CI escape. It suppresses the SEND, never

@@ -9852,3 +9852,22 @@ place that shows it.
 
 A resolved critical is closed without a message; the resolve is logged and `resolved_at` is
 the record.
+
+### D-128 addendum (2026-09-26) — the daily report runs at 00:05 Ulaanbaatar
+
+The founder moved the report to **00:05 Ulaanbaatar (`5 16 * * *` UTC)** so it arrives during
+his US day, and approved the sample. **Keep exactly one QStash schedule for
+`/api/workers/digest`: `5 16 * * *`.** Delete `0 1 * * *` if it exists.
+
+- **This half needed no code.** `reportWindow` and the flaw report take the Ulaanbaatar
+  calendar day before the one the run falls in, which at 00:05 is the day that has just
+  ended. A delivery up to 23h55m late still reports that day. A delivery six minutes EARLY
+  (before local midnight) would report the day before; QStash does not fire early.
+- **dalatech-app's section was wrong at 00:05.** It counted «Шинэ хүсэлт (өнөөдөр)», the
+  requests created in the current Ulaanbaatar day, which at 00:05 is five minutes old and
+  always 0. It now counts the day that just ended, as «Шинэ хүсэлт (өчигдөр)», so it is right
+  at any run time. Follow-ups are unchanged. They count whole days elapsed, so a once-a-day
+  run reaches each of day 3, 7 and 14 exactly once whenever it fires. Both are tested there.
+- Comments, STATUS and the sample now say 00:05. The 3-day re-escalation, the «Yesterday»
+  section and the counters are unaffected: none of them depends on the hour.
+
