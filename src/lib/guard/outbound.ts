@@ -105,6 +105,20 @@ export type OutboundContext = {
    * conversation, which is a product decision rather than a code change.
    */
   customerText: string;
+  /**
+   * Approved lines the platform itself already sent in THIS conversation (D-135): reviewed
+   * canned rows, enabled deterministic rows and reviewed sales lines found in an earlier
+   * assistant turn. Their numerals are on the customer's screen exactly as the customer's
+   * own are, so the model may repeat one — never introduce one. Measured: DalaTech's
+   * follow-up says «24/7» and «24 цагт бэлэн»; neither is in the compiled prefix, so a
+   * reply repeating «24/7» in that conversation was refused `outbound_price` and the
+   * customer got the handoff line (case 42, the founder's publish run, 2026-09-26).
+   *
+   * Only the approved LINES, never the whole earlier turn: a turn the model wrote is not
+   * approved text, and passing it would let a number the guard once let through license
+   * itself. Like `customerText`, not given to check 2b.
+   */
+  shownText?: string;
 };
 
 export type OutboundRefusal =
@@ -492,7 +506,7 @@ export function outboundGuard(
   // Masked on this side too: a customer who pastes a link has not thereby approved the
   // digits in its slug, and the echo set must be produced by the same rule the reply is
   // measured against or the two silently disagree about what a numeral is.
-  const echoed = extractNumerals(maskUrls(ctx.customerText)).map((n) => n.raw);
+  const echoed = extractNumerals(maskUrls(`${ctx.customerText}\n${ctx.shownText ?? ''}`)).map((n) => n.raw);
   // A total computed from approved prices the reply itself states (`shownTotals`).
   const totals = shownTotals(text, tenant.allowedNumbers, tenant.approvedPercentages);
   const badNumbers = numeralsNotAllowed(text, [...tenant.allowedNumbers, ...echoed, ...totals]);

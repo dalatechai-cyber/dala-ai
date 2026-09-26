@@ -10155,3 +10155,42 @@ job, and the repeat set runs every active case three times to prove they hold.
 Data: `scripts/provision/dalatech-gate-stable-2026-09-26.sql`. The rows are live when
 applied. The «Нэр» rewording reaches the prefix on the republish, which compiles to
 `ca202860`.
+
+## D-135 — case 42: a follow-up the model copied, refused as a price (2026-09-26)
+
+The founder's publish run failed again on `ca202860`: case 42 (sq2, «Хэр хурдан ажиллаж
+эхлэх вэ?» after a price answer and the follow-up) was answered by a canned line, with the
+flag `outbound_price`. CI had passed it every time.
+
+**Measured, not guessed.** Case 42 was run fifteen times at the real clock, the way the
+publish script runs it. Two runs failed. In both, the model wrote the right answer and then
+**copied the approved follow-up from the earlier turn into its own reply**:
+«…1–2 долоо хоногт ажиллаж эхэлдэг. 🤖 Таны … 24/7 хариулна. 🎁 Үнэгүй демо, 24 цагт…».
+- «24» and «7» are not in `allowed_numbers`, which is compiled from the prefix only, and the
+  follow-up is not in the prefix.
+- So the numeral guard refused a correct answer and served the fallback.
+- It was not a duration read as a price: «1–2» and «7–10» are on the list and pass.
+
+**Two fixes, each at its own root:**
+1. **The guard.** A numeral in an approved line the platform ALREADY SHOWED in this
+   conversation may be repeated, exactly as a numeral the customer typed may be
+   (`OutboundContext.shownText`, from `shownApprovedLines`).
+   - It is never introduced: 25 is still refused, and «24» licenses 24, never 24,000.
+   - Only approved lines count (reviewed canned, enabled deterministic, reviewed sales),
+     never a turn the model wrote.
+2. **The copy itself.** The follow-up is the platform's to add, once per conversation. A
+   model that retypes it would have offered it twice, even once the guard stopped refusing
+   it. `withoutSalesLines` removes exact lines of the reviewed follow-up from the model's
+   reply, flagged `sales_line_retyped`.
+   - It covers the follow-up only: a callback or demo line the model writes is an answer
+     and stays.
+
+**Why the Mac and CI disagreed.** It was not the key or the settings. Both run the same code
+(`gateTenant` → `runCases` → `handleReception`) on the same prompt hash and the same rows.
+Sonnet 5 takes no sampling parameters, so every run is a fresh sample. A 2-in-15 variant can
+pass three CI runs and fail the next publish. Two real differences are also removed:
+- the gates now retry a transient API error once, as CI always did (`caseModelSeat`);
+- the CI repeat set now runs at the real clock, not a fixed 06:00 UTC.
+
+A failing `outbound_price` case now prints the numerals it refused, so the next one explains
+itself.

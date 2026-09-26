@@ -756,3 +756,17 @@ test('an ordinary heading that is also a real phrase is NOT a leak', () => {
   assert.equal(namesAGate('Урьдчилгаа төлбөр 20,000₮ байна.'), null);
   assert.equal(namesAGate('Үнийн жагсаалт доор байна.'), null);
 });
+
+test('DONE-TEST: a numeral from an approved line ALREADY SHOWN in the conversation may be repeated, never introduced (case 42, D-135)', () => {
+  // DalaTech's follow-up said «24/7» and «24 цагт бэлэн»; neither is in the compiled prefix.
+  const shown = '🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online';
+  const reply = 'Дали 24/7 хариулж, 1–2 долоо хоногт ажиллаж эхэлнэ.';
+  const tenant = { ...MATRIX, allowedNumbers: [...MATRIX.allowedNumbers, '1–2'] };
+  const refused = outboundGuard(tenant, CLEAN, reply);
+  assert.equal(refused.ok, false, 'without the shown line, «24/7» is a numeral nobody approved');
+  assert.equal(outboundGuard(tenant, { ...CLEAN, shownText: shown }, reply).ok, true);
+  // Still no licence to introduce one: 25 is on no shown line.
+  assert.equal(outboundGuard(tenant, { ...CLEAN, shownText: shown }, 'Демо 25 цагт бэлэн.').ok, false);
+  // And «24» licenses 24, not 24,000.
+  assert.equal(outboundGuard(tenant, { ...CLEAN, shownText: shown }, 'Үнэ нь 24,000₮.').ok, false);
+});

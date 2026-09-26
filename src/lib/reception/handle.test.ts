@@ -5,12 +5,13 @@ import { cannedHashOf } from '../prompt/sections.ts';
 import { renderStablePrefix } from '../prompt/render.ts';
 import { renderTenantSections } from '../prompt/tenant.ts';
 import { DAY_ONE_KB } from '../prompt/tenantKb.fixtures.ts';
-import { handleReception, PRICE_VIOLATION_FLAG, type ReceptionDeps, type ReceptionInput } from './handle.ts';
+import { handleReception, PRICE_VIOLATION_FLAG, shownApprovedLines, type ReceptionDeps, type ReceptionInput } from './handle.ts';
 import type { CallOutcome } from '../model/reception.ts';
 import type { GateRule } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
 import { replyStyleOf } from './style.ts';
+import { parsePlaybook } from '../sales/nextStep.ts';
 import { ANSWER_FIRST_REMINDER, COMPLAINT_REMINDER } from './volatile.ts';
 import { servicesFromPrefix } from '../quality/serviceNames.ts';
 
@@ -1220,4 +1221,41 @@ test('DONE-TEST: a complaint reaches the model with the apology reminder, never 
     assert.equal(sent.includes(COMPLAINT_REMINDER), wantApology, message);
     assert.equal(sent.includes(ANSWER_FIRST_REMINDER), !wantApology, message);
   }
+});
+
+test('shownApprovedLines: only approved lines found whole in an earlier assistant turn (D-135)', () => {
+  const FOLLOW = '🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online';
+  const sales = { steps: [{ kind: 'follow_up', body: FOLLOW, reviewed: true, enabled: true }] } as unknown as ReceptionInput['sales'];
+  const history = [
+    { role: 'user' as const, content: 'үнэ хэд вэ' },
+    { role: 'assistant' as const, content: `Үнэ 250,000₮.\n\n${FOLLOW}` },
+  ];
+  assert.equal(shownApprovedLines({ history, canned: [], deterministic: [], sales }), FOLLOW);
+  // A line never shown adds nothing; a model's own turn is never approved text.
+  assert.equal(shownApprovedLines({ history: [{ role: 'assistant', content: 'Демо 99 цагт.' }], canned: [], deterministic: [], sales }), '');
+  // An unreviewed line is never approved text either.
+  const unreviewed = { steps: [{ kind: 'follow_up', body: FOLLOW, reviewed: false, enabled: true }] } as unknown as ReceptionInput['sales'];
+  assert.equal(shownApprovedLines({ history, canned: [], deterministic: [], sales: unreviewed }), '');
+});
+
+test('DONE-TEST: case 42 — the follow-up retyped from the conversation is neither refused nor sent twice (D-135)', async () => {
+  // Measured 2 runs in 15 at the real clock: the answer, then the follow-up copied from the
+  // earlier turn. «24/7» and «24» were refused as prices and the customer got a canned line.
+  const FOLLOW = '🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online';
+  const pb = parsePlaybook({ mode: 'live', lead_route: 'founder_telegram', pairings: [], steps: [
+    { kind: 'follow_up', body: FOLLOW, reviewed_at: '2026-09-26T00:00:00Z', link: 'https://app.dalatech.online', priority: 50, is_default: true, intent_matcher: null, enabled: true },
+  ] });
+  assert.ok(pb.ok);
+  const text = `AI ажилтан 1–2 долоо хоногт ажиллаж эхэлдэг.\n${FOLLOW}`;
+  const { deps: d, drafts, flags } = deps({ result: { ...OK_REPLY, text } });
+  const r = await handleReception(d, {
+    ...base, customerMessage: 'Хэр хурдан ажиллаж эхлэх вэ?', sales: pb.ok ? pb.playbook : null,
+    history: [{ role: 'user', content: 'үнэ хэд вэ' }, { role: 'assistant', content: `Үнэ байна.\n\n${FOLLOW}` }],
+    historyState: { known: true, empty: false },
+    tenantGuard: { ...GUARD_VIEW, allowedNumbers: ['1–2'], allowedUrls: ['https://app.dalatech.online', 'https://dalatech.online'] },
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model', 'the model\'s answer, not a canned swap');
+  assert.equal(drafts.at(-1)?.body, 'AI ажилтан 1–2 долоо хоногт ажиллаж эхэлдэг.');
+  assert.equal(flags.some((f) => f.code === 'outbound_price'), false);
+  assert.equal(flags.some((f) => f.code === 'sales_line_retyped'), true);
 });

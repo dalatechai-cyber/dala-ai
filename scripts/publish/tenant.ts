@@ -42,7 +42,7 @@ import { loadLiveSnapshot } from '../../src/lib/prompt/publish.ts';
 import { supabasePublish } from '../../src/lib/supabase/clients.ts';
 import { SECTION_LABELS } from '../../src/lib/prompt/tenant.ts';
 import { CLARIFY_BRANCH_KIND, branchNamesFromPrefix } from '../../src/lib/branches/branches.ts';
-import { gateTenant, renderGate } from '../../src/lib/replycases/run.ts';
+import { caseModelSeat, gateTenant, renderGate } from '../../src/lib/replycases/run.ts';
 import { callReception } from '../../src/lib/model/reception.ts';
 
 function die(message: string): never {
@@ -202,7 +202,7 @@ if (before !== null && before.contentHash === rendered.contentHash) {
 const modelKey = process.env['ANTHROPIC_API_KEY'] ?? '';
 const gate = await gateTenant(db, {
   slug, now,
-  callModel: modelKey === '' ? null : (req) => callReception(req, modelKey),
+  callModel: modelKey === '' ? null : caseModelSeat((req) => callReception(req, modelKey)),
   compiled: {
     promptStable: rendered.promptStable, allowedNumbers: rendered.allowedNumbers,
     cannedHash: compiled.cannedHash, promptGate: rendered.promptGate,

@@ -38,7 +38,7 @@ import { refusalMarkerFrom, unwarrantedApology } from '../guard/apology.ts';
 import { fold } from '../mn/text.ts';
 import type { CommentRule } from '../comments/classify.ts';
 import { isComplaint, type Playbook } from '../sales/nextStep.ts';
-import { leadThanksFor, salesLineFor } from '../sales/live.ts';
+import { leadThanksFor, salesLineFor, withoutSalesLines } from '../sales/live.ts';
 import { publishedNumbers } from '../sales/phone.ts';
 import { capEmoji, stylePriceRows, type ReplyStyle } from './style.ts';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
@@ -761,6 +761,14 @@ export async function handleReception(
       // The tenant's look (D-133): at most N emoji in the model's own words, and none on a
       // complaint or a refusal (a reply carrying a reviewed refusal or handoff row); then every
       // price-list row in the reply laid out under its templates.
+      // The model never types a sales line; the platform adds one, once (D-135).
+      if (x.answeredBy === 'model') {
+        const own = withoutSalesLines(x.body, input.sales);
+        if (own !== x.body) {
+          await deps.flag({ code: 'sales_line_retyped', detail: 'the model copied an approved sales line; removed', attempted: x.body });
+          x = { ...x, body: own };
+        }
+      }
       if (x.answeredBy === 'model' && input.replyStyle !== null) {
         const said = fold(x.body);
         const refusal = input.canned.some((c) => (c.kind === 'handoff' || c.kind.startsWith('refusal'))
@@ -1202,6 +1210,7 @@ export async function handleReception(
       refusedTopicBlocksPrice: matched.refusedTopicBlocksPrice,
       priceBlockingTopics: matched.priceBlockingTopics,
       customerText: input.customerMessage,
+      shownText: shownApprovedLines(input),
     },
     result.text,
   );
@@ -1445,4 +1454,20 @@ export async function handleReception(
   return drafted.ok
     ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'model' }
     : { kind: 'retry', detail: drafted.detail };
+}
+
+/**
+ * The approved lines this conversation has already shown the customer (D-135): reviewed
+ * canned rows, enabled deterministic rows and reviewed sales lines, each found whole in an
+ * earlier assistant turn. The outbound guard lets the model repeat their numerals.
+ */
+export function shownApprovedLines(input: Pick<ReceptionInput, 'history' | 'canned' | 'deterministic' | 'sales'>): string {
+  const said = input.history.filter((h) => h.role === 'assistant').map((h) => fold(h.content));
+  if (said.length === 0) return '';
+  const lines = [
+    ...input.canned.filter((c) => c.reviewedAt !== null).map((c) => c.body),
+    ...input.deterministic.filter((r) => r.enabled).map((r) => r.body),
+    ...(input.sales?.steps ?? []).filter((st) => st.enabled && st.reviewed && st.body !== null).map((st) => st.body as string),
+  ].map((b) => b.trim()).filter((b) => b !== '');
+  return [...new Set(lines)].filter((b) => said.some((t) => t.includes(fold(b)))).join('\n');
 }
