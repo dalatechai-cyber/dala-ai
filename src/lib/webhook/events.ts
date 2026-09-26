@@ -49,9 +49,10 @@ export type ClaimResult =
  * it was one or not — the same shape as `expires_at`, `duration_minutes` and the rest of
  * the columns this repository has had to go back for. During a mirror the incumbent
  * forwards a copy of each delivery, and after the fact there was no way to tell a
- * forwarded event from one Meta sent here directly.
+ * forwarded event from one Meta sent here directly. `poll` (D-146, `0060`): an Instagram
+ * comment the platform fetched itself because Meta would not push it (`comments/poll.ts`).
  */
-export type EventSource = 'meta' | 'mirror';
+export type EventSource = 'meta' | 'mirror' | 'poll';
 
 export type ClaimInput = {
   provider: string;

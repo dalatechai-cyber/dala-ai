@@ -729,6 +729,19 @@ none are kept on a complaint or a refusal. NULL, or a malformed value, changes n
 - `reply_cases.channel text not null default 'facebook_page'`, CHECK `facebook_page | web`: the
   channel a case is answered as. Every existing case keeps its meaning.
 
+### `0060_instagram_comment_poll`
+
+**Additive.** Instagram comments fetched by a scheduled poll until Meta will push them (D-146):
+- `webhook_events.source` CHECK widened to `('meta','mirror','poll')` — the constraint is
+  dropped and re-added with one more value; no row changes. `poll` marks a comment the
+  platform fetched (`comments/poll.ts`); it is not in the dedup key, so a webhook for the same
+  comment later is a duplicate of the polled row.
+- `tenant_channels.comment_poll_state jsonb` (nullable): the poller's bookkeeping — `since`
+  (watermark: older comments are never answered; set by the first poll, which answers
+  nothing), `counts` (each watched post's `comments_count` at the last complete read),
+  `lastRunAt`, `lastError`, `backoffUntil`. NULL: not polling. Cleared by the poller when the
+  channel's comment switch is off, so re-enabling starts a new watermark.
+
 ### `0059_channel_comment_rule_keys`
 
 **Additive.** `tenant_channels.comment_rule_keys text[]` (nullable): when set, only those

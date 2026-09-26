@@ -116,10 +116,14 @@ export async function runSilenceWatch(
         .eq('tenant_id', tenantId)
         .gte('ends_on', lookbackDate(input.now))
         .order('starts_on'),
+      // Pushed by Meta only. A comment the platform FETCHED (`source = 'poll'`, D-146) proves
+      // our poller ran, not that Meta is delivering — counting it would keep a channel whose
+      // webhook died reading healthy for as long as its posts get comments.
       db.from('webhook_events')
         .select('received_at')
         .eq('tenant_id', tenantId)
         .eq('channel_id', channelId)
+        .neq('source', 'poll')
         .order('received_at', { ascending: false })
         .limit(1),
       db.from('conversations')
@@ -139,6 +143,7 @@ export async function runSilenceWatch(
         .select('received_at')
         .eq('entry_id', externalId)
         .is('tenant_id', null)
+        .neq('source', 'poll')
         .order('received_at', { ascending: false })
         .limit(1),
     ]);
