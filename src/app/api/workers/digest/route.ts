@@ -1,7 +1,8 @@
 /**
  * The daily operations digest. QStash calls this once a day; nobody else does. The schedule
- * is ONE QStash schedule at `0 1 * * *` UTC — 09:00 Ulaanbaatar (D-128); a second one (the
- * 00:05 `5 16 * * *` discussed on 2026-09-25) must not exist, or the report arrives twice.
+ * is ONE QStash schedule at `5 16 * * *` UTC — 00:05 Ulaanbaatar, so it reaches the founder
+ * during his US day (founder, 2026-09-26, D-128 addendum). A second one (the earlier
+ * `0 1 * * *`, 09:00 Ulaanbaatar) must not exist, or the report arrives twice.
  * Whenever it runs, it reports the Ulaanbaatar day that has just ended (`reportWindow`).
  * With `DAILY_REPORT_V2=true` it sends one merged report instead of three kinds of message.
  *

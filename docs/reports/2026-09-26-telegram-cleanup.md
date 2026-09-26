@@ -85,8 +85,9 @@ If the DalaTech section cannot be fetched, its place reads `DalaTech app section
    refuses `true` without the secret.
 3. In **dalatech-app**, set `DAILY_REPORT_MERGED` = `true`. Its own 09:00 report and follow-up
    message then stop, since their content is in the merged report.
-4. In the QStash console keep **one** schedule for `/api/workers/digest`: `0 1 * * *` (09:00
-   Ulaanbaatar). Delete any `5 16 * * *` (00:05) schedule, or the report arrives twice.
+4. In the QStash console keep **one** schedule for `/api/workers/digest`: `5 16 * * *`
+   (00:05 Ulaanbaatar; changed from 09:00 by the founder on 2026-09-26). Delete any
+   `0 1 * * *` (09:00) schedule, or the report arrives twice.
 5. Redeploy both projects.
 
 To undo: delete `DAILY_REPORT_V2` in dala-ai and `DAILY_REPORT_MERGED` in dalatech-app.

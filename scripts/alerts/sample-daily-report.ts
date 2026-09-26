@@ -1,5 +1,5 @@
 /**
- * Print the merged 09:00 report (DAILY_REPORT_V2, D-128) as it would be sent, from fixtures.
+ * Print the merged daily report (DAILY_REPORT_V2, D-128) as it would be sent, from fixtures.
  *
  *     node scripts/alerts/sample-daily-report.ts
  *
@@ -16,8 +16,8 @@ import type { OpenAlert } from '../../src/lib/alerts/alert.ts';
 import { expiryAlertBody } from '../../src/lib/health/secretExpiry.ts';
 import { renderFlawReport, type TenantReport } from '../../src/lib/quality/flaws.ts';
 
-// 09:00 Ulaanbaatar on 2026-09-26: the report covers 2026-09-25.
-const NOW = new Date('2026-09-26T01:00:00Z');
+// 00:05 Ulaanbaatar on 2026-09-26, when the report runs: it covers 2026-09-25.
+const NOW = new Date('2026-09-25T16:05:00Z');
 const hoursAgo = (h: number): Date => new Date(NOW.getTime() - h * 3_600_000);
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
@@ -27,7 +27,7 @@ const PAGE = '100000000000001';
 // (`node scripts/sample-daily-section.mjs` in that repo, the same fixtures its tests use).
 const APP_SECTION = [
   'DalaTech — лидүүд',
-  '📊 Нийт: 7 · Шинэ хүсэлт (өнөөдөр): 1 · Демо бэлдэж байна: 1 · Демо илгээгдсэн: 3 · Загвар сонгосон: 1',
+  '📊 Нийт: 7 · Шинэ хүсэлт (өчигдөр): 2 · Демо бэлдэж байна: 1 · Демо илгээгдсэн: 3 · Загвар сонгосон: 1',
   '⚡ ЯАРАЛТАЙ:',
   '- #029 Хан Моторс — демо зогссон (generate:2) → RELEASE #029',
   '- #030 Алтай Тур ХХК — хүлээлгэсэн → RELEASE #030',

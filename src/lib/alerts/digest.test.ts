@@ -322,8 +322,8 @@ test('DONE-TEST: THE FLAW REPORT GOES OUT AS ITS OWN MESSAGE AFTER THE DIGEST, A
   }
 });
 
-// The schedule is `0 1 * * *` UTC, 09:00 Ulaanbaatar (D-128); a 00:05 run was discussed on
-// 2026-09-25. Either way the digest reports the Ulaanbaatar calendar day that has just ended.
+// The schedule is `5 16 * * *` UTC, 00:05 Ulaanbaatar (D-128 addendum, 2026-09-26); it was
+// `0 1 * * *` before. Either way the digest reports the Ulaanbaatar calendar day that has just ended.
 test('the report window is the Ulaanbaatar day that just ended, at 00:05 and at 09:00 alike', () => {
   // 2026-09-25 16:05 UTC is 2026-09-26 00:05 in Ulaanbaatar.
   assert.deepEqual(reportWindow(new Date('2026-09-25T16:05:00Z')), {

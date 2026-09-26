@@ -1,5 +1,5 @@
 /**
- * The 09:00 digest, and the three-day re-escalation.
+ * The daily digest (00:05 Ulaanbaatar), and the three-day re-escalation.
  *
  * `alerts/alert.ts` stopped the repeat: an `on_change` episode speaks once and then holds
  * its tongue until something changes. That fixes the founder's complaint — one condition
@@ -9,7 +9,7 @@
  *
  * Two mechanisms close that, and they are deliberately different in kind:
  *
- *  1. **The digest.** One message a day, at 09:00 Ulaanbaatar — before the salon opens —
+ *  1. **The digest.** One message a day, at 00:05 Ulaanbaatar (it was 09:00 until 2026-09-26),
  *     listing what is currently open and how long it has been. It is a summary, never an
  *     alarm, and it always arrives at the same moment, so it can never be mistaken for a
  *     new event. That is the whole reason it is separate from the alert path rather than a
@@ -258,9 +258,10 @@ export function planDigest(
  * shift it. A calendar day is the same day whenever the run lands inside the next one — and
  * it is the day the flaw report already uses (`quality/flaws.ts`, `previousDate`).
  *
- * The schedule is ONE QStash schedule at `0 1 * * *` UTC, 09:00 Ulaanbaatar (D-128). A 00:05
- * schedule was discussed the same day; if both exist the report arrives twice, and only the
- * QStash console can show that.
+ * The schedule is ONE QStash schedule at `5 16 * * *` UTC, 00:05 Ulaanbaatar (D-128
+ * addendum). Five minutes after midnight the day that just ended is complete, and a delivery
+ * up to 23h55m late still reports it. If a `0 1 * * *` schedule also exists the report arrives
+ * twice, and only the QStash console can show that.
  */
 export function reportWindow(now: Date): { date: string; since: string; until: string } {
   const date = previousDate(tenantClock(now, PLATFORM_TIMEZONE).date);
