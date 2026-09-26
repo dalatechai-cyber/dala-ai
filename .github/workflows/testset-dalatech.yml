@@ -35,11 +35,18 @@ jobs:
         run: |
           test -n "$ANTHROPIC_API_KEY" || { echo "ANTHROPIC_API_KEY secret is not set"; exit 2; }
           node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --tag ci
+      - name: Answer the salesperson set (D-132)
+        if: always()
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node scripts/bakeoff/testset.ts --dump scripts/bakeoff/dalatech-live.json --set scripts/bakeoff/dalatech-sales-set.json --tag ci --max-calls 30
       - name: Report
         if: always()
         run: |
           cat docs/reports/dalatech-testset.md
           cat docs/reports/dalatech-testset.md >> "$GITHUB_STEP_SUMMARY"
+          cat docs/reports/dalatech-sales-testset.md || true
+          cat docs/reports/dalatech-sales-testset.md >> "$GITHUB_STEP_SUMMARY" || true
       - if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -47,4 +54,5 @@ jobs:
           path: |
             scripts/bakeoff/runs/testset-dalatech-ci.json
             docs/reports/dalatech-testset.md
+            docs/reports/dalatech-sales-testset.md
           if-no-files-found: warn

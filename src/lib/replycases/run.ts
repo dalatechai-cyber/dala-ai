@@ -233,6 +233,7 @@ export async function runCases(input: {
         cannedHash: ctx.cannedHash,
         fallbackLine: ctx.fallbackLine,
         complaintRules: ctx.complaintRules,
+        sales: ctx.sales,
         spellings: ctx.spellings,
         branches: ctx.branches,
       });

@@ -21,6 +21,7 @@ import { appliedSpellings } from '../quality/spellings.ts';
 import { branchNamesFromPrefix } from '../branches/branches.ts';
 import { hasTomorrowSlot, nextLocalDate, renderTomorrowSlots } from './daySlots.ts';
 import { loadBranchContext, type BranchContext } from '../branches/load.ts';
+import { parsePlaybook, type Playbook } from '../sales/nextStep.ts';
 
 export type TenantSettings = {
   defaultLocale: string;
@@ -65,6 +66,12 @@ export type ReceptionContext = {
    * failed read is `[]`, which is the behaviour before this existed.
    */
   complaintRules: CommentRule[];
+  /**
+   * The tenant's sales playbook (D-127, D-132), for the live sales line. Read best-effort and
+   * outside the rest of the batch: a failed or malformed read is null, which is exactly the
+   * behaviour before sales went live — no line is added, and the reply is never refused.
+   */
+  sales: Playbook | null;
   /**
    * Today's and tomorrow's weekday on the tenant's clock (0 = Sunday), and which of the two a
    * closure covers, for the facts guard (D-126).
@@ -273,6 +280,15 @@ export async function loadReceptionContext(
   const fallbackRead = (async () => db.from('sales_next_steps').select('body, enabled, reviewed_at')
     .eq('tenant_id', input.tenantId).eq('kind', 'callback'))()
     .then((r) => r, () => ({ data: null, error: { message: 'threw' } }));
+  const salesRead = (async () => {
+    const [pb, steps] = await Promise.all([
+      db.from('sales_playbooks').select('mode, lead_route, small_talk').eq('tenant_id', input.tenantId).maybeSingle(),
+      db.from('sales_next_steps')
+        .select('kind, body, reviewed_at, link, priority, is_default, intent_matcher, enabled')
+        .eq('tenant_id', input.tenantId),
+    ]);
+    return salesPlaybookOf(pb, steps);
+  })().then((r) => r, () => null);
   const complaintRead = (async () => db.from('comment_rules').select('rule_key, verdict, matcher')
     .eq('tenant_id', input.tenantId).eq('enabled', true).eq('verdict', 'escalate'))()
     .then((r) => r, () => ({ data: null, error: { message: 'threw' } }));
@@ -496,6 +512,7 @@ export async function loadReceptionContext(
       rules,
       fallbackLine: fallbackLineOf(await fallbackRead),
       complaintRules: complaintRulesOf(await complaintRead),
+      sales: await salesRead,
       canned: cannedRows,
       tenantGuard,
       cacheMode,
@@ -525,4 +542,21 @@ export function complaintRulesOf(res: { data: unknown; error: unknown }): Commen
   const rows = Array.isArray(res.data) ? res.data as Record<string, unknown>[] : [];
   return rows.filter((r) => r['verdict'] === 'escalate')
     .map((r) => ({ ruleKey: String(r['rule_key']), verdict: 'escalate' as const, matcher: r['matcher'] }));
+}
+
+/** The playbook, or null for no row, a failed read, or rows that do not parse. */
+export function salesPlaybookOf(
+  pb: { data: unknown; error: unknown },
+  steps: { data: unknown; error: unknown },
+): Playbook | null {
+  if (pb.error !== null && pb.error !== undefined) return null;
+  if (steps.error !== null && steps.error !== undefined) return null;
+  if (pb.data === null || typeof pb.data !== 'object') return null;
+  const row = pb.data as Record<string, unknown>;
+  const parsed = parsePlaybook({
+    mode: row['mode'], lead_route: row['lead_route'], small_talk: row['small_talk'],
+    steps: Array.isArray(steps.data) ? steps.data as Record<string, unknown>[] : [],
+    pairings: [],
+  });
+  return parsed.ok ? parsed.playbook : null;
 }

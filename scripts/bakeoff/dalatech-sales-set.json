@@ -1,0 +1,242 @@
+{
+ "$comment": "DalaTech's live salesperson (D-132, founder 2026-09-26): realistic conversations for the approved follow-up and its rules — once per conversation, never after a complaint, a greeting or a thanks; the demo / callback / lead_thanks lines when asked for. Answered with scripts/bakeoff/dalatech-live.json, whose sales_playbooks row is the live configuration the founder decided. Assistant turns in a history are only text the bot serves verbatim (the price_overview row and the follow-up).",
+ "title": "DalaTech salesperson test set",
+ "tenant_slug": "dalatech",
+ "note_prefix": "dalatech-sales",
+ "report": "docs/reports/dalatech-sales-testset.md",
+ "sql": "scripts/provision/dalatech-sales-reply-cases.sql",
+ "activation_sql": "scripts/provision/dalatech-sales-reply-cases-activate.sql",
+ "categories": {
+  "price": "Price questions",
+  "second": "A second question in the same chat",
+  "greeting": "Greeting only",
+  "thanks": "Thanks only",
+  "complaint": "Complaint",
+  "demo": "Wants a demo",
+  "call": "Wants a call",
+  "number": "Leaves a number",
+  "question": "Greeting with a question"
+ },
+ "always_not": [
+  "Матрикс",
+  "Matrix",
+  "Tara",
+  "Тара салон",
+  "манай салон",
+  "салонд тавтай",
+  "үс засалт",
+  "дотоод заавар",
+  "БЭЛЭН ХАРИУЛТ",
+  "76001888",
+  "7741-7777",
+  "80905498",
+  "Вира одоо ажиллаж байна",
+  "Эхо одоо ажиллаж байна",
+  "Нова одоо ажиллаж байна",
+  "Ора одоо ажиллаж байна",
+  "Вира одоо ажиллаж байгаа",
+  "Эхо одоо ажиллаж байгаа",
+  "Нова одоо ажиллаж байгаа",
+  "Ора одоо ажиллаж байгаа",
+  "Вира идэвхтэй ажиллаж байна",
+  "Эхо идэвхтэй ажиллаж байна",
+  "Нова идэвхтэй ажиллаж байна",
+  "Ора идэвхтэй ажиллаж байна",
+  "Вира идэвхтэй байна",
+  "Эхо идэвхтэй байна",
+  "Нова идэвхтэй байна",
+  "Ора идэвхтэй байна",
+  "Дали хараахан ажиллаж эхлээгүй",
+  "Дали одоогоор ажиллаж эхлээгүй",
+  "Дали ажиллаж эхлээгүй"
+ ],
+ "cases": [
+  {
+   "id": "sp1",
+   "category": "price",
+   "source": "constructed",
+   "text": "үнэ хэд вэ",
+   "expect": "The price_overview row, then the approved follow-up, exactly.",
+   "expected_body": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\nДали бол таны бизнесийн Facebook, Instagram, вэбсайтад ирсэн зурваст 24/7 хариулдаг AI ажилтан.\nҮнэгүй демо вэбсайт авахыг хүсвэл: https://app.dalatech.online — 24 цагийн дотор бэлэн болно.\nМанай бусад AI ажилтнуудтай https://dalatech.online дээр танилцаарай, эсвэл асуух зүйлээ энд бичээрэй."
+  },
+  {
+   "id": "sp2",
+   "category": "price",
+   "source": "constructed",
+   "text": "Дали сард хэд вэ?",
+   "expect": "Дали's monthly price from the data, then the approved follow-up.",
+   "must_include": [
+    "250,000",
+    "24/7 хариулдаг AI ажилтан",
+    "Үнэгүй демо вэбсайт авахыг хүсвэл",
+    "https://dalatech.online дээр танилцаарай"
+   ]
+  },
+  {
+   "id": "sq2",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\nДали бол таны бизнесийн Facebook, Instagram, вэбсайтад ирсэн зурваст 24/7 хариулдаг AI ажилтан.\nҮнэгүй демо вэбсайт авахыг хүсвэл: https://app.dalatech.online — 24 цагийн дотор бэлэн болно.\nМанай бусад AI ажилтнуудтай https://dalatech.online дээр танилцаарай, эсвэл асуух зүйлээ энд бичээрэй."
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулдаг AI ажилтан",
+    "Үнэгүй демо вэбсайт авахыг хүсвэл"
+   ]
+  },
+  {
+   "id": "sq3",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\nДали бол таны бизнесийн Facebook, Instagram, вэбсайтад ирсэн зурваст 24/7 хариулдаг AI ажилтан.\nҮнэгүй демо вэбсайт авахыг хүсвэл: https://app.dalatech.online — 24 цагийн дотор бэлэн болно.\nМанай бусад AI ажилтнуудтай https://dalatech.online дээр танилцаарай, эсвэл асуух зүйлээ энд бичээрэй."
+    }
+   ],
+   "text": "Вэбсайт хийхэд хэр удах вэ?",
+   "expect": "A second question about the website: answered, no second follow-up.",
+   "must_include": [
+    "ажлын өдөр"
+   ],
+   "must_not_include": [
+    "24/7 хариулдаг AI ажилтан",
+    "Үнэгүй демо вэбсайт авахыг хүсвэл"
+   ]
+  },
+  {
+   "id": "sg1",
+   "category": "greeting",
+   "source": "constructed",
+   "text": "Сайн байна уу",
+   "expect": "A greeting alone: greeted back, no sales line.",
+   "must_not_include": [
+    "24/7 хариулдаг AI ажилтан",
+    "Үнэгүй демо вэбсайт авахыг хүсвэл",
+    "app.dalatech.online"
+   ]
+  },
+  {
+   "id": "sg2",
+   "category": "greeting",
+   "source": "constructed",
+   "text": "sain bnuu",
+   "expect": "A Latin greeting alone: no sales line.",
+   "must_not_include": [
+    "24/7 хариулдаг AI ажилтан",
+    "Үнэгүй демо вэбсайт авахыг хүсвэл",
+    "app.dalatech.online"
+   ]
+  },
+  {
+   "id": "st1",
+   "category": "thanks",
+   "source": "constructed",
+   "text": "Баярлалаа",
+   "expect": "A thanks alone: no sales line.",
+   "must_not_include": [
+    "24/7 хариулдаг AI ажилтан",
+    "Үнэгүй демо вэбсайт авахыг хүсвэл",
+    "app.dalatech.online"
+   ]
+  },
+  {
+   "id": "sc1",
+   "category": "complaint",
+   "source": "constructed",
+   "text": "Та нар яагаад хариулахгүй байгаа юм бэ, муухай үйлчилгээ",
+   "expect": "A complaint: an apology, never a sales line.",
+   "must_include": [
+    "Уучлаарай"
+   ],
+   "must_not_include": [
+    "24/7 хариулдаг AI ажилтан",
+    "Үнэгүй демо вэбсайт авахыг хүсвэл",
+    "app.dalatech.online"
+   ]
+  },
+  {
+   "id": "sd1",
+   "category": "demo",
+   "source": "constructed",
+   "text": "Демо үзмээр байна",
+   "expect": "Asks for a demo, and only that: the approved demo line, exactly, with no model call.",
+   "expected_body": "Өөрийн бизнест зориулсан демог https://app.dalatech.online хаягаар захиалж болно. Эсвэл нэр, утасны дугаараа энд бичиж үлдээвэл хамт олон маань тантай холбогдоно."
+  },
+  {
+   "id": "sd2",
+   "category": "demo",
+   "source": "constructed",
+   "text": "turshij uzej boloh uu",
+   "expect": "Asks for a demo, and only that: the approved demo line, exactly, with no model call.",
+   "expected_body": "Өөрийн бизнест зориулсан демог https://app.dalatech.online хаягаар захиалж болно. Эсвэл нэр, утасны дугаараа энд бичиж үлдээвэл хамт олон маань тантай холбогдоно."
+  },
+  {
+   "id": "sk1",
+   "category": "call",
+   "source": "constructed",
+   "text": "Надад залгаж болох уу?",
+   "expect": "Asks for a call: the approved callback line, not the general follow-up.",
+   "must_include": [
+    "Нэр, утасны дугаараа энд бичиж үлдээвэл хамт олон маань тантай холбогдоно."
+   ],
+   "must_not_include": [
+    "24/7 хариулдаг AI ажилтан",
+    "Үнэгүй демо вэбсайт авахыг хүсвэл"
+   ]
+  },
+  {
+   "id": "sn1",
+   "category": "number",
+   "source": "constructed",
+   "text": "Намайг Бат гэдэг, 99112233",
+   "expect": "Leaves a name and number: the approved lead_thanks line, exactly, with no model call.",
+   "expected_body": "Баярлалаа! Мэдээллийг тань хүлээн авлаа. Хамт олон маань тантай холбогдоно."
+  },
+  {
+   "id": "sn2",
+   "category": "number",
+   "source": "constructed",
+   "text": "99112233 руу залгаарай",
+   "expect": "A number with 'call me': still the lead_thanks line.",
+   "expected_body": "Баярлалаа! Мэдээллийг тань хүлээн авлаа. Хамт олон маань тантай холбогдоно."
+  },
+  {
+   "id": "sw1",
+   "category": "question",
+   "source": "constructed",
+   "text": "Сайн байна уу, Дали юу хийдэг вэ?",
+   "expect": "A greeting WITH a question is a question: answered, then the follow-up.",
+   "must_include": [
+    "хүлээн авагч",
+    "24/7 хариулдаг AI ажилтан"
+   ]
+  },
+  {
+   "id": "sd3",
+   "category": "demo",
+   "source": "constructed",
+   "text": "Демо хэдэн цагт бэлэн болох вэ?",
+   "expect": "A question ABOUT the demo, not just a request: answered by the model, and it names the demo page.",
+   "must_include": [
+    "app.dalatech.online"
+   ]
+  }
+ ]
+}

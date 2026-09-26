@@ -151,3 +151,27 @@ test('the worker effect never rejects, whatever the database does', async () => 
   const db = { from: () => { throw new Error('socket closed'); } } as unknown as SupabaseClient;
   await assert.doesNotReject(salesShadowEffect(db, INPUT));
 });
+
+test('D-132: a live playbook sends a NEW lead to the founder\'s Telegram with the digits; shadow, a repeat, or no route sends nothing', async () => {
+  const { leadNotice } = await import('./shadow.ts');
+  const { decide, parsePlaybook } = await import('./nextStep.ts');
+  const pb = (mode: string, route: string) => {
+    const p = parsePlaybook({ mode, lead_route: route, steps: [], pairings: [] });
+    if (!p.ok) throw new Error(p.detail);
+    return p.playbook;
+  };
+  const decision = (playbook: ReturnType<typeof pb>, message: string, earlier: string[] = []) => decide({
+    playbook, customerMessage: message, customerSentPhoto: false, earlierCustomerMessages: earlier,
+    reply: { exists: true, cannedKinds: [], refusal: false, asksQuestion: false, smallTalk: false, carriesStepLink: false },
+    threadControl: 'unknown', offeredBefore: false, leadBefore: false, complaintRules: [], ownNumbers: [], serviceNames: [],
+  });
+  const live = pb('live', 'founder_telegram');
+  const n = leadNotice({ decision: decision(live, 'Бат 99112233'), playbook: live, customerMessage: 'Бат 99112233', conversationId: 'c-1' });
+  assert.match(n ?? '', /New lead: 99112233/);
+  assert.match(n ?? '', /Conversation c-1/);
+  const shadow = pb('shadow', 'founder_telegram');
+  assert.equal(leadNotice({ decision: decision(shadow, 'Бат 99112233'), playbook: shadow, customerMessage: 'x', conversationId: 'c' }), null);
+  assert.equal(leadNotice({ decision: decision(live, '99112233', ['99112233']), playbook: live, customerMessage: 'x', conversationId: 'c' }), null);
+  const none = pb('live', 'none');
+  assert.equal(leadNotice({ decision: decision(none, '99112233'), playbook: none, customerMessage: 'x', conversationId: 'c' }), null);
+});

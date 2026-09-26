@@ -64,7 +64,8 @@ import { detectPhones, type PhoneHit } from './phone.ts';
 export const NEXT_STEP_FLAG = 'sales_next_step_shadow';
 export const LEAD_FLAG = 'sales_lead_shadow';
 
-export type NextStepKind = 'demo' | 'booking' | 'callback';
+/** `follow_up`: the default line after an answer when no step's intent fired (D-132). */
+export type NextStepKind = 'demo' | 'booking' | 'callback' | 'follow_up';
 /** `related_service` and `lead_thanks` are rows too, but never the next step itself. */
 export type StepRowKind = NextStepKind | 'related_service' | 'lead_thanks';
 /** `none`: the tenant takes no leads — its staff do not call back (Tara, 2026-09-26, `0053`). */
@@ -102,7 +103,10 @@ export type PlaybookStep = {
 export type Pairing = { serviceName: string; relatedName: string; confirmed: boolean };
 
 export type Playbook = {
-  mode: 'off' | 'shadow';
+  /** `live` (D-132): the line is added to the reply. `shadow`: only recorded. */
+  mode: 'off' | 'shadow' | 'live';
+  /** Whole messages that are only a greeting or a thanks (`sales_playbooks.small_talk`). */
+  smallTalk?: readonly string[];
   leadRoute: LeadRoute;
   steps: readonly PlaybookStep[];
   pairings: readonly Pairing[];
@@ -228,13 +232,18 @@ function hasWordsBesidesPhone(text: string): boolean {
   return /\p{L}{2,}/u.test(text);
 }
 
+/** The kinds that can be the next step itself. */
+export function isOfferable(kind: StepRowKind): kind is NextStepKind {
+  return kind === 'demo' || kind === 'booking' || kind === 'callback' || kind === 'follow_up';
+}
+
 /** The next-step kinds, ordered: intent-fired first by priority, then the default. */
 function chooseStep(
   steps: readonly PlaybookStep[],
   message: string,
   respelled: string | null,
 ): { step: PlaybookStep; chosenBy: 'intent' | 'default' } | null {
-  const offerable = steps.filter((s) => s.enabled && (s.kind === 'demo' || s.kind === 'booking' || s.kind === 'callback'));
+  const offerable = steps.filter((s) => s.enabled && isOfferable(s.kind));
   const byPriority = [...offerable].sort((a, b) => (a.priority - b.priority) || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0));
   const subject = { text: message, attachments: [] as string[], respelled };
   const fired = byPriority.find((s) => s.intent !== null && s.intent.some((m) => matcherFires(subject, m)));
@@ -336,7 +345,7 @@ const LINK = /(?:https?:\/\/)?(?:www\.)?((?:[\p{Script=Latin}\p{N}-]+\.)+\p{Scri
 /** The hosts a tenant's next-step rows carry — «app.dalatech.online», «matrixecosalon.org». */
 export function stepHosts(steps: readonly PlaybookStep[], extraTexts: readonly string[] = []): string[] {
   const texts = [
-    ...steps.filter((s) => s.enabled && (s.kind === 'demo' || s.kind === 'booking' || s.kind === 'callback'))
+    ...steps.filter((s) => s.enabled && isOfferable(s.kind))
       .flatMap((s) => [s.link ?? '', s.body ?? '']),
     ...extraTexts,
   ];
@@ -383,12 +392,14 @@ export function classifyReply(input: {
 
 // ---- Parsing rows ----------------------------------------------------------------------
 
-const STEP_KINDS: readonly StepRowKind[] = ['demo', 'booking', 'callback', 'related_service', 'lead_thanks'];
+const STEP_KINDS: readonly StepRowKind[] = ['demo', 'booking', 'callback', 'related_service', 'lead_thanks', 'follow_up'];
 const ROUTES: readonly LeadRoute[] = ['founder_telegram', 'tenant_telegram', 'page_label', 'none'];
 
 export type RawPlaybook = {
   mode: unknown;
   lead_route: unknown;
+  /** `sales_playbooks.small_talk`, when the caller read it. */
+  small_talk?: unknown;
   steps: readonly Record<string, unknown>[];
   pairings: readonly Record<string, unknown>[];
 };
@@ -400,7 +411,7 @@ export type RawPlaybook = {
  * unrecorded reply; the caller logs the detail.
  */
 export function parsePlaybook(raw: RawPlaybook): { ok: true; playbook: Playbook } | { ok: false; detail: string } {
-  const mode = raw.mode === 'shadow' ? 'shadow' : raw.mode === 'off' ? 'off' : null;
+  const mode = raw.mode === 'shadow' ? 'shadow' : raw.mode === 'off' ? 'off' : raw.mode === 'live' ? 'live' : null;
   if (mode === null) return { ok: false, detail: `sales_playbooks.mode ${String(raw.mode)}` };
   const route = ROUTES.find((r) => r === raw.lead_route);
   if (route === undefined) return { ok: false, detail: `sales_playbooks.lead_route ${String(raw.lead_route)}` };
@@ -438,7 +449,9 @@ export function parsePlaybook(raw: RawPlaybook): { ok: true; playbook: Playbook 
       relatedName: nfc(String(p['related_name'] ?? '')),
       confirmed: p['provenance'] === 'tenant_confirmed',
     }));
-  return { ok: true, playbook: { mode, leadRoute: route, steps, pairings } };
+  const smallTalk = Array.isArray(raw.small_talk)
+    ? raw.small_talk.filter((t): t is string => typeof t === 'string' && t.trim() !== '').map((t) => nfc(t)) : [];
+  return { ok: true, playbook: { mode, smallTalk, leadRoute: route, steps, pairings } };
 }
 
 /** The flag details, as ids and kinds. Never text, never a digit of a phone. */

@@ -176,9 +176,10 @@ test('row states: missing, unwritten, unreviewed, reviewed', () => {
   assert.equal(rowState(playbook({ bodies: true, reviewed: true }).steps, 'booking'), 'reviewed');
 });
 
-test('parsePlaybook: there is no live mode, and a bad intent refuses the whole playbook', () => {
+test('parsePlaybook: live exists since 0054 (D-132), an unknown mode does not, and a bad intent refuses the whole playbook', () => {
   const base = { lead_route: 'founder_telegram', steps: [], pairings: [] };
-  assert.equal(parsePlaybook({ ...base, mode: 'live' }).ok, false);
+  assert.equal(parsePlaybook({ ...base, mode: 'live' }).ok, true);
+  assert.equal(parsePlaybook({ ...base, mode: 'on' }).ok, false);
   assert.equal(parsePlaybook({ ...base, mode: 'shadow', lead_route: 'email' }).ok, false);
   const bad = parsePlaybook({
     ...base, mode: 'shadow',

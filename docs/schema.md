@@ -701,6 +701,16 @@ writes a body or `reviewed_at`.
 because its staff do not call customers back (Tara, 2026-09-26). A number a customer types
 anyway is still detected and masked by the shadow; only the routing claim is `none`.
 
+
+### `0054_sales_live`
+
+**Additive.** The sales line goes live per tenant, as a row (D-132):
+- `sales_playbooks.mode` admits `live`;
+- `sales_playbooks.small_talk text[] not null default '{}'` holds whole messages that are only a
+  greeting or a thanks, and a message matched whole by one gets no sales line;
+- `sales_next_steps.kind` admits `follow_up`, the default line after an answer, and it may be
+  the tenant's default step.
+
 ### `0052_demo_url_contact_kind`
 
 **Widens two CHECKs.** `contact_points.kind` and `branch_contact_points.kind` gain `demo_url`: a

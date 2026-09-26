@@ -37,7 +37,9 @@ import { tenantRegion, ungroundedSentences } from '../guard/grounding.ts';
 import { refusalMarkerFrom, unwarrantedApology } from '../guard/apology.ts';
 import { fold } from '../mn/text.ts';
 import type { CommentRule } from '../comments/classify.ts';
-import { isComplaint } from '../sales/nextStep.ts';
+import { isComplaint, type Playbook } from '../sales/nextStep.ts';
+import { leadThanksFor, salesLineFor } from '../sales/live.ts';
+import { publishedNumbers } from '../sales/phone.ts';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
 import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '../services/match.ts';
 import { containsStem, findStem } from '../mn/match.ts';
@@ -171,6 +173,13 @@ export type ReceptionInput = {
    * reason as `fallbackLine`; `[]` means no message is read as a complaint.
    */
   complaintRules: readonly CommentRule[];
+  /**
+   * The tenant's sales playbook (`ReceptionContext.sales`). Only a `live` one adds anything:
+   * the approved follow-up or step line after an answer, and the thank-you for a number
+   * (`sales/live.ts`, D-132). Required, so a caller that forgot it is a type error rather than
+   * a tenant silently not selling.
+   */
+  sales: Playbook | null;
   /**
    * The service names the tenant's price list renders, for the name-fidelity COUNTER.
    *
@@ -665,6 +674,8 @@ export async function handleReception(
     const row = covered ? setRowFor(input.deterministic, quoted) : null;
     return (row === null ? null : composeQuoted(row, input.serviceNames)) ?? served;
   };
+  // The numbers the tenant publishes are never a customer's lead (`sales/phone.ts`).
+  const ownNumbers = publishedNumbers([input.promptStable, ...input.canned.map((c) => c.body)]);
   const d: ReceptionDeps = {
     ...deps,
     draft: async (x0) => {
@@ -750,6 +761,19 @@ export async function handleReception(
         await deps.flag({ code: 'correction_repeat_blocked', detail: `served ${correction.intent}`, attempted: body });
         return deps.draft({ ...x, body: correction.body, answeredBy: 'deterministic' });
       }
+      // THE SALES LINE (D-132), last, on the reply exactly as it will be sent: the approved
+      // follow-up, or the demo / callback line when the customer's words asked for one. Only
+      // for a tenant whose playbook is `live`, and only once per conversation.
+      const sale = salesLineFor({
+        playbook: input.sales, customerMessage: input.customerMessage, respelled,
+        customerSentPhoto: input.customerSentPhoto, history: input.history, replyBody: body,
+        canned: input.canned, deterministic: input.deterministic, complaintRules: input.complaintRules,
+        ownNumbers,
+      });
+      if (sale !== null) {
+        await deps.flag({ code: 'sales_line_added', detail: sale.kind });
+        return deps.draft({ ...x, body: `${body.trim()}\n\n${sale.body}` });
+      }
       return deps.draft({ ...x, body });
     },
   };
@@ -763,6 +787,20 @@ export async function handleReception(
       detail: `matched but withheld pending tenant confirmation: ${shortcut.suppressed.join(', ')}`,
     });
   }
+  // A NUMBER IS ANSWERED, NOT SOLD TO (D-132). A customer who leaves a new phone number gets
+  // the tenant's reviewed thank-you, with no model call — only for a `live` playbook that takes
+  // leads. The lead itself is routed by the sales record after the draft (`sales/shadow.ts`).
+  const thanks = leadThanksFor({
+    playbook: input.sales, customerMessage: input.customerMessage, history: input.history, ownNumbers,
+  });
+  if (thanks !== null) {
+    await deps.release();
+    const drafted = await d.draft({ body: thanks, answeredBy: 'deterministic' });
+    return drafted.ok
+      ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'deterministic' }
+      : { kind: 'retry', detail: drafted.detail };
+  }
+
   // A PHOTOGRAPH, captioned or not, gets the tenant's image line (founder, 2026-09-24: *"A
   // photo with any caption gets the photo line. Key on the attachment, not on the word
   // «зураг»."*). A photo with no caption was already answered this way by
