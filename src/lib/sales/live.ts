@@ -137,8 +137,9 @@ export function salesLineFor(input: {
     leadBefore: false,
     // The related-service line is not part of what went live.
     relatedBefore: true,
-    customerSmallTalk: smallTalkRows.some((r) => wholeMessageMatches(input.customerMessage, r.stems))
-      || wholeMessageMatches(input.customerMessage, pb.smallTalk ?? []),
+    customerSmallTalk: [...smallTalkRows.map((r) => r.stems), pb.smallTalk ?? []].some((phrases) =>
+      wholeMessageMatches(input.customerMessage, phrases)
+      || (input.respelled !== null && wholeMessageMatches(input.respelled, phrases))),
     complaintRules: input.complaintRules,
     ownNumbers: input.ownNumbers,
     serviceNames: [],

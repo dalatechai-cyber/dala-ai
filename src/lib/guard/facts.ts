@@ -38,7 +38,7 @@
 import { fold, nfc } from '../mn/text.ts';
 import { blankUrls } from '../mn/extract.ts';
 import { sectionRows } from '../quality/serviceNames.ts';
-import { CONTACT_KIND_LABELS, WEEKDAYS } from '../prompt/tenant.ts';
+import { CONTACT_KIND_LABELS, WEEKDAYS, depositRow } from '../prompt/tenant.ts';
 import { containsStem } from '../mn/match.ts';
 
 export type FactSection = 'price' | 'deposit' | 'hours' | 'contact';
@@ -167,7 +167,15 @@ export function factSourceFrom(
   const rows: FactRow[] = [];
   const add = (section: FactSection, label: string, group: string): string[] => {
     const found = sectionRows(promptStable, label);
-    for (const text of found) rows.push({ section, text, amounts: amountsIn(text).map((a) => a.digits), group });
+    // A deposit row is only ever quoted or served WITH the word that makes it a deposit
+    // (`depositRow`, 2026-09-27): a bare «1-р зэргийн үсчин: 10,000₮» reads as a service price.
+    // So the labelled form is the row — a bare quote of it is not approved text, is caught as a
+    // restated amount, and is served labelled. Prefixes published before the renderer labelled
+    // its rows are covered the same way.
+    for (const raw of found) {
+      const text = section === 'deposit' ? depositRow(raw) : raw;
+      rows.push({ section, text, amounts: amountsIn(text).map((a) => a.digits), group });
+    }
     return found;
   };
   add('price', labels.priceList, '');

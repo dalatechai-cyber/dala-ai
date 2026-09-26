@@ -59,6 +59,7 @@ import { entriesFrom, matchService } from '../services/match.ts';
 import { classifyComment, type CommentRule } from '../comments/classify.ts';
 import { fold, nfc } from '../mn/text.ts';
 import { detectPhones, type PhoneHit } from './phone.ts';
+import { replyNotUnderstood } from '../quality/notUnderstood.ts';
 
 /** The quality_flags codes this instrument writes. Two, and nothing else. */
 export const NEXT_STEP_FLAG = 'sales_next_step_shadow';
@@ -130,6 +131,11 @@ export type ReplyFacts =
       asksQuestion: boolean;
       /** The reply is exactly one of the tenant's small-talk rows (greeting, identity). */
       smallTalk: boolean;
+      /**
+       * The reply did not understand the customer: it says so, or it is only a greeting and
+       * an invitation to ask (`quality/notUnderstood.ts`). Absent reads as false.
+       */
+      notUnderstood?: boolean;
       /** The reply carries a link one of the tenant's next steps carries. */
       carriesStepLink: boolean;
       /** Which of those hosts it carries. Absent reads as "unknown": the link then counts for any step. */
@@ -178,6 +184,7 @@ export type SkipReason =
   | 'refusal_or_handoff'
   | 'already_offered'
   | 'reply_asks'
+  | 'not_understood'
   | 'small_talk'
   | 'no_content'
   | 'no_step_configured';
@@ -309,6 +316,8 @@ export function decide(input: DecisionInput): Decision {
   const moment = ((): SkipReason | null => {
     if (!reply.exists) return null;
     if (reply.asksQuestion) return 'reply_asks';
+    // Founder, 2026-09-27: never sell after a reply that did not understand the customer.
+    if (reply.notUnderstood === true) return 'not_understood';
     if (reply.smallTalk || input.customerSmallTalk === true) return 'small_talk';
     if ((input.customerMessage.match(/\p{L}/gu) ?? []).length < MIN_CONTENT_LETTERS) return 'no_content';
     return null;
@@ -396,6 +405,7 @@ export function classifyReply(input: {
     refusal: input.refusal,
     asksQuestion: tail.endsWith('?') || tail.endsWith('？'),
     smallTalk: input.smallTalkBodies.some((b) => nfc(b).trim() === trimmed),
+    notUnderstood: replyNotUnderstood(input.body),
     carriesStepLink: input.hosts.some((h) => reply.includes(h)),
     linkHosts: input.hosts.filter((h) => reply.includes(h)),
   };

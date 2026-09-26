@@ -34,7 +34,7 @@ test('DONE-TEST: THE LIVE «Усны хими 132,000₮–154,000₮» GETS THE
 test('text the platform approved passes untouched: a row quoted whole, a reviewed line, a bare phone', () => {
   for (const ok of [
     'Усан хими: 132,000₮–154,000₮ байна.',
-    `Мастер үсчин: 20,000₮\n1-р зэргийн үсчин: 10,000₮\n\n${BOOKING}`,
+    `Урьдчилгаа төлбөр — Мастер үсчин: 20,000₮\nУрьдчилгаа төлбөр — 1-р зэргийн үсчин: 10,000₮\n\n${BOOKING}`,
     HANDOFF,
     'Та 80905498 дугаар руу залгаарай.',
     'Хаяг: Яармагийн Номин Хайпермаркетын баруун талд',
@@ -44,7 +44,7 @@ test('text the platform approved passes untouched: a row quoted whole, a reviewe
 
 test('each kind of fact, restated, is served from its row', () => {
   assert.equal(served('Шулуун хими 430 мянгаас 510 мянган төгрөг.'), 'Шулуун хими: 430,000₮–510,000₮');
-  assert.equal(served('Мастерт 20,000₮ урьдчилгаа төлнө.'), 'Мастер үсчин: 20,000₮');
+  assert.equal(served('Мастерт 20,000₮ урьдчилгаа төлнө.'), 'Урьдчилгаа төлбөр — Мастер үсчин: 20,000₮');
   assert.equal(served('Та 7600-1888 руу залгаарай.'), 'Утас: 76001888, 80905498');
   assert.equal(served('Манай салон Номин Хайпермаркетын баруун талд байдаг.'), 'Хаяг: Яармагийн Номин Хайпермаркетын баруун талд');
 });
@@ -55,7 +55,47 @@ test('hours are one fact, the week: the day that differs is served too', () => {
 
 test('a booking answer keeps its booking line when its deposits are restated', () => {
   assert.equal(served(`Мастерт 20,000₮, 1-р зэрэгт 10,000₮. ${BOOKING}`),
-    `Мастер үсчин: 20,000₮\n1-р зэргийн үсчин: 10,000₮\n${BOOKING}`);
+    `Урьдчилгаа төлбөр — Мастер үсчин: 20,000₮\nУрьдчилгаа төлбөр — 1-р зэргийн үсчин: 10,000₮\n${BOOKING}`);
+});
+
+// Tara, 2026-09-26 12:39, live: «үс будалт цаг авъя» was sent the deposit rows WITHOUT the
+// heading that says they are deposits, and a customer reads «1-р зэргийн үсчин: 10,000₮» as
+// the colour price (135,000–200,000₮). A deposit amount is never presented as a price.
+const LIVE_1239 = `1-р зэргийн үсчин: 10,000₮\nМастер үсчин: 20,000₮\n\n${BOOKING}`;
+
+test('DONE-TEST: A DEPOSIT ROW QUOTED BARE IS NOT APPROVED TEXT — IT IS SERVED WITH «Урьдчилгаа төлбөр»', () => {
+  assert.equal(served(LIVE_1239),
+    `Урьдчилгаа төлбөр — 1-р зэргийн үсчин: 10,000₮\nУрьдчилгаа төлбөр — Мастер үсчин: 20,000₮\n${BOOKING}`);
+});
+
+test('DONE-TEST: the live 12:39 reply, sentence by sentence, keeps the booking line and labels every deposit', () => {
+  const r = splitFacts(LIVE_1239, SRC, 'үс будалт цаг авъя');
+  assert.ok(r.ok, JSON.stringify(r));
+  if (!r.ok) return;
+  for (const line of r.body.split('\n').filter((l) => /10,000₮|20,000₮/u.test(l))) {
+    assert.ok(line.startsWith('Урьдчилгаа төлбөр — '), line);
+  }
+  assert.ok(r.body.includes(BOOKING));
+});
+
+test('a deposit written in the model\'s own words, with or without the word, is served labelled', () => {
+  for (const reply of ['Урьдчилгаа нь мастерт 20,000₮.', 'Мастер үсчинд 20,000₮ төлнө.', 'Master: 20,000₮']) {
+    assert.equal(served(reply), 'Урьдчилгаа төлбөр — Мастер үсчин: 20,000₮', reply);
+  }
+});
+
+test('a tenant deposit row that already says «урьдчилгаа» is served as the tenant wrote it', () => {
+  const own = factSourceFrom('=== УРЬДЧИЛГАА ТӨЛБӨР ===\n- Урьдчилгаа 30,000₮ (бүх үйлчилгээ)', LABELS, []);
+  const r = checkFacts('30,000₮ төлнө.', own);
+  assert.equal(r.restated && r.served, 'Урьдчилгаа 30,000₮ (бүх үйлчилгээ)');
+  assert.equal(checkFacts('Урьдчилгаа 30,000₮ (бүх үйлчилгээ)', own).restated, false);
+});
+
+test('the colour prices by length pass as the rows they are — a deposit is never among them', () => {
+  const colour = factSourceFrom(`${PREFIX}\n=== ҮНИЙН ЖАГСААЛТ ===\n- Будаг (Хүзүүний урт): 135,000₮\n- Будаг (Далны дээгүүр): 176,000₮\n- Будаг (Далнаас доош): 200,000₮`, LABELS, [BOOKING]);
+  const reply = 'Будаг (Хүзүүний урт): 135,000₮\nБудаг (Далны дээгүүр): 176,000₮\nБудаг (Далнаас доош): 200,000₮';
+  const r = checkFacts(reply, colour, 'үс будалт цаг авъя');
+  assert.equal(r.restated, false);
 });
 
 test('a number that is no fact row\'s is not this check\'s business', () => {

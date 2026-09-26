@@ -10605,3 +10605,35 @@ is not firing.
 
 **After App Review** the poll can stay on: a pushed comment and a polled one are the same
 event. Removing it is a separate decision.
+
+## D-147 — A deposit is never a price; chat shorthand is read like Cyrillic (2026-09-27)
+
+**Deposits.** Tara, 2026-09-26 12:39, live: «үс будалт цаг авъя» was sent «1-р зэргийн
+үсчин: 10,000₮ / Мастер үсчин: 20,000₮» plus the booking line. Those are the deposit rows,
+correctly served by the facts guard, with the «УРЬДЧИЛГАА ТӨЛБӨР» heading left behind in the
+prefix. A customer reads them as the colour price (135,000 / 176,000 / 200,000₮).
+- **The rule:** a deposit row reaches a customer only as «Урьдчилгаа төлбөр — {row}»
+  (`prompt/tenant.ts` `depositRow`; the label is the section's own heading, in sentence case).
+- **`guard/facts.ts`:** the labelled form is the only approved form. A bare quote is a
+  restated amount and is served labelled.
+- **`handleReception`:** labels `depositRows` once at entry, so the deposits added above a
+  booking line and the booking-apology answer carry the label too.
+- A row whose own text already says «урьдчилгаа» is left as the tenant wrote it.
+- **No republish:** the prefix is unchanged. The one-location golden replies differ from
+  pre-0047 by exactly this label, which `branches.test.ts` asserts.
+
+**Chat shorthand** (`mn/chat.ts`). «bnu» (Tara, 2026-09-26 18:05) got the model's
+«Уучлаарай, ойлгосонгүй»: no greeting row listed a bare «bnu» or even «байна уу».
+- **Whole messages:** a message that is wholly a greeting, thanks or «ok» — in Latin or
+  Cyrillic shorthand — is matched as «сайн байна уу» / «баярлалаа» / «за». Every tenant's
+  existing rows answer it, with no rows added.
+- **Words:** common chat words («une hed ve») are matched as Cyrillic, under the tenant's own
+  spellings.
+- Platform data, not per-client rows: D-067's rows remain for a tenant's own vocabulary. The
+  spelling proposer no longer asks about these words.
+
+**Sales shadow:**
+- A new skip, `not_understood`, applies when the reply says it did not understand, or is only
+  a greeting plus an invitation to ask (Tara's «хаая» reply).
+- Tara's `small_talk` is now DalaTech's list, and the small-talk check reads the respelled text.
+- The weekly numbers: `scripts/diagnose/sales-shadow-report.sql`.

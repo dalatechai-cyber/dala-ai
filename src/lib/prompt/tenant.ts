@@ -53,7 +53,7 @@
  * inventing a separator for a problem that does not exist.
  */
 import type { PromptSection } from './render.ts';
-import { byCodePoint, nfc } from '../mn/text.ts';
+import { byCodePoint, fold, nfc } from '../mn/text.ts';
 import { cannedSectionBody } from '../gate/match.ts';
 
 /**
@@ -789,3 +789,35 @@ export function hasTenantData(promptStable: string): boolean {
   const marker = heading(SECTION_LABELS.dataMarker);
   return nfc(promptStable).split('\n').some((line) => line.trim() === marker);
 }
+
+/**
+ * A deposit row as a customer may read it: with the word that says it is a DEPOSIT.
+ *
+ * Tara, 2026-09-26 12:39, live: «үс будалт цаг авъя» was answered «1-р зэргийн үсчин: 10,000₮ /
+ * Мастер үсчин: 20,000₮» — the tenant's deposit rows, correctly served by `guard/facts.ts`, with
+ * the «УРЬДЧИЛГАА ТӨЛБӨР» heading left behind in the prefix. A customer reads that as the colour
+ * price, which is 135,000–200,000₮. The heading is what said "deposit", and a row travels
+ * without its heading — quoted by the model or served by the guard.
+ *
+ * So the row carries it wherever a customer can read it: the section's own label, in sentence
+ * case, before the tenant's text — «Урьдчилгаа төлбөр — 1-р зэргийн үсчин: 10,000₮». Applied by
+ * `guard/facts.ts`, which is where a row leaves the prefix: the labelled form is the only one a
+ * reply may carry, and the one a restated deposit is served as. The prefix itself is unchanged,
+ * so no tenant needs a republish. A row whose own text already says «урьдчилгаа» is left as the
+ * tenant wrote it.
+ */
+export function depositRow(text: string): string {
+  const t = nfc(text).trim();
+  if (fold(t).includes(fold(DEPOSIT_WORD))) return t;
+  return `${DEPOSIT_ROW_LABEL} — ${t}`;
+}
+
+/** «урьдчилгаа»: the word that makes an amount a deposit. */
+const DEPOSIT_WORD = fold(SECTION_LABELS.deposits).split(' ')[0] ?? 'урьдчилгаа';
+
+/** «Урьдчилгаа төлбөр»: the section label in sentence case. */
+export const DEPOSIT_ROW_LABEL = ((): string => {
+  const lower = fold(SECTION_LABELS.deposits);
+  const cps = [...lower];
+  return `${(cps[0] ?? '').toLocaleUpperCase('mn-MN')}${cps.slice(1).join('')}`;
+})();

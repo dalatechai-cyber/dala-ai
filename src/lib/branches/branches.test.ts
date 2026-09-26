@@ -18,6 +18,11 @@ import {
 } from './branches.fixtures.ts';
 
 const APPROVED = '2026-09-25T00:00:00Z';
+const DEPOSIT_LABEL = 'Урьдчилгаа төлбөр — ';
+/** The outcomes with the 2026-09-27 deposit label removed, for the pre-0047 comparison only. */
+function withoutDepositLabel(outcomes: unknown): unknown {
+  return JSON.parse(JSON.stringify(outcomes).split(DEPOSIT_LABEL).join(''));
+}
 const REVIEWED = '2026-09-24T00:00:00Z';
 const YARMAG = 'Яармаг салбар';
 const ZAISAN_NAME = 'Зайсан салбар';
@@ -96,13 +101,17 @@ test('DONE-TEST (a): adding the clarify row does not move canned_hash, so it can
 test('DONE-TEST (a): A ONE-LOCATION TENANT GIVES EXACTLY THE REPLIES IT GAVE BEFORE 0047', async () => {
   const r = compile(ONE_BRANCH_KB);
   const outcomes = await runScenarios(handleReception, scenarioInput(r.promptStable, r.allowedNumbers, { branches: [] }), ONE_BRANCH_SCENARIOS);
-  assert.equal(outcomesHash(outcomes), PRE_0047.oneBranchReplies);
+  // One deliberate change since: a deposit row reaches the customer labelled «Урьдчилгаа
+  // төлбөр — …» (founder, 2026-09-27; `depositRow`). With that label taken back out, every reply
+  // is byte-for-byte what it was before 0047 — so the label is the ONLY difference.
+  assert.ok(JSON.stringify(outcomes).includes(DEPOSIT_LABEL), 'the booking scenario serves labelled deposits');
+  assert.equal(outcomesHash(withoutDepositLabel(outcomes)), PRE_0047.oneBranchReplies);
   // And with live branch rows present but a prefix that lists none: the PREFIX decides, so a
   // row added before the publish cannot change a reply either.
   const withRows = await runScenarios(
     handleReception, scenarioInput(r.promptStable, r.allowedNumbers, { branches: TWO_BRANCH_STEMS }), ONE_BRANCH_SCENARIOS,
   );
-  assert.equal(outcomesHash(withRows), PRE_0047.oneBranchReplies);
+  assert.equal(outcomesHash(withoutDepositLabel(withRows)), PRE_0047.oneBranchReplies);
 });
 
 test('(a) L4 is unchanged for no branches and for one', () => {
@@ -198,7 +207,8 @@ test('DONE-TEST (b): AN ANSWER THAT IS THE SAME AT EVERY BRANCH IS SENT WITHOUT 
     // A per-branch service, but this variant costs the same at both: nothing to ask.
     ['1-р зэргийн эмэгтэй тайралт хэд вэ?', 'Эмэгтэй тайралт (1-р зэрэг): 25,000₮'],
     ['Сайн байна уу', 'Сайн байна уу! Танд юугаар туслах вэ?'],
-    ['Урьдчилгаа хэд вэ?', 'Мастер үсчин: 20,000₮'],
+    // The labelled row (`depositRow`): a bare deposit row is not a reply the platform sends.
+    ['Урьдчилгаа хэд вэ?', 'Урьдчилгаа төлбөр — Мастер үсчин: 20,000₮'],
   ] as const) {
     const o = await one(input, message, reply);
     assert.deepEqual(o.drafts, [{ body: reply, answeredBy: 'model' }], `${message}: ${o.flags.join(',')}`);
