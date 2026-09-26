@@ -10422,3 +10422,36 @@ none, or with a different `content_hash` or `canned_hash`, needs the publish, an
 which. An unreadable read stops the run. The read-back after the write checks every channel,
 where it too checked only the first. Same shape as D-058's: a check that asked the one row
 it happened to fetch.
+
+## D-143 — A reply with a web address is sent with a link button, not a preview card (2026-09-26)
+
+Founder, 2026-09-26: on Messenger and Instagram, a reply carrying `https://app.dalatech.online`
+or `https://dalatech.online` gets Meta's large link-preview card (logo image, page title), and
+the whole message reads as one clickable block. The customer must still be able to tap the
+link; the card must go; approved wording stays.
+
+**What Meta supports.** A text message has no switch to suppress the preview. Both channels
+support the **button template** — up to 640 characters of text with 1–3 `web_url` buttons
+(Messenger Send API; Instagram's messaging reference lists the same template and limits) —
+which renders as an ordinary bubble with small buttons and no preview.
+
+**What is sent** (`meta/linkButtons.ts`, applied at the wire in `sendMessageParts` for every DM
+reply on both channels; the stored reply is unchanged):
+- an address that ends its line is lifted onto a button, the line keeping its words
+  («👉 Бусад AI ажилтнууд:» + button);
+- an address inside a sentence is written as its bare host so the sentence reads
+  («… dalatech.online хуудаснаас …») and is also a button;
+- the button label is the address's own host (`app.dalatech.online`, ≤ 20 characters) — no
+  new Mongolian;
+- no address, or more than three, is plain text as before; a reply over 640 characters (or
+  Instagram's 1000 bytes) goes as text parts with the template last.
+
+**Fallback.** If Meta refuses the template before anything was delivered, the reply is sent
+again exactly as before, as plain text. A credential failure or a rate limit is not retried
+as text, so the breaker and the retry see what they always saw.
+
+**Echoes.** Instagram echoes carry no `app_id` (measured: webhook_events 870–876). A template
+echo is never read as a person — nobody can type buttons in an inbox — and a text echo is
+matched against the form the reply was sent in as well as the stored one.
+
+Not verifiable from here: how each app renders the template. The founder's test settles it.

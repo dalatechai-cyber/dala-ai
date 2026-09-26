@@ -68,7 +68,8 @@ export function buildDeliverDeps(input: DeliverDepsInput): DeliverDeps {
     loadSecret: () => loadTenantSecret(db, ref),
 
     // The real `fetch`, and the token passed in by the caller rather than fetched here.
-    send: (i) => sendMessageParts(i),
+    // A reply with a web address goes as text + link buttons, not a preview card (D-143).
+    send: (i) => sendMessageParts({ ...i, linkButtons: true }),
 
     // `clock()`, not `now`: this runs AFTER the Graph call returned, and that is the
     // instant `sent_at` claims to record.

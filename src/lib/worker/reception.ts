@@ -670,6 +670,8 @@ async function runReceptionDelivery(
         // false positive — harmless only while the channel is `shadow`.
         appId: sk.appId,
         text: sk.echoText ?? null,
+        // A template (buttons) is never typed by a person (D-143).
+        template: sk.echoTemplate === true,
       }));
     const handover = await recordHandover(db, {
       tenantId, channelId, ourAppId: metaAppId, entry: rawPayload, echoes,

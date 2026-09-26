@@ -109,6 +109,12 @@ export type SkippedEvent = {
    */
   echoText?: string | null;
   /**
+   * The echo is a TEMPLATE (a message with buttons, D-143). A person typing in the Page or
+   * Instagram inbox cannot send one, so it is always an app's send — ours, on Instagram,
+   * where echoes carry no `app_id` at all (measured 2026-09-26, webhook_events 870–876).
+   */
+  echoTemplate?: boolean;
+  /**
    * When Meta says an ECHO was sent — its own `timestamp`, the same clock as a customer
    * message's `sentAt`. Null on every other reason, and null on an echo with no timestamp.
    *
@@ -199,6 +205,23 @@ export function attachmentKinds(message: Record<string, unknown>): { kinds: stri
   return { kinds, stickerIds };
 }
 
+/** The echo carries a template attachment (buttons, D-143). */
+export function isTemplate(message: Record<string, unknown>): boolean {
+  const raw = message['attachments'];
+  return Array.isArray(raw) && raw.some((a) => asRecord(a)?.['type'] === 'template');
+}
+
+/** A template echo's text, from its payload; null when there is none. */
+function templateText(message: Record<string, unknown>): string | null {
+  const raw = message['attachments'];
+  if (!Array.isArray(raw)) return null;
+  for (const a of raw) {
+    const text = asRecord(asRecord(a)?.['payload'])?.['text'];
+    if (asRecord(a)?.['type'] === 'template' && typeof text === 'string') return nfc(text);
+  }
+  return null;
+}
+
 export function extractInboundMessages(entry: unknown): ExtractResult {
   const messages: InboundMessage[] = [];
   const skipped: SkippedEvent[] = [];
@@ -226,6 +249,7 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
         recipientId: extra.recipientId ?? null,
         appId: extra.appId ?? null,
         echoText: extra.echoText ?? null,
+        echoTemplate: extra.echoTemplate ?? false,
         sentAt: extra.sentAt ?? null,
         attachments: extra.attachments ?? [],
         stickerIds: extra.stickerIds ?? [],
@@ -276,7 +300,8 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
         senderId: senderIdOf === '' ? null : senderIdOf,
         recipientId: recipientIdOf === '' ? null : recipientIdOf,
         appId,
-        echoText: typeof message['text'] === 'string' ? nfc(message['text']) : null,
+        echoText: typeof message['text'] === 'string' ? nfc(message['text']) : templateText(message),
+        echoTemplate: isTemplate(message),
         sentAt: typeof echoTs === 'number' && Number.isFinite(echoTs) ? new Date(echoTs) : null,
       });
       continue;

@@ -151,3 +151,25 @@ test('DONE-TEST: AN ECHO WITH NO APP ID THAT IS OUR OWN REPLY NEVER SILENCES THE
   });
   assert.equal(p.echoTakeovers, 1);
 });
+
+test('D-143: an echo of our message with buttons never takes the thread, even with no app id', async () => {
+  const db = tablesDb([]);
+  const r = await recordHandover(db.db, {
+    tenantId: 'T', channelId: 'C', ourAppId: '1562862634970492', entry: {},
+    echoes: [{ mid: 'm_t', psid: 'psid', appId: null, text: 'Демо үзэх бол:', template: true }],
+    deliveryMode: 'live', now: AT,
+  });
+  assert.equal(r.echoTakeovers, 0);
+  assert.equal(db.updates.length, 0);
+});
+
+test('D-143: an echo of the TEXT our link reply was sent as is ours (the address was on a button)', async () => {
+  const stored = 'Дэлгэрэнгүй мэдээллийг https://dalatech.online хуудаснаас үзэх боломжтой.';
+  const db = tablesDb([{ body: stored }]);
+  const r = await recordHandover(db.db, {
+    tenantId: 'T', channelId: 'C', ourAppId: '1562862634970492', entry: {},
+    echoes: [{ mid: 'm_x', psid: 'psid', appId: null, text: 'Дэлгэрэнгүй мэдээллийг dalatech.online хуудаснаас үзэх боломжтой.' }],
+    deliveryMode: 'live', now: AT,
+  });
+  assert.equal(r.echoTakeovers, 0);
+});

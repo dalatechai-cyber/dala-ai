@@ -367,3 +367,64 @@ test('without a limit (Messenger) a long reply is one send', async () => {
   await sendMessageParts({ ...BASE, text: SENTENCE.repeat(20).trim(), fetchImpl: g.fetchImpl });
   assert.equal(g.bodies.length, 1);
 });
+
+// ---------------------------------------------------------------------------
+// Link buttons instead of a preview card (D-143)
+// ---------------------------------------------------------------------------
+
+const LINK_REPLY = 'Демо үзэх бол:\nhttps://app.dalatech.online';
+
+test('DONE-TEST: A REPLY WITH AN ADDRESS GOES AS A BUTTON TEMPLATE, NOT AS TEXT WITH A URL', async () => {
+  const g = graph([okMid('m1')]);
+  const r = await sendMessageParts({ ...BASE, text: LINK_REPLY, linkButtons: true, fetchImpl: g.fetchImpl });
+  assert.equal(r.outcome, 'sent');
+  assert.equal(g.bodies.length, 1);
+  const body = JSON.parse(g.bodies[0] as string) as Record<string, any>;
+  assert.equal(body['message']['text'], undefined, 'no text message, so no preview card');
+  assert.deepEqual(body['message']['attachment'], {
+    type: 'template',
+    payload: {
+      template_type: 'button',
+      text: 'Демо үзэх бол:',
+      buttons: [{ type: 'web_url', url: 'https://app.dalatech.online', title: 'app.dalatech.online' }],
+    },
+  });
+  assert.equal(body['recipient']['id'], 'igsid');
+});
+
+test('a template Meta refuses is sent again as the plain reply — never nothing', async () => {
+  const g = graph([new Response(JSON.stringify({ error: { code: 100 } }), { status: 400 }), okMid('m2')]);
+  const r = await sendMessageParts({ ...BASE, text: LINK_REPLY, linkButtons: true, fetchImpl: g.fetchImpl });
+  assert.deepEqual(r, { outcome: 'sent', providerMessageId: 'm2', recipientId: 'r' });
+  assert.equal((JSON.parse(g.bodies[1] as string) as Record<string, any>)['message']['text'], LINK_REPLY);
+});
+
+test('a dead token or a rate limit is NOT retried as text: the breaker and the retry see it as before', async () => {
+  for (const code of [190, 613]) {
+    const g = graph([new Response(JSON.stringify({ error: { code } }), { status: 400 })]);
+    const r = await sendMessageParts({ ...BASE, text: LINK_REPLY, linkButtons: true, fetchImpl: g.fetchImpl });
+    assert.equal(g.bodies.length, 1, String(code));
+    assert.equal(r.outcome, 'failed');
+  }
+});
+
+test('a reply without an address, or a private reply to a comment, is sent exactly as before', async () => {
+  const g = graph([okMid('m1')]);
+  await sendMessageParts({ ...BASE, text: 'Сайн байна уу', linkButtons: true, fetchImpl: g.fetchImpl });
+  assert.deepEqual((JSON.parse(g.bodies[0] as string) as Record<string, any>)['message'], { text: 'Сайн байна уу' });
+  const c = graph([okMid('m1')]);
+  await sendMessageParts({ ...BASE, recipientId: '', recipientCommentId: 'c_1', text: LINK_REPLY, linkButtons: true, fetchImpl: c.fetchImpl });
+  assert.deepEqual((JSON.parse(c.bodies[0] as string) as Record<string, any>)['message'], { text: LINK_REPLY });
+});
+
+test('a long reply with an address: text parts first, the template last within 640 characters', async () => {
+  const text = `${'Дали бол манай AI хүлээн авагч. '.repeat(30).trim()}\nДемо: https://app.dalatech.online`;
+  const g = graph([okMid('m1'), okMid('m2'), okMid('m3')]);
+  const r = await sendMessageParts({ ...BASE, text, maxBytes: 1000, linkButtons: true, fetchImpl: g.fetchImpl });
+  assert.equal(r.outcome, 'sent');
+  const sent = g.bodies.map((b) => (JSON.parse(b) as Record<string, any>)['message']);
+  const last = sent[sent.length - 1];
+  assert.equal(last['attachment']['payload']['buttons'][0]['url'], 'https://app.dalatech.online');
+  assert.ok([...last['attachment']['payload']['text'] as string].length <= 640);
+  for (const m of sent.slice(0, -1)) assert.ok(Buffer.byteLength(m['text'] as string) <= 1000);
+});

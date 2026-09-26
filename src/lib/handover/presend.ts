@@ -30,6 +30,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { controlFromEcho } from './control.ts';
 import { isAutomationText } from './automation.ts';
+import { isTemplate } from '../meta/extract.ts';
 import { echoIsOursWithoutAppId, readThreadState } from './record.ts';
 
 /** More echoes than this after one customer message is a conversation, not a race. */
@@ -67,6 +68,8 @@ export function personEchoCandidates(
     const message = ev['message'] as Record<string, unknown> | undefined;
     const recipient = ev['recipient'] as Record<string, unknown> | undefined;
     if (message?.['is_echo'] !== true || String(recipient?.['id'] ?? '') !== psid) continue;
+    // A message with buttons is an app's send, never a person typing (D-143).
+    if (isTemplate(message)) continue;
     const app = message['app_id'];
     const appId = typeof app === 'number' || typeof app === 'string' ? String(app) : null;
     const automated = isAutomationText(typeof message['text'] === 'string' ? message['text'] : null, automationTexts);

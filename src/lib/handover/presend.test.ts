@@ -136,3 +136,13 @@ test('an unreadable send table never unmutes: the echo counts as a person', asyn
   );
   assert.equal(r.replied, true);
 });
+
+test('D-143: our earlier reply with buttons is not "a person replied", with no app id', async () => {
+  const r = await personRepliedSince(
+    dbWithSends([{ id: 903, raw_payload: { messaging: [{ recipient: { id: PSID }, message: {
+      mid: 'ig_t', is_echo: true, attachments: [{ type: 'template', payload: { template_type: 'button', text: 'Демо:' } }],
+    } }] } }], { data: [] }),
+    INPUT,
+  );
+  assert.deepEqual(r, { replied: false });
+});
