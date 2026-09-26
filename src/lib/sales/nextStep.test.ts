@@ -250,3 +250,26 @@ test('THE RECORD carries kinds and ids, never customer text and never a phone di
   assert.ok(l.includes('9911****'));
   assert.ok(!/\d{5,}/u.test(l), l);
 });
+
+test('a tenant that takes no leads: booking is the only step, a number is detected but routed nowhere', () => {
+  // Tara, 2026-09-26: the salon's staff do not call back. The callback and lead_thanks rows
+  // are gone and lead_route is `none` (0053). «dugaar» used to choose the call-back step.
+  const p = parsePlaybook({
+    mode: 'shadow', lead_route: 'none',
+    steps: [{
+      kind: 'booking', priority: 1, is_default: true, link: 'https://booking.example.mn/', enabled: true,
+      body: 'ЗАХИАЛГЫН МӨР', reviewed_at: '2026-09-26T00:00:00Z',
+      intent_matcher: [{ mode: 'contains_stem', stems: ['захиал'] }],
+    }],
+    pairings: [],
+  });
+  assert.ok(p.ok, p.ok ? '' : p.detail);
+  const pb = p.ok ? p.playbook : playbook();
+  for (const m of ['Sn bnu Badmaa stylestiin dugaar hed we', 'залгаж болох уу', 'Эмэгтэй тайралт хэд вэ']) {
+    const d = decide(input({ playbook: pb, customerMessage: m }));
+    assert.equal(d.nextStep.verdict === 'offer' && d.nextStep.kind, 'booking', m);
+  }
+  const lead = decide(input({ playbook: pb, customerMessage: 'Миний дугаар 99112233' })).lead;
+  assert.equal(lead.detected && lead.route, 'none');
+  assert.equal(lead.detected && lead.thanksRow, 'missing');
+});

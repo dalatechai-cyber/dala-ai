@@ -9899,3 +9899,17 @@ revoked key pages at once. It pages once per episode, and pages again if the fau
 - **Tested with stubs, no spend.** The real classifier runs on the exact 400 body, through the
   real raise and resolve, with Telegram's `fetch` stubbed. Five failures produce one page,
   the recovery produces one line, and a recurrence produces a second page.
+
+## D-130 — Tara takes no leads: booking is its only next step (2026-09-26)
+
+The salon confirmed its staff will not call customers back. Tara's `callback` and
+`lead_thanks` rows are deleted (both had been disabled since 2026-09-25), and booking —
+«Цаг захиалах бол:» plus the approved booking line — is its only next step. `lead_route`
+gains `none` (`0053`), because leaving `page_label` would record every volunteered number as
+routed to a label nobody wants. A number a customer types anyway is still detected, masked
+and recorded, and it still silences the next step for that turn. The Page inbox label was
+only ever a recorded value: no code calls Graph `custom_labels`, so nothing exists on Meta's
+side to remove. Nothing in Tara's compiled prompt asks for a phone number; its lines give the
+salon's numbers only. DalaTech keeps its approved `callback` and `lead_thanks`. The salon
+template (`sales_playbook.salon.json`) keeps a callback step, because it is per-vertical, and
+another salon may call back.
