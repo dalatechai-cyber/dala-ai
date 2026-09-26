@@ -169,6 +169,24 @@ export function withBranches(ctx: ReceptionContext, branches: BranchContext[]): 
   };
 }
 
+/**
+ * The model seat every reply-case run uses — the deploy gate, the publish gate and the CI test
+ * set alike (D-135). One retry after a `retryable` outcome (an overload, a timeout), two
+ * seconds apart. Before this the CI harness retried and the two gates did not, so a transient
+ * API error failed a case on the founder's Mac that CI would have answered: a disagreement
+ * that had nothing to do with the reply.
+ */
+export function caseModelSeat(
+  call: (req: ReceptionRequest) => Promise<CallOutcome>,
+): (req: ReceptionRequest) => Promise<CallOutcome> {
+  return async (req) => {
+    const first = await call(req);
+    if (first.kind !== 'retryable') return first;
+    await new Promise((r) => setTimeout(r, 2_000));
+    return call(req);
+  };
+}
+
 /** Thrown by the stub model when no key was given; caught per case and reported. */
 class NeedsModel extends Error {}
 
@@ -199,8 +217,12 @@ export async function runCases(input: {
       // A model failure keeps the API's own words: «model_invalid_request» alone cannot say
       // whether the account is out of credit or the request is malformed. Only for `model_`
       // codes — their detail is the provider's error, never a customer's text.
+      // `outbound_price` names the numerals it refused (D-135): «case 42 FAILS … outbound_price»
+      // alone could not say whether a duration, a price or «24/7» was refused. They are the
+      // model's numerals the customer did NOT write, so no customer's words can appear there.
       flag: async (f) => {
-        record.flags.push(f.code.startsWith('model_') && f.detail ? `${f.code} — ${f.detail.replace(/\s+/gu, ' ').slice(0, 240)}` : f.code);
+        const withDetail = (f.code.startsWith('model_') || f.code === 'outbound_price') && f.detail;
+        record.flags.push(withDetail ? `${f.code} — ${f.detail.replace(/\s+/gu, ' ').slice(0, 240)}` : f.code);
       },
       observe: async () => {},
     };

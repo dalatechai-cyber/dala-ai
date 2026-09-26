@@ -39,7 +39,7 @@ import type { CannedRow } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { CommentRule } from '../comments/classify.ts';
 import { wholeMessageMatches } from '../mn/match.ts';
-import { fold } from '../mn/text.ts';
+import { cpLength, fold } from '../mn/text.ts';
 import { detectPhones } from './phone.ts';
 import { classifyReply, decide, rowState, stepHosts, type Playbook, type PlaybookStep } from './nextStep.ts';
 
@@ -147,4 +147,32 @@ export function salesLineFor(input: {
   if (v.verdict !== 'offer' || v.row !== 'reviewed') return null;
   const step = reviewedStep(pb, v.kind);
   return step === null ? null : { kind: v.kind, body: (step.body as string).trim() };
+}
+
+/**
+ * The model's reply with every approved sales line it RETYPED removed (D-135). The platform
+ * adds a sales line, once per conversation (`salesLineFor`); the model must not. Measured on
+ * case 42: with the follow-up already in the conversation, the model copied it into its own
+ * answer 2 runs in 15 — offering it a second time, and carrying «24/7» and «24», which the
+ * numeral guard then refused, so a correct answer became the canned fallback.
+ *
+ * Exact lines of the reviewed follow-up only (twelve characters or more each), so a
+ * sentence the model wrote itself is never touched. Only for a `live` playbook. Returns the
+ * text unchanged when nothing was retyped, or when removing it would leave nothing.
+ */
+export function withoutSalesLines(text: string, playbook: Playbook | null): string {
+  if (playbook === null || playbook.mode !== 'live') return text;
+  const lines = playbook.steps
+    // The FOLLOW-UP only: the callback, demo and thank-you lines are also legitimate
+    // answers, and a model that writes «leave your number» to a buyer has answered.
+    .filter((st) => st.kind === 'follow_up' && st.enabled && st.reviewed && st.body !== null)
+    .flatMap((st) => (st.body as string).split('\n'))
+    .map((l) => l.trim())
+    .filter((l) => cpLength(l) >= 12)
+    .sort((a, b) => cpLength(b) - cpLength(a));
+  let out = text;
+  for (const l of lines) out = out.split(l).join(' ');
+  if (out === text) return text;
+  out = out.split('\n').map((l) => l.replace(/[ \t]{2,}/gu, ' ').trim()).filter((l, i, all) => l !== '' || (i > 0 && all[i - 1] !== '')).join('\n').trim();
+  return out === '' ? text : out;
 }

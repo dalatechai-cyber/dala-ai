@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { leadThanksFor, offeredEarlier, salesLineFor } from './live.ts';
+import { leadThanksFor, offeredEarlier, salesLineFor, withoutSalesLines } from './live.ts';
 import { parsePlaybook, type Playbook } from './nextStep.ts';
 import type { CommentRule } from '../comments/classify.ts';
 
@@ -135,4 +135,23 @@ test('DONE-TEST: "call me" answered with the homepage link still gets the approv
   assert.equal(line('Демо үзмээр байна', 'Демог https://app.dalatech.online дээр захиална.'), null);
   // And with no step asked for, any step link in the reply still counts.
   assert.equal(line('Хэр хурдан ажиллаж эхлэх вэ?', 'Дэлгэрэнгүйг https://dalatech.online дээр үзнэ үү.'), null);
+});
+
+test('DONE-TEST: the follow-up the MODEL retyped is removed; the platform adds it, once (case 42, D-135)', () => {
+  const NEW = '🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online';
+  const pb = parsePlaybook({ mode: 'live', lead_route: 'founder_telegram', pairings: [], steps: [
+    { kind: 'follow_up', body: NEW, reviewed_at: REVIEWED, link: 'https://app.dalatech.online', priority: 50, is_default: true, intent_matcher: null, enabled: true },
+    { kind: 'callback', body: CALLBACK, reviewed_at: REVIEWED, link: null, priority: 2, is_default: false, enabled: true, intent_matcher: null },
+  ] });
+  assert.ok(pb.ok);
+  const p = pb.ok ? pb.playbook : dalatech();
+  // The real reply, measured: the answer, then the follow-up copied from the conversation.
+  const retyped = `AI ажилтан 1–2 долоо хоногт ажиллаж эхэлдэг.\n${NEW}`;
+  assert.equal(withoutSalesLines(retyped, p), 'AI ажилтан 1–2 долоо хоногт ажиллаж эхэлдэг.');
+  // Inline, on one line with the answer.
+  assert.equal(withoutSalesLines('Эхэлдэг. 🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.', p), 'Эхэлдэг.');
+  // The callback line is an answer, never removed; nothing retyped is untouched; shadow is untouched.
+  assert.equal(withoutSalesLines(`Тийм. ${CALLBACK}`, p), `Тийм. ${CALLBACK}`);
+  assert.equal(withoutSalesLines('Сайн байна уу.', p), 'Сайн байна уу.');
+  assert.equal(withoutSalesLines(retyped, dalatech('shadow')), retyped);
 });

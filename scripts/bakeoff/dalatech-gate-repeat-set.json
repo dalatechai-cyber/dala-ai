@@ -1,6 +1,6 @@
 {
- "$comment": "Gate repeat set (D-134): EVERY active DalaTech reply case (the 35 from the two sets; cases 9 and 10 are sp1 and i01 again), plus st2, three times each, over the dump. The production gate and the publish gate each run the cases once, and a case that passes one run and fails the next blocks a publish. A pass here means all three runs passed every case. Not a source of reply_cases rows: its SQL files are never generated or applied.",
- "title": "DalaTech gate repeat set (every active case × 3)",
+ "$comment": "Gate repeat set (D-134): EVERY active DalaTech reply case (the 35 from the two sets; cases 9 and 10 are sp1 and i01 again), plus st2, three times each, over the dump. The production gate and the publish gate each run the cases once, and a case that passes one run and fails the next blocks a publish. A pass here means all three runs passed every case. Not a source of reply_cases rows: its SQL files are never generated or applied. Case 42 (sq2) runs twelve more times on top (D-135): it failed 2 runs in 15 before its fix, and three samples cannot show a 1-in-7 variant is gone.",
+ "title": "DalaTech gate repeat set (every active case × 3, case 42 × 15)",
  "tenant_slug": "dalatech",
  "note_prefix": "dalatech-gate-repeat",
  "report": "docs/reports/dalatech-gate-repeat.md",
@@ -1479,6 +1479,294 @@
    "expect": "A greeting in a conversation that already has history (founder's live test, 2026-09-26: «Сайн байна уу! Танд юугаар туслах вэ?»): the approved introduction, exactly. No sales line.",
    "expected_body": "Сайн байна уу! Би DalaTech-ийн AI туслах Дали байна. AI ажилтан, вэбсайтын талаар хүссэн зүйлээ асуугаарай.",
    "must_not_include": []
+  },
+  {
+   "id": "sq2x1",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\n🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online"
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулна",
+    "Үнэгүй демо, 24 цагт бэлэн"
+   ]
+  },
+  {
+   "id": "sq2x2",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\n🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online"
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулна",
+    "Үнэгүй демо, 24 цагт бэлэн"
+   ]
+  },
+  {
+   "id": "sq2x3",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\n🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online"
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулна",
+    "Үнэгүй демо, 24 цагт бэлэн"
+   ]
+  },
+  {
+   "id": "sq2x4",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\n🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online"
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулна",
+    "Үнэгүй демо, 24 цагт бэлэн"
+   ]
+  },
+  {
+   "id": "sq2x5",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\n🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online"
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулна",
+    "Үнэгүй демо, 24 цагт бэлэн"
+   ]
+  },
+  {
+   "id": "sq2x6",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\n🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online"
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулна",
+    "Үнэгүй демо, 24 цагт бэлэн"
+   ]
+  },
+  {
+   "id": "sq2x7",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\n🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online"
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулна",
+    "Үнэгүй демо, 24 цагт бэлэн"
+   ]
+  },
+  {
+   "id": "sq2x8",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\n🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online"
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулна",
+    "Үнэгүй демо, 24 цагт бэлэн"
+   ]
+  },
+  {
+   "id": "sq2x9",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\n🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online"
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулна",
+    "Үнэгүй демо, 24 цагт бэлэн"
+   ]
+  },
+  {
+   "id": "sq2x10",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\n🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online"
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулна",
+    "Үнэгүй демо, 24 цагт бэлэн"
+   ]
+  },
+  {
+   "id": "sq2x11",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\n🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online"
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулна",
+    "Үнэгүй демо, 24 цагт бэлэн"
+   ]
+  },
+  {
+   "id": "sq2x12",
+   "category": "second",
+   "source": "constructed, 2 turns",
+   "history": [
+    {
+     "role": "user",
+     "content": "үнэ хэд вэ"
+    },
+    {
+     "role": "assistant",
+     "content": "Сарын төлбөр: Дали 250,000₮, Вира 150,000₮, Эхо 250,000₮, Нова 150,000₮, Ора 250,000₮. Нэг удаагийн суурилуулалт: Дали 150,000₮, Вира 150,000₮, Эхо 200,000₮, Нова 150,000₮, Ора 150,000₮. Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.\nВэбсайт: Ухаалаг вэбсайт 750,000₮, Вэбсайт + Дали багц 800,000₮.\n\n🤖 Таны Facebook, Instagram, вэбсайтын зурваст 24/7 хариулна.\n🎁 Үнэгүй демо, 24 цагт бэлэн: https://app.dalatech.online\n👉 Бусад AI ажилтнууд: https://dalatech.online"
+    }
+   ],
+   "text": "Хэр хурдан ажиллаж эхлэх вэ?",
+   "expect": "The answer to the second question, with NO second follow-up: once per conversation.",
+   "must_include": [
+    "долоо хоног"
+   ],
+   "must_not_include": [
+    "24/7 хариулна",
+    "Үнэгүй демо, 24 цагт бэлэн"
+   ]
   }
  ]
 }

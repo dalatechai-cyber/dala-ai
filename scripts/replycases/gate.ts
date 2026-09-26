@@ -31,7 +31,7 @@
  * and nothing here prints one.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { findingsOf, gateTenant, renderGate, renderReplies, type TenantGate } from '../../src/lib/replycases/run.ts';
+import { caseModelSeat, findingsOf, gateTenant, renderGate, renderReplies, type TenantGate } from '../../src/lib/replycases/run.ts';
 import { decide } from '../../src/lib/replycases/override.ts';
 import { FOUNDER_OVERRIDE_KEYS } from '../../src/lib/replycases/overrideKeys.ts';
 import { sendTelegram } from '../../src/lib/alerts/alert.ts';
@@ -59,7 +59,7 @@ if ((process.env['NEXT_PUBLIC_SUPABASE_URL'] ?? '') === '' || (!hasWorker && !ha
 const db: SupabaseClient = hasWorker ? supabaseWorker() : supabasePublish();
 
 const key = process.env['ANTHROPIC_API_KEY'] ?? '';
-const callModel = key === '' ? null : (req: Parameters<typeof callReception>[0]) => callReception(req, key);
+const callModel = key === '' ? null : caseModelSeat((req: Parameters<typeof callReception>[0]) => callReception(req, key));
 
 /** Past this, the database or the model is not answering, and that is a finding, not a hang. */
 const GATE_TIMEOUT_MS = 180_000;
