@@ -8,11 +8,17 @@ const VOCAB = vocabularyFrom([
 ]);
 
 test('one word fits: settled, and applied to matching', () => {
-  const out = proposeSpellings(['hayag', 'une bogin us'], VOCAB, new Set());
-  const hayag = out.find((p) => p.latin === 'hayag');
-  assert.equal(hayag?.status, 'settled');
-  assert.equal(hayag?.cyrillic, 'хаяг');
-  assert.deepEqual(hayag?.evidence, ['hayag']);
+  const out = proposeSpellings(['yaarmag', 'une bogin us'], VOCAB, new Set());
+  const yarmag = out.find((p) => p.latin === 'yaarmag');
+  assert.equal(yarmag?.status, 'settled');
+  assert.equal(yarmag?.cyrillic, 'яармаг');
+  assert.deepEqual(yarmag?.evidence, ['yaarmag']);
+});
+
+test('a word the platform already reads (mn/chat.ts) is never put to the founder', () => {
+  // «hayag», «une», «bnu»: every tenant reads these already; a row per tenant is noise.
+  const out = proposeSpellings(['hayag une bnuu'], VOCAB, new Set());
+  assert.deepEqual(out.map((p) => p.latin).filter((l) => ['hayag', 'une', 'bnuu'].includes(l)), []);
 });
 
 test('words the tenant never wrote are not proposed at all', () => {

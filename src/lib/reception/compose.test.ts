@@ -59,6 +59,8 @@ const ALIASES = [
   { name: 'Үсний угийн будаг', alias: 'budaad' }, { name: 'Цайруулалт', alias: 'цайруул' },
 ];
 const DEPOSITS = ['Мастер үсчин: 20,000₮', '1-р зэргийн үсчин: 10,000₮'];
+// As a customer reads them: always with «Урьдчилгаа төлбөр» (`depositRow`, founder 2026-09-27).
+const SERVED_DEPOSITS = DEPOSITS.map((r) => `Урьдчилгаа төлбөр — ${r}`);
 const confirmed = { requiresEmptyHistory: false, provenance: 'tenant_confirmed', enabled: true } as const;
 const TARA_NAME: DeterministicRule = {
   ...confirmed, intent: 'tara_name', body: TARA, matchMode: 'covers_message',
@@ -240,7 +242,7 @@ test('1: «no price» stands when the message names no listed service', async ()
 test('2 DONE-TEST: THE BOOKING LINK ALONE GETS THE DEPOSITS, JUST ABOVE IT', async () => {
   const t = run(`Танд туслахад бэлэн байна. ${BOOKING}`);
   await handleReception(t.deps, { ...base, customerMessage: 'tsag zahialah' });
-  assert.equal(t.drafts[0]?.body, `Танд туслахад бэлэн байна.\n\n${DEPOSITS.join('\n')}\n\n${BOOKING}`);
+  assert.equal(t.drafts[0]?.body, `Танд туслахад бэлэн байна.\n\n${SERVED_DEPOSITS.join('\n')}\n\n${BOOKING}`);
 });
 
 test('2: a reply that already states every deposit is left as written', async () => {
@@ -338,7 +340,7 @@ test('2 DONE-TEST: A REFUSED REPLY QUOTING THE BOOKING LINE WHOLE SERVES THAT LI
   const t = run(`Ш3 хамааралтай тул booking_line бэлэн хариултыг ашиглав.\n\n${BOOKING}`);
   const r = await handleReception(t.deps, { ...base, customerMessage: 'tsag zahialah' });
   assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
-  assert.equal(t.drafts[0]?.body, `${DEPOSITS.join('\n')}\n\n${BOOKING}`);
+  assert.equal(t.drafts[0]?.body, `${SERVED_DEPOSITS.join('\n')}\n\n${BOOKING}`);
   assert.deepEqual(t.flags, ['outbound_gate_label']);
 });
 

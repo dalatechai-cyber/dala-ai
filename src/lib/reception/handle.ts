@@ -42,7 +42,7 @@ import { leadThanksFor, salesLineFor, withoutSalesLines } from '../sales/live.ts
 import { publishedNumbers } from '../sales/phone.ts';
 import { capEmoji, stylePriceRows, type ReplyStyle } from './style.ts';
 import { withoutOwnSite } from '../website/ownSite.ts';
-import { SECTION_LABELS } from '../prompt/tenant.ts';
+import { SECTION_LABELS, depositRow } from '../prompt/tenant.ts';
 import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '../services/match.ts';
 import { containsStem, findStem } from '../mn/match.ts';
 import { IMAGE_REPLY_KIND } from '../inbound/imageReply.ts';
@@ -60,7 +60,8 @@ import { pricePresentation, renderQuotedRows } from '../guard/pricePresentation.
 export const PRICE_VIOLATION_FLAG = 'price_violation_seen';
 import { bookingApology, renderBookingAnswer, apologyStemsFrom } from '../guard/bookingApology.ts';
 import { capToSingleMessage } from '../mn/text.ts';
-import { respell, type Spelling } from '../mn/latin.ts';
+import type { Spelling } from '../mn/latin.ts';
+import { matchingText } from '../mn/chat.ts';
 import { checkFacts, factSourceFrom, splitFacts } from '../guard/facts.ts';
 import { instructionLeakIn } from '../quality/leaks.ts';
 import {
@@ -564,7 +565,13 @@ export async function handleReception(
 ): Promise<ReceptionOutcome> {
   // Set by the draft wrapper, which every draft passes, so no return path has to remember it.
   const state = { handedOff: false };
-  const out = await receive(deps, input, state);
+  // A deposit row never reaches a customer without the word that makes it a deposit
+  // (`depositRow`, founder 2026-09-27): Tara's «1-р зэргийн үсчин: 10,000₮» was read as a
+  // colour price. Labelled HERE, once, so every path that serves or approves a deposit row —
+  // the facts guard's approved text, the deposits added above a booking line, the booking
+  // answer — carries the labelled row and no path can carry the bare one.
+  const labelled = { ...input, depositRows: input.depositRows.map(depositRow) };
+  const out = await receive(deps, labelled, state);
   return out.kind === 'drafted' && state.handedOff ? { ...out, handedOff: true } : out;
 }
 
@@ -587,8 +594,10 @@ async function receive(
   //    finding.
   // The customer's words with the tenant's known Latin spellings replaced, as a SECOND text
   // every matcher also tries (D-120). Never shown to the model and never instead of the
-  // original: a spelling can add a match, it cannot hide what the customer wrote.
-  const respelled = respell(input.customerMessage, input.spellings);
+  // original: a spelling can add a match, it cannot hide what the customer wrote. Everyday
+  // chat forms — «bnu», «sn bnuu», «bayrlalaa», «une hed ve» — are read the same way for every
+  // tenant, under the tenant's own rows (`mn/chat.ts`, 2026-09-27).
+  const respelled = matchingText(input.customerMessage, input.spellings);
   const matched = matchRules(
     { text: input.customerMessage, attachments: input.customerAttachments, respelled }, input.rules);
   if (!matched.ok) {

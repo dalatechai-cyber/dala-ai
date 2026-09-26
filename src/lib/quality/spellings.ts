@@ -21,6 +21,7 @@
  * Nothing here ever overwrites a row. A `confirmed` or `rejected` row is the founder's
  * decision and a `settled` one is yesterday's evidence; a new message cannot outvote either.
  */
+import { PLATFORM_LATIN } from '../mn/chat.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
   cyrillicKey, isCyrillicToken, isLatinToken, latinKeys, tokens, MIN_SPELLING_CP, type Spelling,
@@ -94,7 +95,8 @@ export function proposeSpellings(
   for (const message of messages) {
     const toks = tokens(message).map((t) => fold(t.token));
     toks.forEach((tok, i) => {
-      if (!isLatinToken(tok) || cpLength(tok) < MIN_SPELLING_CP || known.has(tok)) return;
+      // A word the platform already reads (`mn/chat.ts`) is never put to the founder.
+      if (!isLatinToken(tok) || cpLength(tok) < MIN_SPELLING_CP || known.has(tok) || PLATFORM_LATIN.has(tok)) return;
       const s = seen.get(tok) ?? { evidence: [], seen: 0, neighbours: [] };
       s.seen += 1;
       if (s.evidence.length < MAX_EVIDENCE && !s.evidence.includes(message)) s.evidence.push(message);

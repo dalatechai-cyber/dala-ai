@@ -906,8 +906,8 @@ test('DONE-TEST: A BOOKING APOLOGY IS REPLACED BY THE DEPOSIT AND THE LINK', asy
   });
   assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
   assert.equal(drafts.at(-1)?.body,
-    `Мастер үсчин: 20,000₮\n1-р зэргийн үсчин: 10,000₮\n\n${BOOKING}`,
-    'the deposit rows then the reviewed line — no new sentence anywhere');
+    `Урьдчилгаа төлбөр — Мастер үсчин: 20,000₮\nУрьдчилгаа төлбөр — 1-р зэргийн үсчин: 10,000₮\n\n${BOOKING}`,
+    'the deposit rows, labelled as deposits, then the reviewed line — no new sentence anywhere');
   const f = flags.find((x) => x.code === 'booking_apology');
   assert.ok(f, 'counted, never silent');
   assert.equal(f?.attempted, text, 'quality_flags keeps what the MODEL wrote');

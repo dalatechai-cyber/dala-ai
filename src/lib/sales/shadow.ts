@@ -30,7 +30,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CannedRow } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { CommentRule } from '../comments/classify.ts';
-import { respell, type Spelling } from '../mn/latin.ts';
+import type { Spelling } from '../mn/latin.ts';
+import { matchingText } from '../mn/chat.ts';
 import { servicesFromPrefix } from '../quality/serviceNames.ts';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
 import { wholeMessageMatches } from '../mn/match.ts';
@@ -171,10 +172,13 @@ export async function recordSalesShadow(
     hosts: stepHosts(playbook.steps, bookingLine === undefined ? [] : [bookingLine]),
   });
 
+  const respelled = matchingText(input.customerMessage, input.spellings);
+  const smallTalkIn = (phrases: readonly string[]): boolean => wholeMessageMatches(input.customerMessage, phrases)
+    || (respelled !== null && wholeMessageMatches(respelled, phrases));
   const decision = decide({
     playbook,
     customerMessage: input.customerMessage,
-    respelled: respell(input.customerMessage, input.spellings),
+    respelled,
     customerSentPhoto: input.customerSentPhoto,
     earlierCustomerMessages: input.history.filter((h) => h.role === 'user').map((h) => h.content),
     reply: facts,
@@ -182,8 +186,7 @@ export async function recordSalesShadow(
     offeredBefore: loaded.value.offeredBefore,
     leadBefore: loaded.value.leadBefore,
     relatedBefore: loaded.value.relatedBefore,
-    customerSmallTalk: smallTalk.some((r) => wholeMessageMatches(input.customerMessage, r.stems))
-      || wholeMessageMatches(input.customerMessage, playbook.smallTalk ?? []),
+    customerSmallTalk: smallTalk.some((r) => smallTalkIn(r.stems)) || smallTalkIn(playbook.smallTalk ?? []),
     complaintRules: loaded.value.complaintRules,
     ownNumbers: publishedNumbers([input.promptStable, ...input.canned.map((c) => c.body)]),
     serviceNames: servicesFromPrefix(input.promptStable, SECTION_LABELS.priceList).map((s) => s.name),

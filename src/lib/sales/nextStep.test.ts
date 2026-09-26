@@ -107,6 +107,7 @@ test('EVERY skip reason, in the order the founder listed them', () => {
     [{ reply: { ...ANSWER, refusal: true } }, 'refusal_or_handoff'],
     [{ offeredBefore: true }, 'already_offered'],
     [{ reply: { ...ANSWER, asksQuestion: true } }, 'reply_asks'],
+    [{ reply: { ...ANSWER, notUnderstood: true } }, 'not_understood'],
     [{ reply: { ...ANSWER, smallTalk: true } }, 'small_talk'],
     [{ customerSmallTalk: true }, 'small_talk'],
     [{ customerMessage: 'л' }, 'no_content'],
@@ -273,4 +274,26 @@ test('a tenant that takes no leads: booking is the only step, a number is detect
   const lead = decide(input({ playbook: pb, customerMessage: 'Миний дугаар 99112233' })).lead;
   assert.equal(lead.detected && lead.route, 'none');
   assert.equal(lead.detected && lead.thanksRow, 'missing');
+});
+
+// Founder, 2026-09-27: no offer after a reply where Tara did not understand the customer.
+test('DONE-TEST: A REPLY THAT DID NOT UNDERSTAND THE CUSTOMER GETS NO OFFER — both live shapes', () => {
+  const facts = (body: string) => classifyReply({ body, refusal: false, canned: [], smallTalkBodies: [], hosts: [] });
+  // Tara 2026-09-26 18:05, «bnu»: said so in words.
+  const said = facts('Уучлаарай, ойлгосонгүй. Асуух зүйл байвал бичээрэй.');
+  // Tara 2026-09-26 12:39, «хаая»: only a greeting and an invitation to ask.
+  const invited = facts('Сайн байна уу. Танд ямар нэг зүйл асуух зүйл байвал бидэнд хэлээрэй, туслахад бэлэн байна.');
+  for (const reply of [said, invited]) {
+    assert.deepEqual(decide(input({ customerMessage: 'хаая', reply })).nextStep, { verdict: 'skip', reason: 'not_understood' });
+  }
+});
+
+test('a real answer that ENDS with an invitation to ask is still an answer — the offer stands', () => {
+  // DalaTech is live and its model often closes with «Өөр асуух зүйл байвал бичээрэй».
+  const f = classifyReply({
+    body: 'Эмэгтэй тайралт 55,000₮ байна. Өөр асуух зүйл байвал бичээрэй.',
+    refusal: false, canned: [], smallTalkBodies: [], hosts: [],
+  });
+  assert.equal(f.exists && f.notUnderstood, false);
+  assert.equal(decide(input({ reply: f })).nextStep.verdict, 'offer');
 });

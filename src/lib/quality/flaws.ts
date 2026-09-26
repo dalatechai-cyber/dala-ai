@@ -35,6 +35,7 @@ import { fold } from '../mn/text.ts';
 import { tenantClock } from '../time/clock.ts';
 import { loadLiveSnapshot } from '../prompt/publish.ts';
 import { growSpellings } from './spellings.ts';
+import { saysNotUnderstood } from './notUnderstood.ts';
 import { refusalMarkerFrom } from '../guard/apology.ts';
 import { apologyStemsFrom } from '../guard/bookingApology.ts';
 import { formerNameIn, internalMentionIn } from './leaks.ts';
@@ -84,7 +85,7 @@ export type FlawSignals = {
  * so the stem floor that protects customer matching does not apply; these are whole
  * inflected forms, not stems that could reach an unrelated word.
  */
-export const NOT_UNDERSTOOD_STEMS: readonly string[] = ['ойлгосонгүй', 'ойлгоогүй', 'ойлгохгүй', 'тодруул', 'буруу ойлго'];
+export { NOT_UNDERSTOOD_STEMS } from './notUnderstood.ts';
 
 /** How long after a question a repeat still counts as the same question. */
 export const REPEAT_WINDOW_MS = 24 * 60 * 60_000;
@@ -134,7 +135,7 @@ export function detectFlaws(
       const marker = fold(signals.refusalMarker);
       if (opensSorry && words.slice(1).some((w) => w.endsWith(marker))) reasons.push('refusal (own words)');
     }
-    if (NOT_UNDERSTOOD_STEMS.some((s) => containsStem(p.reply, s))
+    if (saysNotUnderstood(p.reply)
       || signals.correctionBodies.some((b) => b.trim() !== '' && reply.includes(fold(b.trim())))) {
       reasons.push("didn't understand");
     }
