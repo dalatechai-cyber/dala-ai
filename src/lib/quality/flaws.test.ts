@@ -62,6 +62,21 @@ test('the report shows the customer, the bot and the ref, and a clean day still 
   assert.match(text, /select mark_reply_wrong\('<ref>', '<the right reply>'\);/);
 });
 
+test('a flaw already marked wrong says so, with its case — fixed flaws are not re-investigated', () => {
+  // 2026-09-26: the report listed seven Tara replies; six had been permanent, passing tests
+  // for a day, and nothing on the line said so.
+  const [flaw] = detectFlaws([pair('1e84c416', 'usnii himi', 'Усны хими 132,000₮–154,000₮ байна.', 3)],
+    [{ conversationId: 'c1', body: 'us bish', at: at(4) }], SIGNALS);
+  assert.ok(flaw !== undefined);
+  const tested = { ...flaw, pair: { ...flaw.pair, caseId: 2, caseActive: true } };
+  const off = { ...flaw, pair: { ...flaw.pair, ref: '84f13ae0', caseId: 3, caseActive: false } };
+  const text = renderFlawReport([{ ok: true, name: 'Tara', slug: 't', date: '2026-09-25', replies: 11,
+    flaws: [tested, off, flaw], learned: [], asks: [] }]);
+  assert.match(text, /3 of 11 replies look wrong \(2 already a permanent test\)\./);
+  assert.match(text, /1e84c416 · corrected · already a test \(case 2\)\n/);
+  assert.match(text, /84f13ae0 · corrected · already a test \(case 3, OFF\)\n/);
+});
+
 test('an unreadable tenant says UNREADABLE, never zero', () => {
   const text = renderFlawReport([{ ok: false, name: 'Matrix Eco Salon', detail: 'messages unreadable: reset' }]);
   assert.match(text, /UNREADABLE — messages unreadable: reset/);
