@@ -74,7 +74,8 @@ changes a variable ends with one.
   - per address: 60 messages a minute
   - the shared $2.00/day Reception cap. A flood can use it up for the Facebook Page too.
 - **If Dala AI is down or slow**, the visitor sees the old bot's error line plus the email
-  and form lines within 40 s. A message is never sent twice after a timeout.
+  and form lines within 40 s. A message is never re-sent when the failure might have
+  reached the model.
 
 ## Decide
 - Tenant #0's `handoff` line promises «Хамт олон маань хариулах болно». On the website,
