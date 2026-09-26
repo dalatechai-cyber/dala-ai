@@ -234,6 +234,13 @@ preflight requiring both names, which it does because both are **uncommented in
 `.env.example`** — a property of a text file, and the first thing a tidy-up removes. Read
 D-107 before touching either the KEK registry or that file's required block.
 
+## Session style (token budget)
+
+Caveman (plugin, `.claude/settings.json`) applies to status lines and tool narration only.
+The **final report** to the founder is plain, readable English in full sentences, as before —
+and so are commits, PR bodies, docs, and every customer-visible string. Large command output
+goes through context-mode (`ctx_execute` / `ctx_batch_execute`) rather than straight into context.
+
 ## The test every decision is measured against
 
 > **Onboarding client #3 must be filling in a config, not writing code.**
