@@ -35,6 +35,7 @@ import { servicesFromPrefix } from '../quality/serviceNames.ts';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
 import { wholeMessageMatches } from '../mn/match.ts';
 import { publishedNumbers } from './phone.ts';
+import { sendTelegram } from '../alerts/alert.ts';
 import {
   LEAD_FLAG, NEXT_STEP_FLAG, classifyReply, decide, leadDetail, nextStepDetail, parsePlaybook, stepHosts,
   type Decision, type Playbook,
@@ -78,7 +79,7 @@ type Loaded = {
 
 async function load(db: SupabaseClient, input: SalesShadowInput): Promise<{ ok: true; value: Loaded } | { ok: false; detail: string }> {
   const [pb, steps, pairs, rules, prior, reply] = await Promise.all([
-    db.from('sales_playbooks').select('mode, lead_route').eq('tenant_id', input.tenantId).maybeSingle(),
+    db.from('sales_playbooks').select('mode, lead_route, small_talk').eq('tenant_id', input.tenantId).maybeSingle(),
     db.from('sales_next_steps')
       .select('kind, body, reviewed_at, link, priority, is_default, intent_matcher, enabled')
       .eq('tenant_id', input.tenantId),
@@ -102,6 +103,7 @@ async function load(db: SupabaseClient, input: SalesShadowInput): Promise<{ ok: 
   const parsed = parsePlaybook({
     mode: row['mode'],
     lead_route: row['lead_route'],
+    small_talk: row['small_talk'],
     steps: (steps.data ?? []) as Record<string, unknown>[],
     pairings: (pairs.data ?? []) as Record<string, unknown>[],
   });
@@ -124,7 +126,26 @@ async function load(db: SupabaseClient, input: SalesShadowInput): Promise<{ ok: 
   };
 }
 
-export async function recordSalesShadow(db: SupabaseClient, input: SalesShadowInput): Promise<SalesShadowOutcome> {
+/**
+ * A LIVE playbook's new lead, sent where the playbook says (D-132). Only `founder_telegram` is
+ * built: the platform's own chat, which is DalaTech's. The number is the whole point of the
+ * message — somebody has to call it — so it is sent as digits here, and only here: the flag
+ * rows keep the masked form. A repeat of a number already given is not sent twice.
+ */
+export function leadNotice(input: { decision: Decision; playbook: Playbook; customerMessage: string; conversationId: string }): string | null {
+  const l = input.decision.lead;
+  if (input.playbook.mode !== 'live' || !l.detected || l.repeat || input.playbook.leadRoute !== 'founder_telegram') return null;
+  const digits = [...new Set(input.decision.phones.map((p) => p.digits))];
+  const said = [...input.customerMessage.replace(/\s+/gu, ' ').trim()];
+  const text = said.length <= 200 ? said.join('') : `${said.slice(0, 199).join('')}…`;
+  return `📞 New lead: ${digits.join(', ')}\nThey wrote: «${text}»\nConversation ${input.conversationId}`;
+}
+
+export async function recordSalesShadow(
+  db: SupabaseClient,
+  input: SalesShadowInput,
+  notify: (text: string) => Promise<unknown> = sendTelegram,
+): Promise<SalesShadowOutcome> {
   const loaded = await load(db, input);
   if (!loaded.ok) return { outcome: 'unusable', detail: loaded.detail };
   const { playbook } = loaded.value;
@@ -153,7 +174,8 @@ export async function recordSalesShadow(db: SupabaseClient, input: SalesShadowIn
     offeredBefore: loaded.value.offeredBefore,
     leadBefore: loaded.value.leadBefore,
     relatedBefore: loaded.value.relatedBefore,
-    customerSmallTalk: smallTalk.some((r) => wholeMessageMatches(input.customerMessage, r.stems)),
+    customerSmallTalk: smallTalk.some((r) => wholeMessageMatches(input.customerMessage, r.stems))
+      || wholeMessageMatches(input.customerMessage, playbook.smallTalk ?? []),
     complaintRules: loaded.value.complaintRules,
     ownNumbers: publishedNumbers([input.promptStable, ...input.canned.map((c) => c.body)]),
     serviceNames: servicesFromPrefix(input.promptStable, SECTION_LABELS.priceList).map((s) => s.name),
@@ -181,6 +203,14 @@ export async function recordSalesShadow(db: SupabaseClient, input: SalesShadowIn
       at: input.now.toISOString(),
     });
     if (lead.error) return { outcome: 'unusable', detail: `quality_flags lead insert failed: ${lead.error.message}` };
+    const notice = leadNotice({ decision, playbook, customerMessage: input.customerMessage, conversationId: input.conversationId });
+    if (notice !== null) {
+      // After the lead row, so a lead that could not be sent is still on record (masked).
+      const sent = await notify(notice).catch((e: unknown) => ({ ok: false, detail: e instanceof Error ? e.message : String(e) }));
+      if ((sent as { ok?: boolean } | undefined)?.ok === false) {
+        console.error('[worker] sales_lead_notice_failed', { tenantId: input.tenantId, conversationId: input.conversationId });
+      }
+    }
   }
   return { outcome: 'recorded', decision };
 }

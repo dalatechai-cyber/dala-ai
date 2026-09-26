@@ -113,7 +113,7 @@ const base: ReceptionInput = {
   eventAt: new Date('2026-09-24T05:00:00Z'), now: new Date('2026-09-24T05:00:05Z'),
   promptStable: STABLE, promptVolatile: 'VOLATILE', modelId: 'm', cacheMode: '1h', timeoutMs: 25_000,
   rules: [SUIT], deterministic: [TARA_NAME, TARA_APPEND, DYE, STYLIST_ROW], historyState: { known: true, empty: false },
-  canned: CANNED, tenantGuard: GUARD, cannedLabel: 'БЭЛЭН ХАРИУЛТ', cannedHash: null, fallbackLine: null, complaintRules: [],
+  canned: CANNED, tenantGuard: GUARD, cannedLabel: 'БЭЛЭН ХАРИУЛТ', cannedHash: null, fallbackLine: null, complaintRules: [], sales: null,
   serviceNames: SERVICES, serviceAliases: ALIASES, depositRows: DEPOSITS, faqAnswers: [], spellings: [], branches: [],
 };
 
@@ -432,4 +432,50 @@ test('a reply that names none of them, or already carries the line, is left as i
   const has = run(`Эхо удахгүй. ${SOON} Бусад нь бэлэн.`);
   await handleReception(has.deps, { ...base, customerMessage: 'eho?', deterministic: [SOON_IN_REPLY] });
   assert.equal(has.drafts[0]?.body, `Эхо удахгүй. ${SOON} Бусад нь бэлэн.`);
+});
+
+// ---- D-132: the live sales line, through the real reply path --------------------------------
+
+const FOLLOW_UP = 'Дали бол таны бизнесийн Facebook, Instagram, вэбсайтад ирсэн зурваст 24/7 хариулдаг AI ажилтан.\n'
+  + 'Үнэгүй демо вэбсайт авахыг хүсвэл: https://app.dalatech.online — 24 цагийн дотор бэлэн болно.\n'
+  + 'Манай бусад AI ажилтнуудтай https://dalatech.online дээр танилцаарай, эсвэл асуух зүйлээ энд бичээрэй.';
+const LEAD_THANKS = 'Баярлалаа! Мэдээллийг тань хүлээн авлаа. Хамт олон маань тантай холбогдоно.';
+async function livePlaybook(mode: 'live' | 'shadow') {
+  const { parsePlaybook } = await import('../sales/nextStep.ts');
+  const p = parsePlaybook({
+    mode, lead_route: 'founder_telegram', small_talk: ['Сайн байна уу', 'Баярлалаа'],
+    steps: [
+      { kind: 'follow_up', body: FOLLOW_UP, reviewed_at: R, link: 'https://app.dalatech.online', priority: 50, is_default: true, intent_matcher: null, enabled: true },
+      { kind: 'lead_thanks', body: LEAD_THANKS, reviewed_at: R, link: null, priority: 100, is_default: false, intent_matcher: null, enabled: true },
+    ],
+    pairings: [],
+  });
+  if (!p.ok) throw new Error(p.detail);
+  return p.playbook;
+}
+
+test('D-132 DONE-TEST: A LIVE PLAYBOOK ADDS THE FOLLOW-UP AFTER THE ANSWER, A SHADOW ONE NEVER DOES', async () => {
+  const answer = 'Хими арчилт 154,000₮ байна.';
+  const live = run(answer);
+  await handleReception(live.deps, { ...base, customerMessage: 'Хими арчилт хэд вэ', sales: await livePlaybook('live') });
+  assert.equal(live.drafts[0]?.body.endsWith(`\n\n${FOLLOW_UP}`), true, live.drafts[0]?.body);
+  assert.ok(live.flags.includes('sales_line_added'));
+
+  const shadow = run(answer);
+  await handleReception(shadow.deps, { ...base, customerMessage: 'Хими арчилт хэд вэ', sales: await livePlaybook('shadow') });
+  assert.equal(shadow.drafts[0]?.body.includes('app.dalatech.online'), false);
+});
+
+test('D-132 DONE-TEST: A NEW NUMBER IS THANKED WITH THE APPROVED LINE AND NO MODEL CALL', async () => {
+  const r = run('should not be called');
+  await handleReception(r.deps, { ...base, customerMessage: 'Бат 99112233', sales: await livePlaybook('live') });
+  assert.equal(r.requests.length, 0, 'no model call');
+  assert.equal(r.drafts[0]?.body, LEAD_THANKS);
+  assert.equal(r.drafts[0]?.answeredBy, 'deterministic');
+});
+
+test('D-132: a greeting answered by the model gets no follow-up', async () => {
+  const r = run('Сайн байна уу! Танд юугаар туслах вэ.');
+  await handleReception(r.deps, { ...base, customerMessage: 'Сайн байна уу', sales: await livePlaybook('live') });
+  assert.equal(r.drafts[0]?.body.includes('app.dalatech.online'), false);
 });

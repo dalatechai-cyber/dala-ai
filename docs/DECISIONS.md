@@ -9960,3 +9960,58 @@ answered it since. Page the founder at halt time with the number waiting.
     `newer_message`.
   - Tara's 01:09:56 message: answered by hand, echo 833 → `person_replied`.
   - Nothing is sent.
+
+## D-132 — DalaTech's salesperson goes live; Tara stays in shadow (2026-09-26)
+
+**Decision (founder).** *"DalaTech salesperson: go live without waiting for shadow numbers (my
+Page gets little traffic). Tara stays in shadow until real-traffic numbers."* After Дали
+answers a DalaTech customer's question, price or otherwise, it adds the approved follow-up,
+exactly:
+
+> Дали бол таны бизнесийн Facebook, Instagram, вэбсайтад ирсэн зурваст 24/7 хариулдаг AI ажилтан.
+> Үнэгүй демо вэбсайт авахыг хүсвэл: https://app.dalatech.online — 24 цагийн дотор бэлэн болно.
+> Манай бусад AI ажилтнуудтай https://dalatech.online дээр танилцаарай, эсвэл асуух зүйлээ энд бичээрэй.
+
+The rules:
+- once per conversation;
+- not after a complaint, a greeting or a thanks;
+- the approved demo, callback and lead_thanks lines still apply when the customer asks for a
+  demo or a call, or leaves a number.
+
+**How.**
+
+*The decision is the shadow's own.* `sales/live.ts` runs D-127's `decide`, unchanged, on the
+reply exactly as it will be sent. It is the last step of `handleReception`'s draft wrapper,
+which every path passes through. It adds nothing when any of these holds:
+- a complaint (the tenant's escalate rows), in this message or an earlier one;
+- a refusal or the handoff line;
+- a reply that asks the customer something;
+- small talk: the tenant's whole-message rows, or the new `sales_playbooks.small_talk` list;
+- a stray key;
+- a reply that already carries a step's words or link;
+- an earlier assistant turn that carried one ("once per conversation", read from the
+  conversation itself).
+
+Otherwise it adds the step whose intent words fired (`demo`, `callback`), or the default,
+which is now the `follow_up` row. It uses only reviewed rows, served whole.
+
+*A number is answered, not sold to.* A new phone number gets the reviewed `lead_thanks` line
+with no model call, and the lead goes to the founder's Telegram with the digits. That is the
+one place the digits go: the flag rows keep them masked. A repeat of a number already given
+is neither thanked nor sent twice. A `lead_route = 'none'` tenant takes no leads.
+
+*Rows.* `0054` adds `mode = 'live'`, `small_talk` and the `follow_up` kind. The switch is
+`scripts/provision/dalatech-sales-live-2026-09-26.sql`:
+- the follow-up becomes the default and demo stops being one;
+- the small-talk list is added;
+- the four exact price cases gain the follow-up;
+- the mode is set to `live`.
+Tara is untouched.
+
+**Tested before switching.**
+- `scripts/bakeoff/dalatech-sales-set.json`: fourteen realistic conversations covering a price
+  question, a second question in the same chat, a greeting, a thanks, a complaint, a demo, a
+  call, a number, and a greeting with a question.
+- They are answered in CI over the dump carrying the live configuration, beside the 53-case
+  set, whose four exact price cases now expect the follow-up.
+- They then become permanent `reply_cases`.

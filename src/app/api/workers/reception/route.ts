@@ -97,6 +97,7 @@ function effects(now: Date): WorkerEffects {
           cannedHash: a.ctx.cannedHash,
           fallbackLine: a.ctx.fallbackLine,
           complaintRules: a.ctx.complaintRules,
+          sales: a.ctx.sales,
         },
       ),
 

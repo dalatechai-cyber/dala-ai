@@ -113,7 +113,7 @@ const base: ReceptionInput = {
   serviceNames: [{ name: 'Чёлк тайралт', prices: ['22000'], rows: [] }],
   depositRows: [],
   faqAnswers: [],
-  cannedHash: null, fallbackLine: null, complaintRules: [],
+  cannedHash: null, fallbackLine: null, complaintRules: [], sales: null,
 };
 
 // ---------------------------------------------------------------------------
