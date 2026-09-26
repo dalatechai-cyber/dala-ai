@@ -357,17 +357,20 @@ export async function resolveOpenAlerts(
 export async function resolveEpisodes(
   db: SupabaseClient,
   input: { dedupKeys: readonly string[]; now: Date },
-): Promise<{ ok: true; resolved: number } | { ok: false; detail: string }> {
-  if (input.dedupKeys.length === 0) return { ok: true, resolved: 0 };
+): Promise<{ ok: true; resolved: number; keys: string[] } | { ok: false; detail: string }> {
+  if (input.dedupKeys.length === 0) return { ok: true, resolved: 0, keys: [] };
   const { data, error } = await db
     .from('alerts')
     .update({ resolved_at: input.now.toISOString() })
     .in('dedup_key', [...input.dedupKeys])
     .is('resolved_at', null)
     .eq('repeat_policy', 'on_change')
-    .select('id');
+    .select('id, dedup_key');
   if (error) return { ok: false, detail: `alerts not resolvable: ${error.message}` };
-  return { ok: true, resolved: Array.isArray(data) ? data.length : 0 };
+  const rows = Array.isArray(data) ? (data as { dedup_key?: unknown }[]) : [];
+  // The keys this call closed, so a caller can say WHICH episode ended. The UPDATE is
+  // conditional on `resolved_at is null`, so exactly one concurrent caller gets each key back.
+  return { ok: true, resolved: rows.length, keys: rows.flatMap((r) => (typeof r.dedup_key === 'string' ? [r.dedup_key] : [])) };
 }
 
 /** Move `notified_at` on rows a human has just been paged about again. */

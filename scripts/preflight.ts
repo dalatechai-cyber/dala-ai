@@ -269,12 +269,29 @@ if (present(sectionUrl)) {
   }
 }
 
+// ---- The website channel's pair: optional, and read by code when set -----------------
+//
+// Named explicitly rather than left out, because silence about a variable reads as either
+// "fine" or "unused", and both were wrong: `/api/web/session` reads TURNSTILE_SECRET_KEY and
+// refuses every visitor while it is unset (fail closed). Absent is EXPECTED until the site
+// chatbot moves onto Dala AI — no tenant has a web channel carrying traffic — so it never
+// fails the deploy; it just says what its absence means.
+const WEB_OPTIONAL: Record<string, string> = {
+  TURNSTILE_SECRET_KEY: 'read by /api/web/session; website chat refuses every visitor while unset',
+  CLIENT_IP_SALT: 'read by /api/web/session and /api/web/message to hash client IPs',
+};
+for (const [name, reader] of Object.entries(WEB_OPTIONAL)) {
+  rows.push(present(process.env[name])
+    ? `  ok       ${name}  (optional, set — ${reader})`
+    : `  optional ${name}  unset — expected until the site chatbot moves to Dala AI (${reader})`);
+}
+
 const setPending = pending.filter((n) => present(process.env[n]));
 
 process.stdout.write(`preflight — ${required.length} variables the deployment refuses to serve without\n\n`);
 process.stdout.write(`${rows.join('\n')}\n\n`);
 if (setPending.length > 0) {
-  process.stdout.write(`  also set, and not yet read by anything: ${setPending.join(', ')}\n\n`);
+  process.stdout.write(`  set, but no code reads it yet (reserved for a later track): ${setPending.join(', ')}\n\n`);
 }
 
 if (failures > 0) {

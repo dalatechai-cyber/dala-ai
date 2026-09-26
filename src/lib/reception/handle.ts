@@ -106,6 +106,8 @@ export type ReceptionDeps = {
     servedModel: string;
     usage?: Usage;
     terminalReason?: TerminalReason;
+    /** The provider's own error text, for an alert that has to say what failed. */
+    terminalDetail?: string;
   }) => Promise<void>;
 };
 
@@ -903,7 +905,7 @@ export async function handleReception(
     requestedModel: input.modelId,
     servedModel: result.kind === 'ok' ? result.modelReturned : '',
     ...(result.usage === undefined ? {} : { usage: result.usage }),
-    ...(result.kind === 'terminal' ? { terminalReason: result.reason } : {}),
+    ...(result.kind === 'terminal' ? { terminalReason: result.reason, terminalDetail: result.detail } : {}),
   });
 
   if (result.usage !== undefined) {

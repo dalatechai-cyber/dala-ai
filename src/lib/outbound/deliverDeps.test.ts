@@ -119,6 +119,6 @@ test('resolveAlerts is ONE conditional update over open on_change rows with exac
     `alerts.in(${JSON.stringify(['dedup_key', ['a:1', 'b:2']])})`,
     `alerts.is(${JSON.stringify(['resolved_at', null])})`,
     `alerts.eq(${JSON.stringify(['repeat_policy', 'on_change'])})`,
-    `alerts.select(${JSON.stringify(['id'])})`,
+    `alerts.select(${JSON.stringify(['id, dedup_key'])})`,
   ]);
 });

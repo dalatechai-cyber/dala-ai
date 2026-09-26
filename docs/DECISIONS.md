@@ -9871,3 +9871,31 @@ his US day, and approved the sample. **Keep exactly one QStash schedule for
 - Comments, STATUS and the sample now say 00:05. The 3-day re-escalation, the «Yesterday»
   section and the counters are unaffected: none of them depends on the hour.
 
+
+## D-129 — the model account pages: credit, billing, and a rejected key (2026-09-26)
+
+**What happened.** On 2026-09-25 the Vercel production key's Anthropic account ran out of
+credit. Every model reply on the platform became the handoff line, and nothing reached
+Telegram. Anthropic answered **HTTP 400 `invalid_request_error`** («Your credit balance is too
+low…»), the same status and type as a malformed request, so `classifyError` filed it as
+`invalid_request`, a per-reply `quality_flags` row that nobody reads at the time. The
+reply-case gate is what surfaced it, a day later, by failing every production deploy.
+
+**Decision (founder).** A model call that fails because of credit, billing, or an invalid or
+revoked key pages at once. It pages once per episode, and pages again if the fault comes back.
+
+- `TerminalReason` gains `billing`, from 402, a body typed `billing_error`, or a 400 whose
+  message names the credit balance or Plans & Billing. That is the one place the classifier
+  reads message text, because the status cannot tell the two cases apart. If Anthropic
+  rewords it, the call falls back to `invalid_request`: quieter, never refused.
+- `billing` and `auth` (401/403) raise `model_account:{fault}`: critical, `route: 'now'`,
+  `on_change`, tenant null (one key serves every tenant). `quietRoute()` never demotes it.
+- A clean call closes it in the SAME conditional UPDATE that closes `model_not_found`, so
+  the platform still issues one statement per clean reply. When an account episode closes,
+  one Telegram line says so. `resolveEpisodes` now returns the keys it closed, and the
+  UPDATE hands each key to exactly one caller.
+- **Residual.** The hourly unique index on `alerts` suppresses a second page within one clock
+  hour of the first, so a fault that clears and recurs inside the hour pages once.
+- **Tested with stubs, no spend.** The real classifier runs on the exact 400 body, through the
+  real raise and resolve, with Telegram's `fetch` stubbed. Five failures produce one page,
+  the recovery produces one line, and a recurrence produces a second page.

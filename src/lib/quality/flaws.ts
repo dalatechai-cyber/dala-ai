@@ -47,6 +47,13 @@ export type FlawPair = {
   reply: string;
   at: Date;
   replyAt: Date;
+  /**
+   * The `reply_cases` row this reply already became, if the founder marked it wrong before
+   * the report ran. Said on the line, so a fixed flaw is not re-investigated (2026-09-26:
+   * six of seven flagged Tara replies had been permanent, passing tests for a day).
+   */
+  caseId?: number;
+  caseActive?: boolean;
 };
 
 export type LaterInbound = { conversationId: string; body: string; at: Date };
@@ -164,10 +171,14 @@ export type TenantReport =
 /** One tenant's section. Pure. */
 export function renderTenant(r: TenantReport): string {
   if (!r.ok) return `${r.name}: flaw report UNREADABLE — ${r.detail}`;
-  const head = `${r.name} — ${r.date}: ${r.flaws.length} of ${r.replies} repl${r.replies === 1 ? 'y' : 'ies'} look${r.flaws.length === 1 ? 's' : ''} wrong.`;
+  const tested = r.flaws.filter((f) => f.pair.caseId !== undefined).length;
+  const head = `${r.name} — ${r.date}: ${r.flaws.length} of ${r.replies} repl${r.replies === 1 ? 'y' : 'ies'} look${r.flaws.length === 1 ? 's' : ''} wrong`
+    + `${tested > 0 ? ` (${tested} already a permanent test)` : ''}.`;
   const lines = [head];
   for (const f of r.flaws.slice(0, MAX_ITEMS)) {
-    lines.push('', `${f.pair.ref} · ${f.reasons.join(', ')}`,
+    const tag = f.pair.caseId === undefined ? ''
+      : ` · already a test (case ${f.pair.caseId}${f.pair.caseActive === false ? ', OFF' : ''})`;
+    lines.push('', `${f.pair.ref} · ${f.reasons.join(', ')}${tag}`,
       `C: ${clip(f.pair.customer, MAX_CUSTOMER_CP)}`, `B: ${clip(f.pair.reply, MAX_REPLY_CP)}`);
   }
   if (r.flaws.length > MAX_ITEMS) lines.push('', `…and ${r.flaws.length - MAX_ITEMS} more, not shown.`);
@@ -210,13 +221,14 @@ async function tenantReport(
 ): Promise<TenantReport> {
   const date = previousDate(tenantClock(now, t.timezone).date);
   const since = new Date(now.getTime() - LOOKBACK_MS).toISOString();
-  const [msgs, replies, canned, det] = await Promise.all([
+  const [msgs, replies, canned, det, cases] = await Promise.all([
     db.from('messages').select('conversation_id, external_id, body, at')
       .eq('tenant_id', t.id).eq('direction', 'inbound').gte('at', since).order('at', { ascending: true }),
     db.from('outbound_messages').select('id, conversation_id, dedup_key, body, created_at')
       .eq('tenant_id', t.id).eq('kind', 'reply').eq('state', 'sent').gte('created_at', since),
     db.from('canned_responses').select('kind, body, reviewed_at').eq('tenant_id', t.id),
     db.from('deterministic_replies').select('body, enabled, match_mode, stems').eq('tenant_id', t.id),
+    db.from('reply_cases').select('id, source_outbound_id, active').eq('tenant_id', t.id),
   ]);
   for (const [name, res] of [['messages', msgs], ['outbound_messages', replies], ['canned_responses', canned],
     ['deterministic_replies', det]] as const) {
@@ -230,15 +242,23 @@ async function tenantReport(
       conversationId: String(r['conversation_id']), externalId: String(r['external_id'] ?? ''),
       body: String(r['body']), at: new Date(String(r['at'])),
     }));
+  // Best-effort: an unreadable `reply_cases` only loses the annotation, never the report.
+  const caseByReply = new Map<string, { id: number; active: boolean }>(
+    (cases.error ? [] : rows(cases.data))
+      .filter((r) => r['source_outbound_id'] != null)
+      .map((r) => [String(r['source_outbound_id']), { id: Number(r['id']), active: r['active'] !== false }]),
+  );
   const replyByKey = new Map(rows(replies.data).map((r) => [String(r['dedup_key'] ?? ''), r]));
   const pairs: FlawPair[] = [];
   for (const m of inbound) {
     if (tenantClock(m.at, t.timezone).date !== date) continue;
     const o = replyByKey.get(`in:${m.externalId}`);
     if (o === undefined) continue;
+    const known = caseByReply.get(String(o['id']));
     pairs.push({
       ref: String(o['id']).slice(0, 8), conversationId: m.conversationId, customer: m.body,
       reply: String(o['body'] ?? ''), at: m.at, replyAt: new Date(String(o['created_at'])),
+      ...(known === undefined ? {} : { caseId: known.id, caseActive: known.active }),
     });
   }
 

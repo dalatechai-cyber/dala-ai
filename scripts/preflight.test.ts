@@ -174,7 +174,7 @@ test('DAILY_REPORT_V2=true with the secret passes, and the secret is never print
   assert.match(out, /ok\s+DAILY_REPORT_SECRET\s+\(25 characters; required because DAILY_REPORT_V2=true\)/);
   assert.ok(!out.includes('CANARY'));
   // An OPTIONAL variable that is set is doing its job; it is not "not yet read by anything".
-  assert.doesNotMatch(out, /not yet read by anything:.*DAILY_REPORT_V2/);
+  assert.doesNotMatch(out, /no code reads it yet.*DAILY_REPORT_V2/);
 });
 
 test('DAILY_REPORT_V2=false needs no secret', () => {
@@ -196,4 +196,24 @@ test('DAILY_REPORT_SECTION_URL, when set, must be https — the bearer goes ther
   assert.match(bad.out, /BAD\s+DAILY_REPORT_SECTION_URL/);
   const good = preflight({ ...COMPLETE, DAILY_REPORT_SECTION_URL: 'https://app.example/section' });
   assert.equal(good.status, 0, good.out);
+});
+
+test('DONE-TEST: TURNSTILE_SECRET_KEY is never called unused — unset is expected, set is read', () => {
+  // 2026-09-26: the founder has not created the chatbot widget yet, so its absence is expected
+  // and must not fail the deploy; but /api/web/session DOES read it, so no label may say
+  // nothing reads it.
+  const unset = preflight(COMPLETE);
+  assert.equal(unset.status, 0, unset.out);
+  assert.match(unset.out, /optional TURNSTILE_SECRET_KEY\s+unset — expected until the site chatbot moves to Dala AI \(read by \/api\/web\/session/);
+  const set = preflight({ ...COMPLETE, TURNSTILE_SECRET_KEY: 'CANARYturnstileZZZZ' });
+  assert.equal(set.status, 0, set.out);
+  assert.match(set.out, /ok\s+TURNSTILE_SECRET_KEY\s+\(optional, set — read by \/api\/web\/session/);
+  assert.ok(!set.out.includes('CANARY'));
+  for (const out of [unset.out, set.out]) assert.doesNotMatch(out, /(unused|no code reads it yet|not yet read)[^\n]*TURNSTILE/);
+});
+
+test('a pending variable that is set is labelled as reserved, not as doing something', () => {
+  const { status, out } = preflight({ ...COMPLETE, CRON_SECRET: 'x' });
+  assert.equal(status, 0, out);
+  assert.match(out, /set, but no code reads it yet \(reserved for a later track\): CRON_SECRET/);
 });
