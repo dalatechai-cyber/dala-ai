@@ -265,6 +265,8 @@ export async function runCases(input: {
         faqAnswers: faqAnswersFromPrefix(ctx.promptStable, SECTION_LABELS.faqs),
         cannedHash: ctx.cannedHash,
         fallbackLine: ctx.fallbackLine,
+        // The cases are the Page's: a person reads the inbox there (D-139).
+        noInbox: false,
         complaintRules: ctx.complaintRules,
         sales: ctx.sales,
         replyStyle: ctx.replyStyle,

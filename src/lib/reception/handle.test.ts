@@ -117,7 +117,7 @@ const base: ReceptionInput = {
   serviceNames: [{ name: 'Чёлк тайралт', prices: ['22000'], rows: [] }],
   depositRows: [],
   faqAnswers: [],
-  cannedHash: null, fallbackLine: null, complaintRules: [], sales: null, replyStyle: null,
+  cannedHash: null, fallbackLine: null, noInbox: false, complaintRules: [], sales: null, replyStyle: null,
 };
 
 // ---------------------------------------------------------------------------
@@ -1258,4 +1258,62 @@ test('DONE-TEST: case 42 — the follow-up retyped from the conversation is neit
   assert.equal(drafts.at(-1)?.body, 'AI ажилтан 1–2 долоо хоногт ажиллаж эхэлдэг.');
   assert.equal(flags.some((f) => f.code === 'outbound_price'), false);
   assert.equal(flags.some((f) => f.code === 'sales_line_retyped'), true);
+});
+
+// ---- D-139: a website conversation has no inbox --------------------------------------------
+// Founder, 2026-09-26: «Хамт олон маань хариулах болно» promises a person, and on the website
+// nobody is told about the conversation. There, the callback line — and the reply says it
+// handed off, so the website can tell the founder.
+
+const HANDOFF_ROW = CANNED.find((c) => c.kind === 'handoff')?.body ?? '';
+
+test('DONE-TEST: ON THE WEBSITE THE HANDOFF ROW BECOMES THE CALLBACK LINE, AND THE REPLY SAYS IT HANDED OFF', async () => {
+  // The model reproduced the handoff line itself: the row is served — on the website, as the
+  // callback line, because «a colleague will answer» is not true there.
+  const web = deps({ result: { ...OK_REPLY, text: HANDOFF_ROW } });
+  const r = await handleReception(web.deps, { ...base, fallbackLine: CALLBACK, noInbox: true });
+  assert.equal(web.drafts.at(-1)?.body, CALLBACK);
+  assert.equal(r.kind === 'drafted' && r.handedOff, true);
+  // The Page keeps the handoff row: a person reads its inbox.
+  const page = deps({ result: { ...OK_REPLY, text: HANDOFF_ROW } });
+  const p = await handleReception(page.deps, { ...base, fallbackLine: CALLBACK, noInbox: false });
+  assert.equal(page.drafts.at(-1)?.body, HANDOFF_ROW);
+  assert.equal(p.kind === 'drafted' && p.handedOff, true);
+});
+
+test('a refused reply on the website: the callback line, handed off', async () => {
+  const invented: CallOutcome = { ...OK_REPLY, text: 'Хөмсөг засалт 20,000₮ байна.' };
+  const t = deps({ result: invented });
+  const r = await handleReception(t.deps, { ...base, fallbackLine: CALLBACK, noInbox: true });
+  assert.equal(t.drafts.at(-1)?.body, CALLBACK);
+  assert.equal(r.kind === 'drafted' && r.handedOff, true);
+  assert.equal(r.kind === 'drafted' && r.refusal, 'outbound_price', 'still refused, still counted');
+});
+
+test('a tenant with no callback line keeps its handoff line on the website, still marked as a hand-off', async () => {
+  const invented: CallOutcome = { ...OK_REPLY, text: 'Хөмсөг засалт 20,000₮ байна.' };
+  const t = deps({ result: invented });
+  const r = await handleReception(t.deps, { ...base, fallbackLine: null, noInbox: true });
+  assert.equal(t.drafts.at(-1)?.body, HANDOFF_ROW);
+  assert.equal(r.kind === 'drafted' && r.handedOff, true);
+});
+
+test('an answer is not a hand-off; nor is a callback row the customer\'s words asked for', async () => {
+  const clean = deps();
+  const r = await handleReception(clean.deps, { ...base, fallbackLine: CALLBACK, noInbox: true });
+  assert.equal(r.kind === 'drafted' && r.handedOff, undefined);
+
+  // «Надад залгаарай» matched the tenant's own callback row: `deterministic`, what was asked.
+  const callbackRow: DeterministicRule = {
+    intent: 'callback_request', body: CALLBACK, matchMode: 'covers_message', stems: ['залга'],
+    coverWords: ['надад', 'уу'], placement: 'replace', quoteServices: [], enabled: true,
+    requiresEmptyHistory: false, provenance: 'tenant_confirmed',
+  } as DeterministicRule;
+  const asked = deps();
+  const a = await handleReception(asked.deps, {
+    ...base, customerMessage: 'надад залгаарай', deterministic: [callbackRow], fallbackLine: CALLBACK, noInbox: true,
+  });
+  assert.equal(asked.drafts.at(-1)?.body, CALLBACK);
+  assert.equal(a.kind === 'drafted' && a.answeredBy, 'deterministic');
+  assert.equal(a.kind === 'drafted' && a.handedOff, undefined);
 });

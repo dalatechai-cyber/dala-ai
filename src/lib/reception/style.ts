@@ -67,9 +67,29 @@ function parseRow(row: string, service: string): Row | null {
 }
 
 /**
+ * A line the model wrote to introduce the rows below it: one clause ending in a colon, with
+ * no number in it. «Дали — AI хүлээн авагчийн үнэ дараах байдалтай байна:» is the measured
+ * one (DalaTech's website, 2026-09-26 15:17): the facts guard kept it, the rows were styled,
+ * and the reply named the service twice, once as that line and once as the 💬 header.
+ *
+ * Deliberately narrow. A line with a digit may carry a fact and is never removed; a line with
+ * a sentence ending before its colon says more than "here are the prices" and stays.
+ */
+function isLeadIn(line: string): boolean {
+  const t = nfc(line).trim();
+  if (!/[:：]$/u.test(t)) return false;
+  if (/\p{Nd}/u.test(t)) return false;
+  return !/[.!?…](\s|$)/u.test(t.slice(0, -1));
+}
+
+/**
  * Re-lay the price-list rows in `body` under the tenant's templates. Only rows WITH an option
  * («Дали — … (Сарын төлбөр): 250,000₮») are styled — the staff-member prices the founder's
  * example shows. Consecutive rows of one service share one header.
+ *
+ * The header replaces the model's own lead-in (founder, 2026-09-26: *"Drop the intro line when
+ * the styled header is there"*): a lead-in directly above a header, blank lines between
+ * included, is removed. Only when a header is actually added; an unstyled reply keeps it.
  */
 export function stylePriceRows(
   body: string,
@@ -96,7 +116,12 @@ export function stylePriceRows(
       continue;
     }
     changed = true;
-    if (row.service !== last) out.push(style.priceHeader.replace('{service}', row.service));
+    if (row.service !== last) {
+      let i = out.length - 1;
+      while (i >= 0 && (out[i] ?? '').trim() === '') i -= 1;
+      if (i >= 0 && isLeadIn(out[i] ?? '')) out.splice(i);
+      out.push(style.priceHeader.replace('{service}', row.service));
+    }
     out.push(style.priceLine.replace('{option}', row.option ?? '').replace('{price}', row.price));
     last = row.service;
   }

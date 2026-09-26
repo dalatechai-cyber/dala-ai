@@ -96,6 +96,8 @@ function effects(now: Date): WorkerEffects {
           branches: a.ctx.branches,
           cannedHash: a.ctx.cannedHash,
           fallbackLine: a.ctx.fallbackLine,
+          // The Page's inbox is read by a person, so the handoff line's promise holds.
+          noInbox: false,
           complaintRules: a.ctx.complaintRules,
           sales: a.ctx.sales,
           replyStyle: a.ctx.replyStyle,

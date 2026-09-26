@@ -154,6 +154,7 @@ function effects(db: ReturnType<typeof stubDb>, over: Partial<MessageEffects> = 
     },
     salesShadow: async () => { db.trace.push('salesShadow'); },
     afterResponse: () => { db.trace.push('afterResponse'); },
+    alertHandoff: async () => { db.trace.push('alertHandoff'); },
     log: () => {},
     ...over,
   };
@@ -506,4 +507,63 @@ test('DONE-TEST: a sales record still running when the reply is ready is kept al
   release();
   await kept[0];
   assert.equal(finished, true);
+});
+
+// ---------------------------------------------------------------------------
+// D-139: a hand-off on the website is told to the founder
+// ---------------------------------------------------------------------------
+
+test('DONE-TEST: a handed-off reply alerts, with the visitor\'s words, off the reply\'s path', async () => {
+  const db = stubDb();
+  const kept: Promise<unknown>[] = [];
+  const alerts: Record<string, unknown>[] = [];
+  const r = await runMessageJob(effects(db, {
+    generateReply: async () => ({ kind: 'drafted', outboundId: 'out-1', answeredBy: 'canned', handedOff: true }),
+    afterResponse: (w) => { kept.push(w); },
+    alertHandoff: async (a) => { alerts.push(a as never); },
+  }), req({ text: 'Танай системд Excel холбогдох уу?' }));
+  assert.equal(r.status, 200);
+  await Promise.all(kept);
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0]?.['question'], 'Танай системд Excel холбогдох уу?');
+  assert.equal(alerts[0]?.['conversationId'], 'conv-1');
+});
+
+test('an answered turn does not alert; an alert that throws never costs the reply', async () => {
+  const quiet = stubDb();
+  const kept: Promise<unknown>[] = [];
+  let called = 0;
+  await runMessageJob(effects(quiet, {
+    afterResponse: (w) => { kept.push(w); }, alertHandoff: async () => { called += 1; },
+  }), req());
+  await Promise.all(kept);
+  assert.equal(called, 0);
+
+  const loud = stubDb();
+  const kept2: Promise<unknown>[] = [];
+  const r = await runMessageJob(effects(loud, {
+    generateReply: async () => ({ kind: 'drafted', outboundId: 'out-1', answeredBy: 'canned', handedOff: true }),
+    afterResponse: (w) => { kept2.push(w); },
+    alertHandoff: async () => { throw new Error('telegram down'); },
+  }), req());
+  await Promise.all(kept2);
+  assert.equal(r.status, 200);
+});
+
+test('DONE-TEST: a spent budget on the website serves the callback line and alerts', async () => {
+  const db = stubDb();
+  const kept: Promise<unknown>[] = [];
+  let alerted = 0;
+  const callback = 'Нэр, утасны дугаараа энд бичиж үлдээвэл хамт олон маань тантай холбогдоно.';
+  const r = await runMessageJob(effects(db, {
+    loadContext: async () => ({ ok: true, context: { ...(CTX as object), fallbackLine: callback } as never, timings: { snapshot: 0, batch: 0 } }),
+    checkGuard: async () => ({ ok: false, refusal: { status: 429, code: 'ceiling_reached' } }) as never,
+    afterResponse: (w) => { kept.push(w); },
+    alertHandoff: async () => { alerted += 1; },
+  }), req());
+  await Promise.all(kept);
+  assert.equal(r.status, 200);
+  assert.equal(r.body['reply'], callback);
+  assert.equal(alerted, 1);
+  assert.equal(db.trace.indexOf('MODEL'), -1);
 });
