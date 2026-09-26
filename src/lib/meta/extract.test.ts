@@ -284,3 +284,18 @@ test('a sticker sent WITH text carries its sticker ids, so it can be told from a
   assert.equal(r.messages.length, 1);
   assert.deepEqual(r.messages[0]?.stickerIds, ['369239263222822']);
 });
+
+test('D-143: an echo of a message with buttons carries its text and is marked a template', () => {
+  const r = extractInboundMessages({
+    id: '17841417491117031',
+    messaging: [{
+      sender: { id: '17841417491117031' }, recipient: { id: 'igsid' }, timestamp: 1,
+      message: {
+        mid: 'm_t', is_echo: true,
+        attachments: [{ type: 'template', payload: { template_type: 'button', text: 'Демо үзэх бол:', buttons: [] } }],
+      },
+    }],
+  });
+  assert.equal(r.skipped[0]?.echoText, 'Демо үзэх бол:');
+  assert.equal(r.skipped[0]?.echoTemplate, true);
+});

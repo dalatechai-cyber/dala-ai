@@ -35,6 +35,8 @@
  * equivalent of that.
  */
 
+import { BUTTON_TEMPLATE_MAX_TEXT_CHARS, linkButtonMessage, type LinkButton } from './linkButtons.ts';
+
 /** Read from `config/platform.ts`'s clock budget in the caller; the ancestor uses 10 s. */
 export const DEFAULT_SEND_TIMEOUT_MS = 10_000;
 
@@ -94,6 +96,12 @@ export type SendInput = {
    */
   recipientCommentId?: string;
   text: string;
+  /**
+   * Link buttons under the text (D-143): sent as Meta's button template, which shows the
+   * text as an ordinary bubble with small tappable buttons and no link-preview card.
+   * Absent or empty: a plain text message, as always.
+   */
+  buttons?: readonly LinkButton[];
   token: string;
   graphVersion: string;
   timeoutMs?: number;
@@ -230,7 +238,18 @@ export async function sendMessage(input: SendInput): Promise<SendOutcome> {
           // the eligibility gate before this is reached; Meta checks it again.
           messaging_type: 'RESPONSE',
           recipient: { id: input.recipientId },
-          message: { text: input.text },
+          message: input.buttons !== undefined && input.buttons.length > 0 // ascii-safe: an array's element count, not a string length
+            ? {
+              attachment: {
+                type: 'template',
+                payload: {
+                  template_type: 'button',
+                  text: input.text,
+                  buttons: input.buttons.map((b) => ({ type: 'web_url', url: b.url, title: b.title })),
+                },
+              },
+            }
+            : { text: input.text },
         }),
       signal: controller.signal,
       // Belt and braces with the shared clients' policy: nothing here is cacheable, and a
@@ -398,17 +417,19 @@ const utf8Bytes = (s: string): number => Buffer.byteLength(s, 'utf8');
  * points. Never inside a code point (an emoji is one part or the other), and nothing is
  * dropped except the whitespace at a cut. A text that fits is returned whole.
  */
-export function splitForLimit(text: string, maxBytes: number): string[] {
-  if (utf8Bytes(text) <= maxBytes) return [text];
+export function splitForLimit(
+  text: string, maxBytes: number, measure: (s: string) => number = utf8Bytes,
+): string[] {
+  if (measure(text) <= maxBytes) return [text];
   const parts: string[] = [];
   let rest = text;
-  while (utf8Bytes(rest) > maxBytes) {
+  while (measure(rest) > maxBytes) {
     // The longest prefix, in code points, that fits.
     const cps = Array.from(rest);
     let fit = 0;
     let bytes = 0;
     for (const cp of cps) {
-      const b = utf8Bytes(cp);
+      const b = measure(cp);
       if (bytes + b > maxBytes) break;
       bytes += b;
       fit += 1;
@@ -431,32 +452,63 @@ export function splitForLimit(text: string, maxBytes: number): string[] {
   return parts;
 }
 
+/** Code points, for Meta's character limits (the template's 640). */
+const codePoints = (t: string): number => [...t].length;
+
 /**
- * `sendMessage`, cut to a byte limit when the channel has one. Parts go in order; the first
- * part's outcome is the send's outcome. A failure AFTER the first part went out is
- * `indeterminate`, never `failed`: the customer already has part of the answer, so a retry
- * would repeat it and a `failed` row is claimable again. A person decides, as for any
- * indeterminate send.
+ * Send `texts` in order. The first part's outcome is the send's outcome; a failure AFTER the
+ * first part went out is `indeterminate`, never `failed`: the customer already has part of
+ * it, so a retry would repeat it and a `failed` row is claimable again. A person decides, as
+ * for any indeterminate send. The last part carries `lastButtons` when given.
  */
-export async function sendMessageParts(input: SendInput & { maxBytes?: number }): Promise<SendOutcome> {
-  const { maxBytes, ...one } = input;
-  if (maxBytes === undefined || one.recipientCommentId !== undefined) return sendMessage(one);
-  const parts = splitForLimit(one.text, maxBytes);
-  if (parts.length === 1) return sendMessage(one);
+async function sendInOrder(
+  one: SendInput, texts: readonly string[], lastButtons?: readonly LinkButton[],
+): Promise<SendOutcome> {
   let first: SendOutcome | null = null;
-  for (const [i, text] of parts.entries()) {
-    const sent = await sendMessage({ ...one, text });
+  for (const [i, text] of texts.entries()) {
+    const buttons = i === texts.length - 1 && lastButtons !== undefined ? { buttons: lastButtons } : {};
+    const sent = await sendMessage({ ...one, text, ...buttons });
     if (i === 0) {
       first = sent;
       if (sent.outcome !== 'sent') return sent;
       continue;
     }
     if (sent.outcome !== 'sent') {
-      return {
-        outcome: 'indeterminate',
-        detail: `partial send: ${i} of ${parts.length} parts delivered, then ${sent.detail}`,
-      };
+      return { outcome: 'indeterminate', detail: `partial send: ${i} of ${texts.length} parts delivered, then ${sent.detail}` };
     }
   }
   return first as SendOutcome;
+}
+
+/**
+ * A DM reply on the wire: cut to the channel's byte limit (Instagram, D-141) and, with
+ * `linkButtons`, any web address moved onto a button so Meta draws no preview card (D-143).
+ *
+ * The button template is tried first. If Meta REFUSES it — a 4xx it would not accept, before
+ * anything was delivered — the reply goes out exactly as before, as plain text: a customer
+ * getting a preview card is a cosmetic loss, a customer getting nothing is not. A refusal of
+ * the credential (190/200/10) or a rate limit is not a template problem and is returned as it
+ * is, so the breaker and the retry see what they always saw.
+ */
+export async function sendMessageParts(
+  input: SendInput & { maxBytes?: number; linkButtons?: boolean },
+): Promise<SendOutcome> {
+  const { maxBytes, linkButtons, ...one } = input;
+  if (one.recipientCommentId !== undefined) return sendMessage(one);
+  const plainParts = (text: string) => (maxBytes === undefined ? [text] : splitForLimit(text, maxBytes));
+
+  const card = linkButtons === true ? linkButtonMessage(one.text) : null;
+  if (card === null) return sendInOrder(one, plainParts(one.text));
+
+  // Text parts first, the template last: its text must fit both the channel's byte limit
+  // and the template's 640 characters.
+  const parts = plainParts(card.text);
+  const tail = splitForLimit(parts.pop() as string, BUTTON_TEMPLATE_MAX_TEXT_CHARS, codePoints);
+  const texts = [...parts, ...tail];
+  const sent = await sendInOrder(one, texts, card.buttons);
+  const refusedShape = sent.outcome === 'failed' && !sent.retryable
+    && (sent.failure === 'unknown' || sent.failure === 'recipient_unreachable');
+  if (!refusedShape) return sent;
+  // Nothing was delivered (a failure after the first part is `indeterminate`, not here).
+  return sendInOrder(one, plainParts(one.text));
 }

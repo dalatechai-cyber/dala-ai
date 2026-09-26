@@ -27,6 +27,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { automationKey, isAutomationText } from './automation.ts';
+import { linkButtonMessage } from '../meta/linkButtons.ts';
 import {
   controlAfter, controlFromEcho, parseHandoverEvents,
   type HandoverEvent, type ThreadControl, type ThreadState,
@@ -124,8 +125,14 @@ export async function echoIsOursWithoutAppId(
   if (error) return 'unreadable';
   const contained = [...echo].length >= MIN_CONTAINED_ECHO_CHARS;
   return (Array.isArray(data) ? data : []).some((row) => {
-    const body = automationKey(String((row as Record<string, unknown>)['body'] ?? ''));
-    return body === echo || (contained && body.includes(echo));
+    const stored = String((row as Record<string, unknown>)['body'] ?? '');
+    // The stored reply, and the form it was SENT in: a reply with a web address goes out
+    // with the address on a button and not in the text (D-143), so its echo is that text.
+    const sent = linkButtonMessage(stored)?.text;
+    return [stored, ...(sent === undefined ? [] : [sent])].some((form) => {
+      const body = automationKey(form);
+      return body === echo || (contained && body.includes(echo));
+    });
   });
 }
 
@@ -256,7 +263,7 @@ export async function recordHandover(
      * Echoes from `extractInboundMessages`: the `mid`, the CUSTOMER (the recipient), and
      * the app Meta says sent it. `appId` is what separates the ancestor from a person.
      */
-    echoes: readonly { mid: string; psid: string; appId: string | null; text?: string | null }[];
+    echoes: readonly { mid: string; psid: string; appId: string | null; text?: string | null; template?: boolean }[];
     /** `tenant_channels.automation_texts`: an echo with one of these texts is not a person. */
     automationTexts?: readonly string[];
     /** Only `live` lets an echo move control. See this file's header. */
@@ -313,6 +320,9 @@ export async function recordHandover(
   if (input.deliveryMode === 'live' || liveFor.size > 0) {
     for (const echo of input.echoes) {
       if (input.deliveryMode !== 'live' && !liveFor.has(echo.psid)) continue;
+      // A message with buttons is an app's send, never a person typing (D-143). Instagram
+      // echoes carry no app id, so without this our own link reply would mute Dali.
+      if (echo.template === true) continue;
       const ours = echo.appId === null
         ? await echoIsOursWithoutAppId(db, {
           tenantId: input.tenantId, channelId: input.channelId, mid: echo.mid, text: echo.text ?? null, now: input.now,
