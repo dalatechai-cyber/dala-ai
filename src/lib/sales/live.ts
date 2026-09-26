@@ -39,7 +39,7 @@ import type { CannedRow } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { CommentRule } from '../comments/classify.ts';
 import { wholeMessageMatches } from '../mn/match.ts';
-import { fold } from '../mn/text.ts';
+import { cpLength, fold } from '../mn/text.ts';
 import { detectPhones } from './phone.ts';
 import { classifyReply, decide, rowState, stepHosts, type Playbook, type PlaybookStep } from './nextStep.ts';
 
@@ -168,8 +168,8 @@ export function withoutSalesLines(text: string, playbook: Playbook | null): stri
     .filter((st) => st.kind === 'follow_up' && st.enabled && st.reviewed && st.body !== null)
     .flatMap((st) => (st.body as string).split('\n'))
     .map((l) => l.trim())
-    .filter((l) => [...l].length >= 12)
-    .sort((a, b) => b.length - a.length);
+    .filter((l) => cpLength(l) >= 12)
+    .sort((a, b) => cpLength(b) - cpLength(a));
   let out = text;
   for (const l of lines) out = out.split(l).join(' ');
   if (out === text) return text;
