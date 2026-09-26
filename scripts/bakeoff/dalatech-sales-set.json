@@ -161,6 +161,18 @@
    ]
   },
   {
+   "id": "sg3",
+   "category": "greeting",
+   "source": "real",
+   "text": "Сайн байна уу",
+   "history": [
+    {"role": "user", "content": "Хэр хурдан ажиллаж эхлэх вэ?"},
+    {"role": "assistant", "content": "AI ажилтан 1–2 долоо хоногт ажиллаж эхэлнэ."}
+   ],
+   "expect": "A greeting in a conversation that already has history (founder's live test, 2026-09-26: «Сайн байна уу! Танд юугаар туслах вэ?»): the approved introduction, exactly. No sales line.",
+   "expected_body": "Сайн байна уу! Би DalaTech-ийн AI туслах Дали байна. AI ажилтан, вэбсайтын талаар хүссэн зүйлээ асуугаарай."
+  },
+  {
    "id": "st2",
    "category": "thanks",
    "source": "real",

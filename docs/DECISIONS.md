@@ -10140,8 +10140,13 @@ random":
 defaults to true, and D-133's `thanks` and `greeting` rows did not set it. «Баярлалаа» was
 therefore answered from the row only as a conversation's first message, and a thank-you
 follows an answer, so in practice never. The founder's own «Баярлалаа → Тавтай морил!» was
-mid-conversation. Every row here sets it false, and permanent case `st2` is that exact
-situation.
+mid-conversation. Every row here sets it false.
+- Permanent cases `st2` (thanks) and `sg3` (greeting) are that exact situation: a message
+  arriving after an answer.
+- The founder's live re-test on the 26th confirmed it: «Баярлалаа» got «Тавтай морил!…» and
+  «Сайн байна уу» got «…Танд юугаар туслах вэ?», both from the model.
+- **This was never waiting on a publish.** Deterministic rows are read per request. The fix
+  went live the moment the rows were updated, before any deploy.
 
 **No case was loosened.** Every assertion is as it was. The new exact answers are approved
 lines. The cases that still reach the model (14) are the ones whose answer is the model's
