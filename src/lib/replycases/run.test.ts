@@ -152,3 +152,10 @@ test('REPLY_GATE_PRINT: every reply printed verbatim beside the customer\'s mess
   // The verdict is computed from the same results with or without the print.
   assert.deepEqual(findingsOf(gates), { wrong: [], unchecked: ['tara case 2: this case reaches the model and no ANTHROPIC_API_KEY was given', 'other: unreadable'] });
 });
+
+test('a failing case names how it was answered and the flag codes — a model that never answered is visible', () => {
+  const r = renderGate([{ ok: true, slug: 'dalatech', results: [
+    { id: 20, pass: false, outcome: 'wrong', reply: 'x', answeredBy: 'canned', why: ['missing «10%»'], flags: ['model_auth'] },
+  ] }]);
+  assert.match(r.text, /case 20 FAILS: missing «10%» \(answered by canned; flags: model_auth\)/);
+});
