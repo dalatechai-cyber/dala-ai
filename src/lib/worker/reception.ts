@@ -36,7 +36,7 @@ import { INSTAGRAM_MAX_TEXT_BYTES } from '../meta/send.ts';
 import { ensureContact, ensurePerson, openConversation, readHistory, recordInbound, traceAnswer } from '../inbound/persist.ts';
 import { recordDroppedInbound, skipSummary } from '../inbound/dropped.ts';
 import { draftImageReplies, planImageReplies, readImageLine } from '../inbound/imageReply.ts';
-import { recordHandover, readThreadState } from '../handover/record.ts';
+import { applyThreadControl, recordHandover, readThreadState } from '../handover/record.ts';
 import { personRepliedSince } from '../handover/presend.ts';
 import { humanHoldsThread } from '../handover/control.ts';
 import { CREDENTIAL_FAILURE_STATUS, clearCredentialFailure } from '../channel/recover.ts';
@@ -197,6 +197,8 @@ export type WorkerEffects = {
   sendPrivateReply: CommentEffects['sendPrivateReply'];
   lookupComment: CommentEffects['lookupComment'];
   alertComplaint: CommentEffects['alertComplaint'];
+  /** A customer's photo, video or media link was handed to staff (`handover/media.ts`). Optional: absent sends nothing. */
+  alertMediaHandoff?: (args: { tenantId: string; conversationId: string; externalId: string; text: string }) => Promise<void>;
 };
 
 export type SalesShadowArgs = {
@@ -1270,6 +1272,19 @@ async function runReceptionDelivery(
 
     if (delivered.outcome === 'sent') {
       sent.push(held.id);
+      if (outcome.mediaHandoff === true) {
+        // The customer has been told a person will look. Now the thread is theirs, for the
+        // tenant's takeover cooldown as after any staff reply, and the founder is told. After the send and not
+        // before: the pre-send check reads a `human` thread set after the customer's
+        // message as "a person replied" and would have dropped this notice.
+        const handed = await applyThreadControl(db, { tenantId, conversationId, control: 'human', at: now, source: 'handover', refresh: true });
+        if (!handed.ok) fx.log('error', 'media_handoff_control_failed', { tenantId, conversationId, detail: handed.detail });
+        await fx.flagQuality({ tenantId, conversationId, code: 'media_handoff', detail: 'photo, video or media link handed to staff' });
+        if (fx.alertMediaHandoff !== undefined) {
+          await fx.alertMediaHandoff({ tenantId, conversationId, externalId: message.externalId, text: message.text })
+            .catch((e: unknown) => fx.log('error', 'media_handoff_alert_failed', { detail: e instanceof Error ? e.message : String(e) }));
+        }
+      }
       if (delivered.bookkeeping !== undefined) {
         // The customer has the message. Everything after that is bookkeeping, and a
         // bookkeeping failure must never make the next redelivery send it again.

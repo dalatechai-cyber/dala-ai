@@ -149,7 +149,7 @@ test('DONE-TEST: A DELIVERY FROM BEFORE THE WINDOW IS HISTORY, NOT EVIDENCE', ()
   assert.doesNotMatch(d.reason, /Meta IS delivering/, 'a row from before the window proves nothing about it');
   // The history is still printed — a Page Meta demonstrably knew about once is a different
   // starting point from one that has never appeared — it just does not choose the remedy.
-  assert.match(d.reason, /2026-09-01T01:12:34/);
+  assert.match(d.reason, /2026-09-01 09:12 UB time/, 'shown on the Ulaanbaatar clock, labelled');
   assert.match(d.reason, /BEFORE this channel began expecting traffic/);
 });
 

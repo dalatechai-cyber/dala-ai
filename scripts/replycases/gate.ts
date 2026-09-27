@@ -37,6 +37,7 @@ import { FOUNDER_OVERRIDE_KEYS } from '../../src/lib/replycases/overrideKeys.ts'
 import { sendTelegram } from '../../src/lib/alerts/alert.ts';
 import { callReception } from '../../src/lib/model/reception.ts';
 import { supabasePublish, supabaseWorker } from '../../src/lib/supabase/clients.ts';
+import { factGate } from '../facts/gate.ts';
 
 function die(message: string): never {
   process.stderr.write(`reply-cases: ${message}\n`);
@@ -104,9 +105,31 @@ const ran = await within(GATE_TIMEOUT_MS, check().catch((err: unknown) => ({
 if (process.env['REPLY_GATE_PRINT'] === '1') process.stdout.write(renderReplies(ran.gates));
 if (ran.gates.length > 0) process.stdout.write(`${renderGate(ran.gates).text}\n`);
 if (ran.gates.length === 0 && ran.setup.length === 0) process.stdout.write('reply-cases: no active cases.\n');
+// Every copy of every tenant's facts agrees with its rows (founder, 2026-09-27). No model.
+// The sibling repos are not in this build, so their copies are named as not checked here;
+// publish checks them and refuses without them.
+async function checkFacts(): Promise<{ wrong: string[]; unchecked: string[] }> {
+  const { data, error } = await db.from('tenants').select('id, slug');
+  if (error) return { wrong: [], unchecked: [`facts: tenants unreadable: ${error.message}`] };
+  const wrong: string[] = [];
+  const unchecked: string[] = [];
+  const rows = ((data ?? []) as Record<string, unknown>[]).map((t) => ({ id: String(t['id']), slug: String(t['slug']) }));
+  rows.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
+  for (const t of rows) {
+    const g = await factGate(db, { slug: t.slug, tenantId: t.id, external: 'optional' });
+    process.stdout.write(`${g.text}\n`);
+    wrong.push(...g.wrong);
+    unchecked.push(...g.unchecked);
+  }
+  return { wrong, unchecked };
+}
+const facts = await within(GATE_TIMEOUT_MS, checkFacts().catch((err: unknown) => ({
+  wrong: [] as string[], unchecked: [`facts: the check threw: ${err instanceof Error ? err.message : String(err)}`],
+})), () => ({ wrong: [] as string[], unchecked: [`facts: timed out after ${GATE_TIMEOUT_MS / 1000}s`] }));
+
 const found = findingsOf(ran.gates);
 const decision = await decide(
-  { wrong: found.wrong, unchecked: [...ran.setup, ...found.unchecked] },
+  { wrong: [...found.wrong, ...facts.wrong], unchecked: [...ran.setup, ...found.unchecked, ...facts.unchecked] },
   {
     token: process.env['REPLY_GATE_OVERRIDE'],
     sha: process.env['VERCEL_GIT_COMMIT_SHA'],

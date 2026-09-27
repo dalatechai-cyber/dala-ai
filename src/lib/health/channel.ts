@@ -41,6 +41,7 @@
  */
 import { assessSilence, type SilenceInput, type SilenceVerdict } from './silence.ts';
 import type { BusinessHours, Closure } from '../reception/volatile.ts';
+import { ubStamp } from '../time/ub.ts';
 
 export type ChannelObservation = {
   channelId: string;
@@ -115,7 +116,7 @@ function hours(minutes: number): string {
 }
 
 function describe(v: SilenceVerdict): string {
-  if (v.verdict === 'silent') return `at least ${hours(v.openMinutesAtLeast)} of open time with nothing, since ${v.since.toISOString()}`;
+  if (v.verdict === 'silent') return `at least ${hours(v.openMinutesAtLeast)} of open time with nothing, since ${ubStamp(v.since)}`;
   if (v.verdict === 'ok') return `${hours(v.openMinutes)} of open time`;
   return v.detail;
 }
@@ -150,13 +151,13 @@ function neverReceived(o: ChannelObservation, since: Date, walked: string): stri
   const seen = o.unattributedWebhookAt;
   if (seen !== null && seen.getTime() >= since.getTime()) {
     return `no webhook has ever been attributed to this channel, but a delivery naming Page `
-      + `${o.externalId} arrived at ${seen.toISOString()} and could not be routed — Meta IS `
+      + `${o.externalId} arrived at ${ubStamp(seen)} and could not be routed — Meta IS `
       + `delivering, so this is channel identity, not the subscription`;
   }
   const history = seen === null
     ? ''
-    : ` The newest delivery naming Page ${o.externalId} is ${seen.toISOString()}, BEFORE this `
-      + `channel began expecting traffic at ${since.toISOString()}, so it is not evidence about `
+    : ` The newest delivery naming Page ${o.externalId} is ${ubStamp(seen)}, BEFORE this `
+      + `channel began expecting traffic at ${ubStamp(since)}, so it is not evidence about `
       + `this window.`;
   return `this channel has NEVER received a webhook (${walked}) — the app-level field `
     + `subscription probably never worked.${history}`;

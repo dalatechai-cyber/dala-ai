@@ -10731,3 +10731,47 @@ applied the same day).
   branch red, as it should.
 - **Timing:** every tenant gets the rule at its next publish. Matrix gets it too, since the
   rule is platform-wide by the founder's wording ("model-written answers").
+
+## D-151 — Media hand-off, one spelling per fact, a paid pre-publish run, Ulaanbaatar time (2026-09-27)
+
+These are the founder's calls after the live check at DalaTech seq 12 and Tara seq 16.
+
+- **The staff-takeover silence stays 30 minutes.** On Tara's thread, a staff member replied
+  in the inbox. The customer's address question came 1h45m later, after the window had
+  closed, so Дали answered it. That is the rule working as set, not a bug.
+  `control.test.ts` pins both sides of the window.
+- **A photo, a video or a link to one goes to a person** (`handover/media.ts`). The customer
+  gets the tenant's reviewed `handover_notice` row. After the send, the thread becomes
+  `human` and the cooldown restarts, even on a thread that was already `human`. The founder
+  gets a Telegram alert that carries the links and ids only, never the customer's text.
+  - A tenant without the row keeps today's behaviour.
+  - A photo sent alone still gets `image_received` (`inbound/imageReply.ts`).
+  - A video sent alone is still recorded as dropped.
+  - The wording waits for the founder.
+- **A paid run before a publish that changes what a tenant's bot says.** That tenant's
+  model cases run once (`--with-model`). The report gives the result and what the run cost.
+  This is the one exception to D-137's no-spend rule: one run per change, for that purpose
+  only.
+- **Every copy of a fact must agree** (`src/lib/facts/consistency.ts`, `scripts/facts/gate.ts`).
+  - **What it compares against the price rows:** FAQ, fixed replies, canned lines, KB
+    documents, the platform's approved lines, and the copies outside this project listed in
+    `config/external-fact-copies.json` (the dalatech-chatbot repo).
+  - **Spelling:** a service label written with other capitals is a finding. The only
+    exception is a capital first letter at the start of a sentence.
+  - **Price:** a ₮ amount on a line naming a service must be one of that service's own
+    amounts.
+  - **Where it runs:** in CI (unit tests), in the production-build gate (rows only; the
+    build has no sibling checkout) and in publish.
+  - **Publish refuses** on any disagreement, and on any external copy it cannot read.
+- **Ulaanbaatar time everywhere** (`src/lib/time/ub.ts`, on top of `clock.ts`).
+  - Per-day and per-hour dedup keys (credential breaker, erasure requests) roll on the
+    Ulaanbaatar clock.
+  - Times shown to the founder (silence alerts, override expiry) and the erasure status
+    date are Ulaanbaatar times, labelled.
+  - `src/lib/time/tz.test.ts` runs the same instants around Ulaanbaatar midnight under
+    TZ=UTC, Asia/Singapore, America/New_York and Asia/Ulaanbaatar, and requires identical
+    output.
+  - dalatech-app has the same test. Its lead-form footer year now uses Ulaanbaatar's clock.
+  - dalatech-chatbot has no calendar logic.
+  - Нова's 21:00–09:00 quiet hours are not in any code yet (Нова is not built). When they
+    are built, they belong on `tenantClock`.

@@ -23,6 +23,7 @@
  * a stale event, an unparseable matcher, an unreviewed canned line, and a tenant with no
  * knowledge base at all. The cheapest refusals are first, and none of them costs a token.
  */
+import { isMediaMessage, MEDIA_HANDOFF_KIND } from '../handover/media.ts';
 import type { CallOutcome, ReceptionRequest, TerminalReason } from '../model/reception.ts';
 import { isStale } from '../model/reception.ts';
 import type { Usage } from '../spend/settle.ts';
@@ -263,6 +264,8 @@ export type ReceptionOutcome =
      * as a callback request (`deterministic`). The website alerts on it (`noInbox`).
      */
     handedOff?: true;
+    /** A photo, video or media link answered with the handover notice: the worker hands the thread to staff. */
+    mediaHandoff?: true;
   }
   /** Could not determine something. The caller must 503 so QStash retries. */
   | { kind: 'retry'; detail: string }
@@ -919,6 +922,21 @@ async function receive(
     return drafted.ok
       ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'deterministic' }
       : { kind: 'retry', detail: drafted.detail };
+  }
+
+  // A PHOTO, A VIDEO OR A LINK TO ONE is a person's to answer (founder, 2026-09-27): the
+  // tenant's reviewed «a staff member will look» line, and the worker hands the thread to
+  // the staff once it is sent (`handover/media.ts`). Before the image line, which it
+  // replaces for a tenant that has both. No row keeps today's behaviour.
+  if (isMediaMessage({ text: input.customerMessage, attachments: input.customerAttachments, sentPhoto: input.customerSentPhoto })) {
+    const notice = canned(input.canned, MEDIA_HANDOFF_KIND);
+    if (notice !== null) {
+      await deps.release();
+      const drafted = await d.draft({ body: notice, answeredBy: 'canned' });
+      return drafted.ok
+        ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned', mediaHandoff: true }
+        : { kind: 'retry', detail: drafted.detail };
+    }
   }
 
   // A PHOTOGRAPH, captioned or not, gets the tenant's image line (founder, 2026-09-24: *"A

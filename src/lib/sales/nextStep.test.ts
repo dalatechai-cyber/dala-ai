@@ -103,6 +103,7 @@ test('EVERY skip reason, in the order the founder listed them', () => {
     [{ customerSentPhoto: true }, 'image_line'],
     [{ reply: { ...ANSWER, cannedKinds: ['image_received'] } }, 'image_line'],
     [{ reply: { ...ANSWER, cannedKinds: ['handoff'] } }, 'refusal_or_handoff'],
+    [{ reply: { ...ANSWER, cannedKinds: ['handover_notice'] } }, 'refusal_or_handoff'],  // the media hand-off: a person will answer
     [{ reply: { ...ANSWER, cannedKinds: ['refusal_price_unlisted'] } }, 'refusal_or_handoff'],
     [{ reply: { ...ANSWER, refusal: true } }, 'refusal_or_handoff'],
     [{ offeredBefore: true }, 'already_offered'],

@@ -309,7 +309,7 @@ export function decide(input: DecisionInput): Decision {
     if (input.earlierCustomerMessages.some((m) => isComplaint(m, input.complaintRules))) return 'complaint_earlier';
     if (phones.length > 0) return 'lead_given';
     if (input.customerSentPhoto || reply.cannedKinds.includes('image_received')) return 'image_line';
-    if (reply.refusal || reply.cannedKinds.some((k) => k === 'handoff' || k.startsWith('refusal_'))) return 'refusal_or_handoff';
+    if (reply.refusal || reply.cannedKinds.some((k) => k === 'handoff' || k === 'handover_notice' || k.startsWith('refusal_'))) return 'refusal_or_handoff';
     return null;
   })();
   // The reasons that are about THIS turn being the wrong moment, checked after "already".

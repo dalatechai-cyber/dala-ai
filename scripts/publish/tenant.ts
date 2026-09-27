@@ -43,7 +43,9 @@ import { supabasePublish } from '../../src/lib/supabase/clients.ts';
 import { SECTION_LABELS } from '../../src/lib/prompt/tenant.ts';
 import { CLARIFY_BRANCH_KIND, branchNamesFromPrefix } from '../../src/lib/branches/branches.ts';
 import { caseModelSeat, gateTenant, renderGate } from '../../src/lib/replycases/run.ts';
-import { callReception } from '../../src/lib/model/reception.ts';
+import { callReception, type CallOutcome } from '../../src/lib/model/reception.ts';
+import { priceCall, type CacheMode } from '../../src/lib/spend/settle.ts';
+import { factGate } from '../facts/gate.ts';
 
 function die(message: string): never {
   process.stderr.write(`publish: ${message}\n`);
@@ -217,11 +219,16 @@ if (need.changed.length > 0) process.stdout.write(`\nchanged on ${need.changed.j
 // `--with-model` answers the model cases too, spending, by hand before a big change; it
 // needs ANTHROPIC_API_KEY in this shell, and without it a model case FAILS.
 const withModel = process.argv.includes('--with-model');
+const calls: CallOutcome[] = [];
 const modelKey = withModel ? (process.env['ANTHROPIC_API_KEY'] ?? '') : '';
 const gate = await gateTenant(db, {
   slug, now,
   modelCases: withModel ? 'fail' : 'skip',
-  callModel: modelKey === '' ? null : caseModelSeat((req) => callReception(req, modelKey)),
+  callModel: modelKey === '' ? null : caseModelSeat(async (req) => {
+    const out = await callReception(req, modelKey);
+    calls.push(out);
+    return out;
+  }),
   compiled: {
     promptStable: rendered.promptStable, allowedNumbers: rendered.allowedNumbers,
     cannedHash: compiled.cannedHash, promptGate: rendered.promptGate,
@@ -229,9 +236,40 @@ const gate = await gateTenant(db, {
 });
 const verdict = renderGate([gate]);
 process.stdout.write(`\n${verdict.text}\n`);
+
+// What the model run cost (D-151: the report says it). Priced from `model_prices` at the
+// tenant's cache mode, as the worker settles a live reply; a call that cannot be priced is
+// named, never counted as free.
+if (withModel) {
+  const { data: t } = await db.from('tenants').select('prompt_cache_mode').eq('id', tenantId).maybeSingle();
+  const mode = String((t as Record<string, unknown> | null)?.['prompt_cache_mode'] ?? '') as CacheMode;
+  let nano = 0n;
+  const unpriced: string[] = [];
+  for (const c of calls) {
+    if (c.kind === 'retryable' || c.usage === undefined) continue;
+    const model = c.kind === 'ok' ? c.modelReturned : '';
+    const p = model === '' ? { ok: false as const, detail: 'no model id returned' } : await priceCall(db, model, c.usage, mode, now);
+    if (p.ok) nano += p.priced.cost;
+    else unpriced.push(p.detail);
+  }
+  const usd = Number(nano) / 1e9;
+  process.stdout.write(`\nMODEL RUN COST  ${calls.length} call(s), $${usd.toFixed(4)}`
+    + `${unpriced.length > 0 ? `, plus ${unpriced.length} call(s) that could not be priced (${[...new Set(unpriced)].join('; ')})` : ''}\n`);
+}
 if (!gate.ok || !verdict.pass) {
   die(`reply cases fail against this configuration, so it ${doPublish ? 'was NOT published' : 'cannot be published'}.\n`
     + 'Fix the rows (or the case, if the expected answer itself is wrong), then run again.');
+}
+
+// ---- every copy of every fact agrees (founder, 2026-09-27) ---------------------
+// Price rows, FAQ, fixed replies, canned lines, KB documents, the platform's approved lines,
+// and the copies outside this project (config/external-fact-copies.json, read from the
+// sibling checkout). A copy that disagrees, or one that cannot be read, stops the publish.
+const facts = await factGate(db, { slug, tenantId, external: 'require' });
+process.stdout.write(`\n${facts.text}\n`);
+if (facts.wrong.length > 0 || facts.unchecked.length > 0) {
+  die(`copies of this tenant's facts disagree or could not be read, so it ${doPublish ? 'was NOT published' : 'cannot be published'}.\n`
+    + 'Make every copy say what the rows say (or fix the row), check out the sibling repo if one is missing, then run again.');
 }
 
 if (!doPublish) {

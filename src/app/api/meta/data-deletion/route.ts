@@ -29,6 +29,7 @@ import { recordErasureRequest } from '@/lib/privacy/erasure';
 import { supabasePrivacy } from '@/lib/supabase/clients';
 import { quietRoute, raiseAlert } from '@/lib/alerts/alert';
 import { required } from '@/lib/env';
+import { ubDate } from '@/lib/time/ub';
 
 // node:crypto is unavailable on the edge runtime.
 export const runtime = 'nodejs';
@@ -116,7 +117,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     // One alert per day, not one per request: a request arriving is not itself an
     // incident, but a day passing with requests nobody has acted on is. The period is in
     // the dedup key for the same reason the spend alerts put it there.
-    const day = new Date().toISOString().slice(0, 10);
+    const day = ubDate(new Date());
     const alerted = await raiseAlert(db, {
       tenantId: null,
       severity: 'warn',
@@ -126,7 +127,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       // report under DAILY_REPORT_V2 (inventory E6). The row is the obligation either way.
       route: quietRoute(),
       body:
-        `Data deletion request(s) received today (${day}). They are RECORDED, not fulfilled: ` +
+        `Data deletion request(s) received today (${day}, Ulaanbaatar). They are RECORDED, not fulfilled: ` +
         `Meta sends an app-scoped id and we store page-scoped ids. ` +
         `See docs/STATUS.md — resolving them needs the ID Matching API.`,
     });

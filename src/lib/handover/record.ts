@@ -142,6 +142,10 @@ export async function applyThreadControl(
   input: {
     tenantId: string; conversationId: string;
     control: ThreadControl; at: Date; source: ControlSource;
+    /** Restart the cooldown even when the thread is already `human` (the media hand-off:
+     *  a thread a person once answered stays `human` with an old time, and "a staff member
+     *  will look" must hold the next message). */
+    refresh?: true;
   },
 ): Promise<{ ok: true; changed: boolean; refreshed?: true } | { ok: false; detail: string }> {
   const before = await readThreadState(db, input);
@@ -166,7 +170,7 @@ export async function applyThreadControl(
     // Narrow on purpose: only an ECHO, and only `human`. An echo is a person typing. A
     // `handover` event re-asserting `human` is Meta repeating itself, not a new turn, and
     // treating it as one would let a redelivered webhook hold a thread open for ever.
-    if (input.control !== 'human' || input.source !== 'echo') return { ok: true, changed: false };
+    if (input.control !== 'human' || (input.source !== 'echo' && input.refresh !== true)) return { ok: true, changed: false };
 
     const { error: refreshErr } = await db
       .from('conversations')

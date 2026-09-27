@@ -1,0 +1,7 @@
+{
+  "_doc": "Copies of a tenant's facts that live outside this project's database, keyed by tenant slug. Paths are relative to this repo's root (a sibling checkout). scripts/facts/gate.ts checks them against the tenant's rows: publish refuses when one cannot be read; the Vercel build, which has no sibling checkout, reports them as not checked there.",
+  "dalatech": [
+    "../dalatech-chatbot/dalatech-messenger/lib/facts.js",
+    "../dalatech-chatbot/dalatech-messenger/api/chat.js"
+  ]
+}
