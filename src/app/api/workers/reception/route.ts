@@ -198,6 +198,8 @@ function effects(now: Date): WorkerEffects {
 
     alertMediaHandoff: async (input) => {
       const outcome = await raiseMediaHandoff(db, input);
+      // Switched off for this tenant (D-153): said, so "off" never reads as "never called".
+      if (outcome.outcome === 'disabled') console.info('[worker] media_handoff_alert_disabled', { conversationId: input.conversationId });
       if (outcome.outcome === 'failed' || outcome.outcome === 'recorded_undelivered') {
         console.error('[worker] media_handoff_alert_undelivered', { conversationId: input.conversationId, ...outcome });
       }

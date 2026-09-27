@@ -2,7 +2,7 @@
  * A customer who sends a photo, a video or a link to one is handed to a person (founder,
  * 2026-09-27).
  *
- * Tara, a real customer: she shared a Facebook reel of a hair colour and asked «Ene budalt hed
+ * On Tara Salon's Page (the matrix-eco-salon tenant), a real customer shared a Facebook reel of a hair colour and asked «Ene budalt hed
  * boloh be?». The bot cannot see a reel. It said so («энэ линкийг би харах боломжгүй») and
  * asked her to describe the colour. The salon's staff member could see it and answer in a
  * minute. The founder's rule: when a customer sends a link, photo or video and asks about it,
@@ -113,15 +113,20 @@ export function mediaHandoffAlertBody(input: { tenantName: string; links: readon
     + `Conversation ${input.conversationId}`;
 }
 
-/** One alert per handed-off message. Never throws: the notice is already sent. */
+/**
+ * One alert per handed-off message, unless the tenant turned the alert off
+ * (`tenants.media_handoff_alert`, D-153). Off changes nothing but the alert: the notice was
+ * already sent and the thread is already the staff's. An unreadable setting alerts, because
+ * a silent failure here hides a hand-off from the one person who can act on it.
+ */
 export async function raiseMediaHandoff(
   db: SupabaseClient,
   input: { tenantId: string; conversationId: string; externalId: string; text: string },
-): Promise<AlertOutcome> {
-  const { data } = await db.from('tenants').select('display_name').eq('id', input.tenantId).maybeSingle();
-  const name = typeof (data as Record<string, unknown> | null)?.['display_name'] === 'string'
-    ? String((data as Record<string, unknown>)['display_name'])
-    : input.tenantId;
+): Promise<AlertOutcome | { outcome: 'disabled' }> {
+  const { data } = await db.from('tenants').select('display_name, media_handoff_alert').eq('id', input.tenantId).maybeSingle();
+  const row = data as Record<string, unknown> | null;
+  if (row?.['media_handoff_alert'] === false) return { outcome: 'disabled' };
+  const name = typeof row?.['display_name'] === 'string' ? String(row['display_name']) : input.tenantId;
   return raiseAlert(db, {
     tenantId: input.tenantId,
     severity: 'warn',
