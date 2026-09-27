@@ -26,6 +26,9 @@
 --     that; the four staff-claim strings are moved out of the generic must-not lists into
 --     one dedicated case per staff member per state; live cases are added (DRAFT answers).
 --
+-- Undo, before or after a publish: `dalatech-launch-switches-2026-09-27-revert.sql` restores
+-- every row this script changes to today's text (then publish again).
+--
 -- Flip a switch afterwards with the publish command, never by hand:
 --   node scripts/publish/tenant.ts --slug dalatech --launch "Вира — маркетинг менежер=live"
 begin;
@@ -36,6 +39,25 @@ create temp table sv on commit drop as
 do $$ begin
   if (select count(*) from sv where short in ('Вира', 'Эхо', 'Нова', 'Ора', 'Дали')) <> 5 then
     raise exception 'expected the five staff services by name';
+  end if;
+end $$;
+
+-- The rows this script rewrites must be exactly the ones it was written against (today's
+-- bodies, one row each). Anything else stops the run before a byte changes.
+do $$ begin
+  if (select count(*) from deterministic_replies d join tenants t on t.id = d.tenant_id
+       where t.slug = 'dalatech' and d.intent in ('price_overview', 'coming_soon_status', 'coming_soon_in_reply', 'nova_about')) <> 4 then
+    raise exception 'expected the four fixed replies this script rewrites';
+  end if;
+  if exists (select 1 from deterministic_replies d join tenants t on t.id = d.tenant_id
+              where t.slug = 'dalatech' and (
+                (d.intent = 'price_overview' and d.body <> normalize('💬 Дали — AI хүлээн авагч: сард 250,000₮ (суурилуулалт 50,000₮)
+🌐 Ухаалаг вэбсайт: 750,000₮
+🎁 Вэбсайт + Дали багц: 800,000₮
+⏳ Удахгүй: Вира сард 350,000₮, Нова сард 150,000₮, Ора сард 250,000₮, Эхо — урьдчилан бүртгэл авч байна', NFC)) or
+                (d.intent in ('coming_soon_status', 'coming_soon_in_reply') and d.body <> normalize('Вира, Эхо, Нова, Ора хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.', NFC)) or
+                (d.intent = 'nova_about' and d.body <> normalize('Нова бол цаг захиалгын сануулгыг SMS-ээр илгээж, ТИЙМ/ҮГҮЙ хариуг хүлээн авдаг AI ажилтан. Одоогоор урьдчилан бүртгэл авч байна.', NFC)))) then
+    raise exception 'a fixed reply is not the text this script was written against; re-read it before running';
   end if;
 end $$;
 
@@ -264,6 +286,11 @@ do $$ declare n int; begin
   if exists (select 1 from deterministic_replies d join tenants t on t.id = d.tenant_id
               where t.slug = 'dalatech' and (d.body like '%ТИЙМ/ҮГҮЙ%' or d.items::text like '%ТИЙМ/ҮГҮЙ%')) then
     raise exception 'a fixed reply still says ТИЙМ/ҮГҮЙ';
+  end if;
+  if exists (select 1 from knowledge_documents k join tenants t on t.id = k.tenant_id
+              where t.slug = 'dalatech' and k.when_launch_state = 'live'
+                and (k.body like '%урьдчилан%' or k.body like '%УДАХГҮЙ%' or k.title like '%УДАХГҮЙ%')) then
+    raise exception 'a live document still says pre-registration';
   end if;
   select count(*) into n from reply_cases r join tenants t on t.id = r.tenant_id
    where t.slug = 'dalatech' and r.note like 'D-154 founder 2026-09-27: %';

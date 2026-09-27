@@ -283,7 +283,9 @@ async function tenantReport(
         const body = String(r['body'] ?? '');
         if (!body.includes('{{')) return [body];
         const pieces = Array.isArray(r['items']) ? (r['items'] as Record<string, unknown>[]).map((i) => String(i?.['body'] ?? '')) : [];
-        return [...body.split('\n').filter((l) => !l.includes('{{')), ...pieces].filter((l) => l.trim() !== '');
+        // A line with a slot is approved around it: the words either side of each slot.
+        const around = body.split('\n').flatMap((l) => l.split(/\{\{[^{}]*\}\}/u));
+        return [...around, ...pieces].map((l) => l.trim()).filter((l) => l !== '' && l !== ',');
       }),
     ],
   });

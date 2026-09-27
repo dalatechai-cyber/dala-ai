@@ -61,7 +61,7 @@ import { caseModelSeat, gateTenant, renderGate } from '../../src/lib/replycases/
 import { callReception, type CallOutcome } from '../../src/lib/model/reception.ts';
 import { priceCall, type CacheMode } from '../../src/lib/spend/settle.ts';
 import { factGate } from '../facts/gate.ts';
-import { caseReferences, itemReferences, LAUNCH_STATES, sameLaunch, type LaunchRecord, type LaunchState } from '../../src/lib/launch/launch.ts';
+import { caseReferences, itemReferences, lookupOf, resolveDeterministicRows, LAUNCH_STATES, sameLaunch, type LaunchRecord, type LaunchState } from '../../src/lib/launch/launch.ts';
 
 function die(message: string): never {
   process.stderr.write(`publish: ${message}\n`);
@@ -192,6 +192,19 @@ if (!compiled.ok) {
     : `compile failed (${compiled.code}): ${compiled.detail}`);
 }
 const { rendered } = compiled;
+
+// D-154: a fixed reply whose condition or pieces do not parse would never answer, in any
+// state, with nothing said. Refused here, where an operator reads it, instead.
+{
+  const { data: detRows, error: detErr } = await db.from('deterministic_replies')
+    .select('intent, body, web_body, matcher, when_service_id, when_launch_state, items').eq('tenant_id', tenantId).eq('enabled', true);
+  if (detErr) die(`deterministic_replies unreadable: ${detErr.message}`);
+  const broken = resolveDeterministicRows(detRows, lookupOf(compiled.launch)).withheld
+    .filter((w) => w.reason === 'bad_condition' || w.reason === 'bad_items');
+  if (broken.length > 0) {
+    die(`fixed replies that can never answer (their launch condition or pieces do not parse):\n  ${broken.map((w) => `${w.intent}: ${w.reason}`).join('\n  ')}`);
+  }
+}
 
 // The switches, before and after. Printed on every run: which services this publish says are
 // live is the one line the website and every channel will change on.
@@ -365,21 +378,46 @@ const revisionId = String((draft as Record<string, unknown>)['id']);
 
 // D-154: the switches go into the rows first, so the compile that publishes reads them and
 // the next plain publish keeps them. If anything after this fails, they are put back.
-const flips = compiled.launch.filter((r) => launch.has(r.name));
+// Matched by NFC name, the form `--launch` and the compile's override both use.
+const flips = compiled.launch.filter((r) => launch.has(r.name.normalize('NFC')));
 const priorState = new Map<string, LaunchState>();
 if (flips.length > 0) {
   const { data: cur, error: curErr } = await db.from('services').select('id, launch_state').eq('tenant_id', tenantId);
   if (curErr) die(`services unreadable: ${curErr.message}`);
   for (const r of (cur ?? []) as Record<string, unknown>[]) priorState.set(String(r['id']), r['launch_state'] as LaunchState);
-  for (const f of flips) {
-    const { error } = await db.from('services').update({ launch_state: f.state }).eq('tenant_id', tenantId).eq('id', f.serviceId);
-    if (error) {
-      await putBack();
-      die(`could not set «${f.name}» to ${f.state}: ${error.message}. Nothing was published.`);
-    }
-  }
+  // The way back, printed BEFORE anything is written: if this process dies between the flip
+  // and the publish, the operator has the exact SQL, and the next publish must not run first.
+  process.stdout.write(`\nFlipping ${flips.map((f) => `«${f.name}» → ${f.state}`).join(', ')}. If this run dies before «PUBLISHED»,\n`
+    + `restore the rows before anything else is published:\n`
+    + flips.map((f) => `  update services set launch_state = '${priorState.get(f.serviceId) ?? 'preregistration'}' where id = '${f.serviceId}';`).join('\n') + '\n');
 }
-async function putBack(): Promise<void> {
+
+/** The live revision now, or null when it cannot be read. */
+async function liveRevision(): Promise<string | null> {
+  const { data, error } = await db.from('tenants').select('live_revision_id').eq('id', tenantId).maybeSingle();
+  if (error || data === null) return null;
+  const v = (data as Record<string, unknown>)['live_revision_id'];
+  return typeof v === 'string' ? v : null;
+}
+
+/**
+ * Put the switches back — but only when the new revision is NOT live. A publish can report a
+ * failure after its pointer move committed (a lost response); reverting the rows then would
+ * leave rows saying one thing under a live snapshot saying another. When that cannot be
+ * told, nothing is reverted and the operator is told exactly what to check.
+ */
+async function putBack(reason: string): Promise<void> {
+  if (flips.length === 0) return;
+  const live = await liveRevision();
+  if (live === revisionId) {
+    process.stderr.write(`publish: ${reason}, but revision ${revisionId} IS live. The switches stay as published.\n`);
+    return;
+  }
+  if (live === null) {
+    process.stderr.write(`publish: ${reason}, and which revision is live could not be read. The switches were NOT put back.\n`
+      + `  Check tenants.live_revision_id; if it is not ${revisionId}, run the restore SQL printed above.\n`);
+    return;
+  }
   for (const f of flips) {
     const was = priorState.get(f.serviceId);
     if (was === undefined || was === f.state) continue;
@@ -391,10 +429,22 @@ async function putBack(): Promise<void> {
   }
 }
 
-const out = await compileAndPublish(db, { tenantId, revisionId, channels, now });
+let out: Awaited<ReturnType<typeof compileAndPublish>>;
+try {
+  for (const f of flips) {
+    const { error } = await db.from('services').update({ launch_state: f.state }).eq('tenant_id', tenantId).eq('id', f.serviceId);
+    if (error) throw new Error(`could not set «${f.name}» to ${f.state}: ${error.message}`);
+  }
+  out = await compileAndPublish(db, { tenantId, revisionId, channels, now });
+} catch (err) {
+  // A throw anywhere between the first flip and the publish's answer: never leave rows flipped.
+  const why = err instanceof Error ? err.message : String(err);
+  await putBack(why);
+  die(`${why}. Nothing was published by this run.`);
+}
 if (!out.ok) {
-  await putBack();
-  die(`publish failed (${out.code}): ${out.detail}${flips.length > 0 ? '. The launch states were put back.' : ''}`);
+  await putBack(`publish failed (${out.code})`);
+  die(`publish failed (${out.code}): ${out.detail}`);
 }
 // The rows were read again by that compile; if anything else changed them in between, what
 // went live is not what was judged above.
