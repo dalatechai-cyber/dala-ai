@@ -10713,3 +10713,21 @@ a row, so no model and no spend. Each is also a permanent exact reply case, 26 i
   - the model-side rule (full polite sentences, never a bare «Тийм.»), drafted as
     `prompt/drafts/02_style_full_sentences.mn.txt`;
   - five FAQ rewordings, in `docs/reports/2026-09-27-faq-tone.md`.
+
+## D-150 — DalaTech FAQ wording, lower-case role names, and the full-sentence rule (2026-09-27)
+
+The founder approved these on 2026-09-27 (`scripts/provision/dalatech-faq-roles-2026-09-27.sql`,
+applied the same day).
+- **FAQ 1–4** use the wording proposed in `docs/reports/2026-09-27-faq-tone.md`.
+- **FAQ 5 (payment terms)** is the founder's own wording. It also answers «Төлбөрийн нөхцөл
+  ямар вэ?» from a row, `payment_terms`, pinned by two exact cases. FAQ 1–3 have model cases.
+- **Role names** are lower case after the dash, as «Дали — AI хүлээн авагч» already was. The
+  model had copied «Вира — Маркетинг менежер» into «Вира бол Маркетинг менежер». The rename
+  covers the service names and the document titles.
+- **The full-sentence rule** is rule (5) of `prompt/platform/02_style.mn.txt`. It is written
+  word for word as the founder approved the draft. The founder signs its hash in
+  `prompt/platform-mn-review.json` and runs `generate-seed.ts`, which writes
+  `0061_prompt_blocks_seed`. Until that signature exists, `check-mn-review` keeps this
+  branch red, as it should.
+- **Timing:** every tenant gets the rule at its next publish. Matrix gets it too, since the
+  rule is platform-wide by the founder's wording ("model-written answers").
