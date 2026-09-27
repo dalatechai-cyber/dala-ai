@@ -10699,7 +10699,7 @@ a row, so no model and no spend. Each is also a permanent exact reply case, 26 i
 - **Нова.** `nova_about` answers «Нова юу хийдэг вэ?» with the approved description, which
   is also Нова's document line.
 - **No second pre-registration line.** Both coming-soon rows now read
-  `not(in_reply(«урьдчилан»))`.
+  `not(in_reply(«урьдчилан бүртгэл» …))` (the phrase: «урьдчилан төлбөл» in the annual line means "in advance").
   - `handleReception` judges every message-matched append again once the reply exists, and
     keeps it only if it still fires.
   - A row that never reads the reply fires identically on both passes, so only rows that

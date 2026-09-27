@@ -523,10 +523,10 @@ test('one coming-soon agent\'s price still gets the pre-registration line, and t
 
 // ---- Founder, 2026-09-27: never the coming-soon line after an answer that already says it -----
 // Live: «Вира юу хийдэг вэ?» got «…Одоогоор урьдчилан бүртгэл авч байгаа…» and then the
-// status line on top. Each row now says `not(in_reply(«урьдчилан»))`, and a message-matched
+// status line on top. Each row now says `not(in_reply(«урьдчилан бүртгэл» …))`, and a message-matched
 // append is judged again once the reply exists.
 
-const NOT_SAID = { mode: 'not' as const, matcher: { mode: 'in_reply' as const, matcher: { mode: 'has_word' as const, words: ['урьдчилан'] } } };
+const NOT_SAID = { mode: 'not' as const, matcher: { mode: 'in_reply' as const, matcher: { mode: 'has_word' as const, words: ['урьдчилан бүртгэл', 'урьдчилан бүртгүүлж'] } } };
 const SOON_STATUS_UNLESS: DeterministicRule = {
   ...SOON_STATUS, matcher: { mode: 'all_of', matchers: [{ mode: 'has_word', words: ['вира', 'вирагийн'] }, NOT_SAID] },
 };
@@ -555,4 +555,12 @@ test('a message-matched append that does not read the reply is kept as before', 
   const t = run('Вира бизнес аналитик. Одоогоор урьдчилан бүртгэл авч байна.');
   await handleReception(t.deps, { ...base, customerMessage: 'Вирагийн үнэ хэд вэ?', deterministic: [SOON_STATUS] });
   assert.equal(t.drafts[0]?.body, `Вира бизнес аналитик. Одоогоор урьдчилан бүртгэл авч байна.\n\n${SOON}`);
+});
+
+test('«урьдчилан» in another sense (paying in advance) does not stop the coming-soon line', async () => {
+  const t = run('Жилийн төлбөрөө урьдчилан төлбөл хөнгөлөлттэй.');
+  await handleReception(t.deps, {
+    ...base, customerMessage: 'Вира жилээр төлбөл хямдрах уу?', deterministic: [SOON_STATUS_UNLESS, SOON_IN_REPLY_UNLESS],
+  });
+  assert.equal(t.drafts[0]?.body, `Жилийн төлбөрөө урьдчилан төлбөл хөнгөлөлттэй.\n\n${SOON}`);
 });

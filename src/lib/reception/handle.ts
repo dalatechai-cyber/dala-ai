@@ -811,16 +811,15 @@ async function receive(
       }
       // A topic append («the stylist decides») is not added to a reviewed line: the refusal
       // it would follow already says it, in the tenant's own words.
-      // Append rows that read the REPLY (`in_reply`) can only be judged now that there is
-      // one (founder, 2026-09-26: whenever a coming-soon staff member comes up, prices
-      // included, the reply says so). A line the reply already carries is not added again.
       // Every append row judged again with the reply in hand. A row whose matcher reads the
       // reply only (`in_reply`) was never in `appends`; a row that ALSO reads it fired above
       // on the message alone, because an absent reply reads as "not in the reply". Founder,
       // 2026-09-27: an answer that already says Вира takes pre-registration must not get the
-      // coming-soon line after it, so that row says `not(in_reply(«урьдчилан»))` and is
-      // dropped here once the reply carries the word. A row that never reads the reply fires
-      // the same on both passes (same message, same options), so nothing else changes.
+      // coming-soon line after it, so that row says `not(in_reply(«урьдчилан бүртгэл» …))` and
+      // is dropped here once the reply carries the phrase. Rows that read ONLY the reply
+      // (founder, 2026-09-26: a reply naming a coming-soon staff member says so) are `onReply`
+      // below. A row that never reads the reply fires the same on both passes (same message,
+      // same options), so nothing else changes.
       const withReply = matchDeterministic(input.customerMessage, input.deterministic, input.historyState,
         { ...matchOpts, reply: x.body }).appends;
       const own = (x.answeredBy === 'canned' ? appends.filter((a) => a.onTopic !== true) : appends)
