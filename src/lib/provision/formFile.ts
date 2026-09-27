@@ -184,9 +184,8 @@ export function textBlocks(text: string): FormBlock[] {
     const line = rawLine.trim();
     if (line.startsWith('|') && line.endsWith('|') && line.length > 1) {
       const cells = splitRow(line);
-      if (cells.every((c) => /^:?-+:?$/.test(c) || c === '')) {
-        if (cells.some((c) => c !== '')) continue; // the separator row
-      }
+      const bare = cells.map((c) => c.trim());
+      if (bare.every((c) => /^:?-+:?$/.test(c) || c === '') && bare.some((c) => c !== '')) continue; // the separator row
       table ??= [];
       table.push(cells.map(stripMarkdown));
       continue;
@@ -217,7 +216,9 @@ function stripMarkdown(s: string): string {
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/\\([\\*_|#`\-.[\]()~])/g, '$1')
     .replace(/\*\*|__/g, '')
-    .replace(/(?<![\p{L}\p{N}])\*(?=\S)|(?<=\S)\*(?![\p{L}\p{N}])/gu, '')
+    // What is left is italic: in the form that is the hint under a question's label, run
+    // straight on in the export («**1.5 Хаяг***Google Maps…*»). A line break keeps them apart.
+    .replace(/\*/g, '\n')
     .replace(/ /g, ' ')
     .split('\n').map((l) => l.trim()).filter((l) => l !== '').join('\n')
     .trim();

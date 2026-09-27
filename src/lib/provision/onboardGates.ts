@@ -223,14 +223,24 @@ export function onboardReadiness(plan: OnboardPlan, gates: GateStatus | null, no
   const base = assessReadiness(plan.intake, now);
   const dropped = base.findings.filter((f) => f.code === 'facts_unconfirmed').map((f) => f.detail);
   const findings = base.findings.filter((f) => f.code !== 'facts_unconfirmed');
-  const waitingOn = base.waitingOn.filter((w) => !dropped.includes(w));
-  for (const m of plan.missing) waitingOn.push(`${m.audience === 'client' ? 'client' : 'operator'} (form ${m.question}): ${m.what}`);
+  // What HOLDS the tenant comes first: the daily report shows three items per tenant, and a
+  // missing price must not be pushed off the line by a list of spelling questions.
+  const first: string[] = [];
+  const later: string[] = [];
+  const line = (m: OnboardPlan['missing'][number]) => `${m.audience === 'client' ? 'client' : 'operator'} (form ${m.question}): ${m.what}`;
+  for (const m of plan.missing.filter((x) => x.holdsReady)) first.push(line(m));
   if (gates === null) {
-    waitingOn.push('founder: sign the wording sheet', 'client: confirm the facts summary');
+    first.push('founder: sign the wording sheet', 'client: confirm the facts summary');
   } else {
-    if (!gates.wording.signed) waitingOn.push(`founder: sign ${gates.wording.pending} Mongolian lines (wording sheet ${gates.wording.id})`);
-    if (!gates.facts.confirmed) waitingOn.push(`client: confirm the facts summary (${gates.facts.id})`);
+    if (!gates.wording.signed) first.push(`founder: sign ${gates.wording.pending} Mongolian lines (wording sheet ${gates.wording.id})`);
+    if (!gates.facts.confirmed) first.push(`client: confirm the facts summary (${gates.facts.id})`);
   }
+  const holdingFindings = new Set(findings.filter((f) => f.severity === 'blocker' || f.holdsReady === true).map((f) => f.detail));
+  for (const w of base.waitingOn.filter((x) => !dropped.includes(x))) {
+    (holdingFindings.has(w) || holdingFindings.has(w.replace(/^client: /u, '')) ? first : later).push(w);
+  }
+  for (const m of plan.missing.filter((x) => !x.holdsReady)) later.push(line(m));
+  const waitingOn = [...first, ...later];
   const blocking = findings.some((f) => f.severity === 'blocker' || f.holdsReady === true);
   const holding = plan.missing.some((m) => m.holdsReady)
     || gates === null || !gates.wording.signed || !gates.facts.confirmed;

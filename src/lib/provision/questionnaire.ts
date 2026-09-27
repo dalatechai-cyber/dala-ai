@@ -141,7 +141,10 @@ export function readQuestionnaire(blocks: readonly FormBlock[]):
 
   for (const b of blocks) {
     if (b.type !== 'table') continue;
-    const rows = b.rows;
+    // A Markdown export gives every table an empty header row (`|  |  |`); it is not the
+    // form's header, so leading blank rows are dropped before the header is looked for.
+    const first = b.rows.findIndex((r) => !blank(r));
+    const rows = first === -1 ? [] : b.rows.slice(first);
     const head = rows[0] ?? [];
 
     if (isHeader(head, 'Өдөр', 'Нээх', 'Хаах')) {

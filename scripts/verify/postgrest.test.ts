@@ -215,10 +215,13 @@ test('DONE-TEST: EVERY PROVISIONING PAYLOAD IS ACTUALLY PARSED, not silently ski
   // the one script whose entire job is writing rows the database has never seen. The count
   // is the assertion: if a payload stops resolving, this fails rather than quietly checking
   // one site fewer.
-  const uses = writesFromSource().uses.filter((u) => u.file.startsWith('scripts/provision/'));
+  // The writer moved to `src/lib/provision/write.ts` on 2026-09-27 (shared with onboarding);
+  // it is checked there, and the provisioning scripts are still scanned.
+  const uses = writesFromSource().uses
+    .filter((u) => u.file.startsWith('scripts/provision/') || u.file.startsWith('src/lib/provision/'));
   const tables = new Set(uses.map((u) => u.table));
   for (const t of ['tenants', 'out_of_scope_topics', 'service_aliases', 'comment_rules', 'service_variants']) {
-    assert.ok(tables.has(t), `no resolvable ${t} payload in scripts/provision`);
+    assert.ok(tables.has(t), `no resolvable ${t} payload in the provisioning writer`);
   }
   for (const t of ['out_of_scope_topics', 'service_aliases', 'comment_rules']) {
     const u = uses.find((x) => x.table === t);

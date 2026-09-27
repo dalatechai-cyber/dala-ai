@@ -196,9 +196,12 @@ export async function writeOnboarding(
     if (mErr) fail(`tenant_channels ${c.externalId}`, mErr.message);
     const channelId = String((made as Record<string, unknown>)['id']);
     // Routing resolves against `channel_identity`, not the channel row (matrix-stage1.sql).
+    // The note is built first: a template literal inside the payload defeats the static
+    // column check (`scripts/verify/query-columns.ts`), which reads keys, not values.
+    const identityNote = `onboarding: «${c.label}», shadow until both gates pass and the founder seals a token`;
     const { error: iErr } = await db.from('channel_identity').insert({
       tenant_id: tenantId, channel_id: channelId, provider: c.provider, external_id: c.externalId, active: true,
-      note: `onboarding: «${c.label}», shadow until both gates pass and the founder seals a token`,
+      note: identityNote,
     });
     if (iErr) fail(`channel_identity ${c.externalId}`, iErr.message);
     log.push(`${c.provider} ${c.externalId}: created, delivery_mode=shadow, no token`);
