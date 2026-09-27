@@ -10644,3 +10644,36 @@ prefix. A customer reads them as the colour price (135,000 / 176,000 / 200,000�
   Its stems are DalaTech's thanks stems (`scripts/provision/tara-thanks-2026-09-27.sql`).
 - The platform thanks forms gain «баярла» and the mixed-script «ok баярлалаа».
 - No republish: deterministic rows are read at request time.
+
+## D-148 — DalaTech's prices of 2026-09-27 (2026-09-27)
+
+The founder approved new prices on 2026-09-27. The figures are the founder's; the Mongolian
+wording around them waits for the founder's signature before anything is written.
+- **Setup fee** is 50,000₮ for every AI staff member (Дали was 150,000₮).
+- **Monthly:** Дали 250,000₮ (Facebook, Instagram and the client's website on one plan),
+  Нова 150,000₮ (1,000 SMS included, 50₮ per extra SMS), Вира 350,000₮, Ора 250,000₮
+  (1,500 messages; an extra 500 messages 49,000₮; extra users 200,000₮ / 175,000₮ /
+  150,000₮). Эхо has no price yet. Only Дали is live.
+- **Website:** 750,000₮ one-time; hosting 150,000₮ a year; QPay +200,000₮; online booking
+  +300,000₮. The Website + Дали bundle is 800,000₮: the website, Дали's setup, and Дали's
+  first month at 50%.
+- **Conditions:** annual prepay buys 12 months for 10; multi-staff discount 2 → 10%,
+  3 → 15%, 4+ → 20%; discounts do not stack; minimum contract 3 months; no VAT (DalaTech is
+  not VAT-registered).
+
+Where it lives (`scripts/provision/dalatech-prices-2026-09-27.sql`, one transaction that
+refuses a partial write):
+- **Figures are rows only** (D-075). Every price is a `service_variants` row. Counts,
+  discounts and conditions are FAQ and knowledge-document text with no ₮ figure in it.
+  Extras are variants with digit-free labels, so the only number on a served row is its
+  price.
+- **Эхо has no variant.** The price path answers `no_variant`; no old figure can be served.
+- The website's one-time price is labelled «Нэг удаагийн төлбөр», so it sits under the same
+  💬 header as hosting, QPay and booking. `хостинг`/`hosting` are website aliases.
+- `price_overview` and the reply cases that quote it change in the same transaction.
+- **Timing:** rows are live on commit. FAQs and documents reach customers at the next
+  publish.
+- **Open with the founder:** Вира's listed plan (videos, posts, boost management) reads as a
+  marketing role, while every row calls Вира «Бизнес аналитик». Вира's document is
+  unchanged until the founder says which. Also open: whether Ора's three extra-user prices
+  are the first, second and third extra user.
