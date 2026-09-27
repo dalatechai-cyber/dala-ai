@@ -16,7 +16,7 @@ local replica with a fictional salon branch; nothing touches the live project.
   `onboardGates.ts` holds the two gates, the client summary and the wording sheet.
   `scripts/onboard/tenant.ts` is the one command. Dry run and `--apply` run clean on the
   local replica; a second `--apply` changes nothing.
-- [ ] 3. Tests for the reader, plan, cases and gates.
+- [x] **3. Tests** for the reader (real template, .docx and text export), plan, cases, gates, and the tenant guard; loader and deploy-gate tests.
 - [x] **4. Salon-language gate blocks.** `prompt/drafts/vertical-neutral/`: neutral drafts of
   the eight blocks that carry salon examples, plus byte-frozen `salon` / `software` copies so
   the live tenants do not move. Measured on the replica: both live verticals compile
@@ -24,4 +24,5 @@ local replica with a fictional salon branch; nothing touches the live project.
 - [x] **First-publish gate.** The reply-case gate could not judge a tenant that was never
   published (`not_provisioned`). It now judges it against the snapshot the publish is about
   to write (`reception/load.ts` `firstPublish`, used only when no live snapshot exists).
-- [ ] 5. End-to-end proof: gates, dry-run publish, delete the test tenant; docs, review, PR.
+- [x] **5. End-to-end proof** on the local replica (`docs/reports/2026-09-27-onboarding-proof/`), test tenant deleted; D-155, provisioning §8, STATUS.
+- [x] **6. Review (Opus reviewer) and fixes:** deploy gate no longer blocked by a never-published tenant (cases and facts); onboarding refuses any tenant it did not create (Tara sits in shadow and was not protected by the never-live test alone); both gates bound to stored ids so any later change re-opens them; interrupted channel write repaired on re-run; deposits keyed by text; rows no longer in the form named and held; exact-bytes wording sheet.

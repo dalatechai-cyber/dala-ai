@@ -19,7 +19,8 @@
  * ## What it will not do
  *
  * - **Touch a tenant that has been live.** Refused before anything is read further
- *   (`refuseIfEverLive`). The live tenants change through reviewed scripts only.
+ *   (`refuseForeignTenant`), nor one onboarding did not create. The live tenants change
+ *   through reviewed scripts only.
  * - **Put anything live.** Channels are written in `shadow` with no token; an existing
  *   channel row is left exactly as it is. Going live stays a manual step after both gates.
  * - **Grant spend.** No `tenant_roles` entitlement, no budget row (money waits for the founder).
@@ -38,7 +39,8 @@ import { generateCases } from '../../src/lib/provision/cases.ts';
 import { projectedAllowedNumbers, validateIntake } from '../../src/lib/provision/validate.ts';
 import { applyIntake, WriteError } from '../../src/lib/provision/write.ts';
 import {
-  activateCases, deactivateCases, refuseForeignChannels, refuseIfEverLive, writeOnboarding,
+  activateCases, deactivateCases, readSteps, recordStep, refuseForeignChannels, refuseForeignTenant, rowsNotInForm, STEP,
+  writeOnboarding,
 } from '../../src/lib/provision/onboardWrite.ts';
 import {
   clientSummary, confirmFacts, gateStatus, loadFacts, loadWording, onboardReadiness, signWording, wordingSheet,
@@ -47,6 +49,7 @@ import { recordReadiness } from '../../src/lib/provision/record.ts';
 import { onboardingReport } from '../../src/lib/provision/onboardReport.ts';
 import { supabasePublish } from '../../src/lib/supabase/clients.ts';
 import { ubStamp } from '../../src/lib/time/ub.ts';
+import { factGate } from '../facts/gate.ts';
 
 const out = (s = '') => process.stdout.write(`${s}\n`);
 function die(message: string, code = 2): never {
@@ -147,14 +150,14 @@ if (blockers.length > 0) die(`${blockers.length} blocker(s) above — nothing wr
 const db = supabasePublish();
 let tenantId: string | null;
 try {
-  ({ tenantId } = await refuseIfEverLive(db, slug));
+  ({ tenantId } = await refuseForeignTenant(db, slug));
   await refuseForeignChannels(db, slug, plan);
 } catch (e) {
   die(e instanceof Error ? e.message : String(e));
 }
 
 if (!doApply) {
-  out(`\nDRY RUN — nothing written. ${tenantId === null ? 'The tenant would be CREATED.' : 'The tenant exists (never live); its rows would be reconciled.'}`);
+  out(`\nDRY RUN — nothing written. ${tenantId === null ? 'The tenant would be CREATED.' : 'The tenant exists (created by onboarding, never live); its rows would be reconciled.'}`);
   out('Re-run with --apply to write it in shadow and produce the report, the wording sheet and the client summary.');
   process.exit(0);
 }
@@ -167,11 +170,20 @@ try {
   log.push(...await applyIntake(db, plan.intake, tenantId));
   const { data: t, error } = await db.from('tenants').select('id').eq('slug', slug).maybeSingle();
   if (error || t === null) throw new WriteError(`tenant «${slug}» unreadable after writing: ${error?.message ?? 'no row'}`);
-  tenantId = String((t as Record<string, unknown>)['id']);
-  log.push(...await writeOnboarding(db, tenantId, plan, cases));
-  if (signId !== undefined) signed = await signWording(db, tenantId, slug, signId, signedBy!, now);
+  const id = String((t as Record<string, unknown>)['id']);
+  tenantId = id;
+  // Recorded straight after the tenant exists: it is what lets the next run write it.
+  await recordStep(db, id, STEP.created, { form: formPath, slug }, now);
+  log.push(...await writeOnboarding(db, id, plan, cases));
+  if (signId !== undefined) {
+    signed = await signWording(db, id, slug, signId, signedBy!, now, (ev) => recordStep(db, id, STEP.wording, ev, now));
+  }
   if (confirmedBy !== undefined) {
-    confirmed = await confirmFacts(db, tenantId, slug, summaryId!, { name: confirmedBy, on: confirmedOn! }, now);
+    confirmed = await confirmFacts(db, id, slug, summaryId!, { name: confirmedBy, on: confirmedOn! }, now,
+      (ev) => recordStep(db, id, STEP.facts, ev, now));
+  }
+  for (const r of await rowsNotInForm(db, id, plan)) {
+    plan.missing.push({ question: '—', what: `${r} is in the database and not in this form: remove it by hand or put it back in the form`, holdsReady: true, audience: 'operator' });
   }
 } catch (e) {
   die(e instanceof WriteError ? e.message : `unexpected: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);
@@ -183,14 +195,23 @@ if (confirmed > 0) out(`  client confirmation recorded on ${confirmed} rows (sum
 // ---- 3. where it stands ------------------------------------------------------------------------
 let wording: Awaited<ReturnType<typeof loadWording>>;
 let facts: Awaited<ReturnType<typeof loadFacts>>;
+let steps: Map<string, Record<string, unknown>>;
 try {
-  [wording, facts] = await Promise.all([loadWording(db, tenantId!), loadFacts(db, tenantId!)]);
+  [wording, facts, steps] = await Promise.all([loadWording(db, tenantId!), loadFacts(db, tenantId!), readSteps(db, tenantId!)]);
 } catch (e) {
   die(`the rows were written but could not be read back: ${e instanceof Error ? e.message : String(e)}. Re-run the same command.`);
 }
-const gates = gateStatus(wording, facts);
+const signedId = (k: string, f: string) => { const v = steps.get(k)?.[f]; return typeof v === 'string' ? v : null; };
+const gates = gateStatus(wording, facts, { wording: signedId(STEP.wording, 'sheet'), facts: signedId(STEP.facts, 'summary') });
 try {
-  if (gates.wording.signed && gates.facts.confirmed) {
+  // The fact check the first publish will run, run now: a copy of a fact that disagrees
+  // with the price rows (a ₮ amount in an FAQ no service carries) is found here, not at the
+  // publish, and holds the tenant.
+  const fg = await factGate(db, { slug, tenantId: tenantId!, external: 'require' });
+  for (const w of [...fg.wrong, ...fg.unchecked]) {
+    plan.missing.push({ question: '—', what: `fact check: ${w}`, holdsReady: true, audience: 'operator' });
+  }
+  if (gates.wording.signed && gates.facts.confirmed && fg.wrong.length === 0 && fg.unchecked.length === 0) {
     activated = await activateCases(db, tenantId!);
     if (activated > 0) out(`  both gates passed: ${activated} reply cases switched on`);
   } else {
@@ -204,8 +225,12 @@ try {
 const readiness = onboardReadiness(plan, gates, now);
 const recorded = await recordReadiness(db, slug, readiness, now);
 out(`\nReadiness  ${readiness.stage} — recorded for the daily report: ${recorded.recorded}${recorded.recorded === 'failed' ? ` (${recorded.detail})` : ''}`);
-out(`Wording    ${gates.wording.signed ? 'SIGNED' : `${gates.wording.pending} lines await the founder — sheet ${gates.wording.id}`}`);
-out(`Facts      ${gates.facts.confirmed ? 'CONFIRMED by the client' : `${gates.facts.unconfirmed} rows await the client — summary ${gates.facts.id}`}`);
+out(`Wording    ${gates.wording.signed ? 'SIGNED'
+  : gates.wording.pending === 0 ? `CHANGED since it was signed — re-read sheet ${gates.wording.id}`
+    : `${gates.wording.pending} lines await the founder — sheet ${gates.wording.id}`}`);
+out(`Facts      ${gates.facts.confirmed ? 'CONFIRMED by the client'
+  : gates.facts.unconfirmed === 0 ? `CHANGED since the client confirmed — send them summary ${gates.facts.id}`
+    : `${gates.facts.unconfirmed} rows await the client — summary ${gates.facts.id}`}`);
 
 // ---- 4. the documents ----------------------------------------------------------------------------
 mkdirSync(outDir, { recursive: true });

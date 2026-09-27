@@ -23,8 +23,8 @@ export function onboardingReport(r: {
 
   L.push('## Where it stands', '');
   L.push(`- Readiness: **${r.readiness.stage}**${r.readiness.stage === 'ready' ? '' : ' — in the daily report until ready'}`);
-  L.push(`- Gate 1, founder signs the wording: ${gates.wording.signed ? '**signed**' : `**open** — ${gates.wording.pending} lines, sheet \`${gates.wording.id}\` (wording-sheet.md)`}`);
-  L.push(`- Gate 2, client confirms the facts: ${gates.facts.confirmed ? '**confirmed**' : `**open** — ${gates.facts.unconfirmed} rows, summary \`${gates.facts.id}\` (client-summary.md)`}`);
+  L.push(`- Gate 1, founder signs the wording: ${gates.wording.signed ? '**signed**' : `**open** — ${gates.wording.pending > 0 ? `${gates.wording.pending} lines` : 'changed since signed'}, sheet \`${gates.wording.id}\` (wording-sheet.md)`}`);
+  L.push(`- Gate 2, client confirms the facts: ${gates.facts.confirmed ? '**confirmed**' : `**open** — ${gates.facts.unconfirmed > 0 ? `${gates.facts.unconfirmed} rows` : 'changed since confirmed'}, summary \`${gates.facts.id}\` (client-summary.md)`}`);
   L.push(`- Channels: ${plan.channels.map((c) => `${c.provider} ${c.externalId ?? '(not created: no id)'}`).join(', ') || 'none'} — **shadow**, no token. Nothing is sent to a customer.`);
   L.push(`- Reply cases: ${r.cases.length}, ${gates.wording.signed && gates.facts.confirmed ? 'switched on' : 'off until both gates pass'}.`, '');
 

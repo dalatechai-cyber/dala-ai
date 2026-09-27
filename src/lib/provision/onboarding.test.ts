@@ -9,7 +9,7 @@ import { listItems, phonesPhrase, planFromForm, type Templates } from './plan.ts
 import { generateCases, renderAmount, MEDIA_PROBE } from './cases.ts';
 import { factsHash, gateStatus, onboardReadiness, wordingHash, type Facts, type Wording } from './onboardGates.ts';
 import { validateIntake } from './validate.ts';
-import { refuseIfEverLive } from './onboardWrite.ts';
+import { refuseForeignTenant } from './onboardWrite.ts';
 
 const BLANK = 'scripts/onboard/fixtures/dali-form-blank.docx';
 const SAMPLE = 'scripts/onboard/fixtures/sample-salon-branch.docx';
@@ -205,33 +205,65 @@ test('the summary id covers the facts and not their confirmation; any changed fa
   assert.notEqual(factsHash(FACTS), factsHash(changed));
 });
 
-test('the sheet id covers every line shown; a gate is passed only when nothing is pending', () => {
-  const w: Wording = { pending: [{ kind: 'handoff', body: 'x' }], signedCount: 0, modelVisible: [] };
-  const w2: Wording = { ...w, pending: [{ kind: 'handoff', body: 'x ' }] };
+test('the sheet id covers every line shown; a gate passes only while what was signed is what is there', () => {
+  const w: Wording = { lines: [{ kind: 'handoff', body: 'x', signed: false }], modelVisible: [] };
+  const w2: Wording = { ...w, lines: [{ kind: 'handoff', body: 'x ', signed: false }] };
   assert.notEqual(wordingHash(w), wordingHash(w2), 'one space is a different line (D-077)');
-  const g = gateStatus(w, FACTS);
-  assert.equal(g.wording.signed, false);
-  assert.equal(g.facts.confirmed, false);
-  assert.equal(g.facts.unconfirmed, 2);
-  assert.equal(gateStatus({ pending: [], signedCount: 0, modelVisible: [] }, FACTS).wording.signed, false,
+  const signedW: Wording = { lines: [{ kind: 'handoff', body: 'x', signed: true }], modelVisible: [] };
+  assert.equal(wordingHash(w), wordingHash(signedW), 'signing does not move the id');
+  const id = gateStatus(signedW, FACTS, { wording: null, facts: null }).wording.id;
+  assert.equal(gateStatus(signedW, FACTS, { wording: id, facts: null }).wording.signed, true);
+  assert.equal(gateStatus(w, FACTS, { wording: id, facts: null }).wording.signed, false, 'a pending line is not signed');
+  const ruleChanged: Wording = { ...signedW, modelVisible: [{ where: 'rule never_1', text: 'new' }] };
+  assert.equal(gateStatus(ruleChanged, FACTS, { wording: id, facts: null }).wording.signed, false,
+    'a changed rule question re-opens the founder\'s gate');
+  assert.equal(gateStatus({ lines: [], modelVisible: [] }, FACTS, { wording: 'x', facts: null }).wording.signed, false,
     'no lines at all is not a signed sheet');
+});
+
+test('the client\'s gate re-opens when ANY fact changes, not only a price (reviewer, 2026-09-27)', () => {
+  const confirmed: Facts = {
+    ...FACTS,
+    services: [{ ...FACTS.services[0]!, variants: [{ ...FACTS.services[0]!.variants[0]!, confirmed: true }] }],
+    faqs: [{ ...FACTS.faqs[0]!, confirmed: true }],
+  };
+  const id = gateStatus({ lines: [], modelVisible: [] }, confirmed, { wording: null, facts: null }).facts.id;
+  assert.equal(gateStatus({ lines: [], modelVisible: [] }, confirmed, { wording: null, facts: id }).facts.confirmed, true);
+  const newHours: Facts = { ...confirmed, hours: [{ weekday: 1, opens: '09:00', closes: '20:00', closed: false }] };
+  assert.equal(gateStatus({ lines: [], modelVisible: [] }, newHours, { wording: null, facts: id }).facts.confirmed, false);
 });
 
 // ---- the live tenants ----------------------------------------------------------------------
 
-function stubDb(channels: unknown[]) {
+function stubDb(t: { tenant: Record<string, unknown>; channels?: unknown[]; steps?: unknown[]; revisions?: unknown[]; canned?: unknown[]; identities?: unknown[] }) {
   const chain = (data: unknown): Record<string, unknown> => {
     const c: Record<string, unknown> = {};
-    for (const m of ['select', 'eq']) c[m] = () => c;
+    for (const m of ['select', 'eq', 'not', 'limit']) c[m] = () => c;
     c['maybeSingle'] = async () => ({ data, error: null });
     c['then'] = (res: (v: unknown) => unknown) => res({ data, error: null });
     return c;
   };
-  return { from: (t: string) => (t === 'tenants' ? chain({ id: 't-1', slug: 'x' }) : chain(channels)) } as never;
+  const by: Record<string, unknown> = {
+    tenants: t.tenant, tenant_channels: t.channels ?? [], onboarding_steps: t.steps ?? [],
+    config_revisions: t.revisions ?? [], canned_responses: t.canned ?? [], channel_identity: t.identities ?? [],
+  };
+  return { from: (name: string) => chain(by[name]) } as never;
 }
+const T = { id: 't-1', slug: 'x', live_revision_id: null };
+const shadow = [{ provider: 'facebook_page', external_id: '1', delivery_mode: 'shadow', went_live_at: null }];
 
 test('a tenant that has ever been live is refused before anything is written', async () => {
-  await assert.rejects(refuseIfEverLive(stubDb([{ provider: 'facebook_page', external_id: '1', delivery_mode: 'live', went_live_at: null }]), 'x'), /has been live/);
-  await assert.rejects(refuseIfEverLive(stubDb([{ provider: 'facebook_page', external_id: '1', delivery_mode: 'shadow', went_live_at: '2026-09-06' }]), 'x'), /has been live/);
-  assert.deepEqual(await refuseIfEverLive(stubDb([{ provider: 'facebook_page', external_id: '1', delivery_mode: 'shadow', went_live_at: null }]), 'x'), { tenantId: 't-1' });
+  await assert.rejects(refuseForeignTenant(stubDb({ tenant: T, channels: [{ ...shadow[0], delivery_mode: 'live' }] }), 'x'), /has been live/);
+  await assert.rejects(refuseForeignTenant(stubDb({ tenant: T, channels: [{ ...shadow[0], went_live_at: '2026-09-06' }] }), 'x'), /has been live/);
+});
+
+test('a tenant onboarding did not create is refused, even in shadow — Tara\'s case (reviewer, 2026-09-27)', async () => {
+  // Tara sits in shadow with a published revision and signed lines: not ours, never written.
+  await assert.rejects(refuseForeignTenant(stubDb({ tenant: { ...T, live_revision_id: 'rev-9' }, channels: shadow }), 'x'), /not created by onboarding/);
+  await assert.rejects(refuseForeignTenant(stubDb({ tenant: T, channels: shadow, canned: [{ kind: 'handoff' }] }), 'x'), /not created by onboarding/);
+  await assert.rejects(refuseForeignTenant(stubDb({ tenant: T, channels: shadow, identities: [{ id: 'i' }] }), 'x'), /not created by onboarding/);
+  // Ours: the step is recorded — even after its own shadow publish.
+  assert.deepEqual(await refuseForeignTenant(stubDb({ tenant: { ...T, live_revision_id: 'rev-1' }, channels: shadow, steps: [{ step_key: 'onboard_command' }] }), 'x'), { tenantId: 't-1' });
+  // A first run that died after creating the tenant, before recording it: nothing of its own yet.
+  assert.deepEqual(await refuseForeignTenant(stubDb({ tenant: T }), 'x'), { tenantId: 't-1' });
 });

@@ -119,14 +119,22 @@ async function checkFacts(): Promise<{ wrong: string[]; unchecked: string[] }> {
     ids = [...new Set((cases ?? []).map((r) => String((r as Record<string, unknown>)['tenant_id'])))];
     if (ids.length === 0) return { wrong: [], unchecked: [] };
   }
-  const base = db.from('tenants').select('id, slug');
+  const base = db.from('tenants').select('id, slug, live_revision_id');
   const { data, error } = await (only !== undefined ? base.eq('slug', only) : base.in('id', ids ?? []));
   if (error) return { wrong: [], unchecked: [`facts: tenants unreadable: ${error.message}`] };
   const wrong: string[] = [];
   const unchecked: string[] = [];
-  const rows = ((data ?? []) as Record<string, unknown>[]).map((t) => ({ id: String(t['id']), slug: String(t['slug']) }));
+  const rows = ((data ?? []) as Record<string, unknown>[])
+    .map((t) => ({ id: String(t['id']), slug: String(t['slug']), published: t['live_revision_id'] !== null && t['live_revision_id'] !== undefined }));
   rows.sort((a, b) => (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
   for (const t of rows) {
+    // A tenant never published serves nothing a deploy could break; its first publish runs
+    // the fact gate with `external: 'require'` (D-155). Reported, never silently skipped —
+    // and only on the deploy run: `--slug` checks it as asked.
+    if (!t.published && only === undefined) {
+      process.stdout.write(`facts: ${t.slug}: not published yet — checked at its first publish, not at a deploy\n`);
+      continue;
+    }
     const g = await factGate(db, { slug: t.slug, tenantId: t.id, external: 'optional' });
     process.stdout.write(`${g.text}\n`);
     wrong.push(...g.wrong);

@@ -10860,7 +10860,10 @@ owner and Page); then the «Анхны 10 бизнест» launch.
   [--facebook-page-id <id>]` reads «Дали — Мэдээлэл цуглуулах маягт» as the client returns
   it (Word, or Google Docs downloaded as Word; a Markdown/text export also reads). Dry run by
   default; `--apply` writes. It refuses a form whose numbering changed rather than reading
-  it by position (D-057), and it refuses any tenant that has ever been live.
+  it by position (D-057). It refuses any tenant that has ever been live AND any tenant it
+  did not create: its own tenants carry an `onboarding_steps` row (`onboard_command`), and a
+  tenant without one that has a revision, a signed line or a routing identity — DalaTech and
+  Tara both — is never written, shadow or not.
 - **What it writes, in shadow:** tenant, hours, contacts, booking, services and prices (in
   the client's words, `confirmed_at` null), staff with grades, FAQs (`seeded`), deposit
   rules, knowledge documents built only from the client's own text, never-say rules (the
@@ -10881,7 +10884,13 @@ owner and Page); then the «Анхны 10 бизнест» launch.
   ROWS; `--client-confirmed <name> --confirmed-on <date> --summary <id>` stamps
   `confirmed_at` on every price and upgrades FAQs to `tenant_confirmed`, only if the facts
   still hash to that id. Who signed is recorded in `alerts` (digest), since no column holds
-  it. Reply cases switch on only when both gates have passed. **Departure:** D-079's writer
+  it. **Each gate holds only while what was signed is what is there:** the signed sheet id
+  and the confirmed summary id are kept in `onboarding_steps`, and a corrected form that
+  changes one hour, one address or one rule question re-opens the gate (measured on the
+  replica). Reply cases switch on only when both gates pass and the fact check the first
+  publish will run finds nothing. Rows in the database that the form no longer has (a
+  dropped service, a reworded FAQ) are named and hold the tenant; they are never deleted by
+  the command. **Departure:** D-079's writer
   never set `reviewed_at`; this command does, but only on the founder's explicit id, and
   `SUPABASE_SECRET_PUBLISH` is absent from every cloud session.
 - **Reply cases from the client's facts:** each price, the hours, the address, the booking
@@ -10894,7 +10903,8 @@ owner and Page); then the «Анхны 10 бизнест» launch.
   write — used only when no live snapshot exists; the reply path never sets it, and a
   tenant with a live snapshot never reads it. The DEPLOY gate (`scripts/replycases/gate.ts`,
   no compiled prefix) reports a tenant with `live_revision_id` null as «not published yet»
-  instead of failing: it serves nothing a deploy could break, and without this the first
+  instead of failing, for the reply cases and for the fact check alike: it serves nothing a
+  deploy could break, and without this the first
   onboarded tenant with switched-on cases would have blocked every deploy. A tenant that has
   a revision and lost its snapshot still fails, as before.
 - **Cases follow the gates both ways:** on when both pass, off again when a corrected form

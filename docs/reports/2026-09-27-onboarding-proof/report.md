@@ -1,18 +1,18 @@
 # Onboarding report — Цэцэглэг Салон (`tsetsegleg-demo`)
 
-Run 2026-09-28 07:12 UB time (Ulaanbaatar) from `scripts/onboard/fixtures/sample-salon-branch.docx`, filled by Болор, Эзэмшигч (2026-09-27).
+Run 2026-09-28 07:18 UB time (Ulaanbaatar) from `scripts/onboard/fixtures/sample-salon-branch.docx`, filled by Болор, Эзэмшигч (2026-09-27).
 
 ## Where it stands
 
 - Readiness: **knowledge** — in the daily report until ready
-- Gate 1, founder signs the wording: **open** — 13 lines, sheet `43ed87b67e0a` (wording-sheet.md)
+- Gate 1, founder signs the wording: **open** — 13 lines, sheet `7c4153ef226a` (wording-sheet.md)
 - Gate 2, client confirms the facts: **open** — 12 rows, summary `ac0a43719567` (client-summary.md)
 - Channels: facebook_page 990000000000001, instagram (not created: no id) — **shadow**, no token. Nothing is sent to a customer.
 - Reply cases: 17, off until both gates pass.
 
 ## Written
 
-- created tenant tsetsegleg-demo (69a24120-7ebd-42bc-8dad-51ca22114f2f)
+- created tenant tsetsegleg-demo (6a629227-7f6b-4da8-a8c0-119e47171735)
 - 7 business_hours
 - 3 contact_points
 - tenant_booking mode=link
@@ -23,7 +23,7 @@ Run 2026-09-28 07:12 UB time (Ulaanbaatar) from `scripts/onboard/fixtures/sample
 - reply_style {"max_emoji":0}
 - 4 staff_members (4 added, 0 reconciled)
 - 3 faqs (3 added, 0 changed and unconfirmed again)
-- 1 deposit_rules
+- 1 deposit_rules (1 added)
 - 6 knowledge_documents (6 written)
 - facebook_page 990000000000001: created, delivery_mode=shadow, no token
 - instagram «@tsetsegleg.demo»: NOT created — no id (see missing)

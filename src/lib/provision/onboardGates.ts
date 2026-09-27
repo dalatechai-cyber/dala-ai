@@ -108,9 +108,9 @@ export function factsHash(f: Facts): string {
 // ---- the words -----------------------------------------------------------------------------
 
 export type Wording = {
-  pending: { kind: string; body: string }[];
-  signedCount: number;
-  /** Rule questions and document titles: model-visible, shown and hashed, not a row signature. */
+  /** Every sentence row, signed or not: the sheet shows them all and its id covers them all. */
+  lines: { kind: string; body: string; signed: boolean }[];
+  /** Rule questions and document titles: model-visible, shown and covered by the id. */
   modelVisible: { where: string; text: string }[];
 };
 
@@ -120,11 +120,9 @@ export async function loadWording(db: SupabaseClient, tenantId: string): Promise
     read(db, 'out_of_scope_topics', db.from('out_of_scope_topics').select('topic_key, decision_question').eq('tenant_id', tenantId)),
     read(db, 'knowledge_documents', db.from('knowledge_documents').select('title, source').eq('tenant_id', tenantId)),
   ]);
-  const pending = canned.filter((c) => c['reviewed_at'] === null)
-    .map((c) => ({ kind: str(c['kind']), body: str(c['body']) })).sort((a, b) => byCodePoint(a.kind, b.kind));
   return {
-    pending,
-    signedCount: canned.length - pending.length,
+    lines: canned.map((c) => ({ kind: str(c['kind']), body: str(c['body']), signed: c['reviewed_at'] !== null && c['reviewed_at'] !== undefined }))
+      .sort((a, b) => byCodePoint(a.kind, b.kind)),
     modelVisible: [
       ...topics.map((t) => ({ where: `rule ${str(t['topic_key'])}`, text: str(t['decision_question']) })),
       ...docs.filter((d) => str(d['source']).startsWith('onboarding:'))
@@ -133,8 +131,9 @@ export async function loadWording(db: SupabaseClient, tenantId: string): Promise
   };
 }
 
+/** The words' identity: every line and every model-visible text. Signing state is not part of it. */
 export function wordingHash(w: Wording): string {
-  return sha({ pending: w.pending, modelVisible: w.modelVisible });
+  return sha({ lines: w.lines.map(({ kind, body }) => ({ kind, body })), modelVisible: w.modelVisible });
 }
 
 export type GateStatus = {
@@ -142,48 +141,65 @@ export type GateStatus = {
   facts: { confirmed: boolean; unconfirmed: number; id: string };
 };
 
-export function gateStatus(w: Wording, f: Facts): GateStatus {
+/**
+ * Each gate is passed only while what it signed is what is there NOW: the id recorded when
+ * it was signed (`onboarding_steps` evidence) must equal the current id. A corrected form
+ * that changes one hour, one address or one rule question re-opens the gate, even where no
+ * row-level signature moved (reviewer finding, 2026-09-27).
+ */
+export function gateStatus(
+  w: Wording, f: Facts, signed: { wording: string | null; facts: string | null },
+): GateStatus {
+  const pending = w.lines.filter((l) => !l.signed).length;
   const unconfirmed = f.services.flatMap((s) => s.variants).filter((v) => !v.confirmed).length
     + f.faqs.filter((q) => !q.confirmed).length;
+  const wid = shortId(wordingHash(w));
+  const fid = shortId(factsHash(f));
   return {
-    wording: { signed: w.pending.length === 0 && w.signedCount > 0, pending: w.pending.length, id: shortId(wordingHash(w)) },
-    facts: { confirmed: unconfirmed === 0 && f.services.length > 0, unconfirmed, id: shortId(factsHash(f)) },
+    wording: { signed: w.lines.length > 0 && pending === 0 && signed.wording === wid, pending, id: wid },
+    facts: { confirmed: f.services.length > 0 && unconfirmed === 0 && signed.facts === fid, unconfirmed, id: fid },
   };
 }
 
 /**
- * The founder's signature on the lines the sheet showed. Refuses unless `id` is the id of
- * the lines pending NOW; then signs exactly those rows, each matched on its bytes.
+ * The founder's signature on the sheet. Refuses unless `id` is the id of the words as they
+ * are NOW; then signs every unsigned line, each matched on its exact bytes, and records the
+ * id it signed. Returns the number of lines newly signed.
  */
 export async function signWording(
   db: SupabaseClient, tenantId: string, slug: string, id: string, by: string, now: Date,
+  record: (evidence: Record<string, unknown>) => Promise<void>,
 ): Promise<number> {
   const w = await loadWording(db, tenantId);
   const current = shortId(wordingHash(w));
-  if (w.pending.length === 0) throw new WriteError('nothing is waiting for a signature');
+  if (w.lines.length === 0) throw new WriteError('there are no lines to sign');
   if (id !== current) {
-    throw new WriteError(`wording sheet ${id} is not the lines pending now (${current}). Something changed since it was printed: read the new sheet.`);
+    throw new WriteError(`wording sheet ${id} is not the words held now (${current}). Something changed since it was printed: read the new sheet.`);
   }
-  for (const line of w.pending) {
-    const { error } = await db.from('canned_responses')
+  const pending = w.lines.filter((l) => !l.signed);
+  for (const line of pending) {
+    const { data, error } = await db.from('canned_responses')
       .update({ reviewed_at: now.toISOString(), reviewed_by: by })
-      .eq('tenant_id', tenantId).eq('kind', line.kind).eq('body', line.body).is('reviewed_at', null);
+      .eq('tenant_id', tenantId).eq('kind', line.kind).eq('body', line.body).is('reviewed_at', null).select('kind');
     if (error) throw new WriteError(`canned_responses «${line.kind}»: ${error.message}`);
+    if (rows(data).length !== 1) throw new WriteError(`canned_responses «${line.kind}» changed while it was being signed; nothing further signed — read the new sheet`);
   }
-  await audit(db, tenantId, slug, `wording ${id}`, `${slug}: ${w.pending.length} Mongolian lines signed by ${by} (wording sheet ${id})`);
-  return w.pending.length;
+  await record({ sheet: id, by, at: now.toISOString() });
+  await audit(db, tenantId, slug, `wording ${id}`, `${slug}: wording sheet ${id} signed by ${by} (${pending.length} new lines, ${w.lines.length} in all)`);
+  return pending.length;
 }
 
 /**
  * The client's confirmation of the facts the summary showed. Refuses unless `id` is the id
  * of the facts as they are NOW. Stamps `confirmed_at` on every price and upgrades every FAQ
- * to `tenant_confirmed` (D-020: the client read it). Who and when are recorded in `alerts`
- * — the schema has no column for the confirmer's name, and the digest is where a person
- * will see it.
+ * to `tenant_confirmed` (D-020: the client read it), and records the id confirmed, who and
+ * when — the schema has no column for the confirmer's name; `onboarding_steps` holds it and
+ * the digest shows it.
  */
 export async function confirmFacts(
   db: SupabaseClient, tenantId: string, slug: string, id: string,
   who: { name: string; on: string }, now: Date,
+  record: (evidence: Record<string, unknown>) => Promise<void>,
 ): Promise<number> {
   const f = await loadFacts(db, tenantId);
   const current = shortId(factsHash(f));
@@ -197,7 +213,8 @@ export async function confirmFacts(
     .eq('tenant_id', tenantId).neq('provenance', 'tenant_confirmed').select('id');
   if (fErr) throw new WriteError(`faqs: ${fErr.message}`);
   const n = rows(data).length + rows(fq).length;
-  await audit(db, tenantId, slug, `facts ${id}`, `${slug}: facts confirmed by the client, ${who.name}, on ${who.on} (summary ${id}; ${n} rows)`);
+  await record({ summary: id, by: who.name, on: who.on, at: now.toISOString() });
+  await audit(db, tenantId, slug, `facts ${id}`, `${slug}: facts confirmed by the client, ${who.name}, on ${who.on} (summary ${id}; ${n} rows newly confirmed)`);
   return n;
 }
 
@@ -232,8 +249,16 @@ export function onboardReadiness(plan: OnboardPlan, gates: GateStatus | null, no
   if (gates === null) {
     first.push('founder: sign the wording sheet', 'client: confirm the facts summary');
   } else {
-    if (!gates.wording.signed) first.push(`founder: sign ${gates.wording.pending} Mongolian lines (wording sheet ${gates.wording.id})`);
-    if (!gates.facts.confirmed) first.push(`client: confirm the facts summary (${gates.facts.id})`);
+    if (!gates.wording.signed) {
+      first.push(gates.wording.pending > 0
+        ? `founder: sign ${gates.wording.pending} Mongolian lines (wording sheet ${gates.wording.id})`
+        : `founder: the words changed since they were signed — re-read wording sheet ${gates.wording.id}`);
+    }
+    if (!gates.facts.confirmed) {
+      first.push(gates.facts.unconfirmed > 0
+        ? `client: confirm the facts summary (${gates.facts.id})`
+        : `client: the facts changed since they were confirmed — send summary ${gates.facts.id}`);
+    }
   }
   const holdingFindings = new Set(findings.filter((f) => f.severity === 'blocker' || f.holdsReady === true).map((f) => f.detail));
   for (const w of base.waitingOn.filter((x) => !dropped.includes(x))) {
@@ -303,24 +328,24 @@ export function clientSummary(f: Facts, plan: OnboardPlan, t: Templates, id: str
   return L.join('\n');
 }
 
-/** The founder's sheet: every Mongolian line that is not the client's own data, with its origin. */
+/** The founder's sheet: every Mongolian line that is not the client's own data, byte for byte. */
 export function wordingSheet(w: Wording, plan: OnboardPlan, id: string, slug: string): string {
   const L: string[] = [];
+  const pending = w.lines.filter((l) => !l.signed).length;
   L.push(`# Wording sheet — ${plan.intake.business.displayName} (\`${slug}\`)`, '');
-  L.push(`Sheet id: **\`${id}\`** · ${w.pending.length} lines awaiting your signature · ${w.signedCount} already signed.`, '');
-  L.push('Every line below is sent to customers byte for byte once signed. None is the client\'s own data: each was filled from a template in `scripts/provision/templates/onboarding.mn.json`. «Same bytes as approved» means the founder already approved these exact words for a live tenant.', '');
-  L.push('| Kind | Line | Made from | Same bytes as approved |', '|---|---|---|---|');
-  for (const p of w.pending) {
-    const origin = plan.wording.find((x) => x.kind === p.kind);
-    const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
-    L.push(`| \`${p.kind}\` | «${cell(p.body)}» | ${cell(origin?.derivedFrom ?? 'not from this form')} | ${origin?.alreadyApprovedBytes === true ? 'yes' : 'no'} |`);
+  L.push(`Sheet id: **\`${id}\`** · ${pending} lines awaiting your signature · ${w.lines.length - pending} already signed.`, '');
+  L.push('Every line is sent to customers exactly as it appears in its box, once signed. None is the client\'s own data: each was filled from a template in `scripts/provision/templates/onboarding.mn.json`. «Same bytes as approved» means the founder already approved these exact words for a live tenant. The id covers every line and every model-visible text below; any change afterwards changes it.', '');
+  for (const l of w.lines) {
+    const origin = plan.wording.find((x) => x.kind === l.kind);
+    L.push(`## \`${l.kind}\`${l.signed ? ' — signed' : ''}`, '');
+    L.push('```text', l.body, '```', '');
+    L.push(`Made from: ${origin?.derivedFrom ?? 'not from this form'} · Same bytes as approved: ${origin?.alreadyApprovedBytes === true ? 'yes' : 'no'}`, '');
   }
   if (w.modelVisible.length > 0) {
-    L.push('', '## Read by the model, never sent to a customer', '');
-    L.push('Rule questions built from the client\'s 7.1–7.3 answers and titles of knowledge documents built from their own words. Covered by the same sheet id.', '');
-    for (const m of w.modelVisible) L.push(`- ${m.where}: «${m.text}»`);
+    L.push('## Read by the model, never sent to a customer', '');
+    L.push('Rule questions built from the client\'s 7.1–7.3 answers and titles of knowledge documents built from their own words.', '');
+    for (const m of w.modelVisible) L.push(`- ${m.where}:`, '', '  ```text', `  ${m.text}`, '  ```', '');
   }
-  L.push('', '## To sign', '', 'Re-run the same onboarding command with:', '', `    --apply --sign-wording ${id} --signed-by <your name>`, '');
-  L.push('Any line changed after this sheet was printed changes the id, and the signature is refused.', '');
+  L.push('## To sign', '', 'Re-run the same onboarding command with:', '', `    --apply --sign-wording ${id} --signed-by <your name>`, '');
   return L.join('\n');
 }

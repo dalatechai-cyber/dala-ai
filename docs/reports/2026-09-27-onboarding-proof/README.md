@@ -12,7 +12,7 @@ On purpose: two stylists of each gender, a deposit, one missing answer (no price
 
 | File | What it shows |
 |---|---|
-| `run.log` | Every command and its output, in order: dry run → apply → idempotent re-run → the daily-report row → dry-run publish before the gates (0 active cases) → a wrong sheet id refused → wording signed → facts confirmed → reply cases switched on → dry-run publish (1/1 exact case passes, 16 model cases not run) → a once-live tenant refused → the test tenant deleted, 0 rows left in 79 tenant-scoped tables |
+| `run.log` | Every command and its output, in order: dry run → apply → idempotent re-run → the daily-report row → dry-run publish before the gates (0 active cases) → a wrong sheet id refused → wording signed → facts confirmed → reply cases switched on → the production deploy gate reports the tenant as «not published yet» (exit 0) → dry-run publish (1/1 exact case passes, 16 model cases not run) → the client corrects Monday's hours: the client gate re-opens and the cases switch off → back to the confirmed form: gate closed, cases on → a Tara-like shadow tenant onboarding did not create is refused → a once-live tenant refused → the test tenant deleted, 0 rows left in 79 tenant-scoped tables |
 | `report.md` | The operator report after `--apply` |
 | `wording-sheet.md` | The 13 lines for the founder, with their origin |
 | `client-summary.md` | The one page the client confirms |
