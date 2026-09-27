@@ -393,6 +393,16 @@ export async function gateTenant(
     },
     localDate: tenantClock(input.now, timezone).date,
     ...(input.compiled?.launchStates === undefined ? {} : { launchStates: input.compiled.launchStates }),
+    // A tenant never published has no live snapshot; its first publish is judged against the
+    // one it is about to write. Ignored by the loader whenever a live snapshot exists.
+    ...(input.compiled === undefined ? {} : {
+      firstPublish: {
+        revisionId: 'unpublished', channel: 'facebook_page', contentHash: '',
+        promptStable: input.compiled.promptStable, allowedNumbers: input.compiled.allowedNumbers,
+        cannedHash: input.compiled.cannedHash, promptGate: input.compiled.promptGate,
+        launchStates: input.compiled.launchStates === undefined ? null : [...input.compiled.launchStates],
+      },
+    }),
   });
   if (!loaded.ok) return { ok: false, slug: input.slug, detail: `configuration did not load (${loaded.code}): ${loaded.detail}` };
   const { apply, otherState } = casesFor(cases.cases, loaded.context.launchStates);

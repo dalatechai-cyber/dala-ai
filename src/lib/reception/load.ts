@@ -8,7 +8,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { DEFAULT_GATE, GATE_BY_RESPONSE_KIND, scriptForLocale } from '../../config/platform.ts';
-import { loadLiveSnapshot } from '../prompt/publish.ts';
+import { loadLiveSnapshot, type LiveSnapshot } from '../prompt/publish.ts';
 import { parseMatcher, type CannedRow, type GateRule } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { CommentRule } from '../comments/classify.ts';
@@ -272,10 +272,22 @@ export async function loadReceptionContext(
      * judge the configuration that will go live. Never set on the reply path.
      */
     launchStates?: readonly LaunchRecord[];
+    /**
+     * The snapshot a FIRST publish is about to write, used only when the tenant has none
+     * live (`no_live_revision` / `no_snapshot`). The reply-case gate passes it so a new
+     * tenant's cases can be judged before its first publish (2026-09-27, onboarding):
+     * without it every first publish with an active case failed as `not_provisioned`, and
+     * the only way through was to publish with no cases at all. A tenant that HAS a live
+     * snapshot never reads this, and the reply path never sets it.
+     */
+    firstPublish?: LiveSnapshot;
   },
 ): Promise<LoadOutcome> {
   const tSnapshot = Date.now();
-  const snapshot = await loadLiveSnapshot(db, { tenantId: input.tenantId, channel: input.channel });
+  const live = await loadLiveSnapshot(db, { tenantId: input.tenantId, channel: input.channel });
+  const snapshot = !live.ok && live.code !== 'unavailable' && input.firstPublish !== undefined
+    ? { ok: true as const, snapshot: input.firstPublish }
+    : live;
   const snapshotMs = Date.now() - tSnapshot;
   if (!snapshot.ok) {
     // `no_live_revision` is a provisioning state, not a transient one: there are no

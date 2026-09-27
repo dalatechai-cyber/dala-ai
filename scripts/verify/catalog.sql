@@ -810,6 +810,13 @@ insert into _v select 'V29', 'every tenant vertical has every per-vertical platf
      where not exists (
        select 1 from prompt_blocks b
         where b.scope = 'platform' and b.block_key = pv.block_key and b.vertical = t.vertical)
+       -- A key that ALSO has a generic row is covered for every vertical: `sections.ts`
+       -- falls back to it, so nothing is lost (prompt/drafts/vertical-neutral, 2026-09-27:
+       -- today's bytes frozen per vertical, a neutral generic for every other vertical).
+       and not exists (
+       select 1 from prompt_blocks g
+        where g.scope = 'platform' and g.tenant_id is null and g.block_key = pv.block_key
+          and (g.vertical is null or g.vertical = ''))
   ) bad;
 
 -- V30 — `staff_members.short_name` exists, and every column the prompt loader reads with
