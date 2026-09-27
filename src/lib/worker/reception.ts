@@ -763,6 +763,12 @@ async function runReceptionDelivery(
             ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
             ...(maxTextBytes === undefined ? {} : { maxTextBytes }),
           });
+          if (delivered.outcome === 'failed' && delivered.retryable) {
+            // 613 or a 5xx: the lease is released and the stored row is intact, so the
+            // redelivery re-claims and re-sends it, as the reply path does. Never silence.
+            fx.log('warn', 'media_alone_send_retryable', { tenantId, failure: delivered.failure });
+            return unavailable(`worker.send_${delivered.failure}`);
+          }
           if (delivered.outcome !== 'sent') {
             fx.log('error', 'media_alone_not_sent', { tenantId, conversationId, outcome: delivered.outcome });
             continue;

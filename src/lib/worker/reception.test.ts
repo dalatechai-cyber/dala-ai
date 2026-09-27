@@ -1689,3 +1689,18 @@ test('an unreviewed notice is never sent, and says so', async () => {
   assert.equal(delivered.length, 0);
   assert.ok(reasons(logs).includes('handover_notice_unreviewed'));
 });
+
+test('a retryable send failure on a media-alone notice asks QStash to retry, never silence', async () => {
+  const { fx } = stubEffects({
+    alertMediaHandoff: async () => {},
+    deliver: async () => ({ outcome: 'failed', failure: 'rate_limited', retryable: true, detail: '613' }) as never,
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'video', payload: { url: 'https://x/v.mp4' } }] }) } },
+      canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+});

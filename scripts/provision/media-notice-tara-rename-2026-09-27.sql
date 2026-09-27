@@ -34,6 +34,13 @@ update knowledge_documents k
        updated_at = now()
   from tara where k.tenant_id = tara.id and k.title = normalize('Салбарууд', NFC);
 
+-- Exactly one case expects the old line (read 2026-09-27: case 1, «tnah matrix salonu»); any
+-- other count means an address case with the appended line exists and needs its own fix.
+do $$ declare n int; begin
+  select count(*) into n from reply_cases r join tenants t on t.id = r.tenant_id
+   where t.slug = 'matrix-eco-salon' and r.expected_body like '%Шинэ мэдээллийг удахгүй хүргэнэ%';
+  if n <> 1 then raise exception 'expected exactly 1 case with the old line, found %', n; end if;
+end $$;
 update reply_cases r
    set expected_body = normalize('Тийм ээ, Matrix Eco Salon одоо Tara Salon нэртэй болсон.', NFC)
   from tara where r.tenant_id = tara.id and r.expected_body like '%Шинэ мэдээллийг удахгүй хүргэнэ%';
@@ -53,7 +60,7 @@ do $$ declare n int; begin
    where t.slug = 'matrix-eco-salon' and d.enabled and d.body like '%Шинэ мэдээллийг%';
   if n <> 0 then raise exception '% enabled rows still say «Шинэ мэдээллийг»', n; end if;
   select count(*) into n from knowledge_documents k join tenants t on t.id = k.tenant_id
-   where t.slug = 'matrix-eco-salon' and k.title = 'Салбарууд' and k.body like 'Matrix Eco Salon одоо Tara Salon нэртэй болсон.%';
+   where t.slug = 'matrix-eco-salon' and k.title = normalize('Салбарууд', NFC) and k.body like 'Matrix Eco Salon одоо Tara Salon нэртэй болсон.%';
   if n <> 1 then raise exception 'Салбарууд first line not updated (% rows)', n; end if;
   select count(*) into n from reply_cases r join tenants t on t.id = r.tenant_id
    where t.slug = 'matrix-eco-salon' and r.active and r.expected_body like '%Шинэ мэдээллийг%';

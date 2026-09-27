@@ -10801,3 +10801,8 @@ The founder approved these on 2026-09-27 (`scripts/provision/media-notice-tara-r
   - `tara_name` now answers «Тийм ээ, Matrix Eco Salon одоо Tara Salon нэртэй болсон.»
   - The first line of the «Салбарууд» KB document matches it.
   - Reply case 1 expects the new line, and a new exact case pins it.
+- **A photo, then a question about it** («энэ хэд вэ?») from the same person inside the
+  cooldown gets the notice, and the question is left to staff. That is the hand-off rule:
+  the person who can see the photo answers the price.
+- **A retryable send failure** (613, 5xx) asks QStash to retry, so the notice is re-sent, not
+  lost.
