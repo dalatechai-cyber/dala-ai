@@ -25,17 +25,22 @@
  * send and not before, because the pre-send check reads a `human` thread set after the
  * customer's message as "a person replied" and would drop the notice itself.
  *
- * ## What does not reach this yet
+ * ## A photo or a video sent ALONE (founder, 2026-09-27: "never silence")
  *
- * Only messages that reach Reception: a pasted link, and a photo or video sent WITH words.
- * A photo sent alone is answered by `inbound/imageReply.ts` before Reception runs, and a
- * video sent alone is recorded as dropped (`inbound/dropped.ts`); neither is handed off.
- * A reel shared with Messenger's share button may arrive as a share attachment, not a
- * link in the text; that is unverified.
+ * A message with no words never reaches Reception: `meta/extract.ts` skips it as `no_text`.
+ * `planMediaAlone` picks those skips (a photo or a video, never a sticker, D-070) and the
+ * worker serves the same notice and the same hand-off to them, sending it itself. Before
+ * this, a video alone was only recorded as dropped, and a photo alone got the image line
+ * DRAFTED and never sent: nothing claims those drafts (Tara, 11 rows in `draft`, the
+ * newest 2026-09-25). A tenant without the notice keeps that older path.
+ *
+ * A reel shared with Messenger's share button may arrive as a share attachment, not a link
+ * in the text; that is unverified.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { raiseAlert, type AlertOutcome } from '../alerts/alert.ts';
 import { extractUrls } from '../mn/extract.ts';
+import type { SkippedEvent } from '../meta/extract.ts';
 
 /** The reviewed line this path serves. */
 export const MEDIA_HANDOFF_KIND = 'handover_notice';
@@ -126,4 +131,48 @@ export async function raiseMediaHandoff(
     route: 'now',
     repeat: 'once',
   });
+}
+
+export type PlannedMediaAlone = { idx: number; senderId: string; externalId: string | null };
+
+/**
+ * The skipped messages that are a photo or a video with no words. At most one per sender
+ * per entry (three photos in one batch are one question). A sticker is never one: the
+ * discriminator is `stickerIds`, never the declared `type` (D-070).
+ */
+export function planMediaAlone(skipped: readonly SkippedEvent[]): PlannedMediaAlone[] {
+  const seen = new Set<string>();
+  const out: PlannedMediaAlone[] = [];
+  for (const s of skipped) {
+    if (s.reason !== 'no_text') continue;
+    if (!s.attachments.includes('image') && !s.attachments.includes('video')) continue;
+    if (s.stickerIds.length > 0) continue;
+    if (s.senderId === null || s.senderId === '' || seen.has(s.senderId)) continue;
+    seen.add(s.senderId);
+    out.push({ idx: s.idx, senderId: s.senderId, externalId: s.externalId });
+  }
+  return out;
+}
+
+/** `media:{event}:{idx}`: stable across a redelivery, so a retry re-sends, never re-answers. */
+export function mediaAloneDedupKey(eventId: number | string, idx: number): string {
+  return `media:${eventId}:${idx}`;
+}
+
+/** The tenant's notice with its review state; the caller decides what missing or unreviewed means. */
+export async function readHandoverNotice(
+  db: SupabaseClient,
+  input: { tenantId: string; locale: string },
+): Promise<{ ok: true; line: { body: string; reviewed: boolean } | null } | { ok: false; detail: string }> {
+  const { data, error } = await db
+    .from('canned_responses')
+    .select('body, reviewed_at')
+    .eq('tenant_id', input.tenantId)
+    .eq('kind', MEDIA_HANDOFF_KIND)
+    .eq('locale', input.locale)
+    .maybeSingle();
+  if (error) return { ok: false, detail: `canned_responses unreadable: ${error.message}` };
+  if (data === null) return { ok: true, line: null };
+  const row = data as Record<string, unknown>;
+  return { ok: true, line: { body: String(row['body'] ?? ''), reviewed: row['reviewed_at'] !== null && row['reviewed_at'] !== undefined } };
 }
