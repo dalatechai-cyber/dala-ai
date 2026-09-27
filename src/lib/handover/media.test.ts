@@ -43,3 +43,19 @@ test('a profile or channel page is not media', () => {
   for (const u of ['https://www.instagram.com/tarasalon/', 'https://www.youtube.com/@channel', 'https://www.tiktok.com/@tara',
     'https://www.pinterest.com/tara/']) assert.equal(mediaLinksIn(u).length, 0, u);
 });
+
+test('a photo or a video with no words is planned once per sender; a sticker never is', async () => {
+  const { planMediaAlone } = await import('./media.ts');
+  const skip = (o: Record<string, unknown>) => ({
+    reason: 'no_text', idx: 0, externalId: 'm1', senderId: 'p1', recipientId: null, appId: null,
+    attachments: [], stickerIds: [], ...o,
+  });
+  const plans = planMediaAlone([
+    skip({ idx: 0, attachments: ['video'] }),
+    skip({ idx: 1, attachments: ['image'] }),
+    skip({ idx: 2, senderId: 'p2', attachments: ['image'], stickerIds: ['369239263222822'] }),
+    skip({ idx: 3, senderId: 'p3', attachments: ['audio'] }),
+    skip({ idx: 4, senderId: 'p4', reason: 'echo', attachments: ['image'] }),
+  ] as never);
+  assert.deepEqual(plans.map((p) => p.idx), [0]);
+});

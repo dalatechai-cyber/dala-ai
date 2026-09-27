@@ -1602,3 +1602,90 @@ test('DONE-TEST: IN SHADOW, A LISTED TESTER IS ANSWERED FOR REAL AND NOBODY ELSE
   assert.equal(off.delivered.length, 0);
   assert.equal(off.generated.length, 0);
 });
+
+// ── D-152: a photo or a video with no words goes to a person, never silence ──────────
+
+const NOTICE = 'Баярлалаа! Таны илгээсэн зураг, бичлэг, холбоосыг манай ажилтан үзээд удахгүй хариулна 😊';
+
+test('DONE-TEST (founder, 2026-09-27): A VIDEO SENT ALONE GETS THE NOTICE, THE HAND-OFF AND THE ALERT', async () => {
+  const alerts: { conversationId: string; text: string }[] = [];
+  const { fx, delivered, flags, ops, generated } = stubEffects({
+    alertMediaHandoff: async (a) => { alerts.push(a); },
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'video', payload: { url: 'https://x/v.mp4' } }] }) } },
+      canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
+    },
+  });
+  const r = await run(fx);
+
+  assert.equal(r.status, 200);
+  assert.equal(generated.length, 0, 'no model: there are no words to answer');
+  assert.equal(delivered.length, 1, 'never silence');
+  assert.equal(delivered[0]?.body, NOTICE);
+  assert.equal(delivered[0]?.recipientId, PSID);
+  assert.ok(flags.some((f) => f.code === 'media_handoff'));
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0]?.text, '', 'the alert never carries words the customer did not write');
+  assert.ok(
+    ops.some((o) => o.table === 'conversations' && o.op === 'update' && o.patch?.['thread_control'] === 'human'),
+    'the thread is handed to staff',
+  );
+});
+
+test('a photo alone is handed off the same way when the tenant has the notice', async () => {
+  const { fx, delivered } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'image', payload: { url: 'https://x/p.jpg' } }] }) } },
+      canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0]?.body, NOTICE);
+});
+
+test('a sticker alone is never answered (D-070)', async () => {
+  const { fx, delivered } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: {
+        data: { raw_payload: payload({ text: '', attachments: [{ type: 'image', payload: { sticker_id: 369239263222822 } }] }) },
+      },
+      canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+});
+
+test('a thread a person already holds is left to them: no notice over the staff member', async () => {
+  const { fx, delivered, logs } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'video', payload: { url: 'https://x/v.mp4' } }] }) } },
+      canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
+      conversations: { data: { id: 'conv-1', thread_control: 'human', thread_control_at: '2026-09-04T11:50:00Z' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.ok(reasons(logs).includes('media_alone_person_has_thread'));
+});
+
+test('an unreviewed notice is never sent, and says so', async () => {
+  const { fx, delivered, logs } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'video', payload: { url: 'https://x/v.mp4' } }] }) } },
+      canned_responses: { data: { body: NOTICE, reviewed_at: null }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.ok(reasons(logs).includes('handover_notice_unreviewed'));
+});

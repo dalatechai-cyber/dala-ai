@@ -39,6 +39,7 @@ import { draftImageReplies, planImageReplies, readImageLine } from '../inbound/i
 import { applyThreadControl, recordHandover, readThreadState } from '../handover/record.ts';
 import { personRepliedSince } from '../handover/presend.ts';
 import { humanHoldsThread } from '../handover/control.ts';
+import { mediaAloneDedupKey, planMediaAlone, readHandoverNotice } from '../handover/media.ts';
 import { CREDENTIAL_FAILURE_STATUS, clearCredentialFailure } from '../channel/recover.ts';
 import { CATCH_UP_WINDOW_MINUTES, HELD_FLAG } from '../channel/catchup.ts';
 import { loadReceptionContext } from '../reception/load.ts';
@@ -47,7 +48,7 @@ import type { Surface } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
 import { RECEPTION_HISTORY_TURNS } from '../model/reception.ts';
 import { withTenantRole } from '../guard/withTenantRole.ts';
-import { claim, findReplyFor, markRefused, replyDedupKey } from '../outbound/claim.ts';
+import { claim, draftOnce, findReplyFor, markRefused, replyDedupKey } from '../outbound/claim.ts';
 import { markEventState, recordDeliveryAttempt } from '../webhook/events.ts';
 import { usdToNano } from '../money.ts';
 import { isFresh, replyAgeLimitMinutes } from './freshness.ts';
@@ -713,7 +714,71 @@ async function runReceptionDelivery(
     //
     // Draft only. The send is the claim step, so a `shadow` channel records what it
     // WOULD have said and delivers nothing — the mirror's whole point.
-    const plannedImages = planImageReplies(skipped);
+    // --- A photo or a video with no words goes to a person (founder, 2026-09-27). -------
+    //
+    // The tenant's reviewed notice, SENT here (nothing else claims a draft made outside
+    // Reception), then the same hand-off as a captioned one: the thread becomes `human` for
+    // the takeover cooldown and the founder is alerted. A thread a person already holds is
+    // left to them. A tenant without a reviewed notice falls through to the image line.
+    let mediaHandled = false;
+    const plannedMedia = planMediaAlone(skipped);
+    if (plannedMedia.length > 0) {
+      const notice = await readHandoverNotice(db, { tenantId, locale: settings.defaultLocale });
+      if (!notice.ok) {
+        fx.log('error', 'handover_notice_unreadable', { eventId, detail: notice.detail });
+      } else if (notice.line !== null && !notice.line.reviewed) {
+        fx.log('error', 'handover_notice_unreviewed', { tenantId, count: plannedMedia.length });
+      } else if (notice.line !== null && notice.line.body.trim() !== '') {
+        mediaHandled = true;
+        for (const plan of plannedMedia) {
+          const contact = await ensureContact(db, { tenantId, channelId, externalId: plan.senderId, now });
+          if (!contact.ok) return unavailable('worker.media_contact_failed');
+          const conv = await openConversation(db, { tenantId, contactId: contact.value.contactId, channelId, now });
+          if (!conv.ok) return unavailable('worker.media_conversation_failed');
+          const conversationId = conv.value.conversationId;
+
+          const state = await readThreadState(db, { tenantId, conversationId });
+          if (state !== 'unreadable' && humanHoldsThread(state, cooldownMinutes, now).refuse) {
+            fx.log('info', 'media_alone_person_has_thread', { tenantId, conversationId });
+            continue;
+          }
+          const drafted = await draftOnce(db, {
+            tenantId, kind: 'reply', dedupKey: mediaAloneDedupKey(eventId, plan.idx),
+            body: notice.line.body, channelId, conversationId,
+          });
+          if (!drafted.ok) {
+            fx.log('error', 'media_alone_draft_failed', { tenantId, detail: drafted.detail });
+            return unavailable('worker.media_draft_failed');
+          }
+          if (!(delivery.deliver || testSenders.has(plan.senderId))) {
+            fx.log('info', 'not_delivering', { tenantId, channelId, detail: 'media alone' });
+            continue;
+          }
+          const held = await claim(db, { id: drafted.row.id, tenantId, now });
+          if (held.outcome === 'unavailable') return unavailable('worker.claim_unavailable');
+          if (held.outcome !== 'claimed') continue;
+          const delivered = await fx.deliver({
+            tenantId, channelId, pageId, recipientId: plan.senderId, outboundId: held.id,
+            body: held.body, attempts: held.attempts, graphVersion,
+            ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
+            ...(maxTextBytes === undefined ? {} : { maxTextBytes }),
+          });
+          if (delivered.outcome !== 'sent') {
+            fx.log('error', 'media_alone_not_sent', { tenantId, conversationId, outcome: delivered.outcome });
+            continue;
+          }
+          const handed = await applyThreadControl(db, { tenantId, conversationId, control: 'human', at: now, source: 'handover', refresh: true });
+          if (!handed.ok) fx.log('error', 'media_handoff_control_failed', { tenantId, conversationId, detail: handed.detail });
+          await fx.flagQuality({ tenantId, conversationId, code: 'media_handoff', detail: 'photo or video with no text handed to staff' });
+          if (fx.alertMediaHandoff !== undefined) {
+            await fx.alertMediaHandoff({ tenantId, conversationId, externalId: plan.externalId ?? `${eventId}:${plan.idx}`, text: '' })
+              .catch((e: unknown) => fx.log('error', 'media_handoff_alert_failed', { detail: e instanceof Error ? e.message : String(e) }));
+          }
+        }
+      }
+    }
+
+    const plannedImages = mediaHandled ? [] : planImageReplies(skipped);
     if (plannedImages.length > 0) {
       const line = await readImageLine(db, { tenantId, locale: settings.defaultLocale });
       if (!line.ok) {

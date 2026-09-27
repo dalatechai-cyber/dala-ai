@@ -10781,3 +10781,23 @@ These are the founder's calls after the live check at DalaTech seq 12 and Tara s
   - dalatech-chatbot has no calendar logic.
   - Нова's 21:00–09:00 quiet hours are not in any code yet (Нова is not built). When they
     are built, they belong on `tenantClock`.
+
+## D-152 — The media line for both tenants, never silence for media alone, Tara's rename finished (2026-09-27)
+
+The founder approved these on 2026-09-27 (`scripts/provision/media-notice-tara-rename-2026-09-27.sql`).
+- **The media hand-off line** for DalaTech and Tara: «Баярлалаа! Таны илгээсэн зураг, бичлэг,
+  холбоосыг манай ажилтан үзээд удахгүй хариулна 😊» (`handover_notice`, reviewed by the
+  founder).
+- **A photo or a video with no words is never met with silence.** The worker now sends the
+  notice to it, hands the thread to staff and alerts, as for a captioned one
+  (`planMediaAlone` in `handover/media.ts`). A thread a person already holds is left to them.
+- **A bug this found:** the image line for a photo alone (`inbound/imageReply.ts`) was
+  drafted and never sent, because nothing claims a draft made outside Reception. Tara has
+  11 such rows in `draft`, the newest from 2026-09-25. A tenant with the notice no longer
+  takes that path. A tenant without it still does, and that path still does not send.
+- **Tara's rename is finished:**
+  - `tara_rebrand` (the «Шинэ мэдээллийг удахгүй хүргэнэ» line appended to address and name
+    replies) is switched off.
+  - `tara_name` now answers «Тийм ээ, Matrix Eco Salon одоо Tara Salon нэртэй болсон.»
+  - The first line of the «Салбарууд» KB document matches it.
+  - Reply case 1 expects the new line, and a new exact case pins it.
