@@ -10673,7 +10673,11 @@ refuses a partial write):
 - `price_overview` and the reply cases that quote it change in the same transaction.
 - **Timing:** rows are live on commit. FAQs and documents reach customers at the next
   publish.
-- **Open with the founder:** Вира's listed plan (videos, posts, boost management) reads as a
-  marketing role, while every row calls Вира «Бизнес аналитик». Вира's document is
-  unchanged until the founder says which. Also open: whether Ора's three extra-user prices
-  are the first, second and third extra user.
+- **Roles (founder, second message, 2026-09-27):** Вира is «Вира — Маркетинг менежер» and
+  Нова is «Нова — Сануулга, SMS», in the service rows and the document titles. Both
+  descriptions are the founder's. Нова's description keeps its SMS count and drops
+  «нэмэлт SMS тутам 50₮»: that figure is served from its own row, and a ₮ figure never
+  enters the prompt. The shared line now names only Дали as talking to customers.
+- **Ора's extra users** are monthly: the 2nd user 200,000₮, the 3rd 175,000₮, and every
+  user from the 4th 150,000₮. Each user has their own 1,500 messages.
+- **Applied** on the project on 2026-09-27, with every check in the script passing.

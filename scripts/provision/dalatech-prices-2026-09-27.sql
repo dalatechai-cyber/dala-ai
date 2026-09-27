@@ -23,15 +23,35 @@
 --      (a figure in the prompt is a permission, D-075). These reach customers at the next
 --      PUBLISH (`scripts/publish/tenant.ts`), which the founder runs.
 --
--- Вира's knowledge document is NOT changed here: the plan the founder listed (videos,
--- posts, boost management) is a marketing role, and every row still calls Вира
--- «Бизнес аналитик». That is a question for the founder, not a line to guess.
+-- Founder, 2026-09-27 (second message): the overview and every line below approved; Вира
+-- becomes «Вира — Маркетинг менежер» and Нова «Нова — Сануулга, SMS», each with the
+-- founder's own description; Ора's extra users are the 2nd user 200,000₮, the 3rd
+-- 175,000₮, the 4th and every further one 150,000₮, all monthly, each with its own
+-- 1,500 messages. Нова's description keeps its count and drops «нэмэлт SMS тутам 50₮»:
+-- that figure is the `Нэмэлт SMS тутам` row, and a ₮ figure never enters the prompt (D-075).
 begin;
 
 create temp table dt on commit drop as select id from tenants where slug = 'dalatech';
 do $$ begin
   if (select count(*) from dt) <> 1 then raise exception 'tenant dalatech not found exactly once'; end if;
 end $$;
+
+-- ---------------------------------------------------------------- 0. renames
+
+update services s set name = normalize(x.new_name, NFC)
+  from dt, (values ('Вира — Бизнес аналитик', 'Вира — Маркетинг менежер'),
+                   ('Нова — Харилцагчийн менежер', 'Нова — Сануулга, SMS')) x(old_name, new_name)
+ where s.tenant_id = dt.id and s.name = normalize(x.old_name, NFC);
+
+update knowledge_documents k set title = normalize(x.new_title, NFC), body = normalize(x.body, NFC),
+       source = 'founder 2026-09-27', updated_at = now()
+  from dt, (values
+    ('Вира — Бизнес аналитик (УДАХГҮЙ, урьдчилан бүртгэл авч байна)', 'Вира — Маркетинг менежер (УДАХГҮЙ, урьдчилан бүртгэл авч байна)',
+     E'- Сард 3 богино видео, 8 пост, контент төлөвлөгөө, сурталчилгаа (boost) удирдлага, 7 хоног тутмын тайлан.\n- Сурталчилгааны төсөв ороогүй.'),
+    ('Нова — Харилцагчийн менежер (УДАХГҮЙ, урьдчилан бүртгэл авч байна)', 'Нова — Сануулга, SMS (УДАХГҮЙ, урьдчилан бүртгэл авч байна)',
+     E'- Цаг захиалгын сануулгыг SMS-ээр илгээж, ТИЙМ/ҮГҮЙ хариуг хүлээн авна.\n- Сард 1,000 SMS багтсан.')
+  ) x(old_title, new_title, body)
+ where k.tenant_id = dt.id and k.title = normalize(x.old_title, NFC);
 
 -- ---------------------------------------------------------------- 1. price rows
 
@@ -42,13 +62,13 @@ select s.id, s.name from services s join dt on dt.id = s.tenant_id;
 update service_variants v set price_min = 50000, confirmed_at = now()
   from svc where v.service_id = svc.id
    and v.variant_key = normalize('Нэг удаагийн суурилуулалт', NFC)
-   and svc.name in (normalize('Дали — AI хүлээн авагч', NFC), normalize('Вира — Бизнес аналитик', NFC),
-                    normalize('Нова — Харилцагчийн менежер', NFC), normalize('Ора — Хувийн туслах', NFC));
+   and svc.name in (normalize('Дали — AI хүлээн авагч', NFC), normalize('Вира — Маркетинг менежер', NFC),
+                    normalize('Нова — Сануулга, SMS', NFC), normalize('Ора — Хувийн туслах', NFC));
 
 -- Monthly fees.
 update service_variants v set price_min = x.amount, confirmed_at = now()
-  from svc, (values ('Дали — AI хүлээн авагч', 250000), ('Вира — Бизнес аналитик', 350000),
-                    ('Нова — Харилцагчийн менежер', 150000), ('Ора — Хувийн туслах', 250000)) x(name, amount)
+  from svc, (values ('Дали — AI хүлээн авагч', 250000), ('Вира — Маркетинг менежер', 350000),
+                    ('Нова — Сануулга, SMS', 150000), ('Ора — Хувийн туслах', 250000)) x(name, amount)
  where v.service_id = svc.id and svc.name = normalize(x.name, NFC)
    and v.variant_key = normalize('Сарын төлбөр', NFC);
 
@@ -69,11 +89,11 @@ update service_variants v set price_min = 800000, confirmed_at = now()
 insert into service_variants (tenant_id, service_id, variant_key, price_kind, price_min, confirmed_at)
 select dt.id, svc.id, normalize(x.label, NFC), 'exact', x.amount, now()
   from dt, svc, (values
-    ('Нова — Харилцагчийн менежер', 'Нэмэлт SMS тутам', 50),
+    ('Нова — Сануулга, SMS', 'Нэмэлт SMS тутам', 50),
     ('Ора — Хувийн туслах', 'Нэмэлт мессежийн багц', 49000),
     ('Ора — Хувийн туслах', 'Нэмэлт хэрэглэгч, эхнийх', 200000),
     ('Ора — Хувийн туслах', 'Нэмэлт хэрэглэгч, хоёр дахь', 175000),
-    ('Ора — Хувийн туслах', 'Нэмэлт хэрэглэгч, гурав дахь', 150000),
+    ('Ора — Хувийн туслах', 'Нэмэлт хэрэглэгч, гурав дахиас эхлэн тус бүр', 150000),
     ('Ухаалаг вэбсайт', 'Хостинг, жилд', 150000),
     ('Ухаалаг вэбсайт', 'QPay холболт', 200000),
     ('Ухаалаг вэбсайт', 'Онлайн цаг захиалга', 300000)
@@ -152,12 +172,12 @@ insert into doc_edits values
   ('Дали — AI хүлээн авагч (ИДЭВХТЭЙ, одоо ажиллаж байна)',
    '- Захиалга, цаг товлолтыг бүртгэнэ. Шөнө ирсэн зурваст ч хариулна.',
    E'- Захиалга, цаг товлолтыг бүртгэнэ. Шөнө ирсэн зурваст ч хариулна.\n- Танай вэбсайтад ч ажиллана: Facebook, Instagram, вэбсайт нэг л төлбөрт багтана.'),
-  ('Нова — Харилцагчийн менежер (УДАХГҮЙ, урьдчилан бүртгэл авч байна)',
-   '- Ирэхээ больсон харилцагчийг эргүүлэн дуудна.',
-   E'- Ирэхээ больсон харилцагчийг эргүүлэн дуудна.\n- Сарын төлбөрт 1,000 SMS багтана; түүнээс илүү SMS тус бүр нэмэлт төлбөртэй.'),
+  ('Таван AI ажилтан — нийтлэг',
+   '- Дали, Вира, Нова танай харилцагчидтай Facebook, Instagram, вэбсайтаар монголоор өдөр шөнөгүй ярина.',
+   '- Дали танай харилцагчидтай Facebook, Instagram, вэбсайтаар монголоор өдөр шөнөгүй ярина.'),
   ('Ора — Хувийн туслах (УДАХГҮЙ, урьдчилан бүртгэл авч байна)',
    '- Мессенжер биш, зөвхөн танд нээгддэг чатаар ажиллана.',
-   E'- Мессенжер биш, зөвхөн танд нээгддэг чатаар ажиллана.\n- Сард 1,500 мессеж багтана. Нэмэлт 500 мессежийн багц, нэмэлт хэрэглэгч тусдаа төлбөртэй.'),
+   E'- Мессенжер биш, зөвхөн танд нээгддэг чатаар ажиллана.\n- Сард 1,500 мессеж багтана. Хэрэглэгч бүр өөрийн 1,500 мессежтэй; нэмэлт хэрэглэгч бүр сар бүр тусдаа төлбөртэй. Нэмэлт 500 мессежийн багц тусдаа төлбөртэй.'),
   ('Эхо — Утасны оператор (УДАХГҮЙ, урьдчилан бүртгэл авч байна)',
    '- Минутын үнийг хараахан зарлаагүй.',
    '- Үнийг хараахан зарлаагүй.');
@@ -208,6 +228,12 @@ begin
            where t.slug = 'dalatech' and k.title = normalize(e.title, NFC)
              and position(normalize(e.new_line, NFC) in k.body) > 0) <> 1;
   if n <> 0 then raise exception '% document edits did not find their line', n; end if;
+  if exists (select 1 from services s join tenants t on t.id = s.tenant_id
+              where t.slug = 'dalatech' and (s.name like '%Бизнес аналитик%' or s.name like '%Харилцагчийн менежер%'))
+     or exists (select 1 from knowledge_documents k join tenants t on t.id = k.tenant_id
+              where t.slug = 'dalatech' and (k.title like '%Бизнес аналитик%' or k.title like '%Харилцагчийн менежер%')) then
+    raise exception 'an old role name is still in a service or document title';
+  end if;
   if not exists (select 1 from knowledge_documents k join tenants t on t.id = k.tenant_id
                   where t.slug = 'dalatech' and k.title = normalize('Үнийн нөхцөл', NFC)) then
     raise exception 'Үнийн нөхцөл was not written';
