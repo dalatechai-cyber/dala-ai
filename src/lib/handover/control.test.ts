@@ -156,3 +156,16 @@ test('a zero cooldown resumes immediately and still RECORDS the handover', () =>
   // measuring how often a receptionist actually picks a thread up.
   assert.equal(humanHoldsThread(state(), 0, NOW).refuse, false);
 });
+
+test('REGRESSION (Tara, 2026-09-27): the staff reply holds the thread for the cooldown, then Дали answers again', () => {
+  // A staff member replied in the Page inbox; the echo made the thread `human`. The customer's
+  // address question came 1h45m later, past the tenant's 30-minute takeover cooldown, so Дали
+  // answered it. The founder kept the 30 minutes as they are (2026-09-27): this pins that
+  // behaviour, both sides of the window, so a change to it is a decision and not an accident.
+  const staffReplied: ThreadState = { control: 'human', at: new Date('2026-09-27T00:40:29Z') };
+  assert.deepEqual(humanHoldsThread(staffReplied, 30, new Date('2026-09-27T01:05:00Z')),
+    { refuse: true, reason: 'human_has_thread', minutesLeft: 6 });
+  assert.equal(humanHoldsThread(staffReplied, 30, new Date('2026-09-27T01:10:28Z')).refuse, true);
+  assert.equal(humanHoldsThread(staffReplied, 30, new Date('2026-09-27T01:10:30Z')).refuse, false);
+  assert.equal(humanHoldsThread(staffReplied, 30, new Date('2026-09-27T02:25:48Z')).refuse, false);
+});

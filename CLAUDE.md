@@ -57,6 +57,10 @@ or databases. Never import from that repo.**
   comment it out in `.env.example` (preflight requires both names from there). Vercel
   cannot give the value back (D-107). Tenant #0's `page_token` has been opened over real
   PostgREST (`last_ok_at` 2026-09-19).
+- **Ulaanbaatar time for anything a person reads or a day keys on** (D-151): `time/clock.ts`
+  (`tenantClock`, `localDayStart`) or `time/ub.ts`. Never `toISOString().slice(...)` for a
+  day, and never a raw ISO time in an alert. `time/tz.test.ts` runs under four machine
+  zones.
 - **The purge cadence is hourly and lives in the QStash console**, not in this repo. Ask;
   do not infer. The digest runs on QStash `5 16 * * *` UTC (00:05 Ulaanbaatar) and reports
   the Ulaanbaatar day that just ended. `DAILY_REPORT_V2=true` (with `DAILY_REPORT_SECRET`)
@@ -214,6 +218,12 @@ Each line has its story in `docs/history.md`.
   accident. Its absence is a safety, not an oversight; do not ask for it to be added.
 - Run `npm install` before any `node scripts/...`; every script imports from `src/`.
 - A control that reproduces the known live value must come before trusting a new one.
+- **Every copy of a fact must agree** (D-151). `scripts/facts/gate.ts` compares the price
+  rows with the FAQ, fixed replies, canned lines, KB, approved lines and
+  `config/external-fact-copies.json`. It needs no model and flags a label with other
+  capitals, or a ₮ amount a named service does not carry. Publish refuses on a
+  disagreement or an unreadable sibling copy, so check out `../dalatech-chatbot` first.
+  A new place that repeats a tenant's facts is added to that config.
 
 ## Money and model use
 
@@ -231,7 +241,10 @@ Each line has its story in `docs/history.md`.
 - Sold against a 400-conversation/month band (D-015). **Overage is the §5.7 degradation
   ladder, never an invoice**, and the ladder is designed but not built.
 - **Live customers are the only thing allowed to spend** (D-137). No paid model runs in
-  tests, gates or diagnostics unless the founder asks.
+  tests, gates or diagnostics unless the founder asks. **One exception** (D-151): before a
+  publish that changes what a tenant's bot says, run that tenant's model cases once
+  (`scripts/publish/tenant.ts --slug <slug> --with-model`, dry run). Report the result and
+  what the run cost. Spend is allowed for this purpose only, one run per change.
 
 ## Merge authority and what waits for the founder
 

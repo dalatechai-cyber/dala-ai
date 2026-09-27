@@ -564,3 +564,34 @@ test('«урьдчилан» in another sense (paying in advance) does not stop 
   });
   assert.equal(t.drafts[0]?.body, `Жилийн төлбөрөө урьдчилан төлбөл хөнгөлөлттэй.\n\n${SOON}`);
 });
+
+// ---- Founder, 2026-09-27: a photo, a video or a link to one is a person's to answer -------------
+const NOTICE = 'Баярлалаа! Таны илгээсэн зураг, бичлэгийг манай ажилтан үзээд удахгүй хариулна.';
+const WITH_NOTICE = [...CANNED, { kind: 'handover_notice', body: NOTICE, reviewedAt: R }];
+
+test('DONE-TEST (Tara, 2026-09-27): A SHARED REEL GETS THE HANDOVER NOTICE, NO MODEL CALL, AND ASKS THE WORKER TO HAND OVER', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, {
+    ...base, canned: WITH_NOTICE, customerMessage: 'https://www.facebook.com/share/r/19d6h1MDrW/?mibextid=wwXIfr',
+  });
+  assert.equal(r.kind, 'drafted');
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true);
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+  assert.equal(t.requests.length, 0);
+});
+
+test('a captioned photo gets the handover notice ahead of the image line when the tenant has both', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, {
+    ...base, canned: WITH_NOTICE, customerMessage: 'iim bolgoj bolhu', customerAttachments: ['image'], customerSentPhoto: true,
+  });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true);
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+});
+
+test('without a reviewed notice nothing changes: the photo line, and no handover', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, customerMessage: 'iim bolgoj bolhu', customerAttachments: ['image'], customerSentPhoto: true });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined);
+  assert.deepEqual(t.drafts.map((x) => x.body), [IMAGE]);
+});

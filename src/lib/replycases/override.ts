@@ -35,6 +35,7 @@
  * down is one of the two reasons this exists.
  */
 import { createHash, createPublicKey, generateKeyPairSync, sign, verify, type KeyObject } from 'node:crypto';
+import { ubStamp } from '../time/ub.ts';
 
 /** The longest a token may live, from `issued` to `until`. */
 export const OVERRIDE_MAX_HOURS = 24;
@@ -135,7 +136,7 @@ export function verifyOverride(
     return { ok: false, why: `a token may live at most ${OVERRIDE_MAX_HOURS} hours` };
   }
   if (issued.getTime() > input.now.getTime() + MAX_SKEW_MS) return { ok: false, why: 'the token was issued in the future' };
-  if (input.now.getTime() > until.getTime()) return { ok: false, why: `the token expired at ${until.toISOString()}` };
+  if (input.now.getTime() > until.getTime()) return { ok: false, why: `the token expired at ${ubStamp(until)}` };
   return {
     ok: true,
     keyId: keyId(signer),

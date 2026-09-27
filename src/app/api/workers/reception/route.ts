@@ -24,6 +24,7 @@ import { sendCommentReply } from '@/lib/comments/send';
 import { sendMessage, sendSenderAction } from '@/lib/meta/send';
 import { lookupComment, lookupInstagramComment } from '@/lib/comments/lookup';
 import { raiseCommentComplaint } from '@/lib/comments/complaint';
+import { raiseMediaHandoff } from '@/lib/handover/media';
 import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
 import { SECTION_LABELS } from '@/lib/prompt/tenant';
@@ -193,6 +194,13 @@ function effects(now: Date): WorkerEffects {
       return provider === 'instagram'
         ? lookupInstagramComment({ commentId, postId, pageId, token: secret.secret, graphVersion, text: text ?? '' })
         : lookupComment({ commentId, postId, pageId, token: secret.secret, graphVersion });
+    },
+
+    alertMediaHandoff: async (input) => {
+      const outcome = await raiseMediaHandoff(db, input);
+      if (outcome.outcome === 'failed' || outcome.outcome === 'recorded_undelivered') {
+        console.error('[worker] media_handoff_alert_undelivered', { conversationId: input.conversationId, ...outcome });
+      }
     },
 
     alertComplaint: async (input) => {

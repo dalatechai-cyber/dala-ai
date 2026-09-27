@@ -57,6 +57,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { haltChannelCredential } from './halt.ts';
+import { ubDate, ubHour } from '../time/ub.ts';
 
 /** Consecutive channel-local credential failures before a channel stops drafting. */
 export const CREDENTIAL_FAILURES_BEFORE_HALT = 3;
@@ -216,7 +217,7 @@ export async function runCredentialBreaker(
       await deps.alert({
         severity: 'warn',
         kind: 'channel.credential_failure',
-        dedupKey: `channel_credential_failure:${input.channelId}:${input.now.toISOString().slice(0, 10)}`,
+        dedupKey: `channel_credential_failure:${input.channelId}:${ubDate(input.now)}`,
         body: `Channel ${input.channelId}: credential failure (${input.code}), ${decision.streak} in a row. `
           + `Drafting stops at ${CREDENTIAL_FAILURES_BEFORE_HALT}.`,
         // Below the halt nothing has stopped yet, and the halt pages on its own (critical,
@@ -238,7 +239,7 @@ export async function runCredentialBreaker(
     await deps.alert({
       severity: 'critical',
       kind: 'channel.credential_halt_suppressed',
-      dedupKey: `channel_credential_halt_suppressed:${input.now.toISOString().slice(0, 13)}`,
+      dedupKey: `channel_credential_halt_suppressed:${ubHour(input.now)}`,
       body: `${decision.failingChannels} channel(s) are failing credentials and the one-halt-per-`
         + `${HALT_INTERVAL_MINUTES}-minute cap is holding them. One cause, or many? Channel `
         + `${input.channelId} earned a halt and did not get one.`,
@@ -258,7 +259,7 @@ export async function runCredentialBreaker(
   await deps.alert({
     severity: 'critical',
     kind: 'channel.credential_halt',
-    dedupKey: `channel_credential_halt:${input.channelId}:${input.now.toISOString().slice(0, 13)}`,
+    dedupKey: `channel_credential_halt:${input.channelId}:${ubHour(input.now)}`,
     body: `Channel ${input.channelId} stopped: ${decision.streak} consecutive credential failures `
       + `(${input.code}). Nothing further is generated for it until the credential is re-sealed `
       + `and delivery_mode is set back to live. ${decision.streak} customer message(s) waiting; each `

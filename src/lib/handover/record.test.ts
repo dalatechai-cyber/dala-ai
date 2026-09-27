@@ -173,3 +173,12 @@ test('D-143: an echo of the TEXT our link reply was sent as is ours (the address
   });
   assert.equal(r.echoTakeovers, 0);
 });
+
+test('the media hand-off restarts the clock on a thread already human (a staff reply long ago)', async () => {
+  // Tara's thread: a staff echo at 00:40 left it `human`; the reel came at 02:25. Without the
+  // refresh the hand-off wrote nothing and the next message was answered at once.
+  const { db, updates } = fakeDb({ thread_control: 'human', thread_control_at: '2026-09-19T09:00:00Z' });
+  const r = await applyThreadControl(db, { ...base, control: 'human', source: 'handover', refresh: true });
+  assert.deepEqual(r, { ok: true, changed: false, refreshed: true });
+  assert.deepEqual(updates, [{ thread_control_at: AT.toISOString() }]);
+});

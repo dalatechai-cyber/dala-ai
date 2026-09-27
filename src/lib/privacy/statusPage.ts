@@ -26,6 +26,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ErasureStatus } from './erasure.ts';
+import { ubDate } from '../time/ub.ts';
 
 /**
  * The blocks this page is made of. All of them, or the page refuses.
@@ -119,10 +120,10 @@ export type StatusView =
   | { found: true; code: string; status: ErasureStatus; requestedAt: Date | null }
   | { found: false };
 
-/** UTC, ISO date only. A time would imply a precision the person does not need, and a
- *  local timezone would need one we do not have for them. */
+/** The Ulaanbaatar date only (founder, 2026-09-27: Mongolian time everywhere). A time would
+ *  imply a precision the person does not need. */
 function isoDate(d: Date | null): string {
-  return d === null ? '—' : (d.toISOString().slice(0, 10) as string);
+  return d === null ? '—' : ubDate(d);
 }
 
 export function renderStatusPage(blocks: StatusBlocks, view: StatusView): string {

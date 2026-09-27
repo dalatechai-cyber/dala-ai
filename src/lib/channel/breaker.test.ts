@@ -148,7 +148,7 @@ test('the halt alert is the clock the cap reads, so it must carry the hour', asy
   // written by the halt and by nothing else.
   const s = stub({ recent: [fail('a'), fail('b'), fail('c')] });
   await run(s);
-  assert.match(String(s.alerts[0]?.dedupKey), /^channel_credential_halt:ch-1:2026-09-06T21$/);
+  assert.match(String(s.alerts[0]?.dedupKey), /^channel_credential_halt:ch-1:2026-09-07 05$/);
 });
 
 test('DONE-TEST: THE SUPPRESSED HALT IS THE MASS-REVOCATION ALARM', async () => {
@@ -167,7 +167,7 @@ test('DONE-TEST: THE SUPPRESSED HALT IS THE MASS-REVOCATION ALARM', async () => 
   assert.equal(s.alerts[0]?.kind, 'channel.credential_halt_suppressed');
   assert.equal(s.alerts[0]?.severity, 'critical');
   assert.match(String(s.alerts[0]?.body), /4 channel/);
-  assert.match(String(s.alerts[0]?.dedupKey), /2026-09-06T21$/, 'hourly, so the pattern reports once per hour');
+  assert.match(String(s.alerts[0]?.dedupKey), /2026-09-07 05$/, 'hourly (Ulaanbaatar hour), so the pattern reports once per hour');
 });
 
 test('below the threshold it alerts once a day and changes nothing', async () => {
@@ -180,7 +180,7 @@ test('below the threshold it alerts once a day and changes nothing', async () =>
   assert.deepEqual(s.writes, []);
   assert.equal(s.alerts[0]?.kind, 'channel.credential_failure');
   assert.equal(s.alerts[0]?.severity, 'warn');
-  assert.match(String(s.alerts[0]?.dedupKey), /:2026-09-06$/);
+  assert.match(String(s.alerts[0]?.dedupKey), /:2026-09-07$/, 'the Ulaanbaatar day: 21:00Z on the 6th is 05:00 on the 7th there');
 });
 
 test('a global code raises nothing here — deliverOutbound already pages for it', async () => {
