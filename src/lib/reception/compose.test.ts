@@ -520,3 +520,39 @@ test('one coming-soon agent\'s price still gets the pre-registration line, and t
   assert.equal(t.requests.length, 1, 'the model is asked');
   assert.equal(t.drafts[0]?.body, `Вира бизнес аналитик.\n\n${SOON}`);
 });
+
+// ---- Founder, 2026-09-27: never the coming-soon line after an answer that already says it -----
+// Live: «Вира юу хийдэг вэ?» got «…Одоогоор урьдчилан бүртгэл авч байгаа…» and then the
+// status line on top. Each row now says `not(in_reply(«урьдчилан»))`, and a message-matched
+// append is judged again once the reply exists.
+
+const NOT_SAID = { mode: 'not' as const, matcher: { mode: 'in_reply' as const, matcher: { mode: 'has_word' as const, words: ['урьдчилан'] } } };
+const SOON_STATUS_UNLESS: DeterministicRule = {
+  ...SOON_STATUS, matcher: { mode: 'all_of', matchers: [{ mode: 'has_word', words: ['вира', 'вирагийн'] }, NOT_SAID] },
+};
+const SOON_IN_REPLY_UNLESS: DeterministicRule = {
+  ...SOON_IN_REPLY, matcher: { mode: 'all_of', matchers: [{ mode: 'in_reply', matcher: { mode: 'has_word', words: ['эхо', 'эхог', 'вира'] } }, NOT_SAID] },
+};
+
+test('DONE-TEST: AN ANSWER THAT ALREADY SAYS «урьдчилан» GETS NO COMING-SOON LINE, FROM EITHER ROW', async () => {
+  const said = 'Вира бол маркетинг менежер AI. Одоогоор урьдчилан бүртгэл авч байна.';
+  const t = run(said);
+  await handleReception(t.deps, {
+    ...base, customerMessage: 'Вира юу хийдэг вэ?', deterministic: [SOON_STATUS_UNLESS, SOON_IN_REPLY_UNLESS],
+  });
+  assert.equal(t.drafts[0]?.body, said);
+});
+
+test('an answer that does not say it still gets the line exactly once', async () => {
+  const t = run('Вира бол маркетинг менежер AI.');
+  await handleReception(t.deps, {
+    ...base, customerMessage: 'Вира юу хийдэг вэ?', deterministic: [SOON_STATUS_UNLESS, SOON_IN_REPLY_UNLESS],
+  });
+  assert.equal(t.drafts[0]?.body, `Вира бол маркетинг менежер AI.\n\n${SOON}`);
+});
+
+test('a message-matched append that does not read the reply is kept as before', async () => {
+  const t = run('Вира бизнес аналитик. Одоогоор урьдчилан бүртгэл авч байна.');
+  await handleReception(t.deps, { ...base, customerMessage: 'Вирагийн үнэ хэд вэ?', deterministic: [SOON_STATUS] });
+  assert.equal(t.drafts[0]?.body, `Вира бизнес аналитик. Одоогоор урьдчилан бүртгэл авч байна.\n\n${SOON}`);
+});
