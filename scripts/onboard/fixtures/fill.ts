@@ -6,7 +6,12 @@
  * downloaded as Word on 2026-09-27, byte for byte; filling it (rather than generating a
  * look-alike) is what proves the reader works on the file a client actually sends back.
  *
- *     node scripts/onboard/fixtures/fill.ts <answers.json> <out.docx>
+ *     node scripts/onboard/fixtures/fill.ts <answers.json> <out.docx> [<blank.docx>]
+ *
+ * The blank defaults to `dali-form-v2-blank.docx`, the form the founder sends clients
+ * («Дали_маягт_DalaTech.docx», 2026-09-27). A tick is ☒ unless the option is written
+ * `✓:label` (another glyph clients use), and `text` may answer a checkbox question with
+ * typed words, as a client who deletes the boxes does.
  *
  * Answers: `text` by question number, `tick` (question → option label prefixes, with an
  * optional `extra` after `|`), and `tables` (hours/services/staff/faqs/signer rows).
@@ -21,13 +26,13 @@ type Answers = {
   tables: { hours: string[][]; services: string[][]; staff: string[][]; faqs: string[][]; signer: string[] };
 };
 
-const [answersPath, outPath] = process.argv.slice(2);
+const [answersPath, outPath, blankPath] = process.argv.slice(2);
 if (answersPath === undefined || outPath === undefined) {
   process.stderr.write('usage: node scripts/onboard/fixtures/fill.ts <answers.json> <out.docx>\n');
   process.exit(2);
 }
 const answers = JSON.parse(readFileSync(answersPath, 'utf8')) as Answers;
-const blank = readZip(readFileSync(new URL('./dali-form-blank.docx', import.meta.url)));
+const blank = readZip(readFileSync(blankPath ?? new URL('./dali-form-v2-blank.docx', import.meta.url)));
 const tree = parseXml(blank.get('word/document.xml')!.toString('utf8'));
 
 const all = (n: XNode, tag: string): XNode[] => kids(n).flatMap((k) => [...(k.tag === tag ? [k] : []), ...all(k, tag)]);
@@ -50,13 +55,15 @@ function setCell(tc: XNode, value: string): void {
 
 /** Tick the options whose text begins with a wanted label; write `extra` into its blank. */
 function tick(tc: XNode, wanted: string[]): void {
-  for (const want of wanted) {
+  for (const raw of wanted) {
+    const glyph = raw.startsWith('✓:') ? '✓' : '☒';
+    const want = raw.startsWith('✓:') ? raw.slice(2) : raw;
     const [label, extra] = want.split('|');
     const p = all(tc, 'w:p').find((x) => paraText(x).replace(/^[☐\s]+/u, '').startsWith(label!));
     if (p === undefined) throw new Error(`no option «${label}» in «${text(tc).slice(0, 60)}»`);
     const box = all(p, 'w:t').find((t) => String(t.children[0] ?? '').includes('☐'));
     if (box === undefined) throw new Error(`option «${label}» has no box`);
-    box.children = [String(box.children[0]).replace('☐', '☒')];
+    box.children = [String(box.children[0]).replace('☐', glyph)];
     if (extra !== undefined) {
       const dots = all(p, 'w:t').find((t) => /\.{5,}/u.test(String(t.children[0] ?? '')));
       if (dots === undefined) throw new Error(`option «${label}» has no blank for «${extra}»`);

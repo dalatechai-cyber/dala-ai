@@ -11,7 +11,8 @@ import { factsHash, gateStatus, onboardReadiness, wordingHash, type Facts, type 
 import { validateIntake } from './validate.ts';
 import { refuseForeignTenant } from './onboardWrite.ts';
 
-const BLANK = 'scripts/onboard/fixtures/dali-form-blank.docx';
+const BLANK = 'scripts/onboard/fixtures/dali-form-v2-blank.docx';
+const BLANK_V1 = 'scripts/onboard/fixtures/dali-form-blank.docx';
 const SAMPLE = 'scripts/onboard/fixtures/sample-salon-branch.docx';
 const templates = JSON.parse(readFileSync('scripts/provision/templates/onboarding.mn.json', 'utf8')) as Templates;
 const read = (f: string) => {
@@ -36,6 +37,53 @@ test('the same template exported as text (Google Docs → Markdown) reads identi
   const docx = read(BLANK);
   assert.deepEqual(md.ok && Object.keys(md.answers.choices).sort(), Object.keys(docx.choices).sort());
   assert.deepEqual(md.ok && md.answers.hours, docx.hours);
+});
+
+test('EVERY answer filled into the form the founder sends clients is read back, none dropped', () => {
+  // The sample is filled into «Дали_маягт_DalaTech.docx» (2026-09-27) by fixtures/fill.ts;
+  // this compares the reader's result with the answers file, field by field.
+  const want = JSON.parse(readFileSync('scripts/onboard/fixtures/sample-salon-branch.answers.json', 'utf8')) as {
+    text: Record<string, string>; tick: Record<string, string[]>;
+    tables: { hours: string[][]; services: string[][]; staff: string[][]; faqs: string[][]; signer: string[] };
+  };
+  const a = read(SAMPLE);
+  const unread: string[] = [];
+  const norm = (x: string) => x.replace(/\s+/gu, ' ').trim();
+  for (const [id, v] of Object.entries(want.text)) if (norm(a.text[id] ?? '') !== norm(v)) unread.push(`text ${id}`);
+  for (const [id, ticks] of Object.entries(want.tick)) {
+    for (const t of ticks) {
+      const [label, extra] = t.split('|');
+      const c = (a.choices[id] ?? []).find((x) => x.label.startsWith(label!.slice(0, 6)));
+      if (c?.checked !== true || (extra !== undefined && c.extra !== extra)) unread.push(`tick ${id} ${t}`);
+    }
+    const ticked = (a.choices[id] ?? []).filter((x) => x.checked).length;
+    if (ticked !== ticks.length) unread.push(`tick ${id}: ${ticked} ticked, ${ticks.length} filled`);
+  }
+  want.tables.hours.forEach((r, i) => { if (a.hours[i]?.opens !== r[1] || a.hours[i]?.closes !== r[2]) unread.push(`hours row ${i}`); });
+  const rowsOf = (t: string[][]) => t.map((r) => norm(r.map(norm).join(' | ')));
+  assert.deepEqual(a.services.map((s) => norm([s.name, s.price, s.duration, s.note].join(' | '))), rowsOf(want.tables.services));
+  assert.deepEqual(a.staff.map((s) => norm([s.name, s.grade, s.branch, s.active].join(' | '))), rowsOf(want.tables.staff));
+  assert.deepEqual(a.faqs.map((f) => norm([f.question, f.answer].join(' | '))), rowsOf(want.tables.faqs));
+  assert.deepEqual([a.signer.name, a.signer.title, a.signer.date, a.signer.phone], want.tables.signer);
+  assert.deepEqual(unread, []);
+});
+
+test('the earlier Drive template and the form sent to clients read identically', () => {
+  assert.deepEqual(formBlocks('a.docx', readFileSync(BLANK)), formBlocks('b.docx', readFileSync(BLANK_V1)));
+});
+
+test('boxes marked the ways clients mark them: ✓, [x], X, or the answer typed beside them', () => {
+  assert.equal(readChoices('✓  Тийм\n☐  Үгүй')?.[0]?.checked, true);
+  assert.equal(readChoices('[x] Тийм\n[ ] Үгүй')?.[0]?.checked, true);
+  assert.equal(readChoices('X  Тийм\n☐  Үгүй')?.[0]?.checked, true);
+  assert.deepEqual(readChoices('☐  Тийм\n☐  Үгүй\nҮгүй')?.map((c) => c.checked), [false, true], 'typed «Үгүй» picks Үгүй');
+  assert.deepEqual(readChoices('☐  Тийм\n☐  Үгүй\nмэдэхгүй')?.map((c) => c.checked), [false, false], 'an unmatched word ticks nothing');
+  // The boxes deleted and «Тийм» typed in their place.
+  const md = readFileSync('scripts/onboard/fixtures/dali-form-blank.md', 'utf8')
+    .replace(/(\| \\\*\\\*2\.2 [^|]*\| )[^|]*\|/u, '$1Тийм |');
+  const r = readQuestionnaire(textBlocks(md));
+  assert.ok(r.ok);
+  assert.deepEqual(r.ok && r.answers.choices['2.2']?.map((c) => [c.label, c.checked]), [['Тийм', true]]);
 });
 
 test('a form whose numbering changed is REFUSED, never read by position (D-057)', () => {

@@ -65,6 +65,11 @@ export const FORM_FIELDS: Readonly<Record<string, string>> = {
   '11.6': 'бусад хүмүүс',
 };
 
+/** The questions that are answered with boxes on the form. */
+export const CHOICE_FIELDS: readonly string[] = [
+  '2.1', '2.2', '4.2', '5.1', '5.3', '6.1', '6.4', '8.1', '8.2', '8.3', '10.1', '10.2', '11.3', '11.5',
+];
+
 export type Choice = { label: string; checked: boolean; extra: string };
 
 export type HoursRow = { day: string; opens: string; closes: string };
@@ -107,7 +112,7 @@ function stripBlanks(s: string): string {
 export function readChoices(cell: string): Choice[] | null {
   const lines = tidy(cell).split('\n').filter((l) => l !== '');
   if (lines.length === 0 || !lines.some((l) => BOX.test(l))) return null;
-  return lines.filter((l) => BOX.test(l)).map((l) => {
+  const options = lines.filter((l) => BOX.test(l)).map((l) => {
     const checked = TICKED.test(l);
     const rest = l.replace(BOX, '').trim();
     // «Instagram (хаяг: …)», «Бусад: …», «Холбоос өгнө: …», «Тийм — аль нь: …»
@@ -116,6 +121,15 @@ export function readChoices(cell: string): Choice[] | null {
     const extra = colon === -1 ? '' : stripBlanks(rest.slice(colon + 1)).replace(/\)$/u, '').trim();
     return { label, checked, extra };
   });
+  // Nothing ticked, but the client TYPED an answer beside the boxes («Тийм»): the typed
+  // line chooses the option whose label it begins, when exactly one does. Anything else
+  // stays unanswered — a guess at a tick is a guess at an answer.
+  if (!options.some((o) => o.checked)) {
+    const typed = lines.filter((l) => !BOX.test(l)).map((l) => lower(stripBlanks(l)));
+    const hits = options.filter((o) => typed.some((t) => t !== '' && lower(o.label).startsWith(t)));
+    if (hits.length === 1) hits[0]!.checked = true;
+  }
+  return options;
 }
 
 const isHeader = (row: string[], ...cells: string[]): boolean =>
@@ -217,6 +231,14 @@ export function readQuestionnaire(blocks: readonly FormBlock[]):
     }
   }
 
+  // A checkbox question whose boxes the client deleted and answered in words («Тийм»): the
+  // words become the one ticked option. The questions with boxes are known from the form.
+  for (const id of CHOICE_FIELDS) {
+    if (choices[id] === undefined && (text[id] ?? '') !== '') {
+      choices[id] = [{ label: text[id]!.split('\n')[0]!, checked: true, extra: text[id]!.split('\n').slice(1).join(' ') }];
+      delete text[id];
+    }
+  }
   for (const id of Object.keys(FORM_FIELDS)) {
     if (!seen.has(id)) problems.push({ where: id, detail: `question «${id} ${FORM_FIELDS[id]}» was not found in the file` });
   }

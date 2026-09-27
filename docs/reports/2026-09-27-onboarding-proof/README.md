@@ -4,8 +4,9 @@
 every migration to `0063` applied, and a FICTIONAL salon branch, «Цэцэглэг Салон» (slug
 `tsetsegleg-demo`, Page id `990000000000001`, every name, number and link invented).
 
-The form: the founder's real blank «Дали — Мэдээлэл цуглуулах маягт», downloaded from Drive
-as Word, filled by `scripts/onboard/fixtures/fill.ts` with
+The form: «Дали_маягт_DalaTech.docx», the version the founder sends clients (rebuilt
+2026-09-27, `scripts/onboard/fixtures/dali-form-v2-blank.docx`; same questions, tables and
+text as the Drive template read first), filled by `scripts/onboard/fixtures/fill.ts` with
 `scripts/onboard/fixtures/sample-salon-branch.answers.json` → `sample-salon-branch.docx`.
 On purpose: two stylists of each gender, a deposit, one missing answer (no price for
 «Сормуус суулгалт»), and two confusable names («Хумс будалт» / «Гель хумс будалт»).
