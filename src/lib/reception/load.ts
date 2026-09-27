@@ -23,6 +23,7 @@ import { hasTomorrowSlot, nextLocalDate, renderTomorrowSlots } from './daySlots.
 import { loadBranchContext, type BranchContext } from '../branches/load.ts';
 import { parsePlaybook, type Playbook } from '../sales/nextStep.ts';
 import { replyStyleOf, type ReplyStyle } from './style.ts';
+import { lookupOf, resolveDeterministicRows, type LaunchRecord, type LaunchWithheld } from '../launch/launch.ts';
 
 export type TenantSettings = {
   defaultLocale: string;
@@ -98,6 +99,14 @@ export type ReceptionContext = {
   canned: CannedRow[];
   tenantGuard: TenantGuardView;
   cacheMode: 'off' | '5m' | '1h';
+  /**
+   * D-154. Which services are live, as the snapshot recorded them (or as a publish is about
+   * to record them, for the reply-case gate). null: the snapshot predates `0063`, and every
+   * fixed reply with a launch condition was withheld.
+   */
+  launchStates: LaunchRecord[] | null;
+  /** Fixed replies withheld by a launch condition or their pieces, with why. For operators. */
+  launchWithheld: LaunchWithheld[];
 };
 
 /**
@@ -255,7 +264,15 @@ export function linkValues(contacts: readonly { kind: string; value: string }[])
 
 export async function loadReceptionContext(
   db: SupabaseClient,
-  input: { tenantId: string; channel: string; settings: TenantSettings; localDate: string },
+  input: {
+    tenantId: string; channel: string; settings: TenantSettings; localDate: string;
+    /**
+     * D-154. The launch states to resolve the fixed replies against instead of the live
+     * snapshot's: the reply-case gate passes what a publish is about to freeze, so the cases
+     * judge the configuration that will go live. Never set on the reply path.
+     */
+    launchStates?: readonly LaunchRecord[];
+  },
 ): Promise<LoadOutcome> {
   const tSnapshot = Date.now();
   const snapshot = await loadLiveSnapshot(db, { tenantId: input.tenantId, channel: input.channel });
@@ -328,7 +345,7 @@ export async function loadReceptionContext(
       .eq('tenant_id', input.tenantId)
       .gte('ends_on', input.localDate),
     db.from('deterministic_replies')
-      .select('intent, body, web_body, enabled, match_mode, stems, cover_words, placement, quote_services, requires_empty_history, provenance, matcher')
+      .select('intent, body, web_body, enabled, match_mode, stems, cover_words, placement, quote_services, requires_empty_history, provenance, matcher, when_service_id, when_launch_state, items')
       .eq('tenant_id', input.tenantId),
     // Read for `allowedUrls` only. The section body itself is compiled at publish time by
     // `prompt/sections.ts`; this is the request-path half, because the URL guard runs
@@ -481,7 +498,12 @@ export async function loadReceptionContext(
     };
   });
 
-  const deterministic = withDaySlots(toDeterministic(detRes.data), {
+  // D-154. The switches as the SNAPSHOT recorded them, never `services.launch_state`: a switch
+  // flipped without a publish must change nothing, and one published must change the prefix
+  // and these rows at the same pointer move.
+  const launchStates = input.launchStates !== undefined ? [...input.launchStates] : snapshot.snapshot.launchStates;
+  const launch = resolveDeterministicRows(detRes.data, lookupOf(launchStates));
+  const deterministic = withDaySlots(toDeterministic(launch.rows), {
     localDate: input.localDate, hours, closures, branchCount: branches.length,
   });
 
@@ -525,6 +547,8 @@ export async function loadReceptionContext(
       canned: cannedRows,
       tenantGuard,
       cacheMode,
+      launchStates,
+      launchWithheld: launch.withheld,
     },
     // Measured across the whole function, so `batch` includes the row-shaping below it
     // rather than the network alone. That is the honest bound: it is the time the caller

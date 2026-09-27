@@ -29,6 +29,23 @@
  * visible in `ps` to every process on the box and land in shell history. Nothing here
  * prints it, and the summary below is safe to paste.
  *
+ * ## Flipping a launch switch (D-154)
+ *
+ *     # what Вира going live would publish, judged in full — writes NOTHING
+ *     … node scripts/publish/tenant.ts --slug dalatech --launch "Вира — маркетинг менежер=live"
+ *
+ *     # and then
+ *     … node scripts/publish/tenant.ts --slug dalatech --launch "Вира — маркетинг менежер=live" --publish
+ *
+ * `--launch "<service name>=live|preregistration"`, repeatable. The compile, the reply cases
+ * and the fact check all run against the switched states before anything is written. With
+ * `--publish`, the new states are written to `services.launch_state` and the tenant is
+ * published in the same run; if the publish then fails, the states are put back, so a switch
+ * is never left flipped in the rows while the snapshot says otherwise. The website and every
+ * channel read the snapshot, so they change at the publish's pointer move, together.
+ * A service with no priced variant cannot be switched live: the command refuses before the
+ * compile, so a staff member never goes live answering that its price is not announced.
+ *
  * ## Dry run by DEFAULT
  *
  * The compiled prefix is the prompt-cache key and the text a customer is answered from, so
@@ -46,6 +63,7 @@ import { caseModelSeat, gateTenant, renderGate } from '../../src/lib/replycases/
 import { callReception, type CallOutcome } from '../../src/lib/model/reception.ts';
 import { priceCall, type CacheMode } from '../../src/lib/spend/settle.ts';
 import { factGate } from '../facts/gate.ts';
+import { caseReferences, itemReferences, lookupOf, resolveDeterministicRows, LAUNCH_STATES, sameLaunch, type LaunchRecord, type LaunchState } from '../../src/lib/launch/launch.ts';
 
 function die(message: string): never {
   process.stderr.write(`publish: ${message}\n`);
@@ -64,6 +82,21 @@ if (process.argv.some((a) => a.startsWith('--key') || a.startsWith('--secret')))
 const slug = arg('slug') ?? '';
 if (!/^[a-z0-9-]{1,64}$/.test(slug)) die('--slug is required, e.g. --slug matrix-eco-salon');
 const doPublish = process.argv.includes('--publish');
+
+// `--launch "<service name>=<state>"`, as many as needed (D-154).
+const launch = new Map<string, LaunchState>();
+process.argv.forEach((a, i) => {
+  if (a !== '--launch') return;
+  const v = process.argv[i + 1] ?? '';
+  const at = v.lastIndexOf('=');
+  const name = at < 0 ? '' : v.slice(0, at).normalize('NFC').trim();
+  const state = at < 0 ? '' : v.slice(at + 1).trim();
+  if (name === '' || !(LAUNCH_STATES as readonly string[]).includes(state)) {
+    die(`--launch takes "<service name>=${LAUNCH_STATES.join('|')}", got ${JSON.stringify(v)}`);
+  }
+  if (launch.has(name) && launch.get(name) !== state) die(`--launch names «${name}» twice with different states`);
+  launch.set(name, state as LaunchState);
+});
 
 const db = supabasePublish();
 const now = new Date();
@@ -128,13 +161,86 @@ if (gaps.length > 0) {
 }
 process.stdout.write(`platform blocks: ${(blockRows ?? []).length} live, matching the signed set.\n`);
 
-const compiled = await compileStablePrefix(db, { tenantId, approvedAt: now.toISOString() });
+// ---- every launch condition names one of this tenant's services (D-154) ----------
+// The row-level conditions are foreign keys; the pieces of a templated reply are jsonb, so
+// they are checked here. A piece naming a service this tenant does not have is a switch that
+// can never be flipped, and it would silently never show.
+{
+  const [svcRes, detRes, caseRes] = await Promise.all([
+    db.from('services').select('id').eq('tenant_id', tenantId),
+    db.from('deterministic_replies').select('intent, items').eq('tenant_id', tenantId),
+    db.from('reply_cases').select('id, when_launch').eq('tenant_id', tenantId).eq('active', true),
+  ]);
+  if (svcRes.error) die(`services unreadable: ${svcRes.error.message}`);
+  if (detRes.error) die(`deterministic_replies unreadable: ${detRes.error.message}`);
+  if (caseRes.error) die(`reply_cases unreadable: ${caseRes.error.message}`);
+  const ids = new Set((svcRes.data ?? []).map((r) => String((r as Record<string, unknown>)['id']).toLowerCase()));
+  const dangling = [
+    ...itemReferences(detRes.data).filter((r) => !ids.has(r.serviceId)).map((d) => `fixed reply ${d.intent}: ${d.serviceId}`),
+    ...caseReferences(caseRes.data).filter((r) => r.serviceId === null || !ids.has(r.serviceId))
+      .map((c) => `reply case ${c.id}: ${c.serviceId ?? 'when_launch does not parse'}`),
+  ];
+  if (dangling.length > 0) {
+    die(`launch conditions name services this tenant does not have:\n  ${dangling.join('\n  ')}`);
+  }
+}
+
+// ---- a service goes live only with a price (founder, 2026-09-27) -------------------
+// Live mode answers «how much?» from the price rows. A service with no priced variant would
+// go live saying its price is not announced, so the switch refuses until a price exists.
+{
+  const toLive = [...launch].filter(([, state]) => state === 'live').map(([name]) => name);
+  if (toLive.length > 0) {
+    const [svcRes, varRes] = await Promise.all([
+      db.from('services').select('id, name').eq('tenant_id', tenantId),
+      db.from('service_variants').select('service_id, price_min').eq('tenant_id', tenantId),
+    ]);
+    if (svcRes.error) die(`services unreadable: ${svcRes.error.message}`);
+    if (varRes.error) die(`service_variants unreadable: ${varRes.error.message}`);
+    const priced = new Set((varRes.data ?? [])
+      .filter((v) => (v as Record<string, unknown>)['price_min'] !== null)
+      .map((v) => String((v as Record<string, unknown>)['service_id'])));
+    const unpriced = toLive.filter((name) => (svcRes.data ?? []).some((s) => {
+      const r = s as Record<string, unknown>;
+      return String(r['name']).normalize('NFC') === name && !priced.has(String(r['id']));
+    }));
+    if (unpriced.length > 0) {
+      die(`cannot go live without a price: ${unpriced.map((n) => `«${n}»`).join(', ')}. Add its price rows first.`);
+    }
+  }
+}
+
+const compiled = await compileStablePrefix(db, {
+  tenantId, approvedAt: now.toISOString(), ...(launch.size === 0 ? {} : { launch }),
+});
 if (!compiled.ok) {
   die(compiled.code === 'refused'
     ? `compile REFUSED (${compiled.refusal.code}): ${compiled.refusal.sections.join(', ')}`
     : `compile failed (${compiled.code}): ${compiled.detail}`);
 }
 const { rendered } = compiled;
+
+// D-154: a fixed reply whose condition or pieces do not parse would never answer, in any
+// state, with nothing said. Refused here, where an operator reads it, instead.
+{
+  const { data: detRows, error: detErr } = await db.from('deterministic_replies')
+    .select('intent, body, web_body, matcher, when_service_id, when_launch_state, items').eq('tenant_id', tenantId).eq('enabled', true);
+  if (detErr) die(`deterministic_replies unreadable: ${detErr.message}`);
+  const broken = resolveDeterministicRows(detRows, lookupOf(compiled.launch)).withheld
+    .filter((w) => w.reason === 'bad_condition' || w.reason === 'bad_items');
+  if (broken.length > 0) {
+    die(`fixed replies that can never answer (their launch condition or pieces do not parse):\n  ${broken.map((w) => `${w.intent}: ${w.reason}`).join('\n  ')}`);
+  }
+}
+
+// The switches, before and after. Printed on every run: which services this publish says are
+// live is the one line the website and every channel will change on.
+const liveLaunch: LaunchRecord[] | null = before?.launchStates ?? null;
+const launchLine = (r: LaunchRecord): string => {
+  const was = liveLaunch?.find((x) => x.serviceId === r.serviceId)?.state ?? null;
+  return `  ${r.state === 'live' ? 'LIVE      ' : 'PRE-REG   '} ${r.name}${was !== null && was !== r.state ? `  (was ${was})` : was === null ? '  (not recorded before)' : ''}`;
+};
+process.stdout.write(`launch          ${sameLaunch(liveLaunch, compiled.launch) ? 'unchanged' : 'CHANGES'}\n${compiled.launch.map(launchLine).join('\n')}\n`);
 
 const marker = `=== ${SECTION_LABELS.dataMarker} ===`;
 const hadMarker = before === null ? null : before.promptStable.split('\n').some((l) => l.trim() === marker);
@@ -200,7 +306,9 @@ if (!hasMarker) {
       handoff line and starts answering from its own knowledge base. Read the order above.\n`);
 }
 
-const need = publishNeeded(channels, liveByChannel, { contentHash: rendered.contentHash, cannedHash: compiled.cannedHash });
+const need = publishNeeded(channels, liveByChannel, {
+  contentHash: rendered.contentHash, cannedHash: compiled.cannedHash, launchStates: compiled.launch,
+});
 if (!need.needed) {
   process.stdout.write(`\nThe compiled prefix is byte-identical to the live one on every channel (${channels.join(', ')}). Nothing to publish.\n`);
   process.exit(0);
@@ -232,6 +340,7 @@ const gate = await gateTenant(db, {
   compiled: {
     promptStable: rendered.promptStable, allowedNumbers: rendered.allowedNumbers,
     cannedHash: compiled.cannedHash, promptGate: rendered.promptGate,
+    launchStates: compiled.launch,
   },
 });
 const verdict = renderGate([gate]);
@@ -294,8 +403,81 @@ const { data: draft, error: draftErr } = await db
 if (draftErr) die(`could not create the draft revision: ${draftErr.message}`);
 const revisionId = String((draft as Record<string, unknown>)['id']);
 
-const out = await compileAndPublish(db, { tenantId, revisionId, channels, now });
-if (!out.ok) die(`publish failed (${out.code}): ${out.detail}`);
+// D-154: the switches go into the rows first, so the compile that publishes reads them and
+// the next plain publish keeps them. If anything after this fails, they are put back.
+// Matched by NFC name, the form `--launch` and the compile's override both use.
+const flips = compiled.launch.filter((r) => launch.has(r.name.normalize('NFC')));
+const priorState = new Map<string, LaunchState>();
+if (flips.length > 0) {
+  const { data: cur, error: curErr } = await db.from('services').select('id, launch_state').eq('tenant_id', tenantId);
+  if (curErr) die(`services unreadable: ${curErr.message}`);
+  for (const r of (cur ?? []) as Record<string, unknown>[]) priorState.set(String(r['id']), r['launch_state'] as LaunchState);
+  // The way back, printed BEFORE anything is written: if this process dies between the flip
+  // and the publish, the operator has the exact SQL, and the next publish must not run first.
+  process.stdout.write(`\nFlipping ${flips.map((f) => `«${f.name}» → ${f.state}`).join(', ')}. If this run dies before «PUBLISHED»,\n`
+    + `restore the rows before anything else is published:\n`
+    + flips.map((f) => `  update services set launch_state = '${priorState.get(f.serviceId) ?? 'preregistration'}' where id = '${f.serviceId}';`).join('\n') + '\n');
+}
+
+/** The live revision now, or null when it cannot be read. */
+async function liveRevision(): Promise<string | null> {
+  const { data, error } = await db.from('tenants').select('live_revision_id').eq('id', tenantId).maybeSingle();
+  if (error || data === null) return null;
+  const v = (data as Record<string, unknown>)['live_revision_id'];
+  return typeof v === 'string' ? v : null;
+}
+
+/**
+ * Put the switches back — but only when the new revision is NOT live. A publish can report a
+ * failure after its pointer move committed (a lost response); reverting the rows then would
+ * leave rows saying one thing under a live snapshot saying another. When that cannot be
+ * told, nothing is reverted and the operator is told exactly what to check.
+ */
+async function putBack(reason: string): Promise<void> {
+  if (flips.length === 0) return;
+  const live = await liveRevision();
+  if (live === revisionId) {
+    process.stderr.write(`publish: ${reason}, but revision ${revisionId} IS live. The switches stay as published.\n`);
+    return;
+  }
+  if (live === null) {
+    process.stderr.write(`publish: ${reason}, and which revision is live could not be read. The switches were NOT put back.\n`
+      + `  Check tenants.live_revision_id; if it is not ${revisionId}, run the restore SQL printed above.\n`);
+    return;
+  }
+  for (const f of flips) {
+    const was = priorState.get(f.serviceId);
+    if (was === undefined || was === f.state) continue;
+    const { error } = await db.from('services').update({ launch_state: was }).eq('tenant_id', tenantId).eq('id', f.serviceId);
+    if (error) {
+      process.stderr.write(`publish: COULD NOT PUT BACK «${f.name}» to ${was}: ${error.message}\n`
+        + `  run: update services set launch_state = '${was}' where id = '${f.serviceId}';\n`);
+    }
+  }
+}
+
+let out: Awaited<ReturnType<typeof compileAndPublish>>;
+try {
+  for (const f of flips) {
+    const { error } = await db.from('services').update({ launch_state: f.state }).eq('tenant_id', tenantId).eq('id', f.serviceId);
+    if (error) throw new Error(`could not set «${f.name}» to ${f.state}: ${error.message}`);
+  }
+  out = await compileAndPublish(db, { tenantId, revisionId, channels, now });
+} catch (err) {
+  // A throw anywhere between the first flip and the publish's answer: never leave rows flipped.
+  const why = err instanceof Error ? err.message : String(err);
+  await putBack(why);
+  die(`${why}. Nothing was published by this run.`);
+}
+if (!out.ok) {
+  await putBack(`publish failed (${out.code})`);
+  die(`publish failed (${out.code}): ${out.detail}`);
+}
+// The rows were read again by that compile; if anything else changed them in between, what
+// went live is not what was judged above.
+if (!sameLaunch(out.launch, compiled.launch)) {
+  die(`published, but the launch states it read differ from the ones judged above. Re-run the dry run and read it.`);
+}
 
 process.stdout.write(`\nPUBLISHED  seq ${nextSeq}  revision ${out.revisionId}  content_hash ${out.contentHash}\n`);
 
@@ -310,6 +492,9 @@ for (const channel of channels) {
   }
   if (after.snapshot.cannedHash !== compiled.cannedHash) {
     die(`published, but ${channel}'s canned_hash reads ${String(after.snapshot.cannedHash)}, not ${compiled.cannedHash}`);
+  }
+  if (!sameLaunch(after.snapshot.launchStates, compiled.launch)) {
+    die(`published, but ${channel}'s launch states do not read back as compiled`);
   }
 }
 process.stdout.write(`Read back through loadLiveSnapshot on ${channels.join(', ')}: the reply path sees it.\n`);

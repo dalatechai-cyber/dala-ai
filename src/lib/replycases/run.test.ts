@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { judge, renderGate, runCases, withCompiled, type ReplyCase } from './run.ts';
+import { casesFor, judge, renderGate, runCases, withCompiled, type ReplyCase } from './run.ts';
 import type { ReceptionContext } from '../reception/load.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
@@ -24,6 +24,8 @@ const CTX: ReceptionContext = {
     maxReplyChars: 1900,
   },
   cacheMode: 'off',
+  launchStates: null,
+  launchWithheld: [],
 };
 
 function kase(over: Partial<ReplyCase>): ReplyCase {
@@ -206,4 +208,27 @@ test('DONE-TEST: a WEBSITE case gets the row\'s website version and no own-site 
   assert.equal(page?.pass, true, page?.why.join('; '));
   assert.equal(webWho?.pass, true, webWho?.why.join('; '));
   assert.equal(pageWho?.pass, true, pageWho?.why.join('; '));
+});
+
+const SVC = '22222222-2222-4222-8222-222222222222';
+test('D-154: a case about one launch state is judged only against a configuration in that state', () => {
+  const live = kase({ id: 2, conditions: [{ serviceId: SVC, state: 'live' }] });
+  const soon = kase({ id: 3, conditions: [{ serviceId: SVC, state: 'preregistration' }] });
+  const always = kase({ id: 4 });
+  const states = (state: 'live' | 'preregistration') => [{ serviceId: SVC, name: 'A — a', state }];
+  assert.deepEqual(casesFor([live, soon, always], states('live')).apply.map((c) => c.id), [2, 4]);
+  assert.deepEqual(casesFor([live, soon, always], states('preregistration')).apply.map((c) => c.id), [3, 4]);
+  // No record (a snapshot before 0063): only the unconditioned cases can be judged.
+  const none = casesFor([live, soon, always], null);
+  assert.deepEqual(none.apply.map((c) => c.id), [4]);
+  assert.deepEqual(none.otherState.map((c) => c.id), [2, 3]);
+  // A half-written condition never holds: the case is counted, never run against a guess.
+  assert.deepEqual(casesFor([kase({ id: 5, conditions: 'bad' })], states('live')).apply, []);
+  // Several conditions: every one must hold («the overview, exactly» needs all the switches).
+  const SVC2 = '33333333-3333-4333-8333-333333333333';
+  const both = kase({ id: 6, conditions: [{ serviceId: SVC, state: 'live' }, { serviceId: SVC2, state: 'live' }] });
+  const recs = (a: 'live' | 'preregistration', b: 'live' | 'preregistration') =>
+    [{ serviceId: SVC, name: 'A — a', state: a }, { serviceId: SVC2, name: 'B — b', state: b }];
+  assert.deepEqual(casesFor([both], recs('live', 'live')).apply.map((c) => c.id), [6]);
+  assert.deepEqual(casesFor([both], recs('live', 'preregistration')).apply, []);
 });

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { loadLiveSnapshot, publishNeeded, publishRevision, rollbackTo } from './publish.ts';
 import type { LoadOutcome } from './publish.ts';
 import type { Rendered } from './render.ts';
+import type { LaunchRecord } from '../launch/launch.ts';
 
 const RENDERED: Rendered = {
   promptStable: 'compiled prefix',
@@ -206,9 +207,9 @@ test('a missing snapshot for the channel refuses', async () => {
 // D-142: a publish is judged over every channel, not the first one
 // ---------------------------------------------------------------------------
 
-const snap = (channel: string, contentHash: string, cannedHash: string | null = 'c1') => ({
+const snap = (channel: string, contentHash: string, cannedHash: string | null = 'c1', launchStates: LaunchRecord[] | null = null) => ({
   ok: true as const,
-  snapshot: { revisionId: 'r', channel, contentHash, promptStable: '', allowedNumbers: [], cannedHash, promptGate: null },
+  snapshot: { revisionId: 'r', channel, contentHash, promptStable: '', allowedNumbers: [], cannedHash, promptGate: null, launchStates },
 });
 const noSnap = { ok: false as const, code: 'no_snapshot' as const, detail: 'no snapshot for channel instagram' };
 const COMPILED = { contentHash: 'h1', cannedHash: 'c1' };
@@ -237,4 +238,18 @@ test('a changed prefix, a changed canned hash, or no live revision at all each n
   const none = { ok: false as const, code: 'no_live_revision' as const, detail: '' };
   assert.deepEqual(publishNeeded(['facebook_page'], new Map([['facebook_page', none]]), COMPILED),
     { needed: true, missing: ['facebook_page'], changed: [] });
+});
+
+const SVC = '11111111-1111-4111-8111-111111111111';
+test('D-154: A FLIPPED SWITCH NEEDS A PUBLISH even when no byte of the prefix changed', () => {
+  // A service whose only conditioned rows are fixed replies: the prefix is identical, and the
+  // switch still has to reach the snapshot, because the fixed replies read it from there.
+  const before = [{ serviceId: SVC, name: 'A — a', state: 'preregistration' as const }];
+  const after = [{ serviceId: SVC, name: 'A — a', state: 'live' as const }];
+  const live = new Map([['web', snap('web', 'h1', 'c1', before)]]);
+  assert.deepEqual(publishNeeded(['web'], live, { ...COMPILED, launchStates: after }), { needed: true, missing: [], changed: ['web'] });
+  assert.deepEqual(publishNeeded(['web'], live, { ...COMPILED, launchStates: before }), { needed: false });
+  // A snapshot from before 0063 has no record; the first compile that has one is a change.
+  const old = new Map([['web', snap('web', 'h1', 'c1', null)]]);
+  assert.deepEqual(publishNeeded(['web'], old, { ...COMPILED, launchStates: before }), { needed: true, missing: [], changed: ['web'] });
 });

@@ -228,7 +228,7 @@ async function tenantReport(
     db.from('outbound_messages').select('id, conversation_id, dedup_key, body, created_at')
       .eq('tenant_id', t.id).eq('kind', 'reply').eq('state', 'sent').gte('created_at', since),
     db.from('canned_responses').select('kind, body, reviewed_at').eq('tenant_id', t.id),
-    db.from('deterministic_replies').select('body, enabled, match_mode, stems').eq('tenant_id', t.id),
+    db.from('deterministic_replies').select('body, enabled, match_mode, stems, items').eq('tenant_id', t.id),
     db.from('reply_cases').select('id, source_outbound_id, active').eq('tenant_id', t.id),
   ]);
   for (const [name, res] of [['messages', msgs], ['outbound_messages', replies], ['canned_responses', canned],
@@ -278,7 +278,15 @@ async function tenantReport(
     formerNames: t.formerNames,
     approvedTexts: [
       ...reviewed.map((r) => String(r['body'] ?? '')),
-      ...rows(det.data).filter((r) => r['enabled'] === true).map((r) => String(r['body'] ?? '')),
+      // A templated reply (D-154) is approved line by line: its fixed lines and every piece.
+      ...rows(det.data).filter((r) => r['enabled'] === true).flatMap((r) => {
+        const body = String(r['body'] ?? '');
+        if (!body.includes('{{')) return [body];
+        const pieces = Array.isArray(r['items']) ? (r['items'] as Record<string, unknown>[]).map((i) => String(i?.['body'] ?? '')) : [];
+        // A line with a slot is approved around it: the words either side of each slot.
+        const around = body.split('\n').flatMap((l) => l.split(/\{\{[^{}]*\}\}/u));
+        return [...around, ...pieces].map((l) => l.trim()).filter((l) => l !== '' && l !== ',');
+      }),
     ],
   });
 

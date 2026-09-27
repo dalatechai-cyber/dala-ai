@@ -742,6 +742,36 @@ none are kept on a complaint or a refusal. NULL, or a malformed value, changes n
   `lastRunAt`, `lastError`, `backoffUntil`. NULL: not polling. Cleared by the poller when the
   channel's comment switch is off, so re-enabling starts a new watermark.
 
+### `0063_service_launch_state`
+
+**Additive** (D-154). A service's launch switch, and the conditions that let one set of rows
+speak for a service in either state.
+
+- `services.launch_state text not null default 'live'`, CHECK `('live','preregistration')`.
+  Every existing service reads `live`, which is what every service meant before. **Nothing on
+  the reply path or the website reads this column**: the compile reads it and freezes it.
+- `config_snapshots.launch_states jsonb` (nullable, CHECK array): `[{service_id, name, state}]`
+  for every active service, as compiled (`publishRevision`). The one record the fixed replies,
+  the reply cases and `GET /api/web/launch/<channel>` read. **NULL is a format marker** (the
+  snapshot predates `0063`): a conditioned row or piece never holds against it; unconditioned
+  rows are untouched. Never backfilled (append-only table).
+- `knowledge_documents` and `deterministic_replies` each gain `when_service_id uuid` and
+  `when_launch_state text`: both or neither (CHECK), the state from the same two values, and a
+  composite FK `(tenant_id, when_service_id) → services (tenant_id, id)` (NO ACTION, so a tenant
+  delete still cascades and a service a row still names cannot be deleted). Indexed. A
+  document is compiled, and a fixed reply answers, only while its service is in that state.
+- `reply_cases.when_launch jsonb` (nullable, CHECK array): `[{service_id, state}, …]`, every
+  entry must hold for the case to be judged («the price overview, exactly» depends on every
+  switch at once). Checked at publish (not a FK: jsonb).
+- `deterministic_replies.items jsonb` (nullable, CHECK array): the pieces a `{{slot}}` in `body`
+  / `web_body` is filled with — `[{slot, body, service_id?, state?, words?}]`, parsed by
+  `src/lib/launch/launch.ts`. A line that is only `{{slot}}` becomes the holding pieces one per
+  line; a slot inside words becomes them joined by «, »; a line whose slot is empty is dropped;
+  a row with nothing left to say, or with pieces that do not parse, does not answer. A matcher
+  may contain `{"mode":"item_words"}`, expanded to `has_word` over the holding pieces' `words`.
+  Service ids in pieces are checked by `scripts/publish/tenant.ts` (not a FK: jsonb).
+- **Nothing for an INSERT** needs to change: every new column is nullable or defaulted.
+
 ### `0062_tenant_media_handoff_alert`
 
 **Additive.** `tenants.media_handoff_alert boolean not null default true` (D-153). When false,

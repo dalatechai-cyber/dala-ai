@@ -326,10 +326,10 @@ test('the loader ASKS for provenance — a select that forgets it excludes every
 
 /** Rows whose collation order differs between C.UTF-8 and en_US.UTF-8. Measured, not guessed. */
 const SERVICES = [
-  { id: 's1', name: 'Үс засалт' },
-  { id: 's2', name: 'үс будалт' },
-  { id: 's3', name: 'Чёлк тайралт' },
-  { id: 's4', name: 'Челк тайралт' },
+  { id: 's1', name: 'Үс засалт', launch_state: 'live' },
+  { id: 's2', name: 'үс будалт', launch_state: 'live' },
+  { id: 's3', name: 'Чёлк тайралт', launch_state: 'live' },
+  { id: 's4', name: 'Челк тайралт', launch_state: 'live' },
 ];
 /**
  * Ordinal order and alphabetical order DISAGREE here, deliberately. «Ямар» (Я, U+042F)
@@ -639,4 +639,58 @@ test('order does not decide the winner — the generic row may come second', asy
   const { db } = stubDb({ data: rows, error: null });
   const out = await loadPromptSections(db, { tenantId: TENANT, vertical: 'salon' });
   assert.deepEqual(out.ok ? out.sections.map((x) => x.body) : [], ['Салон.']);
+});
+
+// ---------------------------------------------------------------------------
+// D-154: a service's launch switch chooses which documents are compiled
+// ---------------------------------------------------------------------------
+
+const SWITCHED = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+const SWITCH_DOCS = [
+  { title: 'Анар — зөвлөх (УДАХГҮЙ)', body: 'урьдчилан бүртгэл', when_service_id: SWITCHED, when_launch_state: 'preregistration' },
+  { title: 'Анар — зөвлөх (ИДЭВХТЭЙ)', body: 'ажиллаж байна', when_service_id: SWITCHED, when_launch_state: 'live' },
+  { title: 'Нийтлэг', body: 'бүгдэд', when_service_id: null, when_launch_state: null },
+];
+
+function switchDb(state: string) {
+  return stubDb(
+    { data: [block({ block_key: 'gate', body: 'Ш0. дүрэм' })], error: null },
+    {
+      services: { data: [{ id: SWITCHED, name: 'Анар — зөвлөх', launch_state: state }], error: null },
+      service_variants: { data: [{ service_id: SWITCHED, variant_key: '', price_kind: 'exact', price_min: '350000.00', price_max: null, refusal_topic: null }], error: null },
+      knowledge_documents: { data: SWITCH_DOCS, error: null },
+    },
+  ).db;
+}
+
+test('DONE-TEST: THE SWITCH CHOOSES THE DOCUMENT — the prefix carries one state of a service, never both', async () => {
+  const soon = await compileStablePrefix(switchDb('preregistration'), { tenantId: TENANT, approvedAt: APPROVED });
+  assert.equal(soon.ok, true);
+  if (!soon.ok) return;
+  assert.ok(soon.rendered.promptStable.includes('(УДАХГҮЙ)'));
+  assert.equal(soon.rendered.promptStable.includes('(ИДЭВХТЭЙ)'), false);
+  assert.ok(soon.rendered.promptStable.includes('Нийтлэг'), 'a document with no condition is always compiled');
+  assert.deepEqual(soon.launch, [{ serviceId: SWITCHED, name: 'Анар — зөвлөх', state: 'preregistration' }]);
+
+  const live = await compileStablePrefix(switchDb('live'), { tenantId: TENANT, approvedAt: APPROVED });
+  assert.ok(live.ok && live.rendered.promptStable.includes('(ИДЭВХТЭЙ)') && !live.rendered.promptStable.includes('(УДАХГҮЙ)'));
+
+  // The publish command's --launch: the same rows, judged as if the switch were flipped.
+  const judged = await compileStablePrefix(switchDb('preregistration'), {
+    tenantId: TENANT, approvedAt: APPROVED, launch: new Map([['Анар — зөвлөх', 'live' as const]]),
+  });
+  assert.ok(judged.ok && live.ok);
+  if (judged.ok && live.ok) {
+    assert.equal(judged.rendered.contentHash, live.rendered.contentHash, 'an override compiles exactly what the flipped row would');
+    assert.equal(judged.launch[0]?.state, 'live');
+  }
+});
+
+test('an override naming no service, or a row with no readable state, refuses the compile', async () => {
+  const unknown = await compileStablePrefix(switchDb('live'), {
+    tenantId: TENANT, approvedAt: APPROVED, launch: new Map([['Хэн ч биш', 'live' as const]]),
+  });
+  assert.ok(!unknown.ok && unknown.code === 'unavailable' && unknown.detail.includes('Хэн ч биш'));
+  const unread = await compileStablePrefix(switchDb('on'), { tenantId: TENANT, approvedAt: APPROVED });
+  assert.ok(!unread.ok && unread.code === 'unavailable' && unread.detail.includes('launch_state'));
 });

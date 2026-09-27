@@ -51,6 +51,7 @@ import { MIN_BRANCHES, renderTenantSections, type BranchKb, type PriceKind, type
 import { branchTerms } from '../branches/branches.ts';
 import { isTenantConfirmed, unconfirmedNames } from '../provenance.ts';
 import { byCodePoint } from '../mn/text.ts';
+import { conditionOf, holds, lookupOf, withOverrides, type LaunchRecord, type LaunchState } from '../launch/launch.ts';
 
 /** Layers the compiler renders. A row with `layer` null is not a prompt section at all —
  *  the data-deletion status strings and the comment reply template live in the same table
@@ -185,7 +186,12 @@ export type KbProvenance = {
 export const NO_UNCONFIRMED: KbProvenance = { faqsExcluded: [], refusalTopicsUnconfirmed: [], branchesExcluded: [] };
 
 export type TenantKbOutcome =
-  | { ok: true; kb: TenantKb; unconfirmed: KbProvenance }
+  /**
+   * `launch`: every active service's launch state as this compile read it, overrides applied
+   * (D-154). The documents in `kb` were chosen against exactly these states, and the snapshot
+   * stores them, so what the prefix says and what the fixed replies answer cannot disagree.
+   */
+  | { ok: true; kb: TenantKb; unconfirmed: KbProvenance; launch: LaunchRecord[] }
   | { ok: false; detail: string };
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === null || v === undefined ? '' : String(v));
@@ -262,7 +268,16 @@ const rows = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v a
  */
 export async function loadTenantKb(
   db: SupabaseClient,
-  input: { tenantId: string },
+  input: {
+    tenantId: string;
+    /**
+     * D-154. Launch states to compile with instead of the rows', by service NAME: the
+     * publish command's `--launch`, so a switch can be judged — every document, reply case
+     * and fact check — before anything is written. An override naming no active service
+     * refuses: a switch that flips nothing must not look like one that worked.
+     */
+    launch?: ReadonlyMap<string, LaunchState>;
+  },
 ): Promise<TenantKbOutcome> {
   const t = input.tenantId;
   const [
@@ -276,13 +291,13 @@ export async function loadTenantKb(
     db.from('disambiguation_pairs').select('trigger_term, question').eq('tenant_id', t).order('trigger_term'),
     db.from('price_axes').select('axis, verbatim_question').eq('tenant_id', t).order('ordinal').order('axis'),
     db.from('deposit_rules').select('applies_to, rule_text').eq('tenant_id', t).order('ordinal').order('applies_to'),
-    db.from('knowledge_documents').select('title, body').eq('tenant_id', t).order('title'),
+    db.from('knowledge_documents').select('title, body, when_service_id, when_launch_state').eq('tenant_id', t).order('title'),
     // Every locale, filtered below against the tenant's own. The locale is read in this
     // same batch, so it is not available to put in the query — and one extra column beats
     // a second round trip in a function whose header explains why it loads atomically.
     db.from('canned_responses').select('kind, body, locale').eq('tenant_id', t).order('kind'),
     db.from('staff_members').select('name, short_name, group_name, tier').eq('tenant_id', t).eq('active', true).order('group_name').order('name'),
-    db.from('services').select('id, name').eq('tenant_id', t).eq('active', true).order('name'),
+    db.from('services').select('id, name, launch_state').eq('tenant_id', t).eq('active', true).order('name'),
     db.from('service_variants').select('id, service_id, variant_key, price_kind, price_min, price_max, refusal_topic').eq('tenant_id', t).order('variant_key'),
     db.from('faqs').select('question, answer, provenance').eq('tenant_id', t).order('ordinal').order('question'),
     db.from('contact_points').select('kind, value').eq('tenant_id', t).order('kind'),
@@ -308,6 +323,28 @@ export async function loadTenantKb(
     if (res.error) return { ok: false, detail: `${name} unreadable: ${res.error.message}` };
   }
   if (tenant.data === null) return { ok: false, detail: 'no such tenant' };
+
+  // D-154. The states this compile is made against: the rows', with any operator override.
+  // A state the database would refuse cannot arrive here, but a row read through a client
+  // that predates the column would carry none; that is refused rather than read as `live`,
+  // because reading it as live is exactly the claim that must never be made by accident.
+  const serviceRows = ordered(rows(services.data), (r) => str(r['name']), (r) => str(r['id']));
+  const unreadState = serviceRows.filter((r) => r['launch_state'] !== 'live' && r['launch_state'] !== 'preregistration');
+  if (unreadState.length > 0) {
+    return { ok: false, detail: `services.launch_state unreadable for ${unreadState.map((r) => `«${str(r['name'])}»`).join(', ')}` };
+  }
+  const applied = withOverrides(
+    serviceRows.map((r) => ({ serviceId: str(r['id']), name: str(r['name']), state: r['launch_state'] as LaunchState })),
+    input.launch ?? new Map(),
+  );
+  if (applied.unknown.length > 0) {
+    return { ok: false, detail: `--launch names no active service: ${applied.unknown.map((n) => `«${n}»`).join(', ')}` };
+  }
+  const launch = applied.records;
+  const launchLookup = lookupOf(launch);
+  // A document whose condition names a service that is not active (or not this tenant's)
+  // never holds, and says so here rather than vanishing from the prefix unexplained.
+  const documentRows = rows(documents.data).filter((r) => holds(conditionOf(r['when_service_id'], r['when_launch_state']), launchLookup));
 
   // D-020, the facts half. Split rather than filtered inline so the excluded ones can be
   // named: a FAQ that vanished from the prompt with nothing said about it is the silence
@@ -404,6 +441,7 @@ export async function loadTenantKb(
   return {
     ok: true,
     unconfirmed: { faqsExcluded, refusalTopicsUnconfirmed, branchesExcluded },
+    launch,
     kb: {
       currencySymbol: str(tRow['currency_symbol']) || '\u20ae',
       currencySymbolBefore: tRow['currency_symbol_before'] === true,
@@ -427,7 +465,7 @@ export async function loadTenantKb(
       ],
       deposits: ordered(rows(deposits.data), (r) => num(r['ordinal']), (r) => str(r['applies_to']), (r) => str(r['rule_text']))
         .map((r) => `${str(r['applies_to'])}: ${str(r['rule_text'])}`),
-      documents: ordered(rows(documents.data), (r) => str(r['title']), (r) => str(r['body']))
+      documents: ordered(documentRows, (r) => str(r['title']), (r) => str(r['body']))
         .map((r) => ({ title: str(r['title']), body: str(r['body']) })),
       // The tenant's own locale, filtered here rather than in SQL. `reception/load.ts`
       // filters the same set with `.eq('locale', …)` at request time; the two must select
@@ -442,7 +480,7 @@ export async function loadTenantKb(
           name: str(r['name']), shortName: orNull(r['short_name']),
           groupName: orNull(r['group_name']), tier: orNull(r['tier']),
         })),
-      services: ordered(rows(services.data), (r) => str(r['name']), (r) => str(r['id'])).map((r) => ({
+      services: serviceRows.map((r) => ({
         name: str(r['name']),
         variants: byService.get(str(r['id'])) ?? [],
       })),
@@ -466,7 +504,7 @@ export async function loadTenantKb(
 }
 
 export type CompileOutcome =
-  | { ok: true; rendered: Rendered; sectionCount: number; unconfirmed: KbProvenance; cannedHash: string }
+  | { ok: true; rendered: Rendered; sectionCount: number; unconfirmed: KbProvenance; cannedHash: string; launch: LaunchRecord[] }
   | { ok: false; code: 'unavailable'; detail: string }
   /** The renderer refused. Every case names the sections responsible. */
   | { ok: false; code: 'refused'; refusal: RenderRefusal }
@@ -489,7 +527,7 @@ export type CompileOutcome =
  */
 export async function compileStablePrefix(
   db: SupabaseClient,
-  input: { tenantId: string; approvedAt: string },
+  input: { tenantId: string; approvedAt: string; launch?: ReadonlyMap<string, LaunchState> },
 ): Promise<CompileOutcome> {
   // The tenant's vertical selects which per-vertical platform blocks apply (0018). Read
   // before the blocks rather than alongside them: an unreadable tenant must not silently
@@ -507,7 +545,7 @@ export async function compileStablePrefix(
   // L2/L3 from the tenant's own rows. `prompt_blocks` can also hold tenant-scope sections
   // and both are merged here; today nothing writes those, so in practice this is the
   // platform gate plus the rendered knowledge base.
-  const kb = await loadTenantKb(db, { tenantId: input.tenantId });
+  const kb = await loadTenantKb(db, { tenantId: input.tenantId, ...(input.launch === undefined ? {} : { launch: input.launch }) });
   if (!kb.ok) return { ok: false, code: 'unavailable', detail: kb.detail };
 
   const sections = [...loaded.sections, ...renderTenantSections(kb.kb, input.approvedAt)];
@@ -535,6 +573,7 @@ export async function compileStablePrefix(
         // request time, and every reply would report as stale. Hashing the same function's
         // output on both sides makes the empty case agree with itself.
         cannedHash: cannedHashOf(kb.kb.canned),
+        launch: kb.launch,
       }
     : { ok: false, code: 'refused', refusal: result.refusal };
 }
@@ -546,7 +585,7 @@ export type CompilePublishOutcome =
    * four FAQs is a successful publish of a different configuration, and a caller that
    * never sees which rows were withheld cannot tell the two apart.
    */
-  | { ok: true; revisionId: string; contentHash: string; sectionCount: number; unconfirmed: KbProvenance }
+  | { ok: true; revisionId: string; contentHash: string; sectionCount: number; unconfirmed: KbProvenance; launch: LaunchRecord[] }
   | { ok: false; code: 'unavailable' | 'refused' | 'no_gate' | 'publish_failed' | 'no_snapshot' | 'not_draft'; detail: string };
 
 /**
@@ -605,6 +644,9 @@ export async function compileAndPublish(
       channel,
       rendered: compiled.rendered,
       cannedHash: compiled.cannedHash,
+      // D-154: the switches, frozen with the prefix they were compiled into. Always from the
+      // rows here: an operator's `--launch` is written to the rows before this runs.
+      launchStates: compiled.launch,
       compiledBy: input.compiledBy ?? null,
     })),
     now: input.now,
@@ -618,6 +660,7 @@ export async function compileAndPublish(
         contentHash: compiled.rendered.contentHash,
         sectionCount: compiled.sectionCount,
         unconfirmed: compiled.unconfirmed,
+        launch: compiled.launch,
       }
     : { ok: false, code: published.code, detail: published.detail };
 }

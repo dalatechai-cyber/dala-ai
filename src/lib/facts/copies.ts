@@ -8,6 +8,8 @@ import type { FactCopy, FactService } from './consistency.ts';
 
 type Row = Record<string, unknown>;
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+/** The `body` of every piece in a fixed reply's `items`, parsed or not: a copy is a copy. */
+const itemBodies = (v: unknown): string[] => (Array.isArray(v) ? v.map((i) => str(((i ?? {}) as Row)['body'])) : []);
 
 export async function loadFactCopies(
   db: SupabaseClient,
@@ -18,7 +20,7 @@ export async function loadFactCopies(
     db.from('service_variants').select('id, service_id, price_min, price_max').eq('tenant_id', tenantId),
     db.from('branch_variant_prices').select('variant_id, price_min, price_max').eq('tenant_id', tenantId),
     db.from('faqs').select('question, answer').eq('tenant_id', tenantId),
-    db.from('deterministic_replies').select('intent, body, web_body').eq('tenant_id', tenantId).eq('enabled', true),
+    db.from('deterministic_replies').select('intent, body, web_body, items').eq('tenant_id', tenantId).eq('enabled', true),
     db.from('canned_responses').select('kind, body').eq('tenant_id', tenantId),
     db.from('knowledge_documents').select('title, body').eq('tenant_id', tenantId),
   ]);
@@ -50,7 +52,12 @@ export async function loadFactCopies(
 
   const copies: FactCopy[] = [
     ...((faqs.data ?? []) as Row[]).map((f) => ({ source: `faq «${str(f['question'])}»`, text: `${str(f['question'])}\n${str(f['answer'])}` })),
-    ...((fixed.data ?? []) as Row[]).map((d) => ({ source: `fixed reply ${str(d['intent'])}`, text: `${str(d['body'])}\n${str(d['web_body'])}` })),
+    // Every piece of a templated reply too, whatever its launch condition (D-154): a price a
+    // piece states must agree with the rows in BOTH states, before its switch is ever flipped.
+    ...((fixed.data ?? []) as Row[]).map((d) => ({
+      source: `fixed reply ${str(d['intent'])}`,
+      text: [str(d['body']), str(d['web_body']), ...itemBodies(d['items'])].join('\n'),
+    })),
     ...((canned.data ?? []) as Row[]).map((c) => ({ source: `canned ${str(c['kind'])}`, text: str(c['body']) })),
     ...((docs.data ?? []) as Row[]).map((k) => ({ source: `KB «${str(k['title'])}»`, text: `${str(k['title'])}\n${str(k['body'])}` })),
   ];

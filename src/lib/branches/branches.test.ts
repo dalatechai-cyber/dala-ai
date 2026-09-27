@@ -431,7 +431,7 @@ function stubDb(tables: Record<string, Row[] | Row | null>) {
 }
 
 const TENANT_ROW = { currency_symbol: '₮', currency_symbol_before: false, default_locale: 'mn-MN' };
-const SERVICES = [{ id: 's1', name: 'Үсний угийн будаг' }];
+const SERVICES = [{ id: 's1', name: 'Үсний угийн будаг', launch_state: 'live' }];
 const VARIANTS = [{ id: 'v1', service_id: 's1', variant_key: '', price_kind: 'exact', price_min: '135000.00', price_max: null, refusal_topic: null }];
 
 test('loader: an unconfirmed branch is left out and NAMED, and one confirmed branch is one location', async () => {
