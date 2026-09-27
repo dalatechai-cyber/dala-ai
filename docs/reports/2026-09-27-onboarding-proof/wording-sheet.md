@@ -1,6 +1,6 @@
 # Wording sheet — Цэцэглэг Салон (`tsetsegleg-demo`)
 
-Sheet id: **`7c4153ef226a`** · 13 lines awaiting your signature · 0 already signed.
+Sheet id: **`f2cbd3fb37bd`** · 13 lines awaiting your signature · 0 already signed.
 
 Every line is sent to customers exactly as it appears in its box, once signed. None is the client's own data: each was filled from a template in `scripts/provision/templates/onboarding.mn.json`. «Same bytes as approved» means the founder already approved these exact words for a live tenant. The id covers every line and every model-visible text below; any change afterwards changes it.
 
@@ -182,4 +182,4 @@ Rule questions built from the client's 7.1–7.3 answers and titles of knowledge
 
 Re-run the same onboarding command with:
 
-    --apply --sign-wording 7c4153ef226a --signed-by <your name>
+    --apply --sign-wording f2cbd3fb37bd --signed-by <your name>

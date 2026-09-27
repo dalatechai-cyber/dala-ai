@@ -85,7 +85,8 @@ export async function loadFacts(db: SupabaseClient, tenantId: string): Promise<F
       .sort((a, b) => a.weekday - b.weekday),
     contacts: cps.map((c) => ({ kind: str(c['kind']), value: str(c['value']) })).sort((a, b) => byCodePoint(a.kind, b.kind)),
     bookingUrl: bk[0] === undefined || bk[0]['booking_url'] === null ? null : str(bk[0]['booking_url']),
-    deposits: deps.sort((a, b) => Number(a['ordinal']) - Number(b['ordinal']))
+    deposits: deps.sort((a, b) => Number(a['ordinal']) - Number(b['ordinal'])
+      || byCodePoint(str(a['rule_text']), str(b['rule_text'])))
       .map((d) => ({ appliesTo: str(d['applies_to']), ruleText: str(d['rule_text']) })),
     staff: stf.map((s) => ({ name: str(s['name']), shortName: str(s['short_name']), tier: str(s['tier']), active: s['active'] === true }))
       .sort((a, b) => byCodePoint(a.name, b.name)),
@@ -109,20 +110,23 @@ export function factsHash(f: Facts): string {
 
 export type Wording = {
   /** Every sentence row, signed or not: the sheet shows them all and its id covers them all. */
-  lines: { kind: string; body: string; signed: boolean }[];
+  lines: { kind: string; locale: string; body: string; signed: boolean }[];
   /** Rule questions and document titles: model-visible, shown and covered by the id. */
   modelVisible: { where: string; text: string }[];
 };
 
 export async function loadWording(db: SupabaseClient, tenantId: string): Promise<Wording> {
   const [canned, topics, docs] = await Promise.all([
-    read(db, 'canned_responses', db.from('canned_responses').select('kind, body, reviewed_at').eq('tenant_id', tenantId)),
+    read(db, 'canned_responses', db.from('canned_responses').select('kind, locale, body, reviewed_at').eq('tenant_id', tenantId)),
     read(db, 'out_of_scope_topics', db.from('out_of_scope_topics').select('topic_key, decision_question').eq('tenant_id', tenantId)),
     read(db, 'knowledge_documents', db.from('knowledge_documents').select('title, source').eq('tenant_id', tenantId)),
   ]);
   return {
-    lines: canned.map((c) => ({ kind: str(c['kind']), body: str(c['body']), signed: c['reviewed_at'] !== null && c['reviewed_at'] !== undefined }))
-      .sort((a, b) => byCodePoint(a.kind, b.kind)),
+    // Ordered by (kind, locale), the table's own key, so a second locale can never tie.
+    lines: canned.map((c) => ({
+      kind: str(c['kind']), locale: str(c['locale']), body: str(c['body']),
+      signed: c['reviewed_at'] !== null && c['reviewed_at'] !== undefined,
+    })).sort((a, b) => byCodePoint(a.kind, b.kind) || byCodePoint(a.locale, b.locale)),
     modelVisible: [
       ...topics.map((t) => ({ where: `rule ${str(t['topic_key'])}`, text: str(t['decision_question']) })),
       ...docs.filter((d) => str(d['source']).startsWith('onboarding:'))
@@ -133,7 +137,7 @@ export async function loadWording(db: SupabaseClient, tenantId: string): Promise
 
 /** The words' identity: every line and every model-visible text. Signing state is not part of it. */
 export function wordingHash(w: Wording): string {
-  return sha({ lines: w.lines.map(({ kind, body }) => ({ kind, body })), modelVisible: w.modelVisible });
+  return sha({ lines: w.lines.map(({ kind, locale, body }) => ({ kind, locale, body })), modelVisible: w.modelVisible });
 }
 
 export type GateStatus = {
@@ -180,7 +184,8 @@ export async function signWording(
   for (const line of pending) {
     const { data, error } = await db.from('canned_responses')
       .update({ reviewed_at: now.toISOString(), reviewed_by: by })
-      .eq('tenant_id', tenantId).eq('kind', line.kind).eq('body', line.body).is('reviewed_at', null).select('kind');
+      .eq('tenant_id', tenantId).eq('kind', line.kind).eq('locale', line.locale).eq('body', line.body)
+      .is('reviewed_at', null).select('kind');
     if (error) throw new WriteError(`canned_responses «${line.kind}»: ${error.message}`);
     if (rows(data).length !== 1) throw new WriteError(`canned_responses «${line.kind}» changed while it was being signed; nothing further signed — read the new sheet`);
   }

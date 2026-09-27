@@ -206,10 +206,10 @@ test('the summary id covers the facts and not their confirmation; any changed fa
 });
 
 test('the sheet id covers every line shown; a gate passes only while what was signed is what is there', () => {
-  const w: Wording = { lines: [{ kind: 'handoff', body: 'x', signed: false }], modelVisible: [] };
-  const w2: Wording = { ...w, lines: [{ kind: 'handoff', body: 'x ', signed: false }] };
+  const w: Wording = { lines: [{ kind: 'handoff', locale: 'mn-MN', body: 'x', signed: false }], modelVisible: [] };
+  const w2: Wording = { ...w, lines: [{ kind: 'handoff', locale: 'mn-MN', body: 'x ', signed: false }] };
   assert.notEqual(wordingHash(w), wordingHash(w2), 'one space is a different line (D-077)');
-  const signedW: Wording = { lines: [{ kind: 'handoff', body: 'x', signed: true }], modelVisible: [] };
+  const signedW: Wording = { lines: [{ kind: 'handoff', locale: 'mn-MN', body: 'x', signed: true }], modelVisible: [] };
   assert.equal(wordingHash(w), wordingHash(signedW), 'signing does not move the id');
   const id = gateStatus(signedW, FACTS, { wording: null, facts: null }).wording.id;
   assert.equal(gateStatus(signedW, FACTS, { wording: id, facts: null }).wording.signed, true);
