@@ -24,10 +24,11 @@ export function codeLinesOnly(text: string): string {
   return text.split('\n').filter((l) => !/^\s*(?:\/\/|\*|\/\*)/u.test(l)).join('\n');
 }
 
+/** Spelling only: their prices are made-up examples inside rules, never a tenant's price. */
 function platformCopies(): FactCopy[] {
   const dir = join(ROOT, 'prompt/platform');
   return readdirSync(dir).filter((f) => f.endsWith('.mn.txt')).sort()
-    .map((f) => ({ source: `prompt/platform/${f}`, text: readFileSync(join(dir, f), 'utf8') }));
+    .map((f) => ({ source: `prompt/platform/${f}`, text: readFileSync(join(dir, f), 'utf8'), prices: false as const }));
 }
 
 export function externalPaths(slug: string): string[] {

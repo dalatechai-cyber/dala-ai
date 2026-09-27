@@ -53,3 +53,27 @@ test('a name inside a longer word is not the service', () => {
   assert.deepEqual(checkFactCopies(SERVICES, copy('Хувиралтын 999₮')), []);
   assert.deepEqual(amountsIn('1,000 SMS, нэмэлт SMS тутам 50₮, 49 000₮'), [50, 49000]);
 });
+
+test('a short name is the service only as a whole word or with a case ending («сорри» is not «Сор»)', () => {
+  const S: FactService[] = [{ name: 'Сор', amounts: [120000] }, { name: 'Үндэс', amounts: [50000] }];
+  assert.deepEqual(checkFactCopies(S, copy('Сорри, захиалга 20,000₮ урьдчилгаатай')), []);
+  assert.deepEqual(checkFactCopies(S, copy('Монгол үндэсний хоол 20,000₮')), []);
+  assert.equal(checkFactCopies(S, copy('Сор 99,000₮')).length, 1);
+  assert.equal(checkFactCopies(S, copy('Сорын үнэ 99,000₮')).length, 1, '«Сорын» is «Сор» with its genitive ending');
+});
+
+test('a capital after a bullet, an emoji, a number or a quote is the start of a line', () => {
+  for (const t of ['💬 Маркетинг менежер', '1) Маркетинг менежер', "'Маркетинг менежер'", '- Маркетинг менежер']) {
+    assert.deepEqual(checkFactCopies(SERVICES, copy(t)), [], t);
+  }
+});
+
+test('a dot as the thousands separator is still the amount', () => {
+  assert.deepEqual(amountsIn('350.000₮'), [350000]);
+  assert.deepEqual(checkFactCopies(SERVICES, copy('Вира 350.000₮')), []);
+});
+
+test('a copy marked spelling-only is never read for a price (the platform\'s example prices)', () => {
+  assert.deepEqual(checkFactCopies(SERVICES, [{ source: 'platform', text: 'Вира 1₮', prices: false }]), []);
+  assert.equal(checkFactCopies(SERVICES, [{ source: 'platform', text: 'Вира бол Маркетинг менежер', prices: false }]).length, 1);
+});

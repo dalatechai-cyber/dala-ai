@@ -219,14 +219,14 @@ if (need.changed.length > 0) process.stdout.write(`\nchanged on ${need.changed.j
 // `--with-model` answers the model cases too, spending, by hand before a big change; it
 // needs ANTHROPIC_API_KEY in this shell, and without it a model case FAILS.
 const withModel = process.argv.includes('--with-model');
-const calls: CallOutcome[] = [];
+const calls: Array<{ out: CallOutcome; model: string }> = [];
 const modelKey = withModel ? (process.env['ANTHROPIC_API_KEY'] ?? '') : '';
 const gate = await gateTenant(db, {
   slug, now,
   modelCases: withModel ? 'fail' : 'skip',
   callModel: modelKey === '' ? null : caseModelSeat(async (req) => {
     const out = await callReception(req, modelKey);
-    calls.push(out);
+    calls.push({ out, model: req.modelId });
     return out;
   }),
   compiled: {
@@ -241,14 +241,18 @@ process.stdout.write(`\n${verdict.text}\n`);
 // tenant's cache mode, as the worker settles a live reply; a call that cannot be priced is
 // named, never counted as free.
 if (withModel) {
-  const { data: t } = await db.from('tenants').select('prompt_cache_mode').eq('id', tenantId).maybeSingle();
-  const mode = String((t as Record<string, unknown> | null)?.['prompt_cache_mode'] ?? '') as CacheMode;
+  const { data: t, error: tErr } = await db.from('tenants').select('prompt_cache_mode').eq('id', tenantId).maybeSingle();
+  const raw = (t as Record<string, unknown> | null)?.['prompt_cache_mode'];
+  const mode = (raw === 'off' || raw === '5m' || raw === '1h') ? raw as CacheMode : null;
   let nano = 0n;
   const unpriced: string[] = [];
-  for (const c of calls) {
-    if (c.kind === 'retryable' || c.usage === undefined) continue;
-    const model = c.kind === 'ok' ? c.modelReturned : '';
-    const p = model === '' ? { ok: false as const, detail: 'no model id returned' } : await priceCall(db, model, c.usage, mode, now);
+  for (const { out: c, model: asked } of calls) {
+    // A timed-out or dropped call may still have been billed; it is named, never free.
+    if (c.kind === 'retryable') { unpriced.push(`retryable ${c.reason}: possibly billed, not priced`); continue; }
+    if (c.usage === undefined) continue;
+    if (mode === null) { unpriced.push(`cache mode unreadable${tErr ? ` (${tErr.message})` : ''}`); continue; }
+    const model = c.kind === 'ok' && c.modelReturned !== '' ? c.modelReturned : asked;
+    const p = await priceCall(db, model, c.usage, mode, now);
     if (p.ok) nano += p.priced.cost;
     else unpriced.push(p.detail);
   }

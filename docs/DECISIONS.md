@@ -10763,6 +10763,12 @@ These are the founder's calls after the live check at DalaTech seq 12 and Tara s
   - **Where it runs:** in CI (unit tests), in the production-build gate (rows only; the
     build has no sibling checkout) and in publish.
   - **Publish refuses** on any disagreement, and on any external copy it cannot read.
+  - **Scope of the build gate:** the same tenants the reply gate checks (`--slug`, or those
+    with active cases).
+  - **What it does not catch:** the platform's approved lines are checked for spelling only,
+    because their prices are made-up examples. A service name of five letters or fewer
+    counts only as a whole word or with a case ending, so «сорри» is not «Сор». An inflected
+    label («Маркетинг менежерийн») is not compared.
 - **Ulaanbaatar time everywhere** (`src/lib/time/ub.ts`, on top of `clock.ts`).
   - Per-day and per-hour dedup keys (credential breaker, erasure requests) roll on the
     Ulaanbaatar clock.

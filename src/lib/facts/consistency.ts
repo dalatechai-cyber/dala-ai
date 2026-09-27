@@ -21,7 +21,10 @@
 import { nfc } from '../mn/text.ts';
 
 export type FactService = { name: string; amounts: readonly number[] };
-export type FactCopy = { source: string; text: string };
+/** `prices: false`: read for spelling only. The platform's approved lines hold deliberately
+ *  made-up example prices («Чёлк тайралт 33,000₮» in a refusal example), which are not a
+ *  tenant's price and must never block one. */
+export type FactCopy = { source: string; text: string; prices?: false };
 export type FactFinding = { kind: 'spelling' | 'price'; source: string; line: string; detail: string };
 
 /** The part before « — » names the service; the part after is its label. */
@@ -34,21 +37,35 @@ function escape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
-/** «Дали», «Далигийн», «Дали-г»: the head at the start of a word, any suffix after it. */
+/**
+ * Case endings a short name may carry and still be the name. A short head matched as a mere
+ * prefix is not evidence: «сорри» begins with «Сор», «үндэсний» with «Үндэс» (the same
+ * specificity problem CLAUDE.md names for `services/match.ts`).
+ */
+const SHORT_HEAD_CHARS = 5;
+const SUFFIXES = ['гийн', 'гаас', 'гээс', 'гоос', 'гөөс', 'ийн', 'ын', 'ийг', 'ыг', 'аас', 'ээс', 'оос', 'өөс',
+  'тай', 'тэй', 'той', 'руу', 'рүү', 'д', 'т', 'г', 'н'];
+
+/** «Дали», «Далигийн», «Дали-г». A head longer than five letters may carry any ending; a
+ *  shorter one only a whole word or a case ending from the list. */
 function headPattern(head: string): RegExp {
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escape(head.toLowerCase())}`, 'u');
+  const h = escape(head.toLowerCase());
+  if ([...head].length > SHORT_HEAD_CHARS || /\s/u.test(head)) return new RegExp(`(?<![\\p{L}\\p{N}])${h}`, 'u');
+  return new RegExp(`(?<![\\p{L}\\p{N}])${h}(?:-?(?:${SUFFIXES.join('|')}))?(?![\\p{L}\\p{N}])`, 'u');
 }
 
 /** Amounts in ₮ or «төгрөг», digits only (the separators are presentation). */
-const AMOUNT = /(?<![\p{L}\p{N}])(\d{1,3}(?:[,  ]\d{3})+|\d+)(?:\.\d+)?\s*(?:₮|төгрөг)/gu;
+const AMOUNT = /(?<![\p{L}\p{N}])(\d{1,3}(?:[,.  ]\d{3})+|\d+)(?:\.\d+)?\s*(?:₮|төгрөг)/gu;
 
 export function amountsIn(line: string): number[] {
   return [...line.matchAll(AMOUNT)].map((m) => Number((m[1] ?? '').replace(/[^0-9]/gu, '')));
 }
 
-/** A capital here is the grammar, not a spelling: the start of the text or of a sentence. */
+/** A capital here is the grammar, not a spelling: the start of the line (after any bullet,
+ *  emoji, number or quote) or of a sentence. */
 function sentenceStart(text: string, at: number): boolean {
-  return /(?:^|[.!?\n:«"]\s*|^\s*[-•*]\s*)$/u.test(text.slice(Math.max(0, at - 4), at)) || at === 0;
+  const before = text.slice(0, at);
+  return /^[^\p{L}]*$/u.test(before) || /[.!?:«"'“]\s*$/u.test(before);
 }
 
 function spelling(services: readonly FactService[], copy: FactCopy, line: string): FactFinding[] {
@@ -103,7 +120,7 @@ export function checkFactCopies(services: readonly FactService[], copies: readon
     for (const raw of nfc(copy.text).split('\n')) {
       const line = raw.trim();
       if (line === '') continue;
-      out.push(...spelling(services, copy, line), ...prices(services, copy, line));
+      out.push(...spelling(services, copy, line), ...(copy.prices === false ? [] : prices(services, copy, line)));
     }
   }
   return out;

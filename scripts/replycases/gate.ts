@@ -109,7 +109,18 @@ if (ran.gates.length === 0 && ran.setup.length === 0) process.stdout.write('repl
 // The sibling repos are not in this build, so their copies are named as not checked here;
 // publish checks them and refuses without them.
 async function checkFacts(): Promise<{ wrong: string[]; unchecked: string[] }> {
-  const { data, error } = await db.from('tenants').select('id, slug');
+  // The same tenants the reply gate checks: `--slug`, or every tenant with active cases. A
+  // tenant still being provisioned does not block every deploy on a typo in its rows.
+  const only = arg('slug');
+  let ids: string[] | null = null;
+  if (only === undefined) {
+    const { data: cases, error: cErr } = await db.from('reply_cases').select('tenant_id').eq('active', true);
+    if (cErr) return { wrong: [], unchecked: [`facts: reply_cases unreadable: ${cErr.message}`] };
+    ids = [...new Set((cases ?? []).map((r) => String((r as Record<string, unknown>)['tenant_id'])))];
+    if (ids.length === 0) return { wrong: [], unchecked: [] };
+  }
+  const base = db.from('tenants').select('id, slug');
+  const { data, error } = await (only !== undefined ? base.eq('slug', only) : base.in('id', ids ?? []));
   if (error) return { wrong: [], unchecked: [`facts: tenants unreadable: ${error.message}`] };
   const wrong: string[] = [];
   const unchecked: string[] = [];
