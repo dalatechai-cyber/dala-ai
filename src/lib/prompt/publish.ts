@@ -29,6 +29,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Rendered } from './render.ts';
+import { launchJson, parseLaunchRecords, sameLaunch, type LaunchRecord } from '../launch/launch.ts';
 
 export type PublishOutcome =
   | { ok: true; revisionId: string }
@@ -39,6 +40,11 @@ export type SnapshotInput = {
   rendered: Rendered;
   /** D-058. The identity of the canned lines this prefix carries; null predates the column. */
   cannedHash?: string | null;
+  /**
+   * D-154. Every active service's launch state as this compile read it, or null/absent for
+   * none recorded. The one record the fixed replies, the reply cases and the website read.
+   */
+  launchStates?: readonly LaunchRecord[] | null;
   compiledBy?: string | null;
 };
 
@@ -84,6 +90,7 @@ export async function publishRevision(
       prompt_chars: s.rendered.promptChars,
       allowed_numbers: s.rendered.allowedNumbers,
       canned_hash: s.cannedHash ?? null,
+      launch_states: s.launchStates === undefined || s.launchStates === null ? null : launchJson(s.launchStates),
       compiled_at: input.now.toISOString(),
       compiled_by: s.compiledBy ?? null,
     })),
@@ -167,6 +174,12 @@ export type LiveSnapshot = {
    * null means the snapshot predates `0029`; the caller falls back to `promptStable`.
    */
   promptGate: string | null;
+  /**
+   * D-154. Which services are live, as the compile recorded them. null means the snapshot
+   * predates `0063` — a format marker: a row or piece with a launch condition never holds
+   * against it, and every row without one answers as before.
+   */
+  launchStates: LaunchRecord[] | null;
 };
 
 export type LoadOutcome =
@@ -201,7 +214,7 @@ export async function loadLiveSnapshot(
 
   const { data, error } = await db
     .from('config_snapshots')
-    .select('content_hash, prompt_stable, prompt_gate, allowed_numbers, canned_hash')
+    .select('content_hash, prompt_stable, prompt_gate, allowed_numbers, canned_hash, launch_states')
     .eq('tenant_id', input.tenantId)
     .eq('revision_id', revisionId)
     .eq('channel', input.channel)
@@ -231,6 +244,7 @@ export async function loadLiveSnapshot(
       // next republish fills it in. Treating null as "no corpus" would silently disable
       // the disclosure check, which is the one direction that must never be the default.
       promptGate: typeof row['prompt_gate'] === 'string' ? row['prompt_gate'] : null,
+      launchStates: parseLaunchRecords(row['launch_states']),
     },
   };
 }
@@ -262,14 +276,18 @@ export type PublishNeed =
 export function publishNeeded(
   channels: readonly string[],
   live: ReadonlyMap<string, LoadOutcome>,
-  compiled: { contentHash: string; cannedHash: string | null },
+  compiled: { contentHash: string; cannedHash: string | null; launchStates?: readonly LaunchRecord[] | null },
 ): PublishNeed {
   const missing: string[] = [];
   const changed: string[] = [];
   for (const channel of channels) {
     const got = live.get(channel);
     if (got === undefined || !got.ok) { missing.push(channel); continue; }
-    if (got.snapshot.contentHash !== compiled.contentHash || got.snapshot.cannedHash !== compiled.cannedHash) {
+    // D-154: a switch flipped for a service whose rows are all fixed replies changes no byte
+    // of the prefix, and is still a change: the fixed replies read the snapshot's record.
+    const launchChanged = compiled.launchStates !== undefined
+      && !sameLaunch(got.snapshot.launchStates, compiled.launchStates ?? null);
+    if (got.snapshot.contentHash !== compiled.contentHash || got.snapshot.cannedHash !== compiled.cannedHash || launchChanged) {
       changed.push(channel);
     }
   }

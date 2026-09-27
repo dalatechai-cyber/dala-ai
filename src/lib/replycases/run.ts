@@ -38,6 +38,7 @@ import type { CallOutcome, ReceptionRequest } from '../model/reception.ts';
 import { fold, nfc } from '../mn/text.ts';
 import { tenantClock } from '../time/clock.ts';
 import { ownSiteHosts, websiteContext } from '../website/ownSite.ts';
+import { conditionOf, holds, lookupOf, type LaunchCondition, type LaunchRecord } from '../launch/launch.ts';
 
 export type Turn = { role: 'user' | 'assistant'; content: string };
 
@@ -55,6 +56,12 @@ export type ReplyCase = {
    * absent is the Page, which is what every case before `0056` meant.
    */
   channel?: 'facebook_page' | 'web';
+  /**
+   * D-154 (`0063`): the case is about a configuration in which this service is in this
+   * state, and is judged only against one. Absent or null: every configuration. `'bad'` is a
+   * half-written condition, which never holds, so the case is reported, not silently run.
+   */
+  condition?: LaunchCondition | 'bad';
 };
 
 export type CaseResult = {
@@ -118,7 +125,7 @@ export async function loadCases(
 ): Promise<{ ok: true; cases: ReplyCase[] } | { ok: false; detail: string }> {
   const { data, error } = await db
     .from('reply_cases')
-    .select('id, customer_message, history, expected_body, must_include, must_not_include, note, channel')
+    .select('id, customer_message, history, expected_body, must_include, must_not_include, note, channel, when_service_id, when_launch_state')
     .eq('tenant_id', tenantId)
     .eq('active', true)
     .order('id', { ascending: true });
@@ -137,9 +144,26 @@ export async function loadCases(
         mustNotInclude: strings(r['must_not_include']),
         note: typeof r['note'] === 'string' ? r['note'] : null,
         channel: r['channel'] === 'web' ? 'web' as const : 'facebook_page' as const,
+        condition: conditionOf(r['when_service_id'], r['when_launch_state']),
       };
     }),
   };
+}
+
+/**
+ * The cases that apply to a configuration with these launch states (D-154), and the ones that
+ * do not. A case about Вира live is not a case about Вира coming soon: judged against the
+ * wrong one it would fail for a reason that is not a fault. Pure.
+ */
+export function casesFor(
+  cases: readonly ReplyCase[],
+  launchStates: readonly LaunchRecord[] | null,
+): { apply: ReplyCase[]; otherState: ReplyCase[] } {
+  const lookup = lookupOf(launchStates === null ? null : [...launchStates]);
+  const apply: ReplyCase[] = [];
+  const otherState: ReplyCase[] = [];
+  for (const c of cases) (holds(c.condition ?? null, lookup) ? apply : otherState).push(c);
+  return { apply, otherState };
 }
 
 /** The live context with the prefix about to be published in place of the live one. */
@@ -314,7 +338,8 @@ export async function runCases(input: {
 }
 
 export type TenantGate =
-  | { ok: true; slug: string; results: CaseResult[] }
+  /** `otherState`: cases about a launch state this configuration does not have (D-154). */
+  | { ok: true; slug: string; results: CaseResult[]; otherState?: number }
   | { ok: false; slug: string; detail: string };
 
 /**
@@ -327,7 +352,11 @@ export async function gateTenant(
     slug: string;
     now: Date;
     callModel: ((req: ReceptionRequest) => Promise<CallOutcome>) | null;
-    compiled?: { promptStable: string; allowedNumbers: string[]; cannedHash: string | null; promptGate: string | null };
+    compiled?: {
+      promptStable: string; allowedNumbers: string[]; cannedHash: string | null; promptGate: string | null;
+      /** D-154. The launch states this publish will freeze; the fixed replies and the cases are judged against them. */
+      launchStates?: readonly LaunchRecord[];
+    };
     /** See `runCases`. The deploy and publish gates pass `skip` (D-137). */
     modelCases?: 'fail' | 'skip';
   },
@@ -358,8 +387,10 @@ export async function gateTenant(
       promptCacheMode: String(row['prompt_cache_mode'] ?? 'off') as 'off' | '5m' | '1h',
     },
     localDate: tenantClock(input.now, timezone).date,
+    ...(input.compiled?.launchStates === undefined ? {} : { launchStates: input.compiled.launchStates }),
   });
   if (!loaded.ok) return { ok: false, slug: input.slug, detail: `configuration did not load (${loaded.code}): ${loaded.detail}` };
+  const { apply, otherState } = casesFor(cases.cases, loaded.context.launchStates);
   let ctx = input.compiled === undefined ? loaded.context : withCompiled(loaded.context, input.compiled);
   // The branches are read for the LIVE prefix (`reception/load.ts`). A publish that adds or
   // changes branches is judged against the prefix it is about to publish, so the branch rows
@@ -379,8 +410,9 @@ export async function gateTenant(
     ok: true,
     slug: input.slug,
     results: await runCases({
-      cases: cases.cases, ctx, timezone, now: input.now, callModel: input.callModel, modelCases: input.modelCases ?? 'fail', siteHosts,
+      cases: apply, ctx, timezone, now: input.now, callModel: input.callModel, modelCases: input.modelCases ?? 'fail', siteHosts,
     }),
+    otherState: otherState.length,
   };
 }
 
@@ -413,7 +445,8 @@ export function renderGate(gates: readonly TenantGate[]): { text: string; pass: 
     const notRun = g.results.filter((r) => r.outcome === 'not_run').length;
     const judged = g.results.length - notRun;
     lines.push(`${g.slug}: ${judged - failed.length}/${judged} reply cases pass`
-      + (notRun > 0 ? ` · ${notRun} need the model and were not run (no spend; run by hand before a big change)` : ''));
+      + (notRun > 0 ? ` · ${notRun} need the model and were not run (no spend; run by hand before a big change)` : '')
+      + ((g.otherState ?? 0) > 0 ? ` · ${g.otherState} are about another launch state and were not judged here` : ''));
     // How it was answered, and the flag codes the reply path raised. «missing «10%»» alone
     // cannot tell a model that answered badly from a model that never answered: on
     // 2026-09-26 ten cases failed exactly so, and the cause was in the codes (`model_…`).

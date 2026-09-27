@@ -10819,3 +10819,33 @@ decides whether a media hand-off pages Telegram. DalaTech keeps it on. Tara Salo
 - **An unreadable setting alerts.** A silent failure would hide the hand-off from the one
   person who can act on it.
 - **No republish:** the setting is read on each hand-off.
+
+## D-154 — One launch switch per service, read by the chat and the website from one snapshot (2026-09-27)
+
+The founder asked for this on 2026-09-27: *"When a staff member is ready I flip ITS switch,
+and the website AND Дали's chat answers change to live together, with no code or copy edits.
+While a switch is off, that staff member appears exactly as today («Удахгүй»,
+pre-registration). Дали must never claim a staff member works before its switch is on."*
+
+- **The switch** is `services.launch_state` (`live` | `preregistration`, `0063`). It is
+  flipped by the publish command, never by hand:
+  `scripts/publish/tenant.ts --slug <slug> --launch "<service name>=live"` (dry run: every
+  reply case and the fact check run against the flipped state, nothing is written), then the
+  same with `--publish` (writes the state, publishes, puts the state back if the publish fails).
+- **One record, frozen at publish.** The compile reads the switches once and the snapshot
+  stores them (`config_snapshots.launch_states`). The knowledge base is compiled against them;
+  the fixed replies, the reply cases and the website (`GET /api/web/launch/<channel>`, CDN
+  cache 30 s) read them from the snapshot. The column alone changes nothing; a publish changes
+  everything at one pointer move. A rollback restores the switches with the prefix.
+- **Rows carry a condition, not a copy per combination.** A KB document, a fixed reply or a
+  reply case may say "only while service S is in state X". A fixed reply that lists several
+  services is a `{{slot}}` template filled from conditioned pieces (`items`), so four switches
+  are not sixteen rows. All the Mongolian stays the tenant's reviewed rows; the platform only
+  chooses among them and joins them with «, » or a new line.
+- **Fails closed.** A snapshot with no record (before `0063`) makes every conditioned row
+  and piece withheld; a switch the compile cannot read refuses the publish; the website keeps
+  the states built into its page on any failure, which can only show a live service as coming
+  soon, never the reverse.
+- **Order of rollout** (D-058): push `0063`, deploy, then provision the tenant's conditioned
+  rows and publish in the same sitting — between the provisioning and the publish, the
+  conditioned rows are withheld.

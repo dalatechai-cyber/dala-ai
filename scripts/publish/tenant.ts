@@ -29,6 +29,21 @@
  * visible in `ps` to every process on the box and land in shell history. Nothing here
  * prints it, and the summary below is safe to paste.
  *
+ * ## Flipping a launch switch (D-154)
+ *
+ *     # what Вира going live would publish, judged in full — writes NOTHING
+ *     … node scripts/publish/tenant.ts --slug dalatech --launch "Вира — маркетинг менежер=live"
+ *
+ *     # and then
+ *     … node scripts/publish/tenant.ts --slug dalatech --launch "Вира — маркетинг менежер=live" --publish
+ *
+ * `--launch "<service name>=live|preregistration"`, repeatable. The compile, the reply cases
+ * and the fact check all run against the switched states before anything is written. With
+ * `--publish`, the new states are written to `services.launch_state` and the tenant is
+ * published in the same run; if the publish then fails, the states are put back, so a switch
+ * is never left flipped in the rows while the snapshot says otherwise. The website and every
+ * channel read the snapshot, so they change at the publish's pointer move, together.
+ *
  * ## Dry run by DEFAULT
  *
  * The compiled prefix is the prompt-cache key and the text a customer is answered from, so
@@ -46,6 +61,7 @@ import { caseModelSeat, gateTenant, renderGate } from '../../src/lib/replycases/
 import { callReception, type CallOutcome } from '../../src/lib/model/reception.ts';
 import { priceCall, type CacheMode } from '../../src/lib/spend/settle.ts';
 import { factGate } from '../facts/gate.ts';
+import { itemReferences, LAUNCH_STATES, sameLaunch, type LaunchRecord, type LaunchState } from '../../src/lib/launch/launch.ts';
 
 function die(message: string): never {
   process.stderr.write(`publish: ${message}\n`);
@@ -64,6 +80,21 @@ if (process.argv.some((a) => a.startsWith('--key') || a.startsWith('--secret')))
 const slug = arg('slug') ?? '';
 if (!/^[a-z0-9-]{1,64}$/.test(slug)) die('--slug is required, e.g. --slug matrix-eco-salon');
 const doPublish = process.argv.includes('--publish');
+
+// `--launch "<service name>=<state>"`, as many as needed (D-154).
+const launch = new Map<string, LaunchState>();
+process.argv.forEach((a, i) => {
+  if (a !== '--launch') return;
+  const v = process.argv[i + 1] ?? '';
+  const at = v.lastIndexOf('=');
+  const name = at < 0 ? '' : v.slice(0, at).normalize('NFC').trim();
+  const state = at < 0 ? '' : v.slice(at + 1).trim();
+  if (name === '' || !(LAUNCH_STATES as readonly string[]).includes(state)) {
+    die(`--launch takes "<service name>=${LAUNCH_STATES.join('|')}", got ${JSON.stringify(v)}`);
+  }
+  if (launch.has(name) && launch.get(name) !== state) die(`--launch names «${name}» twice with different states`);
+  launch.set(name, state as LaunchState);
+});
 
 const db = supabasePublish();
 const now = new Date();
@@ -128,13 +159,42 @@ if (gaps.length > 0) {
 }
 process.stdout.write(`platform blocks: ${(blockRows ?? []).length} live, matching the signed set.\n`);
 
-const compiled = await compileStablePrefix(db, { tenantId, approvedAt: now.toISOString() });
+// ---- every launch condition names one of this tenant's services (D-154) ----------
+// The row-level conditions are foreign keys; the pieces of a templated reply are jsonb, so
+// they are checked here. A piece naming a service this tenant does not have is a switch that
+// can never be flipped, and it would silently never show.
+{
+  const [svcRes, detRes] = await Promise.all([
+    db.from('services').select('id').eq('tenant_id', tenantId),
+    db.from('deterministic_replies').select('intent, items').eq('tenant_id', tenantId),
+  ]);
+  if (svcRes.error) die(`services unreadable: ${svcRes.error.message}`);
+  if (detRes.error) die(`deterministic_replies unreadable: ${detRes.error.message}`);
+  const ids = new Set((svcRes.data ?? []).map((r) => String((r as Record<string, unknown>)['id']).toLowerCase()));
+  const dangling = itemReferences(detRes.data).filter((r) => !ids.has(r.serviceId));
+  if (dangling.length > 0) {
+    die(`fixed-reply pieces name services this tenant does not have:\n  ${dangling.map((d) => `${d.intent}: ${d.serviceId}`).join('\n  ')}`);
+  }
+}
+
+const compiled = await compileStablePrefix(db, {
+  tenantId, approvedAt: now.toISOString(), ...(launch.size === 0 ? {} : { launch }),
+});
 if (!compiled.ok) {
   die(compiled.code === 'refused'
     ? `compile REFUSED (${compiled.refusal.code}): ${compiled.refusal.sections.join(', ')}`
     : `compile failed (${compiled.code}): ${compiled.detail}`);
 }
 const { rendered } = compiled;
+
+// The switches, before and after. Printed on every run: which services this publish says are
+// live is the one line the website and every channel will change on.
+const liveLaunch: LaunchRecord[] | null = before?.launchStates ?? null;
+const launchLine = (r: LaunchRecord): string => {
+  const was = liveLaunch?.find((x) => x.serviceId === r.serviceId)?.state ?? null;
+  return `  ${r.state === 'live' ? 'LIVE      ' : 'PRE-REG   '} ${r.name}${was !== null && was !== r.state ? `  (was ${was})` : was === null ? '  (not recorded before)' : ''}`;
+};
+process.stdout.write(`launch          ${sameLaunch(liveLaunch, compiled.launch) ? 'unchanged' : 'CHANGES'}\n${compiled.launch.map(launchLine).join('\n')}\n`);
 
 const marker = `=== ${SECTION_LABELS.dataMarker} ===`;
 const hadMarker = before === null ? null : before.promptStable.split('\n').some((l) => l.trim() === marker);
@@ -200,7 +260,9 @@ if (!hasMarker) {
       handoff line and starts answering from its own knowledge base. Read the order above.\n`);
 }
 
-const need = publishNeeded(channels, liveByChannel, { contentHash: rendered.contentHash, cannedHash: compiled.cannedHash });
+const need = publishNeeded(channels, liveByChannel, {
+  contentHash: rendered.contentHash, cannedHash: compiled.cannedHash, launchStates: compiled.launch,
+});
 if (!need.needed) {
   process.stdout.write(`\nThe compiled prefix is byte-identical to the live one on every channel (${channels.join(', ')}). Nothing to publish.\n`);
   process.exit(0);
@@ -232,6 +294,7 @@ const gate = await gateTenant(db, {
   compiled: {
     promptStable: rendered.promptStable, allowedNumbers: rendered.allowedNumbers,
     cannedHash: compiled.cannedHash, promptGate: rendered.promptGate,
+    launchStates: compiled.launch,
   },
 });
 const verdict = renderGate([gate]);
@@ -294,8 +357,44 @@ const { data: draft, error: draftErr } = await db
 if (draftErr) die(`could not create the draft revision: ${draftErr.message}`);
 const revisionId = String((draft as Record<string, unknown>)['id']);
 
+// D-154: the switches go into the rows first, so the compile that publishes reads them and
+// the next plain publish keeps them. If anything after this fails, they are put back.
+const flips = compiled.launch.filter((r) => launch.has(r.name));
+const priorState = new Map<string, LaunchState>();
+if (flips.length > 0) {
+  const { data: cur, error: curErr } = await db.from('services').select('id, launch_state').eq('tenant_id', tenantId);
+  if (curErr) die(`services unreadable: ${curErr.message}`);
+  for (const r of (cur ?? []) as Record<string, unknown>[]) priorState.set(String(r['id']), r['launch_state'] as LaunchState);
+  for (const f of flips) {
+    const { error } = await db.from('services').update({ launch_state: f.state }).eq('tenant_id', tenantId).eq('id', f.serviceId);
+    if (error) {
+      await putBack();
+      die(`could not set «${f.name}» to ${f.state}: ${error.message}. Nothing was published.`);
+    }
+  }
+}
+async function putBack(): Promise<void> {
+  for (const f of flips) {
+    const was = priorState.get(f.serviceId);
+    if (was === undefined || was === f.state) continue;
+    const { error } = await db.from('services').update({ launch_state: was }).eq('tenant_id', tenantId).eq('id', f.serviceId);
+    if (error) {
+      process.stderr.write(`publish: COULD NOT PUT BACK «${f.name}» to ${was}: ${error.message}\n`
+        + `  run: update services set launch_state = '${was}' where id = '${f.serviceId}';\n`);
+    }
+  }
+}
+
 const out = await compileAndPublish(db, { tenantId, revisionId, channels, now });
-if (!out.ok) die(`publish failed (${out.code}): ${out.detail}`);
+if (!out.ok) {
+  await putBack();
+  die(`publish failed (${out.code}): ${out.detail}${flips.length > 0 ? '. The launch states were put back.' : ''}`);
+}
+// The rows were read again by that compile; if anything else changed them in between, what
+// went live is not what was judged above.
+if (!sameLaunch(out.launch, compiled.launch)) {
+  die(`published, but the launch states it read differ from the ones judged above. Re-run the dry run and read it.`);
+}
 
 process.stdout.write(`\nPUBLISHED  seq ${nextSeq}  revision ${out.revisionId}  content_hash ${out.contentHash}\n`);
 
@@ -310,6 +409,9 @@ for (const channel of channels) {
   }
   if (after.snapshot.cannedHash !== compiled.cannedHash) {
     die(`published, but ${channel}'s canned_hash reads ${String(after.snapshot.cannedHash)}, not ${compiled.cannedHash}`);
+  }
+  if (!sameLaunch(after.snapshot.launchStates, compiled.launch)) {
+    die(`published, but ${channel}'s launch states do not read back as compiled`);
   }
 }
 process.stdout.write(`Read back through loadLiveSnapshot on ${channels.join(', ')}: the reply path sees it.\n`);

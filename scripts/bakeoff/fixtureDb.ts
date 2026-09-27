@@ -104,7 +104,32 @@ class Query implements PromiseLike<{ data: unknown; error: null }> {
 
 const REFUSE = (what: string) => () => { throw new Error(`fixtureDb is read-only: ${what} was called`); };
 
-export function fixtureDb(dump: Dump): SupabaseClient {
+/**
+ * The columns `0063` (D-154) added, with the value `alter table … add column` gives every row
+ * that existed before it: services are `live`, and every condition, piece list and snapshot
+ * record is null. A dump taken before the migration is therefore served exactly as the same
+ * rows read after it, and a dump that already has the columns is left as it is.
+ */
+const COLUMNS_0063: Record<string, Record<string, unknown>> = {
+  services: { launch_state: 'live' },
+  knowledge_documents: { when_service_id: null, when_launch_state: null },
+  deterministic_replies: { when_service_id: null, when_launch_state: null, items: null },
+  reply_cases: { when_service_id: null, when_launch_state: null },
+  config_snapshots: { launch_states: null },
+};
+
+function upTo0063(dump: Dump): Dump {
+  const out: Dump = { ...dump };
+  for (const [table, defaults] of Object.entries(COLUMNS_0063)) {
+    const rows = dump[table];
+    if (!Array.isArray(rows)) continue;
+    out[table] = rows.map((r) => ({ ...defaults, ...r }));
+  }
+  return out;
+}
+
+export function fixtureDb(raw: Dump): SupabaseClient {
+  const dump = upTo0063(raw);
   const client = {
     from(table: string) {
       if (!(table in dump)) throw new Error(`fixtureDb: table «${table}» is not in the dump`);
