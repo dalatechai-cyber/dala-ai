@@ -1,5 +1,11 @@
 # STATUS — what is built, what is stubbed, what has never been proven
 
+> **2026-09-27 — onboarding (D-155).** `scripts/onboard/tenant.ts` turns a filled
+> questionnaire into a tenant in shadow behind two gates. Proven end to end on a LOCAL
+> REPLICA with a fictional tenant only; never run against the project. Not proven: the one
+> paid pre-publish model check (no API key in the session), a real client's form, and the
+> hand steps after the gates (token, entitlement, publish, live).
+
 > ## ⚠ 2026-09-21 20:4x UTC — MATRIX IS IN `canned_stale` AND EVERY REPLY IS 503ing
 >
 > The tenant data was edited after seq 12 was published and the config was NOT republished,

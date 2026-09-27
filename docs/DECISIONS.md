@@ -10849,3 +10849,62 @@ pre-registration). Дали must never claim a staff member works before its swi
 - **Order of rollout** (D-058): push `0063`, deploy, then provision the tenant's conditioned
   rows and publish in the same sitting — between the provisioning and the publish, the
   conditioned rows are withheld.
+
+## D-155 — Onboarding is one command from the client's filled questionnaire (2026-09-27)
+
+The founder asked for this on 2026-09-27: *"Onboarding a new client must take one command,
+not hours of hand-written SQL."* Next client: «Tara Park Od» (a second salon branch, its own
+owner and Page); then the «Анхны 10 бизнест» launch.
+
+- **The command.** `node scripts/onboard/tenant.ts --form <filled .docx> --slug <slug>
+  [--facebook-page-id <id>]` reads «Дали — Мэдээлэл цуглуулах маягт» as the client returns
+  it (Word, or Google Docs downloaded as Word; a Markdown/text export also reads). Dry run by
+  default; `--apply` writes. It refuses a form whose numbering changed rather than reading
+  it by position (D-057), and it refuses any tenant that has ever been live.
+- **What it writes, in shadow:** tenant, hours, contacts, booking, services and prices (in
+  the client's words, `confirmed_at` null), staff with grades, FAQs (`seeded`), deposit
+  rules, knowledge documents built only from the client's own text, never-say rules (the
+  client's phrase is the stem, matched whole), comment rules from the vertical's template
+  (disabled), the reply look (`max_emoji: 0` when the client said no emoji), channels
+  (`delivery_mode = 'shadow'`, no token, `app_slug` unset), reply cases (inactive), and a
+  readiness episode in the daily report. It writes no `tenant_roles` entitlement and no
+  budget: spend is the founder's decision.
+- **Missing is a recorded state, never a guess.** A blank or unreadable answer goes on the
+  missing list (the report, the client summary, and the daily report's readiness line). An
+  answer that could put a wrong answer in front of a customer while open (a price, the
+  phone, the Page id) holds the tenant; the line names those first.
+- **Two gates, bound to what was read.** The wording sheet lists every Mongolian line Дали
+  will say that is not the client's own data, with the template and the approved line it
+  came from. The founder signs by passing the sheet's id back (`--sign-wording <id>
+  --signed-by <name>`); the id is a hash of the pending lines, so a line changed after
+  printing is not signed. The client confirms a one-page Mongolian summary rendered from the
+  ROWS; `--client-confirmed <name> --confirmed-on <date> --summary <id>` stamps
+  `confirmed_at` on every price and upgrades FAQs to `tenant_confirmed`, only if the facts
+  still hash to that id. Who signed is recorded in `alerts` (digest), since no column holds
+  it. Reply cases switch on only when both gates have passed. **Departure:** D-079's writer
+  never set `reviewed_at`; this command does, but only on the founder's explicit id, and
+  `SUPABASE_SECRET_PUBLISH` is absent from every cloud session.
+- **Reply cases from the client's facts:** each price, the hours, the address, the booking
+  link, the deposit, each never-say phrase (no price may be quoted), and a video link that
+  must get the media line with no model. Only the last is exact; the rest need the model and
+  are run by the one paid pre-publish check (D-151).
+- **First publish can run its cases.** The reply-case gate loaded the live snapshot first,
+  so a never-published tenant with an active case failed as `not_provisioned`.
+  `loadReceptionContext` now takes `firstPublish` — the snapshot the publish is about to
+  write — used only when no live snapshot exists; the reply path never sets it, and a
+  tenant with a live snapshot never reads it.
+- **Gate blocks in salon language.** Eight signed blocks carry salon examples (Ш1, Ш2, Ш3,
+  Ш5, Ш6, Ш8, Ш11, `02_style`; CLAUDE.md said four). `prompt/drafts/vertical-neutral/` holds
+  neutral drafts and byte-frozen `salon` and `software` copies, so DalaTech and Tara compile
+  byte-identical after promotion (measured on the replica). Unsigned; waits for the founder.
+  `catalog.sql` V29 now counts a block with a generic row as covered for every vertical.
+- **A tenant cannot be deleted on the project.** The append-only statement triggers fire on
+  the cascade from `tenants` even with no rows. The test tenant was deleted on the replica
+  with `scripts/localvalidate/drop-tenant.sql` (superuser, replica only). A client who
+  withdraws needs offboarding (`tenant_offboardings`), which is not built.
+- **Proof.** A fictional salon branch (two stylists of each gender, a deposit, one missing
+  price, «Хумс будалт» vs «Гель хумс будалт»), filled into the founder's real blank template,
+  run end to end on a local replica (PostgreSQL 16 + PostgREST 12.2.3, migrations to 0063):
+  `docs/reports/2026-09-27-onboarding-proof/`. Signatures there are SIMULATED on a fictional
+  tenant. No model was called: `ANTHROPIC_API_KEY` is not set in the session, so the one paid
+  check was not run and cost nothing.

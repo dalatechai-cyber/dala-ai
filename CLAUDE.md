@@ -81,8 +81,10 @@ numbers fit. A script that names a tenant takes it as an ARGUMENT.
 
 Not violations, and not to be "fixed": a **docstring citing a tenant as evidence**, and a
 **per-vertical** prompt block (`0018`'s most-specific-wins selection). `src/` was audited
-clean (D-078). `scripts/provision/` is not (nine Matrix-only SQL files, no template), and
-four platform gate blocks are still in salon language.
+clean (D-078). A new client is onboarded from their filled questionnaire with one command,
+`scripts/onboard/tenant.ts` (D-155); `scripts/provision/*.sql` are the live tenants' history.
+Eight platform gate blocks carry salon examples; neutral drafts that leave both live tenants
+byte-identical wait for the founder in `prompt/drafts/vertical-neutral/`.
 
 ## The rules that override convenience
 
