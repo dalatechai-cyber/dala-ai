@@ -114,7 +114,7 @@ const COLUMNS_0063: Record<string, Record<string, unknown>> = {
   services: { launch_state: 'live' },
   knowledge_documents: { when_service_id: null, when_launch_state: null },
   deterministic_replies: { when_service_id: null, when_launch_state: null, items: null },
-  reply_cases: { when_service_id: null, when_launch_state: null },
+  reply_cases: { when_launch: null },
   config_snapshots: { launch_states: null },
 };
 

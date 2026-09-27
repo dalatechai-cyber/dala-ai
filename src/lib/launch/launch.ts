@@ -79,6 +79,23 @@ export function conditionOf(serviceId: unknown, state: unknown): LaunchCondition
   return { serviceId: serviceId.toLowerCase(), state };
 }
 
+/**
+ * A list of conditions (`reply_cases.when_launch`), every one of which must hold. null or
+ * absent is no condition; anything that does not parse is `'bad'` and never holds.
+ */
+export function conditionsOf(raw: unknown): LaunchCondition[] | 'bad' {
+  if (raw === null || raw === undefined) return [];
+  if (!Array.isArray(raw)) return 'bad';
+  const out: LaunchCondition[] = [];
+  for (const r of raw) {
+    const o = (r ?? {}) as Record<string, unknown>;
+    const c = conditionOf(o['service_id'], o['state']);
+    if (c === 'bad' || c === null) return 'bad';
+    out.push(c);
+  }
+  return out;
+}
+
 /** The states as a lookup, or null when the snapshot has no record (a format marker). */
 export type LaunchLookup = ReadonlyMap<string, LaunchState> | null;
 
@@ -286,6 +303,18 @@ export function resolveDeterministicRows(
  * never be flipped, and must be fixed before anything goes out. The row-level columns are
  * foreign keys already; the pieces are jsonb, so this is where they are checked.
  */
+export function caseReferences(raw: unknown): { id: string; serviceId: string | null }[] {
+  const out: { id: string; serviceId: string | null }[] = [];
+  for (const r of Array.isArray(raw) ? raw : []) {
+    const o = (r ?? {}) as Record<string, unknown>;
+    const list = conditionsOf(o['when_launch']);
+    // A list that does not parse is reported as a reference to nothing: it must be fixed.
+    if (list === 'bad') { out.push({ id: String(o['id'] ?? ''), serviceId: null }); continue; }
+    for (const c of list) if (c !== null) out.push({ id: String(o['id'] ?? ''), serviceId: c.serviceId });
+  }
+  return out;
+}
+
 export function itemReferences(raw: unknown): { intent: string; serviceId: string }[] {
   const out: { intent: string; serviceId: string }[] = [];
   for (const r of Array.isArray(raw) ? raw : []) {

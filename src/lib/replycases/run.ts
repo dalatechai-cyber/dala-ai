@@ -38,7 +38,7 @@ import type { CallOutcome, ReceptionRequest } from '../model/reception.ts';
 import { fold, nfc } from '../mn/text.ts';
 import { tenantClock } from '../time/clock.ts';
 import { ownSiteHosts, websiteContext } from '../website/ownSite.ts';
-import { conditionOf, holds, lookupOf, type LaunchCondition, type LaunchRecord } from '../launch/launch.ts';
+import { conditionsOf, holds, lookupOf, type LaunchCondition, type LaunchRecord } from '../launch/launch.ts';
 
 export type Turn = { role: 'user' | 'assistant'; content: string };
 
@@ -57,11 +57,12 @@ export type ReplyCase = {
    */
   channel?: 'facebook_page' | 'web';
   /**
-   * D-154 (`0063`): the case is about a configuration in which this service is in this
-   * state, and is judged only against one. Absent or null: every configuration. `'bad'` is a
-   * half-written condition, which never holds, so the case is reported, not silently run.
+   * D-154 (`reply_cases.when_launch`, `0063`): the case is about a configuration in which
+   * every listed service is in its state, and is judged only against one. Absent or empty:
+   * every configuration. `'bad'` is a list that does not parse, which never holds, so the
+   * case is counted as another state's, never run against a guess.
    */
-  condition?: LaunchCondition | 'bad';
+  conditions?: LaunchCondition[] | 'bad';
 };
 
 export type CaseResult = {
@@ -125,7 +126,7 @@ export async function loadCases(
 ): Promise<{ ok: true; cases: ReplyCase[] } | { ok: false; detail: string }> {
   const { data, error } = await db
     .from('reply_cases')
-    .select('id, customer_message, history, expected_body, must_include, must_not_include, note, channel, when_service_id, when_launch_state')
+    .select('id, customer_message, history, expected_body, must_include, must_not_include, note, channel, when_launch')
     .eq('tenant_id', tenantId)
     .eq('active', true)
     .order('id', { ascending: true });
@@ -144,7 +145,7 @@ export async function loadCases(
         mustNotInclude: strings(r['must_not_include']),
         note: typeof r['note'] === 'string' ? r['note'] : null,
         channel: r['channel'] === 'web' ? 'web' as const : 'facebook_page' as const,
-        condition: conditionOf(r['when_service_id'], r['when_launch_state']),
+        conditions: conditionsOf(r['when_launch']),
       };
     }),
   };
@@ -162,7 +163,11 @@ export function casesFor(
   const lookup = lookupOf(launchStates === null ? null : [...launchStates]);
   const apply: ReplyCase[] = [];
   const otherState: ReplyCase[] = [];
-  for (const c of cases) (holds(c.condition ?? null, lookup) ? apply : otherState).push(c);
+  for (const c of cases) {
+    const list = c.conditions ?? [];
+    const ok = list !== 'bad' && list.every((x) => holds(x, lookup));
+    (ok ? apply : otherState).push(c);
+  }
   return { apply, otherState };
 }
 

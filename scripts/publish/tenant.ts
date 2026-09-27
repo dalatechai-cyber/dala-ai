@@ -61,7 +61,7 @@ import { caseModelSeat, gateTenant, renderGate } from '../../src/lib/replycases/
 import { callReception, type CallOutcome } from '../../src/lib/model/reception.ts';
 import { priceCall, type CacheMode } from '../../src/lib/spend/settle.ts';
 import { factGate } from '../facts/gate.ts';
-import { itemReferences, LAUNCH_STATES, sameLaunch, type LaunchRecord, type LaunchState } from '../../src/lib/launch/launch.ts';
+import { caseReferences, itemReferences, LAUNCH_STATES, sameLaunch, type LaunchRecord, type LaunchState } from '../../src/lib/launch/launch.ts';
 
 function die(message: string): never {
   process.stderr.write(`publish: ${message}\n`);
@@ -164,16 +164,22 @@ process.stdout.write(`platform blocks: ${(blockRows ?? []).length} live, matchin
 // they are checked here. A piece naming a service this tenant does not have is a switch that
 // can never be flipped, and it would silently never show.
 {
-  const [svcRes, detRes] = await Promise.all([
+  const [svcRes, detRes, caseRes] = await Promise.all([
     db.from('services').select('id').eq('tenant_id', tenantId),
     db.from('deterministic_replies').select('intent, items').eq('tenant_id', tenantId),
+    db.from('reply_cases').select('id, when_launch').eq('tenant_id', tenantId).eq('active', true),
   ]);
   if (svcRes.error) die(`services unreadable: ${svcRes.error.message}`);
   if (detRes.error) die(`deterministic_replies unreadable: ${detRes.error.message}`);
+  if (caseRes.error) die(`reply_cases unreadable: ${caseRes.error.message}`);
   const ids = new Set((svcRes.data ?? []).map((r) => String((r as Record<string, unknown>)['id']).toLowerCase()));
-  const dangling = itemReferences(detRes.data).filter((r) => !ids.has(r.serviceId));
+  const dangling = [
+    ...itemReferences(detRes.data).filter((r) => !ids.has(r.serviceId)).map((d) => `fixed reply ${d.intent}: ${d.serviceId}`),
+    ...caseReferences(caseRes.data).filter((r) => r.serviceId === null || !ids.has(r.serviceId))
+      .map((c) => `reply case ${c.id}: ${c.serviceId ?? 'when_launch does not parse'}`),
+  ];
   if (dangling.length > 0) {
-    die(`fixed-reply pieces name services this tenant does not have:\n  ${dangling.map((d) => `${d.intent}: ${d.serviceId}`).join('\n  ')}`);
+    die(`launch conditions name services this tenant does not have:\n  ${dangling.join('\n  ')}`);
   }
 }
 

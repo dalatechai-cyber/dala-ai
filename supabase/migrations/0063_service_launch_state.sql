@@ -14,7 +14,8 @@
 --    condition are compiled only when it holds);
 --  - the fixed replies, read per request (`deterministic_replies` rows and their `items`
 --    carrying a condition answer only when it holds under the snapshot's states);
---  - the reply cases, which judge a publish against the states it is about to freeze;
+--  - the reply cases (`when_launch`), which judge a publish against the states it is about
+--    to freeze;
 --  - the website, which reads the web channel's live snapshot over `/api/web/launch/…`.
 --
 -- So flipping the column alone changes nothing anywhere, and a publish changes all of it at
@@ -24,7 +25,8 @@
 --
 -- ## Conditions, not copies of rows per combination
 --
--- A row may carry ONE condition: `when_service_id` + `when_launch_state`, both or neither.
+-- A document or a fixed reply may carry ONE condition: `when_service_id` + `when_launch_state`,
+-- both or neither. A reply case carries a list (`when_launch`), every entry of which must hold.
 -- A fixed reply that lists several services (a price overview, «X, Y хараахан ажиллаж
 -- эхлээгүй…») cannot be one row per combination of switches — four switches are sixteen
 -- rows. Its body is instead a template with `{{slot}}` markers, and `items` holds the
@@ -82,16 +84,14 @@ alter table deterministic_replies
   add constraint deterministic_replies_items_is_array
     check (items is null or jsonb_typeof(items) = 'array');
 
+-- A reply case may need SEVERAL states at once: «the price overview, exactly» is one text
+-- only while every listed service is in a given state. So a case carries a list, and every
+-- entry must hold. Its service ids are checked at publish like `items` (jsonb, no FK).
 alter table reply_cases
-  add column if not exists when_service_id uuid,
-  add column if not exists when_launch_state text;
+  add column if not exists when_launch jsonb;
 alter table reply_cases
-  add constraint reply_cases_launch_condition_whole
-    check ((when_service_id is null) = (when_launch_state is null)),
-  add constraint reply_cases_launch_state_known
-    check (when_launch_state is null or when_launch_state in ('live', 'preregistration')),
-  add constraint reply_cases_launch_service_fk
-    foreign key (tenant_id, when_service_id) references services (tenant_id, id);
+  add constraint reply_cases_when_launch_is_array
+    check (when_launch is null or jsonb_typeof(when_launch) = 'array');
 
 -- The foreign keys above are NO ACTION, checked at the end of the statement, so deleting a
 -- tenant (which cascades to both sides) still works, and deleting a service a row still names
@@ -101,8 +101,6 @@ create index if not exists knowledge_documents_when_service_idx
   on knowledge_documents (tenant_id, when_service_id) where when_service_id is not null;
 create index if not exists deterministic_replies_when_service_idx
   on deterministic_replies (tenant_id, when_service_id) where when_service_id is not null;
-create index if not exists reply_cases_when_service_idx
-  on reply_cases (tenant_id, when_service_id) where when_service_id is not null;
 
 alter table config_snapshots add column if not exists launch_states jsonb;
 alter table config_snapshots
@@ -117,8 +115,8 @@ comment on column deterministic_replies.items is
   'D-154. The pieces a {{slot}} in body/web_body is filled with: [{slot, body, service_id?, state?, words?}]. '
   'A piece holds when its condition holds under the live snapshot''s launch_states. Parsed by src/lib/launch/launch.ts; '
   'a row whose slots are left empty, or whose items do not parse, does not answer.';
-comment on column reply_cases.when_service_id is
-  'D-154. With when_launch_state: the case is judged only against a configuration in which that service is in that state.';
+comment on column reply_cases.when_launch is
+  'D-154. [{service_id, state}, …]: the case is judged only against a configuration in which every listed service is in its state. NULL: always.';
 comment on column config_snapshots.launch_states is
   'D-154. [{service_id, name, state}] for every active service, as compiled. The one record of which services are live: '
   'the fixed replies, the reply cases and the website read this, never services.launch_state. '

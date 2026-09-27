@@ -212,8 +212,8 @@ test('DONE-TEST: a WEBSITE case gets the row\'s website version and no own-site 
 
 const SVC = '22222222-2222-4222-8222-222222222222';
 test('D-154: a case about one launch state is judged only against a configuration in that state', () => {
-  const live = kase({ id: 2, condition: { serviceId: SVC, state: 'live' } });
-  const soon = kase({ id: 3, condition: { serviceId: SVC, state: 'preregistration' } });
+  const live = kase({ id: 2, conditions: [{ serviceId: SVC, state: 'live' }] });
+  const soon = kase({ id: 3, conditions: [{ serviceId: SVC, state: 'preregistration' }] });
   const always = kase({ id: 4 });
   const states = (state: 'live' | 'preregistration') => [{ serviceId: SVC, name: 'A — a', state }];
   assert.deepEqual(casesFor([live, soon, always], states('live')).apply.map((c) => c.id), [2, 4]);
@@ -223,5 +223,12 @@ test('D-154: a case about one launch state is judged only against a configuratio
   assert.deepEqual(none.apply.map((c) => c.id), [4]);
   assert.deepEqual(none.otherState.map((c) => c.id), [2, 3]);
   // A half-written condition never holds: the case is counted, never run against a guess.
-  assert.deepEqual(casesFor([kase({ id: 5, condition: 'bad' })], states('live')).apply, []);
+  assert.deepEqual(casesFor([kase({ id: 5, conditions: 'bad' })], states('live')).apply, []);
+  // Several conditions: every one must hold («the overview, exactly» needs all the switches).
+  const SVC2 = '33333333-3333-4333-8333-333333333333';
+  const both = kase({ id: 6, conditions: [{ serviceId: SVC, state: 'live' }, { serviceId: SVC2, state: 'live' }] });
+  const recs = (a: 'live' | 'preregistration', b: 'live' | 'preregistration') =>
+    [{ serviceId: SVC, name: 'A — a', state: a }, { serviceId: SVC2, name: 'B — b', state: b }];
+  assert.deepEqual(casesFor([both], recs('live', 'live')).apply.map((c) => c.id), [6]);
+  assert.deepEqual(casesFor([both], recs('live', 'preregistration')).apply, []);
 });

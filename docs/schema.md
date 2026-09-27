@@ -755,12 +755,14 @@ speak for a service in either state.
   the reply cases and `GET /api/web/launch/<channel>` read. **NULL is a format marker** (the
   snapshot predates `0063`): a conditioned row or piece never holds against it; unconditioned
   rows are untouched. Never backfilled (append-only table).
-- `knowledge_documents`, `deterministic_replies`, `reply_cases` each gain `when_service_id uuid`
-  and `when_launch_state text`: both or neither (CHECK), the state from the same two values,
-  and a composite FK `(tenant_id, when_service_id) → services (tenant_id, id)` (NO ACTION, so a
-  tenant delete still cascades and a service a row still names cannot be deleted). Indexed.
-  A document is compiled, a fixed reply answers, a reply case is judged, only while its
-  service is in that state.
+- `knowledge_documents` and `deterministic_replies` each gain `when_service_id uuid` and
+  `when_launch_state text`: both or neither (CHECK), the state from the same two values, and a
+  composite FK `(tenant_id, when_service_id) → services (tenant_id, id)` (NO ACTION, so a tenant
+  delete still cascades and a service a row still names cannot be deleted). Indexed. A
+  document is compiled, and a fixed reply answers, only while its service is in that state.
+- `reply_cases.when_launch jsonb` (nullable, CHECK array): `[{service_id, state}, …]`, every
+  entry must hold for the case to be judged («the price overview, exactly» depends on every
+  switch at once). Checked at publish (not a FK: jsonb).
 - `deterministic_replies.items jsonb` (nullable, CHECK array): the pieces a `{{slot}}` in `body`
   / `web_body` is filled with — `[{slot, body, service_id?, state?, words?}]`, parsed by
   `src/lib/launch/launch.ts`. A line that is only `{{slot}}` becomes the holding pieces one per
