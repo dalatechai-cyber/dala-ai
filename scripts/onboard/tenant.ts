@@ -38,7 +38,7 @@ import { generateCases } from '../../src/lib/provision/cases.ts';
 import { projectedAllowedNumbers, validateIntake } from '../../src/lib/provision/validate.ts';
 import { applyIntake, WriteError } from '../../src/lib/provision/write.ts';
 import {
-  activateCases, refuseForeignChannels, refuseIfEverLive, writeOnboarding,
+  activateCases, deactivateCases, refuseForeignChannels, refuseIfEverLive, writeOnboarding,
 } from '../../src/lib/provision/onboardWrite.ts';
 import {
   clientSummary, confirmFacts, gateStatus, loadFacts, loadWording, onboardReadiness, signWording, wordingSheet,
@@ -181,11 +181,25 @@ if (signed > 0) out(`  signed ${signed} Mongolian lines (sheet ${signId}, by ${s
 if (confirmed > 0) out(`  client confirmation recorded on ${confirmed} rows (summary ${summaryId}, ${confirmedBy}, ${confirmedOn})`);
 
 // ---- 3. where it stands ------------------------------------------------------------------------
-const [wording, facts] = await Promise.all([loadWording(db, tenantId!), loadFacts(db, tenantId!)]);
+let wording: Awaited<ReturnType<typeof loadWording>>;
+let facts: Awaited<ReturnType<typeof loadFacts>>;
+try {
+  [wording, facts] = await Promise.all([loadWording(db, tenantId!), loadFacts(db, tenantId!)]);
+} catch (e) {
+  die(`the rows were written but could not be read back: ${e instanceof Error ? e.message : String(e)}. Re-run the same command.`);
+}
 const gates = gateStatus(wording, facts);
-if (gates.wording.signed && gates.facts.confirmed) {
-  activated = await activateCases(db, tenantId!);
-  if (activated > 0) out(`  both gates passed: ${activated} reply cases switched on`);
+try {
+  if (gates.wording.signed && gates.facts.confirmed) {
+    activated = await activateCases(db, tenantId!);
+    if (activated > 0) out(`  both gates passed: ${activated} reply cases switched on`);
+  } else {
+    // A gate that re-opened (a corrected form un-signed a line or a fact) switches them off.
+    const off = await deactivateCases(db, tenantId!);
+    if (off > 0) out(`  a gate is open again: ${off} reply cases switched off`);
+  }
+} catch (e) {
+  die(e instanceof Error ? e.message : String(e));
 }
 const readiness = onboardReadiness(plan, gates, now);
 const recorded = await recordReadiness(db, slug, readiness, now);
@@ -203,3 +217,5 @@ const files: [string, string][] = [
 ];
 for (const [name, body] of files) writeFileSync(join(outDir, name), body);
 out(`\nWrote ${files.map(([n]) => join(outDir, n)).join(', ')}`);
+// The daily report is where a missing answer is seen. If it was not recorded, say so loudly.
+if (recorded.recorded === 'failed') die(`readiness was NOT recorded for the daily report: ${recorded.detail}. Re-run the same command.`, 1);

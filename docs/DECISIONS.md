@@ -10892,7 +10892,13 @@ owner and Page); then the «Анхны 10 бизнест» launch.
   so a never-published tenant with an active case failed as `not_provisioned`.
   `loadReceptionContext` now takes `firstPublish` — the snapshot the publish is about to
   write — used only when no live snapshot exists; the reply path never sets it, and a
-  tenant with a live snapshot never reads it.
+  tenant with a live snapshot never reads it. The DEPLOY gate (`scripts/replycases/gate.ts`,
+  no compiled prefix) reports a tenant with `live_revision_id` null as «not published yet»
+  instead of failing: it serves nothing a deploy could break, and without this the first
+  onboarded tenant with switched-on cases would have blocked every deploy. A tenant that has
+  a revision and lost its snapshot still fails, as before.
+- **Cases follow the gates both ways:** on when both pass, off again when a corrected form
+  re-opens either.
 - **Gate blocks in salon language.** Eight signed blocks carry salon examples (Ш1, Ш2, Ш3,
   Ш5, Ш6, Ш8, Ш11, `02_style`; CLAUDE.md said four). `prompt/drafts/vertical-neutral/` holds
   neutral drafts and byte-frozen `salon` and `software` copies, so DalaTech and Tara compile

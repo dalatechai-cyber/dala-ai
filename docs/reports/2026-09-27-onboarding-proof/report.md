@@ -1,6 +1,6 @@
 # Onboarding report — Цэцэглэг Салон (`tsetsegleg-demo`)
 
-Run 2026-09-28 07:09 UB time (Ulaanbaatar) from `scripts/onboard/fixtures/sample-salon-branch.docx`, filled by Болор, Эзэмшигч (2026-09-27).
+Run 2026-09-28 07:12 UB time (Ulaanbaatar) from `scripts/onboard/fixtures/sample-salon-branch.docx`, filled by Болор, Эзэмшигч (2026-09-27).
 
 ## Where it stands
 
@@ -12,7 +12,7 @@ Run 2026-09-28 07:09 UB time (Ulaanbaatar) from `scripts/onboard/fixtures/sample
 
 ## Written
 
-- created tenant tsetsegleg-demo (708ae271-ea5e-44e1-b40b-2431aac1c95c)
+- created tenant tsetsegleg-demo (69a24120-7ebd-42bc-8dad-51ca22114f2f)
 - 7 business_hours
 - 3 contact_points
 - tenant_booking mode=link

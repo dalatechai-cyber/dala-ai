@@ -272,3 +272,18 @@ export async function activateCases(db: SupabaseClient, tenantId: string): Promi
   if (e) throw new WriteError(`reply_cases activation: ${e.message}`);
   return ids.length;
 }
+
+/**
+ * Switch this tenant's onboarding cases off again: a gate re-opened (a corrected form
+ * changed a signed line or a confirmed fact). Cases follow the gates both ways.
+ */
+export async function deactivateCases(db: SupabaseClient, tenantId: string): Promise<number> {
+  const { data, error } = await db.from('reply_cases').select('id, note, active').eq('tenant_id', tenantId);
+  if (error) throw new WriteError(`reply_cases unreadable: ${error.message}`);
+  const ids = rows(data).filter((r) => String(r['note'] ?? '').startsWith(CASE_NOTE_PREFIX) && r['active'] === true)
+    .map((r) => Number(r['id']));
+  if (ids.length === 0) return 0;
+  const { error: e } = await db.from('reply_cases').update({ active: false }).eq('tenant_id', tenantId).in('id', ids);
+  if (e) throw new WriteError(`reply_cases deactivation: ${e.message}`);
+  return ids.length;
+}
