@@ -10806,3 +10806,16 @@ The founder approved these on 2026-09-27 (`scripts/provision/media-notice-tara-r
   the person who can see the photo answers the price.
 - **A retryable send failure** (613, 5xx) asks QStash to retry, so the notice is re-sent, not
   lost.
+
+## D-153 — The media hand-off alert is a per-tenant setting (2026-09-27)
+
+The founder decided this on 2026-09-27. `tenants.media_handoff_alert` (`0062`, default true)
+decides whether a media hand-off pages Telegram. DalaTech keeps it on. Tara Salon, the matrix-eco-salon tenant
+(`scripts/provision/media-alert-off-matrix-2026-09-27.sql`) turns it off.
+- **What off changes:** only the Telegram alert. The media line and the 30-minute silence
+  are unchanged, the `media_handoff` quality flag is still written, and no `alerts` row is
+  written for the hand-off.
+- **What it does not touch:** every other alert (leads, errors, token problems).
+- **An unreadable setting alerts.** A silent failure would hide the hand-off from the one
+  person who can act on it.
+- **No republish:** the setting is read on each hand-off.

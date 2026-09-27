@@ -59,3 +59,45 @@ test('a photo or a video with no words is planned once per sender; a sticker nev
   ] as never);
   assert.deepEqual(plans.map((p) => p.idx), [0]);
 });
+
+/** Serves the tenants row; records every table touched. `alerts` answers an error, so no Telegram is attempted. */
+function alertDb(tenant: Record<string, unknown> | null) {
+  const touched: string[] = [];
+  const db = {
+    from(table: string) {
+      touched.push(table);
+      const chain: Record<string, unknown> = {};
+      for (const m of ['select', 'eq', 'insert', 'upsert', 'update', 'is', 'order', 'limit', 'gte']) chain[m] = () => chain;
+      const reply = table === 'tenants' ? { data: tenant, error: null } : { data: null, error: { message: 'stub', code: 'XX000' } };
+      chain['maybeSingle'] = async () => reply;
+      chain['single'] = async () => reply;
+      chain['then'] = (res: (v: unknown) => unknown) => res(reply);
+      return chain;
+    },
+  };
+  return { db: db as never, touched };
+}
+
+test('D-153: a tenant with the media alert ON is alerted (DalaTech\'s setting)', async () => {
+  const { raiseMediaHandoff } = await import('./media.ts');
+  const { db, touched } = alertDb({ display_name: 'DalaTech', media_handoff_alert: true });
+  const out = await raiseMediaHandoff(db, { tenantId: 't0', conversationId: 'c1', externalId: 'm1', text: 'https://fb.watch/a/' });
+  assert.notEqual(out.outcome, 'disabled');
+  assert.ok(touched.includes('alerts'), 'the alert was raised');
+});
+
+test('D-153: a tenant with the media alert OFF gets no Telegram and no alert row (Tara\'s setting)', async () => {
+  const { raiseMediaHandoff } = await import('./media.ts');
+  const { db, touched } = alertDb({ display_name: 'Tara Salon', media_handoff_alert: false });
+  const out = await raiseMediaHandoff(db, { tenantId: 't1', conversationId: 'c1', externalId: 'm1', text: 'https://fb.watch/a/' });
+  assert.deepEqual(out, { outcome: 'disabled' });
+  assert.deepEqual(touched, ['tenants'], 'nothing but the setting was read');
+});
+
+test('D-153: an unreadable setting still alerts: a silent failure would hide the hand-off', async () => {
+  const { raiseMediaHandoff } = await import('./media.ts');
+  const { db, touched } = alertDb(null);
+  const out = await raiseMediaHandoff(db, { tenantId: 't1', conversationId: 'c1', externalId: 'm1', text: '' });
+  assert.notEqual(out.outcome, 'disabled');
+  assert.ok(touched.includes('alerts'));
+});
