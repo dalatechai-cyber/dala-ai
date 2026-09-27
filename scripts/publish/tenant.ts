@@ -43,6 +43,8 @@
  * published in the same run; if the publish then fails, the states are put back, so a switch
  * is never left flipped in the rows while the snapshot says otherwise. The website and every
  * channel read the snapshot, so they change at the publish's pointer move, together.
+ * A service with no priced variant cannot be switched live: the command refuses before the
+ * compile, so a staff member never goes live answering that its price is not announced.
  *
  * ## Dry run by DEFAULT
  *
@@ -180,6 +182,31 @@ process.stdout.write(`platform blocks: ${(blockRows ?? []).length} live, matchin
   ];
   if (dangling.length > 0) {
     die(`launch conditions name services this tenant does not have:\n  ${dangling.join('\n  ')}`);
+  }
+}
+
+// ---- a service goes live only with a price (founder, 2026-09-27) -------------------
+// Live mode answers «how much?» from the price rows. A service with no priced variant would
+// go live saying its price is not announced, so the switch refuses until a price exists.
+{
+  const toLive = [...launch].filter(([, state]) => state === 'live').map(([name]) => name);
+  if (toLive.length > 0) {
+    const [svcRes, varRes] = await Promise.all([
+      db.from('services').select('id, name').eq('tenant_id', tenantId),
+      db.from('service_variants').select('service_id, price_min').eq('tenant_id', tenantId),
+    ]);
+    if (svcRes.error) die(`services unreadable: ${svcRes.error.message}`);
+    if (varRes.error) die(`service_variants unreadable: ${varRes.error.message}`);
+    const priced = new Set((varRes.data ?? [])
+      .filter((v) => (v as Record<string, unknown>)['price_min'] !== null)
+      .map((v) => String((v as Record<string, unknown>)['service_id'])));
+    const unpriced = toLive.filter((name) => (svcRes.data ?? []).some((s) => {
+      const r = s as Record<string, unknown>;
+      return String(r['name']).normalize('NFC') === name && !priced.has(String(r['id']));
+    }));
+    if (unpriced.length > 0) {
+      die(`cannot go live without a price: ${unpriced.map((n) => `«${n}»`).join(', ')}. Add its price rows first.`);
+    }
   }
 }
 
