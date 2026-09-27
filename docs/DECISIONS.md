@@ -10681,3 +10681,35 @@ refuses a partial write):
 - **Ора's extra users** are monthly: the 2nd user 200,000₮, the 3rd 175,000₮, and every
   user from the 4th 150,000₮. Each user has their own 1,500 messages.
 - **Applied** on the project on 2026-09-27, with every check in the script passing.
+
+## D-149 — DalaTech's approved lines after the live test; an append is judged against the reply (2026-09-27)
+
+The founder tested live at publish seq 10 and approved eight lines. Each one is served from
+a row, so no model and no spend. Each is also a permanent exact reply case, 26 in all
+(`scripts/provision/dalatech-tone-2026-09-27.sql`).
+- **Thanks.** The `thanks` row already answered «Баярлалаа» with the approved line. The
+  «Тавтай морил!» replies were the model's, on 2026-09-26. Six more thanks forms are now
+  exact cases.
+- **Annual prepay, VAT / И-баримт, minimum contract.** Each is a new `covers_message` row.
+  The FAQ answer and the «Үнийн нөхцөл» document carry the same words. The model's path
+  serves a FAQ answer verbatim (`gate/pinned.ts`), so both paths say one thing.
+- **Discount and demo.** `discount_overview` carries the approved line, with no minus sign
+  anywhere in rows or FAQs, and covers «2 ажилтан авбал …». Both demo rows carry the
+  approved demo line.
+- **Нова.** `nova_about` answers «Нова юу хийдэг вэ?» with the approved description, which
+  is also Нова's document line.
+- **No second pre-registration line.** Both coming-soon rows now read
+  `not(in_reply(«урьдчилан бүртгэл» …))` (the phrase: «урьдчилан төлбөл» in the annual line means "in advance").
+  - `handleReception` judges every message-matched append again once the reply exists, and
+    keeps it only if it still fires.
+  - A row that never reads the reply fires identically on both passes, so only rows that
+    read the reply can change.
+  - Before this, «Вира юу хийдэг вэ?» got «…урьдчилан бүртгэл авч байгаа…» followed by the
+    status line.
+- **Verified with no model.** The gate code ran over a dump of the live rows. The same SQL
+  was first applied to a local PostgreSQL with every migration. The result: 62/62 cases
+  that need no model pass, and 17 cases need the model.
+- **Waiting for the founder:**
+  - the model-side rule (full polite sentences, never a bare «Тийм.»), drafted as
+    `prompt/drafts/02_style_full_sentences.mn.txt`;
+  - five FAQ rewordings, in `docs/reports/2026-09-27-faq-tone.md`.
