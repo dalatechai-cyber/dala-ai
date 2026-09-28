@@ -371,6 +371,14 @@ begin
     if sqlerrm like 'B18 FAILED%' then raise; end if;
   end;
   begin
+    update billing_qpay_codes set reported_keys = '{}' where qpay_invoice_id = 'QP-C1' and reported_keys = '{}';
+    update billing_qpay_codes set reported_keys = array['qpay:ON-OLD'] where qpay_invoice_id = 'QP-C1';
+    update billing_qpay_codes set reported_keys = '{}' where qpay_invoice_id = 'QP-C1';
+    raise exception 'B18 FAILED: what QPay named on a code was erased';
+  exception when raise_exception then
+    if sqlerrm like 'B18 FAILED%' then raise; end if;
+  end;
+  begin
     delete from billing_qpay_codes where qpay_invoice_id = 'QP-C2';
     raise exception 'B18 FAILED: a code was deleted';
   exception when raise_exception then

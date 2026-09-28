@@ -76,6 +76,10 @@ begin
      or new.made_by is distinct from old.made_by then
     raise exception 'billing_qpay_codes: a code''s invoice, QPay id and lifetime never change';
   end if;
+  -- What QPay named on a code is evidence: it can only grow.
+  if not (new.reported_keys @> old.reported_keys) then
+    raise exception 'billing_qpay_codes: reported_keys only grows (QPay named those payments)';
+  end if;
   return new;
 end
 $$;

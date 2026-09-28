@@ -594,6 +594,12 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
     // Answered, and recorded: note it; a code answered after it could no longer take money
     // (plus a margin for QPay's own settling) is final and no longer asked about.
     for (const { code, keys, pending } of answered) {
+      // A payment QPay has shown in flight for a day: the founder is told, once per code.
+      if (pending && deps.now.getTime() - code.expiresAt.getTime() >= CODE_STALE_MS) {
+        await problem(deps, `pending_stale:${code.id}`,
+          `QPay has shown a payment in flight on a code of ${inv.invoiceNo} (${code.qpayInvoiceId}) for over ${CODE_STALE_MS / 3_600_000} hours. `
+          + 'It is not recorded; it is still asked about every hour. Check it with QPay.', inv.isTest, report);
+      }
       // Final: answered after it could no longer take money, with nothing still in flight.
       const final = !pending && deps.now.getTime() >= code.expiresAt.getTime() + CODE_SETTLE_MS;
       const { error } = await deps.db.from('billing_qpay_codes').update({
