@@ -29,5 +29,5 @@ local replica with a fictional salon branch; nothing touches the live project.
 - [x] **7. Founder's review applied (2026-09-27):** the form sent to clients read in full; three
   template rewordings; `image_received` dropped (media line + hand-off instead); gate blocks
   approved and a one-command signing (`scripts/prompt/sign-drafts.ts`) rehearsed on the replica.
-- [ ] **8. Founder signs** the gate blocks (and each client's wording sheet as clients arrive);
+- [x] **8. Founder signed** (c86407f); 0064 applied to the project and verified (D-155 addendum); sections tests made per-vertical. Was: the gate blocks (and each client's wording sheet as clients arrive);
   `supabase db push` of the seed; then merge once CI is green.

@@ -10946,3 +10946,13 @@ owner and Page); then the «Анхны 10 бизнест» launch.
 - **The form sent to clients** («Дали_маягт_DalaTech.docx», rebuilt 2026-09-27) has the same
   questions, tables and text as the Drive template; every filled answer is read back (test).
   Boxes ticked with ✓, [x] or X, or answered in words, are read.
+- **Signed and applied (2026-09-28).** The founder signed the 24 blocks (c86407f, set
+  `6f57bc94885d`). `0064_prompt_blocks_seed` was applied to the project through the MCP
+  migration tool (ledger `20260928000806 0064_prompt_blocks_seed`) as an EQUIVALENT of the
+  generated file rather than its 66 KB text: copy today's bodies into the 16 per-vertical rows,
+  rewrite the 8 generic bodies by the approved line replacements, and raise inside the
+  transaction unless all 39 platform rows hash (sha256) to the signed set with their signed
+  dates. The replica showed the equivalent and the file reach byte-identical rows; on the
+  project all 39 rows then matched the replica row for row. DalaTech's and Tara's block
+  selection fingerprint was `6a392178…` before and after, so their next publish compiles the
+  same prefix; their live snapshots are untouched until then.
