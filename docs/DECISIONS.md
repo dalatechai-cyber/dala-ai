@@ -11067,3 +11067,10 @@ for the founder (money movement, credentials, customer-visible Mongolian). Runbo
   open in one session while the real automatic check runs in another, the reverse, and 20
   unordered writes on 10 invoices, each ending with exactly one payment.
 
+- Applied to the project 2026-09-28 04:50 UTC through the MCP migration tool (ledger
+  `20260928045019 0067_billing_one_payment_one_key`), after reading the ledger (0065, 0066
+  present). Verified on the project: one `billing_record_payment` overload
+  (`…, boolean, text[]`), EXECUTE for `postgres` and `service_role` only; its `prosrc` md5
+  equals the replica's (`d818a08d…`); `billing_payments_via_function` enabled always; a
+  rolled-back probe recorded through the function and was refused on a direct insert; no row
+  remained.
