@@ -28,10 +28,7 @@ so the two are told apart in the QPay merchant app.
        node scripts/prompt/sign-drafts.ts --dir prompt/drafts/billing --set <id> --by Bilguun
 
    then commit, and `supabase db push` (with `0065_billing`).
-2. **Apply the schema:** `0065_billing` (additive: seven new tables) goes to the project with
-   the same push. Read the ledger afterwards (`supabase_migrations.schema_migrations`), and
-   re-run the catalog check per table on the project (`aclexplode`): PostgreSQL 17 adds
-   `MAINTAIN`, which the local PostgreSQL 16 proof cannot see.
+2. **Schema: done.** `0065_billing` was applied to the project on 2026-09-28 (D-156 addendum).
 3. **Vercel environment (Production and Preview):**
    - copy from Core Language's Vercel project, same names: `QPAY_USERNAME`, `QPAY_PASSWORD`,
      `QPAY_MERCHANT_ID`, `QPAY_BANK_CODE`, `QPAY_BANK_ACCOUNT`, `QPAY_ACCOUNT_NAME`, `BREVO_API_KEY`;
@@ -41,8 +38,10 @@ so the two are told apart in the QPay merchant app.
    - `BILLING_FOUNDER_EMAIL` — your address;
    - `BILLING_MODE=test`.
    Preflight refuses the deploy if `BILLING_MODE` is `test`/`live` and any of these is missing.
-4. **QStash:** one schedule, `0 * * * *` (hourly), POST to `${DALA_PUBLIC_URL}/api/workers/billing`.
-   With `BILLING_MODE` unset it answers "disabled", so it may exist first.
+4. **QStash, after the merge** (before it the route does not exist in production and QStash
+   would log a 404 every hour): one schedule, cron `0 * * * *`, POST,
+   `https://api.dalatech.online/api/workers/billing`, empty body. With `BILLING_MODE` unset it
+   answers "disabled".
 
 ## The test (you pay 100₮ yourself)
 

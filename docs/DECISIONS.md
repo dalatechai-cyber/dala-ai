@@ -11017,3 +11017,21 @@ for the founder (money movement, credentials, customer-visible Mongolian). Runbo
   `payment/check` shape (the parser follows Core Language and the @mnpay/qpay SDK types, and
   refuses anything it cannot read), its callback method, Brevo delivery, and Telegram button
   rendering — the founder's real 100₮ test is the proof of those.
+
+### D-156 addendum — 0065 applied to the project (2026-09-28, founder's instruction)
+
+- Applied through the MCP migration tool (ledger `20260928021544 0065_billing`) as a
+  comment-stripped EQUIVALENT of the file (the 44 KB text with comment lines and the three
+  `comment on table` statements removed). The equivalent was first applied to a fresh local
+  replica after 0001–0064: catalog, isolation, rls, spend, retention and billing suites all
+  passed. On the project, a catalog fingerprint of every billing column, constraint, index,
+  function body (md5 of `prosrc`, security, `search_path`, volatility), trigger (with its
+  ENABLE ALWAYS state), policy, RLS/FORCE flag and security class matched the replica's in
+  all eight parts.
+- ACLs read per table with `aclexplode` on PostgreSQL 17: `anon` and `authenticated` hold
+  nothing on any billing table or sequence; `service_role` holds the eight privileges
+  including `MAINTAIN`, with TRUNCATE revoked on `billing_payments` and `billing_events`;
+  every billing function is executable by `service_role` only (no PUBLIC).
+- Nothing reads the tables yet: the code is on the unmerged branch, and `BILLING_MODE` is
+  unset (off). `scripts/verify/billing.sql` was NOT run on the project: the MCP transport
+  commits, and the suite writes to append-only tables.

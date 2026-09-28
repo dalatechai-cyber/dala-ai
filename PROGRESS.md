@@ -16,7 +16,8 @@ bee6a69.
 - [x] **1. Schema.** `supabase/migrations/0065_billing.sql`: accounts, schedules, invoices,
   payments (append-only), outbox, pauses, events (append-only) and the fourteen functions
   that carry the promises. `scripts/verify/billing.sql` proves them (17 checks) on local
-  PostgreSQL 16; every existing suite still passes. NOT applied to the project.
+  PostgreSQL 16; every existing suite still passes. Applied to the project 2026-09-28
+  (ledger `20260928021544`), catalog fingerprint identical to the replica (D-156 addendum).
 - [x] **2. Engine** (`src/lib/billing/`): QPay Quick QR client (same endpoint and env names as
   Core Language, `callback_url` set), contract amounts (best single discount), Ulaanbaatar
   calendar, wording from signed blocks only (drafts for test accounts from the operator's
