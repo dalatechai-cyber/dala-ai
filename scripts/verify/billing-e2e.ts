@@ -15,7 +15,7 @@
  * resent, an unreadable QPay answer that records nothing, and the ledger on the 1st of the
  * next month. Spends nothing and reaches no network but localhost.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import http from 'node:http';
 import { createHmac } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -148,6 +148,17 @@ async function tick(now: Date, mode: 'test' | 'live', signed: Wording = SIGNED) 
 }
 
 const count = (sql: string): number => Number(psql(sql));
+/** A second, concurrent session: runs `sql` in its own connection and resolves when it ends. */
+const psqlAsync = (sql: string): Promise<{ code: number | null; out: string }> => new Promise((resolve) => {
+  const p = spawn('psql', ['-v', 'ON_ERROR_STOP=1', '-qtA', '-d', DB, '-c', sql], {
+    env: { ...process.env, PGHOST: process.env['PGHOST'] ?? '/tmp', PGPORT: process.env['PGPORT'] ?? '5433', PGUSER: process.env['PGUSER'] ?? 'postgres' },
+  });
+  let out = '';
+  p.stdout.on('data', (d: Buffer) => { out += d.toString(); });
+  p.stderr.on('data', (d: Buffer) => { out += d.toString(); });
+  p.on('close', (code) => resolve({ code, out }));
+});
+const pause = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const since = <T,>(list: T[], n: number): T[] => list.slice(n);
 
 async function main(): Promise<void> {
@@ -384,6 +395,60 @@ async function main(): Promise<void> {
   await tick(new Date(), 'live');
   check(psql(`select status || '/' || paid_sum_mnt from billing_invoices where id = '${lateId}'`) === 'void/100'
     && since(telegrams, t0).some((m) => /paid 100₮ on .* which you WITHDREW/u.test(m.text)), 'a payment on a withdrawn invoice is recorded and the founder told');
+
+  // --- a hand entry and the automatic check at the same moment: the database decides -------
+  // The code guards read first and write second; here both reads see nothing, and only the
+  // lock in billing_record_payment keeps the same money from being counted twice.
+  const raceInvoice = async (key: string): Promise<{ id: string; q: string }> => {
+    const r = await db.rpc('billing_issue_one_off', {
+      p_account: test.accountId, p_key: key, p_lines: [{ label: 'Туршилт', amount_mnt: 100 }], p_amount: 100,
+      p_issued_on: '2026-09-15', p_due_on: '2026-09-18', p_by: 'Bilguun',
+    });
+    if (r.error !== null) throw new Error(r.error.message);
+    await tick(new Date(), 'live');
+    return { id: psql(`select id from billing_invoices where period_key = 'one_off:${key}'`),
+      q: psql(`select qpay_invoice_id from billing_invoices where period_key = 'one_off:${key}'`) };
+  };
+  const payRows = (id: string): string => psql(`select count(*) || '/' || coalesce(sum(amount_mnt), 0) from billing_payments where invoice_id = '${id}'`);
+  // 1. The founder's entry is in flight (its transaction holds the invoice) while the real
+  //    automatic check runs: the check's own read sees nothing, its write waits, then refuses.
+  const r1 = await raceInvoice('race-hand-first');
+  qpayInvoices.get(r1.q)?.payments.push({ id: 'RACE-API-1', amount: 100, at: new Date() });
+  const handTx = psqlAsync(`begin; select billing_record_payment('${r1.id}', 'qpay:RACE-TYPED-1', 'qpay', 100, now(), '${r1.q}', 'operator:Bilguun', null); select pg_sleep(1.5); commit;`);
+  await pause(400);
+  t0 = telegrams.length;
+  const cbRace = await runInvoiceCallback(deps(new Date(Date.now() + 60_000), 'live'), r1.id);
+  const handDone = await handTx;
+  check(handDone.code === 0 && cbRace.ok && payRows(r1.id) === '1/100',
+    'hand entry in flight + automatic check at the same moment: one payment, not two');
+  check(since(telegrams, t0).some((m) => /may be the same money/u.test(m.text)), '…the check is refused by the database and the founder is told');
+  // 2. The reverse: the automatic record is in flight when the founder's entry arrives.
+  const r2 = await raceInvoice('race-auto-first');
+  const autoTx = psqlAsync(`begin; select billing_record_payment('${r2.id}', 'qpay:RACE-API-2', 'qpay', 100, now(), '${r2.q}', 'check', null); select pg_sleep(1.5); commit;`);
+  await pause(400);
+  const typed2 = await db.rpc('billing_record_payment', {
+    p_invoice: r2.id, p_payment_key: 'qpay:RACE-TYPED-2', p_source: 'qpay', p_amount: 100, p_paid_at: new Date().toISOString(),
+    p_qpay_invoice_id: r2.q, p_recorded_by: 'operator:Bilguun', p_note: null,
+  });
+  const autoDone = await autoTx;
+  check(autoDone.code === 0 && typed2.error !== null && /may be the same money/u.test(typed2.error.message) && payRows(r2.id) === '1/100',
+    'automatic record in flight + hand entry at the same moment: the hand entry is refused, one payment');
+  // …unless the founder says it is a second payment.
+  const second = await db.rpc('billing_record_payment', {
+    p_invoice: r2.id, p_payment_key: 'qpay:RACE-TYPED-2', p_source: 'qpay', p_amount: 100, p_paid_at: new Date().toISOString(),
+    p_qpay_invoice_id: r2.q, p_recorded_by: 'operator:Bilguun', p_note: null, p_second_payment: true,
+  });
+  check(second.error === null && payRows(r2.id) === '2/200' && psql(`select status from billing_invoices where id = '${r2.id}'`) === 'mismatch',
+    '…a declared second payment is recorded, and the invoice shows paid twice');
+  // 3. Ten invoices, both writes fired together through PostgREST, no ordering: one each.
+  const burst = await Promise.all(Array.from({ length: 10 }, (_, i) => raceInvoice(`race-burst-${i}`)));
+  await Promise.all(burst.flatMap((r, i) => [
+    db.rpc('billing_record_payment', { p_invoice: r.id, p_payment_key: `qpay:BURST-TYPED-${i}`, p_source: 'qpay', p_amount: 100,
+      p_paid_at: new Date().toISOString(), p_qpay_invoice_id: r.q, p_recorded_by: 'operator:Bilguun', p_note: null }),
+    db.rpc('billing_record_payment', { p_invoice: r.id, p_payment_key: `qpay:BURST-API-${i}`, p_source: 'qpay', p_amount: 100,
+      p_paid_at: new Date().toISOString(), p_qpay_invoice_id: r.q, p_recorded_by: 'check', p_note: null }),
+  ]));
+  check(burst.every((r) => payRows(r.id) === '1/100'), '20 simultaneous writes on 10 invoices: exactly one payment each');
 
   // --- the ledger on the 1st of November -------------------------------------------------
   e0 = emails.length; t0 = telegrams.length;

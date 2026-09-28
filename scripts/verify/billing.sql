@@ -20,6 +20,8 @@ declare
   v_s2    uuid;
   v_i     uuid;
   v_i2    uuid;
+  v_i3    uuid;
+  v_i4    uuid;
   v_ch    uuid := 'b2222222-0000-0000-0000-000000000001';
   r       jsonb;
   n       integer;
@@ -164,6 +166,69 @@ begin
   if r ->> 'status' <> 'paid' then raise exception 'B10 FAILED: a later payment undid the founder''s resolution: %', r; end if;
   checks := checks + 1;
 
+  -- B10b — (0067) a QPay payment typed by hand and the same money read automatically under
+  -- another key are never both counted; a declared second payment is; bank is untouched.
+  r := billing_issue_one_off(v_test, 'hand-race', '[{"label":"Туршилт","amount_mnt":100}]', 100,
+                             '2026-10-01', '2026-10-06', 'Bilguun');
+  v_i3 := (r ->> 'invoice_id')::uuid;
+  perform billing_claim_qpay(v_i3, interval '10 minutes');
+  perform billing_set_qpay(v_i3, 'QP-HAND', 'qr', 'img', '[]');
+  r := billing_record_payment(v_i3, 'qpay:TYPED', 'qpay', 100, now(), 'QP-HAND', 'operator:Bilguun', null);
+  if r ->> 'status' <> 'paid' then raise exception 'B10b FAILED: hand entry: %', r; end if;
+  begin
+    perform billing_record_payment(v_i3, 'qpay:API', 'qpay', 100, now(), 'QP-HAND', 'check', null);
+    raise exception 'B10b FAILED: the automatic check counted money already typed by hand';
+  exception when raise_exception then
+    if sqlerrm like 'B10b FAILED%' or sqlerrm not like '%may be the same money%' then raise; end if;
+  end;
+  r := billing_record_payment(v_i3, 'qpay:TYPED', 'qpay', 100, now(), 'QP-HAND', 'check', null);
+  if (r ->> 'inserted')::boolean or (r ->> 'paid_sum_mnt')::bigint <> 100 then raise exception 'B10b FAILED: same key not idempotent: %', r; end if;
+  begin
+    perform billing_record_payment(v_i, 'qpay:TYPED-2', 'qpay', 100, now(), 'QP-1', 'operator:Bilguun', null);
+    raise exception 'B10b FAILED: a hand entry counted money the check already recorded';
+  exception when raise_exception then
+    if sqlerrm like 'B10b FAILED%' or sqlerrm not like '%may be the same money%' then raise; end if;
+  end;
+  r := billing_record_payment(v_i, 'qpay:TYPED-2', 'qpay', 100, now(), 'QP-1', 'operator:Bilguun', null, true);
+  if not (r ->> 'inserted')::boolean or (r ->> 'paid_sum_mnt')::bigint <> 300 then raise exception 'B10b FAILED: declared second payment: %', r; end if;
+  -- Typed by hand under QPay's own id, then QPay reports that one AND a second payment: the
+  -- second is recorded (QPay names both), and the invoice shows paid twice.
+  r := billing_issue_one_off(v_test, 'hand-then-two', '[{"label":"Туршилт","amount_mnt":100}]', 100,
+                             '2026-10-01', '2026-10-06', 'Bilguun');
+  v_i4 := (r ->> 'invoice_id')::uuid;
+  perform billing_claim_qpay(v_i4, interval '10 minutes');
+  perform billing_set_qpay(v_i4, 'QP-TWO', 'qr', 'img', '[]');
+  perform billing_record_payment(v_i4, 'qpay:API-1', 'qpay', 100, now(), 'QP-TWO', 'operator:Bilguun', null);
+  r := billing_record_payment(v_i4, 'qpay:API-1', 'qpay', 100, now(), 'QP-TWO', 'check', null, false, array['qpay:API-1', 'qpay:API-2']);
+  r := billing_record_payment(v_i4, 'qpay:API-2', 'qpay', 100, now(), 'QP-TWO', 'check', null, false, array['qpay:API-1', 'qpay:API-2']);
+  if r ->> 'status' <> 'mismatch' or (r ->> 'paid_sum_mnt')::bigint <> 200 then
+    raise exception 'B10b FAILED: a second payment QPay reported was swallowed: %', r;
+  end if;
+  -- …but a hand entry QPay's answer does NOT name still blocks (the same money, maybe).
+  begin
+    perform billing_record_payment(v_i3, 'qpay:API-9', 'qpay', 100, now(), 'QP-HAND', 'check', null, false, array['qpay:API-9']);
+    raise exception 'B10b FAILED: an unnamed hand entry did not block';
+  exception when raise_exception then
+    if sqlerrm like 'B10b FAILED%' or sqlerrm not like '%may be the same money%' then raise; end if;
+  end;
+  -- A hand entry cannot use the automatic path's list of QPay-named keys to skip the rule.
+  begin
+    perform billing_record_payment(v_i4, 'qpay:TYPED-X', 'qpay', 100, now(), 'QP-TWO', 'operator:Bilguun', null, false,
+                                   array['qpay:API-1', 'qpay:API-2']);
+    raise exception 'B10b FAILED: a hand entry skipped the rule with p_reported_keys';
+  exception when raise_exception then
+    if sqlerrm like 'B10b FAILED%' or sqlerrm not like '%may be the same money%' then raise; end if;
+  end;
+  -- Only the function writes a payment: a direct insert skips its lock and is refused.
+  begin
+    insert into billing_payments (invoice_id, payment_key, source, amount_mnt, paid_at, recorded_by)
+    values (v_i2, 'bank:DIRECT', 'bank', 1, now(), 'operator:Bilguun');
+    raise exception 'B10b FAILED: a direct insert into billing_payments was accepted';
+  exception when raise_exception then
+    if sqlerrm like 'B10b FAILED%' or sqlerrm not like '%written only by billing_record_payment%' then raise; end if;
+  end;
+  checks := checks + 1;
+
   -- B11 — the same payment key cannot be credited to a second invoice.
   begin
     perform billing_record_payment(v_i2, 'qpay:P1', 'qpay', 100, now(), 'QP-1', 'check', null);
@@ -274,7 +339,7 @@ begin
   checks := checks + 1;
 
   raise notice 'billing: % checks passed', checks;
-  if checks <> 17 then raise exception 'billing: expected 17 checks, ran %', checks; end if;
+  if checks <> 18 then raise exception 'billing: expected 18 checks, ran %', checks; end if;
 end $$;
 
 rollback;

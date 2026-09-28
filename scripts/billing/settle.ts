@@ -70,13 +70,19 @@ async function main(): Promise<void> {
     if (autoErr) die(CMD, autoErr.message, 1);
     const recorded = ((auto ?? []) as { payment_key: string; recorded_by: string }[])
       .filter((r) => !r.recorded_by.startsWith('operator:') && r.payment_key !== `qpay:${pid}`);
-    if (recorded.length > 0 && flag(CMD, 'second-payment') === undefined) {
+    const second = flag(CMD, 'second-payment');
+    if (second !== undefined && second !== 'yes') die(CMD, '--second-payment takes exactly "yes" (it lets a second QPay payment be counted)');
+    const secondPayment = second === 'yes';
+    if (recorded.length > 0 && !secondPayment) {
       die(CMD, `${String(inv['invoice_no'])} already has ${recorded.map((r) => r.payment_key).join(', ')}, recorded automatically from QPay. `
         + 'If this is the same payment, nothing more is needed. Only if QPay took a SECOND payment, run again with --second-payment yes.');
     }
     const { data, error } = await db.rpc('billing_record_payment', {
       p_invoice: inv['id'], p_payment_key: `qpay:${pid}`, p_source: 'qpay', p_amount: amount, p_paid_at: paidAt.toISOString(),
       p_qpay_invoice_id: inv['qpay_invoice_id'], p_recorded_by: `operator:${by}`, p_note: flag(CMD, 'note') ?? null,
+      // The database refuses the same money under a second key too (0067), even when the
+      // automatic check records it in the same instant as this command.
+      p_second_payment: secondPayment,
     });
     if (error) die(CMD, error.message, 1);
     const r = data as Record<string, unknown>;

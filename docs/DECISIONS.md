@@ -11052,3 +11052,25 @@ for the founder (money movement, credentials, customer-visible Mongolian). Runbo
   `string_agg … order by block_key` sorts by collation, `en_US.UTF-8` on the project and
   `C.UTF-8` on the replica. With `collate "C"` the two matched. CLAUDE.md's rule: never let
   collation order reach a hash — that includes a diagnostic's.
+
+### D-156 addendum — one payment, one key, enforced in the database (2026-09-28, founder)
+
+- The first real payment (TEST-202609-0001, 100₮) was refused by the reader, then recorded
+  once after #230 logged QPay Quick QR's real answer shape and #231 read it (payment id is
+  `payments[].id`). Receipt and ✅ reached the founder.
+- #231 guarded "typed by hand under one id, read automatically under another" in code, as a
+  read then a write. The founder asked for it to hold at the same moment too: `0067` moves the
+  rule into `billing_record_payment`, after its `for update` on the invoice, where every
+  record for one invoice is serialised. A declared second payment (`settle.ts qpay
+  --second-payment yes`, `p_second_payment`) is the only way past it.
+- Proof: `billing.sql` B10b (sequential) and the billing e2e race checks: a hand entry held
+  open in one session while the real automatic check runs in another, the reverse, and 20
+  unordered writes on 10 invoices, each ending with exactly one payment.
+
+- Applied to the project 2026-09-28 04:50 UTC through the MCP migration tool (ledger
+  `20260928045019 0067_billing_one_payment_one_key`), after reading the ledger (0065, 0066
+  present). Verified on the project: one `billing_record_payment` overload
+  (`…, boolean, text[]`), EXECUTE for `postgres` and `service_role` only; its `prosrc` md5
+  equals the replica's (`d818a08d…`); `billing_payments_via_function` enabled always; a
+  rolled-back probe recorded through the function and was refused on a direct insert; no row
+  remained.
