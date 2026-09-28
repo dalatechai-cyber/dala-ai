@@ -143,45 +143,75 @@ test('a malformed row is skipped rather than sorting as NaN', async () => {
 // The real signed blocks, compiled
 // ---------------------------------------------------------------------------
 
+/**
+ * The signed blocks one tenant's prompt is built from: per block key, the row for the
+ * tenant's vertical if one is signed, else the generic row — `loadPromptSections`'
+ * most-specific-wins rule (0018). `null` is a vertical with no rows of its own.
+ */
+async function signedSectionsFor(vertical: string | null): Promise<PromptSection[]> {
+  const { readSignedBlocks } = await import('../../../scripts/prompt/generate-seed.ts');
+  const all = readSignedBlocks().filter((b) => b.layer !== null);
+  const chosen = new Map<string, (typeof all)[number]>();
+  for (const b of all) if (b.vertical === null) chosen.set(b.blockKey, b);
+  for (const b of all) if (b.vertical !== null && b.vertical === vertical) chosen.set(b.blockKey, b);
+  return [...chosen.values()].map((b) => ({
+    layer: b.layer as 'L0', key: b.blockKey, ordinal: b.ordinal,
+    body: b.body, reviewedAt: b.reviewedAt, origin: 'platform' as const,
+  }));
+}
+
+// Every vertical the signed set distinguishes, plus one it does not (the generic text).
+const VERTICALS = ['salon', 'software', null] as const;
+
 test('DONE-TEST: the signed gate blocks compile into one prefix, in wire order', async () => {
   // The whole point of this module, over the real text. `renderStablePrefix` had never
-  // been given real sections; this is that call, with the bytes a native speaker signed.
-  const { readSignedBlocks } = await import('../../../scripts/prompt/generate-seed.ts');
-  const sections: PromptSection[] = readSignedBlocks()
-    .filter((b) => b.layer !== null)
-    .map((b) => ({
-      layer: b.layer as 'L0',
-      key: b.blockKey,
-      ordinal: b.ordinal,
-      body: b.body,
-      reviewedAt: b.reviewedAt,
-      origin: 'platform' as const,
-    }));
-  // Thirteen gate blocks plus 00/01/02 headers — fourteen sections. Ш11 joined on
-  // 2026-09-21; this number is asserted rather than derived so adding a block is a
-  // decision somebody makes, not a diff nobody reads.
-  assert.equal(sections.length, 14);
+  // been given real sections; this is that call, with the bytes a native speaker signed —
+  // for each vertical, since per-vertical blocks were signed on 2026-09-28 (D-155).
+  for (const vertical of VERTICALS) {
+    const sections = await signedSectionsFor(vertical);
+    // Thirteen gate blocks plus 00/01/02 headers — fourteen sections, whatever the
+    // vertical: a per-vertical row REPLACES its generic block, it never adds one. Ш11
+    // joined on 2026-09-21; this number is asserted rather than derived so adding a block
+    // is a decision somebody makes, not a diff nobody reads.
+    assert.equal(sections.length, 14, `vertical ${vertical}`);
 
-  const out = renderStablePrefix(sections);
-  assert.equal(out.ok, true);
-  if (!out.ok) return;
+    const out = renderStablePrefix(sections);
+    assert.equal(out.ok, true);
+    if (!out.ok) return;
 
-  assert.deepEqual(out.rendered.order, [
-    '00_gate_preamble', '01_data_marker', '02_style',
-    'sh0_channel', 'sh1_refusal_topics', 'sh2_price', 'sh3_booking', 'sh4_staff_schedule',
-    'sh5_health', 'sh6_concessions', 'sh7_abuse_offtopic', 'sh8_not_in_kb',
-    'sh9_instruction_disclosure', 'sh11_completeness',
-  ]);
+    assert.deepEqual(out.rendered.order, [
+      '00_gate_preamble', '01_data_marker', '02_style',
+      'sh0_channel', 'sh1_refusal_topics', 'sh2_price', 'sh3_booking', 'sh4_staff_schedule',
+      'sh5_health', 'sh6_concessions', 'sh7_abuse_offtopic', 'sh8_not_in_kb',
+      'sh9_instruction_disclosure', 'sh11_completeness',
+    ]);
 
-  // The gate preamble must come first: it is the instruction to evaluate every check,
-  // and a model that reads Ш5 before being told to read them all may stop at the first.
-  assert.ok(out.rendered.promptStable.startsWith('=== ХАРИУЛАХЫН ӨМНӨХ'));
-  assert.equal(out.rendered.contentHash.length, 64);
-  assert.ok(out.rendered.promptChars > 3000, `only ${out.rendered.promptChars} characters`);
+    // The gate preamble must come first: it is the instruction to evaluate every check,
+    // and a model that reads Ш5 before being told to read them all may stop at the first.
+    assert.ok(out.rendered.promptStable.startsWith('=== ХАРИУЛАХЫН ӨМНӨХ'));
+    assert.equal(out.rendered.contentHash.length, 64);
+    assert.ok(out.rendered.promptChars > 3000, `only ${out.rendered.promptChars} characters`);
 
-  // Nothing from the other two families reached it.
-  assert.ok(!out.rendered.promptStable.includes('Баталгааны код'), 'a status-page string is in the prompt');
-  assert.ok(!out.rendered.promptStable.includes('Бидэн рүү мессеж бичээрэй'), 'the comment template is in the prompt');
+    // Nothing from the other two families reached it.
+    assert.ok(!out.rendered.promptStable.includes('Баталгааны код'), 'a status-page string is in the prompt');
+    assert.ok(!out.rendered.promptStable.includes('Бидэн рүү мессеж бичээрэй'), 'the comment template is in the prompt');
+  }
+});
+
+test('DONE-TEST: the live verticals keep their signed text; every other vertical reads no salon example', async () => {
+  const render = async (v: string | null) => {
+    const out = renderStablePrefix(await signedSectionsFor(v));
+    assert.ok(out.ok);
+    return out.ok ? out.rendered.promptStable : '';
+  };
+  const salon = await render('salon');
+  // Salon and software carry the same frozen bytes (today's text for both live tenants).
+  assert.equal(await render('software'), salon);
+  assert.ok(salon.includes('Чёлк тайралт'), 'the salon keeps its own worked example');
+  const generic = await render(null);
+  for (const word of ['салон', 'тайралт', 'будалт', 'Маникюр', 'Хөмсөг', 'үсчин']) {
+    assert.ok(!generic.includes(word), `«${word}» in the generic gate`);
+  }
 });
 
 test('DONE-TEST: compiling the gate does NOT allow-list the fabricated prices it forbids', async () => {
@@ -191,21 +221,17 @@ test('DONE-TEST: compiling the gate does NOT allow-list the fabricated prices it
   // `allowed_numbers` from the whole prefix handed the outbound guard exactly the
   // fabrications the gate exists to prevent, so Ш2 would forbid «20,000₮ орчим» and the
   // guard would then wave it through: two layers, perfectly correlated, both saying yes.
-  const { readSignedBlocks } = await import('../../../scripts/prompt/generate-seed.ts');
-  const sections: PromptSection[] = readSignedBlocks()
-    .filter((b) => b.layer !== null)
-    .map((b) => ({
-      layer: b.layer as 'L0', key: b.blockKey, ordinal: b.ordinal,
-      body: b.body, reviewedAt: b.reviewedAt, origin: 'platform' as const,
-    }));
-  const out = renderStablePrefix(sections);
-  assert.equal(out.ok, true);
-  if (!out.ok) return;
+  for (const vertical of VERTICALS) {
+    const out = renderStablePrefix(await signedSectionsFor(vertical));
+    assert.equal(out.ok, true);
+    if (!out.ok) return;
 
-  assert.deepEqual(out.rendered.allowedNumbers, [], 'a gate-only prompt licenses no numeral at all');
-  // And the counter-examples are still IN the prompt, where the model must read them.
-  assert.ok(out.rendered.promptStable.includes('33,000'));
-  assert.ok(out.rendered.promptStable.includes('20,000'));
+    assert.deepEqual(out.rendered.allowedNumbers, [], `a gate-only prompt licenses no numeral at all (${vertical})`);
+    // And the counter-examples are still IN the prompt, where the model must read them:
+    // Ш1's is «33,000₮» in the salon's example and «30,000₮» in the generic one.
+    assert.ok(out.rendered.promptStable.includes(vertical === null ? '30,000' : '33,000'), `Ш1 example (${vertical})`);
+    assert.ok(out.rendered.promptStable.includes('20,000'), `Ш2 example (${vertical})`);
+  }
 });
 
 // ---------------------------------------------------------------------------
