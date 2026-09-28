@@ -104,7 +104,7 @@ Unless a Telegram message asks you something:
 | ⏸ … has not paid (13th) | tap **Pause** and confirm, or ignore it |
 | ✅ … paid, with **Resume** | tap it (the contract: restore within 1 working day) |
 | ⚠️ payments total … against … | `settle.ts resolve --outcome paid` (accept) or `void`, or wait for the rest |
-| ⚠️ … paid … on …, which you WITHDREW | refund it, or apply it by hand |
+| ⚠️ … is recorded on …, which you WITHDREW | QPay-reported: refund it, or apply it by hand. Recorded by hand: check it was real money |
 | 🟠 Billing: … | it says what happened and the one command that fixes it (e.g. a QPay payment it could not read: `settle.ts qpay --payment-id …`, plus `--qpay-invoice <code>` when the invoice has several QPay codes) |
 
 A bank transfer instead of QPay (contract 4.5): `settle.ts bank …` — the one thing you type.

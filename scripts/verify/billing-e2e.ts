@@ -550,7 +550,22 @@ async function main(): Promise<void> {
   t0 = telegrams.length;
   await tick(new Date(), 'live');
   check(psql(`select status || '/' || paid_sum_mnt from billing_invoices where id = '${lateId}'`) === 'void/100'
-    && since(telegrams, t0).some((m) => /paid 100₮ on .* which you WITHDREW/u.test(m.text)), 'a payment on a withdrawn invoice is recorded and the founder told');
+    && since(telegrams, t0).some((m) => /100₮ is recorded on .* which you WITHDREW\. QPay reported 100₮ paid: that money reached the merchant/u.test(m.text)),
+    'a QPay payment on a withdrawn invoice is recorded and the founder told the money reached the merchant');
+  // A hand-typed entry on a withdrawn invoice is not said to have reached the merchant.
+  const handVoid = await db.rpc('billing_issue_one_off', {
+    p_account: live.accountId, p_key: 'hand-void', p_lines: [{ label: 'Туршилт', amount_mnt: 100 }], p_amount: 100,
+    p_issued_on: '2026-10-15', p_due_on: '2026-10-20', p_by: 'Bilguun',
+  });
+  const handVoidId = String((handVoid.data as Record<string, unknown> | null)?.['invoice_id'] ?? '');
+  await db.rpc('billing_record_payment', { p_invoice: handVoidId, p_payment_key: 'bank:HV-1', p_source: 'bank', p_amount: 50,
+    p_paid_at: new Date().toISOString(), p_qpay_invoice_id: null, p_recorded_by: 'operator:Bilguun', p_note: 'e2e' });
+  await db.rpc('billing_resolve', { p_invoice: handVoidId, p_outcome: 'void', p_by: 'Bilguun', p_note: 'e2e: withdrawn' });
+  t0 = telegrams.length;
+  await tick(new Date(), 'live');
+  const hv = since(telegrams, t0).find((m) => m.text.includes('which you WITHDREW') && m.text.includes('50₮'));
+  check(hv !== undefined && /RECORDED BY HAND/u.test(hv.text) && !/reached the merchant/u.test(hv.text),
+    'a hand-recorded payment on a withdrawn invoice is said to be recorded by hand, never that it reached the merchant');
 
   // --- a hand entry and the automatic check at the same moment: the database decides -------
   // The code guards read first and write second; here both reads see nothing, and only the

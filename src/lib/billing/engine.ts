@@ -840,11 +840,22 @@ async function plan(deps: BillingDeps, today: string, report: TickReport, only?:
     }
 
     if (inv.status === 'void' && inv.paidSumMnt > 0) {
+      // Only a payment QPay itself reported is known to have reached the merchant. One typed
+      // in by hand (settle.ts) is the founder's own record, and may be a test or a mistake.
+      const { data: pays, error: paysErr } = await deps.db.from('billing_payments')
+        .select('amount_mnt, recorded_by').eq('invoice_id', inv.id);
+      if (paysErr) throw new Unavailable(`billing_payments unreadable: ${paysErr.message}`);
+      const byHand = rows(pays).filter((p) => str(p['recorded_by']).startsWith('operator:')).reduce((s, p) => s + Number(p['amount_mnt']), 0);
+      const reported = inv.paidSumMnt - byHand;
+      const parts = [
+        ...(reported > 0 ? [`QPay reported ${formatMnt(reported)} paid: that money reached the merchant; decide whether to refund it or apply it to another invoice.`] : []),
+        ...(byHand > 0 ? [`${formatMnt(byHand)} was RECORDED BY HAND (settle.ts), not reported by QPay: check it is real money before refunding anything.`] : []),
+      ];
       await enqueue(deps, {
         dedupKey: `founder_void_paid:${inv.id}:${inv.paidSumMnt}`, kind: 'founder_mismatch', channel: 'telegram', recipient: 'founder',
         isTest: inv.isTest, accountId: account.id, invoiceId: inv.id,
-        body: `⚠️ ${account.displayName} paid ${formatMnt(inv.paidSumMnt)} on ${inv.invoiceNo}, which you WITHDREW. `
-          + 'The money reached the merchant; decide whether to refund it or apply it to another invoice. No receipt was sent.',
+        body: `⚠️ ${account.displayName}: ${formatMnt(inv.paidSumMnt)} is recorded on ${inv.invoiceNo}, which you WITHDREW. `
+          + `${parts.join(' ')} No receipt was sent.`,
       }, report);
     }
 
