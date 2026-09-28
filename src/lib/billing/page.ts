@@ -100,8 +100,8 @@ export type PayView = PageExtras & (
 
 export type PageOutcome = { status: number; html: string; contentType?: 'json'; redirect?: true };
 
-const FONTS = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap';
-
+// No web font: loading one would send every client's address to a third party. Inter and
+// Manrope are used where the device has them; the system font otherwise.
 const STYLE = `*{box-sizing:border-box}
 body{margin:0;background:${BRAND.paper};color:${BRAND.ink};font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
 header{background:${BRAND.navy};padding:14px 16px}
@@ -137,8 +137,7 @@ function doc(title: string, body: string, logoUrl?: string | null): string {
   const mark = logoUrl !== undefined && logoUrl !== null && logoUrl.startsWith('https://') ? `<img alt="" src="${esc(logoUrl)}">` : '';
   return `<!DOCTYPE html><html lang="mn"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`
     + `<meta name="robots" content="noindex"><meta name="color-scheme" content="light"><meta name="theme-color" content="${BRAND.navy}">`
-    + `<title>${esc(title)}</title><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>`
-    + `<link rel="stylesheet" href="${FONTS}"><style>${STYLE}</style></head>`
+    + `<title>${esc(title)}</title><style>${STYLE}</style></head>`
     + `<body><header><div class="brand">${mark}<span>DalaTech</span></div></header><main>${body}</main></body></html>`;
 }
 

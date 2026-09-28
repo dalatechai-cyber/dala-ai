@@ -241,7 +241,7 @@ test('BILLING_MODE: unset is off and needs nothing; test/live need every billing
   };
   // 0070: the branded invoice's issuer is optional in test, required live.
   const issuer = {
-    BILLING_ISSUER_NAME: 'CANARYname', BILLING_ISSUER_PHONE: 'CANARYphone', BILLING_BANK_ACCOUNT: 'CANARYbank', BILLING_BANK_HOLDER: 'CANARYholder',
+    BILLING_ISSUER_NAME: 'CANARYname', BILLING_ISSUER_PHONE: '99887766', BILLING_BANK_ACCOUNT: '5099887766', BILLING_BANK_HOLDER: 'CANARYholder',
   };
   const testNoIssuer = preflight({ ...COMPLETE, BILLING_MODE: 'test', ...billing });
   assert.equal(testNoIssuer.status, 0, testNoIssuer.out);
@@ -249,6 +249,9 @@ test('BILLING_MODE: unset is off and needs nothing; test/live need every billing
   const liveNoIssuer = preflight({ ...COMPLETE, BILLING_MODE: 'live', ...billing });
   assert.equal(liveNoIssuer.status, 1, liveNoIssuer.out);
   assert.match(liveNoIssuer.out, /MISSING\s+BILLING_BANK_ACCOUNT/);
+  const badBank = preflight({ ...COMPLETE, BILLING_MODE: 'live', ...billing, ...issuer, BILLING_BANK_ACCOUNT: '5000-1234' });
+  assert.equal(badBank.status, 1, badBank.out);
+  assert.match(badBank.out, /BAD\s+BILLING_BANK_ACCOUNT/);
   const resendNoKey = preflight({ ...COMPLETE, BILLING_MODE: 'test', ...billing, BILLING_EMAIL_VIA: 'resend' });
   assert.equal(resendNoKey.status, 1, resendNoKey.out);
   assert.match(resendNoKey.out, /MISSING\s+RESEND_API_KEY/);

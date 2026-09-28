@@ -29,6 +29,7 @@
 import { readFileSync } from 'node:fs';
 import { decodeKeyMaterial, parseKekVersion } from '../src/lib/crypto/kek.ts';
 import { requiredJsonMap } from '../src/lib/env.ts';
+import { issuerFromEnv } from '../src/lib/billing/issuer.ts';
 
 type Verdict = { ok: true; note: string } | { ok: false; why: string };
 
@@ -310,14 +311,18 @@ if (present(billingMode)) {
       // 0070: the branded invoice. Its issuer settings are optional in test (the plain e-mail
       // goes instead) and required live: a client's invoice carries the founder's name, phone
       // and the Khan Bank account, or it does not go out branded at all.
+      // The code's own check (shape, not only presence): a value preflight passed and the
+      // engine rejected would send every invoice plain, silently.
       const ISSUER_NEEDS = ['BILLING_ISSUER_NAME', 'BILLING_ISSUER_PHONE', 'BILLING_BANK_ACCOUNT', 'BILLING_BANK_HOLDER'];
+      const issuerCheck = issuerFromEnv();
+      const bad = new Set(issuerCheck.ok ? [] : issuerCheck.missing);
       for (const name of ISSUER_NEEDS) {
         const v = process.env[name];
-        if (present(v)) rows.push(`  ok       ${name}  (set)`);
+        if (!bad.has(name)) rows.push(`  ok       ${name}  (set)`);
         else if (billingMode === 'live') {
           failures += 1;
-          rows.push(`  MISSING  ${name}\n           required because BILLING_MODE=live: printed on every invoice, e-mail and pay page`);
-        } else rows.push(`  unset    ${name}  (test mode: invoices go out as the plain e-mail until it is set)`);
+          rows.push(`  ${present(v) ? 'BAD     ' : 'MISSING '} ${name}\n           required because BILLING_MODE=live: printed on every invoice, e-mail and pay page${present(v) ? ' (malformed: see src/lib/billing/issuer.ts)' : ''}`);
+        } else rows.push(`  ${present(v) ? 'BAD     ' : 'unset   '} ${name}  (test mode: invoices go out as the plain e-mail until it is ${present(v) ? 'fixed' : 'set'})`);
       }
       const via = process.env['BILLING_EMAIL_VIA'];
       if (present(via) && via !== 'brevo' && via !== 'resend') {

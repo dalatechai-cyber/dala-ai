@@ -109,8 +109,17 @@ export async function renderInvoicePdf(input: PdfInput): Promise<RenderedPdf> {
     const ink = hex(BRAND.ink);
     const muted = hex(BRAND.muted);
     const line = hex(BRAND.line);
-    const text = (s: string, x: number, y: number, o: { font?: PDFFont; size?: number; color?: ReturnType<typeof rgb> } = {}) =>
-      page.drawText(s, { x, y, font: o.font ?? regular, size: o.size ?? 10, color: o.color ?? ink });
+    // A character the embedded fonts lack would print as an empty box on a legal document,
+    // silently: refuse instead (the plain e-mail goes, and the founder is told which).
+    const sets = new Map<PDFFont, Set<number>>([regular, bold, display].map((f) => [f, new Set(f.getCharacterSet())]));
+    const text = (s: string, x: number, y: number, o: { font?: PDFFont; size?: number; color?: ReturnType<typeof rgb> } = {}) => {
+      const font = o.font ?? regular;
+      const set = sets.get(font);
+      for (const ch of s) {
+        if (set !== undefined && !set.has(ch.codePointAt(0) ?? 0)) throw new Refused(`«${ch}» (U+${(ch.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}) is not in the invoice fonts`);
+      }
+      page.drawText(s, { x, y, font, size: o.size ?? 10, color: o.color ?? ink });
+    };
     const right = (s: string, xr: number, y: number, o: { font?: PDFFont; size?: number; color?: ReturnType<typeof rgb> } = {}) =>
       text(s, xr - (o.font ?? regular).widthOfTextAtSize(s, o.size ?? 10), y, o);
 

@@ -642,3 +642,9 @@ test('the pay page (0070): the bank transfer and the phone for an unpaid invoice
   const paid = renderPayPage({ kind: 'settled', invoice: invoice({ status: 'paid', paidSumMnt: 250000, paidAt: NOW }), account, issuer: ISSUER }, { source: 'signed', blocks: all });
   assert.ok(!paid.html.includes('5000123456') && !paid.html.includes('tel:'));
 });
+
+test('the PDF refuses a character its fonts lack rather than printing an empty box', async () => {
+  const blocks: Wording = { source: 'signed', blocks: wordingOnDisk() };
+  const r = await renderInvoicePdf({ wording: blocks, invoice: invoice({}), account: { displayName: 'Şahin 李 ХХК', contractRef: null }, issuer: ISSUER, payUrl: PAY_URL });
+  assert.ok(!r.ok && r.why.includes('U+015E'), r.ok ? 'rendered' : r.why);
+});

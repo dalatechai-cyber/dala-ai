@@ -338,16 +338,16 @@ function ubDayOf(at: Date): string {
 type Branded = { text: string; html: string; pdf: { name: string; base64: string } | null };
 
 /**
- * The branded e-mail for one message (0070), or null while it cannot be sent (a block not
- * signed, a setting missing: the founder is told once, and the plain e-mail goes instead),
- * or 'refused' when it should be sendable and does not render (a signed block that breaks
- * its placeholders, an invoice too long for one PDF page): then NOTHING is sent and the
- * founder is told, exactly as a plain message that does not render.
+ * The branded e-mail for one message (0070), or null: then the plain e-mail goes instead.
+ * Null while it cannot be sent (a block not signed, a setting missing: the founder is told
+ * once), and when it does not render (a signed block that breaks its placeholders, an
+ * invoice too long for one PDF page, a character the fonts lack, a renderer error): the
+ * founder is told for that message. A design problem never costs the client the invoice.
  */
 async function brandedMail(
   deps: BillingDeps, report: TickReport, inv: Invoice, account: Account,
   kind: 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt', w: Wording, values: Record<string, string>,
-): Promise<Branded | null | 'refused'> {
+): Promise<Branded | null> {
   const issuer = deps.issuer ?? { ok: false as const, missing: ['(no issuer settings were read)'] };
   const ready = mailReady(w, issuer);
   if (!ready.ok || !issuer.ok) {
@@ -357,19 +357,27 @@ async function brandedMail(
     return null;
   }
   const payUrl = deps.links.pay(inv.id, inv.invoiceNo);
-  const mail = renderMail({
-    kind, wording: w, invoice: inv, account, issuer: issuer.issuer, payUrl,
-    ...(values['period'] === undefined ? {} : { period: values['period'] }),
-    logoUrl: deps.logoUrl ?? '',
-  });
-  const pdf = kind === 'receipt' ? null : await renderInvoicePdf({ wording: w, invoice: inv, account, issuer: issuer.issuer, payUrl });
-  const why = !mail.ok ? mail.why : pdf !== null && !pdf.ok ? pdf.why : null;
-  if (why !== null || !mail.ok) {
-    await problem(deps, `wording:${kind}:${inv.id}`,
-      `the ${kind.replace('_', ' ')} for ${account.displayName} (${inv.invoiceNo}) was NOT sent: ${why ?? 'it did not render'}.`, inv.isTest, report);
-    return 'refused';
+  let why: string;
+  try {
+    const mail = renderMail({
+      kind, wording: w, invoice: inv, account, issuer: issuer.issuer, payUrl,
+      ...(values['period'] === undefined ? {} : { period: values['period'] }),
+      logoUrl: deps.logoUrl ?? '',
+    });
+    const pdf = kind === 'receipt' ? null : await renderInvoicePdf({ wording: w, invoice: inv, account, issuer: issuer.issuer, payUrl });
+    if (mail.ok && (pdf === null || pdf.ok)) {
+      return { text: mail.text, html: mail.html, pdf: pdf === null || !pdf.ok ? null : { name: pdf.name, base64: pdf.base64 } };
+    }
+    why = !mail.ok ? mail.why : pdf !== null && !pdf.ok ? pdf.why : 'it did not render';
+  } catch (err) {
+    // Anything unexpected (pdf-lib, a font) must not stop the run for every other client.
+    why = `the renderer failed: ${err instanceof Error ? err.message : String(err)}`;
   }
-  return { text: mail.text, html: mail.html, pdf: pdf === null || !pdf.ok ? null : { name: pdf.name, base64: pdf.base64 } };
+  // Never lose the message over its design: the plain e-mail goes instead, and the founder
+  // is told what to fix, once per message.
+  await problem(deps, `branded_failed:${kind}:${inv.id}`,
+    `the ${kind.replace('_', ' ')} for ${account.displayName} (${inv.invoiceNo}) went out as the PLAIN e-mail, without the PDF: ${why}.`, inv.isTest, report);
+  return null;
 }
 
 /**
@@ -395,7 +403,6 @@ async function planClientMessage(
   // the plain e-mail below, exactly as before. A client without an e-mail is the founder's
   // to forward by hand, so the plain text is what they need.
   const branded = account.email === null ? null : await brandedMail(deps, report, inv, account, kind, w, values);
-  if (branded === 'refused') return null;
   const body = branded === null ? render(w, keys.body, values) : { ok: true as const, text: branded.text };
   if (!subject.ok || !body.ok) {
     const why = !subject.ok ? subject.why : body.ok ? '' : body.why;
