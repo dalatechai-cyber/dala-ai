@@ -11106,3 +11106,10 @@ for the founder (money movement, credentials, customer-visible Mongolian). Runbo
   `billing_qpay_codes` RLS enabled and forced, no grant to anon/authenticated, service_role
   without TRUNCATE; both triggers enabled always; the three functions executable by postgres
   and service_role only; the five function bodies' md5 equal the replica's.
+- The founder signed the four code lines (set `b550283c4406`, 0b3a5f1: the three Tara lines
+  and «Уучлаарай, та олон удаа QR код авсан байна. Хэдэн минут хүлээгээд доорх товчийг дахин
+  дарна уу.»). `0069_prompt_blocks_seed` applied 2026-09-28 05:56 UTC (ledger
+  `20260928055639`) as its EQUIVALENT, the four new rows with the file's own upsert, after the
+  project's 61 existing platform rows were checked byte-identical to the file's (fingerprint
+  `1f065683…`). Afterwards: 65 rows, fingerprint `8b9ba44f…` equal to the replica with the
+  full file; each new body's sha256 equals its signed file; all four at layer null.
