@@ -37,9 +37,10 @@ test("the founder's rhythm for a fee issued on the 1st and due on the 5th", () =
   const inv = { status: 'open', issuedOn: '2026-10-01', dueOn: '2026-10-05' };
   const at = (d: string) => stageFor(inv, `2026-10-${d}`);
   assert.deepEqual([at('01').reminderBefore, at('02').reminderBefore, at('03').reminderBefore, at('05').reminderBefore], [false, false, true, true]);
-  assert.deepEqual([at('05').reminderAfter, at('06').reminderAfter, at('07').reminderAfter, at('08').reminderAfter], [false, true, true, false]);
-  assert.deepEqual([at('07').pauseAsk, at('08').pauseAsk, at('20').pauseAsk], [false, true, true]);
-  assert.equal(at('08').daysLate, 3);
+  assert.deepEqual([at('05').reminderAfter, at('06').reminderAfter, at('12').reminderAfter, at('13').reminderAfter], [false, true, true, false]);
+  // Contract 4.9: a pause only when MORE than 7 days late — the 13th for a fee due on the 5th.
+  assert.deepEqual([at('08').pauseAsk, at('12').pauseAsk, at('13').pauseAsk, at('20').pauseAsk], [false, false, true, true]);
+  assert.equal(at('13').daysLate, 8);
   // Paid, mismatched or withdrawn: nothing.
   for (const status of ['paid', 'mismatch', 'void']) {
     const s = stageFor({ ...inv, status }, '2026-10-08');

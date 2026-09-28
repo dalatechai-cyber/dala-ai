@@ -2,7 +2,8 @@
 
 DalaTech invoices its own clients: the monthly fee on the 1st (Ulaanbaatar), paid by QPay
 into the **same merchant Core Language uses**, recorded automatically, reminded on the 3rd
-and 6th, summarised to you on the 6th, and on the 8th you are **asked** — never automatically —
+and 6th, summarised to you on the 6th, and on the 13th (contract 4.9: more than 7 days late) you
+are **asked** — never automatically —
 whether to pause a client who has not paid. Annual-prepay clients get one yearly invoice and
 nothing monthly. This file is what you do, once and then never.
 
@@ -79,7 +80,7 @@ Unless a Telegram message asks you something:
 |---|---|
 | 🧾 invoice copy / ✅ paid / 📊 summary (6th) / 📒 ledger (1st) | nothing |
 | ✉️ Forward to … | forward it (clients without e-mail only) |
-| ⏸ … has not paid | tap **Pause** and confirm, or ignore it |
+| ⏸ … has not paid (13th) | tap **Pause** and confirm, or ignore it |
 | ✅ … paid, with **Resume** | tap it (the contract: restore within 1 working day) |
 | ⚠️ payments total … against … | `settle.ts resolve --outcome paid` (accept) or `void`, or wait for the rest |
 | ⚠️ … paid … on …, which you WITHDREW | refund it, or apply it by hand |
@@ -91,10 +92,7 @@ No VAT and no e-barimt: DalaTech is not VAT-registered (contract 4.6); the recei
 
 ## Decisions waiting for you
 
-- **The pause question on the 8th vs the contract (4.9):** a pause is allowed only when
-  payment is *more than 7 days* late — from the 13th for a fee due on the 5th. The question
-  is asked on the 8th as you asked, and states the days late. `PAUSE_ASK_DAYS_LATE` in
-  `src/lib/billing/calendar.ts` moves it.
+- **Pause question: decided (2026-09-28)** — the 13th, per contract 4.9.
 - **The first month** (4.3: "counted from the act's signature date"): not prorated
   automatically. Invoice a first partial month with `charge.ts`; the schedule starts on the
   next 1st.

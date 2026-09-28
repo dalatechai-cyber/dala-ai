@@ -9,18 +9,14 @@
  *
  * ## The schedule, relative to the due day
  *
- * The contract makes the monthly fee due by the 5th (4.3). The founder's schedule (the
- * 1st is the invoice, the 3rd and 6th the reminders, the 6th the summary, the 8th the
- * question about pausing) is expressed as offsets from the invoice's own due day, so an
- * invoice with another due day — a one-off, a hosting fee — follows the same rhythm, and a
- * test invoice dated in the past reaches its late stages at once.
- *
- * Note what the contract says about the 8th, because the founder's brief and the contract
- * disagree: 4.9 allows a pause only when payment is MORE THAN 7 days late, i.e. from the
- * 13th for a fee due on the 5th. The brief asks on the 8th (3 days late). The question is
- * only a question — nothing pauses without the founder's tap — and the Telegram message
- * states how many days late the invoice is, so the founder decides with the contract in
- * view. `PAUSE_ASK_DAYS_LATE` is the one place to move it.
+ * The contract makes the monthly fee due by the 5th (4.3). The founder's schedule is the
+ * 1st for the invoice, the 3rd and 6th for the reminders, the 6th for the founder's summary,
+ * and the 13th for the question about pausing — the contract (4.9) allows a pause only when
+ * payment is MORE than 7 days late, which for a fee due on the 5th is the 13th (founder,
+ * 2026-09-28). Each is an offset from the invoice's own due day, so an invoice with another
+ * due day — a one-off, a hosting fee — follows the same rhythm, and a test invoice dated in
+ * the past reaches its late stages at once. The question is only a question: nothing
+ * pauses without the founder's tap.
  */
 import { ubDate } from '../time/ub.ts';
 
@@ -28,8 +24,8 @@ import { ubDate } from '../time/ub.ts';
 export const REMINDER_BEFORE_DAYS = 2;
 /** Reminder after the due day: the 6th. */
 export const REMINDER_AFTER_DAYS_LATE = 1;
-/** The founder is asked whether to pause: the 8th. See the module note on the contract. */
-export const PAUSE_ASK_DAYS_LATE = 3;
+/** The founder is asked whether to pause: 8 days late, the 13th — contract 4.9, "more than 7 days". */
+export const PAUSE_ASK_DAYS_LATE = 8;
 /** The founder's summary of the month: on or after the 6th. */
 export const SUMMARY_DAY = 6;
 

@@ -11001,11 +11001,13 @@ for the founder (money movement, credentials, customer-visible Mongolian). Runbo
   or, with no address, a Telegram message for the founder to forward. Messenger from our Page
   is NOT built: the 24-hour window and whether a message tag covers an invoice are Meta policy
   this repo cannot check.
-- **Pause.** Never automatic. On the 8th (3 days late) the founder gets a Telegram button;
-  the page it opens changes nothing until its POST; `billing_pause` sets every channel of the
-  tenant `off` and keeps the prior modes, `billing_resume` restores them where still `off`.
-  **The contract (4.9) allows a pause only when payment is more than 7 days late** (the 13th);
-  the brief says the 8th. The question states the days late; moving it is one constant.
+- **Pause.** Never automatic. On the 13th — 8 days late, the first day contract 4.9 ("more
+  than 7 days") allows it (founder, 2026-09-28, replacing the brief's 8th) — the founder gets a
+  Telegram button; the page it opens changes nothing until its POST; `billing_pause` sets every
+  channel of the tenant `off` and keeps the prior modes, `billing_resume` restores them where
+  still `off`. Reminders stay on the 3rd and 6th, the summary on the 6th.
+- **Delivery decided (founder, 2026-09-28):** e-mail plus a Telegram copy to forward; no
+  Messenger for now.
 - **Switch.** `BILLING_MODE` off / test / live. `test` touches only `is_test` accounts;
   setting `live` is the founder's approval of the first real run, after
   `scripts/billing/report.ts preview`. Preflight refuses test/live without every variable.

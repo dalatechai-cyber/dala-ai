@@ -9,7 +9,7 @@
  * The month it walks through: the 1st (invoices; one live invoice held back because its
  * wording is unsigned, then sent once it is), two runs at once (nothing doubles), the 3rd
  * (reminder), the test client pays (callback: receipt, once), the 6th (reminder after, the
- * founder's summary), the 8th (the pause question; the founder pauses from the page), a
+ * founder's summary), the 13th (the pause question; the founder pauses from the page), a
  * WRONG amount (mismatch, no receipt), the rest arrives (paid, receipt, resume offered; the
  * founder resumes), a failed e-mail retried, a send that never finished reported and not
  * resent, an unreadable QPay answer that records nothing, and the ledger on the 1st of the
@@ -237,60 +237,63 @@ async function main(): Promise<void> {
   check(summary !== undefined && /Paid \(0\)/u.test(summary.text) && /Not paid \(1\):\n• Салон ХХК/u.test(summary.text) && /Outstanding: 360,000₮/u.test(summary.text)
     && !summary.text.includes('Туршилт'), "the founder's summary: who has not paid, 360,000₮ outstanding, test clients left out");
 
-  // --- the 8th: the pause question; nothing pauses by itself --------------------------------
+  // --- the 13th: the pause question (contract 4.9: more than 7 days late); nothing pauses by itself --------------------------------
   t0 = telegrams.length;
-  await tick(at('2026-10-08'), 'live');
+  await tick(at('2026-10-12'), 'live');
+  check(!since(telegrams, t0).some((m) => m.text.startsWith('⏸')), 'on the 12th (7 days late) nothing is asked yet');
+  t0 = telegrams.length;
+  await tick(at('2026-10-13'), 'live');
   const ask = since(telegrams, t0).find((m) => m.text.startsWith('⏸ Салон ХХК has not paid'));
-  check(ask?.button !== undefined && /3 day\(s\) late/u.test(ask.text), 'on the 8th the founder is asked, with a button');
+  check(ask?.button !== undefined && /8 day\(s\) late/u.test(ask.text), 'on the 13th the founder is asked, with a button');
   check(psql(`select delivery_mode from tenant_channels where id = '${CH}'`) === 'shadow', '…and nothing is paused by the question itself');
   const token = new URL(ask?.button?.url ?? 'https://x').searchParams.get('t') ?? '';
   const notices: string[] = [];
-  const get = await runActionJob({ db: () => db, now: at('2026-10-08'), method: 'GET', token, kind: 'pause', notify: async (t) => { notices.push(t); } });
+  const get = await runActionJob({ db: () => db, now: at('2026-10-13'), method: 'GET', token, kind: 'pause', notify: async (t) => { notices.push(t); } });
   check(get.status === 200 && psql(`select delivery_mode from tenant_channels where id = '${CH}'`) === 'shadow', 'opening the link (GET) only asks to confirm');
-  const post = await runActionJob({ db: () => db, now: at('2026-10-08'), method: 'POST', token, kind: 'pause', notify: async (t) => { notices.push(t); } });
+  const post = await runActionJob({ db: () => db, now: at('2026-10-13'), method: 'POST', token, kind: 'pause', notify: async (t) => { notices.push(t); } });
   check(post.status === 200 && psql(`select delivery_mode || '/' || comment_delivery_mode from tenant_channels where id = '${CH}'`) === 'off/off', 'confirming (POST) pauses every channel');
-  const badKind = await runActionJob({ db: () => db, now: at('2026-10-08'), method: 'POST', token, kind: 'resume', notify: async () => undefined });
+  const badKind = await runActionJob({ db: () => db, now: at('2026-10-13'), method: 'POST', token, kind: 'resume', notify: async () => undefined });
   check(badKind.status === 404, 'a pause link cannot resume');
 
   // --- a wrong amount: mismatch, never a receipt --------------------------------------------
   const liveId = psql('select id from billing_invoices where not is_test');
   const liveQ = psql('select qpay_invoice_id from billing_invoices where not is_test');
-  qpayInvoices.get(liveQ)?.payments.push({ id: 'PAY-2', amount: 300000, at: at('2026-10-09') });
+  qpayInvoices.get(liveQ)?.payments.push({ id: 'PAY-2', amount: 300000, at: at('2026-10-14') });
   e0 = emails.length; t0 = telegrams.length;
-  await runInvoiceCallback(deps(at('2026-10-09'), 'live'), liveId);
+  await runInvoiceCallback(deps(at('2026-10-14'), 'live'), liveId);
   check(psql(`select status from billing_invoices where id = '${liveId}'`) === 'mismatch', '300,000₮ against 360,000₮ is a mismatch');
   check(since(emails, e0).length === 0, 'no receipt for a wrong amount');
   check(since(telegrams, t0).some((m) => /payments total 300,000₮ against 360,000₮ \(short by 60,000₮\)/u.test(m.text)), 'the founder is told the exact difference');
 
   // --- the rest arrives: paid, receipt, resume offered ---------------------------------------
-  qpayInvoices.get(liveQ)?.payments.push({ id: 'PAY-3', amount: 60000, at: at('2026-10-10') });
+  qpayInvoices.get(liveQ)?.payments.push({ id: 'PAY-3', amount: 60000, at: at('2026-10-15') });
   e0 = emails.length; t0 = telegrams.length;
-  await tick(at('2026-10-10'), 'live');
+  await tick(at('2026-10-15'), 'live');
   check(psql(`select status from billing_invoices where id = '${liveId}'`) === 'paid', 'the rest arrives: the payments sum to exactly 360,000₮, paid');
   check(since(emails, e0).some((m) => m.to === 'owner@salon.mn' && m.subject.startsWith('Төлбөр хүлээн авлаа')), 'the receipt goes');
   const paidMsg = since(telegrams, t0).find((m) => m.text.startsWith('✅ Салон ХХК paid'));
   check(paidMsg?.button?.label === 'Resume Салон ХХК', 'the founder is offered a resume button, because the client is paused');
   const resumeToken = new URL(paidMsg?.button?.url ?? 'https://x').searchParams.get('t') ?? '';
-  const resumed = await runActionJob({ db: () => db, now: at('2026-10-10'), method: 'POST', token: resumeToken, kind: 'resume', notify: async (t) => { notices.push(t); } });
+  const resumed = await runActionJob({ db: () => db, now: at('2026-10-15'), method: 'POST', token: resumeToken, kind: 'resume', notify: async (t) => { notices.push(t); } });
   check(resumed.status === 200 && psql(`select delivery_mode || '/' || comment_delivery_mode from tenant_channels where id = '${CH}'`) === 'shadow/shadow', 'resume restores the exact prior modes');
-  const oldPause = await runActionJob({ db: () => db, now: at('2026-10-11'), method: 'GET', token, kind: 'pause', notify: async () => undefined });
+  const oldPause = await runActionJob({ db: () => db, now: at('2026-10-16'), method: 'GET', token, kind: 'pause', notify: async () => undefined });
   check(oldPause.html.includes('is PAID now'), 'the old pause link, opened after payment, says the invoice is paid');
-  const oldPost = await runActionJob({ db: () => db, now: at('2026-10-11'), method: 'POST', token, kind: 'pause', notify: async () => undefined });
+  const oldPost = await runActionJob({ db: () => db, now: at('2026-10-16'), method: 'POST', token, kind: 'pause', notify: async () => undefined });
   check(oldPost.status === 409 && psql(`select delivery_mode from tenant_channels where id = '${CH}'`) === 'shadow', '…and pausing with it is refused: a paid client is never paused');
 
   // --- the pay page ---------------------------------------------------------------------
   const links = linksFor(ORIGIN, LINK_SECRET);
-  const paidPage = await runPayPageJob({ db: () => db, now: at('2026-10-10'), token: links.pay(liveId).split('/pay/')[1] ?? '' });
+  const paidPage = await runPayPageJob({ db: () => db, now: at('2026-10-15'), token: links.pay(liveId).split('/pay/')[1] ?? '' });
   check(paidPage.status === 503, 'the live pay page refuses while its wording is unsigned in the database');
-  const testPage = await runPayPageJob({ db: () => db, now: at('2026-10-10'), token: links.pay(testId).split('/pay/')[1] ?? '' });
+  const testPage = await runPayPageJob({ db: () => db, now: at('2026-10-15'), token: links.pay(testId).split('/pay/')[1] ?? '' });
   check(testPage.status === 200 && testPage.html.includes('TEST — the Mongolian wording is not signed') && !testPage.html.includes('data:image'), 'the test pay page renders in English, paid, with no QR');
-  const forged = await runPayPageJob({ db: () => db, now: at('2026-10-10'), token: 'x.y' });
+  const forged = await runPayPageJob({ db: () => db, now: at('2026-10-15'), token: 'x.y' });
   check(forged.status === 404, 'a forged link is a 404');
 
   // --- a failed e-mail is retried; an unfinished one is reported, never resent ---------------
   const oneOff = await db.rpc('billing_issue_one_off', {
     p_account: live.accountId, p_key: 'setup-2026-10', p_lines: [{ label: 'Дали — суурилуулалт', amount_mnt: 50000 }], p_amount: 50000,
-    p_issued_on: '2026-10-10', p_due_on: '2026-10-15', p_by: 'Bilguun',
+    p_issued_on: '2026-10-15', p_due_on: '2026-10-20', p_by: 'Bilguun',
   });
   check(oneOff.error === null, 'a one-off setup fee is issued by the founder');
   emailScript.push({ match: (m) => m.text.includes('50,000₮'), outcome: 'retry' });
@@ -315,7 +318,7 @@ async function main(): Promise<void> {
   // --- an unreadable QPay answer records nothing ---------------------------------------------
   const late = await db.rpc('billing_issue_one_off', {
     p_account: test.accountId, p_key: 'late-test', p_lines: [{ label: 'Туршилт', amount_mnt: 100 }], p_amount: 100,
-    p_issued_on: '2026-09-18', p_due_on: '2026-09-21', p_by: 'Bilguun',
+    p_issued_on: '2026-09-15', p_due_on: '2026-09-18', p_by: 'Bilguun',
   });
   check(late.error === null, 'a late test invoice (due a week ago) is issued');
   t0 = telegrams.length;
