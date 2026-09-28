@@ -502,7 +502,12 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
       // key: record nothing and ask, never count it twice.
       const { data: prior, error: priorErr } = await deps.db.from('billing_payments')
         .select('payment_key, recorded_by').eq('invoice_id', inv.id).eq('source', 'qpay');
-      if (priorErr) { report.problems.push(`payments of ${inv.invoiceNo} not readable: ${priorErr.message}`); continue; }
+      if (priorErr) {
+        await problem(deps, `payments_unreadable:${inv.id}:${billingToday(deps.now)}`,
+          `QPay reports a payment for ${inv.invoiceNo}, but the payments already recorded could not be read (${priorErr.message}). `
+          + 'Nothing was recorded; the next run tries again.', inv.isTest, report);
+        continue;
+      }
       const answered = new Set(check.payments.map((p) => p.key));
       const byHand = ((prior ?? []) as { payment_key: string; recorded_by: string }[])
         .filter((r) => r.recorded_by.startsWith('operator:') && !answered.has(r.payment_key));

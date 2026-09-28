@@ -357,6 +357,25 @@ async function main(): Promise<void> {
     'QPay then reporting it under another id records nothing: still one payment, paid');
   check(since(telegrams, t0).some((m) => /was recorded by hand/u.test(m.text)), '…and the founder is asked whether it is the same payment');
 
+  const same = await db.rpc('billing_issue_one_off', {
+    p_account: test.accountId, p_key: 'hand-same', p_lines: [{ label: 'Туршилт', amount_mnt: 100 }], p_amount: 100,
+    p_issued_on: '2026-09-15', p_due_on: '2026-09-18', p_by: 'Bilguun',
+  });
+  check(same.error === null, 'another test invoice to settle by hand is issued');
+  await tick(new Date(), 'live');
+  const sameId = psql(`select id from billing_invoices where period_key = 'one_off:hand-same'`);
+  const sameQ = psql(`select qpay_invoice_id from billing_invoices where period_key = 'one_off:hand-same'`);
+  await db.rpc('billing_record_payment', {
+    p_invoice: sameId, p_payment_key: 'qpay:PAY-SAME', p_source: 'qpay', p_amount: 100, p_paid_at: '2026-09-20T04:00:00Z',
+    p_qpay_invoice_id: sameQ, p_recorded_by: 'operator:Bilguun', p_note: null,
+  });
+  qpayInvoices.get(sameQ)?.payments.push({ id: 'PAY-SAME', amount: 100, at: new Date('2026-09-20T04:00:00Z') });
+  t0 = telegrams.length;
+  await tick(new Date(), 'live');
+  check(psql(`select count(*) || '/' || sum(amount_mnt) from billing_payments where invoice_id = '${sameId}'`) === '1/100'
+    && !since(telegrams, t0).some((m) => /was recorded by hand/u.test(m.text)),
+    'typed under QPay\'s own id, QPay reporting it is the same payment: nothing new, nothing asked');
+
   // --- money on a withdrawn invoice still reaches the founder ------------------------------
   const lateId = psql(`select id from billing_invoices where period_key = 'one_off:late-test'`);
   await db.rpc('billing_resolve', { p_invoice: lateId, p_outcome: 'void', p_by: 'Bilguun', p_note: 'e2e: withdrawn' });

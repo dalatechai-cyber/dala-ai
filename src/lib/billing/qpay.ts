@@ -186,8 +186,11 @@ export function readPaymentCheck(body: unknown, qpayInvoiceId: string, now: Date
     }
     const stated = ['payment_amount', 'amount'].filter((f) => r[f] !== undefined && r[f] !== null).map((f) => parseAmount(r[f]));
     const amount = stated[0] ?? null;
-    if (amount === null || stated.some((a) => a !== amount)) {
+    if (amount === null || stated.some((a) => a === null)) {
       return { ok: true, determined: false, reason: `settled payment ${key} has no readable amount`, invoiceStatus };
+    }
+    if (stated.some((a) => a !== amount)) {
+      return { ok: true, determined: false, reason: `settled payment ${key} states two different amounts`, invoiceStatus };
     }
     const date = r['payment_date'] ?? r['payment_status_date'];
     const when = typeof date === 'string' ? paymentTime(date) : null;
