@@ -130,18 +130,40 @@ export function paymentTime(v: string): Date | null {
 const SETTLED = new Set(['PAID', 'SUCCESS']);
 const NOT_SETTLED = new Set(['NEW', 'PENDING', 'FAILED', 'REFUNDED', 'CANCELLED', 'CANCELED', 'EXPIRED']);
 
+/** QPay's own id for a payment: `payment_id` (merchant rows) or `id` (Quick QR). Both: must agree. */
+function paymentIdOf(r: Record<string, unknown>): string | null | 'conflict' {
+  const read = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim() !== '' ? v.trim() : typeof v === 'number' && Number.isSafeInteger(v) ? String(v) : null;
+  const a = read(r['payment_id']);
+  const b = read(r['id']);
+  if (a !== null && b !== null && a !== b) return 'conflict';
+  return a ?? b;
+}
+
 /**
  * Read a `/payment/check` answer. Pure, so every shape QPay has been seen to send is a test.
  *
- * Rows are `rows` (Quick QR) or `payments` (older answers); whichever carries rows is used.
+ * Quick QR answers with the invoice itself (seen 2026-09-28 on the first real payment,
+ * TEST-202609-0001): `{id, invoice_status, payments: [{id, amount, currency, payment_status,
+ * payment_status_date, …}]}`. Merchant-style answers carry `rows: [{payment_id,
+ * payment_amount, payment_status, payment_date}]`. Whichever list carries rows is used.
  * A row is settled when its status is PAID or SUCCESS, not settled when it is one of the
  * known unsettled states, and anything else is undetermined — an unknown status is not
- * evidence either way.
+ * evidence either way. An answer that names a different invoice, or a payment in another
+ * currency, is undetermined too: nothing from it is recorded.
  */
 export function readPaymentCheck(body: unknown, qpayInvoiceId: string, now: Date): QpayCheck {
   const b = asRecord(body);
   const invoiceStatus = typeof b['invoice_status'] === 'string' ? (b['invoice_status'] as string) : null;
+  // Every invoice id the answer states must be ours (a UUID: compared without case).
+  for (const f of ['id', 'invoice_id']) {
+    const v = b[f];
+    if (v !== undefined && v !== null && String(v).trim().toLowerCase() !== qpayInvoiceId.trim().toLowerCase()) {
+      return { ok: true, determined: false, reason: `the answer is about another QPay invoice than ${qpayInvoiceId}`, invoiceStatus };
+    }
+  }
   const lists = [b['rows'], b['payments']].filter((l): l is unknown[] => Array.isArray(l) && l.length > 0);
+  if (lists.length > 1) return { ok: true, determined: false, reason: 'the answer carries two payment lists', invoiceStatus };
   const rows = lists[0] ?? [];
   const payments: QpayPayment[] = [];
   for (const raw of rows) {
@@ -152,12 +174,26 @@ export function readPaymentCheck(body: unknown, qpayInvoiceId: string, now: Date
       // The status as QPay's word, or its outline: free text in it never reaches a reason.
       return { ok: true, determined: false, reason: `a payment row has status ${stringOutline(status)}`, invoiceStatus };
     }
-    const id = r['payment_id'];
-    const key = typeof id === 'string' && id.trim() !== '' ? id.trim() : typeof id === 'number' ? String(id) : null;
+    const key = paymentIdOf(r);
+    if (key === 'conflict') return { ok: true, determined: false, reason: 'a settled payment has two different ids', invoiceStatus };
     if (key === null) return { ok: true, determined: false, reason: 'a settled payment has no payment_id', invoiceStatus };
-    const amount = parseAmount(r['payment_amount'] ?? r['amount']);
-    if (amount === null) return { ok: true, determined: false, reason: `settled payment ${key} has no readable amount`, invoiceStatus };
-    const when = typeof r['payment_date'] === 'string' ? paymentTime(r['payment_date'] as string) : null;
+    // A field and its synonym, when both are present, must agree.
+    for (const f of ['payment_currency', 'currency']) {
+      const c = r[f];
+      if (c !== undefined && c !== null && String(c).trim().toUpperCase() !== 'MNT') {
+        return { ok: true, determined: false, reason: `settled payment ${key} is not in MNT`, invoiceStatus };
+      }
+    }
+    const stated = ['payment_amount', 'amount'].filter((f) => r[f] !== undefined && r[f] !== null).map((f) => parseAmount(r[f]));
+    const amount = stated[0] ?? null;
+    if (amount === null || stated.some((a) => a === null)) {
+      return { ok: true, determined: false, reason: `settled payment ${key} has no readable amount`, invoiceStatus };
+    }
+    if (stated.some((a) => a !== amount)) {
+      return { ok: true, determined: false, reason: `settled payment ${key} states two different amounts`, invoiceStatus };
+    }
+    const date = r['payment_date'] ?? r['payment_status_date'];
+    const when = typeof date === 'string' ? paymentTime(date) : null;
     payments.push({ key: `qpay:${key}`, amountMnt: amount, paidAt: when ?? now });
   }
   if (payments.length === 0 && rows.length === 0 && (invoiceStatus === 'PAID' || invoiceStatus === 'CLOSED')) {

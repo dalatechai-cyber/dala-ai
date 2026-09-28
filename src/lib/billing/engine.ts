@@ -496,6 +496,29 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
         inv.isTest, report);
       continue;
     }
+    if (check.payments.length > 0) {
+      // A QPay payment settled by hand (settle.ts qpay) is keyed by the id the founder typed.
+      // If QPay's answer names none of those ids, the same money may be here under another
+      // key: record nothing and ask, never count it twice.
+      const { data: prior, error: priorErr } = await deps.db.from('billing_payments')
+        .select('payment_key, recorded_by').eq('invoice_id', inv.id).eq('source', 'qpay');
+      if (priorErr) {
+        await problem(deps, `payments_unreadable:${inv.id}:${billingToday(deps.now)}`,
+          `QPay reports a payment for ${inv.invoiceNo}, but the payments already recorded could not be read (${priorErr.message}). `
+          + 'Nothing was recorded; the next run tries again.', inv.isTest, report);
+        continue;
+      }
+      const answered = new Set(check.payments.map((p) => p.key));
+      const byHand = ((prior ?? []) as { payment_key: string; recorded_by: string }[])
+        .filter((r) => r.recorded_by.startsWith('operator:') && !answered.has(r.payment_key));
+      if (byHand.length > 0) {
+        await problem(deps, `hand_qpay:${inv.id}:${[...answered].sort().join(',')}`,
+          `QPay reports ${[...answered].join(', ')} for ${inv.invoiceNo}, but ${byHand.map((r) => r.payment_key).join(', ')} was recorded by hand. `
+          + 'If they are the same payment, nothing more is needed; if QPay\'s is a second payment, record it with settle.ts qpay under QPay\'s id. '
+          + 'Nothing was recorded automatically.', inv.isTest, report);
+        continue;
+      }
+    }
     let failed = false;
     for (const p of check.payments) {
       const { data, error } = await deps.db.rpc('billing_record_payment', {

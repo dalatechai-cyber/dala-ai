@@ -126,6 +126,70 @@ test('a QPay payment is recorded only when every settled row names its id and am
   assert.equal(parseAmount(1.5), null);
 });
 
+/**
+ * QPay Quick QR's real /payment/check answer for the first real payment (TEST-202609-0001,
+ * 100₮, 2026-09-28), rebuilt from the outline production logged (billing.qpay_undetermined):
+ * the same keys, types, lengths and QPay words; the identifying values are invented.
+ */
+const REAL_QUICK_QR_ANSWER = (invoiceId: string) => ({
+  id: invoiceId,
+  invoice_status: 'PAID',
+  invoice_status_date: '2026-09-28T03:02:41.000Z',
+  payments: [{
+    amount: '100.00',
+    currency: 'MNT',
+    ebarimt_customer_no: null,
+    id: '100000000000001',
+    note: null,
+    paid_by: 'P2P',
+    payment_description: 'DalaTech TEST-202609-0001',
+    payment_name: 'Нэхэмжлэл',
+    payment_status: 'SUCCESS',
+    payment_status_date: '2026-09-28T03:02:41.000Z',
+    terminal_id: 'DALATECH_AI',
+    transactions: [{}],
+    wallet_customer_id: 'f0e1d2c3-0000-4000-8000-000000000001',
+  }],
+});
+
+test('QPay Quick QR\'s real answer is read: the payment is recorded under its own id, once', () => {
+  const inv = 'a1b2c3d4-2222-4333-8444-555555555555';
+  const real = REAL_QUICK_QR_ANSWER(inv);
+  // The outline of the rebuilt answer is the outline production logged, byte for byte.
+  assert.equal(outlineOf(real), '{id: string(36 digits+latin+other), invoice_status: "PAID", invoice_status_date: string(24 digits+latin+other), '
+    + 'payments: [{amount: string "100.00", currency: "MNT", ebarimt_customer_no: null, id: string(15 digits), note: null, '
+    + 'paid_by: string(3 digits+latin), payment_description: string(25 digits+latin+other), payment_name: string(9 other), '
+    + 'payment_status: "SUCCESS", payment_status_date: string(24 digits+latin+other), terminal_id: string(11 latin+other), '
+    + 'transactions: [object], wallet_customer_id: string(36 digits+latin+other)}]}');
+  assert.deepEqual(readPaymentCheck(real, inv, NOW), {
+    ok: true, determined: true, invoiceStatus: 'PAID',
+    payments: [{ key: 'qpay:100000000000001', amountMnt: 100, paidAt: new Date('2026-09-28T03:02:41.000Z') }],
+  });
+  // Every safety stays: an answer about another invoice, a payment in another currency, two
+  // disagreeing ids, no id, or no readable amount records nothing.
+  const refused = (body: unknown): string => {
+    const r = readPaymentCheck(body, inv, NOW);
+    assert.ok(r.ok && !r.determined, JSON.stringify(body));
+    return r.ok && !r.determined ? r.reason : '';
+  };
+  const row = real.payments[0] as Record<string, unknown>;
+  assert.match(refused({ ...real, id: '99999999-2222-4333-8444-555555555555' }), /another QPay invoice/u);
+  assert.match(refused({ ...real, payments: [{ ...row, currency: 'USD' }] }), /not in MNT/u);
+  assert.match(refused({ ...real, payments: [{ ...row, payment_id: '100000000000002' }] }), /two different ids/u);
+  assert.equal(refused({ ...real, payments: [{ ...row, id: null }] }), 'a settled payment has no payment_id');
+  assert.match(refused({ ...real, payments: [{ ...row, amount: '100.50' }] }), /no readable amount/u);
+  assert.match(refused({ ...real, invoice_id: '99999999-2222-4333-8444-555555555555' }), /another QPay invoice/u);
+  assert.match(refused({ ...real, payments: [{ ...row, payment_currency: 'MNT', currency: 'USD' }] }), /not in MNT/u);
+  assert.match(refused({ ...real, payments: [{ ...row, payment_amount: '200' }] }), /two different amounts/u);
+  assert.match(refused({ ...real, rows: [{ payment_id: 'P1', payment_status: 'PAID', payment_amount: 100 }] }), /two payment lists/u);
+  // The same UUID in another case is the same invoice.
+  const upper = readPaymentCheck({ ...real, id: inv.toUpperCase() }, inv, NOW);
+  assert.ok(upper.ok && upper.determined && upper.payments.length === 1);
+  // Still unpaid: nothing to record, and nothing refused.
+  const open = readPaymentCheck({ id: inv, invoice_status: 'OPEN', payments: [] }, inv, NOW);
+  assert.ok(open.ok && open.determined && open.payments.length === 0);
+});
+
 const QCFG = { username: 'u', password: 'p', terminalId: 'T', merchantId: 'M', bankCode: '050000', bankAccount: 'A', accountName: 'N' };
 
 function fakeFetch(responses: Array<Response | Error>, seen: Array<{ url: string; body: unknown }> = []): typeof fetch {
