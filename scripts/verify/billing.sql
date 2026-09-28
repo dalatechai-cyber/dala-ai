@@ -211,6 +211,14 @@ begin
   exception when raise_exception then
     if sqlerrm like 'B10b FAILED%' or sqlerrm not like '%may be the same money%' then raise; end if;
   end;
+  -- A hand entry cannot use the automatic path's list of QPay-named keys to skip the rule.
+  begin
+    perform billing_record_payment(v_i4, 'qpay:TYPED-X', 'qpay', 100, now(), 'QP-TWO', 'operator:Bilguun', null, false,
+                                   array['qpay:API-1', 'qpay:API-2']);
+    raise exception 'B10b FAILED: a hand entry skipped the rule with p_reported_keys';
+  exception when raise_exception then
+    if sqlerrm like 'B10b FAILED%' or sqlerrm not like '%may be the same money%' then raise; end if;
+  end;
   -- Only the function writes a payment: a direct insert skips its lock and is refused.
   begin
     insert into billing_payments (invoice_id, payment_key, source, amount_mnt, paid_at, recorded_by)

@@ -65,7 +65,8 @@ begin
       from billing_payments
      where invoice_id = p_invoice and source = 'qpay'
        and (recorded_by like 'operator:%') <> by_hand
-       and payment_key <> all(coalesce(p_reported_keys, '{}'::text[]));
+       -- Only the automatic path may say which keys QPay named; a hand entry never skips.
+       and (by_hand or payment_key <> all(coalesce(p_reported_keys, '{}'::text[])));
     if other is not null then
       raise exception 'invoice % already holds QPay payment % recorded %; % may be the same money and is not recorded',
         inv.invoice_no, other, case when by_hand then 'automatically' else 'by hand' end, p_payment_key;
@@ -139,3 +140,4 @@ revoke all on function ops.billing_payments_via_function() from public, anon, au
 create trigger billing_payments_via_function
   before insert on billing_payments
   for each row execute function ops.billing_payments_via_function();
+alter table billing_payments enable always trigger billing_payments_via_function;
