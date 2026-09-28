@@ -524,6 +524,9 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
       const { data, error } = await deps.db.rpc('billing_record_payment', {
         p_invoice: inv.id, p_payment_key: p.key, p_source: 'qpay', p_amount: p.amountMnt,
         p_paid_at: p.paidAt.toISOString(), p_qpay_invoice_id: inv.qpayInvoiceId, p_recorded_by: recordedBy, p_note: null,
+        // Every payment this QPay answer names: a hand entry under one of these ids is a
+        // payment QPay identified, not a conflict (0067). The database decides under its lock.
+        p_reported_keys: check.payments.map((q) => q.key),
       });
       if (error) {
         failed = true;

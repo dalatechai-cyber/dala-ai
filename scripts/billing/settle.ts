@@ -70,7 +70,9 @@ async function main(): Promise<void> {
     if (autoErr) die(CMD, autoErr.message, 1);
     const recorded = ((auto ?? []) as { payment_key: string; recorded_by: string }[])
       .filter((r) => !r.recorded_by.startsWith('operator:') && r.payment_key !== `qpay:${pid}`);
-    const secondPayment = flag(CMD, 'second-payment') !== undefined;
+    const second = flag(CMD, 'second-payment');
+    if (second !== undefined && second !== 'yes') die(CMD, '--second-payment takes exactly "yes" (it lets a second QPay payment be counted)');
+    const secondPayment = second === 'yes';
     if (recorded.length > 0 && !secondPayment) {
       die(CMD, `${String(inv['invoice_no'])} already has ${recorded.map((r) => r.payment_key).join(', ')}, recorded automatically from QPay. `
         + 'If this is the same payment, nothing more is needed. Only if QPay took a SECOND payment, run again with --second-payment yes.');

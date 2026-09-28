@@ -14,7 +14,17 @@
 --   a QPay payment under a NEW key is refused when the invoice already holds a QPay payment
 --   recorded by the OTHER kind of recorder (hand vs automatic) under a different key,
 --   unless the caller says it is a second payment (`p_second_payment`, only settle.ts
---   --second-payment passes it; the automatic path never does).
+--   --second-payment yes passes it; the automatic path never does).
+--
+--   The automatic path passes every key in the QPay answer it is recording from
+--   (`p_reported_keys`). A hand-recorded key QPay itself reports in that answer is a payment
+--   QPay has identified, distinct from the others it lists, so it is not a conflict: a
+--   second payment QPay reports after the founder typed the first under QPay's own id is
+--   recorded (and the invoice shows paid twice), never swallowed.
+--
+-- And every write to billing_payments goes through this function (so through its lock and
+-- its rule): a direct insert, which service_role's table grant would otherwise allow, is
+-- refused by a trigger unless this function set the transaction-local marker.
 --
 -- Unchanged: the same key again is still a no-op (idempotent), a second automatic payment is
 -- still recorded (a second payment on a paid code is a mismatch the founder must see), and a
@@ -26,7 +36,8 @@ drop function public.billing_record_payment(uuid, text, text, bigint, timestampt
 
 create function public.billing_record_payment(
   p_invoice uuid, p_payment_key text, p_source text, p_amount bigint, p_paid_at timestamptz,
-  p_qpay_invoice_id text, p_recorded_by text, p_note text, p_second_payment boolean default false)
+  p_qpay_invoice_id text, p_recorded_by text, p_note text, p_second_payment boolean default false,
+  p_reported_keys text[] default null)
 returns jsonb
 language plpgsql
 set search_path = public, pg_temp
@@ -53,17 +64,20 @@ begin
     select string_agg(payment_key, ', ' order by payment_key collate "C") into other
       from billing_payments
      where invoice_id = p_invoice and source = 'qpay'
-       and (recorded_by like 'operator:%') <> by_hand;
+       and (recorded_by like 'operator:%') <> by_hand
+       and payment_key <> all(coalesce(p_reported_keys, '{}'::text[]));
     if other is not null then
       raise exception 'invoice % already holds QPay payment % recorded %; % may be the same money and is not recorded',
         inv.invoice_no, other, case when by_hand then 'automatically' else 'by hand' end, p_payment_key;
     end if;
   end if;
+  perform set_config('billing.recording_payment', 'on', true);
   insert into billing_payments (invoice_id, payment_key, source, amount_mnt, paid_at, qpay_invoice_id, recorded_by, note)
   values (p_invoice, p_payment_key, p_source, p_amount, p_paid_at,
           case when p_source = 'qpay' then p_qpay_invoice_id end, p_recorded_by, p_note)
   on conflict (payment_key) do nothing;
   get diagnostics total = row_count;
+  perform set_config('billing.recording_payment', 'off', true);
   inserted := total = 1;
   if not inserted and not exists (select 1 from billing_payments where payment_key = p_payment_key and invoice_id = p_invoice) then
     raise exception 'payment % is already recorded against a different invoice', p_payment_key;
@@ -95,12 +109,33 @@ begin
 end
 $$;
 
-comment on function public.billing_record_payment(uuid, text, text, bigint, timestamptz, text, text, text, boolean) is
+comment on function public.billing_record_payment(uuid, text, text, bigint, timestamptz, text, text, text, boolean, text[]) is
   'Record one payment and re-derive the invoice status. Idempotent on p_payment_key. Under the '
   'invoice lock, refuses a QPay payment under a new key when the other kind of recorder (hand '
-  'vs automatic) already holds one on the invoice, unless p_second_payment. D-156, 0067.';
+  'vs automatic) already holds one on the invoice (and QPay''s answer, p_reported_keys, does not '
+  'name it), unless p_second_payment. D-156, 0067.';
 
-revoke all on function public.billing_record_payment(uuid, text, text, bigint, timestamptz, text, text, text, boolean)
+revoke all on function public.billing_record_payment(uuid, text, text, bigint, timestamptz, text, text, text, boolean, text[])
   from public, anon, authenticated;
-grant execute on function public.billing_record_payment(uuid, text, text, bigint, timestamptz, text, text, text, boolean)
+grant execute on function public.billing_record_payment(uuid, text, text, bigint, timestamptz, text, text, text, boolean, text[])
   to service_role;
+
+-- Only billing_record_payment writes a payment: its lock and its rule cannot be skipped by a
+-- direct insert (service_role holds INSERT on the table through 0065's grant).
+create function ops.billing_payments_via_function()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if current_setting('billing.recording_payment', true) is distinct from 'on' then
+    raise exception 'billing_payments is written only by billing_record_payment (its invoice lock and rules)';
+  end if;
+  return new;
+end
+$$;
+revoke all on function ops.billing_payments_via_function() from public, anon, authenticated;
+
+create trigger billing_payments_via_function
+  before insert on billing_payments
+  for each row execute function ops.billing_payments_via_function();

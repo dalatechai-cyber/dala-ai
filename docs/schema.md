@@ -282,15 +282,19 @@ partial, one of four tables.
 
 ### `0067_billing_one_payment_one_key`
 
-**Replaces one function; no table changes.** `billing_record_payment` gains
-`p_second_payment boolean default false` (the old eight-argument signature is dropped; callers
-using named arguments are unaffected). Under its existing invoice lock it now refuses a QPay
+**Replaces one function, adds one trigger; no column changes.** `billing_record_payment` gains
+`p_second_payment boolean default false` and `p_reported_keys text[] default null` (the old
+eight-argument signature is dropped; callers using named arguments are unaffected). Under its existing invoice lock it now refuses a QPay
 payment under a new key when the invoice already holds a QPay payment recorded by the other
 kind of recorder (`operator:%` by hand vs `check`/`callback` automatically) under a different
 key, unless `p_second_payment`. So a hand entry and the automatic check can never both count
 the same money, even at the same moment (D-156 addendum). Same key again stays a no-op; two
-automatic payments and bank transfers are unaffected. Proven by `billing.sql` B10b and the
-billing e2e race checks.
+automatic payments and bank transfers are unaffected. The automatic path passes every key in
+the QPay answer (`p_reported_keys`): a hand entry QPay itself names is not a conflict, so a
+second payment QPay reports is recorded (mismatch), never swallowed. A `before insert`
+trigger (`ops.billing_payments_via_function`) refuses any write to `billing_payments` that
+does not come through this function. Proven by `billing.sql` B10b and the billing e2e race
+checks.
 
 ### `0066_prompt_blocks_seed`
 

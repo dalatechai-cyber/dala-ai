@@ -21,6 +21,7 @@ declare
   v_i     uuid;
   v_i2    uuid;
   v_i3    uuid;
+  v_i4    uuid;
   v_ch    uuid := 'b2222222-0000-0000-0000-000000000001';
   r       jsonb;
   n       integer;
@@ -190,6 +191,34 @@ begin
   end;
   r := billing_record_payment(v_i, 'qpay:TYPED-2', 'qpay', 100, now(), 'QP-1', 'operator:Bilguun', null, true);
   if not (r ->> 'inserted')::boolean or (r ->> 'paid_sum_mnt')::bigint <> 300 then raise exception 'B10b FAILED: declared second payment: %', r; end if;
+  -- Typed by hand under QPay's own id, then QPay reports that one AND a second payment: the
+  -- second is recorded (QPay names both), and the invoice shows paid twice.
+  r := billing_issue_one_off(v_test, 'hand-then-two', '[{"label":"Туршилт","amount_mnt":100}]', 100,
+                             '2026-10-01', '2026-10-06', 'Bilguun');
+  v_i4 := (r ->> 'invoice_id')::uuid;
+  perform billing_claim_qpay(v_i4, interval '10 minutes');
+  perform billing_set_qpay(v_i4, 'QP-TWO', 'qr', 'img', '[]');
+  perform billing_record_payment(v_i4, 'qpay:API-1', 'qpay', 100, now(), 'QP-TWO', 'operator:Bilguun', null);
+  r := billing_record_payment(v_i4, 'qpay:API-1', 'qpay', 100, now(), 'QP-TWO', 'check', null, false, array['qpay:API-1', 'qpay:API-2']);
+  r := billing_record_payment(v_i4, 'qpay:API-2', 'qpay', 100, now(), 'QP-TWO', 'check', null, false, array['qpay:API-1', 'qpay:API-2']);
+  if r ->> 'status' <> 'mismatch' or (r ->> 'paid_sum_mnt')::bigint <> 200 then
+    raise exception 'B10b FAILED: a second payment QPay reported was swallowed: %', r;
+  end if;
+  -- …but a hand entry QPay's answer does NOT name still blocks (the same money, maybe).
+  begin
+    perform billing_record_payment(v_i3, 'qpay:API-9', 'qpay', 100, now(), 'QP-HAND', 'check', null, false, array['qpay:API-9']);
+    raise exception 'B10b FAILED: an unnamed hand entry did not block';
+  exception when raise_exception then
+    if sqlerrm like 'B10b FAILED%' or sqlerrm not like '%may be the same money%' then raise; end if;
+  end;
+  -- Only the function writes a payment: a direct insert skips its lock and is refused.
+  begin
+    insert into billing_payments (invoice_id, payment_key, source, amount_mnt, paid_at, recorded_by)
+    values (v_i2, 'bank:DIRECT', 'bank', 1, now(), 'operator:Bilguun');
+    raise exception 'B10b FAILED: a direct insert into billing_payments was accepted';
+  exception when raise_exception then
+    if sqlerrm like 'B10b FAILED%' or sqlerrm not like '%written only by billing_record_payment%' then raise; end if;
+  end;
   checks := checks + 1;
 
   -- B11 — the same payment key cannot be credited to a second invoice.
