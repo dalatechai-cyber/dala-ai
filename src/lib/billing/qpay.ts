@@ -149,7 +149,8 @@ export function readPaymentCheck(body: unknown, qpayInvoiceId: string, now: Date
     const status = String(r['payment_status'] ?? r['status'] ?? '').toUpperCase();
     if (NOT_SETTLED.has(status)) continue;
     if (!SETTLED.has(status)) {
-      return { ok: true, determined: false, reason: `a payment row has status ${JSON.stringify(status)}`, invoiceStatus };
+      // The status as QPay's word, or its outline: free text in it never reaches a reason.
+      return { ok: true, determined: false, reason: `a payment row has status ${stringOutline(status)}`, invoiceStatus };
     }
     const id = r['payment_id'];
     const key = typeof id === 'string' && id.trim() !== '' ? id.trim() : typeof id === 'number' ? String(id) : null;
@@ -167,17 +168,28 @@ export function readPaymentCheck(body: unknown, qpayInvoiceId: string, now: Date
   return { ok: true, determined: true, payments, invoiceStatus };
 }
 
-/** Keys whose values are QPay's own vocabulary (a state, a currency), safe to log as is. */
-const WORD_KEY = /(status|currency|type|method)$/i;
-/** Keys whose numbers are amounts or counts, not identifiers. */
-const NUMBER_KEY = /(amount|count|fee)$/i;
+/** QPay's own words: the only string values an outline or a reason shows as they are. */
+const QPAY_WORDS = new Set([...SETTLED, ...NOT_SETTLED, 'OPEN', 'CLOSED', 'MNT']);
+/** Keys whose numbers are amounts or counts, not identifiers (whole word: not `account`). */
+const NUMBER_KEY = /(^|_)(amount|count|fee)$/i;
+/** A key shown as it is; anything else (a map keyed by data) is shown by its length only. */
+const FIELD_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,40}$/;
+const MAX_KEYS = 40;
+
+/** A string reduced to its length and character classes, unless it is one of QPay's words. */
+function stringOutline(v: string): string {
+  if (QPAY_WORDS.has(v.toUpperCase())) return JSON.stringify(v);
+  const classes = [/\d/.test(v) ? 'digits' : '', /[A-Za-z]/.test(v) ? 'latin' : '',
+    /[^\dA-Za-z]/.test(v) ? 'other' : ''].filter((c) => c !== '').join('+');
+  return `string(${[...v].length}${classes === '' ? '' : ` ${classes}`})`;
+}
 
 /**
- * The shape of a QPay answer with its values withheld: every key, the type of its value, the
- * length and character classes of each string, and only QPay's own words (statuses,
- * currencies) and amounts as they are. Logged when an answer cannot be read, so the reader
- * can be fixed from what QPay actually sent without a payer's name, account or phone ever
- * reaching the logs.
+ * The shape of a QPay answer with its values withheld: every field name, the type of its
+ * value, the length and character classes of each string, and as they are only QPay's own
+ * words (statuses, the currency) and numbers under amount/count/fee fields. Logged when an
+ * answer cannot be read, so the reader can be fixed from what QPay actually sent without a
+ * payer's name, account or phone ever reaching the logs.
  */
 export function outlineOf(v: unknown, key = '', depth = 0): string {
   if (v === null) return 'null';
@@ -188,18 +200,16 @@ export function outlineOf(v: unknown, key = '', depth = 0): string {
   }
   if (typeof v === 'object') {
     if (depth >= 4) return 'object';
-    const entries = Object.keys(v as Record<string, unknown>).sort()
-      .map((k) => `${k}: ${outlineOf((v as Record<string, unknown>)[k], k, depth + 1)}`);
-    return `{${entries.join(', ')}}`;
+    const keys = Object.keys(v as Record<string, unknown>).sort();
+    const entries = keys.slice(0, MAX_KEYS).map((k) => `${FIELD_KEY.test(k) ? k : `<key ${[...k].length}>`}: `
+      + outlineOf((v as Record<string, unknown>)[k], FIELD_KEY.test(k) ? k : '', depth + 1));
+    return `{${entries.join(', ')}${keys.length > MAX_KEYS ? `, …${keys.length - MAX_KEYS} more` : ''}}`;
   }
   if (typeof v === 'number') return NUMBER_KEY.test(key) ? `number ${v}` : 'number';
   if (typeof v === 'boolean') return `boolean ${v}`;
   if (typeof v === 'string') {
-    if (WORD_KEY.test(key) && /^[A-Za-z_]{1,24}$/.test(v)) return JSON.stringify(v);
     if (NUMBER_KEY.test(key) && /^\d{1,12}(\.\d{1,2})?$/.test(v)) return `string ${JSON.stringify(v)}`;
-    const classes = [/\d/.test(v) ? 'digits' : '', /[A-Za-z]/.test(v) ? 'latin' : '',
-      /[^\dA-Za-z]/.test(v) ? 'other' : ''].filter((c) => c !== '').join('+');
-    return `string(${[...v].length}${classes === '' ? '' : ` ${classes}`})`;
+    return stringOutline(v);
   }
   return typeof v;
 }
@@ -271,7 +281,11 @@ export function quickQr(cfg: QpayConfig, fetchImpl: typeof fetch = fetch): QpayP
       });
       if (!r.ok) return r;
       const check = readPaymentCheck(r.json, qpayInvoiceId, new Date());
-      return check.ok && !check.determined ? { ...check, outline: outlineOf(r.json) } : check;
+      if (!check.ok || check.determined) return check;
+      // An outline is for the log only; failing to make one must not stop the check.
+      let outline: string;
+      try { outline = outlineOf(r.json); } catch { outline = 'unoutlinable'; }
+      return { ...check, outline };
     },
 
     async cancelInvoice(token, qpayInvoiceId) {

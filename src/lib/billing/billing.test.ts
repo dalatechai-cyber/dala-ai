@@ -384,10 +384,29 @@ test('outlineOf: the shape of a QPay answer, with no payer data in it', () => {
     + 'note: null, ok: boolean true, payer_name: string(10 other), payment_amount: string "100.00", '
     + 'payment_currency: "MNT", payment_status: "PAID", phone: string(13 digits+other)}]}');
   for (const secret of ['Бат', '5016271526', '99112233']) assert.ok(!o.includes(secret), secret);
-  // A status-named key with free text is withheld like any other string.
-  assert.equal(outlineOf({ status: 'Paid by Bat 99112233' }), '{status: string(20 digits+latin+other)}');
+  // "count" inside "account" is not a count: account numbers never pass as amounts.
+  const accounts = outlineOf({ bank_account: 5016271526, payer_account: '5016271526', discount: '99112233',
+    payer_accounts: ['5016271526'], customer_phone_count: 99112233 });
+  for (const secret of ['5016271526']) assert.ok(!accounts.includes(secret), accounts);
+  assert.match(accounts, /customer_phone_count: number 99112233/); // a real *_count field: shown
+  // Only QPay's own words are shown as they are; a Latin name under a status/method key is not.
+  assert.equal(outlineOf({ payer_type: 'Bold_Bat', payment_method: 'BATERDENE', status: 'Paid by Bat 99112233' }),
+    '{payer_type: string(8 latin+other), payment_method: string(9 latin), status: string(20 digits+latin+other)}');
+  // A map keyed by data shows its keys by length only, and is cut at forty keys.
+  assert.equal(outlineOf({ '99112233': { 'Бат-Эрдэнэ': 1 } }), '{<key 8>: {<key 10>: number}}');
+  const many = Object.fromEntries(Array.from({ length: 45 }, (_, i) => [`k${i}`, i]));
+  assert.match(outlineOf(many), /…5 more\}$/);
   // Arrays are cut at five items; depth at four.
   assert.match(outlineOf({ rows: [1, 2, 3, 4, 5, 6, 7] }), /…2 more/);
+  assert.equal(outlineOf({ a: { b: { c: { d: { e: 1 } } } } }), '{a: {b: {c: {d: object}}}}');
+});
+
+test('readPaymentCheck: an unknown status reaches the reason as QPay word or outline, never as free text', () => {
+  const r = readPaymentCheck({ rows: [{ payment_status: 'Paid by Bat 99112233', payment_id: 'x', payment_amount: 100 }] }, 'inv', new Date());
+  assert.ok(r.ok && !r.determined);
+  assert.ok(!r.reason.includes('99112233') && !r.reason.includes('BAT'), r.reason);
+  const closed = readPaymentCheck({ rows: [{ payment_status: 'CLOSED', payment_id: 'x', payment_amount: 100 }] }, 'inv', new Date());
+  assert.ok(closed.ok && !closed.determined && closed.reason === 'a payment row has status "CLOSED"');
 });
 
 test('checkPayment: an unreadable answer carries its outline for the log', async () => {
