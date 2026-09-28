@@ -11084,13 +11084,18 @@ for the founder (money movement, credentials, customer-visible Mongolian). Runbo
   invoice, made at issue, could only ever be paid within five minutes of the e-mail.
 - Now (`0068`): no code is made at issue. The pay page makes one when the client opens it
   (a reload with three minutes or more left shows the same one), counts down to it
-  («QR код m:ss хүчинтэй»), and at zero offers «Шинэ QR код авах», which makes a new one; a
-  new code withdraws the previous live one at QPay (best effort). An invoice paid meanwhile
-  shows as paid, never a new code. At most 20 codes an hour per invoice.
+  («QR код m:ss хүчинтэй»), and at zero offers «Шинэ QR код авах», which makes a new one and
+  withdraws the one it replaces at QPay (best effort). A visit (a reload, a second tab, a
+  link preview) never withdraws anything. An invoice paid meanwhile shows as paid, never a
+  new code. At most 20 codes an hour per invoice; past that the page says so (its own
+  line, `billing_page_qr_wait`, a draft).
 - A payment on any code of the invoice counts, once (keyed by QPay's payment id, 0067's
   rules unchanged). Every code is watched until QPay answers for it an hour after it expired.
 - E-mails and reminders already carried only the pay-page link; nothing changes in them.
-- The three code lines are the founder's words for Tara, reused verbatim; they are drafts in
-  `prompt/drafts/billing/` until the founder signs them. Until then a test invoice's page
-  shows them in English under a banner, and a live invoice's open page is a 503.
+- The three code lines are the founder's words for Tara, reused verbatim; with the capped
+  line they are drafts in `prompt/drafts/billing/` until the founder signs them. Until then a
+  test invoice's page shows them in English under a banner, and a live invoice's open page
+  is a 503 that makes no code.
+- Partly paid invoices (a mismatch) are with the founder: the page offers no new code, and
+  the rest comes by bank transfer (contract 4.5). QPay's fixed-amount QR cannot part-pay.
 

@@ -376,7 +376,11 @@ begin
   exception when raise_exception then
     if sqlerrm like 'B18 FAILED%' then raise; end if;
   end;
-  update billing_qpay_codes set checked_at = now(), closed_at = now() where qpay_invoice_id = 'QP-C2';
+  update billing_qpay_codes set checked_at = now(), closed_at = now(), reported_keys = array['qpay:ON-OLD'] where qpay_invoice_id = 'QP-C2';
+  -- The pre-0068 path (billing_set_qpay, the old engine's) records its code as a row too, so
+  -- no code can take money unwatched while the old engine still runs.
+  perform 1 from billing_qpay_codes where qpay_invoice_id = 'QP-1' and made_by = 'issue' and invoice_id = v_i;
+  if not found then raise exception 'B18 FAILED: billing_set_qpay did not record its code'; end if;
   r := billing_issue_one_off(v_test, 'codes-cap', '[{"label":"Туршилт","amount_mnt":100}]', 100, '2026-10-01', '2026-10-06', 'Bilguun');
   v_i6 := (r ->> 'invoice_id')::uuid;
   perform billing_add_pay_code(v_i6, 'QP-K' || g, 'qr', 'img', '[]', now() + interval '290 seconds') from generate_series(1, 3) g;

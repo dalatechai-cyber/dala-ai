@@ -52,6 +52,8 @@ export const BILLING_BLOCKS = {
   billing_page_qr_valid: { required: ['time'], optional: [] },
   billing_page_qr_expired: { required: [], optional: [] },
   billing_page_qr_renew: { required: [], optional: [] },
+  // Past the hourly cap on new codes (a link opened again and again): a draft of its own.
+  billing_page_qr_wait: { required: [], optional: [] },
   billing_line_months: { required: ['label', 'months'], optional: [] },
   billing_line_team_discount: { required: ['count', 'percent'], optional: [] },
   billing_line_annual_free: { required: ['months'], optional: [] },

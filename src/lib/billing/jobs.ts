@@ -17,7 +17,7 @@ import {
   payPageState, runBillingTick, runInvoiceCallback, toInvoice, type Account, type BillingDeps, type TickReport,
 } from './engine.ts';
 import { linksFor, verifyLink } from './links.ts';
-import { actionConfirmPage, actionDonePage, notFoundPage, renderPayPage, type PageOutcome } from './page.ts';
+import { actionConfirmPage, actionDonePage, notFoundPage, PAY_CODE_KEYS, renderPayPage, type PageOutcome } from './page.ts';
 import { quickQr } from './qpay.ts';
 import { sendBrevoEmail, sendFounderTelegram } from './send.ts';
 import { loadSignedWording } from './templates.ts';
@@ -171,6 +171,12 @@ export async function runPayPageJob(input: {
     return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
   }
   if ('error' in deps) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
+  // A live client reads only signed words: until the code lines are signed, no code is made
+  // for a page that could not be shown.
+  const signedDeps = deps;
+  if (!stored.isTest && PAY_CODE_KEYS.some((k) => !signedDeps.signed.blocks.has(k))) {
+    return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
+  }
   const state = await payPageState(deps, stored.id, input.method === 'POST');
   if (state.kind === 'unavailable') {
     log('warn', 'billing.pay_page_unavailable', { invoice: stored.invoiceNo, detail: state.detail });

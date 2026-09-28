@@ -287,16 +287,18 @@ invoices) live five minutes, so a code made at issue could not be paid later (QP
 - `billing_qpay_codes` — every code shown for an invoice (`made_by` `page`, or `issue` for the
   backfilled pre-0068 single codes). Never deleted; its invoice, QPay id and lifetime never
   change (trigger `ops.billing_qpay_code_guard`); `checked_at` / `closed_at` / `cancelled_at`
-  are the watch's bookkeeping. RLS forced, clients hold nothing; class `server_owned`.
+  are the watch's bookkeeping, and `reported_keys` every payment key QPay ever named on the
+  code (kept after it closes, so a hand entry QPay once named is never a conflict later). A
+  code closes only when QPay answers for it an hour after it expired with nothing in flight. RLS forced, clients hold nothing; class `server_owned`.
 - `billing_pay_code_slot(invoice, max_per_hour)` — under the invoice lock: the invoice's
   status when it is not open, `capped` past the hourly cap, else `ok`.
 - `billing_add_pay_code(…, expires_at)` — records a code QPay made, before it is shown; the
   lifetime must end within ten minutes.
 - `billing_record_payment` — a QPay payment belongs to the invoice when its QPay invoice is
-  ANY of its codes (or the pre-0068 `billing_invoices.qpay_invoice_id`). Everything else as
-  0067. The `qpay_*` columns on `billing_invoices` and `billing_claim_qpay` /
+  ANY of its codes. Everything else as 0067. `billing_set_qpay` (the pre-0068 engine's) now
+  records its code as a row too, so none goes unwatched while the old engine still runs. The `qpay_*` columns on `billing_invoices` and `billing_claim_qpay` /
   `billing_set_qpay` / `billing_release_qpay` are no longer written or called.
-Proven by `billing.sql` B18 (19 checks) and the billing e2e (83).
+Proven by `billing.sql` B18 (19 checks) and the billing e2e (89).
 
 ### `0067_billing_one_payment_one_key`
 

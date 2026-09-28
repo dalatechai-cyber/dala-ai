@@ -93,7 +93,8 @@ test('a QPay payment is recorded only when every settled row names its id and am
     { payment_id: 'P1', payment_status: 'PAID', payment_amount: '100.00', payment_date: '2026-10-03T05:00:00Z' },
     { payment_id: 'P0', payment_status: 'NEW', payment_amount: '100' },
   ] }, 'Q1', NOW);
-  assert.deepEqual(ok, { ok: true, determined: true, invoiceStatus: null, payments: [{ key: 'qpay:P1', amountMnt: 100, paidAt: new Date('2026-10-03T05:00:00Z') }] });
+  // The NEW row is a payment still in flight: its code is asked about again, never closed on this.
+  assert.deepEqual(ok, { ok: true, determined: true, invoiceStatus: null, pending: true, payments: [{ key: 'qpay:P1', amountMnt: 100, paidAt: new Date('2026-10-03T05:00:00Z') }] });
 
   const noId = readPaymentCheck({ rows: [{ payment_status: 'PAID', payment_amount: 100 }] }, 'Q1', NOW);
   assert.equal(noId.ok && !noId.determined && noId.reason, 'a settled payment has no payment_id');
@@ -162,7 +163,7 @@ test('QPay Quick QR\'s real answer is read: the payment is recorded under its ow
     + 'payment_status: "SUCCESS", payment_status_date: string(24 digits+latin+other), terminal_id: string(11 latin+other), '
     + 'transactions: [object], wallet_customer_id: string(36 digits+latin+other)}]}');
   assert.deepEqual(readPaymentCheck(real, inv, NOW), {
-    ok: true, determined: true, invoiceStatus: 'PAID',
+    ok: true, determined: true, invoiceStatus: 'PAID', pending: false,
     payments: [{ key: 'qpay:100000000000001', amountMnt: 100, paidAt: new Date('2026-09-28T03:02:41.000Z') }],
   });
   // Every safety stays: an answer about another invoice, a payment in another currency, two
@@ -277,7 +278,7 @@ test('DONE-TEST: every billing block exists on disk, is NFC, and renders with it
     assert.ok(r.ok, `${key}: ${r.ok ? '' : r.why}`);
     assert.doesNotMatch(r.ok ? r.text : '', /\{[^{}\s]+\}/u, `${key} left a placeholder`);
   }
-  assert.equal(Object.keys(BILLING_BLOCKS).length, 25);
+  assert.equal(Object.keys(BILLING_BLOCKS).length, 26);
 });
 
 // --- amounts --------------------------------------------------------------------------
@@ -438,10 +439,12 @@ test('the pay page (0068): a live code counts down in Tara\'s words; at zero, th
   assert.match(live.html, /id="qr-expired" style="display:none"/);
   assert.match(live.html, /"QR код \{time\} хүчинтэй",end=Date\.now\(\)\+299\*1000/);
   assert.match(live.html, /\?state=1/);
-  // No code (the hourly cap): the button, no QR, no countdown.
+  // No code (the hourly cap): its own line (a draft), the button, no QR, no countdown.
   const none = renderPayPage({ kind: 'no_code', invoice: invoice({}), account }, signed);
   assert.doesNotMatch(none.html, /data:image/);
   assert.doesNotMatch(none.html, /qr-countdown/);
+  assert.match(none.html, /Та олон удаа QR код авсан байна/);
+  assert.doesNotMatch(none.html, /QR кодын хугацаа дууслаа/);
   assert.match(none.html, /Шинэ QR код авах/);
   // A code already at zero is never drawn.
   const zero = renderPayPage({ kind: 'code', invoice: invoice({}), account, qrImage: 'iVBORw0KGgo=', urls: [], secondsLeft: 0 }, signed);

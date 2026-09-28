@@ -62,7 +62,7 @@ export type QpayInvoice = {
 export type QpayPayment = { key: string; amountMnt: number; paidAt: Date };
 
 export type QpayCheck =
-  | { ok: true; determined: true; payments: QpayPayment[]; invoiceStatus: string | null }
+  | { ok: true; determined: true; payments: QpayPayment[]; invoiceStatus: string | null; pending?: boolean }
   | { ok: true; determined: false; reason: string; invoiceStatus: string | null; outline?: string }
   | QpayFailure;
 
@@ -166,9 +166,12 @@ export function readPaymentCheck(body: unknown, qpayInvoiceId: string, now: Date
   if (lists.length > 1) return { ok: true, determined: false, reason: 'the answer carries two payment lists', invoiceStatus };
   const rows = lists[0] ?? [];
   const payments: QpayPayment[] = [];
+  // A payment still in flight: the code must be asked about again, never closed on this answer.
+  let pending = false;
   for (const raw of rows) {
     const r = asRecord(raw);
     const status = String(r['payment_status'] ?? r['status'] ?? '').toUpperCase();
+    if (status === 'NEW' || status === 'PENDING') pending = true;
     if (NOT_SETTLED.has(status)) continue;
     if (!SETTLED.has(status)) {
       // The status as QPay's word, or its outline: free text in it never reaches a reason.
@@ -201,7 +204,7 @@ export function readPaymentCheck(body: unknown, qpayInvoiceId: string, now: Date
     // that does carry the payment id would record the same money a second time.
     return { ok: true, determined: false, reason: `invoice ${qpayInvoiceId} is ${invoiceStatus} with no payment rows`, invoiceStatus };
   }
-  return { ok: true, determined: true, payments, invoiceStatus };
+  return { ok: true, determined: true, payments, invoiceStatus, pending };
 }
 
 /** QPay's own words: the only string values an outline or a reason shows as they are. */

@@ -33,10 +33,12 @@ export function esc(s: string): string {
 const PAGE_KEYS = [
   'billing_page_title', 'billing_page_amount', 'billing_page_due', 'billing_page_covers', 'billing_page_status_open',
   'billing_page_status_paid', 'billing_page_status_other', 'billing_page_scan', 'billing_page_banks',
-  'billing_page_qr_valid', 'billing_page_qr_expired', 'billing_page_qr_renew',
+  'billing_page_qr_valid', 'billing_page_qr_expired', 'billing_page_qr_renew', 'billing_page_qr_wait',
 ] as const satisfies readonly BillingBlockKey[];
 
-const CODE_KEYS: ReadonlySet<string> = new Set(['billing_page_qr_valid', 'billing_page_qr_expired', 'billing_page_qr_renew']);
+/** The lines of a page that shows (or offers) a QPay code: a live invoice needs them signed. */
+export const PAY_CODE_KEYS: readonly string[] = ['billing_page_qr_valid', 'billing_page_qr_expired', 'billing_page_qr_renew', 'billing_page_qr_wait'];
+const CODE_KEYS: ReadonlySet<string> = new Set(PAY_CODE_KEYS);
 
 const ENGLISH: Record<(typeof PAGE_KEYS)[number], string> = {
   billing_page_title: 'DalaTech invoice {invoice_no}',
@@ -51,6 +53,7 @@ const ENGLISH: Record<(typeof PAGE_KEYS)[number], string> = {
   billing_page_qr_valid: 'QR code valid for {time}',
   billing_page_qr_expired: 'The QR code has expired. Press the button below for a new QR code.',
   billing_page_qr_renew: 'Get a new QR code',
+  billing_page_qr_wait: 'You have asked for many QR codes. Please wait a while, then press the button below again.',
 };
 
 /**
@@ -169,6 +172,8 @@ export function renderPayPage(view: PayView, wording: Wording): PageOutcome {
           `<a href="${esc(u.link)}">${u.logo.startsWith('https://') ? `<img alt="" src="${esc(u.logo)}">` : ''}<span>${esc(u.name)}</span></a>`).join('')}</div>` : '')
         + `</div><div id="qr-expired" style="display:none">${expired}</div>`
         + script(t('billing_page_qr_valid', { ...values, time: '{time}' }), view.secondsLeft);
+    } else if (view.kind === 'no_code') {
+      pay = `<div id="qr-expired"><p class="expired">${esc(t('billing_page_qr_wait'))}</p>${renew}</div>`;
     } else {
       pay = `<div id="qr-expired">${expired}</div>`;
     }

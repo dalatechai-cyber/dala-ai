@@ -24,7 +24,11 @@
 --                            invoice (or the pre-0068 single code).
 --
 -- Backfill: every invoice's existing single code becomes a row here, so the codes already
--- sent in e-mails stay watched and payable-to-the-right-invoice.
+-- sent in e-mails stay watched and payable-to-the-right-invoice. Apply it away from the
+-- hourly run (the only caller of the old billing_set_qpay), then check that no invoice holds
+-- a code without a row:
+--   select invoice_no from billing_invoices i where qpay_invoice_id is not null
+--      and not exists (select 1 from billing_qpay_codes c where c.qpay_invoice_id = i.qpay_invoice_id);
 
 create table billing_qpay_codes (
   id               uuid primary key default gen_random_uuid(),
@@ -42,9 +46,12 @@ create table billing_qpay_codes (
   checked_at       timestamptz,
   -- Answered by QPay after it could no longer take money: final, no longer watched.
   closed_at        timestamptz,
-  -- Withdrawn at QPay because a newer code replaced it (best effort; a payment made before
-  -- the withdrawal still counts, which is why a withdrawn code is still watched).
+  -- Withdrawn at QPay because the client asked for a new one (best effort; a payment made
+  -- before the withdrawal still counts, which is why a withdrawn code is still watched).
   cancelled_at     timestamptz,
+  -- Every payment key QPay has ever reported on this code. Kept after the code closes, so a
+  -- payment recorded by hand that QPay once named is never taken for a conflict later (0067).
+  reported_keys    text[] not null default '{}'::text[],
   constraint billing_qpay_code_expiry check (expires_at > created_at)
 );
 create index billing_qpay_codes_invoice on billing_qpay_codes (invoice_id, created_at desc);
@@ -180,7 +187,7 @@ end
 $$;
 
 -- billing_record_payment, as 0067 left it, with one change: a QPay payment belongs to this
--- invoice when its QPay invoice is ANY code of this invoice (or the pre-0068 single code).
+-- invoice when its QPay invoice is ANY code of this invoice.
 create or replace function public.billing_record_payment(
   p_invoice uuid, p_payment_key text, p_source text, p_amount bigint, p_paid_at timestamptz,
   p_qpay_invoice_id text, p_recorded_by text, p_note text, p_second_payment boolean default false,
@@ -200,9 +207,10 @@ declare
 begin
   select * into inv from billing_invoices where id = p_invoice for update;
   if inv.id is null then raise exception 'no invoice %', p_invoice; end if;
-  if p_source = 'qpay' and (p_qpay_invoice_id is null or not (
-       inv.qpay_invoice_id is not distinct from p_qpay_invoice_id
-       or exists (select 1 from billing_qpay_codes c where c.invoice_id = p_invoice and c.qpay_invoice_id = p_qpay_invoice_id))) then
+  -- Every code, the pre-0068 single ones included (backfilled above, and written by
+  -- billing_set_qpay from here on), is a row of billing_qpay_codes: that is the only test.
+  if p_source = 'qpay' and (p_qpay_invoice_id is null or not exists (
+       select 1 from billing_qpay_codes c where c.invoice_id = p_invoice and c.qpay_invoice_id = p_qpay_invoice_id)) then
     raise exception 'payment for QPay invoice % does not belong to invoice % (not one of its codes)',
       coalesce(p_qpay_invoice_id, 'none'), inv.invoice_no;
   end if;

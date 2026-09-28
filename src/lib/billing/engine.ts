@@ -405,6 +405,8 @@ export type PayCode = {
   checkedAt: Date | null;
   closedAt: Date | null;
   cancelledAt: Date | null;
+  /** Every payment key QPay has ever reported on this code. */
+  reportedKeys: string[];
 };
 
 function toCode(r: Record<string, unknown>): PayCode {
@@ -420,18 +422,45 @@ function toCode(r: Record<string, unknown>): PayCode {
     checkedAt: date(r['checked_at']),
     closedAt: date(r['closed_at']),
     cancelledAt: date(r['cancelled_at']),
+    reportedKeys: Array.isArray(r['reported_keys']) ? (r['reported_keys'] as unknown[]).map(str) : [],
   };
 }
 
-/** The codes still watched (not yet answered for after they stopped taking money). */
+const CODE_PAGE = 500;
+
+/**
+ * The codes still watched (not yet answered for after they stopped taking money), every one
+ * of them: read in pages, because a list cut short by the server's row limit would silently
+ * drop the newest codes, the ones clients are paying.
+ */
 async function watchedCodes(deps: BillingDeps, only?: string): Promise<PayCode[]> {
-  let q = deps.db.from('billing_qpay_codes')
-    .select('id, invoice_id, qpay_invoice_id, qr_image, urls, created_at, expires_at, checked_at, closed_at, cancelled_at')
-    .is('closed_at', null);
-  if (only !== undefined) q = q.eq('invoice_id', only);
-  const { data, error } = await q.order('created_at', { ascending: true });
+  const out: PayCode[] = [];
+  for (let from = 0; ; from += CODE_PAGE) {
+    let q = deps.db.from('billing_qpay_codes')
+      .select('id, invoice_id, qpay_invoice_id, qr_image, urls, created_at, expires_at, checked_at, closed_at, cancelled_at, reported_keys')
+      .is('closed_at', null);
+    if (only !== undefined) q = q.eq('invoice_id', only);
+    const { data, error } = await q.order('created_at', { ascending: true }).order('id', { ascending: true }).range(from, from + CODE_PAGE - 1);
+    if (error) throw new Unavailable(`billing_qpay_codes unreadable: ${error.message}`);
+    const page = rows(data).map(toCode);
+    out.push(...page);
+    if (page.length < CODE_PAGE) return out;
+  }
+}
+
+/** Every key QPay ever reported on any code of these invoices, closed codes included. */
+async function everReported(deps: BillingDeps, invoiceIds: string[]): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  if (invoiceIds.length === 0) return out;
+  const { data, error } = await deps.db.from('billing_qpay_codes').select('invoice_id, reported_keys')
+    .in('invoice_id', [...new Set(invoiceIds)]).not('reported_keys', 'eq', '{}');
   if (error) throw new Unavailable(`billing_qpay_codes unreadable: ${error.message}`);
-  return rows(data).map(toCode);
+  for (const r of rows(data)) {
+    const set = out.get(str(r['invoice_id'])) ?? new Set<string>();
+    for (const k of Array.isArray(r['reported_keys']) ? r['reported_keys'] : []) set.add(str(k));
+    out.set(str(r['invoice_id']), set);
+  }
+  return out;
 }
 
 async function invoicesById(deps: BillingDeps, ids: string[]): Promise<Map<string, Invoice>> {
@@ -464,9 +493,19 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
     byInvoice.set(c.invoiceId, [...(byInvoice.get(c.invoiceId) ?? []), c]);
   }
   if (byInvoice.size === 0) return;
+  // A callback or a page visit does not ask again about a code answered moments ago; with
+  // nothing left to ask, QPay is not called at all (not even for a token).
+  if (only !== undefined) {
+    for (const [id, list] of byInvoice) {
+      const due = list.filter((c) => c.checkedAt === null || deps.now.getTime() - c.checkedAt.getTime() >= CALLBACK_MIN_INTERVAL_S * 1000);
+      if (due.length === 0) byInvoice.delete(id); else byInvoice.set(id, due);
+    }
+    if (byInvoice.size === 0) return;
+  }
   // Least recently checked first, so a slow QPay cannot starve the same invoices every hour.
   const order = [...byInvoice.entries()].sort(([, a], [, b]) =>
     Math.min(...a.map((c) => c.checkedAt?.getTime() ?? -1)) - Math.min(...b.map((c) => c.checkedAt?.getTime() ?? -1)));
+  const named = await everReported(deps, [...byInvoice.keys()]);
   const t = await deps.qpay.token();
   if (!t.ok) {
     deps.log('warn', 'billing.qpay_token_failed', { detail: t.detail });
@@ -480,12 +519,9 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
       return;
     }
     const found: Array<{ code: PayCode; payment: { key: string; amountMnt: number; paidAt: Date } }> = [];
-    const answered: PayCode[] = [];
+    const answered: Array<{ code: PayCode; keys: string[]; pending: boolean }> = [];
     let unreadable = false;
     for (const code of list) {
-      // A callback or a page visit does not ask again about a code answered moments ago.
-      if (only !== undefined && code.checkedAt !== null
-          && deps.now.getTime() - code.checkedAt.getTime() < CALLBACK_MIN_INTERVAL_S * 1000) continue;
       const check = await deps.qpay.checkPayment(t.token, code.qpayInvoiceId);
       if (!check.ok) { await checkStale(deps, inv, code, report, check.detail); unreadable = true; continue; }
       report.checked += 1;
@@ -500,13 +536,15 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
         unreadable = true;
         continue;
       }
-      answered.push(code);
+      answered.push({ code, keys: check.payments.map((p) => p.key), pending: check.pending === true });
       for (const p of check.payments) found.push({ code, payment: p });
     }
     // A code that could not be read is asked again next time (and reported if that goes on);
     // what the others report is recorded now. The database still refuses a payment a hand
     // entry may already hold under an id no answer named (0067).
-    const reported = [...new Set(found.map((f) => f.payment.key))];
+    // Every key QPay has named for this invoice, now or on a code answered before (closed ones
+    // included): a hand entry QPay once named is never taken for a conflict (0067).
+    const reported = [...new Set([...(named.get(inv.id) ?? []), ...found.map((f) => f.payment.key)])];
     if (reported.length > 0) {
       // A QPay payment settled by hand (settle.ts qpay) is keyed by the id the founder typed.
       // If QPay's answers name none of those ids, the same money may be here under another
@@ -521,11 +559,14 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
       }
       const byHand = ((prior ?? []) as { payment_key: string; recorded_by: string }[])
         .filter((r) => r.recorded_by.startsWith('operator:') && !reported.includes(r.payment_key));
-      if (byHand.length > 0) {
-        await problem(deps, `hand_qpay:${inv.id}:${[...reported].sort().join(',')}`,
-          `QPay reports ${reported.join(', ')} for ${inv.invoiceNo}, but ${byHand.map((r) => r.payment_key).join(', ')} was recorded by hand. `
-          + 'If they are the same payment, nothing more is needed; if QPay\'s is a second payment, record it with settle.ts qpay under QPay\'s id. '
-          + 'Nothing was recorded automatically.', inv.isTest, report);
+      const fresh = found.map((f) => f.payment.key).filter((k) => !((prior ?? []) as { payment_key: string }[]).some((r) => r.payment_key === k));
+      if (byHand.length > 0 && fresh.length > 0) {
+        await problem(deps, `hand_qpay:${inv.id}:${[...new Set(fresh)].sort().join(',')}`,
+          `QPay reports ${[...new Set(fresh)].join(', ')} for ${inv.invoiceNo}, and QPay has never named `
+          + `${byHand.map((r) => r.payment_key).join(', ')}, which was recorded by hand. Decide: if the hand entry was this same money `
+          + '(typed under another id), nothing more is needed; if it was a different payment, this one is a second payment — record it with '
+          + `settle.ts qpay --invoice ${inv.invoiceNo} --payment-id <QPay's id> --second-payment yes. Nothing was recorded automatically.`,
+          inv.isTest, report);
         continue;
       }
     }
@@ -552,10 +593,13 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
     if (unreadable) report.problems.push(`a code of ${inv.invoiceNo} could not be read; asked again next run`);
     // Answered, and recorded: note it; a code answered after it could no longer take money
     // (plus a margin for QPay's own settling) is final and no longer asked about.
-    for (const code of answered) {
-      const final = deps.now.getTime() >= code.expiresAt.getTime() + CODE_SETTLE_MS;
+    for (const { code, keys, pending } of answered) {
+      // Final: answered after it could no longer take money, with nothing still in flight.
+      const final = !pending && deps.now.getTime() >= code.expiresAt.getTime() + CODE_SETTLE_MS;
       const { error } = await deps.db.from('billing_qpay_codes').update({
-        checked_at: deps.now.toISOString(), ...(final ? { closed_at: deps.now.toISOString() } : {}),
+        checked_at: deps.now.toISOString(),
+        reported_keys: [...new Set([...code.reportedKeys, ...keys])].sort(),
+        ...(final ? { closed_at: deps.now.toISOString() } : {}),
       }).eq('id', code.id);
       if (error) report.problems.push(`check time of a code of ${inv.invoiceNo} not recorded: ${error.message}`);
     }
@@ -586,9 +630,10 @@ export type PayPageState =
  * it has long enough left (a reload), else a new one — recorded BEFORE it is shown, so a
  * payment on it always finds this invoice. `renew` is the «Шинэ QR код авах» button.
  *
- * Making a new code withdraws the previous still-live ones at QPay (best effort): a client
- * with two tabs open is less likely to pay twice. A payment made on a withdrawn code before
- * the withdrawal still counts; it is watched like any other.
+ * The button (and only the button) withdraws the code it replaces at QPay, best effort: a
+ * client is less likely to pay twice. A reload or a second tab never withdraws anything. A
+ * payment made on a withdrawn code before the withdrawal still counts; it is watched like
+ * any other.
  */
 export async function payPageState(given: BillingDeps, invoiceId: string, renew: boolean): Promise<PayPageState> {
   const deps: BillingDeps = { ...given, deadline: given.deadline ?? Date.now() + CALLBACK_BUDGET_MS };
@@ -606,7 +651,7 @@ export async function payPageState(given: BillingDeps, invoiceId: string, renew:
     if (invoice.status !== 'open') return { kind: 'settled', invoice };
 
     const { data: latestRows, error: latestErr } = await deps.db.from('billing_qpay_codes')
-      .select('id, invoice_id, qpay_invoice_id, qr_image, urls, created_at, expires_at, checked_at, closed_at, cancelled_at')
+      .select('id, invoice_id, qpay_invoice_id, qr_image, urls, created_at, expires_at, checked_at, closed_at, cancelled_at, reported_keys')
       .eq('invoice_id', invoiceId).order('created_at', { ascending: false }).limit(1);
     if (latestErr) return { kind: 'unavailable', detail: latestErr.message };
     const latest = rows(latestRows).map(toCode)[0];
@@ -650,14 +695,14 @@ export async function payPageState(given: BillingDeps, invoiceId: string, renew:
     }
     const code: PayCode = {
       id: '', invoiceId: invoice.id, qpayInvoiceId: made.invoiceId, qrImage: made.qrImage, urls: made.urls,
-      createdAt: new Date(requestedAt), expiresAt, checkedAt: null, closedAt: null, cancelledAt: null,
+      createdAt: new Date(requestedAt), expiresAt, checkedAt: null, closedAt: null, cancelledAt: null, reportedKeys: [],
     };
-    // Withdraw the older codes that could still take money (best effort, recorded).
-    const { data: live } = await deps.db.from('billing_qpay_codes').select('id, qpay_invoice_id')
-      .eq('invoice_id', invoice.id).is('cancelled_at', null).gt('expires_at', nowish().toISOString()).neq('qpay_invoice_id', made.invoiceId);
-    for (const old of rows(live)) {
-      const c = await deps.qpay.cancelInvoice(t.token, str(old['qpay_invoice_id']));
-      if (c.ok) await deps.db.from('billing_qpay_codes').update({ cancelled_at: new Date().toISOString() }).eq('id', str(old['id']));
+    // Only the button withdraws, and only the code the client was looking at when they pressed
+    // it: a reload, a second tab or a link preview never takes away a code someone may be
+    // paying (best effort; a payment made before the withdrawal still counts).
+    if (renew && latest !== undefined && latest.cancelledAt === null && latest.expiresAt.getTime() > nowish().getTime()) {
+      const c = await deps.qpay.cancelInvoice(t.token, latest.qpayInvoiceId);
+      if (c.ok) await deps.db.from('billing_qpay_codes').update({ cancelled_at: new Date().toISOString() }).eq('id', latest.id);
     }
     if (status !== 'open') return { kind: 'settled', invoice: { ...invoice, status: status as Invoice['status'] } };
     return { kind: 'code', invoice, code, now: nowish() };
