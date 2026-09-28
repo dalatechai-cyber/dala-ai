@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cappedLine, composeDailyReport, DAILY_REPORT_LIMIT, DEFAULT_APP_SECTION_URL, ESCALATE_AFTER_DAYS, fetchAppSection,
+  advertsLine, cappedLine, composeDailyReport, DAILY_REPORT_LIMIT, DEFAULT_APP_SECTION_URL, ESCALATE_AFTER_DAYS, fetchAppSection,
   lostDraftsLine, planDigest, renderYesterday, reportWindow, runDigestJob, SECTION_JOIN, type ReportSection,
 } from './digest.ts';
 import type { OpenAlert } from './alert.ts';
@@ -22,8 +22,9 @@ function episode(over: Partial<OpenAlert> = {}): OpenAlert {
 const NO_DROPS = { total: 0, byKind: {}, unavailable: false };
 const NO_CAPS = { total: 0, posts: 0, unavailable: false };
 const NO_LOST = { total: 0, latest: null, unavailable: false };
+const NO_ADVERTS = { ok: true, byTenant: [] } as const;
 const CLEAN = {
-  now: NOW, watchdogLastRan: RAN, channelsChecked: 2, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST,
+  now: NOW, watchdogLastRan: RAN, channelsChecked: 2, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS,
 };
 
 test('DONE-TEST: A CLEAN DAY STILL SENDS, AND CARRIES PROOF OF LIFE', () => {
@@ -40,7 +41,7 @@ test('DONE-TEST: and when the watchdog has never run, the clean day SAYS SO', ()
   // `channel_health` is upserted on every run including healthy ones, precisely so that its
   // absence is a statement. A digest reading "nothing open" over a watchdog that has never
   // executed would be the most confident wrong sentence this system could produce.
-  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST });
+  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS });
   assert.match(plan.summary, /never recorded an observation/);
   assert.doesNotMatch(plan.summary, /last ran/);
 });
@@ -647,4 +648,31 @@ test('DONE-TEST: EVERY FAILURE IS AN UNREADABLE LINE WITH ITS REASON, AND NONE C
     assert.equal(r.text, `DalaTech app section UNREADABLE — ${reason}`);
     assert.ok(!r.text.includes('CANARY'), 'the secret never reaches the report');
   }
+});
+
+// Comments ignored as another seller's advert (founder, 2026-09-28): one line, per tenant,
+// only on a day there were any. An unreadable count still prints.
+test('adverts: no line on a day with none', () => {
+  assert.equal(advertsLine({ ok: true, byTenant: [] }), null);
+  assert.equal(advertsLine({ ok: true, byTenant: [{ tenant: 'Matrix Eco Salon', count: 0 }] }), null);
+  assert.doesNotMatch(planDigest([], CLEAN).summary, /advert/i);
+});
+
+test('adverts: one line, per tenant, most first', () => {
+  const line = advertsLine({ ok: true, byTenant: [{ tenant: 'Dalatech', count: 1 }, { tenant: 'Matrix Eco Salon', count: 3 }] });
+  assert.equal(line, 'Comments ignored as adverts (yesterday): Matrix Eco Salon 3, Dalatech 1');
+  const summary = planDigest([], { ...CLEAN, adverts: { ok: true, byTenant: [{ tenant: 'Matrix Eco Salon', count: 3 }] } }).summary;
+  assert.match(summary, /\nComments ignored as adverts \(yesterday\): Matrix Eco Salon 3\.$/);
+});
+
+test('adverts: an unreadable count prints UNREADABLE, never nothing', () => {
+  assert.match(planDigest([], { ...CLEAN, adverts: { ok: false } }).summary, /adverts \(yesterday\): UNREADABLE/);
+});
+
+test('adverts: five tenants named, the rest summed; a capped read prints as a lower bound', () => {
+  const byTenant = Array.from({ length: 8 }, (_, i) => ({ tenant: `T${i}`, count: 10 - i }));
+  assert.equal(advertsLine({ ok: true, byTenant }),
+    'Comments ignored as adverts (yesterday): T0 10, T1 9, T2 8, T3 7, T4 6, and 3 more (12)');
+  assert.equal(advertsLine({ ok: true, capped: true, byTenant: [{ tenant: 'A', count: 1000 }] }),
+    'Comments ignored as adverts (yesterday): A ≥1000');
 });
