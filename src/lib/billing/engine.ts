@@ -487,6 +487,8 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
     if (!check.ok) { await checkStale(deps, inv, report, check.detail); continue; }
     report.checked += 1;
     if (!check.determined) {
+      // The outline carries no values but QPay's own words and amounts (outlineOf).
+      deps.log('warn', 'billing.qpay_undetermined', { invoice: inv.invoiceNo, reason: check.reason, outline: check.outline ?? null });
       await problem(deps, `undetermined:${inv.id}:${check.reason}`,
         `QPay's answer for ${inv.invoiceNo} could not be read completely (${check.reason}). Nothing was recorded. `
         + 'Check the payment in the QPay merchant app; if it is real, record it under QPay\'s own payment id: '

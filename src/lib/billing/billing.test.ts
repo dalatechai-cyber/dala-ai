@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { addDays, daysBetween, dottedDay, previousMonth, stageFor, billingToday } from './calendar.ts';
 import { actionKindOf, linksFor, signLink, verifyLink } from './links.ts';
-import { parseAmount, paymentTime, quickQr, readPaymentCheck } from './qpay.ts';
+import { outlineOf, parseAmount, paymentTime, quickQr, readPaymentCheck } from './qpay.ts';
 import { BILLING_BLOCKS, BILLING_BLOCK_KEYS, formatMnt, render, renderLines, type Wording } from './templates.ts';
 import { parseStaff, propose, teamDiscountPercent, type Phrases } from './amounts.ts';
 import { sendBrevoEmail, sendFounderTelegram, textToHtml } from './send.ts';
@@ -371,4 +371,49 @@ test('the worker: unsigned is 401, off does nothing, a mistyped switch refuses',
   // Configured on, but the QPay variables are absent: 503, never a half-run.
   assert.equal((await runBillingWorkerJob({ ...base, db: () => ({ from: () => { throw new Error('x'); } }) as never, verifySignature: async () => true })).status, 503);
   delete process.env['BILLING_MODE'];
+});
+
+test('outlineOf: the shape of a QPay answer, with no payer data in it', () => {
+  const body = {
+    count: 1, paid_amount: 100,
+    rows: [{ payment_status: 'PAID', payment_amount: '100.00', payment_currency: 'MNT',
+      payer_name: 'Бат-Эрдэнэ', account_number: '5016271526', phone: '+976 99112233', note: null, ok: true }],
+  };
+  const o = outlineOf(body);
+  assert.equal(o, '{count: number 1, paid_amount: number 100, rows: [{account_number: string(10 digits), '
+    + 'note: null, ok: boolean true, payer_name: string(10 other), payment_amount: string "100.00", '
+    + 'payment_currency: "MNT", payment_status: "PAID", phone: string(13 digits+other)}]}');
+  for (const secret of ['Бат', '5016271526', '99112233']) assert.ok(!o.includes(secret), secret);
+  // "count" inside "account" is not a count: account numbers never pass as amounts.
+  const accounts = outlineOf({ bank_account: 5016271526, payer_account: '5016271526', discount: '99112233',
+    payer_accounts: ['5016271526'], customer_phone_count: 99112233 });
+  for (const secret of ['5016271526']) assert.ok(!accounts.includes(secret), accounts);
+  assert.match(accounts, /customer_phone_count: number 99112233/); // a real *_count field: shown
+  // Only QPay's own words are shown as they are; a Latin name under a status/method key is not.
+  assert.equal(outlineOf({ payer_type: 'Bold_Bat', payment_method: 'BATERDENE', status: 'Paid by Bat 99112233' }),
+    '{payer_type: string(8 latin+other), payment_method: string(9 latin), status: string(20 digits+latin+other)}');
+  // A map keyed by data shows its keys by length only, and is cut at forty keys.
+  assert.equal(outlineOf({ '99112233': { 'Бат-Эрдэнэ': 1 } }), '{<key 8>: {<key 10>: number}}');
+  assert.equal(outlineOf({ MN120005005016271526: 1, acct_5016271526: 2 }), '{<key 20>: number, <key 15>: number}');
+  const many = Object.fromEntries(Array.from({ length: 45 }, (_, i) => [`k${i}`, i]));
+  assert.match(outlineOf(many), /…5 more\}$/);
+  // Arrays are cut at five items; depth at four.
+  assert.match(outlineOf({ rows: [1, 2, 3, 4, 5, 6, 7] }), /…2 more/);
+  assert.equal(outlineOf({ a: { b: { c: { d: { e: 1 } } } } }), '{a: {b: {c: {d: object}}}}');
+});
+
+test('readPaymentCheck: an unknown status reaches the reason as QPay word or outline, never as free text', () => {
+  const r = readPaymentCheck({ rows: [{ payment_status: 'Paid by Bat 99112233', payment_id: 'x', payment_amount: 100 }] }, 'inv', new Date());
+  assert.ok(r.ok && !r.determined);
+  assert.ok(!r.reason.includes('99112233') && !r.reason.includes('BAT'), r.reason);
+  const closed = readPaymentCheck({ rows: [{ payment_status: 'CLOSED', payment_id: 'x', payment_amount: 100 }] }, 'inv', new Date());
+  assert.ok(closed.ok && !closed.determined && closed.reason === 'a payment row has status "CLOSED"');
+});
+
+test('checkPayment: an unreadable answer carries its outline for the log', async () => {
+  const port = quickQr({ username: 'u', password: 'p', terminalId: 't', merchantId: 'm', bankCode: 'b', bankAccount: 'a', accountName: 'n' },
+    (async () => new Response(JSON.stringify({ count: 1, rows: [{ payment_status: 'PAID', payment_amount: 100 }] }), { status: 200 })) as typeof fetch);
+  const check = await port.checkPayment('tok', 'inv');
+  assert.ok(check.ok && !check.determined);
+  assert.equal(check.outline, '{count: number 1, rows: [{payment_amount: number 100, payment_status: "PAID"}]}');
 });
