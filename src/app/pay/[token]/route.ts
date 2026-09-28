@@ -5,7 +5,7 @@
  */
 import { NextResponse } from 'next/server';
 import { supabaseBilling } from '@/lib/supabase/clients';
-import { runPayPageJob } from '@/lib/billing/jobs';
+import { payPagePath, runPayPageJob } from '@/lib/billing/jobs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,7 +28,8 @@ async function respond(request: Request, context: { params: Promise<{ token: str
     stateOnly: method === 'GET' && url.searchParams.get('state') === '1',
   });
   if (page.redirect === true) {
-    return new NextResponse(null, { status: 303, headers: { location: url.pathname, 'cache-control': 'no-store' } }) as NextResponse;
+    const location = payPagePath(request.headers.get('host'), decodeURIComponent(token), url.pathname);
+    return new NextResponse(null, { status: 303, headers: { location, 'cache-control': 'no-store' } }) as NextResponse;
   }
   const headers = page.contentType === 'json' ? { ...HTML, 'content-type': 'application/json; charset=utf-8' } : HTML;
   return new NextResponse(page.html, { status: page.status, headers }) as NextResponse;

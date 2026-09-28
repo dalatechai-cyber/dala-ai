@@ -23,7 +23,8 @@
  * ## Test and live
  *
  * `mode = 'test'` touches only `is_test` accounts, everywhere: issuing, QPay, payments,
- * messages, summaries. `live` touches every active account. The worker is `live` only when
+ * messages, summaries. `live` touches every active REAL account and never a test one (0070:
+ * the modes partition the accounts, in the database and here). The worker is `live` only when
  * the founder sets `BILLING_MODE=live` (`config.ts`), which is the approval of the first
  * real run; until then it is `test` or off.
  *
@@ -41,7 +42,10 @@ import { ubStamp } from '../time/ub.ts';
 import {
   billingToday, dayOfMonth, dottedDay, monthOf, previousMonth, stageFor, SUMMARY_DAY,
 } from './calendar.ts';
+import type { IssuerOutcome } from './issuer.ts';
 import type { Links } from './links.ts';
+import { mailReady, renderMail } from './mail.ts';
+import { renderInvoicePdf } from './pdf.ts';
 import type { QpayPort } from './qpay.ts';
 import type { EmailMessage, SendOutcome, TelegramMessage } from './send.ts';
 import {
@@ -64,6 +68,13 @@ export type BillingDeps = {
   sendTelegram: (m: TelegramMessage) => Promise<SendOutcome>;
   /** Where the monthly ledger CSV is e-mailed. Null: Telegram only. */
   founderEmail: string | null;
+  /**
+   * The founder's name, phone, e-mail and Khan Bank account for the branded e-mail and PDF
+   * (0070, `issuer.ts`). Absent or incomplete: the plain pre-0070 e-mail is sent.
+   */
+  issuer?: IssuerOutcome;
+  /** The DalaTech mark as an absolute https URL, for the e-mail header. */
+  logoUrl?: string;
   log: (level: 'info' | 'warn' | 'error', event: string, detail: Record<string, unknown>) => void;
   /**
    * Wall-clock ms after which no new QPay call or send batch is started; the rest waits for
@@ -141,6 +152,8 @@ export type Account = {
   displayName: string;
   email: string | null;
   isTest: boolean;
+  /** The contract's number, printed on the branded invoice (0070). */
+  contractRef: string | null;
 };
 
 /**
@@ -184,6 +197,7 @@ function toAccount(r: Record<string, unknown>): Account {
     displayName: str(r['display_name']),
     email: typeof r['email'] === 'string' && r['email'] !== '' ? r['email'] : null,
     isTest: r['is_test'] === true,
+    contractRef: typeof r['contract_ref'] === 'string' && r['contract_ref'].trim() !== '' ? r['contract_ref'].trim() : null,
   };
 }
 
@@ -198,7 +212,8 @@ async function loadInvoices(
   filter: { statuses: Invoice['status'][]; id?: string; updatedSince?: Date },
 ): Promise<Invoice[]> {
   let q = deps.db.from('billing_invoices').select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at').in('status', filter.statuses);
-  if (deps.mode === 'test') q = q.eq('is_test', true);
+  // 0070: the modes partition the accounts. Live never reads a test invoice, nor test a live one.
+  q = q.eq('is_test', deps.mode === 'test');
   if (filter.updatedSince !== undefined) q = q.gte('updated_at', filter.updatedSince.toISOString());
   if (filter.id !== undefined) q = q.eq('id', filter.id);
   else q = q.gte('created_at', new Date(deps.now.getTime() - PLAN_WINDOW_DAYS * 86_400_000).toISOString());
@@ -210,7 +225,7 @@ async function loadInvoices(
 async function loadAccounts(deps: BillingDeps, ids: string[]): Promise<Map<string, Account>> {
   const out = new Map<string, Account>();
   if (ids.length === 0) return out;
-  const { data, error } = await deps.db.from('billing_accounts').select('id, tenant_id, display_name, email, is_test').in('id', [...new Set(ids)]);
+  const { data, error } = await deps.db.from('billing_accounts').select('id, tenant_id, display_name, email, is_test, contract_ref').in('id', [...new Set(ids)]);
   if (error) throw new Unavailable(`billing_accounts unreadable: ${error.message}`);
   for (const r of rows(data)) out.set(str(r['id']), toAccount(r));
   return out;
@@ -238,7 +253,9 @@ type Planned = {
   invoiceId?: string;
   onlyWhileUnpaid?: boolean;
   button?: { label: string; url: string };
-  attachment?: { name: string; body: string };
+  attachment?: { name: string; body: string; encoding?: 'utf8' | 'base64' };
+  /** The HTML version of a client e-mail (0070). */
+  html?: string;
 };
 
 /** Enqueue once. A second plan of the same key is a no-op, by the unique index. */
@@ -258,6 +275,9 @@ async function enqueue(deps: BillingDeps, p: Planned, report: TickReport): Promi
     button_label: p.button?.label ?? null,
     attachment_name: p.attachment?.name ?? null,
     attachment_body: p.attachment?.body ?? null,
+    // 0070. Written only when set, so a row planned without them is exactly what it was.
+    ...(p.attachment?.encoding === 'base64' ? { attachment_encoding: 'base64' } : {}),
+    ...(p.html === undefined ? {} : { html_body: p.html }),
   }, { onConflict: 'dedup_key', ignoreDuplicates: true });
   if (error) {
     report.problems.push(`could not queue ${p.dedupKey}: ${error.message}`);
@@ -305,7 +325,7 @@ function clientValues(deps: BillingDeps, w: Wording, inv: Invoice, account: Acco
     amount: formatMnt(inv.amountMnt),
     lines: renderLines(inv.lines),
     due_date: dottedDay(inv.dueOn),
-    pay_link: deps.links.pay(inv.id),
+    pay_link: deps.links.pay(inv.id, inv.invoiceNo),
     paid_date: inv.paidAt === null ? '' : dottedDay(ubDayOf(inv.paidAt)),
     ...(period === undefined ? {} : { period }),
   };
@@ -313,6 +333,43 @@ function clientValues(deps: BillingDeps, w: Wording, inv: Invoice, account: Acco
 
 function ubDayOf(at: Date): string {
   return billingToday(at);
+}
+
+type Branded = { text: string; html: string; pdf: { name: string; base64: string } | null };
+
+/**
+ * The branded e-mail for one message (0070), or null while it cannot be sent (a block not
+ * signed, a setting missing: the founder is told once, and the plain e-mail goes instead),
+ * or 'refused' when it should be sendable and does not render (a signed block that breaks
+ * its placeholders, an invoice too long for one PDF page): then NOTHING is sent and the
+ * founder is told, exactly as a plain message that does not render.
+ */
+async function brandedMail(
+  deps: BillingDeps, report: TickReport, inv: Invoice, account: Account,
+  kind: 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt', w: Wording, values: Record<string, string>,
+): Promise<Branded | null | 'refused'> {
+  const issuer = deps.issuer ?? { ok: false as const, missing: ['(no issuer settings were read)'] };
+  const ready = mailReady(w, issuer);
+  if (!ready.ok || !issuer.ok) {
+    const why = ready.ok ? 'the issuer settings are incomplete' : ready.why;
+    await problem(deps, `branded_unready:${deps.mode}:${why.startsWith('these settings') ? 'settings' : 'wording'}`,
+      `invoices still go out as the plain e-mail, not the branded one with the PDF: ${why}.`, inv.isTest, report);
+    return null;
+  }
+  const payUrl = deps.links.pay(inv.id, inv.invoiceNo);
+  const mail = renderMail({
+    kind, wording: w, invoice: inv, account, issuer: issuer.issuer, payUrl,
+    ...(values['period'] === undefined ? {} : { period: values['period'] }),
+    logoUrl: deps.logoUrl ?? '',
+  });
+  const pdf = kind === 'receipt' ? null : await renderInvoicePdf({ wording: w, invoice: inv, account, issuer: issuer.issuer, payUrl });
+  const why = !mail.ok ? mail.why : pdf !== null && !pdf.ok ? pdf.why : null;
+  if (why !== null || !mail.ok) {
+    await problem(deps, `wording:${kind}:${inv.id}`,
+      `the ${kind.replace('_', ' ')} for ${account.displayName} (${inv.invoiceNo}) was NOT sent: ${why ?? 'it did not render'}.`, inv.isTest, report);
+    return 'refused';
+  }
+  return { text: mail.text, html: mail.html, pdf: pdf === null || !pdf.ok ? null : { name: pdf.name, base64: pdf.base64 } };
 }
 
 /**
@@ -326,10 +383,20 @@ async function planClientMessage(
   onlyWhileUnpaid: boolean,
   extra: Record<string, string> = {},
 ): Promise<string | null> {
+  // Planned once, ever: a message already in the outbox is not rendered again (0070: the PDF
+  // is not free to make every hour), and what it said is what the founder's copy quotes.
+  const { data: planned, error: plannedErr } = await deps.db.from('billing_deliveries')
+    .select('body').eq('dedup_key', `${kind}:${inv.id}`).maybeSingle();
+  if (!plannedErr && planned !== null) return str((planned as Record<string, unknown>)['body']);
   const w = wordingFor(deps, account);
   const values = { ...clientValues(deps, w, inv, account), ...extra };
   const subject = render(w, keys.subject, values);
-  const body = render(w, keys.body, values);
+  // 0070: the branded e-mail (HTML, plain text, the PDF) once it can be sent; until then
+  // the plain e-mail below, exactly as before. A client without an e-mail is the founder's
+  // to forward by hand, so the plain text is what they need.
+  const branded = account.email === null ? null : await brandedMail(deps, report, inv, account, kind, w, values);
+  if (branded === 'refused') return null;
+  const body = branded === null ? render(w, keys.body, values) : { ok: true as const, text: branded.text };
   if (!subject.ok || !body.ok) {
     const why = !subject.ok ? subject.why : body.ok ? '' : body.why;
     await problem(deps, `wording:${kind}:${inv.id}`,
@@ -337,13 +404,18 @@ async function planClientMessage(
       + 'It goes out on the first run after the wording is signed.', inv.isTest, report);
     return null;
   }
-  const draftMark = w.source === 'draft' ? '[TEST — unsigned draft wording]\n\n' : '';
+  // The branded text carries its own draft mark.
+  const draftMark = w.source === 'draft' && branded === null ? '[TEST — unsigned draft wording]\n\n' : '';
   const text = `${draftMark}${body.text}`;
   const dedupKey = `${kind}:${inv.id}`;
   if (account.email !== null) {
     await enqueue(deps, {
       dedupKey, kind, channel: 'email', recipient: account.email, subject: subject.text, body: text,
       isTest: inv.isTest, accountId: account.id, invoiceId: inv.id, onlyWhileUnpaid,
+      ...(branded === null ? {} : {
+        html: branded.html,
+        ...(branded.pdf === null ? {} : { attachment: { name: branded.pdf.name, body: branded.pdf.base64, encoding: 'base64' as const } }),
+      }),
     }, report);
   } else {
     await enqueue(deps, {
@@ -466,8 +538,8 @@ async function everReported(deps: BillingDeps, invoiceIds: string[]): Promise<Ma
 async function invoicesById(deps: BillingDeps, ids: string[]): Promise<Map<string, Invoice>> {
   const out = new Map<string, Invoice>();
   if (ids.length === 0) return out;
-  let q = deps.db.from('billing_invoices').select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at').in('id', [...new Set(ids)]);
-  if (deps.mode === 'test') q = q.eq('is_test', true);
+  const q = deps.db.from('billing_invoices').select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at').in('id', [...new Set(ids)])
+    .eq('is_test', deps.mode === 'test'); // 0070: the modes partition the accounts
   const { data, error } = await q;
   if (error) throw new Unavailable(`billing_invoices unreadable: ${error.message}`);
   for (const r of rows(data)) out.set(str(r['id']), toInvoice(r));
@@ -742,7 +814,7 @@ async function plan(deps: BillingDeps, today: string, report: TickReport, only?:
           accountId: account.id, invoiceId: inv.id,
           body: `🧾 ${inv.isTest ? 'TEST ' : ''}Invoice ${inv.invoiceNo} — ${account.displayName}\n`
             + `${formatMnt(inv.amountMnt)}, due ${dottedDay(inv.dueOn)} (${route}).\n`
-            + `Pay link: ${deps.links.pay(inv.id)}\n\nCopy of what the client received:\n\n${text}`,
+            + `Pay link: ${deps.links.pay(inv.id, inv.invoiceNo)}\n\nCopy of what the client received:\n\n${text}`,
         }, report);
       }
       const stage = stageFor(inv, today);
@@ -973,8 +1045,12 @@ async function sendDue(deps: BillingDeps, report: TickReport): Promise<void> {
       const sent = str(d['channel']) === 'email'
         ? await deps.sendEmail({
           to: str(d['recipient']), subject: str(d['subject']), text: str(d['body']),
+          ...(typeof d['html_body'] === 'string' && d['html_body'] !== '' ? { html: d['html_body'] } : {}),
           ...(typeof d['attachment_name'] === 'string'
-            ? { attachment: { name: d['attachment_name'], content: str(d['attachment_body']) } } : {}),
+            ? { attachment: {
+              name: d['attachment_name'], content: str(d['attachment_body']),
+              encoding: d['attachment_encoding'] === 'base64' ? 'base64' as const : 'utf8' as const,
+            } } : {}),
         })
         : await deps.sendTelegram({
           text: str(d['body']),

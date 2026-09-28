@@ -1,0 +1,8 @@
+The fonts embedded (as base64) in brand.ts are:
+
+  Inter — Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)
+  Manrope — Copyright 2018 The Manrope Project Authors (https://github.com/sharanda/manrope)
+
+Both are licensed under the SIL Open Font License, Version 1.1, available with a FAQ at
+https://openfontlicense.org. They are distributed here as subsets (Latin, Cyrillic,
+punctuation, ₮ and №), unmodified otherwise, embedded in the PDF invoices DalaTech sends.

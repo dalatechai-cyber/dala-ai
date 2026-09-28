@@ -79,17 +79,80 @@ export function actionKindOf(token: string): 'pause' | 'resume' {
   }
 }
 
+// ---------------------------------------------------------------------------------------
+// The short pay address (0070): `pay.dalatech.online/DT-202610-0001-K7QM2X`
+// ---------------------------------------------------------------------------------------
+//
+// What a client sees in an e-mail, on the PDF and on the phone: the invoice number they
+// already know, and six characters that make it unguessable. Invoice numbers are sequential,
+// so the number alone would let anyone read every client's name and amount by counting; the
+// six characters are an HMAC of the invoice id under the same secret as the signed links
+// (30 bits: a guess is one in a billion, per invoice). Nothing is stored: the code is
+// recomputed and compared in constant time. Rotating `BILLING_LINK_SECRET` kills these too.
+//
+// Crockford's alphabet: no I, L, O or U, so a code read aloud or retyped from paper is not
+// misread, and the page accepts it in either case.
+
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const REF_CODE_LENGTH = 6;
+const PAY_REF_RE = /^((?:TEST|DT)-[0-9]{6}-[0-9]{4,9})-([0-9A-HJKMNP-TV-Z]{6})$/u;
+
+/** The six characters for one invoice. */
+export function payRefCode(secret: string, invoiceId: string): string {
+  if (secret.length < 32) throw new Error('BILLING_LINK_SECRET must be at least 32 characters');
+  const bytes = createHmac('sha256', secret).update(`pay-ref:${invoiceId}`).digest();
+  let bits = 0;
+  let acc = 0;
+  let out = '';
+  for (const b of bytes) {
+    acc = (acc << 8) | b;
+    bits += 8;
+    while (bits >= 5 && out.length < REF_CODE_LENGTH) {
+      out += CROCKFORD[(acc >> (bits - 5)) & 31];
+      bits -= 5;
+    }
+    if (out.length === REF_CODE_LENGTH) break;
+    acc &= (1 << bits) - 1;
+  }
+  return out;
+}
+
+export function payRef(secret: string, invoiceId: string, invoiceNo: string): string {
+  return `${invoiceNo}-${payRefCode(secret, invoiceId)}`;
+}
+
+/** A short address's invoice number and code, or null when it is not one. Never throws. */
+export function parsePayRef(ref: string): { invoiceNo: string; code: string } | null {
+  if (typeof ref !== 'string' || ref.length > 40) return null;
+  const m = PAY_REF_RE.exec(ref.toUpperCase());
+  return m === null ? null : { invoiceNo: m[1] as string, code: m[2] as string };
+}
+
+/** Whether `code` is this invoice's, compared in constant time. */
+export function payRefMatches(secret: string, invoiceId: string, code: string): boolean {
+  const want = Buffer.from(payRefCode(secret, invoiceId), 'utf8');
+  const given = Buffer.from(code.toUpperCase(), 'utf8');
+  return given.length === want.length && timingSafeEqual(given, want);
+}
+
 export type Links = {
-  pay(invoiceId: string): string;
+  /** The short pay address a client is given (e-mail, PDF, page). */
+  pay(invoiceId: string, invoiceNo: string): string;
   callback(invoiceId: string): string;
   action(kind: 'pause' | 'resume', accountId: string, invoiceId: string | null, now: Date): string;
 };
 
-/** Link builders over one origin (`DALA_PUBLIC_URL`) and one secret. */
-export function linksFor(origin: string, secret: string): Links {
+/**
+ * Link builders over one origin (`DALA_PUBLIC_URL`) and one secret. `payOrigin` is the host
+ * the short pay address is shown on (`BILLING_PAY_ORIGIN`, e.g. https://pay.dalatech.online,
+ * where `next.config.mjs` maps `/<ref>` to `/pay/<ref>`); without it the address is
+ * `<origin>/pay/<ref>`, which works on any host this app answers.
+ */
+export function linksFor(origin: string, secret: string, payOrigin?: string | null): Links {
   const base = origin.replace(/\/+$/u, '');
+  const payBase = payOrigin === undefined || payOrigin === null || payOrigin === '' ? `${base}/pay` : payOrigin.replace(/\/+$/u, '');
   return {
-    pay: (invoiceId) => `${base}/pay/${signLink(secret, { k: 'pay', id: invoiceId, exp: 0 })}`,
+    pay: (invoiceId, invoiceNo) => `${payBase}/${payRef(secret, invoiceId, invoiceNo)}`,
     callback: (invoiceId) =>
       `${base}/api/billing/qpay?t=${signLink(secret, { k: 'callback', id: invoiceId, exp: 0 })}`,
     action: (kind, accountId, invoiceId, now) => {

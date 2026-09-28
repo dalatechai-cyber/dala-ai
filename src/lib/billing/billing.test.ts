@@ -2,11 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { addDays, daysBetween, dottedDay, previousMonth, stageFor, billingToday } from './calendar.ts';
-import { actionKindOf, linksFor, signLink, verifyLink } from './links.ts';
+import { actionKindOf, linksFor, parsePayRef, payRef, payRefCode, payRefMatches, signLink, verifyLink } from './links.ts';
 import { outlineOf, parseAmount, paymentTime, quickQr, readPaymentCheck } from './qpay.ts';
 import { BILLING_BLOCKS, BILLING_BLOCK_KEYS, formatMnt, render, renderLines, type Wording } from './templates.ts';
 import { parseStaff, propose, teamDiscountPercent, type Phrases } from './amounts.ts';
-import { sendBrevoEmail, sendFounderTelegram, textToHtml } from './send.ts';
+import { sendBrevoEmail, sendFounderTelegram, sendResendEmail, textToHtml } from './send.ts';
+import { issuerFromEnv, telHref } from './issuer.ts';
+import { mailReady, MAIL_KEYS, renderMail } from './mail.ts';
+import { renderInvoicePdf } from './pdf.ts';
 import { ledgerCsv, retryAt, summaryText, type Account, type Invoice } from './engine.ts';
 import { renderPayPage } from './page.ts';
 import { runBillingWorkerJob } from './jobs.ts';
@@ -82,7 +85,7 @@ test('a pause link expires, and its kind is read only to choose what to verify i
   assert.deepEqual(verifyLink(SECRET, token, 'pause', NOW)?.inv, INV);
   assert.equal(verifyLink(SECRET, token, 'resume', NOW), null);
   assert.equal(verifyLink(SECRET, token, 'pause', new Date(NOW.getTime() + 15 * 86_400_000)), null, 'expired after 14 days');
-  assert.ok(links.pay(INV).startsWith('https://dala.example.com/pay/'));
+  assert.match(links.pay(INV, 'DT-202610-0001'), /^https:\/\/dala\.example\.com\/pay\/DT-202610-0001-[0-9A-HJKMNP-TV-Z]{6}$/u);
   assert.ok(links.callback(INV).startsWith('https://dala.example.com/api/billing/qpay?t='));
 });
 
@@ -269,7 +272,7 @@ test('DONE-TEST: every billing block exists on disk, is NFC, and renders with it
   const values: Record<string, string> = {
     client: 'Туршилт ХХК', invoice_no: 'TEST-202610-0001', amount: '100₮', lines: '• Туршилт: 100₮', due_date: '2026.10.05',
     pay_link: 'https://dala.example.com/pay/x', period: '2026 оны 10-р сарын', paid_date: '2026.10.03', year: '2026', month: '10',
-    start: '2026.11.01', end: '2027.10.31', label: 'Дали', months: '12', count: '2', percent: '10', time: '4:59',
+    start: '2026.11.01', end: '2027.10.31', label: 'Дали', months: '12', count: '2', percent: '10', time: '4:59', phone: '9911 2233',
   };
   for (const key of BILLING_BLOCK_KEYS) {
     const body = blocks.get(key) as string;
@@ -278,7 +281,7 @@ test('DONE-TEST: every billing block exists on disk, is NFC, and renders with it
     assert.ok(r.ok, `${key}: ${r.ok ? '' : r.why}`);
     assert.doesNotMatch(r.ok ? r.text : '', /\{[^{}\s]+\}/u, `${key} left a placeholder`);
   }
-  assert.equal(Object.keys(BILLING_BLOCKS).length, 26);
+  assert.equal(Object.keys(BILLING_BLOCKS).length, 61);
 });
 
 // --- amounts --------------------------------------------------------------------------
@@ -369,7 +372,7 @@ function invoice(over: Partial<Invoice>): Invoice {
     qpayInvoiceId: 'Q1', qpayCheckedAt: null, createdAt: NOW, ...over,
   };
 }
-const account: Account = { id: ACC, tenantId: 'tenant', displayName: 'Матрикс ХХК', email: 'm@example.mn', isTest: false };
+const account: Account = { id: ACC, tenantId: 'tenant', displayName: 'Матрикс ХХК', email: 'm@example.mn', isTest: false, contractRef: null };
 
 test("the founder's summary: who paid, who has not, and what is outstanding", () => {
   const text = summaryText({
@@ -515,4 +518,127 @@ test('checkPayment: an unreadable answer carries its outline for the log', async
   const check = await port.checkPayment('tok', 'inv');
   assert.ok(check.ok && !check.determined);
   assert.equal(check.outline, '{count: number 1, rows: [{payment_amount: number 100, payment_status: "PAID"}]}');
+});
+
+// --- 0070: the short pay address ------------------------------------------------------
+
+test('the short pay address: the invoice number and six unguessable characters, readable aloud', () => {
+  const code = payRefCode(SECRET, INV);
+  assert.match(code, /^[0-9A-HJKMNP-TV-Z]{6}$/u, 'Crockford: no I, L, O or U');
+  assert.equal(payRefCode(SECRET, INV), code, 'recomputed, never stored');
+  assert.notEqual(payRefCode(SECRET, '22222222-2222-4222-8222-222222222222'), code);
+  assert.notEqual(payRefCode('y'.repeat(40), INV), code, 'rotating the secret changes every address');
+  const ref = payRef(SECRET, INV, 'DT-202610-0001');
+  assert.deepEqual(parsePayRef(ref), { invoiceNo: 'DT-202610-0001', code });
+  assert.deepEqual(parsePayRef(ref.toLowerCase()), { invoiceNo: 'DT-202610-0001', code }, 'typed in lower case');
+  assert.equal(payRefMatches(SECRET, INV, code.toLowerCase()), true);
+  assert.equal(payRefMatches(SECRET, INV, 'ZZZZZZ'), false);
+  assert.equal(payRefMatches(SECRET, '22222222-2222-4222-8222-222222222222', code), false, 'another invoice with this code');
+  for (const bad of ['DT-202610-0001', 'DT-202610-0001-ABCDE', 'XX-202610-0001-ABCDEF', 'DT-202610-0001-ABCDEFG', `${ref}/x`, 'eyJrIjoicGF5In0.abc']) {
+    assert.equal(parsePayRef(bad), null, bad);
+  }
+  assert.equal(linksFor('https://dala.example.com', SECRET, 'https://pay.example.com').pay(INV, 'DT-202610-0001'), `https://pay.example.com/${ref}`);
+});
+
+// --- 0070: the issuer's settings -------------------------------------------------------
+
+test('the issuer comes from the environment, checked, never defaulted', () => {
+  const ok = { BILLING_ISSUER_NAME: 'Б. Билгүүн', BILLING_ISSUER_PHONE: '+976 9911 2233', BILLING_FOUNDER_EMAIL: 'f@example.com', BILLING_BANK_ACCOUNT: '5000123456', BILLING_BANK_HOLDER: 'Б. Билгүүн' };
+  const r = issuerFromEnv(ok);
+  assert.ok(r.ok && r.issuer.phone === '+976 9911 2233');
+  assert.deepEqual(issuerFromEnv({}), { ok: false, missing: ['BILLING_ISSUER_NAME', 'BILLING_ISSUER_PHONE', 'BILLING_FOUNDER_EMAIL', 'BILLING_BANK_ACCOUNT', 'BILLING_BANK_HOLDER'] });
+  assert.deepEqual(issuerFromEnv({ ...ok, BILLING_ISSUER_PHONE: 'call me' }), { ok: false, missing: ['BILLING_ISSUER_PHONE'] });
+  assert.deepEqual(issuerFromEnv({ ...ok, BILLING_BANK_ACCOUNT: '12' }), { ok: false, missing: ['BILLING_BANK_ACCOUNT'] });
+  assert.equal(telHref('+976 9911-2233'), 'tel:+97699112233');
+});
+
+// --- 0070: the branded e-mail and the PDF ---------------------------------------------
+
+const ISSUER = { name: 'Б. Билгүүн', phone: '9911 2233', email: 'f@example.com', bankAccount: '5000123456', bankHolder: 'Б. Билгүүн' };
+const PAY_URL = 'https://pay.dalatech.online/DT-202610-0001-K7QM2X';
+
+test('the branded e-mail is sent only once every block is signed and the issuer is set', () => {
+  const all: Wording = { source: 'signed', blocks: wordingOnDisk() };
+  assert.deepEqual(mailReady(all, { ok: true }), { ok: true });
+  const missing = new Map(all.blocks);
+  missing.delete('billing_pay_button');
+  const r = mailReady({ source: 'signed', blocks: missing }, { ok: true });
+  assert.ok(!r.ok && r.why.includes('billing_pay_button'));
+  const s = mailReady(all, { ok: false, missing: ['BILLING_BANK_ACCOUNT'] });
+  assert.ok(!s.ok && s.why.includes('BILLING_BANK_ACCOUNT'));
+  for (const k of MAIL_KEYS) assert.ok(k in BILLING_BLOCKS, `${k} is a billing block`);
+});
+
+test('the branded invoice: button to the short address, the table, the bank transfer, a footer — and no unsubscribe', () => {
+  const blocks: Wording = { source: 'signed', blocks: wordingOnDisk() };
+  const evil = { displayName: '<script>alert(1)</script> ХХК', contractRef: 'DT-2026/014' };
+  const r = renderMail({ kind: 'invoice', wording: blocks, invoice: invoice({}), account: evil, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: 'https://dala.example.com/brand/dalatech-mark.png' });
+  assert.ok(r.ok);
+  assert.match(r.html, /<a href="https:\/\/pay\.dalatech\.online\/DT-202610-0001-K7QM2X"[^>]*>Төлбөр төлөх<\/a>/u);
+  assert.ok(r.html.includes('pay.dalatech.online/DT-202610-0001-K7QM2X') && !r.html.includes('https://pay.dalatech.online/DT-202610-0001-K7QM2X</'), 'the address is shown without its scheme');
+  assert.ok(r.html.includes('5000123456') && r.html.includes('DT-2026/014') && r.html.includes('250,000₮') && r.html.includes('2026.10.05'));
+  assert.ok(!r.html.includes('<script>alert') && r.html.includes('&lt;script&gt;'), 'the client name is escaped');
+  assert.doesNotMatch(`${r.html}\n${r.text}`, /unsubscribe|эрүүл|<img[^>]+(?:track|pixel)/iu);
+  assert.ok(r.text.includes(`Төлбөр төлөх: ${PAY_URL}`) && r.text.includes('Гүйлгээний утга: DT-202610-0001') && r.text.includes('Б. Билгүүн'));
+  assert.ok(!r.text.includes('[TEST'), 'signed wording carries no draft mark');
+  const receipt = renderMail({ kind: 'receipt', wording: blocks, invoice: invoice({ status: 'paid', paidSumMnt: 250000, paidAt: new Date('2026-10-03T04:00:00Z') }), account: evil, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: '' });
+  assert.ok(receipt.ok && !receipt.html.includes('Төлбөр төлөх</a>') && !receipt.html.includes('Банкаар шилжүүлэх'), 'a receipt has no button and no bank box');
+  assert.ok(receipt.ok && !receipt.text.includes(PAY_URL) && receipt.text.includes('2026.10.03') && receipt.text.includes('НӨАТ'));
+  const draft = renderMail({ kind: 'reminder_after', wording: { ...blocks, source: 'draft' }, invoice: invoice({}), account: evil, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: '' });
+  assert.ok(draft.ok && draft.text.startsWith('[TEST — unsigned draft wording]') && draft.html.includes('TEST — unsigned draft wording'));
+  const broken = new Map(blocks.blocks);
+  broken.set('billing_mail_closing', 'Асуух зүйл: {nope}');
+  const refused = renderMail({ kind: 'invoice', wording: { source: 'signed', blocks: broken }, invoice: invoice({}), account: evil, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: '' });
+  assert.ok(!refused.ok && refused.why.includes('{nope}'));
+});
+
+test('the PDF invoice: one A4 page in the brand fonts, with the short address as a link; too many lines refuse', async () => {
+  const blocks: Wording = { source: 'signed', blocks: wordingOnDisk() };
+  const r = await renderInvoicePdf({ wording: blocks, invoice: invoice({}), account: { displayName: 'Матрикс ХХК', contractRef: null }, issuer: ISSUER, payUrl: PAY_URL });
+  assert.ok(r.ok);
+  const bytes = Buffer.from(r.base64, 'base64');
+  assert.equal(bytes.subarray(0, 5).toString('latin1'), '%PDF-');
+  assert.equal(r.name, 'DalaTech-DT-202610-0001.pdf');
+  assert.ok(bytes.includes(Buffer.from('/URI (https://pay.dalatech.online/DT-202610-0001-K7QM2X)', 'latin1')), 'the address is a live link');
+  assert.ok(bytes.length < 120_000, `small enough to attach (${bytes.length} bytes)`);
+  const lines = Array.from({ length: 40 }, (_, i) => ({ label: `Мөр ${i}`, amount_mnt: 1000 }));
+  const long = await renderInvoicePdf({ wording: blocks, invoice: invoice({ lines, amountMnt: 40000 }), account: { displayName: 'Матрикс ХХК', contractRef: null }, issuer: ISSUER, payUrl: PAY_URL });
+  assert.ok(!long.ok && long.why.includes('too many lines'));
+});
+
+test('Resend: the same message, no unsubscribe header added, the PDF passed as base64', async () => {
+  const seen: Array<{ url: string; init: RequestInit }> = [];
+  const f = (async (url: string, init: RequestInit) => {
+    seen.push({ url, init });
+    return new Response(JSON.stringify({ id: 're_1' }), { status: 200 });
+  }) as unknown as typeof fetch;
+  process.env['RESEND_API_KEY'] = 're_test';
+  process.env['BILLING_FOUNDER_EMAIL'] = 'founder@example.com';
+  const out = await sendResendEmail({ to: 'c@example.mn', subject: 'S', text: 'T', html: '<p>H</p>', attachment: { name: 'a.pdf', content: 'JVBERi0=', encoding: 'base64' } }, f);
+  assert.deepEqual(out, { outcome: 'sent', providerMessageId: 're_1' });
+  const body = JSON.parse(String(seen[0]?.init.body)) as Record<string, unknown>;
+  assert.equal(seen[0]?.url, 'https://api.resend.com/emails');
+  assert.equal((seen[0]?.init.headers as Record<string, string>)['authorization'], 'Bearer re_test');
+  assert.equal(body['from'], 'DalaTech <hello@dalatech.online>');
+  assert.equal(body['reply_to'], 'founder@example.com');
+  assert.equal(body['html'], '<p>H</p>');
+  assert.deepEqual(body['attachments'], [{ filename: 'a.pdf', content: 'JVBERi0=' }]);
+  assert.equal(body['headers'], undefined, 'no List-Unsubscribe or any other header is added');
+  delete process.env['RESEND_API_KEY'];
+  delete process.env['BILLING_FOUNDER_EMAIL'];
+});
+
+test('the pay page (0070): the bank transfer and the phone for an unpaid invoice, only once signed; none once paid', () => {
+  const all = wordingOnDisk();
+  const code = { kind: 'code' as const, invoice: invoice({}), account, qrImage: 'iVBORw0KGgo=', urls: [], secondsLeft: 200, issuer: ISSUER, logoUrl: 'https://dala.example.com/brand/dalatech-mark.png' };
+  const page = renderPayPage(code, { source: 'signed', blocks: all });
+  assert.equal(page.status, 200);
+  assert.ok(page.html.includes('Банкаар шилжүүлэх') && page.html.includes('5000123456') && page.html.includes('href="tel:99112233"'));
+  const coreOnly = new Map([...all].filter(([k]) => !k.startsWith('billing_bank_') && !k.startsWith('billing_label_') && k !== 'billing_page_questions'));
+  const live = renderPayPage(code, { source: 'signed', blocks: coreOnly });
+  assert.ok(live.status === 200 && !live.html.includes('5000123456') && !live.html.includes('TEST —'), 'a live client sees no unsigned section, and no banner');
+  const test = renderPayPage({ ...code, invoice: invoice({ isTest: true }) }, { source: 'signed', blocks: coreOnly });
+  assert.ok(test.html.includes('5000123456') && test.html.includes('Pay by bank transfer') && test.html.includes('TEST —'), 'the founder sees it in English');
+  const paid = renderPayPage({ kind: 'settled', invoice: invoice({ status: 'paid', paidSumMnt: 250000, paidAt: NOW }), account, issuer: ISSUER }, { source: 'signed', blocks: all });
+  assert.ok(!paid.html.includes('5000123456') && !paid.html.includes('tel:'));
 });

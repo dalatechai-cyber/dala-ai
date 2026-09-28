@@ -12,14 +12,17 @@
  * - `runActionJob` — the founder's pause/resume. GET confirms, POST acts.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { billingLinkSecret, billingOrigin, billingSwitch, founderEmail, qpayConfigFromEnv } from './config.ts';
+import {
+  billingEmailVia, billingLinkSecret, billingOrigin, billingPayOrigin, billingSwitch, founderEmail, qpayConfigFromEnv,
+} from './config.ts';
 import {
   payPageState, runBillingTick, runInvoiceCallback, toInvoice, type Account, type BillingDeps, type TickReport,
 } from './engine.ts';
-import { linksFor, verifyLink } from './links.ts';
+import { issuerFromEnv, type Issuer } from './issuer.ts';
+import { linksFor, parsePayRef, payRefMatches, verifyLink } from './links.ts';
 import { actionConfirmPage, actionDonePage, notFoundPage, PAY_CODE_KEYS, renderPayPage, type PageOutcome } from './page.ts';
 import { quickQr } from './qpay.ts';
-import { sendBrevoEmail, sendFounderTelegram } from './send.ts';
+import { sendBrevoEmail, sendFounderTelegram, sendResendEmail } from './send.ts';
 import { loadSignedWording } from './templates.ts';
 
 export type JobResult = { status: number; body: Record<string, unknown> };
@@ -35,18 +38,40 @@ function log(level: 'info' | 'warn' | 'error', event: string, detail: Record<str
 export async function deployedDeps(db: SupabaseClient, now: Date, mode: 'test' | 'live'): Promise<BillingDeps | { error: string }> {
   const wording = await loadSignedWording(db);
   if (!wording.ok) return { error: wording.detail };
+  const via = billingEmailVia();
   return {
     db,
     now,
     mode,
     qpay: quickQr(qpayConfigFromEnv()),
-    links: linksFor(billingOrigin(), billingLinkSecret()),
+    links: linksFor(billingOrigin(), billingLinkSecret(), billingPayOrigin()),
     signed: wording.wording,
-    sendEmail: (m) => sendBrevoEmail(m),
+    sendEmail: (m) => (via === 'resend' ? sendResendEmail(m) : sendBrevoEmail(m)),
     sendTelegram: (m) => sendFounderTelegram(m),
     founderEmail: founderEmail(),
+    issuer: issuerFromEnv(),
+    logoUrl: `${billingOrigin().replace(/\/+$/u, '')}/brand/dalatech-mark.png`,
     log,
   };
+}
+
+/**
+ * The invoice a pay address names (0070): the short `DT-202610-0001-K7QM2X`, or a signed
+ * link from before 0070 (those keep working: e-mails already sent carry them). Null when it
+ * is neither, or the code is not that invoice's; both are a plain 404, so a guess learns
+ * nothing about which invoice numbers exist.
+ */
+async function invoiceIdFor(db: SupabaseClient, ref: string, now: Date): Promise<string | null | 'unavailable'> {
+  const secret = billingLinkSecret();
+  const short = parsePayRef(ref);
+  if (short !== null) {
+    const { data, error } = await db.from('billing_invoices').select('id').eq('invoice_no', short.invoiceNo).maybeSingle();
+    if (error) return 'unavailable';
+    if (data === null) return null;
+    const id = String((data as Record<string, unknown>)['id']);
+    return payRefMatches(secret, id, short.code) ? id : null;
+  }
+  return verifyLink(secret, ref, 'pay', now)?.id ?? null;
 }
 
 function summarise(r: TickReport): Record<string, unknown> {
@@ -122,36 +147,21 @@ export async function runQpayCallbackJob(input: { db: () => SupabaseClient; now:
 export async function runPayPageJob(input: {
   db: () => SupabaseClient; now: Date; token: string; method?: 'GET' | 'POST'; stateOnly?: boolean;
 }): Promise<PageOutcome> {
-  let claims;
+  const db = input.db();
+  let invoiceId;
   try {
-    claims = verifyLink(billingLinkSecret(), input.token, 'pay', input.now);
+    invoiceId = await invoiceIdFor(db, input.token, input.now);
   } catch {
     return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
   }
-  if (claims === null) return notFoundPage();
-  const db = input.db();
+  if (invoiceId === 'unavailable') return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
+  if (invoiceId === null) return notFoundPage();
   const { data, error } = await db.from('billing_invoices')
-    .select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at').eq('id', claims.id).maybeSingle();
+    .select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at').eq('id', invoiceId).maybeSingle();
   if (error) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
   if (data === null) return notFoundPage();
   const stored = toInvoice(data as Record<string, unknown>);
   if (stored.status === 'void') return notFoundPage();
-  if (input.stateOnly === true) return { status: 200, html: JSON.stringify({ status: stored.status }), contentType: 'json' };
-
-  const { data: acc, error: accErr } = await db.from('billing_accounts')
-    .select('id, tenant_id, display_name, email, is_test').eq('id', stored.accountId).maybeSingle();
-  if (accErr || acc === null) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
-  const a = acc as Record<string, unknown>;
-  const account: Account = {
-    id: String(a['id']), tenantId: typeof a['tenant_id'] === 'string' ? a['tenant_id'] : null,
-    displayName: String(a['display_name'] ?? ''), email: null, isTest: a['is_test'] === true,
-  };
-  // Paid, or with the founder: nothing to make, QPay not needed.
-  if (stored.status !== 'open' && input.method !== 'POST') {
-    const wording = await loadSignedWording(db);
-    if (!wording.ok) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
-    return renderPayPage({ kind: 'settled', invoice: stored, account }, wording.wording);
-  }
 
   let mode;
   try {
@@ -159,10 +169,30 @@ export async function runPayPageJob(input: {
   } catch {
     return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
   }
+  // 0070: the modes partition the accounts. A live invoice is not served while billing runs
+  // in test mode, and a TEST invoice is not served once billing is live.
+  if ((mode === 'test' && !stored.isTest) || (mode === 'live' && stored.isTest)) return notFoundPage();
+  if (input.stateOnly === true) return { status: 200, html: JSON.stringify({ status: stored.status }), contentType: 'json' };
+
+  const { data: acc, error: accErr } = await db.from('billing_accounts')
+    .select('id, tenant_id, display_name, email, is_test, contract_ref').eq('id', stored.accountId).maybeSingle();
+  if (accErr || acc === null) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
+  const a = acc as Record<string, unknown>;
+  const account: Account = {
+    id: String(a['id']), tenantId: typeof a['tenant_id'] === 'string' ? a['tenant_id'] : null,
+    displayName: String(a['display_name'] ?? ''), email: null, isTest: a['is_test'] === true,
+    contractRef: typeof a['contract_ref'] === 'string' && a['contract_ref'].trim() !== '' ? a['contract_ref'].trim() : null,
+  };
+  const extras = pageExtras();
+  // Paid, or with the founder: nothing to make, QPay not needed.
+  if (stored.status !== 'open' && input.method !== 'POST') {
+    const wording = await loadSignedWording(db);
+    if (!wording.ok) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
+    return renderPayPage({ kind: 'settled', invoice: stored, account, ...extras }, wording.wording);
+  }
+
   // Billing off: no code can be made.
   if (mode === 'off') return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
-  // A live invoice is not served a code while billing runs in test mode.
-  if (mode === 'test' && !stored.isTest) return notFoundPage();
   let deps: BillingDeps | { error: string };
   try {
     deps = await deployedDeps(db, input.now, mode);
@@ -186,10 +216,39 @@ export async function runPayPageJob(input: {
   if (state.kind === 'code') {
     return renderPayPage({
       kind: 'code', invoice: state.invoice, account, qrImage: state.code.qrImage, urls: state.code.urls,
-      secondsLeft: (state.code.expiresAt.getTime() - state.now.getTime()) / 1000,
+      secondsLeft: (state.code.expiresAt.getTime() - state.now.getTime()) / 1000, ...extras,
     }, deps.signed);
   }
-  return renderPayPage({ kind: state.kind, invoice: state.invoice, account }, deps.signed);
+  return renderPayPage({ kind: state.kind, invoice: state.invoice, account, ...extras }, deps.signed);
+}
+
+/**
+ * Where «Шинэ QR код авах» sends the browser back to: the address it is on. On the short
+ * host (`BILLING_PAY_ORIGIN`, rewritten to `/pay/<ref>` by next.config.mjs) that is `/<ref>`;
+ * anywhere else the path the request came in on.
+ */
+export function payPagePath(host: string | null, ref: string, pathname: string): string {
+  let payHost: string | null = null;
+  try {
+    const o = billingPayOrigin();
+    payHost = o === null ? null : new URL(o).host;
+  } catch {
+    payHost = null;
+  }
+  if (payHost !== null && host !== null && host.toLowerCase() === payHost && parsePayRef(ref) !== null) return `/${encodeURIComponent(ref)}`;
+  return pathname;
+}
+
+/** The issuer (phone, bank account) and the mark, for the page (0070); either may be absent. */
+function pageExtras(): { issuer: Issuer | null; logoUrl: string | null } {
+  const issuer = issuerFromEnv();
+  let logoUrl: string | null = null;
+  try {
+    logoUrl = `${billingOrigin().replace(/\/+$/u, '')}/brand/dalatech-mark.png`;
+  } catch {
+    logoUrl = null;
+  }
+  return { issuer: issuer.ok ? issuer.issuer : null, logoUrl };
 }
 
 /**

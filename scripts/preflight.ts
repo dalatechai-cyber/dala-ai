@@ -307,6 +307,42 @@ if (present(billingMode)) {
           rows.push(`  ok       ${name}  (${v.length} characters; required because BILLING_MODE=${billingMode})`);
         }
       }
+      // 0070: the branded invoice. Its issuer settings are optional in test (the plain e-mail
+      // goes instead) and required live: a client's invoice carries the founder's name, phone
+      // and the Khan Bank account, or it does not go out branded at all.
+      const ISSUER_NEEDS = ['BILLING_ISSUER_NAME', 'BILLING_ISSUER_PHONE', 'BILLING_BANK_ACCOUNT', 'BILLING_BANK_HOLDER'];
+      for (const name of ISSUER_NEEDS) {
+        const v = process.env[name];
+        if (present(v)) rows.push(`  ok       ${name}  (set)`);
+        else if (billingMode === 'live') {
+          failures += 1;
+          rows.push(`  MISSING  ${name}\n           required because BILLING_MODE=live: printed on every invoice, e-mail and pay page`);
+        } else rows.push(`  unset    ${name}  (test mode: invoices go out as the plain e-mail until it is set)`);
+      }
+      const via = process.env['BILLING_EMAIL_VIA'];
+      if (present(via) && via !== 'brevo' && via !== 'resend') {
+        failures += 1;
+        rows.push('  BAD      BILLING_EMAIL_VIA\n           must be exactly brevo or resend');
+      } else if (via === 'resend' && !present(process.env['RESEND_API_KEY'])) {
+        failures += 1;
+        rows.push('  MISSING  RESEND_API_KEY\n           required because BILLING_EMAIL_VIA=resend');
+      } else {
+        rows.push(`  ok       BILLING_EMAIL_VIA  (${present(via) ? via : 'brevo, the default'})`);
+      }
+      const payOrigin = process.env['BILLING_PAY_ORIGIN'];
+      if (present(payOrigin)) {
+        let good = false;
+        try {
+          const u = new URL(payOrigin);
+          good = u.protocol === 'https:' && u.pathname === '/' && u.search === '' && u.hash === '';
+        } catch {
+          good = false;
+        }
+        if (!good) {
+          failures += 1;
+          rows.push('  BAD      BILLING_PAY_ORIGIN\n           must be an https origin with no path, e.g. https://pay.dalatech.online');
+        } else rows.push(`  ok       BILLING_PAY_ORIGIN  (${payOrigin})`);
+      }
     }
   }
 }
