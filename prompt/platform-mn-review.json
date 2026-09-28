@@ -86,6 +86,30 @@
       "reviewed_at": "2026-09-28"
     },
     {
+      "block_id": "billing_page_qr_expired",
+      "sha256": "450d60945414f41e8f223a029f375397045b626470952d2ecab8ac7db94e52a6",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_page_qr_renew",
+      "sha256": "e6e8d57dade0cd8dff5447a4ec84b251b7407da7f50f8fe31b1efe57971deed0",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_page_qr_valid",
+      "sha256": "1a5ae7f61870aeeb22e0d5d15710aa4427afacd191dba36363af35e77c4699fc",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_page_qr_wait",
+      "sha256": "d7a272ac99ce3c79baabb9a3cd02c64f7d267fcc5f0c21d0ab3ed1498d16eeb0",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
       "block_id": "billing_page_scan",
       "sha256": "7dff52a689a0ced4054d632b6e700eb012e602ad8041fc97211a1636a204f8f9",
       "reviewed_by": "Bilguun",
