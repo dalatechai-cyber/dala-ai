@@ -335,6 +335,28 @@ async function main(): Promise<void> {
   check(since(telegrams, t0).some((m) => /could not be read completely/u.test(m.text)), '…and the founder is told');
   qpayUndetermined = new Set();
 
+  // --- a payment settled by hand is never counted again under QPay's id -----------------------
+  const hand = await db.rpc('billing_issue_one_off', {
+    p_account: test.accountId, p_key: 'hand-test', p_lines: [{ label: 'Туршилт', amount_mnt: 100 }], p_amount: 100,
+    p_issued_on: '2026-09-15', p_due_on: '2026-09-18', p_by: 'Bilguun',
+  });
+  check(hand.error === null, 'a test invoice to settle by hand is issued');
+  await tick(new Date(), 'live');
+  const handId = psql(`select id from billing_invoices where period_key = 'one_off:hand-test'`);
+  const handQ = psql(`select qpay_invoice_id from billing_invoices where period_key = 'one_off:hand-test'`);
+  const typed = await db.rpc('billing_record_payment', {
+    p_invoice: handId, p_payment_key: 'qpay:TYPED-FROM-APP', p_source: 'qpay', p_amount: 100, p_paid_at: '2026-09-20T04:00:00Z',
+    p_qpay_invoice_id: handQ, p_recorded_by: 'operator:Bilguun', p_note: null,
+  });
+  check(typed.error === null, 'the founder records a QPay payment by hand');
+  qpayInvoices.get(handQ)?.payments.push({ id: 'PAY-API-ID', amount: 100, at: new Date('2026-09-20T04:00:00Z') });
+  t0 = telegrams.length;
+  await tick(new Date(), 'live');
+  check(psql(`select count(*) || '/' || sum(amount_mnt) from billing_payments where invoice_id = '${handId}'`) === '1/100'
+    && psql(`select status from billing_invoices where id = '${handId}'`) === 'paid',
+    'QPay then reporting it under another id records nothing: still one payment, paid');
+  check(since(telegrams, t0).some((m) => /was recorded by hand/u.test(m.text)), '…and the founder is asked whether it is the same payment');
+
   // --- money on a withdrawn invoice still reaches the founder ------------------------------
   const lateId = psql(`select id from billing_invoices where period_key = 'one_off:late-test'`);
   await db.rpc('billing_resolve', { p_invoice: lateId, p_outcome: 'void', p_by: 'Bilguun', p_note: 'e2e: withdrawn' });

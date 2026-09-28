@@ -155,11 +155,15 @@ function paymentIdOf(r: Record<string, unknown>): string | null | 'conflict' {
 export function readPaymentCheck(body: unknown, qpayInvoiceId: string, now: Date): QpayCheck {
   const b = asRecord(body);
   const invoiceStatus = typeof b['invoice_status'] === 'string' ? (b['invoice_status'] as string) : null;
-  const answeredFor = b['id'] ?? b['invoice_id'];
-  if (answeredFor !== undefined && answeredFor !== null && String(answeredFor).trim() !== qpayInvoiceId) {
-    return { ok: true, determined: false, reason: `the answer is about another QPay invoice than ${qpayInvoiceId}`, invoiceStatus };
+  // Every invoice id the answer states must be ours (a UUID: compared without case).
+  for (const f of ['id', 'invoice_id']) {
+    const v = b[f];
+    if (v !== undefined && v !== null && String(v).trim().toLowerCase() !== qpayInvoiceId.trim().toLowerCase()) {
+      return { ok: true, determined: false, reason: `the answer is about another QPay invoice than ${qpayInvoiceId}`, invoiceStatus };
+    }
   }
   const lists = [b['rows'], b['payments']].filter((l): l is unknown[] => Array.isArray(l) && l.length > 0);
+  if (lists.length > 1) return { ok: true, determined: false, reason: 'the answer carries two payment lists', invoiceStatus };
   const rows = lists[0] ?? [];
   const payments: QpayPayment[] = [];
   for (const raw of rows) {
@@ -173,12 +177,18 @@ export function readPaymentCheck(body: unknown, qpayInvoiceId: string, now: Date
     const key = paymentIdOf(r);
     if (key === 'conflict') return { ok: true, determined: false, reason: 'a settled payment has two different ids', invoiceStatus };
     if (key === null) return { ok: true, determined: false, reason: 'a settled payment has no payment_id', invoiceStatus };
-    const currency = r['payment_currency'] ?? r['currency'];
-    if (currency !== undefined && currency !== null && String(currency).trim().toUpperCase() !== 'MNT') {
-      return { ok: true, determined: false, reason: `settled payment ${key} is not in MNT`, invoiceStatus };
+    // A field and its synonym, when both are present, must agree.
+    for (const f of ['payment_currency', 'currency']) {
+      const c = r[f];
+      if (c !== undefined && c !== null && String(c).trim().toUpperCase() !== 'MNT') {
+        return { ok: true, determined: false, reason: `settled payment ${key} is not in MNT`, invoiceStatus };
+      }
     }
-    const amount = parseAmount(r['payment_amount'] ?? r['amount']);
-    if (amount === null) return { ok: true, determined: false, reason: `settled payment ${key} has no readable amount`, invoiceStatus };
+    const stated = ['payment_amount', 'amount'].filter((f) => r[f] !== undefined && r[f] !== null).map((f) => parseAmount(r[f]));
+    const amount = stated[0] ?? null;
+    if (amount === null || stated.some((a) => a !== amount)) {
+      return { ok: true, determined: false, reason: `settled payment ${key} has no readable amount`, invoiceStatus };
+    }
     const date = r['payment_date'] ?? r['payment_status_date'];
     const when = typeof date === 'string' ? paymentTime(date) : null;
     payments.push({ key: `qpay:${key}`, amountMnt: amount, paidAt: when ?? now });

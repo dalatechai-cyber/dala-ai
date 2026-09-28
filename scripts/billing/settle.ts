@@ -63,6 +63,17 @@ async function main(): Promise<void> {
     const paidOn = flag(CMD, 'paid-on') ?? die(CMD, '--paid-on YYYY-MM-DD is required');
     if (!/^\d{4}-\d{2}-\d{2}$/u.test(paidOn)) die(CMD, '--paid-on is YYYY-MM-DD');
     const paidAt = new Date(localDayStart(paidOn, PLATFORM_TIMEZONE).getTime() + 12 * 3_600_000);
+    // The automatic check records under QPay's own payment id. A hand entry under any other
+    // id on an invoice it already recorded would count the same money twice.
+    const { data: auto, error: autoErr } = await db.from('billing_payments')
+      .select('payment_key, recorded_by').eq('invoice_id', inv['id']).eq('source', 'qpay');
+    if (autoErr) die(CMD, autoErr.message, 1);
+    const recorded = ((auto ?? []) as { payment_key: string; recorded_by: string }[])
+      .filter((r) => !r.recorded_by.startsWith('operator:') && r.payment_key !== `qpay:${pid}`);
+    if (recorded.length > 0 && flag(CMD, 'second-payment') === undefined) {
+      die(CMD, `${String(inv['invoice_no'])} already has ${recorded.map((r) => r.payment_key).join(', ')}, recorded automatically from QPay. `
+        + 'If this is the same payment, nothing more is needed. Only if QPay took a SECOND payment, run again with --second-payment yes.');
+    }
     const { data, error } = await db.rpc('billing_record_payment', {
       p_invoice: inv['id'], p_payment_key: `qpay:${pid}`, p_source: 'qpay', p_amount: amount, p_paid_at: paidAt.toISOString(),
       p_qpay_invoice_id: inv['qpay_invoice_id'], p_recorded_by: `operator:${by}`, p_note: flag(CMD, 'note') ?? null,

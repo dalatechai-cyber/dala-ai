@@ -178,6 +178,13 @@ test('QPay Quick QR\'s real answer is read: the payment is recorded under its ow
   assert.match(refused({ ...real, payments: [{ ...row, payment_id: '100000000000002' }] }), /two different ids/u);
   assert.equal(refused({ ...real, payments: [{ ...row, id: null }] }), 'a settled payment has no payment_id');
   assert.match(refused({ ...real, payments: [{ ...row, amount: '100.50' }] }), /no readable amount/u);
+  assert.match(refused({ ...real, invoice_id: '99999999-2222-4333-8444-555555555555' }), /another QPay invoice/u);
+  assert.match(refused({ ...real, payments: [{ ...row, payment_currency: 'MNT', currency: 'USD' }] }), /not in MNT/u);
+  assert.match(refused({ ...real, payments: [{ ...row, payment_amount: '200' }] }), /no readable amount/u);
+  assert.match(refused({ ...real, rows: [{ payment_id: 'P1', payment_status: 'PAID', payment_amount: 100 }] }), /two payment lists/u);
+  // The same UUID in another case is the same invoice.
+  const upper = readPaymentCheck({ ...real, id: inv.toUpperCase() }, inv, NOW);
+  assert.ok(upper.ok && upper.determined && upper.payments.length === 1);
   // Still unpaid: nothing to record, and nothing refused.
   const open = readPaymentCheck({ id: inv, invoice_status: 'OPEN', payments: [] }, inv, NOW);
   assert.ok(open.ok && open.determined && open.payments.length === 0);
