@@ -62,6 +62,7 @@ const plan = planDigest(open, {
   dropped: { total: 1, byKind: { sticker: 1 }, unavailable: false },
   capped: { total: 0, posts: 0, unavailable: false },
   lostDrafts: { total: 0, latest: null, unavailable: false },
+  adverts: { ok: true, byTenant: [{ tenant: 'Sample Salon', count: 3 }] },
 });
 
 // Section C's input: what `quietRoute()` held back yesterday.

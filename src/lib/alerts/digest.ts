@@ -52,7 +52,7 @@ import {
 } from './alert.ts';
 import { nfc } from '../mn/text.ts';
 import { DROPPED_FLAG } from '../inbound/dropped.ts';
-import { CAPPED_FLAG } from '../worker/comments.ts';
+import { ADVERT_FLAG, CAPPED_FLAG } from '../worker/comments.ts';
 import { DRAFT_LOST_KIND } from '../health/answered.ts';
 import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
 import { localDayStart, tenantClock } from '../time/clock.ts';
@@ -150,6 +150,26 @@ export function cappedLine(c: CappedSummary): string {
 }
 
 /**
+ * Comments ignored as another seller's advert (`comments/advert.ts`), per tenant.
+ *
+ * The founder asked for it only WHEN THERE ARE ANY (2026-09-28), so a zero day prints
+ * nothing — unlike the clauses above. An unreadable count still prints, as UNREADABLE: the
+ * exception to "only when there are any" is the one case where silence would be a lie.
+ */
+export type AdvertsSummary =
+  | { ok: true; byTenant: readonly { tenant: string; count: number }[] }
+  | { ok: false };
+
+/** The line, or null when there were none. Tenants by count, then by name (code point). */
+export function advertsLine(a: AdvertsSummary): string | null {
+  if (!a.ok) return 'comments ignored as adverts (yesterday): UNREADABLE — quality_flags could not be counted';
+  const rows = a.byTenant.filter((r) => r.count > 0);
+  if (rows.length === 0) return null;
+  const ordered = [...rows].sort((x, y) => y.count - x.count || (x.tenant < y.tenant ? -1 : x.tenant > y.tenant ? 1 : 0));
+  return `Comments ignored as adverts (yesterday): ${ordered.map((r) => `${r.tenant} ${r.count}`).join(', ')}`;
+}
+
+/**
  * Shadow drafts the mirror lost while the Page answered the customer anyway.
  *
  * These are the alerts that USED to page the founder — «a human can still answer» — about
@@ -201,6 +221,8 @@ export function planDigest(
   input: {
     now: Date; watchdogLastRan: Date | null; channelsChecked: number;
     dropped: DroppedSummary; capped: CappedSummary; lostDrafts: LostDraftsSummary;
+    /** Required, never defaulted (D-083): a default of "none" would assert it for a caller who never counted. */
+    adverts: AdvertsSummary;
   },
 ): DigestPlan {
   // The Ulaanbaatar day the counts and the flaw report cover — the one that has just ended
@@ -221,13 +243,15 @@ export function planDigest(
   const dropped = droppedLine(input.dropped);
   const capped = cappedLine(input.capped);
   const lost = lostDraftsLine(input.lostDrafts);
+  const advertsText = advertsLine(input.adverts);
+  const adverts = advertsText === null ? '' : `\n${advertsText}.`;
 
   if (ranked.length === 0) {
-    return { summary: `Dala AI — ${date}\nNothing open. ${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.`, escalate: [] };
+    return { summary: `Dala AI — ${date}\nNothing open. ${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.${adverts}`, escalate: [] };
   }
 
   const header = `Dala AI — ${date}\n${ranked.length} open condition${ranked.length === 1 ? '' : 's'}. `
-    + `${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.`;
+    + `${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.${adverts}`;
   const lines: string[] = [];
   let used = header.length;
   let omitted = 0;
@@ -339,6 +363,39 @@ async function countCapped(db: SupabaseClient, now: Date): Promise<CappedSummary
     if (typeof postId === 'string' && postId !== '') posts.add(postId);
   }
   return { total: rows.length, posts: posts.size, unavailable: false };
+}
+
+/**
+ * Count yesterday's advert flags per tenant, named by `tenants.display_name`. Either read
+ * failing is UNREADABLE, never zero. A tenant id with no name is printed as the id rather
+ * than dropped, so the total is never understated.
+ */
+async function countAdverts(db: SupabaseClient, now: Date): Promise<AdvertsSummary> {
+  const { since, until } = reportWindow(now);
+  const { data, error } = await db
+    .from('quality_flags')
+    .select('tenant_id')
+    .eq('flag', ADVERT_FLAG)
+    .gte('at', since)
+    .lt('at', until);
+  if (error) return { ok: false };
+  const counts = new Map<string, number>();
+  for (const row of Array.isArray(data) ? data : []) {
+    const id = String((row as Record<string, unknown>)['tenant_id']);
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  if (counts.size === 0) return { ok: true, byTenant: [] };
+  const { data: tenants, error: tErr } = await db
+    .from('tenants')
+    .select('id, display_name')
+    .in('id', [...counts.keys()]);
+  if (tErr) return { ok: false };
+  const names = new Map<string, string>();
+  for (const t of Array.isArray(tenants) ? tenants : []) {
+    const r = t as Record<string, unknown>;
+    if (typeof r['display_name'] === 'string' && r['display_name'] !== '') names.set(String(r['id']), r['display_name']);
+  }
+  return { ok: true, byTenant: [...counts].map(([id, count]) => ({ tenant: names.get(id) ?? id, count })) };
 }
 
 /**
@@ -615,6 +672,7 @@ export async function runDigestJob(
     dropped: await countDropped(effects.db, effects.now),
     capped: await countCapped(effects.db, effects.now),
     lostDrafts: await countLostDrafts(effects.db, effects.now),
+    adverts: await countAdverts(effects.db, effects.now),
   });
 
   // ALERTS_ENABLED=false silences every path or it silences none of them — the same escape
