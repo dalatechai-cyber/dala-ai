@@ -63,6 +63,27 @@ and Brevo variables, `TELEGRAM_*`, `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SECR
   paying. Test it as a transfer: `node scripts/billing/settle.ts bank --invoice TEST-… --amount 50 --ref TEST-1 --paid-on <today> --by Bilguun`
   on an unpaid test invoice → ⚠️ mismatch, no receipt. Settle it with `settle.ts resolve`.
 
+## The branded invoice (0070) — four steps, once
+
+Until all four are done, invoices keep going out as the plain e-mail and Telegram says why once.
+
+1. **Sign the wording:** `node scripts/prompt/sign-drafts.ts --dir prompt/drafts/billing`, read it, then sign with `--set <id> --by Bilguun`, and push. Claude applies the seed.
+2. **Your details** in Vercel → dala-ai → Settings → Environment Variables (Production):
+   `BILLING_ISSUER_NAME` (your full name, as you sign), `BILLING_ISSUER_PHONE`,
+   `BILLING_BANK_ACCOUNT` (Khan Bank), `BILLING_BANK_HOLDER` (the name on the account).
+   `BILLING_FOUNDER_EMAIL` is already the e-mail shown. Preflight refuses `BILLING_MODE=live` without them.
+3. **No "Unsubscribe":** Brevo adds that link to every e-mail, and a client who presses it
+   never gets another invoice. Copy `RESEND_API_KEY` from the dalatech-online project (or
+   make a new sending-only key on the Resend account where dalatech.online is verified), add
+   it to dala-ai, and set `BILLING_EMAIL_VIA=resend`.
+4. **pay.dalatech.online:** Vercel → dala-ai → Settings → Domains → add `pay.dalatech.online`;
+   at the DNS host of dalatech.online add the CNAME record Vercel shows (the same kind as
+   `api`). Once Vercel shows it Valid, set `BILLING_PAY_ORIGIN=https://pay.dalatech.online`
+   and redeploy. Until then the address is `api.dalatech.online/pay/DT-…-XXXXXX`. Never set
+   it before the host answers: an address in a sent e-mail cannot change.
+
+Contract numbers are printed when the account has one: `billing_accounts.contract_ref`.
+
 ## Going live — your approval of the first real run
 
 For each client: `node scripts/billing/account.ts propose --tenant <slug> --name "<legal name>" --email <…> --staff "<staff>=<monthly>" … --start <first month>`,
