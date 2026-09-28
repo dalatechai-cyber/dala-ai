@@ -13,7 +13,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { billingLinkSecret, billingOrigin, billingSwitch, founderEmail, qpayConfigFromEnv } from './config.ts';
 import {
-  INVOICE_COLUMNS, runBillingTick, runInvoiceCallback, toInvoice, type Account, type BillingDeps, type TickReport,
+  runBillingTick, runInvoiceCallback, toInvoice, type Account, type BillingDeps, type TickReport,
 } from './engine.ts';
 import { linksFor, verifyLink } from './links.ts';
 import { actionConfirmPage, actionDonePage, notFoundPage, renderPayPage, type PageOutcome } from './page.ts';
@@ -122,7 +122,7 @@ export async function runPayPageJob(input: { db: () => SupabaseClient; now: Date
   if (claims === null) return notFoundPage();
   const db = input.db();
   const { data, error } = await db.from('billing_invoices')
-    .select(`${INVOICE_COLUMNS}, qpay_qr_image, qpay_urls`).eq('id', claims.id).maybeSingle();
+    .select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at, qpay_qr_image, qpay_urls').eq('id', claims.id).maybeSingle();
   if (error) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
   if (data === null) return notFoundPage();
   const row = data as Record<string, unknown>;

@@ -130,10 +130,12 @@ export type Account = {
   isTest: boolean;
 };
 
-export const INVOICE_COLUMNS =
-  'id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, '
-  + 'is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at';
-const ACCOUNT_COLUMNS = 'id, tenant_id, display_name, email, is_test';
+/**
+ * The columns `toInvoice` reads. Each query below spells them out as a literal rather than
+ * using this constant, so `scripts/verify/query-columns.ts` checks every one against the
+ * schema; this copy is for the operator scripts, which that check does not read.
+ */
+export const INVOICE_COLUMNS = 'id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at';
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : String(v ?? ''));
 const date = (v: unknown): Date | null => (typeof v === 'string' && v !== '' ? new Date(v) : null);
@@ -182,7 +184,7 @@ async function loadInvoices(
   deps: BillingDeps,
   filter: { statuses: Invoice['status'][]; needQpay?: boolean; haveQpay?: boolean; id?: string },
 ): Promise<Invoice[]> {
-  let q = deps.db.from('billing_invoices').select(INVOICE_COLUMNS).in('status', filter.statuses);
+  let q = deps.db.from('billing_invoices').select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at').in('status', filter.statuses);
   if (deps.mode === 'test') q = q.eq('is_test', true);
   if (filter.needQpay === true) q = q.is('qpay_invoice_id', null);
   if (filter.haveQpay === true) q = q.not('qpay_invoice_id', 'is', null);
@@ -196,7 +198,7 @@ async function loadInvoices(
 async function loadAccounts(deps: BillingDeps, ids: string[]): Promise<Map<string, Account>> {
   const out = new Map<string, Account>();
   if (ids.length === 0) return out;
-  const { data, error } = await deps.db.from('billing_accounts').select(ACCOUNT_COLUMNS).in('id', [...new Set(ids)]);
+  const { data, error } = await deps.db.from('billing_accounts').select('id, tenant_id, display_name, email, is_test').in('id', [...new Set(ids)]);
   if (error) throw new Unavailable(`billing_accounts unreadable: ${error.message}`);
   for (const r of rows(data)) out.set(str(r['id']), toAccount(r));
   return out;
@@ -587,11 +589,11 @@ export async function ledgerRows(db: SupabaseClient, month: string, mode: Billin
   if (error) throw new Unavailable(`billing_payments unreadable: ${error.message}`);
   const pays = rows(data);
   if (pays.length === 0) return [];
-  const { data: invData, error: invErr } = await db.from('billing_invoices').select(INVOICE_COLUMNS)
+  const { data: invData, error: invErr } = await db.from('billing_invoices').select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at')
     .in('id', [...new Set(pays.map((p) => str(p['invoice_id'])))]);
   if (invErr) throw new Unavailable(`billing_invoices unreadable: ${invErr.message}`);
   const invoices = new Map(rows(invData).map((r) => [str(r['id']), toInvoice(r)]));
-  const { data: accData, error: accErr } = await db.from('billing_accounts').select(ACCOUNT_COLUMNS)
+  const { data: accData, error: accErr } = await db.from('billing_accounts').select('id, tenant_id, display_name, email, is_test')
     .in('id', [...new Set([...invoices.values()].map((i) => i.accountId))]);
   if (accErr) throw new Unavailable(`billing_accounts unreadable: ${accErr.message}`);
   const accounts = new Map(rows(accData).map((r) => [str(r['id']), toAccount(r)]));

@@ -153,6 +153,16 @@ jobs:
           fi
           node scripts/verify/postgrest.ts dala_ci
 
+      - name: Client billing, a month end to end over real PostgREST (D-156)
+        # The engine, supabase-js, PostgREST and 0065's functions together, with QPay, Brevo
+        # and Telegram faked: invoices once, reminders, a callback counted once, a wrong
+        # amount, the pause and resume, a retried and an unfinished send, the ledger.
+        # Last against dala_ci on purpose: it writes rows that append-only tables keep.
+        env:
+          PGRST_URL: http://127.0.0.1:3001
+          PGRST_JWT_SECRET: dala-ci-postgrest-secret-at-least-32-chars
+        run: node scripts/verify/billing-e2e.ts dala_ci
+
       - name: Build
         run: npx next build
 

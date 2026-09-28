@@ -649,17 +649,21 @@ begin
     from billing_invoices i
    where d.invoice_id = i.id and d.only_while_unpaid and d.status in ('pending', 'failed')
      and i.status not in ('open', 'mismatch');
+  -- Oldest first, and RETURNED oldest first (an UPDATE's RETURNING has no order of its
+  -- own): an invoice goes out before the founder's copy of it.
   return query
-  update billing_deliveries d
-     set status = 'sending', claimed_at = now(), attempts = d.attempts + 1
-   where d.id in (
-     select x.id from billing_deliveries x
-      where x.status in ('pending', 'failed') and x.next_attempt_at <= now()
-        and (x.is_test or p_include_live)
-      order by x.created_at
-      limit p_limit
-        for update skip locked)
-  returning d.*;
+  with claimed as (
+    update billing_deliveries d
+       set status = 'sending', claimed_at = now(), attempts = d.attempts + 1
+     where d.id in (
+       select x.id from billing_deliveries x
+        where x.status in ('pending', 'failed') and x.next_attempt_at <= now()
+          and (x.is_test or p_include_live)
+        order by x.created_at
+        limit p_limit
+          for update skip locked)
+    returning d.*)
+  select * from claimed order by claimed.created_at, claimed.id;
 end
 $$;
 

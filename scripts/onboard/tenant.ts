@@ -13,6 +13,12 @@
  *     … --apply --sign-wording <sheet id> --signed-by Bilguun
  *     … --apply --client-confirmed "Болор" --confirmed-on 2026-10-01 --summary <summary id>
  *
+ *     # billing (D-156), optional, on any run: the client's billing record, UNCONFIRMED
+ *     … --billing-name "Тара Парк ОД ХХК" --billing-staff "Дали — AI хүлээн авагч=250000" \
+ *       --billing-start 2026-11 [--billing-email owner@example.mn] [--billing-annual]
+ *     #   printed on a dry run, written with --apply; `scripts/billing/account.ts confirm` then
+ *     #   confirms the amounts. Nothing is invoiced before that confirmation.
+ *
  * Needs `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SECRET_PUBLISH` (the operator's; never set in
  * cloud sessions), and `npm install`. Calls no model and spends nothing.
  *
@@ -50,6 +56,11 @@ import { onboardingReport } from '../../src/lib/provision/onboardReport.ts';
 import { supabasePublish } from '../../src/lib/supabase/clients.ts';
 import { ubStamp } from '../../src/lib/time/ub.ts';
 import { factGate } from '../facts/gate.ts';
+import { parseStaff, type StaffPrice } from '../../src/lib/billing/amounts.ts';
+import { billingToday, monthOf } from '../../src/lib/billing/calendar.ts';
+import { phrasesFrom, planSchedules, writeBillingRecord, type PlannedSchedule } from '../../src/lib/billing/setup.ts';
+import { formatMnt } from '../../src/lib/billing/templates.ts';
+import { labelWording } from '../billing/_common.ts';
 
 const out = (s = '') => process.stdout.write(`${s}\n`);
 function die(message: string, code = 2): never {
@@ -94,6 +105,21 @@ if (confirmedBy !== undefined && (confirmedOn === undefined || summaryId === und
 if (confirmedOn !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(confirmedOn)) die('--confirmed-on is YYYY-MM-DD');
 if ((signId !== undefined || confirmedBy !== undefined) && !doApply) die('a signature is a write: add --apply');
 const outDir = arg('out') ?? join('onboarding', slug);
+
+// ---- billing (D-156): parsed now, so a mistyped amount refuses before anything is written
+const billingStaffArgs = process.argv.flatMap((a, i) => (a === '--billing-staff' ? [process.argv[i + 1] ?? ''] : []));
+let billingStaff: StaffPrice[] = [];
+try {
+  billingStaff = billingStaffArgs.map((v) => parseStaff(v));
+} catch (e) {
+  die(`--billing-staff: ${e instanceof Error ? e.message : String(e)}`);
+}
+const billingName = arg('billing-name');
+const billingStart = arg('billing-start');
+const billingEmail = arg('billing-email');
+if (billingStaff.length > 0 && (billingName === undefined || billingStart === undefined)) {
+  die('--billing-staff needs --billing-name "<legal name as in the contract>" and --billing-start YYYY-MM');
+}
 
 // ---- 1. read the form -------------------------------------------------------------------
 let blocks;
@@ -154,6 +180,22 @@ try {
   await refuseForeignChannels(db, slug, plan);
 } catch (e) {
   die(e instanceof Error ? e.message : String(e));
+}
+
+let billingPlan: PlannedSchedule[] = [];
+if (billingStaff.length > 0) {
+  try {
+    const { wording: lw, note } = await labelWording(db);
+    billingPlan = planSchedules({ staff: billingStaff, annual: process.argv.includes('--billing-annual'), startMonth: billingStart!, dueDay: 5 },
+      phrasesFrom(lw), monthOf(billingToday(now)));
+    out(`\nBilling — ${billingName} (${note}); written UNCONFIRMED with --apply:`);
+    for (const b of billingPlan) {
+      out(`  ${b.kind} from ${b.nextMonth.slice(0, 7)}: ${formatMnt(b.amountMnt)} (${b.why})`);
+      for (const l of b.lines) out(`      ${l.label} ${formatMnt(l.amount_mnt)}`);
+    }
+  } catch (e) {
+    die(`billing: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 if (!doApply) {
@@ -242,5 +284,17 @@ const files: [string, string][] = [
 ];
 for (const [name, body] of files) writeFileSync(join(outDir, name), body);
 out(`\nWrote ${files.map(([n]) => join(outDir, n)).join(', ')}`);
+if (billingPlan.length > 0) {
+  try {
+    const r = await writeBillingRecord(db, {
+      tenantSlug: slug, isTest: false, displayName: billingName!, email: billingEmail ?? null, contractRef: null,
+    }, billingPlan);
+    out(`\nBilling account ${r.accountId} ${r.createdAccount ? 'created' : 'found'}; schedules written UNCONFIRMED. Confirm the amounts:`);
+    for (const b of r.schedules) out(`  node scripts/billing/account.ts confirm --schedule ${b.id} --fingerprint ${b.fingerprint} --by <you>`);
+  } catch (e) {
+    // The tenant is written either way; billing is re-run with scripts/billing/account.ts.
+    out(`\nBilling NOT written: ${e instanceof Error ? e.message : String(e)}. Run scripts/billing/account.ts propose … --apply.`);
+  }
+}
 // The daily report is where a missing answer is seen. If it was not recorded, say so loudly.
 if (recorded.recorded === 'failed') die(`readiness was NOT recorded for the daily report: ${recorded.detail}. Re-run the same command.`, 1);
