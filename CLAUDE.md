@@ -67,7 +67,9 @@ or databases. Never import from that repo.**
   merges it into one report.
 - **Telegram is shared with customers:** `dalatech-online` posts demo requests into the
   same chat. Weigh any new `route: 'now'` alert against that.
-- **No revenue path exists.** The platform can spend and cannot collect.
+- **Client billing is built and not live** (D-156, `docs/billing.md`): QPay on Core Language's
+  merchant, `BILLING_MODE` off until the founder switches it. Until then the platform can spend
+  and cannot collect.
 - **Single-owner risk is ACCEPTED** (D-017). Do not raise it unless a D-017 trigger fires.
 
 ## The test every decision is measured against

@@ -10956,3 +10956,58 @@ owner and Page); then the «Анхны 10 бизнест» launch.
   project all 39 rows then matched the replica row for row. DalaTech's and Tara's block
   selection fingerprint was `6a392178…` before and after, so their next publish compiles the
   same prefix; their live snapshots are untouched until then.
+
+## D-156 — DalaTech invoices its clients by QPay, on Core Language's merchant (2026-09-28)
+
+The founder's brief: never chase a payment by hand. Every client's fee is invoiced on the 1st
+(Ulaanbaatar), paid by QPay into the SAME merchant Core Language uses (same credentials,
+same QR; no new merchant), recorded without the founder, and kept separate from Core
+Language's orders. Built, proven on a local replica, **not applied and not live**; it waits
+for the founder (money movement, credentials, customer-visible Mongolian). Runbook:
+`docs/billing.md`.
+
+- **Records.** `0065_billing`: accounts (one per client), schedules (monthly fee, annual
+  prepay, yearly hosting), invoices, payments (append-only), an outbox, pauses, events
+  (append-only). Core Language's orders are in its own project; nothing here reads them, and
+  no line of `dalatech-english` changed. Ours are `DT-…` (`TEST-…`) and every QPay description
+  begins `DalaTech`.
+- **Amounts** come from the contract (Ажил гүйцэтгэх гэрээ 1.4, 4.3): 2/3/4+ staff 10/15/20%,
+  annual prepay 12 months for 10, and **discounts do not stack — the most favourable one
+  applies**, so an annual prepay for four staff is 12 months at 20% off (9.6 months), not 10.
+  The proposal is written UNCONFIRMED; only `billing_confirm_schedule` with the fingerprint
+  the founder read makes it invoiceable, and any later change to lines, amount, cycle or due
+  day clears the confirmation (trigger). Prices are passed by the founder, not copied from
+  tenant #0's rows (D-151).
+- **Exactly once.** One invoice per client per period (unique key, schedule advanced in the
+  same statement). One QPay invoice per invoice (claim first; an unknown outcome keeps the
+  claim for 10 minutes; a QPay invoice never recorded is never shown, so it cannot be paid).
+  One payment per QPay payment id (append-only, unique key; a QPay payment for another QPay
+  invoice is refused by the database). Status is derived: payments summing to exactly the
+  amount are `paid`, any other non-zero sum is `mismatch` for the founder, never a guess; the
+  founder settles it by command. A QPay answer that cannot be read completely records nothing.
+- **Messages.** Rendered at enqueue so the row holds the exact bytes; unique dedup key per
+  message; claimed before sending; a definite failure is retried (5 min … 24 h, then given
+  up and reported); an unknown outcome is NEVER resent — it becomes `unknown` and the founder
+  gets the requeue command. Reminders are cancelled once paid.
+- **Wording.** Signed platform blocks only (`billing_*`, layer null — `generate-seed.ts` now
+  says so, or signing them would have put invoice text in every tenant's prompt). A live
+  client never receives a draft; the operator's `tick.ts --drafts` shows drafts to TEST
+  accounts only. 22 drafts wait in `prompt/drafts/billing/`.
+- **Delivery.** E-mail (Brevo, Core Language's authenticated domain, Reply-To the founder)
+  or, with no address, a Telegram message for the founder to forward. Messenger from our Page
+  is NOT built: the 24-hour window and whether a message tag covers an invoice are Meta policy
+  this repo cannot check.
+- **Pause.** Never automatic. On the 8th (3 days late) the founder gets a Telegram button;
+  the page it opens changes nothing until its POST; `billing_pause` sets every channel of the
+  tenant `off` and keeps the prior modes, `billing_resume` restores them where still `off`.
+  **The contract (4.9) allows a pause only when payment is more than 7 days late** (the 13th);
+  the brief says the 8th. The question states the days late; moving it is one constant.
+- **Switch.** `BILLING_MODE` off / test / live. `test` touches only `is_test` accounts;
+  setting `live` is the founder's approval of the first real run, after
+  `scripts/billing/report.ts preview`. Preflight refuses test/live without every variable.
+- **Proof.** `scripts/verify/billing.sql` (17 checks on the functions), 21 unit tests, and
+  `scripts/verify/billing-e2e.ts` — a month over real PostgREST 12.2.3 and PostgreSQL 16 with
+  QPay, Brevo and Telegram faked (52 checks; in CI). NOT proven: QPay Quick QR's real
+  `payment/check` shape (the parser follows Core Language and the @mnpay/qpay SDK types, and
+  refuses anything it cannot read), its callback method, Brevo delivery, and Telegram button
+  rendering — the founder's real 100₮ test is the proof of those.
