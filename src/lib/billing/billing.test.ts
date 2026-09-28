@@ -394,6 +394,7 @@ test('outlineOf: the shape of a QPay answer, with no payer data in it', () => {
     '{payer_type: string(8 latin+other), payment_method: string(9 latin), status: string(20 digits+latin+other)}');
   // A map keyed by data shows its keys by length only, and is cut at forty keys.
   assert.equal(outlineOf({ '99112233': { 'Бат-Эрдэнэ': 1 } }), '{<key 8>: {<key 10>: number}}');
+  assert.equal(outlineOf({ MN120005005016271526: 1, acct_5016271526: 2 }), '{<key 20>: number, <key 15>: number}');
   const many = Object.fromEntries(Array.from({ length: 45 }, (_, i) => [`k${i}`, i]));
   assert.match(outlineOf(many), /…5 more\}$/);
   // Arrays are cut at five items; depth at four.

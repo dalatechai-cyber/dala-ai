@@ -174,6 +174,8 @@ const QPAY_WORDS = new Set([...SETTLED, ...NOT_SETTLED, 'OPEN', 'CLOSED', 'MNT']
 const NUMBER_KEY = /(^|_)(amount|count|fee)$/i;
 /** A key shown as it is; anything else (a map keyed by data) is shown by its length only. */
 const FIELD_KEY = /^[A-Za-z_][A-Za-z0-9_]{0,40}$/;
+/** A field name with an account, phone or IBAN inside it is data, not a field name. */
+const isFieldKey = (k: string): boolean => FIELD_KEY.test(k) && !/\d{5}/.test(k);
 const MAX_KEYS = 40;
 
 /** A string reduced to its length and character classes, unless it is one of QPay's words. */
@@ -201,8 +203,8 @@ export function outlineOf(v: unknown, key = '', depth = 0): string {
   if (typeof v === 'object') {
     if (depth >= 4) return 'object';
     const keys = Object.keys(v as Record<string, unknown>).sort();
-    const entries = keys.slice(0, MAX_KEYS).map((k) => `${FIELD_KEY.test(k) ? k : `<key ${[...k].length}>`}: `
-      + outlineOf((v as Record<string, unknown>)[k], FIELD_KEY.test(k) ? k : '', depth + 1));
+    const entries = keys.slice(0, MAX_KEYS).map((k) => `${isFieldKey(k) ? k : `<key ${[...k].length}>`}: `
+      + outlineOf((v as Record<string, unknown>)[k], isFieldKey(k) ? k : '', depth + 1));
     return `{${entries.join(', ')}${keys.length > MAX_KEYS ? `, …${keys.length - MAX_KEYS} more` : ''}}`;
   }
   if (typeof v === 'number') return NUMBER_KEY.test(key) ? `number ${v}` : 'number';
