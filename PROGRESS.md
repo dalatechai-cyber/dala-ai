@@ -46,5 +46,5 @@ bee6a69.
   every ignored write checked; least-recently-checked first; test clients out of live
   summaries and ledgers; QPay times without a zone read as Ulaanbaatar. Live line labels must be
   signed; `tick.ts --mode live` needs `BILLING_MODE=live`. E2E 57 checks.
-- [ ] **5c.** Draft PR.
+- [x] **5c.** Draft PR: https://github.com/dalatechai-cyber/dala-ai/pull/229
 - [ ] **6. Founder:** approve wording, add the environment, the real 100₮ test, then live.
