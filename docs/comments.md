@@ -245,6 +245,37 @@ across the platform. `MatcherSpec` gains a `stem_sequence` mode wrapping the exi
 `matchesStemSequence`. Nothing in `src/` names a topic, a stem or a tenant: a salon that
 sells something no other salon sells is rows.
 
+### The one exception: another seller's advert (2026-09-28)
+
+On 2026-09-27 a seller posted the same advert three times under Matrix's 29 August reel
+(`webhook_events` 1094–1096: a hair mask, «маш хямдхан зарна үнэ 45000», the seller's own
+phone number). «үнэ» fired the `price` rule and the first copy got the public line and the
+private message. The founder's rule: another seller's advert gets nothing, public or
+private, and is neither hidden nor deleted.
+
+A row cannot say this, because `ignore` ranks below `reply` and loses to the `price` rule the
+advert fires. The signals are also not a tenant's vocabulary. So `comments/advert.ts` is
+platform code, and `decideCommentReply` refuses with `comment_advert` right after
+`escalate`. A complaint that carries a phone number and a price still reaches a person. The
+check sits before the person rule, so a second copy never resumes the seller's pending rows.
+
+An advert is two signals together, in a comment that asks nothing (a seller states, a
+customer asks), because each signal alone is something a customer writes. The three signals
+are a seller's words («зарна», «хүргэлттэй», «бөөний»…), a phone number, and a price figure.
+A clock time or a date is never a price, so «Цаг авъя 99112233 18:30» is a booking. A
+greeting such as «Сайн байна уу» does not count as asking. The one other shape is the same
+statement of 40 or more characters, posted again by the same account within 24 hours on any
+of the tenant's posts. That check reads `webhook_events`, and only for a comment the rules
+would answer.
+
+Every refusal writes a `comment_advert` flag with the signal names, never the text. Nothing
+reads that flag yet: the digest does not count it. Stated limits:
+
+- An advert with none of the text signals is answered the first time and refused from the
+  second copy on.
+- A customer who writes a phone number beside a price and asks nothing
+  («Үнэ 45000 гэсэн, 99112233 руу залгаарай») is read as an advert.
+
 ## Shadow first, and the shadow phase's product is the silence
 
 Comments run in `shadow` before they go live, as the founder requires, and `worker/

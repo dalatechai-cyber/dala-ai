@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { replayComments, type ReplayRule } from './commentReplay.fixtures.ts';
-import { P_REEL_0829, P_REEL_0922, STORED, type StoredComment } from '../comments/realThreads.fixtures.ts';
+import { P_REEL_0829, P_REEL_0922, SELLER_ADVERTS, SELLER_ID, STORED, ZES_QUESTION, type StoredComment } from '../comments/realThreads.fixtures.ts';
 
 const RULES = (JSON.parse(readFileSync(new URL('../../../scripts/provision/templates/comment_rules.salon.json', import.meta.url), 'utf8')) as {
   rules: ReplayRule[];
@@ -111,4 +111,52 @@ test('DONE-TEST (live, 2026-09-26): META\'S AUTO COMMENT REPLY IS NOT STAFF ANSW
     stored: [customer, auto], decide: [9001], rules, evidence: 'all', automationTexts: ['chat bicnuu'],
   });
   assert.equal(withRows?.outcome, 'drafted');
+});
+
+// ---------------------------------------------------------------------------
+// 2026-09-28: a seller's advert answered, a customer's question missed (P_REEL_0829)
+// ---------------------------------------------------------------------------
+
+test('27 Sept: the seller’s advert, posted three times, gets NOTHING — no public line, no private message', async () => {
+  // The first copy was answered live on 2026-09-27: «үнэ» fired the `price` rule. Every copy
+  // is now an advert, decided on its own words before the rules' verdict can post anything.
+  const replay = await replayComments({
+    stored: [...STORED, ...SELLER_ADVERTS], decide: [1094, 1095, 1096], rules: RULES, evidence: 'at_decision',
+  });
+  assert.deepEqual(Object.fromEntries(replay.map((o) => [o.eventId, o.outcome])), {
+    1094: 'comment_advert', 1095: 'comment_advert', 1096: 'comment_advert',
+  });
+  for (const o of replay) {
+    assert.equal(o.result.drafted, 0);
+    assert.equal(o.result.privateDrafted, 0);
+  }
+});
+
+test('20 Sept: «Зэсэн улаан туяа арилдагуу» is answered by today’s template, on the post it was asked on', async () => {
+  // Missed on the day because the rule that answers it did not exist until 2026-09-25.
+  assert.deepEqual(await outcomes([219], 'at_decision', [...STORED, ZES_QUESTION]), { 219: 'drafted' });
+});
+
+test('the same customer question beside the seller’s adverts is still answered', async () => {
+  const q = { ...ZES_QUESTION, eventId: 1100, receivedAt: '2026-09-27T14:32:00.000Z', commentId: '1378787287727016_9001100', createdTime: 1790519520 };
+  assert.deepEqual(await outcomes([1094, 1100], 'at_decision', [...STORED, ...SELLER_ADVERTS, q]), {
+    1094: 'comment_advert', 1100: 'drafted',
+  });
+});
+
+test('an advert with no phone, price or seller word is caught the SECOND time it is pasted, on another post', async () => {
+  // Stated limit: the words alone do not make this an advert, so the first copy is answered.
+  // The copy pasted under the next post is the same account's same comment, and is refused.
+  const text = 'Японоос ирсэн үсний маск байна, үнэ нь маш боломжийн шүү, инбоксоор ороорой';
+  const first = wouldBe(1101, SELLER_ID, 'Seller Page', P_REEL_0829, text);
+  const second = wouldBe(1102, SELLER_ID, 'Seller Page', P_REEL_0922, text);
+  assert.deepEqual(await outcomes([1101, 1102], 'at_decision', [...STORED, first, second]), {
+    1101: 'drafted', 1102: 'comment_advert',
+  });
+});
+
+test('a customer asking the same short question twice is not a pasted advert', async () => {
+  const a = wouldBe(1103, 'u1103', 'Bold Bat', P_REEL_0829, 'Үнэ хэд вэ?');
+  const b = wouldBe(1104, 'u1103', 'Bold Bat', P_REEL_0922, 'Үнэ хэд вэ?');
+  assert.deepEqual(await outcomes([1103, 1104], 'at_decision', [...STORED, a, b]), { 1103: 'drafted', 1104: 'drafted' });
 });

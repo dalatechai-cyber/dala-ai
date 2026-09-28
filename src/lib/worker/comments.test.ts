@@ -96,6 +96,13 @@ function stubDb(over: Record<string, Reply | Reply[]> = {}, outbound: OutboundSt
       if (rec.cols === 'id, state' || rec.cols === 'id, state, body') return outbound.pending ?? { data: null, error: null };
       return outbound.existing ?? { data: [], error: null };
     }
+    // The author-history read (`readAuthorComments`, adverts) is told apart from the staff
+    // read by its containment filter, which names the author and no `item`, so queued staff
+    // answers below are not consumed by it. `webhook_events:author` answers it; default empty.
+    if (table === 'webhook_events' && !JSON.stringify(rec.filters['contains:raw_payload'] ?? {}).includes('"item"')) {
+      const a = over['webhook_events:author'];
+      return (Array.isArray(a) ? a[0] : a) ?? { data: [], error: null };
+    }
     // A LIST answers successive reads in order, the last one sticking — how a test says
     // "the Page had not replied at decision time, and had by the time of the send".
     const o = over[table];
@@ -994,7 +1001,7 @@ test('DONE-TEST: LIVE — staff answered between the decision and the send: re-c
   assert.equal(r.refused['staff_replied'], 1, 'counted once for the comment, not once per line');
   const refusedRows = ops.filter((o) => o.table === 'outbound_messages' && o.op === 'update' && o.patch?.['state'] === 'refused');
   assert.equal(refusedRows.length, 2, 'both claimed rows parked as refused, so no later resume can send them');
-  const reads = ops.filter((o) => o.table === 'webhook_events');
+  const reads = ops.filter((o) => o.table === 'webhook_events' && JSON.stringify(o.filters['contains:raw_payload']).includes('"item"'));
   assert.equal(reads.length, 2, 'one read at decision, ONE before the sends — memoised across the two lines');
   const flags = ops.filter((o) => o.table === 'quality_flags' && o.op === 'insert');
   assert.equal(flags.length, 1);
@@ -1246,4 +1253,89 @@ test('Facebook is unchanged by the allow-list column being absent: every rule st
   const { ops, result } = run({ tables: ctaTables() }, { config: BOTH, rawPayload: entry([comment({ message: 'Үнэ хэд вэ?' })]) });
   await result;
   assert.deepEqual(drafts(ops), [['comment_reply', GENERAL_PUBLIC], ['private_reply', GENERAL_PRIVATE]]);
+});
+
+// ---------------------------------------------------------------------------
+// Another seller's advert (founder, 2026-09-28; `comments/advert.ts`)
+// ---------------------------------------------------------------------------
+
+const REAL_ADVERT = '🇯🇵Японоос ирсэн❤️❤️❤️❤️❤️❤️Үсний өнгө сэргээх , гялалзуулах , гэмтэлтэй будагтай үсэнд тохиромжтой үсний маш сайн маск  маш хямдхан зарна үнэ 45000\n☎️   99033966';
+
+test('DONE-TEST: LIVE, policy both — the real advert of 2026-09-27 posts NOTHING and sends NOTHING', async () => {
+  const { posted, privates, ops, lookups, result } = run({ tables: withPrivateLine }, {
+    config: BOTH, rawPayload: entry([comment({ message: REAL_ADVERT })]),
+  });
+  const r = await result;
+  assert.equal(posted.length, 0, 'no public line under the advert');
+  assert.equal(privates.length, 0, 'no private message to the seller');
+  assert.equal(r.refused['comment_advert'], 1);
+  assert.equal(lookups.length, 0, 'decided before any Graph read');
+  assert.equal(ops.filter((o) => o.table === 'outbound_messages' && o.op === 'insert').length, 0, 'no row drafted');
+  const flag = ops.find((o) => o.table === 'quality_flags' && o.op === 'insert');
+  assert.equal(flag?.patch?.['flag'], 'comment_advert');
+  const detail = flag?.patch?.['detail'] as Record<string, unknown>;
+  assert.equal(detail['signals'], 'seller_words,phone,price');
+  assert.ok(!JSON.stringify(detail).includes('99033966'), 'the flag carries signal names, never the text');
+});
+
+test('LIVE — a pasted repeat by the same account is an advert, read from its earlier comments', async () => {
+  const pasted = 'Японоос ирсэн үсний маск байна, үнэ нь маш боломжийн шүү, инбоксоор ороорой';
+  const earlier = { data: [{ raw_payload: entry([comment({ comment_id: `${PAGE}_c0`, post_id: `${PAGE}_p0`, message: pasted })]) }], error: null };
+  const { posted, privates, result } = run({ tables: { ...withPrivateLine, 'webhook_events:author': earlier } }, {
+    config: BOTH, rawPayload: entry([comment({ message: pasted })]),
+  });
+  const r = await result;
+  assert.equal(posted.length + privates.length, 0);
+  assert.equal(r.refused['comment_advert'], 1);
+});
+
+test('LIVE — the same comment is not its own repeat: the earlier-comments read excludes it', async () => {
+  const pasted = 'Японоос ирсэн үсний маск байна, үнэ нь маш боломжийн шүү, инбоксоор ороорой';
+  const itself = { data: [{ raw_payload: entry([comment({ message: pasted })]) }], error: null };
+  const { posted, result } = run({ tables: { 'webhook_events:author': itself } }, { rawPayload: entry([comment({ message: pasted })]) });
+  const r = await result;
+  assert.equal(r.replied, 1);
+  assert.equal(posted.length, 1);
+});
+
+test('LIVE — the earlier-comments read unreadable: nothing posted or sent, and a retry', async () => {
+  const pasted = 'Японоос ирсэн үсний маск байна, үнэ нь маш боломжийн шүү, инбоксоор ороорой';
+  const { posted, privates, result } = run({ tables: { ...withPrivateLine, 'webhook_events:author': { data: null, error: { message: 'boom' } } } }, {
+    config: BOTH, rawPayload: entry([comment({ message: pasted })]),
+  });
+  const r = await result;
+  assert.equal(posted.length + privates.length, 0);
+  assert.equal(r.retry, true);
+});
+
+test('a short question never costs the earlier-comments read', async () => {
+  const { ops, posted, result } = run({ tables: { 'webhook_events:author': { data: null, error: { message: 'boom' } } } });
+  const r = await result;
+  assert.equal(r.replied, 1, 'the read would have failed; it was never made');
+  assert.equal(posted.length, 1);
+  assert.equal(ops.filter((o) => o.table === 'webhook_events' && !JSON.stringify(o.filters['contains:raw_payload'] ?? {}).includes('"item"')).length, 0);
+});
+
+test('LIVE — the advert\u2019s second copy does NOT resume the first copy\u2019s pending rows', async () => {
+  // Copy 1 was drafted (or its send failed) before this change; copy 2 arrives on a live
+  // channel. As `person_already_answered` it would resume and send them; as an advert it
+  // stops before the person rule.
+  const { posted, privates, ops, result } = run({ tables: withPrivateLine, outbound: {
+    persons: { data: [{ comment_post_id: `${PAGE}_p1`, comment_from_id: 'customer_1' }], error: null },
+    existing: { data: [{ dedup_key: `${PAGE}_c0` }], error: null },
+    pending: { data: { id: 'om-9', state: 'draft', body: LINE }, error: null },
+  } }, { config: BOTH, rawPayload: entry([comment({ message: REAL_ADVERT })]) });
+  const r = await result;
+  assert.equal(r.refused['comment_advert'], 1);
+  assert.equal(posted.length + privates.length, 0);
+  assert.equal(ops.filter((o) => o.table === 'outbound_messages' && (o.cols === 'id, state' || o.cols === 'id, state, body')).length, 0, 'pending rows never read');
+});
+
+test('praise and complaints never cost the earlier-comments read', async () => {
+  for (const message of ['Гоё байна', 'Үсийг минь шатаасан, луйвар']) {
+    const { ops, result } = run({}, { rawPayload: entry([comment({ message })]) });
+    await result;
+    const authorReads = ops.filter((o) => o.table === 'webhook_events' && !JSON.stringify(o.filters['contains:raw_payload'] ?? {}).includes('"item"'));
+    assert.equal(authorReads.length, 0, message);
+  }
 });
