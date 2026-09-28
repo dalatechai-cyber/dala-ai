@@ -11035,3 +11035,20 @@ for the founder (money movement, credentials, customer-visible Mongolian). Runbo
 - Nothing reads the tables yet: the code is on the unmerged branch, and `BILLING_MODE` is
   unset (off). `scripts/verify/billing.sql` was NOT run on the project: the MCP transport
   commits, and the suite writes to append-only tables.
+
+### D-156 addendum — the billing wording signed and seeded (2026-09-28)
+
+- The founder approved the 22 drafts with one correction («түр зогсож болохыг») and signed set
+  `a30d9369ea5c` (4d2dfeb). `0066_prompt_blocks_seed` was applied to the project through the
+  MCP migration tool (ledger `20260928022629 0066_prompt_blocks_seed`) as an EQUIVALENT of the
+  generated file: the 22 billing rows only, with the file's own upsert. The other 39 rows are
+  byte-identical in the file and on the project (checked before the write), so the full file
+  would have rewritten them with the same values.
+- The equivalent was first applied to a fresh replica after 0001–0065 and reached the same 61
+  rows as the full file (fingerprint `04ee3c99…`). On the project, afterwards: 61 platform rows,
+  the same fingerprint; the 22 billing bodies hash (sha256) to exactly the signed files; all
+  22 at layer null, so no tenant's compiled prompt changes.
+- A first comparison of the 39 existing rows differed. The cause was the check, not the data:
+  `string_agg … order by block_key` sorts by collation, `en_US.UTF-8` on the project and
+  `C.UTF-8` on the replica. With `collate "C"` the two matched. CLAUDE.md's rule: never let
+  collation order reach a hash — that includes a diagnostic's.
