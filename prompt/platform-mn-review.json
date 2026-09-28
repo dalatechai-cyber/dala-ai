@@ -32,6 +32,42 @@
       "reviewed_at": "2026-09-27"
     },
     {
+      "block_id": "billing_bank_intro",
+      "sha256": "2e44c113a8778f18cc284c0c08e4359e63a8e82f02b8dde51160580b86ea8ef6",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_bank_name",
+      "sha256": "6d7e238ac7126e817cc8a98d8e1ded6af93b44bf9c85137b847378e99a10c1d8",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_bank_title",
+      "sha256": "c6fb4fa170274722777ed722709918b5fcb429c8a4f3dd3c00ed1d8c14453289",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_doc_signature",
+      "sha256": "c10eee8b8bd518ae55480ba7fbe89d128a4602a4a56eb355cd422a6c7fbea405",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_doc_title",
+      "sha256": "a2ed40dc6b066afaa2cf66964dacc57559618e111d2ea6f1e7b486f088695fa8",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_doc_vat",
+      "sha256": "e36567bfb90bae42a4d8e44b386b1500b5bd8800ce064c38477b65246771c6db",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
       "block_id": "billing_invoice_body",
       "sha256": "398599ccc9aae3a5692b15dfd17291e8aeb948d16f06584f062ad980014f685a",
       "reviewed_by": "Bilguun",
@@ -40,6 +76,102 @@
     {
       "block_id": "billing_invoice_subject",
       "sha256": "2118dc73437603b2b470c7a2fd8f4b0d937acd1b99d23ec3f425e8f6dae0996d",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_account",
+      "sha256": "9a0c38d155cfe80d93c510cec6761f1d30568b970bff875b53807b05bbacbab5",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_amount",
+      "sha256": "30436eedca9e3dc302ad79c09d31b3658770f7b246354fc4feb9c05aeba5d17b",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_bank",
+      "sha256": "3210d8110e9b8a4290a652ae8825121540e038488f3915c232a50a51ac5f0865",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_contract_no",
+      "sha256": "b4fcb0b90b7cc34191c480888df0f10330f36736c2b260675a0432d4db5e6f94",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_email",
+      "sha256": "da689d09bc812c69b27d63894064559fe5962e20670626ec8fc2d4b694a4415c",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_holder",
+      "sha256": "177df29aefac6d299d025bd137ba6ef51e7a3efdf6cc4812ed61b0b392290d5b",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_invoice_no",
+      "sha256": "39f44ec20e10a6d1af77500b59f5243c23b1afa5cffa21b28055bb1546ca179f",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_issued_on",
+      "sha256": "f06cf647367e885f194af93827820309e9415371e8d269d9ef79e24f125277fa",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_issuer",
+      "sha256": "eec228100462f7b9fc44165e271660a20fe82ec49958a26b4c1652371fc0bb06",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_paid_amount",
+      "sha256": "74a6665edd41869b37bfb051c98bc4c377099cec75cb5828b11a9428a736f807",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_paid_on",
+      "sha256": "09863e5d8b5232a1c88707c49dd30b16e866b31bd4380cd31f3cffaa9a2bd56f",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_payer",
+      "sha256": "8c6c67c67c89ce386b1769c6daa41b04b97d67a893e31667b509555aba97b2b2",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_phone",
+      "sha256": "9541372becfbde23e309f0b53f39708664b3ea130dc38c8158d55182991a2617",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_reference",
+      "sha256": "7f1c77debdcdd6db2d6a5a5f07d492046a57acee6f90c18ef612545413760012",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_service",
+      "sha256": "d58436351c58d752965ff5ca23c38252aeca655c87789d25a2af5c24661b1f81",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_label_total",
+      "sha256": "292ee08905c227fff47a41bcdf4773573a10cea190915f0b8bdfbcd7e0784467",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-28"
     },
@@ -58,6 +190,72 @@
     {
       "block_id": "billing_line_team_discount",
       "sha256": "9e6478922b5d2e5bf0a701402c61c9e7b7fa7e45905eea508815554015e3e5ff",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_mail_closing",
+      "sha256": "2e1dff38bf42cd56598daf63498eaa5e5bd52563e575809d51877fd632d9fed2",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_mail_invoice_intro",
+      "sha256": "ac7b62c62afed75bf003a01e29925e1cc57b14220492b3d8724485be9e3a917c",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_mail_invoice_title",
+      "sha256": "3346a7d460b64d6211eb9d848675b2ca1966fcfe1567b6ba7ca312a5f37f47e3",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_mail_receipt_closing",
+      "sha256": "7738ca10b0d3334f2520c1e6f9bd67005f3c63d154d8788697068b94b172464a",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_mail_receipt_intro",
+      "sha256": "2e68275123556e1cd70314107fef46f6ce204282fe6e66fb0dadad02e477d6c3",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_mail_receipt_title",
+      "sha256": "bb20112bf18a6bfd146c8118ae75fd247d6d4039ddc9d995eeaea9571c6ce65d",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_mail_reminder_after_intro",
+      "sha256": "edf1bbef2e9ad07d3e1915c76738d64d06f8dc66d6eb5c213aa8a9d793c85cf6",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_mail_reminder_after_title",
+      "sha256": "e1672cbe857bf15873020053a08c5ade8b1025e1978c878752c9ef09090ef167",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_mail_reminder_before_intro",
+      "sha256": "0196a577fde6c2b9a1223af340f99b5527a153c4ae7dfc1a0b3d42317889a3c2",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_mail_reminder_before_title",
+      "sha256": "120e6ffa985375f490d89dd1e2ea81b89e442277f07156b53692fc9319987783",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_mail_signoff",
+      "sha256": "f889ab0ba2e9944b1dc568def13b3799b51c30678a2de354c093715d0a2515d4",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-28"
     },
@@ -110,6 +308,12 @@
       "reviewed_at": "2026-09-28"
     },
     {
+      "block_id": "billing_page_questions",
+      "sha256": "1b4cbe20bb825501d550a27147f9d030365569ad77cfa15f3fb16ebfb270ed83",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
       "block_id": "billing_page_scan",
       "sha256": "7dff52a689a0ced4054d632b6e700eb012e602ad8041fc97211a1636a204f8f9",
       "reviewed_by": "Bilguun",
@@ -136,6 +340,12 @@
     {
       "block_id": "billing_page_title",
       "sha256": "2c8afa27f2ac667fae582901d4637060091aaef4285e2c145488b61464f1db97",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_pay_button",
+      "sha256": "d8c368c84bb55db0897e8353b49d4a4e6cdff980f6aac885cbca53b0432b2b91",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-28"
     },
