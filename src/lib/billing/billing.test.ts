@@ -648,3 +648,15 @@ test('the PDF refuses a character its fonts lack rather than printing an empty b
   const r = await renderInvoicePdf({ wording: blocks, invoice: invoice({}), account: { displayName: 'Şahin 李 ХХК', contractRef: null }, issuer: ISSUER, payUrl: PAY_URL });
   assert.ok(!r.ok && r.why.includes('U+015E'), r.ok ? 'rendered' : r.why);
 });
+
+test('a refused send records the provider\'s reason, one line, cut short', async () => {
+  process.env['RESEND_API_KEY'] = 're_test';
+  process.env['BILLING_FOUNDER_EMAIL'] = 'founder@example.com';
+  const f = (async () => new Response(JSON.stringify({ statusCode: 403, name: 'validation_error', message: 'The dalatech.online domain is not verified.\nAdd it.' }), { status: 403 })) as unknown as typeof fetch;
+  assert.deepEqual(await sendResendEmail({ to: 'c@example.mn', subject: 'S', text: 'T' }, f),
+    { outcome: 'terminal', detail: 'resend HTTP 403 — validation_error: The dalatech.online domain is not verified. Add it.' });
+  const g = (async () => new Response('', { status: 500 })) as unknown as typeof fetch;
+  assert.deepEqual(await sendResendEmail({ to: 'c@example.mn', subject: 'S', text: 'T' }, g), { outcome: 'retry', detail: 'resend HTTP 500' });
+  delete process.env['RESEND_API_KEY'];
+  delete process.env['BILLING_FOUNDER_EMAIL'];
+});
