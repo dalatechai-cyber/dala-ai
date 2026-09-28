@@ -660,3 +660,17 @@ test('a refused send records the provider\'s reason, one line, cut short', async
   delete process.env['RESEND_API_KEY'];
   delete process.env['BILLING_FOUNDER_EMAIL'];
 });
+
+test('every date a client reads is the Ulaanbaatar date, including just after midnight there', () => {
+  const blocks: Wording = { source: 'signed', blocks: wordingOnDisk() };
+  // 17:30 UTC on the 2nd is 01:30 on the 3rd in Ulaanbaatar: the receipt says the 3rd.
+  const paid = invoice({ status: 'paid', paidSumMnt: 250000, paidAt: new Date('2026-10-02T17:30:00Z') });
+  const r = renderMail({ kind: 'receipt', wording: blocks, invoice: paid, account: { displayName: 'Матрикс ХХК', contractRef: null }, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: '' });
+  assert.ok(r.ok && r.text.includes('Төлсөн огноо: 2026.10.03') && !r.text.includes('2026.10.02'), r.ok ? r.text : r.why);
+  const page = renderPayPage({ kind: 'settled', invoice: paid, account }, { source: 'signed', blocks: blocks.blocks });
+  assert.ok(page.html.includes('2026.10.03') && !page.html.includes('2026.10.02'));
+  // The issue and due days are stored as Ulaanbaatar calendar days and printed as stored.
+  const inv = renderMail({ kind: 'invoice', wording: blocks, invoice: invoice({ issuedOn: '2026-10-01', dueOn: '2026-10-05' }), account: { displayName: 'Матрикс ХХК', contractRef: null }, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: '' });
+  assert.ok(inv.ok && inv.text.includes('Нэхэмжилсэн огноо: 2026.10.01') && inv.text.includes('2026.10.05'));
+  assert.equal(billingToday(new Date('2026-09-27T16:30:00Z')), '2026-09-28', 'the day an invoice is issued on is the Ulaanbaatar day');
+});

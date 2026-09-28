@@ -211,6 +211,9 @@ async function main(): Promise<void> {
   check(qpayCreates === 0 && emails.filter((m) => m.attachment === undefined).length === 1 && emails.some((m) => m.subject.startsWith('DalaTech — 2026 оны 10-р сарын'))
     && emails.every((m) => !m.text.includes('data:image')),
     'the test invoice is e-mailed with its pay link; no QPay code is made until the page is opened');
+  // Issued at 00:00 Ulaanbaatar on the 1st, still the 30th in UTC: the invoice is dated the 1st.
+  check(psql('select issued_on from billing_invoices where is_test') === '2026-10-01' && at('2026-10-01', 0).toISOString().startsWith('2026-09-30'),
+    'an invoice issued just after midnight in Ulaanbaatar carries the Ulaanbaatar date, not the UTC one');
   const testNo = psql('select invoice_no from billing_invoices where is_test');
   check(/^TEST-202610-\d{4}$/u.test(testNo), `test invoices are numbered TEST- (${testNo})`);
   const firstOpen = await openPage(psql('select id from billing_invoices where is_test'));
