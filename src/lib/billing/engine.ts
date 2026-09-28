@@ -65,7 +65,24 @@ export type BillingDeps = {
   /** Where the monthly ledger CSV is e-mailed. Null: Telegram only. */
   founderEmail: string | null;
   log: (level: 'info' | 'warn' | 'error', event: string, detail: Record<string, unknown>) => void;
+  /**
+   * Wall-clock ms after which no new QPay call or send batch is started; the rest waits for
+   * the next run. Set by the entry points. A run the platform kills mid-send leaves claimed
+   * messages that must be reported as unknown, so the run stops itself well before that.
+   */
+  deadline?: number;
 };
+
+/** The worker's `maxDuration` is 120 s; a QPay call or a send can take 15 s each. */
+export const TICK_BUDGET_MS = 55_000;
+export const CALLBACK_BUDGET_MS = 25_000;
+
+function outOfTime(deps: BillingDeps, report: TickReport): boolean {
+  if (deps.deadline === undefined || Date.now() <= deps.deadline) return false;
+  if (!report.problems.includes(DEFERRED)) report.problems.push(DEFERRED);
+  return true;
+}
+const DEFERRED = 'time budget reached: the rest continues on the next run';
 
 export type TickReport = {
   today: string;
@@ -95,7 +112,7 @@ export const CHECK_STALE_HOURS = 24;
 export const CALLBACK_MIN_INTERVAL_S = 20;
 /** Invoices older than this are not planned (their messages are long settled). */
 const PLAN_WINDOW_DAYS = 400;
-const SEND_BATCH = 25;
+const SEND_BATCH = 3;
 
 // ---------------------------------------------------------------------------------------
 // Rows
@@ -365,6 +382,7 @@ async function createQpayInvoices(deps: BillingDeps, report: TickReport, only?: 
   const invoices = await loadInvoices(deps, { statuses: ['open'], needQpay: true, ...(only === undefined ? {} : { id: only }) });
   let token: string | null = null;
   for (const inv of invoices) {
+    if (outOfTime(deps, report)) return;
     const { data: attempt, error } = await deps.db.rpc('billing_claim_qpay', { p_invoice: inv.id, p_stale_after: QPAY_CLAIM_STALE });
     if (error) { report.problems.push(`claim ${inv.invoiceNo}: ${error.message}`); continue; }
     if (attempt === null || attempt === undefined) continue; // another run holds it, or it has one
@@ -417,6 +435,7 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
     return;
   }
   for (const inv of invoices) {
+    if (outOfTime(deps, report)) return;
     if (only !== undefined && inv.qpayCheckedAt !== null
         && deps.now.getTime() - inv.qpayCheckedAt.getTime() < CALLBACK_MIN_INTERVAL_S * 1000) continue;
     const check = await deps.qpay.checkPayment(t.token, inv.qpayInvoiceId as string);
@@ -686,7 +705,10 @@ export function retryAt(now: Date, attempts: number): Date | null {
 }
 
 async function sendDue(deps: BillingDeps, report: TickReport): Promise<void> {
-  for (let round = 0; round < 4; round += 1) {
+  // Small batches, the budget checked before each: a claimed message is sent in this run
+  // or it becomes `unknown`, so never claim more than the time left can send.
+  for (let round = 0; round < 40; round += 1) {
+    if (outOfTime(deps, report)) return;
     const { data, error } = await deps.db.rpc('billing_claim_deliveries', { p_limit: SEND_BATCH, p_include_live: deps.mode === 'live' });
     if (error) { report.problems.push(`claim failed: ${error.message}`); return; }
     const claimed = rows(data);
@@ -749,7 +771,8 @@ function emptyReport(deps: BillingDeps): TickReport {
 export type TickResult = { ok: true; report: TickReport } | { ok: false; detail: string; report: TickReport };
 
 /** One full pass. `ok: false` only when the database could not be read: the caller retries. */
-export async function runBillingTick(deps: BillingDeps): Promise<TickResult> {
+export async function runBillingTick(given: BillingDeps): Promise<TickResult> {
+  const deps: BillingDeps = { ...given, deadline: given.deadline ?? Date.now() + TICK_BUDGET_MS };
   const report = emptyReport(deps);
   const today = report.today;
   try {
@@ -777,7 +800,8 @@ export async function runBillingTick(deps: BillingDeps): Promise<TickResult> {
  * QPay called back about one invoice. The body is not read: QPay is asked directly, so a
  * forged or replayed callback can at most make the platform check sooner.
  */
-export async function runInvoiceCallback(deps: BillingDeps, invoiceId: string): Promise<TickResult> {
+export async function runInvoiceCallback(given: BillingDeps, invoiceId: string): Promise<TickResult> {
+  const deps: BillingDeps = { ...given, deadline: given.deadline ?? Date.now() + CALLBACK_BUDGET_MS };
   const report = emptyReport(deps);
   try {
     const found = await loadInvoices(deps, { statuses: ['open', 'mismatch', 'paid', 'void'], id: invoiceId });

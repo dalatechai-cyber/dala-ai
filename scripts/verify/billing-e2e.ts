@@ -335,6 +335,18 @@ async function main(): Promise<void> {
   check(since(telegrams, t0).some((m) => m.text.startsWith('📒 Bookkeeping — October 2026')), '…and summarised on Telegram');
   check(count(`select count(*) from billing_invoices where period_key like 'monthly_fee:2026-11'`) === 2, 'November is invoiced once for each client');
 
+  // --- a run out of time starts nothing new --------------------------------------------
+  const late2 = await db.rpc('billing_issue_one_off', {
+    p_account: test.accountId, p_key: 'budget-test', p_lines: [{ label: 'Туршилт', amount_mnt: 100 }], p_amount: 100,
+    p_issued_on: '2026-11-01', p_due_on: '2026-11-05', p_by: 'Bilguun',
+  });
+  const creates1 = qpayCreates;
+  const spent = await runBillingTick({ ...deps(at('2026-11-01', 2), 'live'), deadline: 1 });
+  check(late2.error === null && spent.ok && qpayCreates === creates1 && spent.report.sent === 0
+    && spent.report.problems.some((p) => p.startsWith('time budget reached')), 'a run past its time budget starts no QPay call and no send');
+  await tick(at('2026-11-01', 3), 'live');
+  check(qpayCreates === creates1 + 1, '…and the next run does it');
+
   process.stdout.write(`\nbilling e2e: ${checks} checks passed\n`);
   proxy.close();
 }
