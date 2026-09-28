@@ -1,32 +1,32 @@
 # Wording sheet — Цэцэглэг Салон (`tsetsegleg-demo`)
 
-Sheet id: **`f2cbd3fb37bd`** · 13 lines awaiting your signature · 0 already signed.
+Sheet id: **`277dd14edc88`** · 12 lines awaiting your signature · 0 already signed.
 
 Every line is sent to customers exactly as it appears in its box, once signed. None is the client's own data: each was filled from a template in `scripts/provision/templates/onboarding.mn.json`. «Same bytes as approved» means the founder already approved these exact words for a live tenant. The id covers every line and every model-visible text below; any change afterwards changes it.
 
 ## `assistant_identity`
 
 ```text
-Би энэ хуудсыг хариуцдаг хиймэл оюунтай туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр асуулт байвал асуугаарай.
+Би Цэцэглэг Салон-ийн AI туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр асуух зүйл байвал бичээрэй.
 ```
 
-Made from: matrix-eco-salon assistant_identity; «Матрикс эко салоны хуудсыг» became «энэ хуудсыг», because a business name needs its genitive form and a template cannot inflect it · Same bytes as approved: no
+Made from: founder's wording, 2026-09-27; {business} is the client's name as written in 1.1 · Same bytes as approved: no · Template approved: 2026-09-27
 
 ## `booking_line`
 
 ```text
-Та манай вэбсайтаар (https://tsetsegleg-demo.mn/booking) онлайнаар цаг захиалах боломжтой.
+Цагаа онлайнаар захиалах бол: https://tsetsegleg-demo.mn/booking
 ```
 
-Made from: link: matrix-eco-salon booking_line without «урьдчилгаа төлбөрөө QPay-ээр төлөх» (payment method is Matrix's own fact); phone: NEW · Same bytes as approved: no
+Made from: link: founder's wording, 2026-09-27; phone: new, approved 2026-09-27 · Same bytes as approved: no · Template approved: 2026-09-27
 
 ## `comment_public_reply`
 
 ```text
-Сайн байна уу! Мессеж бичээрэй, манай AI туслах шууд хариулна.
+Сайн байна уу! Манай хуудас руу мессеж бичвэл дэлгэрэнгүй хариулъя
 ```
 
-Made from: matrix-eco-salon comment_public_reply, unchanged; written only when the client ticked 2.2 «Тийм» · Same bytes as approved: yes
+Made from: founder's wording, 2026-09-27 (without 😊 for a client who answered «no emoji»); written only when the client ticked 2.2 «Тийм» · Same bytes as approved: no · Template approved: 2026-09-27
 
 ## `handoff`
 
@@ -34,7 +34,7 @@ Made from: matrix-eco-salon comment_public_reply, unchanged; written only when t
 Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та 7711-2233 эсвэл 9911-4455 дугаараар холбогдоно уу.
 ```
 
-Made from: matrix-eco-salon handoff; only the phone numbers change · Same bytes as approved: no
+Made from: matrix-eco-salon handoff; only the phone numbers change · Same bytes as approved: no · Template approved: 2026-09-27
 
 ## `handover_notice`
 
@@ -42,15 +42,7 @@ Made from: matrix-eco-salon handoff; only the phone numbers change · Same bytes
 Баярлалаа! Таны илгээсэн зураг, бичлэг, холбоосыг манай ажилтан үзээд удахгүй хариулна
 ```
 
-Made from: the media line approved for both live tenants (D-152), unchanged · Same bytes as approved: no
-
-## `image_received`
-
-```text
-Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
-```
-
-Made from: matrix-eco-salon image_received; salon unchanged; default: «Хүссэн үйлчилгээ, үсний урт, өнгөө» became «Асуух зүйлээ» · Same bytes as approved: yes
+Made from: the media line approved for both live tenants (D-152), unchanged · Same bytes as approved: no · Template approved: 2026-09-27
 
 ## `refusal_health`
 
@@ -58,7 +50,7 @@ Made from: matrix-eco-salon image_received; salon unchanged; default: «Хүсс
 Эрүүл мэндийн талаар зөвлөгөө өгөх боломжгүй. Эмчид хандахыг зөвлөж байна. Үйлчилгээний талаар асуувал баяртайгаар хариулна.
 ```
 
-Made from: matrix-eco-salon refusal_health, unchanged · Same bytes as approved: yes
+Made from: matrix-eco-salon refusal_health, unchanged · Same bytes as approved: yes · Template approved: 2026-09-27
 
 ## `refusal_no_promotion`
 
@@ -66,7 +58,7 @@ Made from: matrix-eco-salon refusal_health, unchanged · Same bytes as approved:
 Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та 7711-2233 эсвэл 9911-4455 дугаараар лавлана уу.
 ```
 
-Made from: matrix-eco-salon refusal_no_promotion; only the phone numbers change · Same bytes as approved: no
+Made from: matrix-eco-salon refusal_no_promotion; only the phone numbers change · Same bytes as approved: no · Template approved: 2026-09-27
 
 ## `refusal_off_topic`
 
@@ -74,7 +66,7 @@ Made from: matrix-eco-salon refusal_no_promotion; only the phone numbers change 
 Уучлаарай, би тухайн асуултын талаар мэдээлэлтэй байхгүй байна. Салоны үйлчилгээ, үнэ, цагийн хуваарийн талаар асуугаарай.
 ```
 
-Made from: matrix-eco-salon refusal_off_topic; salon unchanged; default: «Салоны» became «Манай» · Same bytes as approved: yes
+Made from: matrix-eco-salon refusal_off_topic; salon unchanged; default: «Салоны» became «Манай» · Same bytes as approved: yes · Template approved: 2026-09-27
 
 ## `refusal_price_unlisted`
 
@@ -82,7 +74,7 @@ Made from: matrix-eco-salon refusal_off_topic; salon unchanged; default: «Са�
 Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 7711-2233 эсвэл 9911-4455 дугаараар холбогдож лавлана уу.
 ```
 
-Made from: matrix-eco-salon refusal_price_unlisted; only the phone numbers change · Same bytes as approved: no
+Made from: matrix-eco-salon refusal_price_unlisted; only the phone numbers change · Same bytes as approved: no · Template approved: 2026-09-27
 
 ## `refusal_public_channel`
 
@@ -90,7 +82,7 @@ Made from: matrix-eco-salon refusal_price_unlisted; only the phone numbers chang
 Сайн байна уу. Энэ талаар нийтэд дэлгэрэнгүй хариулах боломжгүй. Хувийн мессеж бичвэл хариулна.
 ```
 
-Made from: matrix-eco-salon refusal_public_channel, unchanged · Same bytes as approved: yes
+Made from: matrix-eco-salon refusal_public_channel, unchanged · Same bytes as approved: yes · Template approved: 2026-09-27
 
 ## `refusal_staff_schedule`
 
@@ -98,7 +90,7 @@ Made from: matrix-eco-salon refusal_public_channel, unchanged · Same bytes as a
 Үсчдийн ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та 7711-2233 эсвэл 9911-4455 дугаараар лавлана уу.
 ```
 
-Made from: matrix-eco-salon refusal_staff_schedule; salon: only the phone numbers change; default: «Үсчдийн» became «Ажилтнуудын» · Same bytes as approved: no
+Made from: matrix-eco-salon refusal_staff_schedule; salon: only the phone numbers change; default: «Үсчдийн» became «Ажилтнуудын» · Same bytes as approved: no · Template approved: 2026-09-27
 
 ## `refusal_topic`
 
@@ -106,7 +98,7 @@ Made from: matrix-eco-salon refusal_staff_schedule; salon: only the phone number
 Уучлаарай, энэ талаар мэдээлэл өгөх боломжгүй. Та 7711-2233 эсвэл 9911-4455 дугаараар холбогдож лавлана уу.
 ```
 
-Made from: matrix-eco-salon refusal_topic without its topic («хүүхдийн үйлчилгээний мэдээллийг»); answers every item of the client's 7.1 and 7.2 · Same bytes as approved: no
+Made from: matrix-eco-salon refusal_topic without its topic («хүүхдийн үйлчилгээний мэдээллийг»); answers every item of the client's 7.1 and 7.2 · Same bytes as approved: no · Template approved: 2026-09-27
 
 ## Read by the model, never sent to a customer
 
@@ -182,4 +174,4 @@ Rule questions built from the client's 7.1–7.3 answers and titles of knowledge
 
 Re-run the same onboarding command with:
 
-    --apply --sign-wording f2cbd3fb37bd --signed-by <your name>
+    --apply --sign-wording 277dd14edc88 --signed-by <your name>

@@ -344,7 +344,8 @@ export function wordingSheet(w: Wording, plan: OnboardPlan, id: string, slug: st
     const origin = plan.wording.find((x) => x.kind === l.kind);
     L.push(`## \`${l.kind}\`${l.signed ? ' — signed' : ''}`, '');
     L.push('```text', l.body, '```', '');
-    L.push(`Made from: ${origin?.derivedFrom ?? 'not from this form'} · Same bytes as approved: ${origin?.alreadyApprovedBytes === true ? 'yes' : 'no'}`, '');
+    L.push(`Made from: ${origin?.derivedFrom ?? 'not from this form'} · Same bytes as approved: ${origin?.alreadyApprovedBytes === true ? 'yes' : 'no'}`
+      + ` · Template approved: ${origin?.templateApproved ?? 'no'}`, '');
   }
   if (w.modelVisible.length > 0) {
     L.push('## Read by the model, never sent to a customer', '');

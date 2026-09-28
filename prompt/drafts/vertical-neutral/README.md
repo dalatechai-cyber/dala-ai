@@ -58,15 +58,21 @@ business that touches the body; it is not an example, so the draft keeps it.
 
 The language is yours to judge; the grammar of «А-гийн», «Б-гийн» in particular.
 
-## Promotion, when signed (in this order)
+## Approved 2026-09-27. Signing, in this order
 
-1. Move the 24 files into `prompt/platform/` (the file name carries the vertical:
-   `sh3_booking.salon.mn.txt` → block `sh3_booking`, vertical `salon`).
-2. Add a sign-off entry per file to `prompt/platform-mn-review.json` (the 16 frozen copies
-   have the same sha256 as today's signed blocks).
-3. `node scripts/prompt/generate-seed.ts` → the next `prompt_blocks` seed migration.
-4. Apply the migration to the project, **then** merge (D-058). No republish is needed for
-   DalaTech or Tara (measured above); the next onboarded tenant compiles with the neutral text.
+The founder approved the neutral text as written (including «А-гийн» / «Б-гийн»). One
+command signs exactly the 24 files read (set id `6f57bc94885d`), moves them into
+`prompt/platform/`, writes their entries in `prompt/platform-mn-review.json` (the 16 frozen
+copies keep the original signature and date of the bytes they copy), writes the next
+`*_prompt_blocks_seed.sql` and its `docs/schema.md` entry:
+
+    node scripts/prompt/sign-drafts.ts --dir prompt/drafts/vertical-neutral --set 6f57bc94885d --by Bilguun
+
+Then `npm run check`, commit, push, `supabase db push`, and read the ledger. Rehearsed on the
+replica with a SIMULATED signer (2026-09-28): every guard green, the seed applied, the
+publish check reported «39 live, matching the signed set», and salon and software tenants
+compiled byte-identical before and after (full rendered prefix and `content_hash`), while
+an `auto_service` tenant read the neutral text with no salon word.
 
 `scripts/verify/catalog.sql` V29 was widened on 2026-09-27 so a block that has BOTH a generic
 row and per-vertical rows counts as covered for every vertical (the generic is the

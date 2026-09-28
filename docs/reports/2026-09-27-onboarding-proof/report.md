@@ -1,22 +1,22 @@
 # Onboarding report — Цэцэглэг Салон (`tsetsegleg-demo`)
 
-Run 2026-09-28 07:51 UB time (Ulaanbaatar) from `scripts/onboard/fixtures/sample-salon-branch.docx`, filled by Болор, Эзэмшигч (2026-09-27).
+Run 2026-09-28 07:59 UB time (Ulaanbaatar) from `scripts/onboard/fixtures/sample-salon-branch.docx`, filled by Болор, Эзэмшигч (2026-09-27).
 
 ## Where it stands
 
 - Readiness: **knowledge** — in the daily report until ready
-- Gate 1, founder signs the wording: **open** — 13 lines, sheet `f2cbd3fb37bd` (wording-sheet.md)
+- Gate 1, founder signs the wording: **open** — 12 lines, sheet `277dd14edc88` (wording-sheet.md)
 - Gate 2, client confirms the facts: **open** — 12 rows, summary `ac0a43719567` (client-summary.md)
 - Channels: facebook_page 990000000000001, instagram (not created: no id) — **shadow**, no token. Nothing is sent to a customer.
 - Reply cases: 17, off until both gates pass.
 
 ## Written
 
-- created tenant tsetsegleg-demo (0afe8906-79ac-4c60-a537-ffc778825aae)
+- created tenant tsetsegleg-demo (315667a7-bdc5-4c4c-a4db-237b9670963b)
 - 7 business_hours
 - 3 contact_points
 - tenant_booking mode=link
-- 13 canned_responses written UNREVIEWED (0 unchanged, signatures untouched)
+- 12 canned_responses written UNREVIEWED (0 unchanged, signatures untouched)
 - 5 out_of_scope_topics (0 kept their provenance)
 - 40 comment_rules (0 left enabled, the rest disabled)
 - 7 services, 9 variants, 0 aliases

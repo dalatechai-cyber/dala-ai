@@ -65,6 +65,8 @@ export type WordingLine = {
   derivedFrom: string;
   /** Byte-identical to a line the founder already approved for a live tenant. */
   alreadyApprovedBytes: boolean;
+  /** The date the founder approved the TEMPLATE this line was filled from, if they have. */
+  templateApproved: string | null;
 };
 
 export type StaffRow = {
@@ -424,9 +426,15 @@ export function planFromForm(a: FormAnswers, o: PlanOptions): OnboardPlan {
       : (str(vertical.value) !== null ? vertical.value : 'default');
     const raw = str(key);
     if (raw === null) continue;
-    let body = fill(raw, { phones, booking_url: bookingUrl });
+    const values = { phones, booking_url: bookingUrl, business: displayName === '' ? null : displayName };
+    let body = fill(raw, values);
     if (body === null) {
-      need('1.6', `the «${kind}» sentence needs a phone number (1.6)`, kind === 'handoff');
+      // Name the answer the sentence is waiting for; the line is not written without it.
+      const needs = [...raw.matchAll(/\{([a-z_]+)\}/g)].map((m) => m[1]!)   // ascii-safe: placeholder names in our own templates
+        .filter((k) => values[k as keyof typeof values] === null);
+      const q = needs.includes('business') ? '1.1' : needs.includes('booking_url') ? '1.8' : '1.6';
+      need(q, `the «${kind}» sentence needs ${needs.includes('business') ? 'the business name (1.1)' : needs.includes('booking_url') ? 'the booking link (1.8)' : 'a phone number (1.6)'}`,
+        kind === 'handoff');
       continue;
     }
     if (noEmoji) body = tidy(body.replace(EMOJI, ''));
@@ -435,6 +443,7 @@ export function planFromForm(a: FormAnswers, o: PlanOptions): OnboardPlan {
     sentences[kind] = body;
     wording.push({
       kind, body, template: `${kind}.${key}`, derivedFrom: str('derived_from') ?? '', alreadyApprovedBytes: approved,
+      templateApproved: str('template_approved'),
     });
   }
 

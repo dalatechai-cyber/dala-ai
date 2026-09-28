@@ -182,13 +182,23 @@ test('sentences are drafted from templates, with the client\'s phones, and no em
     'the emoji-less media line is NOT the approved bytes, and says so');
   assert.equal(p.wording.find((w) => w.kind === 'refusal_health')?.alreadyApprovedBytes, true);
   assert.ok(p.intake.sentences['refusal_staff_schedule']?.startsWith('Үсчдийн'), 'a salon gets the salon line');
+  // Founder, 2026-09-27: the approved wordings, filled with THIS client's data.
+  assert.equal(p.intake.sentences['assistant_identity'],
+    'Би Цэцэглэг Салон-ийн AI туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр асуух зүйл байвал бичээрэй.');
+  assert.equal(p.intake.sentences['booking_line'], 'Цагаа онлайнаар захиалах бол: https://tsetsegleg-demo.mn/booking');
+  assert.equal(p.intake.sentences['comment_public_reply'],
+    'Сайн байна уу! Манай хуудас руу мессеж бичвэл дэлгэрэнгүй хариулъя', 'no-emoji client: the 😊 is dropped');
+  // A photo, a video or a link gets the media line and the hand-off, as for the live tenants.
+  assert.equal(p.intake.sentences['image_received'], undefined);
+  assert.ok(p.intake.sentences['handover_notice'] !== undefined);
+  assert.ok(p.wording.every((w) => w.templateApproved === '2026-09-27'));
 });
 
 test('a business outside the known verticals gets the neutral lines and an operator question', () => {
   const a = read(SAMPLE);
   const p = planFromForm({ ...a, text: { ...a.text, '1.2': 'Авто угаалга' } }, { slug: 'x', templates });
   assert.equal(p.vertical.value, 'auto_service');
-  const q = planFromForm({ ...a, text: { ...a.text, '1.2': 'Ном худалдаа' } }, { slug: 'x', templates });
+  const q = planFromForm({ ...a, text: { ...a.text, '1.1': 'Мөнх Ном', '1.2': 'Ном худалдаа' } }, { slug: 'x', templates });
   assert.equal(q.vertical.value, 'general');
   assert.ok(q.intake.sentences['refusal_staff_schedule']?.startsWith('Ажилтнуудын'));
   assert.ok(!Object.values(q.intake.sentences).join(' ').includes('Салон'), 'no salon word for a bookshop');

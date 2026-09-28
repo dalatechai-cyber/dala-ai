@@ -26,3 +26,8 @@ local replica with a fictional salon branch; nothing touches the live project.
   to write (`reception/load.ts` `firstPublish`, used only when no live snapshot exists).
 - [x] **5. End-to-end proof** on the local replica (`docs/reports/2026-09-27-onboarding-proof/`), test tenant deleted; D-155, provisioning §8, STATUS.
 - [x] **6. Review (Opus reviewer) and fixes:** deploy gate no longer blocked by a never-published tenant (cases and facts); onboarding refuses any tenant it did not create (Tara sits in shadow and was not protected by the never-live test alone); both gates bound to stored ids so any later change re-opens them; interrupted channel write repaired on re-run; deposits keyed by text; rows no longer in the form named and held; exact-bytes wording sheet.
+- [x] **7. Founder's review applied (2026-09-27):** the form sent to clients read in full; three
+  template rewordings; `image_received` dropped (media line + hand-off instead); gate blocks
+  approved and a one-command signing (`scripts/prompt/sign-drafts.ts`) rehearsed on the replica.
+- [ ] **8. Founder signs** the gate blocks (and each client's wording sheet as clients arrive);
+  `supabase db push` of the seed; then merge once CI is green.

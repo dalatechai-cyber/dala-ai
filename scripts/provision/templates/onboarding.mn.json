@@ -1,36 +1,43 @@
 {
-  "_doc": "Wording the onboarding command fills in for a new tenant (scripts/onboard/tenant.ts). NONE of this is approved for any tenant by being here: every sentence is written to canned_responses with reviewed_at NULL and the founder signs each tenant's lines on that tenant's wording sheet. `derived_from` says which already-approved line a template was made from and what changed, so the reading is quick. Placeholders: {phones} (the client's phones, joined with « эсвэл »), {booking_url}. A variant key is a tenants.vertical value; `default` is used for every other vertical. `approved_bytes: true` marks a template whose filled text is byte-identical to a line the founder already approved for a live tenant.",
+  "_doc": "Wording the onboarding command fills in for a new tenant (scripts/onboard/tenant.ts). NONE of this is approved for any tenant by being here: every sentence is written to canned_responses with reviewed_at NULL and the founder signs each tenant's lines on that tenant's wording sheet. `derived_from` says which already-approved line a template was made from and what changed, so the reading is quick. Placeholders: {phones} (the client's phones, joined with « эсвэл »), {booking_url}, {business} (the business name from 1.1). A variant key is a tenants.vertical value; `default` is used for every other vertical. `approved_bytes: true` marks a template whose filled text is byte-identical to a line the founder already approved for a live tenant. Every template here was read and approved AS A TEMPLATE by the founder on 2026-09-27 (`template_approved`); each client's filled lines are still signed on that client's wording sheet.",
   "sentences": {
     "handoff": {
       "default": "Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та {phones} дугаараар холбогдоно уу.",
-      "derived_from": "matrix-eco-salon handoff; only the phone numbers change"
+      "derived_from": "matrix-eco-salon handoff; only the phone numbers change",
+      "template_approved": "2026-09-27"
     },
     "assistant_identity": {
-      "default": "Би энэ хуудсыг хариуцдаг хиймэл оюунтай туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр асуулт байвал асуугаарай.",
-      "derived_from": "matrix-eco-salon assistant_identity; «Матрикс эко салоны хуудсыг» became «энэ хуудсыг», because a business name needs its genitive form and a template cannot inflect it"
+      "default": "Би {business}-ийн AI туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр асуух зүйл байвал бичээрэй.",
+      "derived_from": "founder's wording, 2026-09-27; {business} is the client's name as written in 1.1",
+      "template_approved": "2026-09-27"
     },
     "booking_line": {
-      "link": "Та манай вэбсайтаар ({booking_url}) онлайнаар цаг захиалах боломжтой.",
+      "link": "Цагаа онлайнаар захиалах бол: {booking_url}",
       "phone": "Цаг захиалах бол {phones} дугаараар холбогдоно уу.",
-      "derived_from": "link: matrix-eco-salon booking_line without «урьдчилгаа төлбөрөө QPay-ээр төлөх» (payment method is Matrix's own fact); phone: NEW"
+      "derived_from": "link: founder's wording, 2026-09-27; phone: new, approved 2026-09-27",
+      "template_approved": "2026-09-27"
     },
     "refusal_price_unlisted": {
       "default": "Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та {phones} дугаараар холбогдож лавлана уу.",
-      "derived_from": "matrix-eco-salon refusal_price_unlisted; only the phone numbers change"
+      "derived_from": "matrix-eco-salon refusal_price_unlisted; only the phone numbers change",
+      "template_approved": "2026-09-27"
     },
     "refusal_no_promotion": {
       "default": "Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та {phones} дугаараар лавлана уу.",
-      "derived_from": "matrix-eco-salon refusal_no_promotion; only the phone numbers change"
+      "derived_from": "matrix-eco-salon refusal_no_promotion; only the phone numbers change",
+      "template_approved": "2026-09-27"
     },
     "refusal_staff_schedule": {
       "default": "Ажилтнуудын ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та {phones} дугаараар лавлана уу.",
       "salon": "Үсчдийн ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та {phones} дугаараар лавлана уу.",
-      "derived_from": "matrix-eco-salon refusal_staff_schedule; salon: only the phone numbers change; default: «Үсчдийн» became «Ажилтнуудын»"
+      "derived_from": "matrix-eco-salon refusal_staff_schedule; salon: only the phone numbers change; default: «Үсчдийн» became «Ажилтнуудын»",
+      "template_approved": "2026-09-27"
     },
     "refusal_health": {
       "default": "Эрүүл мэндийн талаар зөвлөгөө өгөх боломжгүй. Эмчид хандахыг зөвлөж байна. Үйлчилгээний талаар асуувал баяртайгаар хариулна.",
       "approved_bytes": true,
-      "derived_from": "matrix-eco-salon refusal_health, unchanged"
+      "derived_from": "matrix-eco-salon refusal_health, unchanged",
+      "template_approved": "2026-09-27"
     },
     "refusal_off_topic": {
       "default": "Уучлаарай, би тухайн асуултын талаар мэдээлэлтэй байхгүй байна. Манай үйлчилгээ, үнэ, цагийн хуваарийн талаар асуугаарай.",
@@ -38,34 +45,30 @@
       "approved_bytes_for": [
         "salon"
       ],
-      "derived_from": "matrix-eco-salon refusal_off_topic; salon unchanged; default: «Салоны» became «Манай»"
+      "derived_from": "matrix-eco-salon refusal_off_topic; salon unchanged; default: «Салоны» became «Манай»",
+      "template_approved": "2026-09-27"
     },
     "refusal_public_channel": {
       "default": "Сайн байна уу. Энэ талаар нийтэд дэлгэрэнгүй хариулах боломжгүй. Хувийн мессеж бичвэл хариулна.",
       "approved_bytes": true,
-      "derived_from": "matrix-eco-salon refusal_public_channel, unchanged"
+      "derived_from": "matrix-eco-salon refusal_public_channel, unchanged",
+      "template_approved": "2026-09-27"
     },
     "refusal_topic": {
       "default": "Уучлаарай, энэ талаар мэдээлэл өгөх боломжгүй. Та {phones} дугаараар холбогдож лавлана уу.",
-      "derived_from": "matrix-eco-salon refusal_topic without its topic («хүүхдийн үйлчилгээний мэдээллийг»); answers every item of the client's 7.1 and 7.2"
-    },
-    "image_received": {
-      "default": "Уучлаарай, би зураг харах боломжгүй. Асуух зүйлээ бичвэл баяртайгаар хариулна.",
-      "salon": "Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.",
-      "approved_bytes_for": [
-        "salon"
-      ],
-      "derived_from": "matrix-eco-salon image_received; salon unchanged; default: «Хүссэн үйлчилгээ, үсний урт, өнгөө» became «Асуух зүйлээ»"
+      "derived_from": "matrix-eco-salon refusal_topic without its topic («хүүхдийн үйлчилгээний мэдээллийг»); answers every item of the client's 7.1 and 7.2",
+      "template_approved": "2026-09-27"
     },
     "handover_notice": {
       "default": "Баярлалаа! Таны илгээсэн зураг, бичлэг, холбоосыг манай ажилтан үзээд удахгүй хариулна 😊",
       "approved_bytes": true,
-      "derived_from": "the media line approved for both live tenants (D-152), unchanged"
+      "derived_from": "the media line approved for both live tenants (D-152), unchanged",
+      "template_approved": "2026-09-27"
     },
     "comment_public_reply": {
-      "default": "Сайн байна уу! Мессеж бичээрэй, манай AI туслах шууд хариулна.",
-      "approved_bytes": true,
-      "derived_from": "matrix-eco-salon comment_public_reply, unchanged; written only when the client ticked 2.2 «Тийм»"
+      "default": "Сайн байна уу! Манай хуудас руу мессеж бичвэл дэлгэрэнгүй хариулъя 😊",
+      "derived_from": "founder's wording, 2026-09-27 (without 😊 for a client who answered «no emoji»); written only when the client ticked 2.2 «Тийм»",
+      "template_approved": "2026-09-27"
     }
   },
   "model_visible": {

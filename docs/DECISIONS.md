@@ -10924,3 +10924,25 @@ owner and Page); then the «Анхны 10 бизнест» launch.
   `docs/reports/2026-09-27-onboarding-proof/`. Signatures there are SIMULATED on a fictional
   tenant. No model was called: `ANTHROPIC_API_KEY` is not set in the session, so the one paid
   check was not run and cost nothing.
+
+### D-155 addendum — the founder's review of the wording (2026-09-27)
+
+- **Gate blocks:** the eight neutral drafts are approved as written. Signing is one command,
+  `scripts/prompt/sign-drafts.ts` (set id bound to the 24 files read); frozen per-vertical
+  copies keep the original signature date, and the rehearsal on the replica showed DalaTech's
+  and Tara's verticals compiling byte-identical after the seed.
+- **Templates:** approved, with three rewordings by the founder: `assistant_identity`
+  «Би {business}-ийн AI туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр
+  асуух зүйл байвал бичээрэй.» ({business} = the name in 1.1), `booking_line` with a link
+  «Цагаа онлайнаар захиалах бол: {booking_url}», and `comment_public_reply` «Сайн байна уу!
+  Манай хуудас руу мессеж бичвэл дэлгэрэнгүй хариулъя 😊» (no 😊 for a no-emoji client).
+  Each template now carries `template_approved`; each client's filled lines are still
+  signed on that client's wording sheet.
+- **`image_received` is dropped from the templates.** It is served only when a tenant has no
+  signed `handover_notice`: a photo alone goes to the media line and the hand-off
+  (`worker/reception.ts`), and a photo, video or link with text meets the media line in
+  `reception/handle.ts` before the image line. New clients get the media line and hand-off,
+  exactly as DalaTech and Tara.
+- **The form sent to clients** («Дали_маягт_DalaTech.docx», rebuilt 2026-09-27) has the same
+  questions, tables and text as the Drive template; every filled answer is read back (test).
+  Boxes ticked with ✓, [x] or X, or answered in words, are read.
