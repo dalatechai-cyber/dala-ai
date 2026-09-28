@@ -63,6 +63,23 @@ and Brevo variables, `TELEGRAM_*`, `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SECR
   paying. Test it as a transfer: `node scripts/billing/settle.ts bank --invoice TEST-… --amount 50 --ref TEST-1 --paid-on <today> --by Bilguun`
   on an unpaid test invoice → ⚠️ mismatch, no receipt. Settle it with `settle.ts resolve`.
 
+## Runbook — a real client, step by step
+
+    # 1. Propose from the contract (prints lines and amounts, writes nothing). Without an e-mail, leave out --email:
+    #    invoices then come to you on Telegram to forward.
+    node scripts/billing/account.ts propose --tenant <slug> --name "<legal name>" --contract "<contract no>" \
+      --email <client e-mail> --staff "<staff label>=<monthly ₮>" --start YYYY-MM
+    # 2. Write it (unconfirmed, nothing is invoiced): the same command with --apply
+    # 3. Confirm each schedule exactly as printed
+    node scripts/billing/account.ts confirm --schedule <id> --fingerprint <fp> --by Bilguun
+    # 4. Preview what the 1st will invoice
+    node scripts/billing/report.ts preview --month YYYY-MM
+    # 5. Go live: Vercel → dala-ai → BILLING_MODE=live, redeploy (preflight checks every setting)
+    # A bank transfer:
+    node scripts/billing/settle.ts bank --invoice DT-YYYYMM-NNNN --amount <₮> --ref <bank ref> --paid-on YYYY-MM-DD --by Bilguun
+    # An e-mail added later:
+    node scripts/billing/account.ts email --account <id> --email <client e-mail>
+
 ## The branded invoice (0070) — four steps, once
 
 Until all four are done, invoices keep going out as the plain e-mail and Telegram says why once.
