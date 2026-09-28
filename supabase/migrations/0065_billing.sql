@@ -24,7 +24,7 @@
 --     Live clients are reached only when the caller passes `p_include_live` (the worker
 --     does so only under `BILLING_MODE=live`).
 --
--- Additive: seven new tables and their functions. No existing row changes. The pause
+-- Additive: seven new tables and their fifteen functions. No existing row changes. The pause
 -- functions WRITE `tenant_channels.delivery_mode` / `comment_delivery_mode`, but only when
 -- the founder has tapped the pause question, and they keep the prior values to restore.
 
@@ -699,6 +699,31 @@ as $$
   returning *
 $$;
 
+-- The founder sends a message again: one that failed for good, or one whose send never
+-- finished and did not arrive. Only a person does this; nothing automatic resends.
+create or replace function public.billing_requeue_delivery(p_id uuid, p_by text)
+returns boolean
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  n integer;
+begin
+  if coalesce(btrim(p_by), '') = '' then raise exception 'p_by is required'; end if;
+  update billing_deliveries
+     set status = 'pending', next_attempt_at = now(), claimed_at = null,
+         last_error = 'requeued by ' || p_by || coalesce(' after: ' || last_error, '')
+   where id = p_id and status in ('failed', 'unknown');
+  get diagnostics n = row_count;
+  if n = 1 then
+    insert into billing_events (account_id, invoice_id, kind, detail)
+    select account_id, invoice_id, 'delivery.requeued', jsonb_build_object('delivery_id', id, 'kind', kind, 'by', p_by)
+      from billing_deliveries where id = p_id;
+  end if;
+  return n = 1;
+end
+$$;
+
 -- Pause a client's AI staff: every channel of the tenant to `off`, the prior modes kept.
 -- Only ever called from the founder's confirmed tap (`/billing/action`) or command.
 create or replace function public.billing_pause(p_account uuid, p_invoice uuid, p_by text)
@@ -792,6 +817,7 @@ begin
     'billing_claim_deliveries(integer, boolean)',
     'billing_finish_delivery(uuid, boolean, text, text, timestamptz)',
     'billing_sweep_unfinished(interval)',
+    'billing_requeue_delivery(uuid, text)',
     'billing_pause(uuid, uuid, text)',
     'billing_resume(uuid, text)'
   ]

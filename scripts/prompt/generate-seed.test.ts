@@ -95,7 +95,9 @@ test('the boundary gate is L0 and in wire order; the other two families are not 
   // `layer is null` means "customer-visible Mongolian something OTHER than the prompt
   // compiler renders". Both families here are read by name, never by layer, so a wrong
   // layer would put a status-page string into every tenant's system prompt.
-  const notSections = blocks.filter((b) => b.layer === null).map((b) => b.blockKey).sort();
+  // The billing family (D-156) is checked by prefix below, so signing it changes nothing here.
+  const notSections = blocks.filter((b) => b.layer === null && !b.blockKey.startsWith('billing_')).map((b) => b.blockKey).sort();
+  for (const b of blocks.filter((x) => x.blockKey.startsWith('billing_'))) assert.equal(b.layer, null, b.blockKey);
   assert.deepEqual(notSections, [
     'comment_public_reply',
     'data_deletion_code_label', 'data_deletion_intro', 'data_deletion_not_found',
@@ -197,4 +199,11 @@ test('an unsigned per-vertical block is refused like any other', () => {
   const root = fixture({ 'sh0_channel.mn.txt': 'Ш0.\n' });
   writeFileSync(path.join(root, 'prompt', 'platform', 'sh8_examples.salon.mn.txt'), 'Ш8.\n');
   assert.throws(() => readSignedBlocks(root), /no sign-off/);
+});
+
+test('DONE-TEST: a billing block is never a prompt section, signed or not', async () => {
+  const { layerFor } = await import('./generate-seed.ts');
+  const { BILLING_BLOCK_KEYS } = await import('../../src/lib/billing/templates.ts');
+  for (const key of BILLING_BLOCK_KEYS) assert.equal(layerFor(key), null, key);
+  assert.equal(layerFor('sh2_price'), 'L0');
 });

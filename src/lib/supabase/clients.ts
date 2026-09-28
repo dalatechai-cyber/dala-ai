@@ -42,6 +42,7 @@ function serviceClient(secret: string): SupabaseClient {
 let webhookClient: SupabaseClient | undefined;
 let workerClient: SupabaseClient | undefined;
 let privacyClient: SupabaseClient | undefined;
+let billingClient: SupabaseClient | undefined;
 
 /** For the Meta webhook surface: resolution and idempotency only. */
 export function supabaseWebhook(): SupabaseClient {
@@ -67,6 +68,18 @@ export function supabaseWorker(): SupabaseClient {
 export function supabasePrivacy(): SupabaseClient {
   privacyClient ??= serviceClient(required('SUPABASE_SECRET_PRIVACY'));
   return privacyClient;
+}
+
+/**
+ * For client billing (D-156): the hourly billing worker, QPay's callback, the pay page and
+ * the founder's pause confirmation. Its own key because two of those surfaces are reachable
+ * from the public internet by design (the pay page, the callback), and because this is the
+ * surface that records money — a leak must be revocable without touching Messenger, and a
+ * Messenger leak must not reach the invoices.
+ */
+export function supabaseBilling(): SupabaseClient {
+  billingClient ??= serviceClient(required('SUPABASE_SECRET_BILLING'));
+  return billingClient;
 }
 
 /**
@@ -96,4 +109,5 @@ export function __resetClientsForTests(): void {
   webhookClient = undefined;
   workerClient = undefined;
   privacyClient = undefined;
+  billingClient = undefined;
 }

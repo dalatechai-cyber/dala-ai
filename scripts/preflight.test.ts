@@ -217,3 +217,33 @@ test('a pending variable that is set is labelled as reserved, not as doing somet
   assert.equal(status, 0, out);
   assert.match(out, /set, but no code reads it yet \(reserved for a later track\): CRON_SECRET/);
 });
+
+test('BILLING_MODE: unset is off and needs nothing; test/live need every billing variable; other values refuse', () => {
+  const off = preflight(COMPLETE);
+  assert.equal(off.status, 0, off.out);
+  assert.doesNotMatch(off.out, /QPAY_/);
+
+  const bad = preflight({ ...COMPLETE, BILLING_MODE: 'LIVE' });
+  assert.equal(bad.status, 1, bad.out);
+  assert.match(bad.out, /BAD\s+BILLING_MODE/);
+
+  const bare = preflight({ ...COMPLETE, BILLING_MODE: 'test' });
+  assert.equal(bare.status, 1, bare.out);
+  for (const name of ['BILLING_LINK_SECRET', 'SUPABASE_SECRET_BILLING', 'BREVO_API_KEY', 'QPAY_USERNAME', 'QPAY_TERMINAL_ID', 'QPAY_ACCOUNT_NAME']) {
+    assert.match(bare.out, new RegExp(`MISSING\\s+${name}`));
+  }
+
+  const billing = {
+    BILLING_LINK_SECRET: 'CANARYbillinglinksecretLLLLLLLLLLLLLL', BILLING_FOUNDER_EMAIL: 'founder@example.com',
+    SUPABASE_SECRET_BILLING: 'sb_secret_CANARYbillingMMMMMMMM', BREVO_API_KEY: 'xkeysib-CANARYbrevoNNNN',
+    QPAY_USERNAME: 'CANARYqpayuser', QPAY_PASSWORD: 'CANARYqpaypass', QPAY_TERMINAL_ID: 'CANARYterminal',
+    QPAY_MERCHANT_ID: 'CANARYmerchant', QPAY_BANK_CODE: '050000', QPAY_BANK_ACCOUNT: 'CANARYaccount', QPAY_ACCOUNT_NAME: 'CANARYname',
+  };
+  const full = preflight({ ...COMPLETE, BILLING_MODE: 'live', ...billing });
+  assert.equal(full.status, 0, full.out);
+  assert.ok(!full.out.includes('CANARY'), 'preflight printed a billing value');
+
+  const short = preflight({ ...COMPLETE, BILLING_MODE: 'test', ...billing, BILLING_LINK_SECRET: 'short' });
+  assert.equal(short.status, 1, short.out);
+  assert.match(short.out, /BAD\s+BILLING_LINK_SECRET/);
+});

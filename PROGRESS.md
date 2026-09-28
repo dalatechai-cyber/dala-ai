@@ -17,9 +17,17 @@ bee6a69.
   payments (append-only), outbox, pauses, events (append-only) and the fourteen functions
   that carry the promises. `scripts/verify/billing.sql` proves them (17 checks) on local
   PostgreSQL 16; every existing suite still passes. NOT applied to the project.
-- [ ] **2. Engine** (`src/lib/billing/`): QPay Quick QR client, amounts, Ulaanbaatar calendar,
-  message rendering from signed blocks, e-mail, signed links, the tick.
-- [ ] **3. Surfaces:** QStash worker, QPay callback, pay page, pause/resume confirmation page.
+- [x] **2. Engine** (`src/lib/billing/`): QPay Quick QR client (same endpoint and env names as
+  Core Language, `callback_url` set), contract amounts (best single discount), Ulaanbaatar
+  calendar, wording from signed blocks only (drafts for test accounts from the operator's
+  shell only), Brevo e-mail with the founder as Reply-To, founder Telegram with a URL button,
+  signed links, the idempotent tick. 21 unit tests.
+- [x] **3. Surfaces:** `/api/workers/billing` (QStash, hourly), `/api/billing/qpay` (callback;
+  asks QPay, trusts nothing it is sent), `/pay/<link>` (the client's page), `/billing/action`
+  (the founder's pause/resume: GET confirms, POST acts). Preflight enforces the billing
+  variables only when `BILLING_MODE` is test/live. The seed generator now keeps `billing_*`
+  blocks out of the prompt (layer null) — without that, signing them would have put invoice
+  text into every tenant's system prompt.
 - [ ] **4. Operator commands** (`scripts/billing/`), onboarding hook, Mongolian drafts.
 - [ ] **5. End-to-end on the local replica** with a fake QPay; docs; review; draft PR.
 - [ ] **6. Founder:** approve wording, add the environment, the real 100₮ test, then live.

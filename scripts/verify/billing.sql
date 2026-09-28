@@ -218,8 +218,15 @@ begin
   if billing_finish_delivery((select id from billing_deliveries where dedup_key = 't:receipt'), true, 'm1', null, null) then
     raise exception 'B14 FAILED: an unknown message was marked sent by a late finisher';
   end if;
+  if not billing_requeue_delivery((select id from billing_deliveries where dedup_key = 't:receipt'), 'Bilguun') then
+    raise exception 'B14 FAILED: the founder could not requeue an unknown message';
+  end if;
+  if billing_requeue_delivery((select id from billing_deliveries where dedup_key = 't:receipt'), 'Bilguun') then
+    raise exception 'B14 FAILED: a pending message was requeued again';
+  end if;
   select count(*) into n from billing_claim_deliveries(10, true);
-  if n <> 1 then raise exception 'B14 FAILED: live message not claimed in live mode'; end if;
+  if n <> 2 then raise exception 'B14 FAILED: live message and requeued receipt not claimed in live mode (%)', n; end if;
+  perform billing_finish_delivery((select id from billing_deliveries where dedup_key = 't:receipt'), true, 'm2', null, null);
   if not billing_finish_delivery((select id from billing_deliveries where dedup_key = 't:live'), false, null, 'telegram 502', now() - interval '1 second') then
     raise exception 'B14 FAILED: failure not recorded';
   end if;

@@ -282,7 +282,7 @@ partial, one of four tables.
 
 ### `0065_billing`
 
-**Additive: seven tables, fourteen `public` functions (service_role only).** DalaTech
+**Additive: seven tables, fifteen `public` functions (service_role only).** DalaTech
 invoices its own clients by QPay, into the merchant Core Language uses (D-156). Core
 Language's orders are in its own project and nothing here reads them.
 
@@ -313,7 +313,7 @@ the current month is reported, not caught up), `billing_issue_one_off`,
 `billing_schedule_fingerprint` / `billing_confirm_schedule`, `billing_claim_qpay` /
 `billing_set_qpay` / `billing_release_qpay`, `billing_record_payment`, `billing_resolve`
 (founder only: accept a mismatch or withdraw), `billing_claim_deliveries` /
-`billing_finish_delivery` / `billing_sweep_unfinished`, `billing_pause` / `billing_resume`.
+`billing_finish_delivery` / `billing_sweep_unfinished` / `billing_requeue_delivery` (founder only), `billing_pause` / `billing_resume`.
 Proven by `scripts/verify/billing.sql` (17 checks, in `run-all.sh`).
 
 ### `0064_prompt_blocks_seed`
