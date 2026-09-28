@@ -157,8 +157,17 @@ export function cappedLine(c: CappedSummary): string {
  * exception to "only when there are any" is the one case where silence would be a lie.
  */
 export type AdvertsSummary =
-  | { ok: true; byTenant: readonly { tenant: string; count: number }[] }
+  | {
+      ok: true; byTenant: readonly { tenant: string; count: number }[];
+      /** The read hit PostgREST's row cap, so the counts are lower bounds and print as «≥». */
+      capped?: boolean;
+    }
   | { ok: false };
+
+/** Tenants named on the line; the rest are summed, so the line cannot outgrow the message. */
+const ADVERT_TENANTS_SHOWN = 5;
+/** PostgREST's default `max-rows`. A read that returns this many may have been cut. */
+const POSTGREST_MAX_ROWS = 1000;
 
 /** The line, or null when there were none. Tenants by count, then by name (code point). */
 export function advertsLine(a: AdvertsSummary): string | null {
@@ -166,7 +175,13 @@ export function advertsLine(a: AdvertsSummary): string | null {
   const rows = a.byTenant.filter((r) => r.count > 0);
   if (rows.length === 0) return null;
   const ordered = [...rows].sort((x, y) => y.count - x.count || (x.tenant < y.tenant ? -1 : x.tenant > y.tenant ? 1 : 0));
-  return `Comments ignored as adverts (yesterday): ${ordered.map((r) => `${r.tenant} ${r.count}`).join(', ')}`;
+  const at = a.capped === true ? '≥' : '';
+  const shown = ordered.slice(0, ADVERT_TENANTS_SHOWN).map((r) => `${clip(r.tenant, 60)} ${at}${r.count}`);
+  const rest = ordered.slice(ADVERT_TENANTS_SHOWN);
+  if (rest.length > 0) {
+    shown.push(`and ${rest.length} more (${at}${rest.reduce((n, r) => n + r.count, 0)})`);
+  }
+  return `Comments ignored as adverts (yesterday): ${shown.join(', ')}`;
 }
 
 /**
@@ -368,7 +383,7 @@ async function countCapped(db: SupabaseClient, now: Date): Promise<CappedSummary
 /**
  * Count yesterday's advert flags per tenant, named by `tenants.display_name`. Either read
  * failing is UNREADABLE, never zero. A tenant id with no name is printed as the id rather
- * than dropped, so the total is never understated.
+ * than dropped. A read that hits the row cap is marked, so a cut count prints as «≥».
  */
 async function countAdverts(db: SupabaseClient, now: Date): Promise<AdvertsSummary> {
   const { since, until } = reportWindow(now);
@@ -379,8 +394,10 @@ async function countAdverts(db: SupabaseClient, now: Date): Promise<AdvertsSumma
     .gte('at', since)
     .lt('at', until);
   if (error) return { ok: false };
+  const list = Array.isArray(data) ? data : [];
+  const capped = list.length >= POSTGREST_MAX_ROWS;
   const counts = new Map<string, number>();
-  for (const row of Array.isArray(data) ? data : []) {
+  for (const row of list) {
     const id = String((row as Record<string, unknown>)['tenant_id']);
     counts.set(id, (counts.get(id) ?? 0) + 1);
   }
@@ -395,7 +412,7 @@ async function countAdverts(db: SupabaseClient, now: Date): Promise<AdvertsSumma
     const r = t as Record<string, unknown>;
     if (typeof r['display_name'] === 'string' && r['display_name'] !== '') names.set(String(r['id']), r['display_name']);
   }
-  return { ok: true, byTenant: [...counts].map(([id, count]) => ({ tenant: names.get(id) ?? id, count })) };
+  return { ok: true, capped, byTenant: [...counts].map(([id, count]) => ({ tenant: names.get(id) ?? id, count })) };
 }
 
 /**

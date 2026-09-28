@@ -668,3 +668,11 @@ test('adverts: one line, per tenant, most first', () => {
 test('adverts: an unreadable count prints UNREADABLE, never nothing', () => {
   assert.match(planDigest([], { ...CLEAN, adverts: { ok: false } }).summary, /adverts \(yesterday\): UNREADABLE/);
 });
+
+test('adverts: five tenants named, the rest summed; a capped read prints as a lower bound', () => {
+  const byTenant = Array.from({ length: 8 }, (_, i) => ({ tenant: `T${i}`, count: 10 - i }));
+  assert.equal(advertsLine({ ok: true, byTenant }),
+    'Comments ignored as adverts (yesterday): T0 10, T1 9, T2 8, T3 7, T4 6, and 3 more (12)');
+  assert.equal(advertsLine({ ok: true, capped: true, byTenant: [{ tenant: 'A', count: 1000 }] }),
+    'Comments ignored as adverts (yesterday): A ≥1000');
+});
