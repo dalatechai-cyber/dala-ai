@@ -22,6 +22,8 @@ declare
   v_i2    uuid;
   v_i3    uuid;
   v_i4    uuid;
+  v_i5    uuid;
+  v_i6    uuid;
   v_ch    uuid := 'b2222222-0000-0000-0000-000000000001';
   r       jsonb;
   n       integer;
@@ -338,8 +340,63 @@ begin
   end;
   checks := checks + 1;
 
+  -- B18 — (0068) an invoice holds many QPay codes; a payment on any of them is that invoice's,
+  -- once; a code of another invoice is refused; codes are capped per hour and never change.
+  r := billing_issue_one_off(v_test, 'codes', '[{"label":"Туршилт","amount_mnt":100}]', 100, '2026-10-01', '2026-10-06', 'Bilguun');
+  v_i5 := (r ->> 'invoice_id')::uuid;
+  if billing_pay_code_slot(v_i5, 20) <> 'ok' then raise exception 'B18 FAILED: no slot on an open invoice'; end if;
+  if billing_add_pay_code(v_i5, 'QP-C1', 'qr', 'img', '[]', now() + interval '290 seconds') <> 'open' then raise exception 'B18 FAILED: add 1'; end if;
+  if billing_add_pay_code(v_i5, 'QP-C2', 'qr', 'img', '[]', now() + interval '290 seconds') <> 'open' then raise exception 'B18 FAILED: add 2'; end if;
+  r := billing_record_payment(v_i5, 'qpay:ON-OLD', 'qpay', 100, now(), 'QP-C1', 'check', null);
+  if r ->> 'status' <> 'paid' then raise exception 'B18 FAILED: a payment on the older code did not count: %', r; end if;
+  r := billing_record_payment(v_i5, 'qpay:ON-OLD', 'qpay', 100, now(), 'QP-C2', 'callback', null);
+  if (r ->> 'inserted')::boolean or (r ->> 'paid_sum_mnt')::bigint <> 100 then raise exception 'B18 FAILED: one payment counted twice across codes: %', r; end if;
+  begin
+    perform billing_record_payment(v_i5, 'qpay:FOREIGN', 'qpay', 100, now(), 'QP-HAND', 'check', null);
+    raise exception 'B18 FAILED: a payment on another invoice''s code was accepted';
+  exception when raise_exception then
+    if sqlerrm like 'B18 FAILED%' or sqlerrm not like '%not one of its codes%' then raise; end if;
+  end;
+  if billing_pay_code_slot(v_i5, 20) <> 'paid' then raise exception 'B18 FAILED: a paid invoice was offered a new code'; end if;
+  begin
+    perform billing_add_pay_code(v_i5, 'QP-C3', 'qr', 'img', '[]', now() + interval '1 hour');
+    raise exception 'B18 FAILED: a code that lives an hour was accepted';
+  exception when raise_exception then
+    if sqlerrm like 'B18 FAILED%' then raise; end if;
+  end;
+  begin
+    update billing_qpay_codes set qpay_invoice_id = 'QP-SWAPPED' where qpay_invoice_id = 'QP-C1';
+    raise exception 'B18 FAILED: a code''s QPay id was changed';
+  exception when raise_exception then
+    if sqlerrm like 'B18 FAILED%' then raise; end if;
+  end;
+  begin
+    update billing_qpay_codes set reported_keys = '{}' where qpay_invoice_id = 'QP-C1' and reported_keys = '{}';
+    update billing_qpay_codes set reported_keys = array['qpay:ON-OLD'] where qpay_invoice_id = 'QP-C1';
+    update billing_qpay_codes set reported_keys = '{}' where qpay_invoice_id = 'QP-C1';
+    raise exception 'B18 FAILED: what QPay named on a code was erased';
+  exception when raise_exception then
+    if sqlerrm like 'B18 FAILED%' then raise; end if;
+  end;
+  begin
+    delete from billing_qpay_codes where qpay_invoice_id = 'QP-C2';
+    raise exception 'B18 FAILED: a code was deleted';
+  exception when raise_exception then
+    if sqlerrm like 'B18 FAILED%' then raise; end if;
+  end;
+  update billing_qpay_codes set checked_at = now(), closed_at = now(), reported_keys = array['qpay:ON-OLD'] where qpay_invoice_id = 'QP-C2';
+  -- The pre-0068 path (billing_set_qpay, the old engine's) records its code as a row too, so
+  -- no code can take money unwatched while the old engine still runs.
+  perform 1 from billing_qpay_codes where qpay_invoice_id = 'QP-1' and made_by = 'issue' and invoice_id = v_i;
+  if not found then raise exception 'B18 FAILED: billing_set_qpay did not record its code'; end if;
+  r := billing_issue_one_off(v_test, 'codes-cap', '[{"label":"Туршилт","amount_mnt":100}]', 100, '2026-10-01', '2026-10-06', 'Bilguun');
+  v_i6 := (r ->> 'invoice_id')::uuid;
+  perform billing_add_pay_code(v_i6, 'QP-K' || g, 'qr', 'img', '[]', now() + interval '290 seconds') from generate_series(1, 3) g;
+  if billing_pay_code_slot(v_i6, 3) <> 'capped' then raise exception 'B18 FAILED: the hourly cap did not hold'; end if;
+  checks := checks + 1;
+
+  if checks <> 19 then raise exception 'billing: expected 19 checks, ran %', checks; end if;
   raise notice 'billing: % checks passed', checks;
-  if checks <> 18 then raise exception 'billing: expected 18 checks, ran %', checks; end if;
 end $$;
 
 rollback;

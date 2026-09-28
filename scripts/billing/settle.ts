@@ -5,7 +5,7 @@
  *     node scripts/billing/settle.ts bank --invoice DT-202610-0001 --amount 250000 --ref <bank ref> --paid-on 2026-10-04 --by Bilguun
  *
  *     # a QPay payment the platform could not read (the 🟠 message says so), under QPay's own payment id
- *     node scripts/billing/settle.ts qpay --invoice DT-202610-0001 --payment-id <id from the QPay merchant app> --amount 250000 --paid-on 2026-10-04 --by Bilguun
+ *     node scripts/billing/settle.ts qpay --invoice DT-202610-0001 --payment-id <id from the QPay merchant app> --amount 250000 --paid-on 2026-10-04 --by Bilguun [--qpay-invoice <code id, when the invoice has several>]
  *
  *     # a wrong amount you accept as paid, or an invoice you withdraw (also withdrawn at QPay)
  *     node scripts/billing/settle.ts resolve --invoice DT-202610-0001 --outcome paid --note "agreed by phone" --by Bilguun
@@ -56,7 +56,18 @@ async function main(): Promise<void> {
     // Keyed exactly as the automatic check keys it (`qpay:<payment id>`), so when QPay's
     // answer becomes readable the same payment is recognised, never counted a second time.
     const inv = await invoiceByNo(db, CMD, flag(CMD, 'invoice') ?? die(CMD, '--invoice <DT-…> is required'));
-    if (typeof inv['qpay_invoice_id'] !== 'string') die(CMD, `${String(inv['invoice_no'])} has no QPay invoice; a transfer is settle.ts bank`);
+    // Which of the invoice's QPay codes (0068) took the payment: --qpay-invoice, or the only one.
+    const { data: codeRows, error: codeErr } = await db.from('billing_qpay_codes').select('qpay_invoice_id')
+      .eq('invoice_id', inv['id']).order('created_at', { ascending: true });
+    if (codeErr) die(CMD, codeErr.message, 1);
+    const held = ((codeRows ?? []) as { qpay_invoice_id: string }[]).map((r) => r.qpay_invoice_id);
+    const named = flag(CMD, 'qpay-invoice');
+    if (held.length === 0) die(CMD, `${String(inv['invoice_no'])} has no QPay code; a transfer is settle.ts bank`);
+    if (named !== undefined && !held.includes(named)) die(CMD, `${named} is not one of ${String(inv['invoice_no'])}'s QPay codes: ${held.join(', ')}`);
+    if (named === undefined && held.length > 1) {
+      die(CMD, `${String(inv['invoice_no'])} has ${held.length} QPay codes; say which one took the payment with --qpay-invoice <id>: ${held.join(', ')}`);
+    }
+    const qpayInvoice = named ?? (held[0] as string);
     const pid = (flag(CMD, 'payment-id') ?? die(CMD, "--payment-id <QPay's payment id> is required")).trim();
     const amount = Number((flag(CMD, 'amount') ?? die(CMD, '--amount is required')).replace(/[,\s]/gu, ''));
     if (!Number.isInteger(amount) || amount <= 0) die(CMD, '--amount is a positive whole tugrik amount');
@@ -79,7 +90,7 @@ async function main(): Promise<void> {
     }
     const { data, error } = await db.rpc('billing_record_payment', {
       p_invoice: inv['id'], p_payment_key: `qpay:${pid}`, p_source: 'qpay', p_amount: amount, p_paid_at: paidAt.toISOString(),
-      p_qpay_invoice_id: inv['qpay_invoice_id'], p_recorded_by: `operator:${by}`, p_note: flag(CMD, 'note') ?? null,
+      p_qpay_invoice_id: qpayInvoice, p_recorded_by: `operator:${by}`, p_note: flag(CMD, 'note') ?? null,
       // The database refuses the same money under a second key too (0067), even when the
       // automatic check records it in the same instant as this command.
       p_second_payment: secondPayment,
@@ -98,15 +109,20 @@ async function main(): Promise<void> {
     const { error } = await db.rpc('billing_resolve', { p_invoice: inv['id'], p_outcome: outcome, p_by: by, p_note: note });
     if (error) die(CMD, error.message, 1);
     out(`${String(inv['invoice_no'])} is now ${outcome}.`);
-    if (outcome === 'void' && typeof inv['qpay_invoice_id'] === 'string') {
-      // Withdraw it at QPay too, so its QR stops accepting money. Best effort, and said so.
-      try {
-        const q = quickQr(qpayConfigFromEnv());
-        const t = await q.token();
-        const c = t.ok ? await q.cancelInvoice(t.token, inv['qpay_invoice_id']) : t;
-        out(c.ok ? 'Withdrawn at QPay as well.' : `NOT withdrawn at QPay (${c.detail}): withdraw it in the QPay merchant app. For ${35} days a payment to it is still detected and sent to you as a ⚠️.`);
-      } catch (e) {
-        out(`NOT withdrawn at QPay (${(e as Error).message}): withdraw it in the QPay merchant app. For 35 days a payment to it is still detected and sent to you as a ⚠️.`);
+    if (outcome === 'void') {
+      // Withdraw its live QPay codes too, so none takes money. Best effort, and said so; a
+      // payment that still reaches one is detected and sent to you as a ⚠️.
+      const { data: live } = await db.from('billing_qpay_codes').select('qpay_invoice_id')
+        .eq('invoice_id', inv['id']).is('cancelled_at', null).gt('expires_at', new Date().toISOString());
+      for (const r of (live ?? []) as { qpay_invoice_id: string }[]) {
+        try {
+          const q = quickQr(qpayConfigFromEnv());
+          const t = await q.token();
+          const c = t.ok ? await q.cancelInvoice(t.token, r.qpay_invoice_id) : t;
+          out(c.ok ? `QPay code ${r.qpay_invoice_id} withdrawn.` : `QPay code ${r.qpay_invoice_id} NOT withdrawn (${c.detail}); it expires within five minutes.`);
+        } catch (e) {
+          out(`QPay code ${r.qpay_invoice_id} NOT withdrawn (${(e as Error).message}); it expires within five minutes.`);
+        }
       }
     }
     return;

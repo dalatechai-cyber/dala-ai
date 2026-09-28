@@ -27,6 +27,7 @@ required one, refuses to render (`src/lib/billing/templates.ts`).
 | `billing_period_range` | `{start}` `{end}` | |
 | `billing_page_title` | | `{invoice_no}` |
 | `billing_page_status_paid` | | `{paid_date}` |
+| `billing_page_qr_valid` | `{time}` (the countdown, `4:59`) | |
 | `billing_line_months` | `{label}` `{months}` | |
 | `billing_line_team_discount` | `{count}` `{percent}` | |
 | `billing_line_annual_free` | `{months}` | |

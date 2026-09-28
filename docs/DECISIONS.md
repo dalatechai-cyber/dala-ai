@@ -11074,3 +11074,42 @@ for the founder (money movement, credentials, customer-visible Mongolian). Runbo
   equals the replica's (`d818a08d…`); `billing_payments_via_function` enabled always; a
   rolled-back probe recorded through the function and was refused on a direct insert; no row
   remained.
+
+### D-156 addendum — the pay page makes the QPay code; a client can always pay (2026-09-28, founder)
+
+- The late-payment test failed: TEST-202609-0002's QPay code, made at issue (05:00:06 UTC),
+  had expired when the founder opened the e-mail; TDB refused it (QP2036 «Нэхэмжлэхийн
+  хугацаа дууссан байна»). QPay Quick QR codes live five minutes (the same limit Tara's
+  booking QR counts down, `matrix_website/script.js` `QPAY_QR_VALID_MS`). So one code per
+  invoice, made at issue, could only ever be paid within five minutes of the e-mail.
+- Now (`0068`): no code is made at issue. The pay page makes one when the client opens it
+  (a reload with three minutes or more left shows the same one), counts down to it
+  («QR код m:ss хүчинтэй»), and at zero offers «Шинэ QR код авах», which makes a new one and
+  withdraws the one it replaces at QPay (best effort). A visit (a reload, a second tab, a
+  link preview) never withdraws anything. An invoice paid meanwhile shows as paid, never a
+  new code. At most 20 codes an hour per invoice; past that the page says so (its own
+  line, `billing_page_qr_wait`, a draft).
+- A payment on any code of the invoice counts, once (keyed by QPay's payment id, 0067's
+  rules unchanged). Every code is watched until QPay answers for it an hour after it expired.
+- E-mails and reminders already carried only the pay-page link; nothing changes in them.
+- The three code lines are the founder's words for Tara, reused verbatim; with the capped
+  line they are drafts in `prompt/drafts/billing/` until the founder signs them. Until then a
+  test invoice's page shows them in English under a banner, and a live invoice's open page
+  is a 503 that makes no code.
+- Partly paid invoices (a mismatch) are with the founder: the page offers no new code, and
+  the rest comes by bank transfer (contract 4.5). QPay's fixed-amount QR cannot part-pay.
+
+- `0068` applied to the project 2026-09-28 05:46 UTC through the MCP migration tool (ledger
+  `20260928054601 0068_billing_pay_codes`), after reading the ledger (0067 last) and checking
+  no open invoice lacked a code (so the old engine's hourly run had none to make). Verified on
+  the project: the orphan query returns none; the three pre-0068 codes backfilled (`issue`);
+  `billing_qpay_codes` RLS enabled and forced, no grant to anon/authenticated, service_role
+  without TRUNCATE; both triggers enabled always; the three functions executable by postgres
+  and service_role only; the five function bodies' md5 equal the replica's.
+- The founder signed the four code lines (set `b550283c4406`, 0b3a5f1: the three Tara lines
+  and «Уучлаарай, та олон удаа QR код авсан байна. Хэдэн минут хүлээгээд доорх товчийг дахин
+  дарна уу.»). `0069_prompt_blocks_seed` applied 2026-09-28 05:56 UTC (ledger
+  `20260928055639`) as its EQUIVALENT, the four new rows with the file's own upsert, after the
+  project's 61 existing platform rows were checked byte-identical to the file's (fingerprint
+  `1f065683…`). Afterwards: 65 rows, fingerprint `8b9ba44f…` equal to the replica with the
+  full file; each new body's sha256 equals its signed file; all four at layer null.

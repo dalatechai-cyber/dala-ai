@@ -23,7 +23,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'; // gu
 import { PLATFORM_TIMEZONE } from '../../src/config/platform.ts';
 import { localDayStart } from '../../src/lib/time/clock.ts';
 import { propose } from '../../src/lib/billing/amounts.ts';
-import { runBillingTick, runInvoiceCallback, type BillingDeps } from '../../src/lib/billing/engine.ts';
+import { CODES_PER_HOUR, payPageState, runBillingTick, runInvoiceCallback, type BillingDeps } from '../../src/lib/billing/engine.ts';
 import { runActionJob, runPayPageJob } from '../../src/lib/billing/jobs.ts';
 import { linksFor } from '../../src/lib/billing/links.ts';
 import type { QpayCheck, QpayPort } from '../../src/lib/billing/qpay.ts';
@@ -66,6 +66,9 @@ type QInv = { amount: number; description: string; callbackUrl: string; payments
 const qpayInvoices = new Map<string, QInv>();
 let qpayCreates = 0;
 let qpayUndetermined = new Set<string>();
+/** Codes whose QPay answer carries a payment still in flight (NEW/PENDING). */
+const qpayPending = new Set<string>();
+const qpayCancelled: string[] = [];
 const qpay: QpayPort = {
   token: async () => ({ ok: true, token: 't' }),
   createInvoice: async (_t, input) => {
@@ -77,9 +80,9 @@ const qpay: QpayPort = {
   checkPayment: async (_t, id): Promise<QpayCheck> => {
     if (qpayUndetermined.has(id)) return { ok: true, determined: false, reason: 'a settled payment has no payment_id', invoiceStatus: 'PAID' };
     const inv = qpayInvoices.get(id);
-    return { ok: true, determined: true, invoiceStatus: null, payments: (inv?.payments ?? []).map((p) => ({ key: `qpay:${p.id}`, amountMnt: p.amount, paidAt: p.at })) };
+    return { ok: true, determined: true, invoiceStatus: null, pending: qpayPending.has(id), payments: (inv?.payments ?? []).map((p) => ({ key: `qpay:${p.id}`, amountMnt: p.amount, paidAt: p.at })) };
   },
-  cancelInvoice: async () => ({ ok: true }),
+  cancelInvoice: async (_t, id) => { qpayCancelled.push(id); return { ok: true }; },
 };
 
 const emails: EmailMessage[] = [];
@@ -148,6 +151,11 @@ async function tick(now: Date, mode: 'test' | 'live', signed: Wording = SIGNED) 
 }
 
 const count = (sql: string): number => Number(psql(sql));
+/** The client opens the pay page (0068): QPay is asked, then a code is shown or made. */
+const openPage = (invoiceId: string, renew = false, now: Date = new Date()) => payPageState(deps(now, 'live'), invoiceId, renew);
+/** The newest code made for an invoice. */
+const codeOf = (invoiceId: string): string => psql(`select qpay_invoice_id from billing_qpay_codes where invoice_id = '${invoiceId}' order by created_at desc limit 1`);
+const codes = (invoiceId: string): number => count(`select count(*) from billing_qpay_codes where invoice_id = '${invoiceId}'`);
 /** A second, concurrent session: runs `sql` in its own connection and resolves when it ends. */
 const psqlAsync = (sql: string): Promise<{ code: number | null; out: string }> => new Promise((resolve) => {
   const p = spawn('psql', ['-v', 'ON_ERROR_STOP=1', '-qtA', '-d', DB, '-c', sql], {
@@ -189,11 +197,14 @@ async function main(): Promise<void> {
   r = await tick(at('2026-10-01', 0), 'test');
   check(r.issued === 1 && count(`select count(*) from billing_invoices where is_test`) === 1 && count('select count(*) from billing_invoices where not is_test') === 0,
     'BILLING_MODE=test invoices the test client only');
-  check(r.qpayCreated === 1 && emails.filter((m) => m.attachment === undefined).length === 1 && emails.some((m) => m.subject.startsWith('DalaTech — 2026 оны 10-р сарын')),
-    'the test invoice has a QPay code and was e-mailed (besides the ledger CSV)');
+  check(qpayCreates === 0 && emails.filter((m) => m.attachment === undefined).length === 1 && emails.some((m) => m.subject.startsWith('DalaTech — 2026 оны 10-р сарын'))
+    && emails.every((m) => !m.text.includes('data:image')),
+    'the test invoice is e-mailed with its pay link; no QPay code is made until the page is opened');
   const testNo = psql('select invoice_no from billing_invoices where is_test');
   check(/^TEST-202610-\d{4}$/u.test(testNo), `test invoices are numbered TEST- (${testNo})`);
-  check([...qpayInvoices.values()][0]?.description === `DalaTech ${testNo}`, 'the QPay description says DalaTech and the invoice number');
+  const firstOpen = await openPage(psql('select id from billing_invoices where is_test'));
+  check(firstOpen.kind === 'code' && qpayCreates === 1 && [...qpayInvoices.values()][0]?.description === `DalaTech ${testNo}`,
+    'opening the pay page makes a QPay code; its description says DalaTech and the invoice number');
 
   // --- the 1st, live, wording unsigned: held, the founder told once ------------------------
   let e0 = emails.length; let t0 = telegrams.length;
@@ -227,7 +238,8 @@ async function main(): Promise<void> {
 
   // --- the test client pays; QPay calls back ------------------------------------------------
   const testId = psql('select id from billing_invoices where is_test');
-  const testQ = psql('select qpay_invoice_id from billing_invoices where is_test');
+  await openPage(testId); // the client opens the link to pay: a code alive now
+  const testQ = codeOf(testId);
   qpayInvoices.get(testQ)?.payments.push({ id: 'PAY-1', amount: 100, at: at('2026-10-04') });
   e0 = emails.length; t0 = telegrams.length;
   const cb = await runInvoiceCallback(deps(at('2026-10-04'), 'live'), testId);
@@ -268,7 +280,8 @@ async function main(): Promise<void> {
 
   // --- a wrong amount: mismatch, never a receipt --------------------------------------------
   const liveId = psql('select id from billing_invoices where not is_test');
-  const liveQ = psql('select qpay_invoice_id from billing_invoices where not is_test');
+  await openPage(liveId);
+  const liveQ = codeOf(liveId);
   qpayInvoices.get(liveQ)?.payments.push({ id: 'PAY-2', amount: 300000, at: at('2026-10-14') });
   e0 = emails.length; t0 = telegrams.length;
   await runInvoiceCallback(deps(at('2026-10-14'), 'live'), liveId);
@@ -277,7 +290,13 @@ async function main(): Promise<void> {
   check(since(telegrams, t0).some((m) => /payments total 300,000₮ against 360,000₮ \(short by 60,000₮\)/u.test(m.text)), 'the founder is told the exact difference');
 
   // --- the rest arrives: paid, receipt, resume offered ---------------------------------------
-  qpayInvoices.get(liveQ)?.payments.push({ id: 'PAY-3', amount: 60000, at: at('2026-10-15') });
+  // A part-paid invoice is with the founder (the page offers no new code), so the rest comes
+  // as a bank transfer the founder records (contract 4.5).
+  const rest = await db.rpc('billing_record_payment', {
+    p_invoice: liveId, p_payment_key: 'bank:REST-1', p_source: 'bank', p_amount: 60000, p_paid_at: at('2026-10-15').toISOString(),
+    p_qpay_invoice_id: null, p_recorded_by: 'operator:Bilguun', p_note: null,
+  });
+  check(rest.error === null, 'the rest is recorded as a bank transfer');
   e0 = emails.length; t0 = telegrams.length;
   await tick(at('2026-10-15'), 'live');
   check(psql(`select status from billing_invoices where id = '${liveId}'`) === 'paid', 'the rest arrives: the payments sum to exactly 360,000₮, paid');
@@ -304,6 +323,127 @@ async function main(): Promise<void> {
   const forged = await runPayPageJob({ db: () => db, now: at('2026-10-15'), token: 'x.y' });
   check(forged.status === 404, 'a forged link is a 404');
 
+  // --- 0068: a client who opens the link late can always pay ----------------------------------
+  const lateQr = await db.rpc('billing_issue_one_off', {
+    p_account: test.accountId, p_key: 'late-qr', p_lines: [{ label: 'Туршилт', amount_mnt: 100 }], p_amount: 100,
+    p_issued_on: '2026-09-15', p_due_on: '2026-09-19', p_by: 'Bilguun',
+  });
+  const lqId = String((lateQr.data as Record<string, unknown> | null)?.['invoice_id'] ?? '');
+  await tick(new Date(), 'live');
+  check(lateQr.error === null && codes(lqId) === 0, 'an issued invoice holds no QPay code until someone opens it');
+  const c0 = qpayCreates;
+  const p1 = await openPage(lqId);
+  const q1 = codeOf(lqId);
+  check(p1.kind === 'code' && qpayCreates === c0 + 1 && codes(lqId) === 1
+    && Math.abs((p1.code.expiresAt.getTime() - p1.now.getTime()) / 1000 - 290) < 5, 'opening the page makes a code that counts down from 4:50 (QPay\'s five minutes, less a margin)');
+  const p2 = await openPage(lqId);
+  check(p2.kind === 'code' && p2.code.qpayInvoiceId === q1 && qpayCreates === c0 + 1, 'a reload shows the same code while it has minutes left');
+  const p3 = await openPage(lqId, true);
+  check(p3.kind === 'code' && p3.code.qpayInvoiceId === q1 && qpayCreates === c0 + 1, 'the new-code button pressed at once shows the code just made (no double)');
+  const later = new Date(Date.now() + 4 * 60_000 + 55_000);
+  const p4 = await openPage(lqId, false, later);
+  const q2 = codeOf(lqId);
+  check(p4.kind === 'code' && q2 !== q1 && codes(lqId) === 2 && qpayCreates === c0 + 2, 'five minutes later the code has expired: opening the link makes a new one');
+  check(qpayCancelled.includes(q1) === false, '…and nothing is withdrawn by a visit (only the button withdraws)');
+  const p5 = await openPage(lqId, true, new Date(later.getTime() + 5_000));
+  const q3 = codeOf(lqId);
+  check(p5.kind === 'code' && q3 !== q2 && qpayCancelled.includes(q2), '«Шинэ QR код авах» while that one is still live: a new code, and the one before withdrawn at QPay');
+  // The client paid the OLDER code in their bank app before it was withdrawn: it still counts.
+  qpayInvoices.get(q2)?.payments.push({ id: 'PAY-OLD-CODE', amount: 100, at: new Date() });
+  e0 = emails.length; t0 = telegrams.length;
+  await runInvoiceCallback(deps(new Date(later.getTime() + 35_000), 'live'), lqId);
+  check(psql(`select status || '/' || paid_sum_mnt from billing_invoices where id = '${lqId}'`) === 'paid/100'
+    && count(`select count(*) from billing_payments where invoice_id = '${lqId}'`) === 1, 'a payment on an older code is recorded once: paid');
+  check(since(emails, e0).some((m) => m.subject.startsWith('Төлбөр хүлээн авлаа')), '…and the receipt goes');
+  const c1 = qpayCreates;
+  const p6 = await openPage(lqId, true, new Date(later.getTime() + 45_000));
+  check(p6.kind === 'settled' && p6.invoice.status === 'paid' && qpayCreates === c1, 'once paid, the page (even the button) shows paid and makes no code');
+  await tick(new Date(later.getTime() + 70_000), 'live');
+  check(count(`select count(*) from billing_payments where invoice_id = '${lqId}'`) === 1, 'the hourly check asks every code again and still counts it once');
+  const lqPage = await runPayPageJob({ db: () => db, now: new Date(), token: links.pay(lqId).split('/pay/')[1] ?? '' });
+  check(lqPage.status === 200 && lqPage.html.includes('Төлөгдсөн') && !lqPage.html.includes('data:image'), 'the page served to the client says paid, with no QR');
+
+  // --- 0068: two visits at once (a click and a link preview) withdraw nothing -----------------
+  const twin = await db.rpc('billing_issue_one_off', {
+    p_account: test.accountId, p_key: 'twin-visits', p_lines: [{ label: 'Туршилт', amount_mnt: 100 }], p_amount: 100,
+    p_issued_on: '2026-09-15', p_due_on: '2026-09-19', p_by: 'Bilguun',
+  });
+  const twinId = String((twin.data as Record<string, unknown> | null)?.['invoice_id'] ?? '');
+  const cancelledBefore = qpayCancelled.length;
+  const [v1, v2] = await Promise.all([openPage(twinId), openPage(twinId)]);
+  check(v1.kind === 'code' && v2.kind === 'code' && qpayCancelled.length === cancelledBefore,
+    'two visits at the same moment each get a live code, and neither withdraws the other\'s');
+  // A payment still in flight on a code: the code stays watched past its settling time.
+  const pendQ = v1.kind === 'code' ? v1.code.qpayInvoiceId : '';
+  qpayPending.add(pendQ);
+  await runInvoiceCallback(deps(new Date(Date.now() + 2 * 3_600_000), 'live'), twinId);
+  check(psql(`select (closed_at is null)::text from billing_qpay_codes where qpay_invoice_id = '${pendQ}'`) === 'true',
+    'a code whose answer shows a payment still in flight is not closed, even hours after it expired');
+  qpayPending.delete(pendQ);
+  qpayInvoices.get(pendQ)?.payments.push({ id: 'PAY-SETTLED-LATE', amount: 100, at: new Date() });
+  await runInvoiceCallback(deps(new Date(Date.now() + 3 * 3_600_000), 'live'), twinId);
+  check(psql(`select status from billing_invoices where id = '${twinId}'`) === 'paid'
+    && psql(`select (closed_at is not null)::text from billing_qpay_codes where qpay_invoice_id = '${pendQ}'`) === 'true',
+    '…when it settles it is recorded, and only then is the code closed');
+
+  // --- 0068: a hand entry QPay once named never blocks a later real payment -------------------
+  const named = await db.rpc('billing_issue_one_off', {
+    p_account: test.accountId, p_key: 'hand-named', p_lines: [{ label: 'Туршилт', amount_mnt: 100 }], p_amount: 100,
+    p_issued_on: '2026-09-15', p_due_on: '2026-09-19', p_by: 'Bilguun',
+  });
+  const namedId = String((named.data as Record<string, unknown> | null)?.['invoice_id'] ?? '');
+  await openPage(namedId);
+  const nA = codeOf(namedId);
+  // The client pressed «Шинэ QR код авах» (code B), but had already paid code A in their bank app.
+  await openPage(namedId, true, new Date(Date.now() + 60_000));
+  const nB = codeOf(namedId);
+  await db.rpc('billing_record_payment', {
+    p_invoice: namedId, p_payment_key: 'qpay:HAND-A', p_source: 'qpay', p_amount: 100, p_paid_at: new Date().toISOString(),
+    p_qpay_invoice_id: nA, p_recorded_by: 'operator:Bilguun', p_note: null,
+  });
+  qpayInvoices.get(nA)?.payments.push({ id: 'HAND-A', amount: 100, at: new Date() });
+  const closesA = new Date(Date.now() + 3_600_000 + 5 * 60_000); // past A's settling time, not yet B's
+  await runInvoiceCallback(deps(closesA, 'live'), namedId);
+  check(psql(`select (closed_at is not null)::text || '/' || array_to_string(reported_keys, ',') from billing_qpay_codes where qpay_invoice_id = '${nA}'`) === 'true/qpay:HAND-A'
+    && psql(`select (closed_at is null)::text from billing_qpay_codes where qpay_invoice_id = '${nB}'`) === 'true',
+    'QPay names the hand-recorded payment on its code; that code closes, keeping what QPay named');
+  // …and then paid code B too: a real second payment.
+  qpayInvoices.get(nB)?.payments.push({ id: 'SECOND-B', amount: 100, at: new Date() });
+  t0 = telegrams.length;
+  await runInvoiceCallback(deps(new Date(closesA.getTime() + 30_000), 'live'), namedId);
+  check(psql(`select status || '/' || paid_sum_mnt from billing_invoices where id = '${namedId}'`) === 'mismatch/200'
+    && !since(telegrams, t0).some((m) => /recorded by hand/u.test(m.text)),
+    'a second payment on the other code is recorded (paid twice, for the founder), not held back by the closed code\'s hand entry');
+
+  // --- 0068: a live invoice gets no code while the code lines are unsigned ----------------
+  const liveOpen = await db.rpc('billing_issue_one_off', {
+    p_account: live.accountId, p_key: 'live-unsigned-lines', p_lines: [{ label: 'Туршилт', amount_mnt: 1000 }], p_amount: 1000,
+    p_issued_on: '2026-09-15', p_due_on: '2026-09-19', p_by: 'Bilguun',
+  });
+  const liveOpenId = String((liveOpen.data as Record<string, unknown> | null)?.['invoice_id'] ?? '');
+  const envBefore = { ...process.env };
+  Object.assign(process.env, {
+    BILLING_MODE: 'live', DALA_PUBLIC_URL: ORIGIN, QPAY_USERNAME: 'x', QPAY_PASSWORD: 'x', QPAY_TERMINAL_ID: 'x',
+    QPAY_MERCHANT_ID: 'x', QPAY_BANK_CODE: 'x', QPAY_BANK_ACCOUNT: 'x', QPAY_ACCOUNT_NAME: 'x',
+  });
+  const creates2 = qpayCreates;
+  const unsignedPage = await runPayPageJob({ db: () => db, now: new Date(), token: links.pay(liveOpenId).split('/pay/')[1] ?? '' });
+  for (const k of Object.keys(process.env)) if (!(k in envBefore)) delete process.env[k];
+  check(unsignedPage.status === 503 && codes(liveOpenId) === 0 && qpayCreates === creates2,
+    'a live invoice\'s page is unavailable, and makes no QPay code, until the code lines are signed');
+  await db.rpc('billing_resolve', { p_invoice: liveOpenId, p_outcome: 'void', p_by: 'Bilguun', p_note: 'e2e: withdrawn' });
+
+  // --- 0068: however the link is opened, at most CODES_PER_HOUR codes an hour ---------------
+  const capped = await db.rpc('billing_issue_one_off', {
+    p_account: test.accountId, p_key: 'cap-test', p_lines: [{ label: 'Туршилт', amount_mnt: 100 }], p_amount: 100,
+    p_issued_on: '2026-09-15', p_due_on: '2026-09-19', p_by: 'Bilguun',
+  });
+  const capId = String((capped.data as Record<string, unknown> | null)?.['invoice_id'] ?? '');
+  let last = await openPage(capId);
+  for (let i = 1; i <= CODES_PER_HOUR; i += 1) last = await openPage(capId, true, new Date(Date.now() + 30_000 + i * 10_000));
+  check(codes(capId) === CODES_PER_HOUR && last.kind === 'no_code', `a link opened again and again makes at most ${CODES_PER_HOUR} codes an hour, then offers the button only`);
+  await tick(new Date(), 'live'); // its invoice e-mail goes out here, not in the next section's count
+
   // --- a failed e-mail is retried; an unfinished one is reported, never resent ---------------
   const oneOff = await db.rpc('billing_issue_one_off', {
     p_account: live.accountId, p_key: 'setup-2026-10', p_lines: [{ label: 'Дали — суурилуулалт', amount_mnt: 50000 }], p_amount: 50000,
@@ -313,7 +453,7 @@ async function main(): Promise<void> {
   emailScript.push({ match: (m) => m.text.includes('50,000₮'), outcome: 'retry' });
   e0 = emails.length;
   await tick(new Date(), 'live');
-  check(since(emails, e0).every((m) => m.attachment !== undefined) && psql(`select status from billing_deliveries where dedup_key like 'invoice:%' and status <> 'sent'`) === 'failed', 'a refused send is recorded as failed, to retry');
+  check(since(emails, e0).every((m) => m.attachment !== undefined) && psql(`select status from billing_deliveries where dedup_key like 'invoice:%' and status not in ('sent', 'cancelled')`) === 'failed', 'a refused send is recorded as failed, to retry');
   psql(`update billing_deliveries set next_attempt_at = now() - interval '1 second' where status = 'failed'`);
   await tick(new Date(), 'live');
   check(since(emails, e0).some((m) => m.text.includes('50,000₮')), '…and goes out on the retry');
@@ -337,7 +477,8 @@ async function main(): Promise<void> {
   check(late.error === null, 'a late test invoice (due a week ago) is issued');
   t0 = telegrams.length;
   await tick(new Date(), 'live');
-  const lateQ = psql(`select qpay_invoice_id from billing_invoices where period_key = 'one_off:late-test'`);
+  await openPage(psql(`select id from billing_invoices where period_key = 'one_off:late-test'`));
+  const lateQ = codeOf(psql(`select id from billing_invoices where period_key = 'one_off:late-test'`));
   check(since(telegrams, t0).some((m) => m.text.startsWith('⏸ Туршилтын харилцагч has not paid')), 'an invoice already late is asked about at once, without the reminders it missed');
   qpayUndetermined = new Set([lateQ]);
   t0 = telegrams.length;
@@ -354,7 +495,8 @@ async function main(): Promise<void> {
   check(hand.error === null, 'a test invoice to settle by hand is issued');
   await tick(new Date(), 'live');
   const handId = psql(`select id from billing_invoices where period_key = 'one_off:hand-test'`);
-  const handQ = psql(`select qpay_invoice_id from billing_invoices where period_key = 'one_off:hand-test'`);
+  await openPage(handId);
+  const handQ = codeOf(handId);
   const typed = await db.rpc('billing_record_payment', {
     p_invoice: handId, p_payment_key: 'qpay:TYPED-FROM-APP', p_source: 'qpay', p_amount: 100, p_paid_at: '2026-09-20T04:00:00Z',
     p_qpay_invoice_id: handQ, p_recorded_by: 'operator:Bilguun', p_note: null,
@@ -375,7 +517,8 @@ async function main(): Promise<void> {
   check(same.error === null, 'another test invoice to settle by hand is issued');
   await tick(new Date(), 'live');
   const sameId = psql(`select id from billing_invoices where period_key = 'one_off:hand-same'`);
-  const sameQ = psql(`select qpay_invoice_id from billing_invoices where period_key = 'one_off:hand-same'`);
+  await openPage(sameId);
+  const sameQ = codeOf(sameId);
   await db.rpc('billing_record_payment', {
     p_invoice: sameId, p_payment_key: 'qpay:PAY-SAME', p_source: 'qpay', p_amount: 100, p_paid_at: '2026-09-20T04:00:00Z',
     p_qpay_invoice_id: sameQ, p_recorded_by: 'operator:Bilguun', p_note: null,
@@ -406,8 +549,9 @@ async function main(): Promise<void> {
     });
     if (r.error !== null) throw new Error(r.error.message);
     await tick(new Date(), 'live');
-    return { id: psql(`select id from billing_invoices where period_key = 'one_off:${key}'`),
-      q: psql(`select qpay_invoice_id from billing_invoices where period_key = 'one_off:${key}'`) };
+    const id = psql(`select id from billing_invoices where period_key = 'one_off:${key}'`);
+    await openPage(id);
+    return { id, q: codeOf(id) };
   };
   const payRows = (id: string): string => psql(`select count(*) || '/' || coalesce(sum(amount_mnt), 0) from billing_payments where invoice_id = '${id}'`);
   // 1. The founder's entry is in flight (its transaction holds the invoice) while the real
@@ -467,11 +611,12 @@ async function main(): Promise<void> {
     p_issued_on: '2026-11-01', p_due_on: '2026-11-05', p_by: 'Bilguun',
   });
   const creates1 = qpayCreates;
+  const mails1 = emails.length;
   const spent = await runBillingTick({ ...deps(at('2026-11-01', 2), 'live'), deadline: 1 });
   check(late2.error === null && spent.ok && qpayCreates === creates1 && spent.report.sent === 0
     && spent.report.problems.some((p) => p.startsWith('time budget reached')), 'a run past its time budget starts no QPay call and no send');
   await tick(at('2026-11-01', 3), 'live');
-  check(qpayCreates === creates1 + 1, '…and the next run does it');
+  check(emails.length > mails1 && qpayCreates === creates1, '…and the next run sends it (a run never makes a QPay code)');
 
   process.stdout.write(`\nbilling e2e: ${checks} checks passed\n`);
   proxy.close();

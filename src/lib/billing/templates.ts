@@ -47,6 +47,13 @@ export const BILLING_BLOCKS = {
   billing_page_status_other: { required: [], optional: [] },
   billing_page_scan: { required: [], optional: [] },
   billing_page_banks: { required: [], optional: [] },
+  // 0068: the countdown under the QR, and what replaces it when it expires. Word for word the
+  // lines the founder approved for Tara's booking QR (matrix_website/script.js).
+  billing_page_qr_valid: { required: ['time'], optional: [] },
+  billing_page_qr_expired: { required: [], optional: [] },
+  billing_page_qr_renew: { required: [], optional: [] },
+  // Past the hourly cap on new codes (a link opened again and again): a draft of its own.
+  billing_page_qr_wait: { required: [], optional: [] },
   billing_line_months: { required: ['label', 'months'], optional: [] },
   billing_line_team_discount: { required: ['count', 'percent'], optional: [] },
   billing_line_annual_free: { required: ['months'], optional: [] },

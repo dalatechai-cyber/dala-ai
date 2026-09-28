@@ -7,16 +7,17 @@
  *   that does nothing; a database that cannot be read is a 503 so QStash retries.
  * - `runQpayCallbackJob` — QPay's `callback_url`. Authenticated by the signed link in its
  *   own URL (QPay does not sign callbacks), and it trusts nothing QPay sends: it asks QPay.
- * - `runPayPageJob` — the client's page. Public; the signed link is the key.
+ * - `runPayPageJob` — the client's page. Public; the signed link is the key. It makes the
+ *   QPay code the client pays with, when they open it (QPay codes live five minutes).
  * - `runActionJob` — the founder's pause/resume. GET confirms, POST acts.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { billingLinkSecret, billingOrigin, billingSwitch, founderEmail, qpayConfigFromEnv } from './config.ts';
 import {
-  runBillingTick, runInvoiceCallback, toInvoice, type Account, type BillingDeps, type TickReport,
+  payPageState, runBillingTick, runInvoiceCallback, toInvoice, type Account, type BillingDeps, type TickReport,
 } from './engine.ts';
 import { linksFor, verifyLink } from './links.ts';
-import { actionConfirmPage, actionDonePage, notFoundPage, renderPayPage, type PageOutcome } from './page.ts';
+import { actionConfirmPage, actionDonePage, notFoundPage, PAY_CODE_KEYS, renderPayPage, type PageOutcome } from './page.ts';
 import { quickQr } from './qpay.ts';
 import { sendBrevoEmail, sendFounderTelegram } from './send.ts';
 import { loadSignedWording } from './templates.ts';
@@ -112,7 +113,15 @@ export async function runQpayCallbackJob(input: { db: () => SupabaseClient; now:
   return result.ok ? { status: 200, body: { ok: true } } : { status: 503, body: { error: 'unavailable' } };
 }
 
-export async function runPayPageJob(input: { db: () => SupabaseClient; now: Date; token: string }): Promise<PageOutcome> {
+/**
+ * The client's pay page (0068). GET shows the invoice and a live QPay code (made now, or the
+ * one on screen if it has long enough left); POST is «Шинэ QR код авах»: a new code, then a
+ * redirect back to GET, so a reload never re-posts. `?state=1` is the page's own poll: the
+ * invoice's status from the database, nothing asked of QPay, nothing made.
+ */
+export async function runPayPageJob(input: {
+  db: () => SupabaseClient; now: Date; token: string; method?: 'GET' | 'POST'; stateOnly?: boolean;
+}): Promise<PageOutcome> {
   let claims;
   try {
     claims = verifyLink(billingLinkSecret(), input.token, 'pay', input.now);
@@ -122,28 +131,65 @@ export async function runPayPageJob(input: { db: () => SupabaseClient; now: Date
   if (claims === null) return notFoundPage();
   const db = input.db();
   const { data, error } = await db.from('billing_invoices')
-    .select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at, qpay_qr_image, qpay_urls').eq('id', claims.id).maybeSingle();
+    .select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at').eq('id', claims.id).maybeSingle();
   if (error) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
   if (data === null) return notFoundPage();
-  const row = data as Record<string, unknown>;
-  const invoice = toInvoice(row);
-  if (invoice.status === 'void') return notFoundPage();
+  const stored = toInvoice(data as Record<string, unknown>);
+  if (stored.status === 'void') return notFoundPage();
+  if (input.stateOnly === true) return { status: 200, html: JSON.stringify({ status: stored.status }), contentType: 'json' };
+
   const { data: acc, error: accErr } = await db.from('billing_accounts')
-    .select('id, tenant_id, display_name, email, is_test').eq('id', invoice.accountId).maybeSingle();
+    .select('id, tenant_id, display_name, email, is_test').eq('id', stored.accountId).maybeSingle();
   if (accErr || acc === null) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
   const a = acc as Record<string, unknown>;
   const account: Account = {
     id: String(a['id']), tenantId: typeof a['tenant_id'] === 'string' ? a['tenant_id'] : null,
     displayName: String(a['display_name'] ?? ''), email: null, isTest: a['is_test'] === true,
   };
-  const wording = await loadSignedWording(db);
-  if (!wording.ok) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
-  const urls = Array.isArray(row['qpay_urls']) ? (row['qpay_urls'] as Array<Record<string, unknown>>) : [];
-  return renderPayPage({
-    invoice, account,
-    qrImage: typeof row['qpay_qr_image'] === 'string' ? row['qpay_qr_image'] : '',
-    urls: urls.map((u) => ({ name: String(u['name'] ?? ''), logo: String(u['logo'] ?? ''), link: String(u['link'] ?? '') })),
-  }, wording.wording);
+  // Paid, or with the founder: nothing to make, QPay not needed.
+  if (stored.status !== 'open' && input.method !== 'POST') {
+    const wording = await loadSignedWording(db);
+    if (!wording.ok) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
+    return renderPayPage({ kind: 'settled', invoice: stored, account }, wording.wording);
+  }
+
+  let mode;
+  try {
+    mode = billingSwitch();
+  } catch {
+    return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
+  }
+  // Billing off: no code can be made.
+  if (mode === 'off') return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
+  // A live invoice is not served a code while billing runs in test mode.
+  if (mode === 'test' && !stored.isTest) return notFoundPage();
+  let deps: BillingDeps | { error: string };
+  try {
+    deps = await deployedDeps(db, input.now, mode);
+  } catch (err) {
+    log('error', 'billing.misconfigured', { detail: err instanceof Error ? err.message : String(err) });
+    return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
+  }
+  if ('error' in deps) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
+  // A live client reads only signed words: until the code lines are signed, no code is made
+  // for a page that could not be shown.
+  const signedDeps = deps;
+  if (!stored.isTest && PAY_CODE_KEYS.some((k) => !signedDeps.signed.blocks.has(k))) {
+    return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
+  }
+  const state = await payPageState(deps, stored.id, input.method === 'POST');
+  if (state.kind === 'unavailable') {
+    log('warn', 'billing.pay_page_unavailable', { invoice: stored.invoiceNo, detail: state.detail });
+    return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
+  }
+  if (input.method === 'POST') return { status: 303, html: '', redirect: true };
+  if (state.kind === 'code') {
+    return renderPayPage({
+      kind: 'code', invoice: state.invoice, account, qrImage: state.code.qrImage, urls: state.code.urls,
+      secondsLeft: (state.code.expiresAt.getTime() - state.now.getTime()) / 1000,
+    }, deps.signed);
+  }
+  return renderPayPage({ kind: state.kind, invoice: state.invoice, account }, deps.signed);
 }
 
 /**
