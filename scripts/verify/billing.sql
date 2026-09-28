@@ -238,6 +238,12 @@ begin
   checks := checks + 1;
 
   -- B15 — pause keeps the prior modes; a second pause is a no-op; resume restores them.
+  -- A pause over an invoice that is paid, or another client's, is refused.
+  begin
+    perform billing_pause(v_live, v_i2, 'Bilguun');
+    raise exception 'B15 FAILED: paused over another client''s paid invoice';
+  exception when check_violation then null;
+  end;
   r := billing_pause(v_live, null, 'Bilguun');
   if (r ->> 'channels')::int <> 1 then raise exception 'B15 FAILED: pause: %', r; end if;
   perform 1 from tenant_channels where id = v_ch and delivery_mode = 'off' and comment_delivery_mode = 'off';

@@ -217,8 +217,9 @@ comment on table billing_invoices is
 create table billing_payments (
   id               bigint generated always as identity primary key,
   invoice_id       uuid not null references billing_invoices(id) on delete restrict,
-  -- 'qpay:<payment_id>', or 'bank:<reference>' for a transfer the founder records.
-  payment_key      text not null unique check (payment_key ~ '^(qpay|qpay-invoice|bank):.+$'),
+  -- 'qpay:<QPay payment id>', or 'bank:<reference>' for a transfer the founder records. Never
+  -- a key the platform makes up: the same money under a second key would count twice.
+  payment_key      text not null unique check (payment_key ~ '^(qpay|bank):.+$'),
   source           text not null check (source in ('qpay', 'bank')),
   amount_mnt       bigint not null check (amount_mnt > 0),
   paid_at          timestamptz not null,
@@ -636,8 +637,10 @@ begin
 end
 $$;
 
--- Claim up to `p_limit` messages that are due. First cancels reminders whose invoice is no
--- longer unpaid, so a paid client is never reminded. SKIP LOCKED: two runs share the work.
+-- Claim up to `p_limit` messages that are due. First cancels the invoice, reminder and pause
+-- question of an invoice that is no longer `open` — paid, overpaid, underpaid or withdrawn —
+-- so nobody is reminded of money already sent and nobody is paused over it. SKIP LOCKED:
+-- two runs share the work.
 create or replace function public.billing_claim_deliveries(p_limit integer, p_include_live boolean)
 returns setof billing_deliveries
 language plpgsql
@@ -648,7 +651,7 @@ begin
      set status = 'cancelled', last_error = 'invoice no longer unpaid'
     from billing_invoices i
    where d.invoice_id = i.id and d.only_while_unpaid and d.status in ('pending', 'failed')
-     and i.status not in ('open', 'mismatch');
+     and i.status <> 'open';
   -- Oldest first, and RETURNED oldest first (an UPDATE's RETURNING has no order of its
   -- own): an invoice goes out before the founder's copy of it.
   return query
@@ -743,6 +746,13 @@ begin
   if coalesce(btrim(p_by), '') = '' then raise exception 'p_by is required'; end if;
   select * into a from billing_accounts where id = p_account for update;
   if a.id is null then raise exception 'no billing account %', p_account; end if;
+  -- A pause over an invoice is refused once that invoice is no longer unpaid: an old
+  -- button, tapped after the client paid, must not stop a client who is up to date.
+  if p_invoice is not null and not exists (
+       select 1 from billing_invoices where id = p_invoice and account_id = p_account and status = 'open') then
+    raise exception 'invoice % is not an unpaid invoice of this client (paid, settled or withdrawn since): not paused', p_invoice
+      using errcode = 'check_violation';
+  end if;
   select id into pid from billing_pauses where account_id = p_account and resumed_at is null;
   if pid is not null then return jsonb_build_object('pause_id', pid, 'already_paused', true, 'channels', 0); end if;
   perform 1 from tenant_channels c where a.tenant_id is not null and c.tenant_id = a.tenant_id for update;

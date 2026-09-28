@@ -62,10 +62,21 @@ export function draftWording(dir = 'prompt/drafts/billing'): Wording {
   return { source: 'draft', blocks };
 }
 
-/** Signed wording from the project, falling back to the drafts where a block is unsigned — for LINE LABELS the founder confirms. */
-export async function labelWording(db: SupabaseClient): Promise<{ wording: Wording; note: string }> {
+/**
+ * The wording of computed invoice lines. A LIVE client's lines use signed blocks only (no
+ * unsigned Mongolian reaches a client, even through a confirmed schedule); a TEST account may
+ * use the drafts, so the test can run before signing.
+ */
+export async function labelWording(db: SupabaseClient, isTest: boolean): Promise<{ wording: Wording; note: string }> {
   const signed = await loadSignedWording(db);
   if (!signed.ok) throw new Error(signed.detail);
+  if (!isTest) {
+    const missing = ['billing_line_months', 'billing_line_team_discount', 'billing_line_annual_free'].filter((k) => !signed.wording.blocks.has(k));
+    if (missing.length > 0) {
+      throw new Error(`the invoice-line wording is not signed yet (${missing.join(', ')}): sign prompt/drafts/billing first (docs/billing.md)`);
+    }
+    return { wording: signed.wording, note: 'line wording: signed' };
+  }
   const drafts = draftWording();
   const merged = new Map([...drafts.blocks, ...signed.wording.blocks]);
   const unsigned = ['billing_line_months', 'billing_line_team_discount', 'billing_line_annual_free'].filter((k) => !signed.wording.blocks.has(k));

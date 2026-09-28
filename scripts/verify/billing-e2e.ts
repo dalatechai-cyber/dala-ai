@@ -234,8 +234,8 @@ async function main(): Promise<void> {
   check(since(emails, e0).length === 1 && since(emails, e0)[0]?.to === 'owner@salon.mn' && /хэтэрсэн/u.test(since(emails, e0)[0]?.subject ?? ''),
     'on the 6th only the unpaid client is reminded');
   const summary = since(telegrams, t0).find((m) => m.text.startsWith('📊 Billing — October 2026'));
-  check(summary !== undefined && /Paid \(1\)/u.test(summary.text) && /Not paid \(1\):\n• Салон ХХК/u.test(summary.text) && /Outstanding: 360,000₮/u.test(summary.text),
-    "the founder's summary: who paid, who has not, 360,000₮ outstanding");
+  check(summary !== undefined && /Paid \(0\)/u.test(summary.text) && /Not paid \(1\):\n• Салон ХХК/u.test(summary.text) && /Outstanding: 360,000₮/u.test(summary.text)
+    && !summary.text.includes('Туршилт'), "the founder's summary: who has not paid, 360,000₮ outstanding, test clients left out");
 
   // --- the 8th: the pause question; nothing pauses by itself --------------------------------
   t0 = telegrams.length;
@@ -273,6 +273,10 @@ async function main(): Promise<void> {
   const resumeToken = new URL(paidMsg?.button?.url ?? 'https://x').searchParams.get('t') ?? '';
   const resumed = await runActionJob({ db: () => db, now: at('2026-10-10'), method: 'POST', token: resumeToken, kind: 'resume', notify: async (t) => { notices.push(t); } });
   check(resumed.status === 200 && psql(`select delivery_mode || '/' || comment_delivery_mode from tenant_channels where id = '${CH}'`) === 'shadow/shadow', 'resume restores the exact prior modes');
+  const oldPause = await runActionJob({ db: () => db, now: at('2026-10-11'), method: 'GET', token, kind: 'pause', notify: async () => undefined });
+  check(oldPause.html.includes('is PAID now'), 'the old pause link, opened after payment, says the invoice is paid');
+  const oldPost = await runActionJob({ db: () => db, now: at('2026-10-11'), method: 'POST', token, kind: 'pause', notify: async () => undefined });
+  check(oldPost.status === 409 && psql(`select delivery_mode from tenant_channels where id = '${CH}'`) === 'shadow', '…and pausing with it is refused: a paid client is never paused');
 
   // --- the pay page ---------------------------------------------------------------------
   const links = linksFor(ORIGIN, LINK_SECRET);
@@ -325,11 +329,21 @@ async function main(): Promise<void> {
   check(since(telegrams, t0).some((m) => /could not be read completely/u.test(m.text)), '…and the founder is told');
   qpayUndetermined = new Set();
 
+  // --- money on a withdrawn invoice still reaches the founder ------------------------------
+  const lateId = psql(`select id from billing_invoices where period_key = 'one_off:late-test'`);
+  await db.rpc('billing_resolve', { p_invoice: lateId, p_outcome: 'void', p_by: 'Bilguun', p_note: 'e2e: withdrawn' });
+  qpayInvoices.get(lateQ)?.payments.push({ id: 'PAY-VOID', amount: 100, at: new Date() });
+  t0 = telegrams.length;
+  await tick(new Date(), 'live');
+  check(psql(`select status || '/' || paid_sum_mnt from billing_invoices where id = '${lateId}'`) === 'void/100'
+    && since(telegrams, t0).some((m) => /paid 100₮ on .* which you WITHDREW/u.test(m.text)), 'a payment on a withdrawn invoice is recorded and the founder told');
+
   // --- the ledger on the 1st of November -------------------------------------------------
   e0 = emails.length; t0 = telegrams.length;
   await tick(at('2026-11-01', 1), 'live');
   const ledger = since(emails, e0).find((m) => m.attachment?.name === 'dalatech-billing-2026-10.csv');
-  const paysInOctober = count(`select count(*) from billing_payments where paid_at >= '2026-09-30 16:00+00' and paid_at < '2026-10-31 16:00+00'`);
+  const paysInOctober = count(`select count(*) from billing_payments p join billing_invoices i on i.id = p.invoice_id
+    where not i.is_test and p.paid_at >= '2026-09-30 16:00+00' and p.paid_at < '2026-10-31 16:00+00'`);
   check(ledger !== undefined && ledger.attachment!.content.split('\r\n').filter((l) => l.startsWith('"')).length === 1 + paysInOctober,
     `the October ledger is e-mailed as CSV (${paysInOctober} payment(s) recorded in October)`);
   check(since(telegrams, t0).some((m) => m.text.startsWith('📒 Bookkeeping — October 2026')), '…and summarised on Telegram');

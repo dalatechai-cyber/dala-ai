@@ -4,6 +4,9 @@
  *     # a bank transfer (contract 4.5 allows one) — recorded once per bank reference
  *     node scripts/billing/settle.ts bank --invoice DT-202610-0001 --amount 250000 --ref <bank ref> --paid-on 2026-10-04 --by Bilguun
  *
+ *     # a QPay payment the platform could not read (the 🟠 message says so), under QPay's own payment id
+ *     node scripts/billing/settle.ts qpay --invoice DT-202610-0001 --payment-id <id from the QPay merchant app> --amount 250000 --paid-on 2026-10-04 --by Bilguun
+ *
  *     # a wrong amount you accept as paid, or an invoice you withdraw (also withdrawn at QPay)
  *     node scripts/billing/settle.ts resolve --invoice DT-202610-0001 --outcome paid --note "agreed by phone" --by Bilguun
  *     node scripts/billing/settle.ts resolve --invoice DT-202610-0001 --outcome void --note "issued in error" --by Bilguun
@@ -49,6 +52,27 @@ async function main(): Promise<void> {
       + `Payments now ${formatMnt(Number(r['paid_sum_mnt']))} of ${formatMnt(Number(r['amount_mnt']))}: ${String(r['status'])}.`);
     return;
   }
+  if (sub === 'qpay') {
+    // Keyed exactly as the automatic check keys it (`qpay:<payment id>`), so when QPay's
+    // answer becomes readable the same payment is recognised, never counted a second time.
+    const inv = await invoiceByNo(db, CMD, flag(CMD, 'invoice') ?? die(CMD, '--invoice <DT-…> is required'));
+    if (typeof inv['qpay_invoice_id'] !== 'string') die(CMD, `${String(inv['invoice_no'])} has no QPay invoice; a transfer is settle.ts bank`);
+    const pid = (flag(CMD, 'payment-id') ?? die(CMD, "--payment-id <QPay's payment id> is required")).trim();
+    const amount = Number((flag(CMD, 'amount') ?? die(CMD, '--amount is required')).replace(/[,\s]/gu, ''));
+    if (!Number.isInteger(amount) || amount <= 0) die(CMD, '--amount is a positive whole tugrik amount');
+    const paidOn = flag(CMD, 'paid-on') ?? die(CMD, '--paid-on YYYY-MM-DD is required');
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(paidOn)) die(CMD, '--paid-on is YYYY-MM-DD');
+    const paidAt = new Date(localDayStart(paidOn, PLATFORM_TIMEZONE).getTime() + 12 * 3_600_000);
+    const { data, error } = await db.rpc('billing_record_payment', {
+      p_invoice: inv['id'], p_payment_key: `qpay:${pid}`, p_source: 'qpay', p_amount: amount, p_paid_at: paidAt.toISOString(),
+      p_qpay_invoice_id: inv['qpay_invoice_id'], p_recorded_by: `operator:${by}`, p_note: flag(CMD, 'note') ?? null,
+    });
+    if (error) die(CMD, error.message, 1);
+    const r = data as Record<string, unknown>;
+    out(`${String(inv['invoice_no'])}: ${r['inserted'] === true ? 'recorded' : 'ALREADY recorded (same QPay payment id) — not counted again'}. `
+      + `Payments now ${formatMnt(Number(r['paid_sum_mnt']))} of ${formatMnt(Number(r['amount_mnt']))}: ${String(r['status'])}.`);
+    return;
+  }
   if (sub === 'resolve') {
     const inv = await invoiceByNo(db, CMD, flag(CMD, 'invoice') ?? die(CMD, '--invoice <DT-…> is required'));
     const outcome = flag(CMD, 'outcome');
@@ -63,9 +87,9 @@ async function main(): Promise<void> {
         const q = quickQr(qpayConfigFromEnv());
         const t = await q.token();
         const c = t.ok ? await q.cancelInvoice(t.token, inv['qpay_invoice_id']) : t;
-        out(c.ok ? 'Withdrawn at QPay as well.' : `NOT withdrawn at QPay (${c.detail}): a payment to its QR would still arrive and show as a mismatch.`);
+        out(c.ok ? 'Withdrawn at QPay as well.' : `NOT withdrawn at QPay (${c.detail}): withdraw it in the QPay merchant app. For ${35} days a payment to it is still detected and sent to you as a ⚠️.`);
       } catch (e) {
-        out(`NOT withdrawn at QPay (${(e as Error).message}): a payment to its QR would still arrive and show as a mismatch.`);
+        out(`NOT withdrawn at QPay (${(e as Error).message}): withdraw it in the QPay merchant app. For 35 days a payment to it is still detected and sent to you as a ⚠️.`);
       }
     }
     return;
@@ -86,7 +110,7 @@ async function main(): Promise<void> {
     out(JSON.stringify(data));
     return;
   }
-  die(CMD, 'usage: settle.ts bank|resolve|requeue|pause|resume … (see the top of this file)');
+  die(CMD, 'usage: settle.ts bank|qpay|resolve|requeue|pause|resume … (see the top of this file)');
 }
 
 main().catch((e) => die(CMD, e instanceof Error ? e.message : String(e), 1));

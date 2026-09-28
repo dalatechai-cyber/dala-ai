@@ -79,7 +79,7 @@ async function main(): Promise<void> {
     const start = flag(CMD, 'start') ?? die(CMD, '--start YYYY-MM (the first month to invoice) is required');
     const staff = flags(CMD, 'staff').map((s) => { try { return parseStaff(s); } catch (e) { return die(CMD, (e as Error).message); } });
     const hostingAmount = flag(CMD, 'hosting');
-    const { wording, note } = await labelWording(db);
+    const { wording, note } = await labelWording(db, isTest);
     let plan: PlannedSchedule[];
     try {
       plan = planSchedules({
@@ -137,8 +137,8 @@ async function main(): Promise<void> {
     const { data, error } = await db.from('billing_schedules').update(patch).eq('id', schedule).select('account_id').maybeSingle();
     if (error) die(CMD, error.message, 1);
     if (data === null) die(CMD, `no schedule ${schedule}`);
-    await db.from('billing_events').insert({ account_id: (data as Record<string, unknown>)['account_id'], kind: `schedule.${sub}`, detail: { schedule_id: schedule, by, ...patch } });
-    out(`${sub === 'end-schedule' ? 'Ended' : 'Moved'} ${schedule}.`);
+    const { error: evErr } = await db.from('billing_events').insert({ account_id: (data as Record<string, unknown>)['account_id'], kind: `schedule.${sub}`, detail: { schedule_id: schedule, by, ...patch } });
+    out(`${sub === 'end-schedule' ? 'Ended' : 'Moved'} ${schedule}.${evErr ? ` The audit event was NOT written: ${evErr.message}` : ''}`);
     return;
   }
   if (sub === 'end-account') {
@@ -146,7 +146,8 @@ async function main(): Promise<void> {
     const by = flag(CMD, 'by') ?? die(CMD, '--by <your name> is required');
     const { error } = await db.from('billing_accounts').update({ status: 'ended' }).eq('id', account);
     if (error) die(CMD, error.message, 1);
-    await db.from('billing_events').insert({ account_id: account, kind: 'account.ended', detail: { by } });
+    const { error: evErr } = await db.from('billing_events').insert({ account_id: account, kind: 'account.ended', detail: { by } });
+    if (evErr) out(`The audit event was NOT written: ${evErr.message}`);
     out('Ended: no new invoices. Open invoices stay open until paid or withdrawn (settle.ts resolve --outcome void).');
     return;
   }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { addDays, daysBetween, dottedDay, previousMonth, stageFor, billingToday } from './calendar.ts';
 import { actionKindOf, linksFor, signLink, verifyLink } from './links.ts';
-import { parseAmount, quickQr, readPaymentCheck } from './qpay.ts';
+import { parseAmount, paymentTime, quickQr, readPaymentCheck } from './qpay.ts';
 import { BILLING_BLOCKS, BILLING_BLOCK_KEYS, formatMnt, render, renderLines, type Wording } from './templates.ts';
 import { parseStaff, propose, teamDiscountPercent, type Phrases } from './amounts.ts';
 import { sendBrevoEmail, sendFounderTelegram, textToHtml } from './send.ts';
@@ -105,15 +105,23 @@ test('a QPay payment is recorded only when every settled row names its id and am
   // `payments` when `rows` is empty.
   const legacy = readPaymentCheck({ rows: [], payments: [{ payment_id: 7, status: 'SUCCESS', amount: '1,000' }] }, 'Q1', NOW);
   assert.ok(legacy.ok && legacy.determined && legacy.payments[0]?.key === 'qpay:7' && legacy.payments[0]?.amountMnt === 1000);
-  // Paid with no rows: one payment keyed on the QPay invoice, only with a stated amount.
+  // Paid with no rows: undetermined, never a made-up key the real payment id would double.
   const bare = readPaymentCheck({ invoice_status: 'PAID', paid_amount: 100 }, 'Q1', NOW);
-  assert.ok(bare.ok && bare.determined && bare.payments[0]?.key === 'qpay-invoice:Q1');
+  assert.ok(bare.ok && !bare.determined);
   const blind = readPaymentCheck({ invoice_status: 'PAID' }, 'Q1', NOW);
   assert.ok(blind.ok && !blind.determined);
   // Nothing yet.
   const none = readPaymentCheck({ count: 0, rows: [] }, 'Q1', NOW);
   assert.ok(none.ok && none.determined && none.payments.length === 0);
   assert.equal(parseAmount(' 250,000 '), 250000);
+  // A time without a zone is Ulaanbaatar's, never the machine's: 23:30 on the 31st stays October.
+  assert.equal(paymentTime('2026-10-31 23:30:00')?.toISOString(), '2026-10-31T15:30:00.000Z');
+  assert.equal(paymentTime('2026-10-31T23:30')?.toISOString(), '2026-10-31T15:30:00.000Z');
+  assert.equal(paymentTime('2026-10-31T15:30:00Z')?.toISOString(), '2026-10-31T15:30:00.000Z');
+  assert.equal(paymentTime('2026-10-31T23:30:00+08:00')?.toISOString(), '2026-10-31T15:30:00.000Z');
+  assert.equal(paymentTime('yesterday'), null);
+  const zoned = readPaymentCheck({ rows: [{ payment_id: 'P9', payment_status: 'PAID', payment_amount: 5, payment_date: '2026-10-31 23:30:00' }] }, 'Q1', NOW);
+  assert.ok(zoned.ok && zoned.determined && zoned.payments[0]?.paidAt.toISOString() === '2026-10-31T15:30:00.000Z');
   assert.equal(parseAmount(1.5), null);
 });
 

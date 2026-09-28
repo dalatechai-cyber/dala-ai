@@ -10984,7 +10984,11 @@ for the founder (money movement, credentials, customer-visible Mongolian). Runbo
   One payment per QPay payment id (append-only, unique key; a QPay payment for another QPay
   invoice is refused by the database). Status is derived: payments summing to exactly the
   amount are `paid`, any other non-zero sum is `mismatch` for the founder, never a guess; the
-  founder settles it by command. A QPay answer that cannot be read completely records nothing.
+  founder settles it by command. A QPay answer that cannot be read completely records nothing,
+  and no payment is ever keyed on anything but QPay's payment id or a bank reference (a
+  made-up key would count the same money twice once QPay's answer became readable). Paid and
+  withdrawn invoices stay watched for 35 days, so money arriving where none was due reaches
+  the founder. A pause over an invoice that is no longer unpaid is refused by the database.
 - **Messages.** Rendered at enqueue so the row holds the exact bytes; unique dedup key per
   message; claimed before sending; a definite failure is retried (5 min … 24 h, then given
   up and reported); an unknown outcome is NEVER resent — it becomes `unknown` and the founder

@@ -169,14 +169,26 @@ export async function runActionJob(input: {
   if (acc === null) return actionDonePage('Not found', 'No such billing account. Nothing was changed.', 404);
   const client = String((acc as Record<string, unknown>)['display_name'] ?? '');
   if (input.method === 'GET') {
-    return actionConfirmPage({
-      kind: input.kind, client, token: input.token,
-      detail: (acc as Record<string, unknown>)['tenant_id'] === null ? 'Test account: no AI staff are linked, so only the record changes.' : '',
-    });
+    // What the invoice says NOW, not when the question was sent: a client may have paid since.
+    let about = '';
+    if (claims.inv !== undefined) {
+      const { data: inv, error: invErr } = await db.from('billing_invoices').select('invoice_no, status, amount_mnt, paid_sum_mnt')
+        .eq('id', claims.inv).maybeSingle();
+      if (invErr) return actionDonePage('Unavailable', `The invoice could not be read: ${invErr.message}. Nothing was changed.`, 503);
+      const i = (inv ?? {}) as Record<string, unknown>;
+      about = inv === null ? 'The invoice this was about no longer exists.'
+        : `Invoice ${String(i['invoice_no'])} is ${String(i['status']).toUpperCase()} now (${String(i['paid_sum_mnt'])} of ${String(i['amount_mnt'])}₮ paid).`
+          + (input.kind === 'pause' && i['status'] !== 'open' ? ' It is no longer unpaid, so a pause will be refused.' : '');
+    }
+    const test = (acc as Record<string, unknown>)['tenant_id'] === null ? ' Test account: no AI staff are linked, so only the record changes.' : '';
+    return actionConfirmPage({ kind: input.kind, client, token: input.token, detail: `${about}${test}`.trim() });
   }
   if (input.kind === 'pause') {
     const { data, error: pErr } = await db.rpc('billing_pause', { p_account: claims.id, p_invoice: claims.inv ?? null, p_by: 'founder (Telegram)' });
-    if (pErr) return actionDonePage('Not paused', `The pause failed: ${pErr.message}. Nothing was changed.`, 503);
+    if (pErr) {
+      const refused = pErr.code === '23514'; // check_violation: the invoice was paid or settled since
+      return actionDonePage('Not paused', `${refused ? 'Refused' : 'The pause failed'}: ${pErr.message}. Nothing was changed.`, refused ? 409 : 503);
+    }
     const r = (data ?? {}) as Record<string, unknown>;
     if (r['already_paused'] === true) return actionDonePage('Already paused', `${client} was already paused. Nothing changed.`);
     await input.notify(`⏸ Paused ${client}: ${String(r['channels'])} channel(s) set to off. To undo, use the Resume button that comes with their payment, or: node scripts/billing/settle.ts resume --account ${claims.id} --by <you>`);

@@ -185,7 +185,7 @@ try {
 let billingPlan: PlannedSchedule[] = [];
 if (billingStaff.length > 0) {
   try {
-    const { wording: lw, note } = await labelWording(db);
+    const { wording: lw, note } = await labelWording(db, false);
     billingPlan = planSchedules({ staff: billingStaff, annual: process.argv.includes('--billing-annual'), startMonth: billingStart!, dueDay: 5 },
       phrasesFrom(lw), monthOf(billingToday(now)));
     out(`\nBilling — ${billingName} (${note}); written UNCONFIRMED with --apply:`);

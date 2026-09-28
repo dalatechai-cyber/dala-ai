@@ -38,5 +38,13 @@ bee6a69.
   real PostgREST + PostgreSQL 16 with QPay/Brevo/Telegram faked — 52 checks (added to CI).
   `query-columns.ts`, `postgrest.ts`, every SQL suite and `npm run check` (2303 pass, 1
   pre-existing skip) are green.
-- [ ] **5b. Review** of every changed file (Opus reviewer), fixes, draft PR.
+- [x] **5b. Review** of every changed file (Opus reviewer): core promises held; fixed its nine
+  findings — payments on paid/withdrawn invoices now watched and reported; no made-up payment
+  key (`settle.ts qpay` records under QPay's id); a lost "QPay id recorded" answer is read back
+  before anything is withdrawn; an old pause button cannot pause a paid client (database
+  refuses); queued reminders cancelled on any non-open status; callback fits its time limit;
+  every ignored write checked; least-recently-checked first; test clients out of live
+  summaries and ledgers; QPay times without a zone read as Ulaanbaatar. Live line labels must be
+  signed; `tick.ts --mode live` needs `BILLING_MODE=live`. E2E 57 checks.
+- [ ] **5c.** Draft PR.
 - [ ] **6. Founder:** approve wording, add the environment, the real 100₮ test, then live.

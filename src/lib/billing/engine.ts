@@ -110,6 +110,12 @@ export const RETRY_DELAYS_MIN = [5, 15, 60, 180, 360, 720, 1440] as const;
 export const CHECK_STALE_HOURS = 24;
 /** The callback does not ask QPay again within this many seconds of the last answer. */
 export const CALLBACK_MIN_INTERVAL_S = 20;
+/**
+ * A paid or withdrawn invoice is still asked about for this long: QPay may take a second
+ * payment on a paid code, or a payment on a withdrawn one whose cancel failed, and money
+ * that reaches the merchant must reach the founder too.
+ */
+export const SETTLED_WATCH_DAYS = 35;
 /** Invoices older than this are not planned (their messages are long settled). */
 const PLAN_WINDOW_DAYS = 400;
 const SEND_BATCH = 3;
@@ -199,12 +205,13 @@ function rows(data: unknown): Array<Record<string, unknown>> {
 
 async function loadInvoices(
   deps: BillingDeps,
-  filter: { statuses: Invoice['status'][]; needQpay?: boolean; haveQpay?: boolean; id?: string },
+  filter: { statuses: Invoice['status'][]; needQpay?: boolean; haveQpay?: boolean; id?: string; updatedSince?: Date },
 ): Promise<Invoice[]> {
   let q = deps.db.from('billing_invoices').select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at').in('status', filter.statuses);
   if (deps.mode === 'test') q = q.eq('is_test', true);
   if (filter.needQpay === true) q = q.is('qpay_invoice_id', null);
   if (filter.haveQpay === true) q = q.not('qpay_invoice_id', 'is', null);
+  if (filter.updatedSince !== undefined) q = q.gte('updated_at', filter.updatedSince.toISOString());
   if (filter.id !== undefined) q = q.eq('id', filter.id);
   else q = q.gte('created_at', new Date(deps.now.getTime() - PLAN_WINDOW_DAYS * 86_400_000).toISOString());
   const { data, error } = await q.order('created_at', { ascending: true });
@@ -378,6 +385,12 @@ async function issue(deps: BillingDeps, today: string, report: TickReport): Prom
   }
 }
 
+async function release(deps: BillingDeps, inv: Invoice, detail: string, report: TickReport): Promise<void> {
+  const { error } = await deps.db.rpc('billing_release_qpay', { p_invoice: inv.id, p_error: detail });
+  // Not fatal: an unreleased claim goes stale in QPAY_CLAIM_STALE and is taken over.
+  if (error) report.problems.push(`claim on ${inv.invoiceNo} not released (retried after ${QPAY_CLAIM_STALE}): ${error.message}`);
+}
+
 async function createQpayInvoices(deps: BillingDeps, report: TickReport, only?: string): Promise<void> {
   const invoices = await loadInvoices(deps, { statuses: ['open'], needQpay: true, ...(only === undefined ? {} : { id: only }) });
   let token: string | null = null;
@@ -391,7 +404,7 @@ async function createQpayInvoices(deps: BillingDeps, report: TickReport, only?: 
       const t = await deps.qpay.token();
       if (!t.ok) {
         // Getting a token creates nothing, so the claim is released whatever happened.
-        await deps.db.rpc('billing_release_qpay', { p_invoice: inv.id, p_error: t.detail });
+        await release(deps, inv, t.detail, report);
         if (tries >= 3) await problem(deps, `qpay_token:${billingToday(deps.now)}`, `QPay refuses a token (${t.detail}); no QPay invoice can be made.`, inv.isTest, report);
         return;
       }
@@ -403,7 +416,7 @@ async function createQpayInvoices(deps: BillingDeps, report: TickReport, only?: 
       callbackUrl: deps.links.callback(inv.id),
     });
     if (!made.ok) {
-      if (made.outcome === 'refused') await deps.db.rpc('billing_release_qpay', { p_invoice: inv.id, p_error: made.detail });
+      if (made.outcome === 'refused') await release(deps, inv, made.detail, report);
       // `unknown`: the claim is kept and goes stale; whatever QPay may have made is never shown.
       deps.log('warn', 'billing.qpay_create_failed', { invoice: inv.invoiceNo, outcome: made.outcome, detail: made.detail, tries });
       if (tries >= 3) {
@@ -416,8 +429,24 @@ async function createQpayInvoices(deps: BillingDeps, report: TickReport, only?: 
       p_invoice: inv.id, p_qpay_invoice_id: made.invoiceId, p_qr_text: made.qrText, p_qr_image: made.qrImage, p_urls: made.urls,
     });
     if (setErr || set !== true) {
-      // Not recorded, so never shown: withdraw it at QPay so it cannot linger either way.
-      await deps.qpay.cancelInvoice(token, made.invoiceId);
+      // A lost answer is not a failed write: the id may be recorded after all. Read it back,
+      // and withdraw the QPay invoice only when the row holds some OTHER id (or none).
+      // Withdrawing the one the row holds would leave the client an unpayable code for good.
+      const { data: back, error: backErr } = await deps.db.from('billing_invoices').select('qpay_invoice_id').eq('id', inv.id).maybeSingle();
+      const held = backErr || back === null ? undefined : (back as Record<string, unknown>)['qpay_invoice_id'];
+      if (held === undefined) {
+        await problem(deps, `qpay_unrecorded:${inv.id}:${made.invoiceId}`,
+          `QPay made invoice ${made.invoiceId} for ${inv.invoiceNo} and whether it was recorded cannot be read (${setErr?.message ?? backErr?.message ?? 'no row'}). `
+          + 'Nothing was withdrawn. The next run reads it again.', inv.isTest, report);
+        continue;
+      }
+      if (held === made.invoiceId) { report.qpayCreated += 1; continue; }
+      const c = await deps.qpay.cancelInvoice(token, made.invoiceId);
+      if (!c.ok) {
+        await problem(deps, `qpay_orphan:${made.invoiceId}`,
+          `QPay invoice ${made.invoiceId} (made for ${inv.invoiceNo}, not recorded, never shown) could not be withdrawn: ${c.detail}. `
+          + 'Nobody holds its code; withdraw it in the QPay merchant app if it is listed.', inv.isTest, report);
+      }
       deps.log('error', 'billing.qpay_not_recorded', { invoice: inv.invoiceNo, detail: setErr?.message ?? 'already set' });
       continue;
     }
@@ -426,16 +455,32 @@ async function createQpayInvoices(deps: BillingDeps, report: TickReport, only?: 
 }
 
 async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: string, only?: string): Promise<void> {
-  const invoices = await loadInvoices(deps, { statuses: ['open', 'mismatch'], haveQpay: true, ...(only === undefined ? {} : { id: only }) });
+  // A callback is asked about whatever the invoice's status: a callback on a paid or a
+  // withdrawn invoice IS the signal that money arrived where none was due. Hourly, the
+  // unsettled ones, and the settled ones for SETTLED_WATCH_DAYS.
+  const invoices = only !== undefined
+    ? await loadInvoices(deps, { statuses: ['open', 'mismatch', 'paid', 'void'], haveQpay: true, id: only })
+    : [
+      ...await loadInvoices(deps, { statuses: ['open', 'mismatch'], haveQpay: true }),
+      ...await loadInvoices(deps, {
+        statuses: ['paid', 'void'], haveQpay: true,
+        updatedSince: new Date(deps.now.getTime() - SETTLED_WATCH_DAYS * 86_400_000),
+      }),
+    ];
   if (invoices.length === 0) return;
+  // Least recently checked first, so a slow QPay cannot starve the same invoices every hour.
+  invoices.sort((a, b) => (a.qpayCheckedAt?.getTime() ?? -1) - (b.qpayCheckedAt?.getTime() ?? -1));
   const t = await deps.qpay.token();
   if (!t.ok) {
     deps.log('warn', 'billing.qpay_token_failed', { detail: t.detail });
     for (const inv of invoices) await checkStale(deps, inv, report, t.detail);
     return;
   }
-  for (const inv of invoices) {
-    if (outOfTime(deps, report)) return;
+  for (const [i, inv] of invoices.entries()) {
+    if (outOfTime(deps, report)) {
+      for (const rest of invoices.slice(i)) await checkStale(deps, rest, report, 'not reached within the time budget');
+      return;
+    }
     if (only !== undefined && inv.qpayCheckedAt !== null
         && deps.now.getTime() - inv.qpayCheckedAt.getTime() < CALLBACK_MIN_INTERVAL_S * 1000) continue;
     const check = await deps.qpay.checkPayment(t.token, inv.qpayInvoiceId as string);
@@ -444,7 +489,9 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
     if (!check.determined) {
       await problem(deps, `undetermined:${inv.id}:${check.reason}`,
         `QPay's answer for ${inv.invoiceNo} could not be read completely (${check.reason}). Nothing was recorded. `
-        + 'Check the payment in the QPay merchant app; record it with scripts/billing/settle.ts if it is real.', inv.isTest, report);
+        + 'Check the payment in the QPay merchant app; if it is real, record it under QPay\'s own payment id: '
+        + `node scripts/billing/settle.ts qpay --invoice ${inv.invoiceNo} --payment-id <id> --amount <amount> --paid-on <YYYY-MM-DD> --by <you>`,
+        inv.isTest, report);
       continue;
     }
     let failed = false;
@@ -461,12 +508,15 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
       if ((data as Record<string, unknown> | null)?.['inserted'] === true) report.paymentsRecorded += 1;
     }
     if (!failed) {
-      await deps.db.from('billing_invoices').update({ qpay_checked_at: deps.now.toISOString() }).eq('id', inv.id);
+      const { error } = await deps.db.from('billing_invoices').update({ qpay_checked_at: deps.now.toISOString() }).eq('id', inv.id);
+      if (error) report.problems.push(`check time of ${inv.invoiceNo} not recorded: ${error.message}`);
     }
   }
 }
 
 async function checkStale(deps: BillingDeps, inv: Invoice, report: TickReport, detail: string): Promise<void> {
+  // Only an unsettled invoice is waiting on the answer; a settled one is watched quietly.
+  if (inv.status !== 'open' && inv.status !== 'mismatch') return;
   const since = inv.qpayCheckedAt ?? inv.createdAt;
   if (deps.now.getTime() - since.getTime() < CHECK_STALE_HOURS * 3_600_000) return;
   await problem(deps, `check_stale:${inv.id}:${billingToday(deps.now)}`,
@@ -479,7 +529,7 @@ async function checkStale(deps: BillingDeps, inv: Invoice, report: TickReport, d
 // ---------------------------------------------------------------------------------------
 
 async function plan(deps: BillingDeps, today: string, report: TickReport, only?: string): Promise<void> {
-  const invoices = await loadInvoices(deps, { statuses: ['open', 'mismatch', 'paid'], ...(only === undefined ? {} : { id: only }) });
+  const invoices = await loadInvoices(deps, { statuses: ['open', 'mismatch', 'paid', 'void'], ...(only === undefined ? {} : { id: only }) });
   const accounts = await loadAccounts(deps, invoices.map((i) => i.accountId));
   const paused = await openPauses(deps);
   for (const inv of invoices) {
@@ -515,13 +565,22 @@ async function plan(deps: BillingDeps, today: string, report: TickReport, only?:
         const who = account.tenantId === null ? ' (test account: no AI staff to stop; the pause is recorded only)' : '';
         await enqueue(deps, {
           dedupKey: `founder_pause:${inv.id}`, kind: 'founder_pause', channel: 'telegram', recipient: 'founder',
-          isTest: inv.isTest, accountId: account.id, invoiceId: inv.id,
+          isTest: inv.isTest, accountId: account.id, invoiceId: inv.id, onlyWhileUnpaid: true,
           body: `⏸ ${account.displayName} has not paid ${inv.invoiceNo}: ${formatMnt(inv.amountMnt)}, due ${dottedDay(inv.dueOn)}, `
             + `${stage.daysLate} day(s) late.${who}\n`
             + 'Contract 4.9 allows a pause once payment is MORE than 7 days late. Nothing happens unless you tap below and confirm.',
           button: { label: `Pause ${account.displayName}`, url: deps.links.action('pause', account.id, inv.id, deps.now) },
         }, report);
       }
+    }
+
+    if (inv.status === 'void' && inv.paidSumMnt > 0) {
+      await enqueue(deps, {
+        dedupKey: `founder_void_paid:${inv.id}:${inv.paidSumMnt}`, kind: 'founder_mismatch', channel: 'telegram', recipient: 'founder',
+        isTest: inv.isTest, accountId: account.id, invoiceId: inv.id,
+        body: `⚠️ ${account.displayName} paid ${formatMnt(inv.paidSumMnt)} on ${inv.invoiceNo}, which you WITHDREW. `
+          + 'The money reached the merchant; decide whether to refund it or apply it to another invoice. No receipt was sent.',
+      }, report);
     }
 
     if (inv.status === 'mismatch') {
@@ -620,7 +679,8 @@ export async function ledgerRows(db: SupabaseClient, month: string, mode: Billin
   for (const p of pays) {
     const inv = invoices.get(str(p['invoice_id']));
     if (inv === undefined) throw new Unavailable(`payment ${str(p['payment_key'])} names an unreadable invoice`);
-    if (mode === 'test' && !inv.isTest) continue;
+    // One ledger per kind: test payments never inflate what the business received.
+    if ((mode === 'test') !== inv.isTest) continue;
     const at = new Date(str(p['paid_at']));
     out.push({
       paidAtUb: ubStamp(at).replace(' UB time', ''),
@@ -648,7 +708,8 @@ async function month(deps: BillingDeps, today: string, report: TickReport): Prom
   const isTest = deps.mode === 'test';
   const suffix = isTest ? ':test' : '';
   if (dayOfMonth(today) >= SUMMARY_DAY) {
-    const invoices = await loadInvoices(deps, { statuses: ['open', 'mismatch', 'paid'] });
+    // Live summaries are about clients: test invoices are left out (test mode shows only them).
+    const invoices = (await loadInvoices(deps, { statuses: ['open', 'mismatch', 'paid'] })).filter((i) => isTest || !i.isTest);
     const accounts = await loadAccounts(deps, invoices.map((i) => i.accountId));
     await enqueue(deps, {
       dedupKey: `founder_summary:${monthOf(today)}${suffix}`, kind: 'founder_summary', channel: 'telegram', recipient: 'founder', isTest,

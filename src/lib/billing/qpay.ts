@@ -27,6 +27,9 @@
  * Never logs a response body: QPay's payment rows carry the payer's bank details.
  */
 
+import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
+import { localDayStart } from '../time/clock.ts';
+
 export const QPAY_BASE = 'https://quickqr.qpay.mn/v2';
 /**
  * Core Language's merchant category code, reused because the merchant is shared. 8299 is
@@ -106,6 +109,24 @@ export function parseAmount(v: unknown): number | null {
   return Number.isFinite(n) && Number.isInteger(n) && n > 0 ? n : null;
 }
 
+/**
+ * QPay's `payment_date`. With a zone (`Z`, `+08:00`) it is that instant. Without one it is
+ * read as Ulaanbaatar wall time (QPay is a Mongolian processor) — never as the machine's
+ * zone, which on Vercel is UTC and would move a payment made after 16:00 into the next day
+ * and, at a month's end, into the next month's ledger. Anything else: null (the check time).
+ */
+export function paymentTime(v: string): Date | null {
+  const t = v.trim();
+  if (/(Z|[+-]\d{2}:?\d{2})$/u.test(t)) {
+    const d = new Date(t);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const m = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/u.exec(t);
+  if (m === null) return null;
+  const midnight = localDayStart(m[1] as string, PLATFORM_TIMEZONE);
+  return new Date(midnight.getTime() + (Number(m[2]) * 3600 + Number(m[3]) * 60 + Number(m[4] ?? 0)) * 1000);
+}
+
 const SETTLED = new Set(['PAID', 'SUCCESS']);
 const NOT_SETTLED = new Set(['NEW', 'PENDING', 'FAILED', 'REFUNDED', 'CANCELLED', 'CANCELED', 'EXPIRED']);
 
@@ -135,15 +156,13 @@ export function readPaymentCheck(body: unknown, qpayInvoiceId: string, now: Date
     if (key === null) return { ok: true, determined: false, reason: 'a settled payment has no payment_id', invoiceStatus };
     const amount = parseAmount(r['payment_amount'] ?? r['amount']);
     if (amount === null) return { ok: true, determined: false, reason: `settled payment ${key} has no readable amount`, invoiceStatus };
-    const when = typeof r['payment_date'] === 'string' ? new Date(r['payment_date'] as string) : null;
-    payments.push({ key: `qpay:${key}`, amountMnt: amount, paidAt: when !== null && !Number.isNaN(when.getTime()) ? when : now });
+    const when = typeof r['payment_date'] === 'string' ? paymentTime(r['payment_date'] as string) : null;
+    payments.push({ key: `qpay:${key}`, amountMnt: amount, paidAt: when ?? now });
   }
   if (payments.length === 0 && rows.length === 0 && (invoiceStatus === 'PAID' || invoiceStatus === 'CLOSED')) {
-    // Paid, with no rows to say by what. One payment per QPay invoice, keyed on the QPay
-    // invoice itself, when QPay states the amount; otherwise undetermined.
-    const amount = parseAmount(b['paid_amount']);
-    if (amount === null) return { ok: true, determined: false, reason: `invoice is ${invoiceStatus} with no payment rows and no paid_amount`, invoiceStatus };
-    return { ok: true, determined: true, payments: [{ key: `qpay-invoice:${qpayInvoiceId}`, amountMnt: amount, paidAt: now }], invoiceStatus };
+    // Paid, with no rows to say by what. NOT recorded under a made-up key: a later answer
+    // that does carry the payment id would record the same money a second time.
+    return { ok: true, determined: false, reason: `invoice ${qpayInvoiceId} is ${invoiceStatus} with no payment rows`, invoiceStatus };
   }
   return { ok: true, determined: true, payments, invoiceStatus };
 }

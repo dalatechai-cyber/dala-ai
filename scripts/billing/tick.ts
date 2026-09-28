@@ -32,6 +32,8 @@ async function main(): Promise<void> {
   if (mode !== 'test' && mode !== 'live') die(CMD, '--mode test|live is required');
   const today = flag(CMD, 'today');
   if (mode === 'live' && (today !== undefined || has('drafts'))) die(CMD, '--today and --drafts are for --mode test only');
+  // The shell obeys the same switch as the deployment: live only once the founder set it.
+  if (mode === 'live' && process.env['BILLING_MODE'] !== 'live') die(CMD, '--mode live needs BILLING_MODE=live in this shell (the switch Vercel carries)');
   if (today !== undefined && !/^\d{4}-\d{2}-\d{2}$/u.test(today)) die(CMD, '--today is YYYY-MM-DD');
   const now = today === undefined ? new Date() : new Date(localDayStart(today, PLATFORM_TIMEZONE).getTime() + 12 * 3_600_000);
   const db = operatorDb();

@@ -28,7 +28,9 @@ so the two are told apart in the QPay merchant app.
 
    then commit, and `supabase db push` (with `0065_billing`).
 2. **Apply the schema:** `0065_billing` (additive: seven new tables) goes to the project with
-   the same push. Read the ledger afterwards (`supabase_migrations.schema_migrations`).
+   the same push. Read the ledger afterwards (`supabase_migrations.schema_migrations`), and
+   re-run the catalog check per table on the project (`aclexplode`): PostgreSQL 17 adds
+   `MAINTAIN`, which the local PostgreSQL 16 proof cannot see.
 3. **Vercel environment (Production and Preview):**
    - copy from Core Language's Vercel project, same names: `QPAY_USERNAME`, `QPAY_PASSWORD`,
      `QPAY_MERCHANT_ID`, `QPAY_BANK_CODE`, `QPAY_BANK_ACCOUNT`, `QPAY_ACCOUNT_NAME`, `BREVO_API_KEY`;
@@ -80,7 +82,8 @@ Unless a Telegram message asks you something:
 | ⏸ … has not paid | tap **Pause** and confirm, or ignore it |
 | ✅ … paid, with **Resume** | tap it (the contract: restore within 1 working day) |
 | ⚠️ payments total … against … | `settle.ts resolve --outcome paid` (accept) or `void`, or wait for the rest |
-| 🟠 Billing: … | it says what happened and the one command that fixes it |
+| ⚠️ … paid … on …, which you WITHDREW | refund it, or apply it by hand |
+| 🟠 Billing: … | it says what happened and the one command that fixes it (e.g. a QPay payment it could not read: `settle.ts qpay --payment-id …`) |
 
 A bank transfer instead of QPay (contract 4.5): `settle.ts bank …` — the one thing you type.
 Bookkeeping: the 1st's 📒 message and CSV e-mail, or `node scripts/billing/report.ts ledger --month YYYY-MM`.

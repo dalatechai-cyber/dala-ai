@@ -11,7 +11,8 @@ import { runQpayCallbackJob } from '@/lib/billing/jobs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// The callback's budget (25 s) plus one send batch (3 × 15 s) must fit: 120, as the worker.
+export const maxDuration = 120;
 
 async function handle(request: Request): Promise<NextResponse> {
   const result = await runQpayCallbackJob({
