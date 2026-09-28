@@ -53,9 +53,10 @@ and Brevo variables, `TELEGRAM_*`, `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SECR
     node scripts/billing/account.ts confirm --schedule <id> --fingerprint <fp> --by Bilguun
 
 - **On time:** the next hourly run invoices it for this month, due today (or run it now:
-  `node scripts/billing/tick.ts --mode test`; add `--drafts` to see the unsigned wording). Pay the
-  100₮ from the e-mail's link. Within seconds (callback) or the hour (check) you get the receipt
-  and a ✅ on Telegram.
+  `node scripts/billing/tick.ts --mode test`; add `--drafts` to see the unsigned wording). Open
+  the e-mail's link: the page makes a QPay code and counts down its five minutes («QR код 4:59
+  хүчинтэй»); when it runs out, «Шинэ QR код авах» makes a new one. Pay the 100₮. Within
+  seconds (callback) or the hour (check) you get the receipt and a ✅ on Telegram.
 - **Late:** `node scripts/billing/charge.ts --account <id> --key late-test --line "Туршилт=100" --issued <7 days ago> --due <4 days ago> --by Bilguun --apply`;
   the next run asks you about pausing (test accounts pause nothing). Pay it late: ✅.
 - **Wrong amount:** QPay's QR fixes the amount, so a wrong QPay payment cannot be produced by
@@ -83,7 +84,7 @@ Unless a Telegram message asks you something:
 | ✅ … paid, with **Resume** | tap it (the contract: restore within 1 working day) |
 | ⚠️ payments total … against … | `settle.ts resolve --outcome paid` (accept) or `void`, or wait for the rest |
 | ⚠️ … paid … on …, which you WITHDREW | refund it, or apply it by hand |
-| 🟠 Billing: … | it says what happened and the one command that fixes it (e.g. a QPay payment it could not read: `settle.ts qpay --payment-id …`) |
+| 🟠 Billing: … | it says what happened and the one command that fixes it (e.g. a QPay payment it could not read: `settle.ts qpay --payment-id …`, plus `--qpay-invoice <code>` when the invoice has several QPay codes) |
 
 A bank transfer instead of QPay (contract 4.5): `settle.ts bank …` — the one thing you type.
 Bookkeeping: the 1st's 📒 message and CSV e-mail, or `node scripts/billing/report.ts ledger --month YYYY-MM`.

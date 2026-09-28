@@ -100,22 +100,12 @@ export type TickReport = {
   problems: string[];
 };
 
-/** A claim on a QPay creation older than this is taken over (`billing_claim_qpay`). */
-export const QPAY_CLAIM_STALE = '10 minutes';
 /** A message claimed longer than this and not finished is `unknown`. */
 export const SEND_CLAIM_STALE = '10 minutes';
 /** A definite send failure is retried after these delays, then given up. */
 export const RETRY_DELAYS_MIN = [5, 15, 60, 180, 360, 720, 1440] as const;
-/** The QPay check has not succeeded for this long: the founder is told. */
-export const CHECK_STALE_HOURS = 24;
 /** The callback does not ask QPay again within this many seconds of the last answer. */
 export const CALLBACK_MIN_INTERVAL_S = 20;
-/**
- * A paid or withdrawn invoice is still asked about for this long: QPay may take a second
- * payment on a paid code, or a payment on a withdrawn one whose cancel failed, and money
- * that reaches the merchant must reach the founder too.
- */
-export const SETTLED_WATCH_DAYS = 35;
 /** Invoices older than this are not planned (their messages are long settled). */
 const PLAN_WINDOW_DAYS = 400;
 const SEND_BATCH = 3;
@@ -205,12 +195,10 @@ function rows(data: unknown): Array<Record<string, unknown>> {
 
 async function loadInvoices(
   deps: BillingDeps,
-  filter: { statuses: Invoice['status'][]; needQpay?: boolean; haveQpay?: boolean; id?: string; updatedSince?: Date },
+  filter: { statuses: Invoice['status'][]; id?: string; updatedSince?: Date },
 ): Promise<Invoice[]> {
   let q = deps.db.from('billing_invoices').select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at').in('status', filter.statuses);
   if (deps.mode === 'test') q = q.eq('is_test', true);
-  if (filter.needQpay === true) q = q.is('qpay_invoice_id', null);
-  if (filter.haveQpay === true) q = q.not('qpay_invoice_id', 'is', null);
   if (filter.updatedSince !== undefined) q = q.gte('updated_at', filter.updatedSince.toISOString());
   if (filter.id !== undefined) q = q.eq('id', filter.id);
   else q = q.gte('created_at', new Date(deps.now.getTime() - PLAN_WINDOW_DAYS * 86_400_000).toISOString());
@@ -385,120 +373,143 @@ async function issue(deps: BillingDeps, today: string, report: TickReport): Prom
   }
 }
 
-async function release(deps: BillingDeps, inv: Invoice, detail: string, report: TickReport): Promise<void> {
-  const { error } = await deps.db.rpc('billing_release_qpay', { p_invoice: inv.id, p_error: detail });
-  // Not fatal: an unreleased claim goes stale in QPAY_CLAIM_STALE and is taken over.
-  if (error) report.problems.push(`claim on ${inv.invoiceNo} not released (retried after ${QPAY_CLAIM_STALE}): ${error.message}`);
+// ---------------------------------------------------------------------------------------
+// QPay codes (0068). A code is a QPay Quick QR invoice: it lives five minutes, so it is made
+// when the client opens the pay page (never at issue, never stored in a message), and an
+// invoice holds as many as the client needs. A payment on any of them is that invoice's.
+// ---------------------------------------------------------------------------------------
+
+/** QPay refuses a code five minutes after it was made (QP2036). */
+export const QPAY_CODE_LIFETIME_MS = 5 * 60_000;
+/** The page counts down to a little before QPay's own end, never past it. */
+const CODE_SAFETY_MS = 10_000;
+/** A code with at least this long left is shown again (a reload), not replaced. */
+export const CODE_REUSE_MIN_LEFT_MS = 3 * 60_000;
+/** A renew pressed twice, or a reload right after it, shows the code just made. */
+const CODE_RENEW_DEBOUNCE_MS = 20_000;
+/** However the link is opened, at most this many codes an hour per invoice. */
+export const CODES_PER_HOUR = 20;
+/** A code is answered for the last time this long after it stopped taking money. */
+export const CODE_SETTLE_MS = 60 * 60_000;
+/** A code QPay has not answered for this long after it expired: the founder is told. */
+export const CODE_STALE_MS = 24 * 3_600_000;
+
+export type PayCode = {
+  id: string;
+  invoiceId: string;
+  qpayInvoiceId: string;
+  qrImage: string;
+  urls: Array<{ name: string; logo: string; link: string }>;
+  createdAt: Date;
+  expiresAt: Date;
+  checkedAt: Date | null;
+  closedAt: Date | null;
+  cancelledAt: Date | null;
+};
+
+function toCode(r: Record<string, unknown>): PayCode {
+  const urls = Array.isArray(r['urls']) ? (r['urls'] as Array<Record<string, unknown>>) : [];
+  return {
+    id: str(r['id']),
+    invoiceId: str(r['invoice_id']),
+    qpayInvoiceId: str(r['qpay_invoice_id']),
+    qrImage: typeof r['qr_image'] === 'string' ? r['qr_image'] : '',
+    urls: urls.map((u) => ({ name: str(u['name']), logo: str(u['logo']), link: str(u['link']) })),
+    createdAt: date(r['created_at']) ?? new Date(0),
+    expiresAt: date(r['expires_at']) ?? new Date(0),
+    checkedAt: date(r['checked_at']),
+    closedAt: date(r['closed_at']),
+    cancelledAt: date(r['cancelled_at']),
+  };
 }
 
-async function createQpayInvoices(deps: BillingDeps, report: TickReport, only?: string): Promise<void> {
-  const invoices = await loadInvoices(deps, { statuses: ['open'], needQpay: true, ...(only === undefined ? {} : { id: only }) });
-  let token: string | null = null;
-  for (const inv of invoices) {
-    if (outOfTime(deps, report)) return;
-    const { data: attempt, error } = await deps.db.rpc('billing_claim_qpay', { p_invoice: inv.id, p_stale_after: QPAY_CLAIM_STALE });
-    if (error) { report.problems.push(`claim ${inv.invoiceNo}: ${error.message}`); continue; }
-    if (attempt === null || attempt === undefined) continue; // another run holds it, or it has one
-    const tries = Number(attempt);
-    if (token === null) {
-      const t = await deps.qpay.token();
-      if (!t.ok) {
-        // Getting a token creates nothing, so the claim is released whatever happened.
-        await release(deps, inv, t.detail, report);
-        if (tries >= 3) await problem(deps, `qpay_token:${billingToday(deps.now)}`, `QPay refuses a token (${t.detail}); no QPay invoice can be made.`, inv.isTest, report);
-        return;
-      }
-      token = t.token;
-    }
-    const made = await deps.qpay.createInvoice(token, {
-      amountMnt: inv.amountMnt,
-      description: `DalaTech ${inv.invoiceNo}`,
-      callbackUrl: deps.links.callback(inv.id),
-    });
-    if (!made.ok) {
-      if (made.outcome === 'refused') await release(deps, inv, made.detail, report);
-      // `unknown`: the claim is kept and goes stale; whatever QPay may have made is never shown.
-      deps.log('warn', 'billing.qpay_create_failed', { invoice: inv.invoiceNo, outcome: made.outcome, detail: made.detail, tries });
-      if (tries >= 3) {
-        await problem(deps, `qpay_create:${inv.id}`,
-          `QPay has not created an invoice for ${inv.invoiceNo} after ${tries} tries (${made.detail}). Still trying.`, inv.isTest, report);
-      }
-      continue;
-    }
-    const { data: set, error: setErr } = await deps.db.rpc('billing_set_qpay', {
-      p_invoice: inv.id, p_qpay_invoice_id: made.invoiceId, p_qr_text: made.qrText, p_qr_image: made.qrImage, p_urls: made.urls,
-    });
-    if (setErr || set !== true) {
-      // A lost answer is not a failed write: the id may be recorded after all. Read it back,
-      // and withdraw the QPay invoice only when the row holds some OTHER id (or none).
-      // Withdrawing the one the row holds would leave the client an unpayable code for good.
-      const { data: back, error: backErr } = await deps.db.from('billing_invoices').select('qpay_invoice_id').eq('id', inv.id).maybeSingle();
-      const held = backErr || back === null ? undefined : (back as Record<string, unknown>)['qpay_invoice_id'];
-      if (held === undefined) {
-        await problem(deps, `qpay_unrecorded:${inv.id}:${made.invoiceId}`,
-          `QPay made invoice ${made.invoiceId} for ${inv.invoiceNo} and whether it was recorded cannot be read (${setErr?.message ?? backErr?.message ?? 'no row'}). `
-          + 'Nothing was withdrawn. The next run reads it again.', inv.isTest, report);
-        continue;
-      }
-      if (held === made.invoiceId) { report.qpayCreated += 1; continue; }
-      const c = await deps.qpay.cancelInvoice(token, made.invoiceId);
-      if (!c.ok) {
-        await problem(deps, `qpay_orphan:${made.invoiceId}`,
-          `QPay invoice ${made.invoiceId} (made for ${inv.invoiceNo}, not recorded, never shown) could not be withdrawn: ${c.detail}. `
-          + 'Nobody holds its code; withdraw it in the QPay merchant app if it is listed.', inv.isTest, report);
-      }
-      deps.log('error', 'billing.qpay_not_recorded', { invoice: inv.invoiceNo, detail: setErr?.message ?? 'already set' });
-      continue;
-    }
-    report.qpayCreated += 1;
-  }
+/** The codes still watched (not yet answered for after they stopped taking money). */
+async function watchedCodes(deps: BillingDeps, only?: string): Promise<PayCode[]> {
+  let q = deps.db.from('billing_qpay_codes')
+    .select('id, invoice_id, qpay_invoice_id, qr_image, urls, created_at, expires_at, checked_at, closed_at, cancelled_at')
+    .is('closed_at', null);
+  if (only !== undefined) q = q.eq('invoice_id', only);
+  const { data, error } = await q.order('created_at', { ascending: true });
+  if (error) throw new Unavailable(`billing_qpay_codes unreadable: ${error.message}`);
+  return rows(data).map(toCode);
 }
 
+async function invoicesById(deps: BillingDeps, ids: string[]): Promise<Map<string, Invoice>> {
+  const out = new Map<string, Invoice>();
+  if (ids.length === 0) return out;
+  let q = deps.db.from('billing_invoices').select('id, account_id, period_key, invoice_no, kind, lines, amount_mnt, period_start, period_end, issued_on, due_on, is_test, status, paid_sum_mnt, paid_at, qpay_invoice_id, qpay_checked_at, created_at').in('id', [...new Set(ids)]);
+  if (deps.mode === 'test') q = q.eq('is_test', true);
+  const { data, error } = await q;
+  if (error) throw new Unavailable(`billing_invoices unreadable: ${error.message}`);
+  for (const r of rows(data)) out.set(str(r['id']), toInvoice(r));
+  return out;
+}
+
+/**
+ * Ask QPay about every watched code and record what it reports. Per invoice, every code is
+ * asked first and the payments recorded after, together: the database is told every key
+ * QPay named for the invoice, so a hand entry QPay itself names is never taken for a
+ * conflict, and one that it does not name still stops the record (0067).
+ *
+ * A callback, a page visit and the hourly run all come here. A callback about a paid or a
+ * withdrawn invoice still asks: money that reaches the merchant must reach the founder.
+ */
 async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: string, only?: string): Promise<void> {
-  // A callback is asked about whatever the invoice's status: a callback on a paid or a
-  // withdrawn invoice IS the signal that money arrived where none was due. Hourly, the
-  // unsettled ones, and the settled ones for SETTLED_WATCH_DAYS.
-  const invoices = only !== undefined
-    ? await loadInvoices(deps, { statuses: ['open', 'mismatch', 'paid', 'void'], haveQpay: true, id: only })
-    : [
-      ...await loadInvoices(deps, { statuses: ['open', 'mismatch'], haveQpay: true }),
-      ...await loadInvoices(deps, {
-        statuses: ['paid', 'void'], haveQpay: true,
-        updatedSince: new Date(deps.now.getTime() - SETTLED_WATCH_DAYS * 86_400_000),
-      }),
-    ];
-  if (invoices.length === 0) return;
+  const codes = await watchedCodes(deps, only);
+  if (codes.length === 0) return;
+  const invoices = await invoicesById(deps, codes.map((c) => c.invoiceId));
+  const byInvoice = new Map<string, PayCode[]>();
+  for (const c of codes) {
+    if (!invoices.has(c.invoiceId)) continue; // a live invoice in test mode
+    byInvoice.set(c.invoiceId, [...(byInvoice.get(c.invoiceId) ?? []), c]);
+  }
+  if (byInvoice.size === 0) return;
   // Least recently checked first, so a slow QPay cannot starve the same invoices every hour.
-  invoices.sort((a, b) => (a.qpayCheckedAt?.getTime() ?? -1) - (b.qpayCheckedAt?.getTime() ?? -1));
+  const order = [...byInvoice.entries()].sort(([, a], [, b]) =>
+    Math.min(...a.map((c) => c.checkedAt?.getTime() ?? -1)) - Math.min(...b.map((c) => c.checkedAt?.getTime() ?? -1)));
   const t = await deps.qpay.token();
   if (!t.ok) {
     deps.log('warn', 'billing.qpay_token_failed', { detail: t.detail });
-    for (const inv of invoices) await checkStale(deps, inv, report, t.detail);
+    for (const [id, list] of order) for (const c of list) await checkStale(deps, invoices.get(id) as Invoice, c, report, t.detail);
     return;
   }
-  for (const [i, inv] of invoices.entries()) {
+  for (const [i, [invoiceId, list]] of order.entries()) {
+    const inv = invoices.get(invoiceId) as Invoice;
     if (outOfTime(deps, report)) {
-      for (const rest of invoices.slice(i)) await checkStale(deps, rest, report, 'not reached within the time budget');
+      for (const [id, rest] of order.slice(i)) for (const c of rest) await checkStale(deps, invoices.get(id) as Invoice, c, report, 'not reached within the time budget');
       return;
     }
-    if (only !== undefined && inv.qpayCheckedAt !== null
-        && deps.now.getTime() - inv.qpayCheckedAt.getTime() < CALLBACK_MIN_INTERVAL_S * 1000) continue;
-    const check = await deps.qpay.checkPayment(t.token, inv.qpayInvoiceId as string);
-    if (!check.ok) { await checkStale(deps, inv, report, check.detail); continue; }
-    report.checked += 1;
-    if (!check.determined) {
-      // The outline carries no values but QPay's own words and amounts (outlineOf).
-      deps.log('warn', 'billing.qpay_undetermined', { invoice: inv.invoiceNo, reason: check.reason, outline: check.outline ?? null });
-      await problem(deps, `undetermined:${inv.id}:${check.reason}`,
-        `QPay's answer for ${inv.invoiceNo} could not be read completely (${check.reason}). Nothing was recorded. `
-        + 'Check the payment in the QPay merchant app; if it is real, record it under QPay\'s own payment id: '
-        + `node scripts/billing/settle.ts qpay --invoice ${inv.invoiceNo} --payment-id <id> --amount <amount> --paid-on <YYYY-MM-DD> --by <you>`,
-        inv.isTest, report);
-      continue;
+    const found: Array<{ code: PayCode; payment: { key: string; amountMnt: number; paidAt: Date } }> = [];
+    const answered: PayCode[] = [];
+    let unreadable = false;
+    for (const code of list) {
+      // A callback or a page visit does not ask again about a code answered moments ago.
+      if (only !== undefined && code.checkedAt !== null
+          && deps.now.getTime() - code.checkedAt.getTime() < CALLBACK_MIN_INTERVAL_S * 1000) continue;
+      const check = await deps.qpay.checkPayment(t.token, code.qpayInvoiceId);
+      if (!check.ok) { await checkStale(deps, inv, code, report, check.detail); unreadable = true; continue; }
+      report.checked += 1;
+      if (!check.determined) {
+        // The outline carries no values but QPay's own words and amounts (outlineOf).
+        deps.log('warn', 'billing.qpay_undetermined', { invoice: inv.invoiceNo, code: code.qpayInvoiceId, reason: check.reason, outline: check.outline ?? null });
+        await problem(deps, `undetermined:${inv.id}:${check.reason}`,
+          `QPay's answer for ${inv.invoiceNo} could not be read completely (${check.reason}). Nothing was recorded. `
+          + 'Check the payment in the QPay merchant app; if it is real, record it under QPay\'s own payment id: '
+          + `node scripts/billing/settle.ts qpay --invoice ${inv.invoiceNo} --payment-id <id> --amount <amount> --paid-on <YYYY-MM-DD> --by <you>`,
+          inv.isTest, report);
+        unreadable = true;
+        continue;
+      }
+      answered.push(code);
+      for (const p of check.payments) found.push({ code, payment: p });
     }
-    if (check.payments.length > 0) {
+    // A code that could not be read is asked again next time (and reported if that goes on);
+    // what the others report is recorded now. The database still refuses a payment a hand
+    // entry may already hold under an id no answer named (0067).
+    const reported = [...new Set(found.map((f) => f.payment.key))];
+    if (reported.length > 0) {
       // A QPay payment settled by hand (settle.ts qpay) is keyed by the id the founder typed.
-      // If QPay's answer names none of those ids, the same money may be here under another
+      // If QPay's answers name none of those ids, the same money may be here under another
       // key: record nothing and ask, never count it twice.
       const { data: prior, error: priorErr } = await deps.db.from('billing_payments')
         .select('payment_key, recorded_by').eq('invoice_id', inv.id).eq('source', 'qpay');
@@ -508,25 +519,27 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
           + 'Nothing was recorded; the next run tries again.', inv.isTest, report);
         continue;
       }
-      const answered = new Set(check.payments.map((p) => p.key));
       const byHand = ((prior ?? []) as { payment_key: string; recorded_by: string }[])
-        .filter((r) => r.recorded_by.startsWith('operator:') && !answered.has(r.payment_key));
+        .filter((r) => r.recorded_by.startsWith('operator:') && !reported.includes(r.payment_key));
       if (byHand.length > 0) {
-        await problem(deps, `hand_qpay:${inv.id}:${[...answered].sort().join(',')}`,
-          `QPay reports ${[...answered].join(', ')} for ${inv.invoiceNo}, but ${byHand.map((r) => r.payment_key).join(', ')} was recorded by hand. `
+        await problem(deps, `hand_qpay:${inv.id}:${[...reported].sort().join(',')}`,
+          `QPay reports ${reported.join(', ')} for ${inv.invoiceNo}, but ${byHand.map((r) => r.payment_key).join(', ')} was recorded by hand. `
           + 'If they are the same payment, nothing more is needed; if QPay\'s is a second payment, record it with settle.ts qpay under QPay\'s id. '
           + 'Nothing was recorded automatically.', inv.isTest, report);
         continue;
       }
     }
     let failed = false;
-    for (const p of check.payments) {
+    const seen = new Set<string>();
+    for (const { code, payment: p } of found) {
+      if (seen.has(p.key)) continue; // the same payment named by two answers is one payment
+      seen.add(p.key);
       const { data, error } = await deps.db.rpc('billing_record_payment', {
         p_invoice: inv.id, p_payment_key: p.key, p_source: 'qpay', p_amount: p.amountMnt,
-        p_paid_at: p.paidAt.toISOString(), p_qpay_invoice_id: inv.qpayInvoiceId, p_recorded_by: recordedBy, p_note: null,
-        // Every payment this QPay answer names: a hand entry under one of these ids is a
+        p_paid_at: p.paidAt.toISOString(), p_qpay_invoice_id: code.qpayInvoiceId, p_recorded_by: recordedBy, p_note: null,
+        // Every payment QPay named for this invoice: a hand entry under one of these ids is a
         // payment QPay identified, not a conflict (0067). The database decides under its lock.
-        p_reported_keys: check.payments.map((q) => q.key),
+        p_reported_keys: reported,
       });
       if (error) {
         failed = true;
@@ -535,21 +548,123 @@ async function syncPayments(deps: BillingDeps, report: TickReport, recordedBy: s
       }
       if ((data as Record<string, unknown> | null)?.['inserted'] === true) report.paymentsRecorded += 1;
     }
-    if (!failed) {
-      const { error } = await deps.db.from('billing_invoices').update({ qpay_checked_at: deps.now.toISOString() }).eq('id', inv.id);
-      if (error) report.problems.push(`check time of ${inv.invoiceNo} not recorded: ${error.message}`);
+    if (failed) continue;
+    if (unreadable) report.problems.push(`a code of ${inv.invoiceNo} could not be read; asked again next run`);
+    // Answered, and recorded: note it; a code answered after it could no longer take money
+    // (plus a margin for QPay's own settling) is final and no longer asked about.
+    for (const code of answered) {
+      const final = deps.now.getTime() >= code.expiresAt.getTime() + CODE_SETTLE_MS;
+      const { error } = await deps.db.from('billing_qpay_codes').update({
+        checked_at: deps.now.toISOString(), ...(final ? { closed_at: deps.now.toISOString() } : {}),
+      }).eq('id', code.id);
+      if (error) report.problems.push(`check time of a code of ${inv.invoiceNo} not recorded: ${error.message}`);
     }
+    const { error } = await deps.db.from('billing_invoices').update({ qpay_checked_at: deps.now.toISOString() }).eq('id', inv.id);
+    if (error) report.problems.push(`check time of ${inv.invoiceNo} not recorded: ${error.message}`);
   }
 }
 
-async function checkStale(deps: BillingDeps, inv: Invoice, report: TickReport, detail: string): Promise<void> {
-  // Only an unsettled invoice is waiting on the answer; a settled one is watched quietly.
-  if (inv.status !== 'open' && inv.status !== 'mismatch') return;
-  const since = inv.qpayCheckedAt ?? inv.createdAt;
-  if (deps.now.getTime() - since.getTime() < CHECK_STALE_HOURS * 3_600_000) return;
-  await problem(deps, `check_stale:${inv.id}:${billingToday(deps.now)}`,
-    `QPay has not answered a payment check for ${inv.invoiceNo} for over ${CHECK_STALE_HOURS} hours (${detail}). `
-    + 'A payment made in that time is not recorded yet.', inv.isTest, report);
+async function checkStale(deps: BillingDeps, inv: Invoice, code: PayCode, report: TickReport, detail: string): Promise<void> {
+  // A code QPay could take money on, never answered for since it stopped: a payment made on
+  // it may be unrecorded. Once per code.
+  const since = Math.max(code.expiresAt.getTime(), code.checkedAt?.getTime() ?? 0);
+  if (deps.now.getTime() - since < CODE_STALE_MS) return;
+  await problem(deps, `check_stale:${code.id}`,
+    `QPay has not answered a payment check for a code of ${inv.invoiceNo} (${code.qpayInvoiceId}) for over ${CODE_STALE_MS / 3_600_000} hours (${detail}). `
+    + 'A payment made on it is not recorded yet; it is still asked about every hour.', inv.isTest, report);
+}
+
+export type PayPageState =
+  | { kind: 'code'; invoice: Invoice; code: PayCode; now: Date }
+  | { kind: 'no_code'; invoice: Invoice; why: 'capped' }
+  | { kind: 'settled'; invoice: Invoice }
+  | { kind: 'unavailable'; detail: string };
+
+/**
+ * What the client's pay page shows for one invoice (0068). QPay is asked first, so an invoice
+ * paid a moment ago shows as paid, not as a new code. While it is open: the code on screen if
+ * it has long enough left (a reload), else a new one — recorded BEFORE it is shown, so a
+ * payment on it always finds this invoice. `renew` is the «Шинэ QR код авах» button.
+ *
+ * Making a new code withdraws the previous still-live ones at QPay (best effort): a client
+ * with two tabs open is less likely to pay twice. A payment made on a withdrawn code before
+ * the withdrawal still counts; it is watched like any other.
+ */
+export async function payPageState(given: BillingDeps, invoiceId: string, renew: boolean): Promise<PayPageState> {
+  const deps: BillingDeps = { ...given, deadline: given.deadline ?? Date.now() + CALLBACK_BUDGET_MS };
+  const report = emptyReport(deps);
+  // `deps.now` is when the visit began; QPay is asked a few seconds later.
+  const wallStart = Date.now();
+  const nowish = (): Date => new Date(deps.now.getTime() + (Date.now() - wallStart));
+  try {
+    await syncPayments(deps, report, 'check', invoiceId);
+    // A payment recorded just now is receipted by the callback or the next run.
+    await plan(deps, report.today, report, invoiceId);
+    const found = await invoicesById(deps, [invoiceId]);
+    const invoice = found.get(invoiceId);
+    if (invoice === undefined) return { kind: 'unavailable', detail: 'not found' };
+    if (invoice.status !== 'open') return { kind: 'settled', invoice };
+
+    const { data: latestRows, error: latestErr } = await deps.db.from('billing_qpay_codes')
+      .select('id, invoice_id, qpay_invoice_id, qr_image, urls, created_at, expires_at, checked_at, closed_at, cancelled_at')
+      .eq('invoice_id', invoiceId).order('created_at', { ascending: false }).limit(1);
+    if (latestErr) return { kind: 'unavailable', detail: latestErr.message };
+    const latest = rows(latestRows).map(toCode)[0];
+    const now = nowish().getTime();
+    if (latest !== undefined && latest.cancelledAt === null && latest.closedAt === null && latest.qrImage !== '') {
+      const left = latest.expiresAt.getTime() - now;
+      const fresh = now - latest.createdAt.getTime() < CODE_RENEW_DEBOUNCE_MS;
+      if ((!renew && left >= CODE_REUSE_MIN_LEFT_MS) || (renew && fresh && left > 0)) {
+        return { kind: 'code', invoice, code: latest, now: new Date(now) };
+      }
+    }
+
+    const { data: slot, error: slotErr } = await deps.db.rpc('billing_pay_code_slot', { p_invoice: invoiceId, p_max_per_hour: CODES_PER_HOUR });
+    if (slotErr) return { kind: 'unavailable', detail: slotErr.message };
+    if (slot === 'capped') return { kind: 'no_code', invoice, why: 'capped' };
+    if (slot !== 'ok') return { kind: 'settled', invoice: { ...invoice, status: slot as Invoice['status'] } };
+
+    const t = await deps.qpay.token();
+    if (!t.ok) return { kind: 'unavailable', detail: t.detail };
+    const requestedAt = nowish().getTime();
+    const made = await deps.qpay.createInvoice(t.token, {
+      amountMnt: invoice.amountMnt,
+      description: `DalaTech ${invoice.invoiceNo}`,
+      callbackUrl: deps.links.callback(invoice.id),
+    });
+    if (!made.ok) {
+      deps.log('warn', 'billing.qpay_create_failed', { invoice: invoice.invoiceNo, outcome: made.outcome, detail: made.detail });
+      return { kind: 'unavailable', detail: made.detail };
+    }
+    // QPay's five minutes start before its answer reached us: count from the request.
+    const expiresAt = new Date(requestedAt + QPAY_CODE_LIFETIME_MS - CODE_SAFETY_MS);
+    const { data: status, error: addErr } = await deps.db.rpc('billing_add_pay_code', {
+      p_invoice: invoice.id, p_qpay_invoice_id: made.invoiceId, p_qr_text: made.qrText, p_qr_image: made.qrImage,
+      p_urls: made.urls, p_expires_at: expiresAt.toISOString(),
+    });
+    if (addErr) {
+      // Not recorded, so never shown: nobody holds it. Withdraw it so it takes no money.
+      const c = await deps.qpay.cancelInvoice(t.token, made.invoiceId);
+      deps.log('error', 'billing.qpay_code_not_recorded', { invoice: invoice.invoiceNo, detail: addErr.message, withdrawn: c.ok });
+      return { kind: 'unavailable', detail: addErr.message };
+    }
+    const code: PayCode = {
+      id: '', invoiceId: invoice.id, qpayInvoiceId: made.invoiceId, qrImage: made.qrImage, urls: made.urls,
+      createdAt: new Date(requestedAt), expiresAt, checkedAt: null, closedAt: null, cancelledAt: null,
+    };
+    // Withdraw the older codes that could still take money (best effort, recorded).
+    const { data: live } = await deps.db.from('billing_qpay_codes').select('id, qpay_invoice_id')
+      .eq('invoice_id', invoice.id).is('cancelled_at', null).gt('expires_at', nowish().toISOString()).neq('qpay_invoice_id', made.invoiceId);
+    for (const old of rows(live)) {
+      const c = await deps.qpay.cancelInvoice(t.token, str(old['qpay_invoice_id']));
+      if (c.ok) await deps.db.from('billing_qpay_codes').update({ cancelled_at: new Date().toISOString() }).eq('id', str(old['id']));
+    }
+    if (status !== 'open') return { kind: 'settled', invoice: { ...invoice, status: status as Invoice['status'] } };
+    return { kind: 'code', invoice, code, now: nowish() };
+  } catch (err) {
+    if (err instanceof Unavailable) return { kind: 'unavailable', detail: err.message };
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -563,7 +678,6 @@ async function plan(deps: BillingDeps, today: string, report: TickReport, only?:
   for (const inv of invoices) {
     const account = accounts.get(inv.accountId);
     if (account === undefined) { report.problems.push(`invoice ${inv.invoiceNo} has no readable account`); continue; }
-    if (inv.qpayInvoiceId === null) continue; // nothing payable exists yet: say nothing
 
     if (inv.status === 'open') {
       const text = await planClientMessage(deps, report, inv, account, 'invoice',
@@ -866,7 +980,6 @@ export async function runBillingTick(given: BillingDeps): Promise<TickResult> {
   const today = report.today;
   try {
     await issue(deps, today, report);
-    await createQpayInvoices(deps, report);
     await syncPayments(deps, report, 'check');
     await plan(deps, today, report);
     await month(deps, today, report);

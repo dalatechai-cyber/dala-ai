@@ -11074,3 +11074,23 @@ for the founder (money movement, credentials, customer-visible Mongolian). Runbo
   equals the replica's (`d818a08d…`); `billing_payments_via_function` enabled always; a
   rolled-back probe recorded through the function and was refused on a direct insert; no row
   remained.
+
+### D-156 addendum — the pay page makes the QPay code; a client can always pay (2026-09-28, founder)
+
+- The late-payment test failed: TEST-202609-0002's QPay code, made at issue (05:00:06 UTC),
+  had expired when the founder opened the e-mail; TDB refused it (QP2036 «Нэхэмжлэхийн
+  хугацаа дууссан байна»). QPay Quick QR codes live five minutes (the same limit Tara's
+  booking QR counts down, `matrix_website/script.js` `QPAY_QR_VALID_MS`). So one code per
+  invoice, made at issue, could only ever be paid within five minutes of the e-mail.
+- Now (`0068`): no code is made at issue. The pay page makes one when the client opens it
+  (a reload with three minutes or more left shows the same one), counts down to it
+  («QR код m:ss хүчинтэй»), and at zero offers «Шинэ QR код авах», which makes a new one; a
+  new code withdraws the previous live one at QPay (best effort). An invoice paid meanwhile
+  shows as paid, never a new code. At most 20 codes an hour per invoice.
+- A payment on any code of the invoice counts, once (keyed by QPay's payment id, 0067's
+  rules unchanged). Every code is watched until QPay answers for it an hour after it expired.
+- E-mails and reminders already carried only the pay-page link; nothing changes in them.
+- The three code lines are the founder's words for Tara, reused verbatim; they are drafts in
+  `prompt/drafts/billing/` until the founder signs them. Until then a test invoice's page
+  shows them in English under a banner, and a live invoice's open page is a 503.
+

@@ -280,6 +280,24 @@ partial, one of four tables.
 - **Billing of tenants' own customers** — `0065` invoices DalaTech's clients for DalaTech's
   fee. Nothing here bills a tenant's customers.
 
+### `0068_billing_pay_codes`
+
+**Additive: one table, two functions; `billing_record_payment` widened.** QPay codes (Quick QR
+invoices) live five minutes, so a code made at issue could not be paid later (QP2036). Now:
+- `billing_qpay_codes` — every code shown for an invoice (`made_by` `page`, or `issue` for the
+  backfilled pre-0068 single codes). Never deleted; its invoice, QPay id and lifetime never
+  change (trigger `ops.billing_qpay_code_guard`); `checked_at` / `closed_at` / `cancelled_at`
+  are the watch's bookkeeping. RLS forced, clients hold nothing; class `server_owned`.
+- `billing_pay_code_slot(invoice, max_per_hour)` — under the invoice lock: the invoice's
+  status when it is not open, `capped` past the hourly cap, else `ok`.
+- `billing_add_pay_code(…, expires_at)` — records a code QPay made, before it is shown; the
+  lifetime must end within ten minutes.
+- `billing_record_payment` — a QPay payment belongs to the invoice when its QPay invoice is
+  ANY of its codes (or the pre-0068 `billing_invoices.qpay_invoice_id`). Everything else as
+  0067. The `qpay_*` columns on `billing_invoices` and `billing_claim_qpay` /
+  `billing_set_qpay` / `billing_release_qpay` are no longer written or called.
+Proven by `billing.sql` B18 (19 checks) and the billing e2e (83).
+
 ### `0067_billing_one_payment_one_key`
 
 **Replaces one function, adds one trigger; no column changes.** `billing_record_payment` gains
