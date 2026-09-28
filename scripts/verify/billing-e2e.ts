@@ -284,9 +284,12 @@ async function main(): Promise<void> {
   // --- the pay page ---------------------------------------------------------------------
   const links = linksFor(ORIGIN, LINK_SECRET);
   const paidPage = await runPayPageJob({ db: () => db, now: at('2026-10-15'), token: links.pay(liveId).split('/pay/')[1] ?? '' });
-  check(paidPage.status === 503, 'the live pay page refuses while its wording is unsigned in the database');
+  // The signed wording is in the database from 0066 on (the unsigned 503 is a unit test).
+  check(paidPage.status === 200 && paidPage.html.includes('Төлөгдсөн — 2026.10.15') && paidPage.html.includes('Салон ХХК')
+    && !paidPage.html.includes('data:image') && !paidPage.html.includes('TEST —'), 'the live pay page, in the signed Mongolian: paid on 2026.10.15, no QR');
   const testPage = await runPayPageJob({ db: () => db, now: at('2026-10-15'), token: links.pay(testId).split('/pay/')[1] ?? '' });
-  check(testPage.status === 200 && testPage.html.includes('TEST — the Mongolian wording is not signed') && !testPage.html.includes('data:image'), 'the test pay page renders in English, paid, with no QR');
+  check(testPage.status === 200 && testPage.html.includes('Төлөгдсөн') && !testPage.html.includes('TEST —') && !testPage.html.includes('data:image'),
+    'the test pay page reads the same signed wording, paid, with no QR');
   const forged = await runPayPageJob({ db: () => db, now: at('2026-10-15'), token: 'x.y' });
   check(forged.status === 404, 'a forged link is a 404');
 
