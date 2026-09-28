@@ -443,7 +443,7 @@ test('the pay page (0068): a live code counts down in Tara\'s words; at zero, th
   const none = renderPayPage({ kind: 'no_code', invoice: invoice({}), account }, signed);
   assert.doesNotMatch(none.html, /data:image/);
   assert.doesNotMatch(none.html, /qr-countdown/);
-  assert.match(none.html, /Та олон удаа QR код авсан байна/);
+  assert.match(none.html, /Уучлаарай, та олон удаа QR код авсан байна\. Хэдэн минут хүлээгээд доорх товчийг дахин дарна уу\./);
   assert.doesNotMatch(none.html, /QR кодын хугацаа дууслаа/);
   assert.match(none.html, /Шинэ QR код авах/);
   // A code already at zero is never drawn.
