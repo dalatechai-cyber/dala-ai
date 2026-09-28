@@ -63,7 +63,7 @@ export type QpayPayment = { key: string; amountMnt: number; paidAt: Date };
 
 export type QpayCheck =
   | { ok: true; determined: true; payments: QpayPayment[]; invoiceStatus: string | null }
-  | { ok: true; determined: false; reason: string; invoiceStatus: string | null }
+  | { ok: true; determined: false; reason: string; invoiceStatus: string | null; outline?: string }
   | QpayFailure;
 
 export type QpayPort = {
@@ -167,6 +167,43 @@ export function readPaymentCheck(body: unknown, qpayInvoiceId: string, now: Date
   return { ok: true, determined: true, payments, invoiceStatus };
 }
 
+/** Keys whose values are QPay's own vocabulary (a state, a currency), safe to log as is. */
+const WORD_KEY = /(status|currency|type|method)$/i;
+/** Keys whose numbers are amounts or counts, not identifiers. */
+const NUMBER_KEY = /(amount|count|fee)$/i;
+
+/**
+ * The shape of a QPay answer with its values withheld: every key, the type of its value, the
+ * length and character classes of each string, and only QPay's own words (statuses,
+ * currencies) and amounts as they are. Logged when an answer cannot be read, so the reader
+ * can be fixed from what QPay actually sent without a payer's name, account or phone ever
+ * reaching the logs.
+ */
+export function outlineOf(v: unknown, key = '', depth = 0): string {
+  if (v === null) return 'null';
+  if (Array.isArray(v)) {
+    if (depth >= 4) return `array(${v.length})`;
+    const items = v.slice(0, 5).map((x) => outlineOf(x, key, depth + 1));
+    return `[${items.join(', ')}${v.length > 5 ? `, …${v.length - 5} more` : ''}]`;
+  }
+  if (typeof v === 'object') {
+    if (depth >= 4) return 'object';
+    const entries = Object.keys(v as Record<string, unknown>).sort()
+      .map((k) => `${k}: ${outlineOf((v as Record<string, unknown>)[k], k, depth + 1)}`);
+    return `{${entries.join(', ')}}`;
+  }
+  if (typeof v === 'number') return NUMBER_KEY.test(key) ? `number ${v}` : 'number';
+  if (typeof v === 'boolean') return `boolean ${v}`;
+  if (typeof v === 'string') {
+    if (WORD_KEY.test(key) && /^[A-Za-z_]{1,24}$/.test(v)) return JSON.stringify(v);
+    if (NUMBER_KEY.test(key) && /^\d{1,12}(\.\d{1,2})?$/.test(v)) return `string ${JSON.stringify(v)}`;
+    const classes = [/\d/.test(v) ? 'digits' : '', /[A-Za-z]/.test(v) ? 'latin' : '',
+      /[^\dA-Za-z]/.test(v) ? 'other' : ''].filter((c) => c !== '').join('+');
+    return `string(${[...v].length}${classes === '' ? '' : ` ${classes}`})`;
+  }
+  return typeof v;
+}
+
 /** The live Quick QR port. `fetchImpl` is the test seam. */
 export function quickQr(cfg: QpayConfig, fetchImpl: typeof fetch = fetch): QpayPort {
   const json = { 'content-type': 'application/json' };
@@ -233,7 +270,8 @@ export function quickQr(cfg: QpayConfig, fetchImpl: typeof fetch = fetch): QpayP
         body: JSON.stringify({ invoice_id: qpayInvoiceId }),
       });
       if (!r.ok) return r;
-      return readPaymentCheck(r.json, qpayInvoiceId, new Date());
+      const check = readPaymentCheck(r.json, qpayInvoiceId, new Date());
+      return check.ok && !check.determined ? { ...check, outline: outlineOf(r.json) } : check;
     },
 
     async cancelInvoice(token, qpayInvoiceId) {

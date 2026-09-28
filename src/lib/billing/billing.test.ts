@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { addDays, daysBetween, dottedDay, previousMonth, stageFor, billingToday } from './calendar.ts';
 import { actionKindOf, linksFor, signLink, verifyLink } from './links.ts';
-import { parseAmount, paymentTime, quickQr, readPaymentCheck } from './qpay.ts';
+import { outlineOf, parseAmount, paymentTime, quickQr, readPaymentCheck } from './qpay.ts';
 import { BILLING_BLOCKS, BILLING_BLOCK_KEYS, formatMnt, render, renderLines, type Wording } from './templates.ts';
 import { parseStaff, propose, teamDiscountPercent, type Phrases } from './amounts.ts';
 import { sendBrevoEmail, sendFounderTelegram, textToHtml } from './send.ts';
@@ -371,4 +371,29 @@ test('the worker: unsigned is 401, off does nothing, a mistyped switch refuses',
   // Configured on, but the QPay variables are absent: 503, never a half-run.
   assert.equal((await runBillingWorkerJob({ ...base, db: () => ({ from: () => { throw new Error('x'); } }) as never, verifySignature: async () => true })).status, 503);
   delete process.env['BILLING_MODE'];
+});
+
+test('outlineOf: the shape of a QPay answer, with no payer data in it', () => {
+  const body = {
+    count: 1, paid_amount: 100,
+    rows: [{ payment_status: 'PAID', payment_amount: '100.00', payment_currency: 'MNT',
+      payer_name: 'Бат-Эрдэнэ', account_number: '5016271526', phone: '+976 99112233', note: null, ok: true }],
+  };
+  const o = outlineOf(body);
+  assert.equal(o, '{count: number 1, paid_amount: number 100, rows: [{account_number: string(10 digits), '
+    + 'note: null, ok: boolean true, payer_name: string(10 other), payment_amount: string "100.00", '
+    + 'payment_currency: "MNT", payment_status: "PAID", phone: string(13 digits+other)}]}');
+  for (const secret of ['Бат', '5016271526', '99112233']) assert.ok(!o.includes(secret), secret);
+  // A status-named key with free text is withheld like any other string.
+  assert.equal(outlineOf({ status: 'Paid by Bat 99112233' }), '{status: string(20 digits+latin+other)}');
+  // Arrays are cut at five items; depth at four.
+  assert.match(outlineOf({ rows: [1, 2, 3, 4, 5, 6, 7] }), /…2 more/);
+});
+
+test('checkPayment: an unreadable answer carries its outline for the log', async () => {
+  const port = quickQr({ username: 'u', password: 'p', terminalId: 't', merchantId: 'm', bankCode: 'b', bankAccount: 'a', accountName: 'n' },
+    (async () => new Response(JSON.stringify({ count: 1, rows: [{ payment_status: 'PAID', payment_amount: 100 }] }), { status: 200 })) as typeof fetch);
+  const check = await port.checkPayment('tok', 'inv');
+  assert.ok(check.ok && !check.determined);
+  assert.equal(check.outline, '{count: number 1, rows: [{payment_amount: number 100, payment_status: "PAID"}]}');
 });
