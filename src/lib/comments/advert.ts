@@ -21,19 +21,16 @@
  *
  * Each signal alone is something a CUSTOMER writes: «99112233 руу залгаарай» (call me back),
  * «45000 уу?» (is it 45,000?), «Та нар маск зарна уу?» (do you sell masks?). So one signal
- * never decides. An advert is:
+ * never decides. An advert is two of three — a SELLER's words («зарна», «хүргэлттэй»,
+ * «бөөний»…), a phone number, a price figure — in a comment that asks NOTHING. A seller
+ * states; a customer asks.
  *
- *  - a SELLER's sentence («зарна», «хүргэлттэй», «бөөний үнээр»…) together with a phone
- *    number or a price figure, or
- *  - a phone number together with a price figure, in a comment that asks NOTHING — a seller
- *    states, a customer asks, and a customer who leaves a number next to a price is asking
- *    whether that is the price.
+ * A clock time or a date is never a price (`isTimeOrDate`), so «Цаг авъя 99112233 18:30» is a
+ * customer booking. Stated limit: «Үнэ 45000 гэсэн, 99112233 руу залгаарай» — a phone and a
+ * price, no question — reads as an advert, and is recorded as one.
  *
- * A seller word followed by a question particle («зарна уу») is a customer asking, and is
- * not a seller signal.
- *
- * The third shape — the same long comment posted again by the same account — needs the
- * earlier comments and is decided by `isRepeatedComment` over what the caller read.
+ * The third shape — the same long comment posted again by the same account within a day —
+ * needs the earlier comments and is decided by `isRepeatedComment` over what the caller read.
  *
  * ## What it returns
  *
@@ -41,7 +38,7 @@
  * `quality_flags` row, which the purge does not reach (see `UNCLASSIFIED_FLAG`).
  */
 import { extractNumerals } from '../mn/extract.ts';
-import { endsWithAny, hasWord, messageWords, wholeMessageKey } from '../mn/match.ts';
+import { hasWord, messageWords, wholeMessageKey } from '../mn/match.ts';
 import { cpLength, nfc } from '../mn/text.ts';
 
 export type AdvertSignal = 'seller_words' | 'phone' | 'price' | 'repeated';
@@ -62,16 +59,20 @@ const SELLER_WORDS: readonly string[] = [
 ];
 
 /** Question particles, as whole words — the same set the salon's question rules use. */
-const QUESTION_WORDS: readonly string[] = [
-  '?', 'уу', 'үү', 'юу', 'юү', 'вэ', 'бэ', 'бол', 'uu', 'vv', 'yu', 'yuu', 've', 'we', 'be', 'bol',
-];
+const QUESTION_PARTICLES = new Set(messageWords('уу үү юу юү вэ бэ бол uu vv yu yuu ve we be bol'));
 /** The same particles typed fused to the last word («арилдагуу»). */
 const QUESTION_ENDINGS: readonly string[] = ['уу', 'үү', 'юу', 'юү', 'вэ', 'бэ', 'uu', 'vv', 'yu', 've', 'we', 'be'];
-/** Particles that turn a seller word into a customer's question when they follow it. */
-const FOLLOWING_PARTICLES = new Set(messageWords('уу үү юу юү вэ бэ uu vv yu yuu ve we be'));
+/**
+ * Greetings that END in a question particle. A comment opening with one is not asking
+ * anything by it: «Сайн байна уу» carries «уу» as a whole word, and without this every seller
+ * who says hello would read as a customer asking.
+ */
+const GREETINGS: readonly string[][] = [
+  'сайн байна уу', 'сайн байцгаана уу', 'сайн уу', 'sain baina uu', 'sain bainuu', 'sain bnuu', 'sn bnu', 'sain uu',
+].map((g) => messageWords(g));
 
-/** Currency marks that make any numeral a price. Whole words, or the symbol anywhere. */
-const CURRENCY: readonly string[] = ['₮', 'төгрөг', 'төг', 'tugrug', 'tug', 'mnt'];
+/** Currency marks, and the word «үнэ» — what makes a four-digit figure a price. */
+const PRICE_WORDS: readonly string[] = ['₮', 'төгрөг', 'төг', 'tugrug', 'tug', 'mnt', 'үнэ', 'une', 'vne'];
 
 /**
  * A Mongolian phone number: eight digits, the first 5–9. Written joined, dashed or spaced
@@ -82,55 +83,76 @@ function isPhoneDigits(d: string): boolean {
   return d.length === 8 && d.charCodeAt(0) >= 0x35 && d.charCodeAt(0) <= 0x39;
 }
 
+/**
+ * A clock time or a date, never a price: `extractNumerals` joins across «:» and «.», so
+ * «18:30» reduces to 1830 and «2026.09.28» to 20260928. A customer booking «99112233 18:30»
+ * must not read as a phone number beside a price.
+ */
+function isTimeOrDate(raw: string): boolean {
+  if (raw.includes(':') || raw.includes('/')) return true;
+  let seps = 0;
+  for (const ch of raw) if (ch === '.' || ch === '-') seps += 1;
+  return seps >= 2;
+}
+
 function numeralFacts(text: string): { phone: boolean; price: boolean } {
   const s = nfc(text);
   const numerals = extractNumerals(s);
+  const priceContext = hasWord(s, PRICE_WORDS);
   let phone = false;
   let price = false;
   for (let i = 0; i < numerals.length; i += 1) {
-    const d = numerals[i]!.digits;
+    const { raw, digits: d } = numerals[i]!;
     const next = numerals[i + 1]?.digits;
     if (isPhoneDigits(d) || (d.length === 4 && next?.length === 4 && isPhoneDigits(d + next))) {
       phone = true;
       if (!isPhoneDigits(d)) i += 1;
       continue;
     }
-    // Four digits or more is a price here, not a count: «2 удаа», «3 цаг» are not prices.
-    if (d.length >= 4) price = true;
+    if (isTimeOrDate(raw)) continue;
+    // Five digits or more is a price on its own («45000», «120,000»); a shorter figure only
+    // beside a currency mark or «үнэ». «2 удаа», «3 цаг» and a year are not prices.
+    if (d.length >= 5 || (priceContext && d.length >= 3)) price = true;
   }
-  if (!price && numerals.length > 0 && hasWord(s, CURRENCY)) price = true;
   return { phone, price };
 }
 
-/** A seller word that is not immediately followed by a question particle. */
-function sellerWords(text: string): boolean {
-  if (!hasWord(text, SELLER_WORDS)) return false;
-  const words = messageWords(text);
-  for (const entry of SELLER_WORDS) {
-    const want = messageWords(entry);
-    for (let i = 0; i + want.length <= words.length; i += 1) {
-      if (!want.every((w, j) => words[i + j] === w)) continue;
-      const after = words[i + want.length];
-      if (after === undefined || !FOLLOWING_PARTICLES.has(after)) return true;
-    }
+/**
+ * Does the comment ask anything? A question particle as a whole word, one fused to the last
+ * word, or a question mark — not counting a greeting it opens with.
+ */
+export function asksSomething(text: string): boolean {
+  let words = messageWords(text);
+  let greetingMarks = 0;
+  const g = GREETINGS.find((w) => w.length <= words.length && w.every((x, j) => words[j] === x));
+  if (g !== undefined) {
+    words = words.slice(g.length);
+    greetingMarks = 1;
   }
-  return false;
+  const s = nfc(text);
+  let marks = 0;
+  for (const ch of s) if (ch === '?' || ch === '\uFF1F') marks += 1;
+  if (marks > greetingMarks) return true;
+  if (words.some((w) => QUESTION_PARTICLES.has(w))) return true;
+  const last = words[words.length - 1];
+  return last !== undefined && QUESTION_ENDINGS.some((e) => last.endsWith(e));
 }
 
-function asksSomething(text: string): boolean {
-  return hasWord(text, QUESTION_WORDS) || endsWithAny(text, QUESTION_ENDINGS);
-}
-
-/** Does the comment's own text read as another seller's advert? Pure. */
+/**
+ * Does the comment's own text read as another seller's advert? Pure.
+ *
+ * Never when it asks something: a seller states, a customer asks. «Бөөний үнэ 45000 уу?» is
+ * a customer, and so is anything with «зарна уу».
+ */
 export function advertByText(text: string): AdvertCheck {
-  const seller = sellerWords(text);
+  const seller = hasWord(text, SELLER_WORDS);
   const { phone, price } = numeralFacts(text);
   const signals: AdvertSignal[] = [];
   if (seller) signals.push('seller_words');
   if (phone) signals.push('phone');
   if (price) signals.push('price');
-  const advert = (seller && (phone || price)) || (phone && price && !asksSomething(text));
-  return advert ? { advert: true, signals } : { advert: false };
+  const two = (seller && (phone || price)) || (phone && price);
+  return two && !asksSomething(text) ? { advert: true, signals } : { advert: false };
 }
 
 /**
@@ -141,15 +163,35 @@ export function advertByText(text: string): AdvertCheck {
 export const REPEAT_MIN_CHARS = 40;
 
 /**
- * Has this account posted this same comment before? `earlier` is the text of the same
- * author's OTHER comments on this tenant's pages, on any post. Compared on the reduced form
- * every matcher reads (case, punctuation and emoji removed), so a copy with one more heart
- * is still a copy.
+ * How far apart two copies may be. The advert of 2026-09-27 was three copies in twelve
+ * seconds; a day covers a seller pasting down the Page's posts, and does not reach a customer
+ * who comes back next week with the same words.
  */
-export function isRepeatedComment(text: string, earlier: readonly string[]): boolean {
-  const key = repeatKey(text);
-  if (cpLength(key) < REPEAT_MIN_CHARS) return false;
-  return earlier.some((t) => repeatKey(t) === key);
+export const REPEAT_WINDOW_MS = 24 * 3_600_000;
+
+/**
+ * Could this comment be a pasted repeat at all? Long enough, and asking nothing — a customer
+ * re-posting a question nobody answered is asking again, not advertising. The caller reads
+ * the author's earlier comments only when this is true.
+ */
+export function mayBeRepeat(text: string): boolean {
+  return cpLength(repeatKey(text)) >= REPEAT_MIN_CHARS && !asksSomething(text);
+}
+
+/**
+ * Has this account posted this same comment within `REPEAT_WINDOW_MS` of it? `earlier` is
+ * the same author's OTHER comments on this tenant's pages, on any post. Compared on the
+ * reduced form every matcher reads (case, punctuation and emoji removed), so a copy with one
+ * more heart is still a copy.
+ */
+export function isRepeatedComment(
+  comment: { text: string; createdAt: Date },
+  earlier: readonly { text: string; createdAt: Date }[],
+): boolean {
+  if (!mayBeRepeat(comment.text)) return false;
+  const key = repeatKey(comment.text);
+  const at = comment.createdAt.getTime();
+  return earlier.some((e) => Math.abs(e.createdAt.getTime() - at) <= REPEAT_WINDOW_MS && repeatKey(e.text) === key);
 }
 
 /**

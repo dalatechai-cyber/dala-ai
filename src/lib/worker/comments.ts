@@ -53,7 +53,7 @@ import type { CommentLookup } from '../comments/lookup.ts';
 import { isAutomationText } from '../handover/automation.ts';
 import { pageCommentsIn, staffHandled, type PageComment, type StaffCheck } from '../comments/staff.ts';
 import { classifyComment, type CommentRule } from '../comments/classify.ts';
-import { advertByText, isRepeatedComment, type AdvertCheck } from '../comments/advert.ts';
+import { advertByText, isRepeatedComment, mayBeRepeat, type AdvertCheck } from '../comments/advert.ts';
 import { cpLength } from '../mn/text.ts';
 import type { CommentSendOutcome } from '../comments/send.ts';
 import { claim, draftOnce, markFailed, markIndeterminate, markRefused, markSent } from '../outbound/claim.ts';
@@ -613,7 +613,7 @@ async function readStaffActivity(
 async function readAuthorComments(
   db: SupabaseClient,
   input: { tenantId: string; selfId: string; provider: CommentProvider; fromId: string; exceptCommentId: string },
-): Promise<{ ok: true; texts: string[] } | { ok: false; detail: string }> {
+): Promise<{ ok: true; earlier: { text: string; createdAt: Date }[] } | { ok: false; detail: string }> {
   const { data, error } = await db
     .from('webhook_events')
     .select('raw_payload')
@@ -622,14 +622,14 @@ async function readAuthorComments(
     .contains('raw_payload', { changes: [{ value: { from: { id: input.fromId } } }] })
     .order('id', { ascending: true });
   if (error) return { ok: false, detail: `webhook_events unreadable: ${error.message}` };
-  const texts: string[] = [];
+  const earlier: { text: string; createdAt: Date }[] = [];
   for (const row of Array.isArray(data) ? data : []) {
     const { comments } = extractComments((row as Record<string, unknown>)['raw_payload'], input.selfId, input.provider);
     for (const c of comments) {
-      if (c.fromId === input.fromId && c.commentId !== input.exceptCommentId) texts.push(c.text);
+      if (c.fromId === input.fromId && c.commentId !== input.exceptCommentId) earlier.push({ text: c.text, createdAt: c.createdAt });
     }
   }
-  return { ok: true, texts };
+  return { ok: true, earlier };
 }
 
 /** The flag payload for a staff refusal: which proof, never whose name. */
@@ -873,11 +873,12 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       return result;
     }
     // Another seller's advert (`comments/advert.ts`). The words first; the repeat check reads
-    // the author's earlier comments, so it is made only for a comment the rules would answer
-    // and whose words did not already decide it. An escalation never reads it: a complaint
-    // is escalated whatever else it carries.
+    // the author's earlier comments, so it is made only for a comment the rules would answer,
+    // whose words did not already decide it, and that could be a pasted repeat at all (long,
+    // asking nothing). An escalation never reads it: a complaint is escalated whatever else
+    // it carries.
     let advert: AdvertCheck = advertByText(comment.text);
-    if (!advert.advert && classified.verdict === 'reply') {
+    if (!advert.advert && classified.verdict === 'reply' && mayBeRepeat(comment.text)) {
       const earlier = await readAuthorComments(fx.db, {
         tenantId: input.tenantId, selfId, provider, fromId: comment.fromId, exceptCommentId: comment.commentId,
       });
@@ -886,7 +887,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
         result.retry = true;
         return result;
       }
-      if (isRepeatedComment(comment.text, earlier.texts)) advert = { advert: true, signals: ['repeated'] };
+      if (isRepeatedComment(comment, earlier.earlier)) advert = { advert: true, signals: ['repeated'] };
     }
     const staff = staffHandled({ comment, pageComments: staffActivity.pageComments, ours: staffActivity.ours });
     // The rule's own lines (D-144), when the rules that fired agree on one pair, both rows are

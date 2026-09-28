@@ -1298,11 +1298,37 @@ test('LIVE — the same comment is not its own repeat: the earlier-comments read
   assert.equal(posted.length, 1);
 });
 
-test('LIVE — the earlier-comments read unreadable: nothing posted, and a retry', async () => {
-  const { posted, result } = run({ tables: { 'webhook_events:author': { data: null, error: { message: 'boom' } } } });
+test('LIVE — the earlier-comments read unreadable: nothing posted or sent, and a retry', async () => {
+  const pasted = 'Японоос ирсэн үсний маск байна, үнэ нь маш боломжийн шүү, инбоксоор ороорой';
+  const { posted, privates, result } = run({ tables: { ...withPrivateLine, 'webhook_events:author': { data: null, error: { message: 'boom' } } } }, {
+    config: BOTH, rawPayload: entry([comment({ message: pasted })]),
+  });
   const r = await result;
-  assert.equal(posted.length, 0);
+  assert.equal(posted.length + privates.length, 0);
   assert.equal(r.retry, true);
+});
+
+test('a short question never costs the earlier-comments read', async () => {
+  const { ops, posted, result } = run({ tables: { 'webhook_events:author': { data: null, error: { message: 'boom' } } } });
+  const r = await result;
+  assert.equal(r.replied, 1, 'the read would have failed; it was never made');
+  assert.equal(posted.length, 1);
+  assert.equal(ops.filter((o) => o.table === 'webhook_events' && !JSON.stringify(o.filters['contains:raw_payload'] ?? {}).includes('"item"')).length, 0);
+});
+
+test('LIVE — the advert\u2019s second copy does NOT resume the first copy\u2019s pending rows', async () => {
+  // Copy 1 was drafted (or its send failed) before this change; copy 2 arrives on a live
+  // channel. As `person_already_answered` it would resume and send them; as an advert it
+  // stops before the person rule.
+  const { posted, privates, ops, result } = run({ tables: withPrivateLine, outbound: {
+    persons: { data: [{ comment_post_id: `${PAGE}_p1`, comment_from_id: 'customer_1' }], error: null },
+    existing: { data: [{ dedup_key: `${PAGE}_c0` }], error: null },
+    pending: { data: { id: 'om-9', state: 'draft', body: LINE }, error: null },
+  } }, { config: BOTH, rawPayload: entry([comment({ message: REAL_ADVERT })]) });
+  const r = await result;
+  assert.equal(r.refused['comment_advert'], 1);
+  assert.equal(posted.length + privates.length, 0);
+  assert.equal(ops.filter((o) => o.table === 'outbound_messages' && (o.cols === 'id, state' || o.cols === 'id, state, body')).length, 0, 'pending rows never read');
 });
 
 test('praise and complaints never cost the earlier-comments read', async () => {

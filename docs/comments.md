@@ -259,17 +259,22 @@ platform code, and `decideCommentReply` refuses with `comment_advert` right afte
 `escalate`. A complaint that carries a phone number and a price still reaches a person. The
 check sits before the person rule, so a second copy never resumes the seller's pending rows.
 
-An advert is two signals together, because each one alone is something a customer writes:
+An advert is two signals together, in a comment that asks nothing (a seller states, a
+customer asks), because each signal alone is something a customer writes. The three signals
+are a seller's words («зарна», «хүргэлттэй», «бөөний»…), a phone number, and a price figure.
+A clock time or a date is never a price, so «Цаг авъя 99112233 18:30» is a booking. A
+greeting such as «Сайн байна уу» does not count as asking. The one other shape is the same
+statement of 40 or more characters, posted again by the same account within 24 hours on any
+of the tenant's posts. That check reads `webhook_events`, and only for a comment the rules
+would answer.
 
-- a seller's words («зарна», «хүргэлттэй», «бөөний»…, not followed by «уу») with a phone
-  number or a price figure; or
-- a phone number with a price figure in a comment that asks nothing; or
-- the same comment of 40 or more characters, posted again by the same account on any of the
-  tenant's posts, read from `webhook_events`.
+Every refusal writes a `comment_advert` flag with the signal names, never the text. Nothing
+reads that flag yet: the digest does not count it. Stated limits:
 
-Every refusal writes a `comment_advert` flag with the signal names, never the text. Stated
-limit: an advert with none of the word signals is answered the first time and refused from
-the second copy on.
+- An advert with none of the text signals is answered the first time and refused from the
+  second copy on.
+- A customer who writes a phone number beside a price and asks nothing
+  («Үнэ 45000 гэсэн, 99112233 руу залгаарай») is read as an advert.
 
 ## Shadow first, and the shadow phase's product is the silence
 

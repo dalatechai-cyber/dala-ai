@@ -6,7 +6,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { advertByText, isRepeatedComment } from './advert.ts';
+import { advertByText, asksSomething, isRepeatedComment, REPEAT_WINDOW_MS } from './advert.ts';
 import { SELLER_ADVERTS } from './realThreads.fixtures.ts';
 import { EXAMPLES, REAL_COMMENTS } from './salonCorpus.fixtures.ts';
 
@@ -25,6 +25,10 @@ const ADVERTS: readonly string[] = [
   'Хүргэлттэй 99887766',
   'maska zarna 45000',
   'Захиалга авна 45000 төгрөг',
+  // A greeting that ends in «уу» is not a question.
+  'Сайн байна уу маск зарна 45000 99112233',
+  'Сайн байна уу? Маск зарна 45000',
+  'Үнэ 5000₮ 99112233',
 ];
 
 for (const text of ADVERTS) {
@@ -45,6 +49,17 @@ const CUSTOMERS: readonly string[] = [
   '2 удаа будуулсан, 3 цаг болох уу?',
   'Үнэ хэд вэ?',
   'Цаг авъя 77417777',
+  // Review, 2026-09-28: a phone and a clock time or a date is a booking, not a price.
+  'Цаг авъя 99112233 18:30',
+  'Маргааш 14:00 цагт цаг авах 99112233',
+  'Цаг авах гэсэн 99112233 руу залгаарай 10:00 цагаас хойш',
+  '2026.10.02 өдөр цаг авъя 99112233',
+  '99112233 10/02 ирнэ',
+  // A question anywhere, not only right after the seller word.
+  'Бөөний үнэ 45000 уу?',
+  'Та нар зарна гэсэн, 45000 үү?',
+  'Будалтын үнэ 45000 уу? хүргэлттэй бол 99112233',
+  'Хүргэлттэй бол 99112233 руу залгаарай',
 ];
 
 for (const text of CUSTOMERS) {
@@ -59,11 +74,33 @@ test('no real comment and no written example in the salon corpus reads as an adv
   assert.deepEqual(flagged, []);
 });
 
-test('a repeat is the same long comment again, read on the reduced form', () => {
+test('stated limit: a phone and a price with no question reads as an advert', () => {
+  // A customer relaying a price and a number without asking is indistinguishable, on the
+  // words, from a seller. Recorded as `comment_advert`, so it can be counted.
+  assert.equal(advertByText('Үнэ 45000 гэсэн, 99112233 руу залгаарай').advert, true);
+});
+
+test('a greeting is not a question; a question after it is', () => {
+  assert.equal(asksSomething('Сайн байна уу маск зарна'), false);
+  assert.equal(asksSomething('Сайн байна уу? маск зарна'), false);
+  assert.equal(asksSomething('Сайн байна уу, маск зарна уу'), true);
+  assert.equal(asksSomething('Сайн байна уу? маск зарна?'), true);
+  assert.equal(asksSomething('Зэсэн улаан туяа арилдагуу'), true);
+});
+
+const at = (ms: number) => new Date(Date.UTC(2026, 8, 27, 14, 31) + ms);
+
+test('a repeat is the same long statement again within a day, read on the reduced form', () => {
   const ad = SELLER_ADVERTS[0]!.message ?? '';
-  assert.equal(isRepeatedComment(ad, [ad]), true);
-  assert.equal(isRepeatedComment(ad, [`${ad} ❤️`]), true, 'one more heart is still a copy');
-  assert.equal(isRepeatedComment(ad, ['Үнэ хэд вэ?']), false);
-  assert.equal(isRepeatedComment(ad, []), false);
-  assert.equal(isRepeatedComment('Үнэ хэд вэ?', ['Үнэ хэд вэ?']), false, 'a short question asked twice is asked twice');
+  const c = { text: ad, createdAt: at(0) };
+  assert.equal(isRepeatedComment(c, [{ text: ad, createdAt: at(-5_000) }]), true);
+  assert.equal(isRepeatedComment(c, [{ text: `${ad} ❤️`, createdAt: at(-5_000) }]), true, 'one more heart is still a copy');
+  assert.equal(isRepeatedComment(c, [{ text: ad, createdAt: at(-REPEAT_WINDOW_MS - 1) }]), false, 'outside the window');
+  assert.equal(isRepeatedComment(c, [{ text: 'Үнэ хэд вэ?', createdAt: at(-5_000) }]), false);
+  assert.equal(isRepeatedComment(c, []), false);
+  const short = { text: 'Үнэ хэд вэ?', createdAt: at(0) };
+  assert.equal(isRepeatedComment(short, [{ text: 'Үнэ хэд вэ?', createdAt: at(-5_000) }]), false, 'a short question asked twice is asked twice');
+  const long = 'Сайн байна уу, энэ будгийг хийлгэхэд хэр удаан хугацаа шаардагдах вэ?';
+  assert.equal(isRepeatedComment({ text: long, createdAt: at(0) }, [{ text: long, createdAt: at(-5_000) }]), false,
+    'a long QUESTION re-posted is a customer asking again');
 });
