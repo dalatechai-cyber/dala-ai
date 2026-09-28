@@ -15,6 +15,18 @@
     },
     {
       "block_id": "02_style",
+      "sha256": "62f198ab3bb3351b269492cdea2a1ad4dcefb49f4f5433946c87188b331b2397",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "02_style.salon",
+      "sha256": "62f3c91955f701e0b15a4c390f1f6055da2949a31eee1d92cf4560d8a883244f",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-27"
+    },
+    {
+      "block_id": "02_style.software",
       "sha256": "62f3c91955f701e0b15a4c390f1f6055da2949a31eee1d92cf4560d8a883244f",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-27"
@@ -81,24 +93,72 @@
     },
     {
       "block_id": "sh11_completeness",
+      "sha256": "b0dc98ccd2515c685cfbf8bd3185d6c8eec9274999cb1e0e8f6247c06164e5ef",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "sh11_completeness.salon",
+      "sha256": "c7e59b76f8fca11faaf24b05f9a518b56eb49f79c3aace29dd4faaaffe443a1a",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-21"
+    },
+    {
+      "block_id": "sh11_completeness.software",
       "sha256": "c7e59b76f8fca11faaf24b05f9a518b56eb49f79c3aace29dd4faaaffe443a1a",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-21"
     },
     {
       "block_id": "sh1_refusal_topics",
+      "sha256": "045bb62a01a3e5c4b73eb00cfd0a5dd2d1fec4d9a6cf97690efeef8b169b9680",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "sh1_refusal_topics.salon",
+      "sha256": "3169a318f3f55169b91228643a376eb9c931b102b8f10ae7262f88135d463784",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh1_refusal_topics.software",
       "sha256": "3169a318f3f55169b91228643a376eb9c931b102b8f10ae7262f88135d463784",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-04"
     },
     {
       "block_id": "sh2_price",
+      "sha256": "465c23b8147b0bbd29904f1d112c9b017e64146172a0e63271bd1a5c48cd7398",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "sh2_price.salon",
+      "sha256": "e60e800255cc6d6fa8f06cc89ab1390353fe4588d24f7b7c68c0d1ae9da3dc0e",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh2_price.software",
       "sha256": "e60e800255cc6d6fa8f06cc89ab1390353fe4588d24f7b7c68c0d1ae9da3dc0e",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-04"
     },
     {
       "block_id": "sh3_booking",
+      "sha256": "e9977e0986aa77bc768323ea9836eb6619c905e81b735a9b08b829479c15ef7d",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "sh3_booking.salon",
+      "sha256": "19f4373c55860188d8df2b2146613606d9d25abfa12030e4c6e5d6bdcee53234",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh3_booking.software",
       "sha256": "19f4373c55860188d8df2b2146613606d9d25abfa12030e4c6e5d6bdcee53234",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-04"
@@ -111,12 +171,36 @@
     },
     {
       "block_id": "sh5_health",
+      "sha256": "6bc147249f36586bd4a3bef372bc6889af5833714a86943d80714084225e39c6",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "sh5_health.salon",
+      "sha256": "bb2bec5b336266f59c7bf37ff5760fd818c227f26d0a367590895c0ef8b2ba69",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh5_health.software",
       "sha256": "bb2bec5b336266f59c7bf37ff5760fd818c227f26d0a367590895c0ef8b2ba69",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-04"
     },
     {
       "block_id": "sh6_concessions",
+      "sha256": "b4235fdc6f66427466ee985dbd8fc030a8dfc3505d1125d0232fad473822c9bb",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "sh6_concessions.salon",
+      "sha256": "ab970d796511e534b67423c35c0a47b45ede765aaf8beb1a5347bcd903c66505",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh6_concessions.software",
       "sha256": "ab970d796511e534b67423c35c0a47b45ede765aaf8beb1a5347bcd903c66505",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-04"
@@ -129,6 +213,18 @@
     },
     {
       "block_id": "sh8_not_in_kb",
+      "sha256": "632d1236ab5a2e2768ab4642bfc4fbb792c301cf7a22b44680120e2299f927e6",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "sh8_not_in_kb.salon",
+      "sha256": "2bdde27897389e1bf2114bb646c068083b919ce3c8eeff5f934d976bed4101c5",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-09-04"
+    },
+    {
+      "block_id": "sh8_not_in_kb.software",
       "sha256": "2bdde27897389e1bf2114bb646c068083b919ce3c8eeff5f934d976bed4101c5",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-04"
