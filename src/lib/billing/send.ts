@@ -67,6 +67,29 @@ export function textToHtml(text: string): string {
     + `${linked.replace(/\n/gu, '<br>')}</body></html>`;
 }
 
+/**
+ * The provider's own reason for a refusal (`{"message": …}` from Brevo and Resend), so a
+ * failed send says what to fix («domain is not verified», «key restricted to …») rather
+ * than only a status code. Their error bodies carry no credential; it is still cut short,
+ * flattened to one line, and never throws.
+ */
+async function providerReason(res: Response): Promise<string> {
+  try {
+    const raw = (await res.text()).slice(0, 2000);
+    let msg = raw;
+    try {
+      const j = JSON.parse(raw) as { message?: unknown; name?: unknown; code?: unknown };
+      msg = [j.name ?? j.code, j.message].filter((x) => typeof x === 'string' && x !== '').join(': ') || raw;
+    } catch {
+      // not JSON: the raw text
+    }
+    const one = msg.replace(/\s+/gu, ' ').trim().slice(0, 240);
+    return one === '' ? '' : ` — ${one}`;
+  } catch {
+    return '';
+  }
+}
+
 function classify(status: number): 'retry' | 'terminal' {
   return status === 429 || status >= 500 ? 'retry' : 'terminal';
 }
@@ -102,7 +125,7 @@ export async function sendBrevoEmail(msg: EmailMessage, fetchImpl: typeof fetch 
   } catch (err) {
     return { outcome: 'unknown', detail: `brevo: ${err instanceof Error ? err.name : 'error'}` };
   }
-  if (!res.ok) return { outcome: classify(res.status), detail: `brevo HTTP ${res.status}` };
+  if (!res.ok) return { outcome: classify(res.status), detail: `brevo HTTP ${res.status}${await providerReason(res)}` };
   const body = (await res.json().catch(() => null)) as { messageId?: unknown } | null;
   return { outcome: 'sent', providerMessageId: typeof body?.messageId === 'string' ? body.messageId : '' };
 }
@@ -143,7 +166,7 @@ export async function sendResendEmail(msg: EmailMessage, fetchImpl: typeof fetch
   } catch (err) {
     return { outcome: 'unknown', detail: `resend: ${err instanceof Error ? err.name : 'error'}` };
   }
-  if (!res.ok) return { outcome: classify(res.status), detail: `resend HTTP ${res.status}` };
+  if (!res.ok) return { outcome: classify(res.status), detail: `resend HTTP ${res.status}${await providerReason(res)}` };
   const body = (await res.json().catch(() => null)) as { id?: unknown } | null;
   return { outcome: 'sent', providerMessageId: typeof body?.id === 'string' ? body.id : '' };
 }
