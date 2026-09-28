@@ -11113,3 +11113,28 @@ for the founder (money movement, credentials, customer-visible Mongolian). Runbo
   project's 61 existing platform rows were checked byte-identical to the file's (fingerprint
   `1f065683…`). Afterwards: 65 rows, fingerprint `8b9ba44f…` equal to the replica with the
   full file; each new body's sha256 equals its signed file; all four at layer null.
+
+### D-156 addendum — the branded invoice, and test accounts never live (2026-09-28, founder, 0070)
+
+The founder, after the three live tests passed: the invoice read as a phishing e-mail (plain
+text, a long random link, an "Unsubscribe" link). Clients must trust it at first sight.
+
+- **Branded e-mail + plain text + PDF нэхэмжлэх** (`mail.ts`, `pdf.ts`), in dalatech.online's
+  own look. Used only when every new block is signed AND the issuer settings are set
+  (`issuer.ts`); until then the pre-0070 plain e-mail goes, and the founder is told once.
+  Every word is a signed block; English fallbacks exist only on a TEST invoice's pay page.
+- **Short pay address** `DT-202610-0001-K7QM2X`. The founder asked for
+  `pay.dalatech.online/<invoice number>`; the invoice number alone was rejected because
+  numbers are sequential, so anyone could read every client's name and amount by counting.
+  Six Crockford characters of HMAC (30 bits) make it unguessable and stay readable aloud.
+  Old signed links keep working.
+- **Brevo vs Resend.** Brevo adds List-Unsubscribe to every message below Enterprise and a
+  client who presses it is blocklisted (their next invoice is accepted and dropped). The
+  dalatech.online domain already passes SPF, DKIM (selector `resend`) and DMARC (`p=none`)
+  at Gmail through Resend (read from the headers of a dalatech-online e-mail, 2026-09-25).
+  `BILLING_EMAIL_VIA=resend` switches; the key is the founder's to add (credentials).
+- **The modes partition the accounts.** `live` used to include test accounts; now it never
+  invoices, checks, messages or serves one (`billing_issue_due`, `billing_claim_deliveries`,
+  the engine's reads, the pay page). The founder's «Туршилтын харилцагч 2» stays for tests.
+- Cleanup the same day: TEST-202609-0003 voided (`billing_resolve`), the unconfirmed test
+  account «Туршилтын харилцагч» ended and its schedule deactivated.

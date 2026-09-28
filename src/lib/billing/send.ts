@@ -18,6 +18,16 @@
  * Language uses (its CLAUDE.md: Brevo accepts a send from an unauthenticated domain with a
  * 2xx and drops it). That address has no inbox, so every billing e-mail carries
  * `Reply-To: BILLING_FOUNDER_EMAIL` — a client who answers an invoice reaches the founder.
+ *
+ * ## Brevo or Resend (0070)
+ *
+ * Brevo adds a List-Unsubscribe header to every message and does not remove it below its
+ * Enterprise plan, so Gmail shows "Unsubscribe" beside an invoice; a client who presses it
+ * is blocklisted, and their next invoice is accepted with a 2xx and never delivered. Resend
+ * adds no such header, and dalatech.online is already DKIM-signed through it (selector
+ * `resend`, the dalatech-online site's e-mails pass SPF, DKIM and DMARC at Gmail). The
+ * founder chooses with `BILLING_EMAIL_VIA` (`config.ts`); both have the same sender,
+ * Reply-To and outcomes.
  */
 import { required } from '../env.ts';
 
@@ -29,8 +39,15 @@ export type EmailMessage = {
   to: string;
   subject: string;
   text: string;
-  attachment?: { name: string; content: string };
+  /** The HTML version (0070). Absent: the text as simple HTML. */
+  html?: string;
+  /** `utf8`: `content` is text (the CSV ledger). `base64`: `content` is the bytes (the PDF). */
+  attachment?: { name: string; content: string; encoding?: 'utf8' | 'base64' };
 };
+
+function attachmentBase64(a: NonNullable<EmailMessage['attachment']>): string {
+  return a.encoding === 'base64' ? a.content : Buffer.from(a.content, 'utf8').toString('base64');
+}
 
 export type TelegramMessage = { text: string; button?: { label: string; url: string } };
 
@@ -74,9 +91,9 @@ export async function sendBrevoEmail(msg: EmailMessage, fetchImpl: typeof fetch 
         replyTo: { email: replyTo },
         subject: msg.subject,
         textContent: msg.text,
-        htmlContent: textToHtml(msg.text),
+        htmlContent: msg.html ?? textToHtml(msg.text),
         ...(msg.attachment === undefined ? {} : {
-          attachment: [{ name: msg.attachment.name, content: Buffer.from(msg.attachment.content, 'utf8').toString('base64') }],
+          attachment: [{ name: msg.attachment.name, content: attachmentBase64(msg.attachment) }],
         }),
       }),
       cache: 'no-store',
@@ -88,6 +105,47 @@ export async function sendBrevoEmail(msg: EmailMessage, fetchImpl: typeof fetch 
   if (!res.ok) return { outcome: classify(res.status), detail: `brevo HTTP ${res.status}` };
   const body = (await res.json().catch(() => null)) as { messageId?: unknown } | null;
   return { outcome: 'sent', providerMessageId: typeof body?.messageId === 'string' ? body.messageId : '' };
+}
+
+/**
+ * The same message through Resend (0070, `BILLING_EMAIL_VIA=resend`). Resend adds no
+ * List-Unsubscribe header, so an invoice reads as the transactional message it is. The
+ * sender, Reply-To and the three outcomes are exactly Brevo's.
+ */
+export async function sendResendEmail(msg: EmailMessage, fetchImpl: typeof fetch = fetch): Promise<SendOutcome> {
+  let apiKey: string;
+  let replyTo: string;
+  try {
+    apiKey = required('RESEND_API_KEY');
+    replyTo = required('BILLING_FOUNDER_EMAIL');
+  } catch (err) {
+    return { outcome: 'terminal', detail: err instanceof Error ? err.message : String(err) };
+  }
+  let res: Response;
+  try {
+    res = await fetchImpl('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        from: `${EMAIL_SENDER.name} <${EMAIL_SENDER.email}>`,
+        to: [msg.to],
+        reply_to: replyTo,
+        subject: msg.subject,
+        text: msg.text,
+        html: msg.html ?? textToHtml(msg.text),
+        ...(msg.attachment === undefined ? {} : {
+          attachments: [{ filename: msg.attachment.name, content: attachmentBase64(msg.attachment) }],
+        }),
+      }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    return { outcome: 'unknown', detail: `resend: ${err instanceof Error ? err.name : 'error'}` };
+  }
+  if (!res.ok) return { outcome: classify(res.status), detail: `resend HTTP ${res.status}` };
+  const body = (await res.json().catch(() => null)) as { id?: unknown } | null;
+  return { outcome: 'sent', providerMessageId: typeof body?.id === 'string' ? body.id : '' };
 }
 
 /** Telegram to the founder's alert chat, with an optional button that opens a link. */

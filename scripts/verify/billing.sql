@@ -291,8 +291,14 @@ begin
   if billing_requeue_delivery((select id from billing_deliveries where dedup_key = 't:receipt'), 'Bilguun') then
     raise exception 'B14 FAILED: a pending message was requeued again';
   end if;
+  -- 0070: the modes partition the outbox. Live claims the live message only; the requeued
+  -- TEST receipt waits for a test run.
   select count(*) into n from billing_claim_deliveries(10, true);
-  if n <> 2 then raise exception 'B14 FAILED: live message and requeued receipt not claimed in live mode (%)', n; end if;
+  if n <> 1 then raise exception 'B14 FAILED: live mode claimed % message(s), not only the live one', n; end if;
+  perform 1 from billing_deliveries where dedup_key = 't:receipt' and status = 'pending';
+  if not found then raise exception 'B14 FAILED: a TEST message was claimed in live mode'; end if;
+  select count(*) into n from billing_claim_deliveries(10, false);
+  if n <> 1 then raise exception 'B14 FAILED: the requeued test receipt was not claimed in test mode (%)', n; end if;
   perform billing_finish_delivery((select id from billing_deliveries where dedup_key = 't:receipt'), true, 'm2', null, null);
   if not billing_finish_delivery((select id from billing_deliveries where dedup_key = 't:live'), false, null, 'telegram 502', now() - interval '1 second') then
     raise exception 'B14 FAILED: failure not recorded';
@@ -395,7 +401,30 @@ begin
   if billing_pay_code_slot(v_i6, 3) <> 'capped' then raise exception 'B18 FAILED: the hourly cap did not hold'; end if;
   checks := checks + 1;
 
-  if checks <> 19 then raise exception 'billing: expected 19 checks, ran %', checks; end if;
+  -- B19 — 0070: once billing is live, a TEST account is never invoiced (the founder's test
+  -- account stays for future tests); in test mode it is, and a live one is not.
+  declare
+    v_t2 uuid;
+    v_s3 uuid;
+  begin
+    insert into billing_accounts (display_name, email, is_test) values ('Туршилт B19', 'b19@example.mn', true) returning id into v_t2;
+    insert into billing_schedules (account_id, kind, lines, amount_mnt, every_months, next_month)
+    values (v_t2, 'monthly_fee', '[{"label":"Туршилт","amount_mnt":100}]', 100, 1, '2026-12-01') returning id into v_s3;
+    perform billing_confirm_schedule(v_s3, billing_schedule_fingerprint(v_s3), 'Bilguun');
+    r := billing_issue_due('2026-12-01', true);
+    if exists (select 1 from billing_invoices where account_id = v_t2) then raise exception 'B19 FAILED: a test account was invoiced in live mode'; end if;
+    r := billing_issue_due('2026-12-01', false);
+    if (select count(*) from billing_invoices where account_id = v_t2) <> 1 then raise exception 'B19 FAILED: the test account was not invoiced in test mode'; end if;
+    begin
+      perform billing_issue_due('2026-12-01', null);
+      raise exception 'B19 FAILED: an unset mode was accepted';
+    exception when raise_exception then
+      if sqlerrm like 'B19 FAILED%' then raise; end if;
+    end;
+  end;
+  checks := checks + 1;
+
+  if checks <> 20 then raise exception 'billing: expected 20 checks, ran %', checks; end if;
   raise notice 'billing: % checks passed', checks;
 end $$;
 
