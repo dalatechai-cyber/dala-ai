@@ -1,5 +1,9 @@
 # Provisioning: from a filled questionnaire to a live tenant
 
+> **2026-09-27 (D-155): one command now reads the client's filled form directly.** See §8.
+> The intake-document path below (`scripts/provision/apply.ts`) still works and shares its
+> writer (`src/lib/provision/write.ts`) with it.
+
 **Built 2026-09-16** (D-079), to this design. The sections below describe what exists;
 where the built thing departs from the design, §6 says so and why.
 
@@ -181,3 +185,46 @@ selection are built and inert, waiting on a signature.
   Every one of those is a question for the client, and inventing one is the failure mode
   this whole platform is built against.
 - **It does not resolve ambiguity.** `subsetCollisions` reports; the client renames.
+
+## 8. One command from the filled form (D-155, 2026-09-27)
+
+    # read the form and print everything — writes nothing
+    node scripts/onboard/tenant.ts --form <filled.docx> --slug <slug> --facebook-page-id <id>
+    # write the tenant in shadow; onboarding/<slug>/{report,wording-sheet,client-summary}.md, intake.json
+    … --apply
+    # the founder signs the wording sheet; the client confirms the summary
+    … --apply --sign-wording <sheet id> --signed-by <name>
+    … --apply --client-confirmed "<name>" --confirmed-on <YYYY-MM-DD> --summary <summary id>
+
+Needs `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SECRET_PUBLISH` (the operator's) and
+`npm install`. Calls no model. Re-running with the same form changes nothing; re-running
+with a corrected form updates the rows and un-signs only what changed.
+
+| Piece | Where |
+|---|---|
+| File reader (.docx, .md/.txt) | `src/lib/provision/formFile.ts` |
+| The form's layout, value parsers | `src/lib/provision/questionnaire.ts` |
+| Answers → rows, sentences, documents, missing | `src/lib/provision/plan.ts` |
+| Sentence templates, summary headings | `scripts/provision/templates/onboarding.mn.json` |
+| Reply cases | `src/lib/provision/cases.ts` |
+| Writes beyond the intake document | `src/lib/provision/onboardWrite.ts` |
+| The two gates, summary, sheet, readiness | `src/lib/provision/onboardGates.ts` |
+| Operator report | `src/lib/provision/onboardReport.ts` |
+| The command | `scripts/onboard/tenant.ts` |
+| Real blank template, fictional sample | `scripts/onboard/fixtures/` |
+| Proof on a local replica | `docs/reports/2026-09-27-onboarding-proof/` |
+
+**Still by hand, in order** (the report lists them per tenant): send the summary to the
+client; sign the wording; seal the Page token (`scripts/kek/seal.ts`) and set `app_slug`,
+`token_status` and the name confirmation; grant the Reception entitlement (`tenant_roles`, a
+money decision); publish dry run, then once `--with-model` (paid, D-151), then `--publish`;
+then move the channel to live. The Instagram id and the website chat are also by hand.
+
+**What the form cannot give and is asked for:** the numeric Page id (the form asks for the
+Page's name), Latin spellings of service names (D-067), a blank staff status.
+
+**Local replica** (how the proof was run): initdb a PostgreSQL 16 cluster on :5433, install
+`postgresql-16-pgvector`, `scripts/verify/run-all.sh dala_local`, `postgrest-roles.sql`, the
+PostgREST 12.2.3 static binary on :3001, then `node scripts/localvalidate/gateway.ts 54321`
+prints the two variables to export. `scripts/localvalidate/drop-tenant.sql` removes a test
+tenant there; nothing can delete a tenant on the project (append-only audit triggers).

@@ -10849,3 +10849,110 @@ pre-registration). Дали must never claim a staff member works before its swi
 - **Order of rollout** (D-058): push `0063`, deploy, then provision the tenant's conditioned
   rows and publish in the same sitting — between the provisioning and the publish, the
   conditioned rows are withheld.
+
+## D-155 — Onboarding is one command from the client's filled questionnaire (2026-09-27)
+
+The founder asked for this on 2026-09-27: *"Onboarding a new client must take one command,
+not hours of hand-written SQL."* Next client: «Tara Park Od» (a second salon branch, its own
+owner and Page); then the «Анхны 10 бизнест» launch.
+
+- **The command.** `node scripts/onboard/tenant.ts --form <filled .docx> --slug <slug>
+  [--facebook-page-id <id>]` reads «Дали — Мэдээлэл цуглуулах маягт» as the client returns
+  it (Word, or Google Docs downloaded as Word; a Markdown/text export also reads). Dry run by
+  default; `--apply` writes. It refuses a form whose numbering changed rather than reading
+  it by position (D-057). It refuses any tenant that has ever been live AND any tenant it
+  did not create: its own tenants carry an `onboarding_steps` row (`onboard_command`), and a
+  tenant without one that has a revision, a signed line or a routing identity — DalaTech and
+  Tara both — is never written, shadow or not.
+- **What it writes, in shadow:** tenant, hours, contacts, booking, services and prices (in
+  the client's words, `confirmed_at` null), staff with grades, FAQs (`seeded`), deposit
+  rules, knowledge documents built only from the client's own text, never-say rules (the
+  client's phrase is the stem, matched whole), comment rules from the vertical's template
+  (disabled), the reply look (`max_emoji: 0` when the client said no emoji), channels
+  (`delivery_mode = 'shadow'`, no token, `app_slug` unset), reply cases (inactive), and a
+  readiness episode in the daily report. It writes no `tenant_roles` entitlement and no
+  budget: spend is the founder's decision.
+- **Missing is a recorded state, never a guess.** A blank or unreadable answer goes on the
+  missing list (the report, the client summary, and the daily report's readiness line). An
+  answer that could put a wrong answer in front of a customer while open (a price, the
+  phone, the Page id) holds the tenant; the line names those first.
+- **Two gates, bound to what was read.** The wording sheet lists every Mongolian line Дали
+  will say that is not the client's own data, with the template and the approved line it
+  came from. The founder signs by passing the sheet's id back (`--sign-wording <id>
+  --signed-by <name>`); the id is a hash of the pending lines, so a line changed after
+  printing is not signed. The client confirms a one-page Mongolian summary rendered from the
+  ROWS; `--client-confirmed <name> --confirmed-on <date> --summary <id>` stamps
+  `confirmed_at` on every price and upgrades FAQs to `tenant_confirmed`, only if the facts
+  still hash to that id. Who signed is recorded in `alerts` (digest), since no column holds
+  it. **Each gate holds only while what was signed is what is there:** the signed sheet id
+  and the confirmed summary id are kept in `onboarding_steps`, and a corrected form that
+  changes one hour, one address or one rule question re-opens the gate (measured on the
+  replica). Reply cases switch on only when both gates pass and the fact check the first
+  publish will run finds nothing. Rows in the database that the form no longer has (a
+  dropped service, a reworded FAQ) are named and hold the tenant; they are never deleted by
+  the command. **Departure:** D-079's writer
+  never set `reviewed_at`; this command does, but only on the founder's explicit id, and
+  `SUPABASE_SECRET_PUBLISH` is absent from every cloud session.
+- **Reply cases from the client's facts:** each price, the hours, the address, the booking
+  link, the deposit, each never-say phrase (no price may be quoted), and a video link that
+  must get the media line with no model. Only the last is exact; the rest need the model and
+  are run by the one paid pre-publish check (D-151).
+- **First publish can run its cases.** The reply-case gate loaded the live snapshot first,
+  so a never-published tenant with an active case failed as `not_provisioned`.
+  `loadReceptionContext` now takes `firstPublish` — the snapshot the publish is about to
+  write — used only when no live snapshot exists; the reply path never sets it, and a
+  tenant with a live snapshot never reads it. The DEPLOY gate (`scripts/replycases/gate.ts`,
+  no compiled prefix) reports a tenant with `live_revision_id` null as «not published yet»
+  instead of failing, for the reply cases and for the fact check alike: it serves nothing a
+  deploy could break, and without this the first
+  onboarded tenant with switched-on cases would have blocked every deploy. A tenant that has
+  a revision and lost its snapshot still fails, as before.
+- **Cases follow the gates both ways:** on when both pass, off again when a corrected form
+  re-opens either.
+- **Gate blocks in salon language.** Eight signed blocks carry salon examples (Ш1, Ш2, Ш3,
+  Ш5, Ш6, Ш8, Ш11, `02_style`; CLAUDE.md said four). `prompt/drafts/vertical-neutral/` holds
+  neutral drafts and byte-frozen `salon` and `software` copies, so DalaTech and Tara compile
+  byte-identical after promotion (measured on the replica). Unsigned; waits for the founder.
+  `catalog.sql` V29 now counts a block with a generic row as covered for every vertical.
+- **A tenant cannot be deleted on the project.** The append-only statement triggers fire on
+  the cascade from `tenants` even with no rows. The test tenant was deleted on the replica
+  with `scripts/localvalidate/drop-tenant.sql` (superuser, replica only). A client who
+  withdraws needs offboarding (`tenant_offboardings`), which is not built.
+- **Proof.** A fictional salon branch (two stylists of each gender, a deposit, one missing
+  price, «Хумс будалт» vs «Гель хумс будалт»), filled into the founder's real blank template,
+  run end to end on a local replica (PostgreSQL 16 + PostgREST 12.2.3, migrations to 0063):
+  `docs/reports/2026-09-27-onboarding-proof/`. Signatures there are SIMULATED on a fictional
+  tenant. No model was called: `ANTHROPIC_API_KEY` is not set in the session, so the one paid
+  check was not run and cost nothing.
+
+### D-155 addendum — the founder's review of the wording (2026-09-27)
+
+- **Gate blocks:** the eight neutral drafts are approved as written. Signing is one command,
+  `scripts/prompt/sign-drafts.ts` (set id bound to the 24 files read); frozen per-vertical
+  copies keep the original signature date, and the rehearsal on the replica showed DalaTech's
+  and Tara's verticals compiling byte-identical after the seed.
+- **Templates:** approved, with three rewordings by the founder: `assistant_identity`
+  «Би {business}-ийн AI туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр
+  асуух зүйл байвал бичээрэй.» ({business} = the name in 1.1), `booking_line` with a link
+  «Цагаа онлайнаар захиалах бол: {booking_url}», and `comment_public_reply` «Сайн байна уу!
+  Манай хуудас руу мессеж бичвэл дэлгэрэнгүй хариулъя 😊» (no 😊 for a no-emoji client).
+  Each template now carries `template_approved`; each client's filled lines are still
+  signed on that client's wording sheet.
+- **`image_received` is dropped from the templates.** It is served only when a tenant has no
+  signed `handover_notice`: a photo alone goes to the media line and the hand-off
+  (`worker/reception.ts`), and a photo, video or link with text meets the media line in
+  `reception/handle.ts` before the image line. New clients get the media line and hand-off,
+  exactly as DalaTech and Tara.
+- **The form sent to clients** («Дали_маягт_DalaTech.docx», rebuilt 2026-09-27) has the same
+  questions, tables and text as the Drive template; every filled answer is read back (test).
+  Boxes ticked with ✓, [x] or X, or answered in words, are read.
+- **Signed and applied (2026-09-28).** The founder signed the 24 blocks (c86407f, set
+  `6f57bc94885d`). `0064_prompt_blocks_seed` was applied to the project through the MCP
+  migration tool (ledger `20260928000806 0064_prompt_blocks_seed`) as an EQUIVALENT of the
+  generated file rather than its 66 KB text: copy today's bodies into the 16 per-vertical rows,
+  rewrite the 8 generic bodies by the approved line replacements, and raise inside the
+  transaction unless all 39 platform rows hash (sha256) to the signed set with their signed
+  dates. The replica showed the equivalent and the file reach byte-identical rows; on the
+  project all 39 rows then matched the replica row for row. DalaTech's and Tara's block
+  selection fingerprint was `6a392178…` before and after, so their next publish compiles the
+  same prefix; their live snapshots are untouched until then.

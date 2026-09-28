@@ -1,0 +1,148 @@
+{
+  "_doc": "Wording the onboarding command fills in for a new tenant (scripts/onboard/tenant.ts). NONE of this is approved for any tenant by being here: every sentence is written to canned_responses with reviewed_at NULL and the founder signs each tenant's lines on that tenant's wording sheet. `derived_from` says which already-approved line a template was made from and what changed, so the reading is quick. Placeholders: {phones} (the client's phones, joined with « эсвэл »), {booking_url}, {business} (the business name from 1.1). A variant key is a tenants.vertical value; `default` is used for every other vertical. `approved_bytes: true` marks a template whose filled text is byte-identical to a line the founder already approved for a live tenant. Every template here was read and approved AS A TEMPLATE by the founder on 2026-09-27 (`template_approved`); each client's filled lines are still signed on that client's wording sheet.",
+  "sentences": {
+    "handoff": {
+      "default": "Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та {phones} дугаараар холбогдоно уу.",
+      "derived_from": "matrix-eco-salon handoff; only the phone numbers change",
+      "template_approved": "2026-09-27"
+    },
+    "assistant_identity": {
+      "default": "Би {business}-ийн AI туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр асуух зүйл байвал бичээрэй.",
+      "derived_from": "founder's wording, 2026-09-27; {business} is the client's name as written in 1.1",
+      "template_approved": "2026-09-27"
+    },
+    "booking_line": {
+      "link": "Цагаа онлайнаар захиалах бол: {booking_url}",
+      "phone": "Цаг захиалах бол {phones} дугаараар холбогдоно уу.",
+      "derived_from": "link: founder's wording, 2026-09-27; phone: new, approved 2026-09-27",
+      "template_approved": "2026-09-27"
+    },
+    "refusal_price_unlisted": {
+      "default": "Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та {phones} дугаараар холбогдож лавлана уу.",
+      "derived_from": "matrix-eco-salon refusal_price_unlisted; only the phone numbers change",
+      "template_approved": "2026-09-27"
+    },
+    "refusal_no_promotion": {
+      "default": "Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та {phones} дугаараар лавлана уу.",
+      "derived_from": "matrix-eco-salon refusal_no_promotion; only the phone numbers change",
+      "template_approved": "2026-09-27"
+    },
+    "refusal_staff_schedule": {
+      "default": "Ажилтнуудын ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та {phones} дугаараар лавлана уу.",
+      "salon": "Үсчдийн ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та {phones} дугаараар лавлана уу.",
+      "derived_from": "matrix-eco-salon refusal_staff_schedule; salon: only the phone numbers change; default: «Үсчдийн» became «Ажилтнуудын»",
+      "template_approved": "2026-09-27"
+    },
+    "refusal_health": {
+      "default": "Эрүүл мэндийн талаар зөвлөгөө өгөх боломжгүй. Эмчид хандахыг зөвлөж байна. Үйлчилгээний талаар асуувал баяртайгаар хариулна.",
+      "approved_bytes": true,
+      "derived_from": "matrix-eco-salon refusal_health, unchanged",
+      "template_approved": "2026-09-27"
+    },
+    "refusal_off_topic": {
+      "default": "Уучлаарай, би тухайн асуултын талаар мэдээлэлтэй байхгүй байна. Манай үйлчилгээ, үнэ, цагийн хуваарийн талаар асуугаарай.",
+      "salon": "Уучлаарай, би тухайн асуултын талаар мэдээлэлтэй байхгүй байна. Салоны үйлчилгээ, үнэ, цагийн хуваарийн талаар асуугаарай.",
+      "approved_bytes_for": [
+        "salon"
+      ],
+      "derived_from": "matrix-eco-salon refusal_off_topic; salon unchanged; default: «Салоны» became «Манай»",
+      "template_approved": "2026-09-27"
+    },
+    "refusal_public_channel": {
+      "default": "Сайн байна уу. Энэ талаар нийтэд дэлгэрэнгүй хариулах боломжгүй. Хувийн мессеж бичвэл хариулна.",
+      "approved_bytes": true,
+      "derived_from": "matrix-eco-salon refusal_public_channel, unchanged",
+      "template_approved": "2026-09-27"
+    },
+    "refusal_topic": {
+      "default": "Уучлаарай, энэ талаар мэдээлэл өгөх боломжгүй. Та {phones} дугаараар холбогдож лавлана уу.",
+      "derived_from": "matrix-eco-salon refusal_topic without its topic («хүүхдийн үйлчилгээний мэдээллийг»); answers every item of the client's 7.1 and 7.2",
+      "template_approved": "2026-09-27"
+    },
+    "handover_notice": {
+      "default": "Баярлалаа! Таны илгээсэн зураг, бичлэг, холбоосыг манай ажилтан үзээд удахгүй хариулна 😊",
+      "approved_bytes": true,
+      "derived_from": "the media line approved for both live tenants (D-152), unchanged",
+      "template_approved": "2026-09-27"
+    },
+    "comment_public_reply": {
+      "default": "Сайн байна уу! Манай хуудас руу мессеж бичвэл дэлгэрэнгүй хариулъя 😊",
+      "derived_from": "founder's wording, 2026-09-27 (without 😊 for a client who answered «no emoji»); written only when the client ticked 2.2 «Тийм»",
+      "template_approved": "2026-09-27"
+    }
+  },
+  "model_visible": {
+    "_doc": "Mongolian the MODEL reads but no customer is sent: the decision question of a rule built from the client's 7.1–7.3 answers, and the titles of knowledge documents built from the client's own words. Listed on the wording sheet for the founder all the same.",
+    "rule_question": "Сүүлийн мессеж «{topic}» гэсэн сэдвийн тухай юу?",
+    "deposit_label": "Урьдчилгаа төлбөр",
+    "kb_titles": {
+      "service_notes": "Үйлчилгээний тайлбар",
+      "similar_names": "Ижил төстэй нэртэй үйлчилгээ",
+      "staff_grades": "Ажилтны зэрэг ба үнэ",
+      "cancellation": "Цуцлах журам",
+      "holidays": "Баярын өдрүүдийн цагийн хуваарь",
+      "products": "Бүтээгдэхүүн"
+    }
+  },
+  "verticals": {
+    "_doc": "How 1.2 «Үйл ажиллагааны чиглэл» picks tenants.vertical. The first vertical with a stem that begins a word of the answer wins; no match is `general`, which is reported. Override with --vertical.",
+    "salon": [
+      "салон",
+      "үсч",
+      "үс засал",
+      "гоо сайхан",
+      "хумс",
+      "сормуус",
+      "барбер",
+      "спа"
+    ],
+    "auto_service": [
+      "авто",
+      "машин",
+      "засвар үйлчилгээ"
+    ],
+    "software": [
+      "програм",
+      "софтвер",
+      "вэбсайт хийх"
+    ]
+  },
+  "client_summary": {
+    "_doc": "Headings of the one-page facts summary sent to the CLIENT to confirm (gate 2). Not a bot sentence; the founder reads it once as a template. Everything under the headings is the client's own data as the database now holds it.",
+    "title": "Дали-д оруулсан мэдээлэл — баталгаажуулах хуудас",
+    "intro": "Дали доорх мэдээллийг үйлчлүүлэгчдэд хэлнэ. Бүгд зөв эсэхийг шалгаад, зөв бол «Зөв» гэж хариулна уу. Буруу эсвэл дутуу зүйл байвал засвараа бичнэ үү.",
+    "services": "Үйлчилгээ ба үнэ",
+    "hours": "Ажиллах цаг",
+    "closed": "Амарна",
+    "contacts": "Хаяг, холбоо барих",
+    "booking": "Цаг захиалга",
+    "deposits": "Урьдчилгаа төлбөр",
+    "staff": "Ажилтнууд",
+    "faqs": "Түгээмэл асуулт, хариулт",
+    "documents": "Нэмэлт мэдээлэл",
+    "missing": "Дутуу байгаа мэдээлэл (нөхөж өгнө үү)",
+    "footer": "Баталгаажуулсан хүн: ____________   Огноо: ____________",
+    "weekdays": {
+      "1": "Даваа",
+      "2": "Мягмар",
+      "3": "Лхагва",
+      "4": "Пүрэв",
+      "5": "Баасан",
+      "6": "Бямба",
+      "0": "Ням"
+    },
+    "sections": {
+      "3": "Ажиллах цаг",
+      "4": "Үйлчилгээ ба үнэ",
+      "5": "Ажилтнууд",
+      "9": "Түгээмэл асуултууд",
+      "БӨГЛӨСӨН": "Бөглөсөн хүн"
+    },
+    "asks": {
+      "price": "үнэ бичигдээгүй байна",
+      "price_unreadable": "үнийг уншиж чадсангүй, дахин бичнэ үү",
+      "duration": "хугацааг цаг эсвэл минутаар бичнэ үү",
+      "latin_spellings": "үйлчлүүлэгчид үйлчилгээний нэрийг латин үсгээр хэрхэн бичдэг вэ (жишээ нь «hums budalt»)?"
+    }
+  }
+}

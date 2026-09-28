@@ -143,6 +143,32 @@ test('no published configuration is a provisioning state, never a default', asyn
   assert.equal(!r.ok && r.code, 'not_provisioned');
 });
 
+const FIRST = {
+  revisionId: 'unpublished', channel: 'facebook_page', contentHash: '', promptStable: 'DRAFT PREFIX',
+  allowedNumbers: ['45,000'], cannedHash: null, promptGate: null, launchStates: null,
+};
+
+test('a FIRST publish is judged against the snapshot it is about to write (onboarding, 2026-09-27)', async () => {
+  // Without this every active reply case of a never-published tenant failed as
+  // `not_provisioned`, so a new tenant could only be published with no cases at all.
+  const r = await loadReceptionContext(stubDb({ config_snapshots: { data: null, error: null } }).db,
+    { ...input, firstPublish: FIRST });
+  assert.ok(r.ok);
+  assert.equal(r.ok && r.context.promptStable, 'DRAFT PREFIX');
+  assert.deepEqual(r.ok && r.context.allowedNumbers, ['45,000']);
+});
+
+test('a tenant WITH a live snapshot never reads the first-publish one', async () => {
+  const r = await loadReceptionContext(stubDb().db, { ...input, firstPublish: FIRST });
+  assert.equal(r.ok && r.context.promptStable, 'PREFIX');
+});
+
+test('an UNREADABLE snapshot is still unavailable, never replaced by the draft', async () => {
+  const r = await loadReceptionContext(stubDb({ config_snapshots: { data: null, error: { message: 'down' } } }).db,
+    { ...input, firstPublish: FIRST });
+  assert.equal(!r.ok && r.code, 'unavailable');
+});
+
 test('an unrecognised cache mode falls to off — the safe direction', async () => {
   // "off" pays full rate; a wrong TTL writes cache entries that are never read.
   const r = await loadReceptionContext(stubDb().db, {

@@ -20,3 +20,8 @@ coverage/
 # Scratch probes. A diagnostic is worked out here and its conclusion belongs in a test —
 # `git add -A` swept two of them into a commit on 2026-09-18, which is why this line exists.
 .probe-tmp/
+
+# Onboarding output (scripts/onboard/tenant.ts): a real client's report, wording sheet and
+# facts summary. Business data, not secrets, but it is the client's, and it is regenerated
+# by re-running the command. The fictional sample's output is kept in docs/reports/.
+onboarding/

@@ -47,8 +47,9 @@ test('every signed platform file reaches the migration, and nothing else does', 
   const files = readdirSync('prompt/platform').filter((f) => f.endsWith('.mn.txt')).sort();
   const blocks = readSignedBlocks();
   assert.equal(blocks.length, files.length);
+  // A per-vertical file (`sh3_booking.salon.mn.txt`, 0018) is its key plus its vertical.
   assert.deepEqual(
-    blocks.map((b) => b.blockKey),
+    blocks.map((b) => (b.vertical === null ? b.blockKey : `${b.blockKey}.${b.vertical}`)).sort(),
     files.map((f) => f.slice(0, -'.mn.txt'.length)),
   );
 
@@ -72,7 +73,14 @@ test('DONE-TEST: an unsigned block cannot be seeded, even with the guard skipped
 
 test('the boundary gate is L0 and in wire order; the other two families are not prompt sections', () => {
   const blocks = readSignedBlocks();
-  const gate = blocks.filter((b) => b.layer === 'L0').sort((a, b) => a.ordinal - b.ordinal);
+  // The generic family; a per-vertical row shares its key and ordinal (0018).
+  const gate = blocks.filter((b) => b.layer === 'L0' && b.vertical === null).sort((a, b) => a.ordinal - b.ordinal);
+  for (const v of blocks.filter((b) => b.vertical !== null)) {
+    const generic = gate.find((g) => g.blockKey === v.blockKey);
+    assert.ok(generic !== undefined, `${v.blockKey}.${v.vertical} has no generic block to fall back to`);
+    assert.equal(v.ordinal, generic.ordinal, `${v.blockKey}.${v.vertical} sits where its generic block sits`);
+    assert.equal(v.layer, generic.layer);
+  }
   assert.deepEqual(gate.map((b) => b.blockKey), [
     '00_gate_preamble', '01_data_marker', '02_style',
     'sh0_channel', 'sh1_refusal_topics', 'sh2_price', 'sh3_booking', 'sh4_staff_schedule',

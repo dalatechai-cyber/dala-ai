@@ -344,7 +344,15 @@ export async function runCases(input: {
 
 export type TenantGate =
   /** `otherState`: cases about a launch state this configuration does not have (D-154). */
-  | { ok: true; slug: string; results: CaseResult[]; otherState?: number }
+  | {
+    ok: true; slug: string; results: CaseResult[]; otherState?: number;
+    /**
+     * The tenant has never been published: nothing of it is live, so a deploy cannot break
+     * it, and its active cases are run by its own first publish (`compiled` given). Set
+     * only when `live_revision_id` is null AND no compiled prefix was passed (D-155).
+     */
+    unpublished?: number;
+  }
   | { ok: false; slug: string; detail: string };
 
 /**
@@ -367,7 +375,7 @@ export async function gateTenant(
   },
 ): Promise<TenantGate> {
   const { data: t, error } = await db
-    .from('tenants').select('id, default_locale, prompt_cache_mode, timezone').eq('slug', input.slug).maybeSingle();
+    .from('tenants').select('id, default_locale, prompt_cache_mode, timezone, live_revision_id').eq('slug', input.slug).maybeSingle();
   if (error) return { ok: false, slug: input.slug, detail: `tenants unreadable: ${error.message}` };
   if (t === null) return { ok: false, slug: input.slug, detail: 'no such tenant' };
   const row = t as Record<string, unknown>;
@@ -378,6 +386,13 @@ export async function gateTenant(
   const cases = await loadCases(db, tenantId);
   if (!cases.ok) return { ok: false, slug: input.slug, detail: cases.detail };
   if (cases.cases.length === 0) return { ok: true, slug: input.slug, results: [] };
+  // A tenant never published serves nothing (every reply is `no_snapshot`), so the deploy
+  // gate has nothing of it to protect, and there is no prefix to judge its cases against.
+  // Reported, never silently skipped; its first publish runs them against what it writes.
+  // A tenant that HAS a revision and lost its snapshot is not this: it still fails below.
+  if (input.compiled === undefined && (row['live_revision_id'] === null || row['live_revision_id'] === undefined)) {
+    return { ok: true, slug: input.slug, results: [], unpublished: cases.cases.length };
+  }
   // The website cases' "site the visitor is on" (D-140). Unreadable is a failed gate, never
   // an empty list: an empty list would pass a website case that links the site.
   const domains = await db.from('tenant_domains').select('host, verified_at').eq('tenant_id', tenantId);
@@ -393,6 +408,16 @@ export async function gateTenant(
     },
     localDate: tenantClock(input.now, timezone).date,
     ...(input.compiled?.launchStates === undefined ? {} : { launchStates: input.compiled.launchStates }),
+    // A tenant never published has no live snapshot; its first publish is judged against the
+    // one it is about to write. Ignored by the loader whenever a live snapshot exists.
+    ...(input.compiled === undefined ? {} : {
+      firstPublish: {
+        revisionId: 'unpublished', channel: 'facebook_page', contentHash: '',
+        promptStable: input.compiled.promptStable, allowedNumbers: input.compiled.allowedNumbers,
+        cannedHash: input.compiled.cannedHash, promptGate: input.compiled.promptGate,
+        launchStates: input.compiled.launchStates === undefined ? null : [...input.compiled.launchStates],
+      },
+    }),
   });
   if (!loaded.ok) return { ok: false, slug: input.slug, detail: `configuration did not load (${loaded.code}): ${loaded.detail}` };
   const { apply, otherState } = casesFor(cases.cases, loaded.context.launchStates);
@@ -443,6 +468,10 @@ export function renderGate(gates: readonly TenantGate[]): { text: string; pass: 
     if (!g.ok) {
       pass = false;
       lines.push(`${g.slug}: FAILED — ${g.detail}`);
+      continue;
+    }
+    if ((g.unpublished ?? 0) > 0) {
+      lines.push(`${g.slug}: not published yet — its ${g.unpublished} active case(s) run at its first publish, not at a deploy`);
       continue;
     }
     const failed = g.results.filter((r) => !r.pass);

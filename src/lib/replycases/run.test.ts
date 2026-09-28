@@ -232,3 +232,9 @@ test('D-154: a case about one launch state is judged only against a configuratio
   assert.deepEqual(casesFor([both], recs('live', 'live')).apply.map((c) => c.id), [6]);
   assert.deepEqual(casesFor([both], recs('live', 'preregistration')).apply, []);
 });
+
+test('a never-published tenant is REPORTED by the deploy gate, not failed and not hidden (D-155)', () => {
+  const r = renderGate([{ ok: true, slug: 'new-client', results: [], unpublished: 17 }]);
+  assert.equal(r.pass, true);
+  assert.match(r.text, /new-client: not published yet — its 17 active case\(s\) run at its first publish/);
+});
