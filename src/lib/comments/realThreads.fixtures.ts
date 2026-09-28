@@ -121,3 +121,28 @@ export function entryOf(c: StoredComment): unknown {
     }],
   };
 }
+
+/**
+ * Two more deliveries on P_REEL_0829, kept apart from `STORED` so the counts asserted over it
+ * stay what they were measured as (founder, 2026-09-28).
+ *
+ * 219 — a customer's question, 2026-09-20: «does the copper-red tint wash out». It arrived five
+ *       days before the salon template's `service_question_*` rules existed (they went live on
+ *       2026-09-25), was recorded as `comment_unclassified` and was never answered.
+ * 1094–1096 — another seller's advert, the same text three times in twelve seconds on
+ *       2026-09-27, with a photo each (not carried here: the comment path reads only the text).
+ *       The first copy fired the `price` rule on «үнэ» and was answered, public and private.
+ *
+ * Texts, event, comment and post ids and times as stored; names and ids of the commenters
+ * invented, as above.
+ */
+const ADVERT_TEXT = '🇯🇵Японоос ирсэн❤️❤️❤️❤️❤️❤️Үсний өнгө сэргээх , гялалзуулах , гэмтэлтэй будагтай үсэнд тохиромжтой үсний маш сайн маск  маш хямдхан зарна үнэ 45000\n☎️   99033966';
+export const SELLER_ID = '90000000000000008';
+
+export const ZES_QUESTION: StoredComment = cust(219, '2026-09-20T04:04:43.881Z', '90000000000000007', 'Отгон Сод', `${B}1048408354623758`, P_REEL_0829, P_REEL_0829, 'Зэсэн улаан туяа арилдагуу', 1789877076);
+
+export const SELLER_ADVERTS: readonly StoredComment[] = [
+  cust(1094, '2026-09-27T14:31:33.311Z', SELLER_ID, 'Seller Page', `${B}1589380252924705`, P_REEL_0829, P_REEL_0829, ADVERT_TEXT, 1790519486),
+  cust(1095, '2026-09-27T14:31:37.781Z', SELLER_ID, 'Seller Page', `${B}1077580548344638`, P_REEL_0829, P_REEL_0829, ADVERT_TEXT, 1790519491),
+  cust(1096, '2026-09-27T14:31:43.956Z', SELLER_ID, 'Seller Page', `${B}1126141116763833`, P_REEL_0829, P_REEL_0829, ADVERT_TEXT, 1790519498),
+];

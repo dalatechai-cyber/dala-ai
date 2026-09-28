@@ -53,6 +53,7 @@ import type { CommentLookup } from '../comments/lookup.ts';
 import { isAutomationText } from '../handover/automation.ts';
 import { pageCommentsIn, staffHandled, type PageComment, type StaffCheck } from '../comments/staff.ts';
 import { classifyComment, type CommentRule } from '../comments/classify.ts';
+import { advertByText, isRepeatedComment, type AdvertCheck } from '../comments/advert.ts';
 import { cpLength } from '../mn/text.ts';
 import type { CommentSendOutcome } from '../comments/send.ts';
 import { claim, draftOnce, markFailed, markIndeterminate, markRefused, markSent } from '../outbound/claim.ts';
@@ -153,6 +154,14 @@ export const CAPPED_FLAG = 'comment_post_cap_reached';
  * text and never the commenter's name.
  */
 export const STAFF_FLAG = 'comment_staff_answered';
+
+/**
+ * The flag written for another seller's advert (`comments/advert.ts`, founder 2026-09-28).
+ * Nothing was sent and the comment was left in place, so this row is the only trace: the
+ * founder can see how often sellers post under the tenant's posts and decide whether to hide
+ * them by hand. Carries the NAMES of the signals that fired, never the text or the seller.
+ */
+export const ADVERT_FLAG = 'comment_advert';
 
 export type CommentEffects = {
   db: SupabaseClient;
@@ -592,6 +601,37 @@ async function readStaffActivity(
   return { ok: true, pageComments, ours };
 }
 
+/**
+ * The text of this author's OTHER comments on this tenant's pages, on any post, from the
+ * webhook events already stored — for `isRepeatedComment`. One read per author, made only
+ * for a comment the rules would answer, so praise costs nothing.
+ *
+ * What it cannot see, stated as `readStaffActivity` states it: a comment whose delivery never
+ * arrived and one whose `raw_payload` the purge already nulled. Both read as "not posted
+ * before", so a copy older than the retention window is judged on its own words.
+ */
+async function readAuthorComments(
+  db: SupabaseClient,
+  input: { tenantId: string; selfId: string; provider: CommentProvider; fromId: string; exceptCommentId: string },
+): Promise<{ ok: true; texts: string[] } | { ok: false; detail: string }> {
+  const { data, error } = await db
+    .from('webhook_events')
+    .select('raw_payload')
+    .eq('tenant_id', input.tenantId)
+    .not('raw_payload', 'is', null)
+    .contains('raw_payload', { changes: [{ value: { from: { id: input.fromId } } }] })
+    .order('id', { ascending: true });
+  if (error) return { ok: false, detail: `webhook_events unreadable: ${error.message}` };
+  const texts: string[] = [];
+  for (const row of Array.isArray(data) ? data : []) {
+    const { comments } = extractComments((row as Record<string, unknown>)['raw_payload'], input.selfId, input.provider);
+    for (const c of comments) {
+      if (c.fromId === input.fromId && c.commentId !== input.exceptCommentId) texts.push(c.text);
+    }
+  }
+  return { ok: true, texts };
+}
+
 /** The flag payload for a staff refusal: which proof, never whose name. */
 function staffFlagExtra(staff: StaffCheck, at: 'decision' | 'before_send'): Record<string, string> {
   if (staff.handled === true) return { how: staff.how, staff_comment_id: staff.staffCommentId, at };
@@ -832,6 +872,22 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       result.retry = true;
       return result;
     }
+    // Another seller's advert (`comments/advert.ts`). The words first; the repeat check reads
+    // the author's earlier comments, so it is made only for a comment the rules would answer
+    // and whose words did not already decide it. An escalation never reads it: a complaint
+    // is escalated whatever else it carries.
+    let advert: AdvertCheck = advertByText(comment.text);
+    if (!advert.advert && classified.verdict === 'reply') {
+      const earlier = await readAuthorComments(fx.db, {
+        tenantId: input.tenantId, selfId, provider, fromId: comment.fromId, exceptCommentId: comment.commentId,
+      });
+      if (!earlier.ok) {
+        fx.log('error', 'comment_author_history_unreadable', { tenantId: input.tenantId, detail: earlier.detail });
+        result.retry = true;
+        return result;
+      }
+      if (isRepeatedComment(comment.text, earlier.texts)) advert = { advert: true, signals: ['repeated'] };
+    }
     const staff = staffHandled({ comment, pageComments: staffActivity.pageComments, ours: staffActivity.ours });
     // The rule's own lines (D-144), when the rules that fired agree on one pair, both rows are
     // reviewed, and the policy sends both — a public line saying the details went by chat has
@@ -850,6 +906,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     const decision = decideCommentReply({
       config: input.config,
       verdict: classified.verdict,
+      advert,
       pinnedLine: useOwn ? ownPublic : line.line,
       privateLine: useOwn ? ownPrivate : privateLine.line,
       privateWhenCapped: useOwn,
@@ -873,7 +930,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       // log would be the volume problem, and a counter is what an operator reads anyway.
       count(result.refused, decision.refusal);
 
-      // Three of them also get a durable row. Written from HERE rather than beside the
+      // Some of them also get a durable row. Written from HERE rather than beside the
       // classifier (D-085 review): `decideCommentReply` refuses on policy, self-reply, the
       // ignore list and age BEFORE it ever looks at the verdict, so writing at the
       // classifier put a row on the operator's to-do list for a staff member's own comment
@@ -882,6 +939,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       const flag = decision.refusal === 'comment_unclassified' ? UNCLASSIFIED_FLAG
         : decision.refusal === 'comment_escalated' ? ESCALATED_FLAG
         : decision.refusal === 'post_cap_reached' ? CAPPED_FLAG
+        : decision.refusal === 'comment_advert' ? ADVERT_FLAG
         : byStaff ? STAFF_FLAG
         : null;
       if (flag !== null) {
@@ -892,6 +950,7 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
           extra: flag === CAPPED_FLAG
             ? { replies_in_window: postCounts.get(comment.postId) ?? 0, cap: input.config.repliesPerPostPerDay }
             : byStaff ? staffFlagExtra(staff, 'decision')
+            : advert.advert ? { signals: advert.signals.join(',') }
             : undefined,
         });
       }

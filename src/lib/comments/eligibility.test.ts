@@ -10,6 +10,7 @@ const base: CommentDecisionInput = {
   // The existing cases were all written before the classifier and all describe a comment
   // worth answering, so `reply` is the base. The verdict's own four cases are below.
   verdict: 'reply',
+  advert: { advert: false },
   pinnedLine: LINE,
   privateLine: { body: 'Сайн байна уу! Хүссэн зүйлээ асуугаарай.', reviewedAt: '2026-09-25T00:00:00Z' },
   comment: {
@@ -340,4 +341,33 @@ test('D-122 addendum: staff is decided BEFORE our own person and thread rules', 
     threadAlreadyAnswered: true,
   });
   assert.equal(!r.reply && r.refusal, 'staff_tagged_commenter');
+});
+
+// ---------------------------------------------------------------------------
+// Another seller's advert (founder, 2026-09-28)
+// ---------------------------------------------------------------------------
+
+const ADVERT = { advert: true, signals: ['seller_words', 'phone', 'price'] } as const;
+
+test('an advert gets NOTHING under policy both — no public line, no private message', () => {
+  const r = decide({ config: { ...base.config, policy: 'both' }, advert: { advert: true, signals: [...ADVERT.signals] } });
+  assert.equal(r.reply, false);
+  assert.equal(r.reply === false && r.refusal, 'comment_advert');
+});
+
+test('a complaint carrying a phone and a price still escalates: escalate outranks advert', () => {
+  const r = decide({ verdict: 'escalate', advert: { advert: true, signals: [...ADVERT.signals] } });
+  assert.equal(r.reply === false && r.refusal, 'comment_escalated');
+});
+
+test('an advert is refused BEFORE the person rule, so its second copy never resumes pending rows', () => {
+  // `person_already_answered` resumes the person's draft rows on a delivering channel. The
+  // seller's second and third copies must read as adverts, not as an answered person.
+  const r = decide({ advert: { advert: true, signals: ['repeated'] }, personAlreadyAnswered: true, threadAlreadyAnswered: true });
+  assert.equal(r.reply === false && r.refusal, 'comment_advert');
+});
+
+test('an advert is refused before the staff check and the cap', () => {
+  const r = decide({ advert: { advert: true, signals: ['phone', 'price'] }, staff: { handled: null, detail: 'x' }, postRepliesInWindow: 9 });
+  assert.equal(r.reply === false && r.refusal, 'comment_advert');
 });

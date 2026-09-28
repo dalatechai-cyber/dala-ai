@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import { classifyComment, type CommentRule } from './classify.ts';
 import { decideAfterLookup, decideCommentReply } from './eligibility.ts';
 import { parseMatcher } from '../gate/match.ts';
+import { advertByText } from './advert.ts';
 import { EXAMPLES, REAL_COMMENTS, type CorpusEntry, type Expect } from './salonCorpus.fixtures.ts';
 
 const TEMPLATE = JSON.parse(readFileSync(new URL('../../../scripts/provision/templates/comment_rules.salon.json', import.meta.url), 'utf8')) as {
@@ -31,6 +32,7 @@ export function outcome(entry: CorpusEntry): { got: Expect; fired: string[] } {
   const d = decideCommentReply({
     config: { policy: 'both', maxPostAgeDays: 30, ignoreCommenterIds: [], repliesPerPostPerDay: 20 },
     verdict: c.verdict,
+    advert: advertByText(entry.text),
     pinnedLine: LINE,
     privateLine: PRIVATE,
     comment: {

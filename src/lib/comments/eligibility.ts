@@ -26,6 +26,7 @@
  * removed. `reviewed_at` is the same gate every other pinned sentence passes.
  */
 
+import type { AdvertCheck } from './advert.ts';
 import type { CommentVerdict } from './classify.ts';
 import type { StaffCheck } from './staff.ts';
 
@@ -70,6 +71,11 @@ export type CommentRefusal =
    * visible complaint, in the salon's own voice, permanently, under their own post.
    */
   | 'comment_escalated'
+  /**
+   * Another seller's advert under the tenant's post (`comments/advert.ts`, founder
+   * 2026-09-28). Nothing is sent, public or private, and the comment is not hidden.
+   */
+  | 'comment_advert'
   /** A rule recognised this as noise — praise, a tag, an emoji. */
   | 'comment_not_worth_reply'
   /**
@@ -166,6 +172,12 @@ export type CommentDecisionInput = {
    * the guarantee — D-082's lesson, that the defect is a parameter which accepts a string.
    */
   verdict: CommentVerdict;
+  /**
+   * Whether the comment is someone else's advert (`advertByText`, `isRepeatedComment`). An
+   * ENUM-like fact, like `verdict`, never the text. Required, never defaulted: a default of
+   * "not an advert" would assert that for a caller who never looked — D-083's reason.
+   */
+  advert: AdvertCheck;
   /** The tenant's own pinned sentence, and whether a human has signed it off. */
   pinnedLine: { body: string; reviewedAt: string | null } | null;
   /** The tenant's private message to a commenter (`comment_private_reply`), same rules. */
@@ -271,6 +283,18 @@ export function decideCommentReply(input: CommentDecisionInput): CommentDecision
       reply: false,
       refusal: 'comment_escalated',
       detail: 'a person must answer this one; the pinned line points at DM and this is not a DM question',
+    };
+  }
+  // AN ADVERT, after the complaint and before everything else (founder, 2026-09-28). After
+  // `escalate` so a complaint that happens to carry a phone number and a price still reaches
+  // a person; before `ignore` and the counting rules so the counter says what it was, and so
+  // a second copy of the advert is never `person_already_answered` — that refusal resumes the
+  // person's pending rows on a delivering channel, which would send the seller the message.
+  if (input.advert.advert) {
+    return {
+      reply: false,
+      refusal: 'comment_advert',
+      detail: `another seller's advert (${input.advert.signals.join(', ')}); nothing is sent and the comment is left as it is`,
     };
   }
   if (input.verdict === 'ignore') {
