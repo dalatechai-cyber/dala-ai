@@ -1,33 +1,51 @@
-# PROGRESS — one-command onboarding (2026-09-27)
+# PROGRESS — client billing by QPay (2026-09-28, D-156)
 
-Brief: a filled «Дали — Мэдээлэл цуглуулах маягт» becomes a tenant with one command, in
-shadow, behind two gates (founder signs the wording; client confirms the facts). Proven on a
-local replica with a fictional salon branch; nothing touches the live project.
+Brief (founder, 2026-09-28): every client's monthly fee is invoiced automatically on the 1st
+(Ulaanbaatar), paid by QPay into the SAME merchant Core Language uses, recorded without the
+founder, reminded on the 3rd and 6th, summarised to the founder on the 6th, and on the 8th the
+founder is ASKED (never automatic) whether to pause the client's AI staff. Annual prepay
+clients get one yearly invoice. Money is never lost, doubled or mis-assigned; Core Language
+keeps working exactly as today (this repo changes nothing there). No live client is invoiced
+until the founder approves the first real run. All new Mongolian is a draft.
+
+The previous PROGRESS (one-command onboarding, D-155) is complete; it is in git history at
+bee6a69.
 
 ## Checkpoints
 
-- [x] **1. Read the form.** `src/lib/provision/formFile.ts` reads .docx (Word / Google Docs
-  download) and .md/.txt exports. `questionnaire.ts` knows the form's layout and refuses a
-  form whose numbering changed. Verified on the founder's real blank template (downloaded
-  from Drive as .docx, kept as `scripts/onboard/fixtures/dali-form-blank.docx`).
-- [x] **2. Plan and write.** `plan.ts` maps answers to rows, sentences (from
-  `scripts/provision/templates/onboarding.mn.json`), knowledge documents and a MISSING list.
-  `cases.ts` generates reply cases. `onboardWrite.ts` / `write.ts` write them;
-  `onboardGates.ts` holds the two gates, the client summary and the wording sheet.
-  `scripts/onboard/tenant.ts` is the one command. Dry run and `--apply` run clean on the
-  local replica; a second `--apply` changes nothing.
-- [x] **3. Tests** for the reader (real template, .docx and text export), plan, cases, gates, and the tenant guard; loader and deploy-gate tests.
-- [x] **4. Salon-language gate blocks.** `prompt/drafts/vertical-neutral/`: neutral drafts of
-  the eight blocks that carry salon examples, plus byte-frozen `salon` / `software` copies so
-  the live tenants do not move. Measured on the replica: both live verticals compile
-  byte-identical, a new vertical gets no salon words. Unsigned; for the founder.
-- [x] **First-publish gate.** The reply-case gate could not judge a tenant that was never
-  published (`not_provisioned`). It now judges it against the snapshot the publish is about
-  to write (`reception/load.ts` `firstPublish`, used only when no live snapshot exists).
-- [x] **5. End-to-end proof** on the local replica (`docs/reports/2026-09-27-onboarding-proof/`), test tenant deleted; D-155, provisioning §8, STATUS.
-- [x] **6. Review (Opus reviewer) and fixes:** deploy gate no longer blocked by a never-published tenant (cases and facts); onboarding refuses any tenant it did not create (Tara sits in shadow and was not protected by the never-live test alone); both gates bound to stored ids so any later change re-opens them; interrupted channel write repaired on re-run; deposits keyed by text; rows no longer in the form named and held; exact-bytes wording sheet.
-- [x] **7. Founder's review applied (2026-09-27):** the form sent to clients read in full; three
-  template rewordings; `image_received` dropped (media line + hand-off instead); gate blocks
-  approved and a one-command signing (`scripts/prompt/sign-drafts.ts`) rehearsed on the replica.
-- [x] **8. Founder signed** (c86407f); 0064 applied to the project and verified (D-155 addendum); sections tests made per-vertical. Was: the gate blocks (and each client's wording sheet as clients arrive);
-  `supabase db push` of the seed; then merge once CI is green.
+- [x] **1. Schema.** `supabase/migrations/0065_billing.sql`: accounts, schedules, invoices,
+  payments (append-only), outbox, pauses, events (append-only) and the fourteen functions
+  that carry the promises. `scripts/verify/billing.sql` proves them (17 checks) on local
+  PostgreSQL 16; every existing suite still passes. Applied to the project 2026-09-28
+  (ledger `20260928021544`), catalog fingerprint identical to the replica (D-156 addendum).
+- [x] **2. Engine** (`src/lib/billing/`): QPay Quick QR client (same endpoint and env names as
+  Core Language, `callback_url` set), contract amounts (best single discount), Ulaanbaatar
+  calendar, wording from signed blocks only (drafts for test accounts from the operator's
+  shell only), Brevo e-mail with the founder as Reply-To, founder Telegram with a URL button,
+  signed links, the idempotent tick. 21 unit tests.
+- [x] **3. Surfaces:** `/api/workers/billing` (QStash, hourly), `/api/billing/qpay` (callback;
+  asks QPay, trusts nothing it is sent), `/pay/<link>` (the client's page), `/billing/action`
+  (the founder's pause/resume: GET confirms, POST acts). Preflight enforces the billing
+  variables only when `BILLING_MODE` is test/live. The seed generator now keeps `billing_*`
+  blocks out of the prompt (layer null) — without that, signing them would have put invoice
+  text into every tenant's system prompt.
+- [x] **4. Operator commands** (`scripts/billing/`): `account.ts` (propose from the contract,
+  write unconfirmed, confirm by fingerprint), `charge.ts` (one-offs), `tick.ts` (one run from
+  the shell; `--drafts`/`--today` for test accounts only), `report.ts` (preview of the first
+  live run, ledger CSV, status), `settle.ts` (bank transfer, accept/withdraw, requeue, pause,
+  resume). `scripts/onboard/tenant.ts --billing-staff …` writes the same unconfirmed record.
+  22 Mongolian drafts in `prompt/drafts/billing/`, unsigned.
+- [x] **5. End to end on the local replica:** `scripts/verify/billing-e2e.ts` walks a month over
+  real PostgREST + PostgreSQL 16 with QPay/Brevo/Telegram faked — 52 checks (added to CI).
+  `query-columns.ts`, `postgrest.ts`, every SQL suite and `npm run check` (2303 pass, 1
+  pre-existing skip) are green.
+- [x] **5b. Review** of every changed file (Opus reviewer): core promises held; fixed its nine
+  findings — payments on paid/withdrawn invoices now watched and reported; no made-up payment
+  key (`settle.ts qpay` records under QPay's id); a lost "QPay id recorded" answer is read back
+  before anything is withdrawn; an old pause button cannot pause a paid client (database
+  refuses); queued reminders cancelled on any non-open status; callback fits its time limit;
+  every ignored write checked; least-recently-checked first; test clients out of live
+  summaries and ledgers; QPay times without a zone read as Ulaanbaatar. Live line labels must be
+  signed; `tick.ts --mode live` needs `BILLING_MODE=live`. E2E 57 checks.
+- [x] **5c.** Draft PR: https://github.com/dalatechai-cyber/dala-ai/pull/229
+- [ ] **6. Founder:** approve wording, add the environment, the real 100₮ test, then live.

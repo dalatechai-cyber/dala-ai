@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply the migrations to a scratch database and run all three verification suites.
+# Apply the migrations to a scratch database and run every verification suite.
 # Every suite raises on failure, so this exits non-zero on any red check.
 set -euo pipefail
 
@@ -10,7 +10,7 @@ export PGUSER=${PGUSER:-postgres}
 DB=${1:-dala_verify}
 ./scripts/localvalidate/run.sh "$DB"
 
-for suite in catalog isolation rls spend retention; do
+for suite in catalog isolation rls spend retention billing; do
   echo "--- $suite ---"
   psql -v ON_ERROR_STOP=1 -d "$DB" -f "scripts/verify/$suite.sql"
 done

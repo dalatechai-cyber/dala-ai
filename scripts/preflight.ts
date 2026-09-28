@@ -269,6 +269,48 @@ if (present(sectionUrl)) {
   }
 }
 
+// ---- Client billing (D-156): optional, and complete or refused -------------------------
+//
+// Unset BILLING_MODE is `off`: the billing surfaces answer "disabled" and nothing else is
+// needed. `test` or `live` needs every variable billing reads, checked here so a missing
+// QPay value fails the deploy rather than the 1st of the month. Any other value is refused:
+// `billingSwitch()` throws on it, and the worker would 503 every hour.
+const billingMode = process.env['BILLING_MODE'];
+if (present(billingMode)) {
+  if (billingMode !== 'off' && billingMode !== 'test' && billingMode !== 'live') {
+    failures += 1;
+    rows.push('  BAD      BILLING_MODE\n           must be exactly off, test or live');
+  } else {
+    rows.push(`  ok       BILLING_MODE  (${billingMode}${billingMode === 'live' ? ' — every confirmed client is invoiced' : ''})`);
+    if (billingMode !== 'off') {
+      const BILLING_NEEDS: Record<string, string> = {
+        DALA_PUBLIC_URL: 'the origin every pay link and QPay callback is built on',
+        BILLING_LINK_SECRET: 'signs pay, callback and pause links',
+        BILLING_FOUNDER_EMAIL: 'Reply-To on every client e-mail; the sender has no inbox',
+        SUPABASE_SECRET_BILLING: 'the billing surfaces\' own database key',
+        BREVO_API_KEY: 'client e-mail',
+        QPAY_USERNAME: 'QPay (Core Language\'s merchant)', QPAY_PASSWORD: 'QPay', QPAY_TERMINAL_ID: 'QPay',
+        QPAY_MERCHANT_ID: 'QPay', QPAY_BANK_CODE: 'QPay', QPAY_BANK_ACCOUNT: 'QPay', QPAY_ACCOUNT_NAME: 'QPay',
+      };
+      for (const [name, why] of Object.entries(BILLING_NEEDS)) {
+        const v = process.env[name];
+        if (!present(v)) {
+          failures += 1;
+          rows.push(`  MISSING  ${name}\n           required because BILLING_MODE=${billingMode}: ${why}`);
+        } else if (name === 'BILLING_LINK_SECRET' && v.length < 32) {
+          failures += 1;
+          rows.push(`  BAD      BILLING_LINK_SECRET\n           ${v.length} characters; at least 32 random ones`);
+        } else if (name === 'SUPABASE_SECRET_BILLING' && !v.startsWith('sb_secret_')) {
+          failures += 1;
+          rows.push('  BAD      SUPABASE_SECRET_BILLING\n           expected an sb_secret_… key');
+        } else {
+          rows.push(`  ok       ${name}  (${v.length} characters; required because BILLING_MODE=${billingMode})`);
+        }
+      }
+    }
+  }
+}
+
 // ---- The website channel's pair: optional, and read by code when set -----------------
 //
 // Named explicitly rather than left out, because silence about a variable reads as either

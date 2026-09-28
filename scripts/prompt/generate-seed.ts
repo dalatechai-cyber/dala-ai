@@ -48,9 +48,12 @@ const TAG = '$mn$';
  * prompt sections are not distinguishable by name from ones that might be later, and a
  * convention that has to be remembered is the kind D-020 is about.
  */
-function layerFor(blockKey: string): 'L0' | null {
+export function layerFor(blockKey: string): 'L0' | null {
   if (blockKey.startsWith('data_deletion_')) return null; // the status page renders these
   if (blockKey === 'comment_public_reply') return null; // a canned_responses template
+  // DalaTech's invoices, reminders, receipts and pay page (D-156): `billing/templates.ts`
+  // reads them by key. As L0 they would be compiled into every tenant's prompt.
+  if (blockKey.startsWith('billing_')) return null;
   // Everything else is the boundary gate: the L0 scaffold, ahead of every tenant section,
   // which is what makes it one cache entry for the whole platform (render.ts's note).
   return 'L0';

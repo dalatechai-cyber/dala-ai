@@ -1,0 +1,125 @@
+/**
+ * The two ways a billing message leaves: e-mail to the client (Brevo) and Telegram to the
+ * founder. Each returns one of three outcomes, and the outbox acts on the difference:
+ *
+ * - `sent` — the provider accepted it (a 2xx is "accepted", never "delivered"; the id is
+ *   kept so it can be found in the provider's log).
+ * - `retry` — the provider answered and did NOT accept it (429, 5xx). Sending again cannot
+ *   produce a duplicate, so the outbox retries with a backoff.
+ * - `terminal` — the provider refused it for a reason a retry will not fix (400, 401, a bad
+ *   address). Kept, visible, and the founder is told.
+ * - `unknown` — no answer (timeout, connection lost). It may have gone out. It is NOT
+ *   retried: the row stays claimed, the sweep marks it `unknown`, and the founder decides.
+ *   A duplicate invoice e-mail is exactly what the founder asked never to happen.
+ *
+ * ## The e-mail sender
+ *
+ * `hello@dalatech.online` is on the DKIM/SPF-authenticated apex domain, the sender Core
+ * Language uses (its CLAUDE.md: Brevo accepts a send from an unauthenticated domain with a
+ * 2xx and drops it). That address has no inbox, so every billing e-mail carries
+ * `Reply-To: BILLING_FOUNDER_EMAIL` — a client who answers an invoice reaches the founder.
+ */
+import { required } from '../env.ts';
+
+export type SendOutcome =
+  | { outcome: 'sent'; providerMessageId: string }
+  | { outcome: 'retry' | 'terminal' | 'unknown'; detail: string };
+
+export type EmailMessage = {
+  to: string;
+  subject: string;
+  text: string;
+  attachment?: { name: string; content: string };
+};
+
+export type TelegramMessage = { text: string; button?: { label: string; url: string } };
+
+export const EMAIL_SENDER = { name: 'DalaTech', email: 'hello@dalatech.online' } as const;
+const TIMEOUT_MS = 15_000;
+const TELEGRAM_LIMIT = 4000;
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/gu, '&amp;').replace(/</gu, '&lt;').replace(/>/gu, '&gt;').replace(/"/gu, '&quot;');
+}
+
+/** Plain text as simple HTML: escaped, line breaks kept, URLs made tappable. */
+export function textToHtml(text: string): string {
+  const linked = escapeHtml(text).replace(/https:\/\/[^\s<]+/gu, (url) => `<a href="${url}">${url}</a>`);
+  return `<!DOCTYPE html><html lang="mn"><head><meta charset="utf-8"></head>`
+    + `<body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#111">`
+    + `${linked.replace(/\n/gu, '<br>')}</body></html>`;
+}
+
+function classify(status: number): 'retry' | 'terminal' {
+  return status === 429 || status >= 500 ? 'retry' : 'terminal';
+}
+
+export async function sendBrevoEmail(msg: EmailMessage, fetchImpl: typeof fetch = fetch): Promise<SendOutcome> {
+  let apiKey: string;
+  let replyTo: string;
+  try {
+    apiKey = required('BREVO_API_KEY');
+    replyTo = required('BILLING_FOUNDER_EMAIL');
+  } catch (err) {
+    return { outcome: 'terminal', detail: err instanceof Error ? err.message : String(err) };
+  }
+  let res: Response;
+  try {
+    res = await fetchImpl('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': apiKey, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        sender: EMAIL_SENDER,
+        to: [{ email: msg.to }],
+        replyTo: { email: replyTo },
+        subject: msg.subject,
+        textContent: msg.text,
+        htmlContent: textToHtml(msg.text),
+        ...(msg.attachment === undefined ? {} : {
+          attachment: [{ name: msg.attachment.name, content: Buffer.from(msg.attachment.content, 'utf8').toString('base64') }],
+        }),
+      }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    return { outcome: 'unknown', detail: `brevo: ${err instanceof Error ? err.name : 'error'}` };
+  }
+  if (!res.ok) return { outcome: classify(res.status), detail: `brevo HTTP ${res.status}` };
+  const body = (await res.json().catch(() => null)) as { messageId?: unknown } | null;
+  return { outcome: 'sent', providerMessageId: typeof body?.messageId === 'string' ? body.messageId : '' };
+}
+
+/** Telegram to the founder's alert chat, with an optional button that opens a link. */
+export async function sendFounderTelegram(msg: TelegramMessage, fetchImpl: typeof fetch = fetch): Promise<SendOutcome> {
+  if (process.env['ALERTS_ENABLED'] === 'false') return { outcome: 'terminal', detail: 'ALERTS_ENABLED=false' };
+  let token: string;
+  let chat: string;
+  try {
+    token = required('TELEGRAM_BOT_TOKEN');
+    chat = required('TELEGRAM_ALERT_CHAT_ID');
+  } catch (err) {
+    return { outcome: 'terminal', detail: err instanceof Error ? err.message : String(err) };
+  }
+  const text = [...msg.text].length > TELEGRAM_LIMIT ? `${[...msg.text].slice(0, TELEGRAM_LIMIT).join('')}\n…(cut)` : msg.text;
+  let res: Response;
+  try {
+    res = await fetchImpl(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chat,
+        text,
+        disable_web_page_preview: true,
+        ...(msg.button === undefined ? {} : { reply_markup: { inline_keyboard: [[{ text: msg.button.label, url: msg.button.url }]] } }),
+      }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    return { outcome: 'unknown', detail: `telegram: ${err instanceof Error ? err.name : 'error'}` };
+  }
+  if (!res.ok) return { outcome: classify(res.status), detail: `telegram HTTP ${res.status}` };
+  const body = (await res.json().catch(() => null)) as { result?: { message_id?: unknown } } | null;
+  return { outcome: 'sent', providerMessageId: String(body?.result?.message_id ?? '') };
+}

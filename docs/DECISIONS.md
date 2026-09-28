@@ -10956,3 +10956,99 @@ owner and Page); then the «Анхны 10 бизнест» launch.
   project all 39 rows then matched the replica row for row. DalaTech's and Tara's block
   selection fingerprint was `6a392178…` before and after, so their next publish compiles the
   same prefix; their live snapshots are untouched until then.
+
+## D-156 — DalaTech invoices its clients by QPay, on Core Language's merchant (2026-09-28)
+
+The founder's brief: never chase a payment by hand. Every client's fee is invoiced on the 1st
+(Ulaanbaatar), paid by QPay into the SAME merchant Core Language uses (same credentials,
+same QR; no new merchant), recorded without the founder, and kept separate from Core
+Language's orders. Built, proven on a local replica, **not applied and not live**; it waits
+for the founder (money movement, credentials, customer-visible Mongolian). Runbook:
+`docs/billing.md`.
+
+- **Records.** `0065_billing`: accounts (one per client), schedules (monthly fee, annual
+  prepay, yearly hosting), invoices, payments (append-only), an outbox, pauses, events
+  (append-only). Core Language's orders are in its own project; nothing here reads them, and
+  no line of `dalatech-english` changed. Ours are `DT-…` (`TEST-…`) and every QPay description
+  begins `DalaTech`.
+- **Amounts** come from the contract (Ажил гүйцэтгэх гэрээ 1.4, 4.3): 2/3/4+ staff 10/15/20%,
+  annual prepay 12 months for 10, and **discounts do not stack — the most favourable one
+  applies**, so an annual prepay for four staff is 12 months at 20% off (9.6 months), not 10.
+  The proposal is written UNCONFIRMED; only `billing_confirm_schedule` with the fingerprint
+  the founder read makes it invoiceable, and any later change to lines, amount, cycle or due
+  day clears the confirmation (trigger). Prices are passed by the founder, not copied from
+  tenant #0's rows (D-151).
+- **Exactly once.** One invoice per client per period (unique key, schedule advanced in the
+  same statement). One QPay invoice per invoice (claim first; an unknown outcome keeps the
+  claim for 10 minutes; a QPay invoice never recorded is never shown, so it cannot be paid).
+  One payment per QPay payment id (append-only, unique key; a QPay payment for another QPay
+  invoice is refused by the database). Status is derived: payments summing to exactly the
+  amount are `paid`, any other non-zero sum is `mismatch` for the founder, never a guess; the
+  founder settles it by command. A QPay answer that cannot be read completely records nothing,
+  and no payment is ever keyed on anything but QPay's payment id or a bank reference (a
+  made-up key would count the same money twice once QPay's answer became readable). Paid and
+  withdrawn invoices stay watched for 35 days, so money arriving where none was due reaches
+  the founder. A pause over an invoice that is no longer unpaid is refused by the database.
+- **Messages.** Rendered at enqueue so the row holds the exact bytes; unique dedup key per
+  message; claimed before sending; a definite failure is retried (5 min … 24 h, then given
+  up and reported); an unknown outcome is NEVER resent — it becomes `unknown` and the founder
+  gets the requeue command. Reminders are cancelled once paid.
+- **Wording.** Signed platform blocks only (`billing_*`, layer null — `generate-seed.ts` now
+  says so, or signing them would have put invoice text in every tenant's prompt). A live
+  client never receives a draft; the operator's `tick.ts --drafts` shows drafts to TEST
+  accounts only. 22 drafts wait in `prompt/drafts/billing/`.
+- **Delivery.** E-mail (Brevo, Core Language's authenticated domain, Reply-To the founder)
+  or, with no address, a Telegram message for the founder to forward. Messenger from our Page
+  is NOT built: the 24-hour window and whether a message tag covers an invoice are Meta policy
+  this repo cannot check.
+- **Pause.** Never automatic. On the 13th — 8 days late, the first day contract 4.9 ("more
+  than 7 days") allows it (founder, 2026-09-28, replacing the brief's 8th) — the founder gets a
+  Telegram button; the page it opens changes nothing until its POST; `billing_pause` sets every
+  channel of the tenant `off` and keeps the prior modes, `billing_resume` restores them where
+  still `off`. Reminders stay on the 3rd and 6th, the summary on the 6th.
+- **Delivery decided (founder, 2026-09-28):** e-mail plus a Telegram copy to forward; no
+  Messenger for now.
+- **Switch.** `BILLING_MODE` off / test / live. `test` touches only `is_test` accounts;
+  setting `live` is the founder's approval of the first real run, after
+  `scripts/billing/report.ts preview`. Preflight refuses test/live without every variable.
+- **Proof.** `scripts/verify/billing.sql` (17 checks on the functions), 21 unit tests, and
+  `scripts/verify/billing-e2e.ts` — a month over real PostgREST 12.2.3 and PostgreSQL 16 with
+  QPay, Brevo and Telegram faked (52 checks; in CI). NOT proven: QPay Quick QR's real
+  `payment/check` shape (the parser follows Core Language and the @mnpay/qpay SDK types, and
+  refuses anything it cannot read), its callback method, Brevo delivery, and Telegram button
+  rendering — the founder's real 100₮ test is the proof of those.
+
+### D-156 addendum — 0065 applied to the project (2026-09-28, founder's instruction)
+
+- Applied through the MCP migration tool (ledger `20260928021544 0065_billing`) as a
+  comment-stripped EQUIVALENT of the file (the 44 KB text with comment lines and the three
+  `comment on table` statements removed). The equivalent was first applied to a fresh local
+  replica after 0001–0064: catalog, isolation, rls, spend, retention and billing suites all
+  passed. On the project, a catalog fingerprint of every billing column, constraint, index,
+  function body (md5 of `prosrc`, security, `search_path`, volatility), trigger (with its
+  ENABLE ALWAYS state), policy, RLS/FORCE flag and security class matched the replica's in
+  all eight parts.
+- ACLs read per table with `aclexplode` on PostgreSQL 17: `anon` and `authenticated` hold
+  nothing on any billing table or sequence; `service_role` holds the eight privileges
+  including `MAINTAIN`, with TRUNCATE revoked on `billing_payments` and `billing_events`;
+  every billing function is executable by `service_role` only (no PUBLIC).
+- Nothing reads the tables yet: the code is on the unmerged branch, and `BILLING_MODE` is
+  unset (off). `scripts/verify/billing.sql` was NOT run on the project: the MCP transport
+  commits, and the suite writes to append-only tables.
+
+### D-156 addendum — the billing wording signed and seeded (2026-09-28)
+
+- The founder approved the 22 drafts with one correction («түр зогсож болохыг») and signed set
+  `a30d9369ea5c` (4d2dfeb). `0066_prompt_blocks_seed` was applied to the project through the
+  MCP migration tool (ledger `20260928022629 0066_prompt_blocks_seed`) as an EQUIVALENT of the
+  generated file: the 22 billing rows only, with the file's own upsert. The other 39 rows are
+  byte-identical in the file and on the project (checked before the write), so the full file
+  would have rewritten them with the same values.
+- The equivalent was first applied to a fresh replica after 0001–0065 and reached the same 61
+  rows as the full file (fingerprint `04ee3c99…`). On the project, afterwards: 61 platform rows,
+  the same fingerprint; the 22 billing bodies hash (sha256) to exactly the signed files; all
+  22 at layer null, so no tenant's compiled prompt changes.
+- A first comparison of the 39 existing rows differed. The cause was the check, not the data:
+  `string_agg … order by block_key` sorts by collation, `en_US.UTF-8` on the project and
+  `C.UTF-8` on the replica. With `collate "C"` the two matched. CLAUDE.md's rule: never let
+  collation order reach a hash — that includes a diagnostic's.
