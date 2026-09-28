@@ -11099,3 +11099,10 @@ for the founder (money movement, credentials, customer-visible Mongolian). Runbo
 - Partly paid invoices (a mismatch) are with the founder: the page offers no new code, and
   the rest comes by bank transfer (contract 4.5). QPay's fixed-amount QR cannot part-pay.
 
+- `0068` applied to the project 2026-09-28 05:46 UTC through the MCP migration tool (ledger
+  `20260928054601 0068_billing_pay_codes`), after reading the ledger (0067 last) and checking
+  no open invoice lacked a code (so the old engine's hourly run had none to make). Verified on
+  the project: the orphan query returns none; the three pre-0068 codes backfilled (`issue`);
+  `billing_qpay_codes` RLS enabled and forced, no grant to anon/authenticated, service_role
+  without TRUNCATE; both triggers enabled always; the three functions executable by postgres
+  and service_role only; the five function bodies' md5 equal the replica's.

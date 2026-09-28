@@ -21,7 +21,7 @@
 --   billing_add_pay_code     records a code QPay made, under the invoice lock, BEFORE it is
 --                            shown to anyone.
 --   billing_record_payment   accepts a QPay payment whose QPay invoice is any code of this
---                            invoice (or the pre-0068 single code).
+--                            invoice (the pre-0068 single codes are backfilled as codes).
 --
 -- Backfill: every invoice's existing single code becomes a row here, so the codes already
 -- sent in e-mails stay watched and payable-to-the-right-invoice. Apply it away from the
