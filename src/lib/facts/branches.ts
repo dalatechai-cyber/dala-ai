@@ -21,12 +21,13 @@ import { nfc } from '../mn/text.ts';
 import { headPattern } from './consistency.ts';
 
 export type BranchPrice = { service: string; variant: string; kind: string; min: number | null; max: number | null };
+export type BranchStaff = { name: string; shortName: string | null };
 /** Everything one branch tenant says or holds that the two rules above are about. */
 export type BranchSide = {
   slug: string;
   contacts: readonly { kind: string; value: string }[];
-  /** Staff names and short names (what customers call them), active staff only. */
-  staff: readonly string[];
+  /** Active staff: the full name, and the short name customers call them by. */
+  staff: readonly BranchStaff[];
   /** The branch's own label: the part of `tenants.display_name` after « — » («Brand — Branch»), or null. */
   branchName: string | null;
   /** Every text a customer or the model reads, with the row it came from («canned handoff»). */
@@ -41,30 +42,43 @@ export type BranchFinding = {
   detail: string;
 };
 
-/** Runs of digits, joined across one space, hyphen or dot between digits (a phone's spacing). */
+/**
+ * Runs of digits, joined across up to three spaces (any kind, the no-break one included), dashes
+ * (any kind: Word turns « - » into « – »), dots or brackets between digits: a phone's spacing.
+ */
 function digitRuns(text: string): string[] {
-  return [...text.matchAll(/[0-9](?:[0-9]|[ .-](?=[0-9]))*/gu)].map((m) => m[0].replace(/[^0-9]/gu, ''));
+  return [...text.matchAll(/[0-9](?:[0-9]|[\p{Zs}\p{Pd}.()]{1,3}(?=[0-9]))*/gu)].map((m) => m[0].replace(/[^0-9]/gu, ''));
 }
 
-/** The phone numbers in a contact value: six digits or more, with and without Mongolia's 976. */
+/**
+ * The phone numbers in a contact value: six digits or more, with and without Mongolia's 976.
+ * Numbers written one after another with only spaces between («7711 2233 9911 4455») join into
+ * one run; a run of several whole 8-digit numbers is split back into them.
+ */
 export function phonesOf(value: string): string[] {
   const out = new Set<string>();
   for (const d of digitRuns(nfc(value))) {
     if (d.length < 6) continue;
     out.add(d);
     if (d.length === 11 && d.startsWith('976')) out.add(d.slice(3));
+    if (d.length > 11 && d.length % 8 === 0) for (let i = 0; i < d.length; i += 8) out.add(d.slice(i, i + 8));
   }
   return [...out];
 }
 
-/** A link as a comparable key: scheme, `www.`, trailing slashes and punctuation dropped; the host
- *  lower-cased; the path kept exactly (a short link's id is case-sensitive). */
-export function linkKey(url: string): string | null {
+/**
+ * A link as a comparable key: scheme, `www.`, trailing slashes and punctuation dropped; the host
+ * lower-cased; the path kept exactly (a short link's id is case-sensitive). The query and
+ * fragment are dropped too («?g_st=ic» from the Maps app's share button), except with
+ * `query: true`, for a link whose query can matter (the booking link).
+ */
+export function linkKey(url: string, opts: { query?: boolean } = {}): string | null {
   const m = /^(?:https?:\/\/)?([^/\s?#]+)([^\s]*)$/iu.exec(url.trim().replace(/[.,;:!?)»"']+$/u, ''));
   if (m === null) return null;
   const host = (m[1] ?? '').toLowerCase().replace(/^www\./u, '');
   if (!host.includes('.')) return null;
-  return `${host}${(m[2] ?? '').replace(/\/+$/u, '')}`;
+  const rest = opts.query === true ? (m[2] ?? '') : (m[2] ?? '').replace(/[?#].*$/u, '');
+  return `${host}${rest.replace(/\/+$/u, '')}`;
 }
 
 /** Every link in a text, with or without its scheme. */
@@ -97,6 +111,14 @@ export function staffKey(name: string): string | null {
   return last === undefined ? null : last;
 }
 
+/** One person, compared whole, initials included: «Б. Сараа» and «Г. Сараа» are two people. */
+function personKey(name: string): string {
+  return nfc(name).toLowerCase().replace(/[\s.]+/gu, ' ').trim();
+}
+
+/** A name shorter than this is not searched for in texts: «Нар» would match every «та нар». */
+const MIN_TEXT_NAME_CHARS = 4;
+
 /** «Tara Salon — Парк Од» → «Парк Од»; a name with no « — » names no branch. */
 export function branchLabel(displayName: string): string | null {
   const n = nfc(displayName);
@@ -105,16 +127,31 @@ export function branchLabel(displayName: string): string | null {
   return label === '' ? null : label;
 }
 
-type Details = { phones: Set<string>; links: Set<string>; addresses: Set<string>; staff: Map<string, string>; branch: string | null };
+type Details = {
+  phones: Set<string>; links: Set<string>; addresses: Set<string>;
+  /** Whole name → the row's name. */
+  people: Map<string, string>;
+  /** Every name a text might use (the last word of the name, the short name), lower-cased → the row's name. */
+  called: Map<string, string>;
+  branch: string | null;
+};
 
 function detailsOf(side: BranchSide): Details {
-  const d: Details = { phones: new Set(), links: new Set(), addresses: new Set(), staff: new Map(), branch: side.branchName === null ? null : nfc(side.branchName) };
+  const d: Details = {
+    phones: new Set(), links: new Set(), addresses: new Set(), people: new Map(), called: new Map(),
+    branch: side.branchName === null ? null : nfc(side.branchName),
+  };
   for (const c of side.contacts) {
     if (c.kind === 'phone') for (const p of phonesOf(c.value)) d.phones.add(p);
     if (c.kind === 'maps_url') { const k = linkKey(c.value); if (k !== null) d.links.add(k); }
     if (c.kind === 'address' && flat(c.value) !== '') d.addresses.add(flat(c.value));
   }
-  for (const s of side.staff) { const k = staffKey(s); if (k !== null) d.staff.set(k.toLowerCase(), s); }
+  for (const s of side.staff) {
+    if (personKey(s.name) !== '') d.people.set(personKey(s.name), s.name);
+    for (const k of [staffKey(s.name), s.shortName === null ? null : nfc(s.shortName).trim()]) {
+      if (k !== null && k !== '') d.called.set(k.toLowerCase(), s.name);
+    }
+  }
   return d;
 }
 
@@ -135,16 +172,19 @@ export function foreignDetails(own: BranchSide, sibling: BranchSide, allowNames:
   for (const p of theirs.phones) if (mine.phones.has(p)) leak('contact_points phone', `is also ${sibling.slug}'s phone ${p}`);
   for (const l of theirs.links) if (mine.links.has(l)) leak('contact_points maps_url', `is also ${sibling.slug}'s map link ${l}`);
   for (const a of theirs.addresses) if (mine.addresses.has(a)) leak('contact_points address', `is also ${sibling.slug}'s address`);
-  for (const [k, name] of theirs.staff) {
-    if (mine.staff.has(k) && !allowed.has(k)) leak(`staff_members «${mine.staff.get(k) ?? name}»`, `is also on ${sibling.slug}'s staff («${name}»)`);
+  for (const [k, name] of theirs.people) {
+    if (mine.people.has(k) && !allowed.has(k) && !allowed.has(staffKey(name)?.toLowerCase() ?? '')) {
+      leak(`staff_members «${mine.people.get(k) ?? name}»`, `is also on ${sibling.slug}'s staff`);
+    }
   }
 
   // Said in a text: only what is the other branch's alone (a detail held by both is found above).
   const phones = [...theirs.phones].filter((p) => !mine.phones.has(p));
   const links = [...theirs.links].filter((l) => !mine.links.has(l));
   const addresses = [...theirs.addresses].filter((a) => !mine.addresses.has(a));
-  const names = [...theirs.staff].filter(([k]) => !mine.staff.has(k) && !allowed.has(k));
-  const patterns = names.map(([k, name]) => ({ what: `staff member «${name}»`, re: headPattern(k) }));
+  // A name this branch's own staff also answer to says nothing about which branch is meant.
+  const names = [...theirs.called].filter(([k]) => !mine.called.has(k) && !allowed.has(k) && [...k].length >= MIN_TEXT_NAME_CHARS);
+  const patterns = names.map(([k, name]) => ({ what: `staff member «${name}»${k === name.toLowerCase() ? '' : ` («${k}»)`}`, re: headPattern(k) }));
   // The other branch's name, unless it is also this branch's or allowed («Brand — Branch» is how
   // an operator names a branch; a copied «this Page is the X branch's» is the case it catches).
   const branch = theirs.branch;
@@ -201,8 +241,8 @@ export function sharedDrift(a: BranchSide, b: BranchSide): BranchFinding[] {
       detail: `${a.slug} ${x ?? 'has no such row'}, ${b.slug} ${y ?? 'has no such row'}`,
     });
   }
-  const ua = a.bookingUrl === null ? null : linkKey(a.bookingUrl) ?? a.bookingUrl.trim();
-  const ub = b.bookingUrl === null ? null : linkKey(b.bookingUrl) ?? b.bookingUrl.trim();
+  const ua = a.bookingUrl === null ? null : linkKey(a.bookingUrl, { query: true }) ?? a.bookingUrl.trim();
+  const ub = b.bookingUrl === null ? null : linkKey(b.bookingUrl, { query: true }) ?? b.bookingUrl.trim();
   if (ua !== ub) {
     out.push({ kind: 'drift', source: 'booking link', detail: `${a.slug} ${a.bookingUrl ?? '(none)'}, ${b.slug} ${b.bookingUrl ?? '(none)'}` });
   }

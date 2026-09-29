@@ -40,7 +40,7 @@ function fakeDb(rows: Rows, fail: string[] = []): SupabaseClient {
 
 const groups: BranchGroup[] = [{ name: 'demo', tenants: ['demo-east', 'demo-west'], allowNames: [] }];
 const east = {
-  tenants: [{ id: 'e', slug: 'demo-east' }],
+  tenants: [{ id: 'e', slug: 'demo-east', live_revision_id: 'rev-e' }],
   contact_points: [{ tenant_id: 'e', kind: 'phone', value: '99112233' }],
   staff_members: [{ tenant_id: 'e', name: 'Сарнай', active: true }],
   canned_responses: [{ tenant_id: 'e', kind: 'handoff', body: 'Та 99112233 дугаараар холбогдоно уу.' }],
@@ -70,6 +70,20 @@ test('a branch carrying its sibling\'s phone is a leak naming the row; a differe
   assert.deepEqual(r.leaks, ["demo-west branches: canned handoff: carries demo-east's phone 99112233"]);
   assert.deepEqual(r.drift, ['demo-west branches: price «Үс засалт»: demo-west 30,000₮, demo-east 25,000₮']);
   assert.deepEqual(r.unchecked, []);
+});
+
+test('drift against a branch never published is shown and does not refuse; a leak still does', async () => {
+  const db = fakeDb({ ...east, tenants: [{ id: 'e', slug: 'demo-east', live_revision_id: 'rev-e' }, { id: 'w', slug: 'demo-west', live_revision_id: null }],
+    ...westRows('Та 7711-2233 дугаараар холбогдоно уу. Сарнайгаас асуу.', 30000) });
+  const r = await branchGate(db, { slug: 'demo-east', tenantId: 'e', groups });
+  assert.deepEqual(r.drift, []);
+  assert.deepEqual(r.pendingDrift, ['demo-east branches: price «Үс засалт»: demo-east 25,000₮, demo-west 30,000₮']);
+  assert.match(r.text, /demo-west has never been published/u);
+});
+
+test('a branch tenant with D-125 branches of its own is UNCHECKED, never half-checked', async () => {
+  const r = await branchGate(fakeDb({ ...east, tenant_branches: [{ tenant_id: 'e', id: 'b1' }] }), { slug: 'demo-east', tenantId: 'e', groups });
+  assert.match(r.unchecked[0] ?? '', /tenant_branches/u);
 });
 
 test('a clean branch passes against a provisioned sibling', async () => {

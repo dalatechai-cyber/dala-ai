@@ -67,7 +67,7 @@ import { onboardingReport } from '../../src/lib/provision/onboardReport.ts';
 import { supabasePublish } from '../../src/lib/supabase/clients.ts';
 import { ubStamp } from '../../src/lib/time/ub.ts';
 import { factGate } from '../facts/gate.ts';
-import { branchGate, branchSideFromPlan, type BranchGateResult } from '../facts/branchGate.ts';
+import { branchGate, branchGroupOf, branchSideFromPlan, type BranchGateResult } from '../facts/branchGate.ts';
 import { parseStaff, type StaffPrice } from '../../src/lib/billing/amounts.ts';
 import { billingToday, monthOf } from '../../src/lib/billing/calendar.ts';
 import { phrasesFrom, planSchedules, writeBillingRecord, type PlannedSchedule } from '../../src/lib/billing/setup.ts';
@@ -221,6 +221,19 @@ try {
     .filter((r) => fold(String(r['display_name'] ?? '')) === fold(displayName)).map((r) => String(r['slug']));
   if (taken.length > 0) {
     throw new Error(`«${displayName}» is already the name of ${taken.join(', ')}; give this tenant its own with --display-name "<name>"`);
+  }
+  // «Brand — Branch»: a branch of a brand that already has a tenant must share a group with it in
+  // config/branch-groups.json, or the branch gate never compares them (a mistyped slug there would
+  // switch it off in silence).
+  const brandOf = (v: string) => { const f = fold(v); const at = f.lastIndexOf(' - '); return at < 0 ? '' : f.slice(0, at); };
+  const brand = brandOf(displayName);
+  if (brand !== '') {
+    const group = branchGroupOf(slug)?.tenants ?? [];
+    const outside = (others ?? []).map((r) => r as Record<string, unknown>)
+      .filter((r) => brandOf(String(r['display_name'] ?? '')) === brand && !group.includes(String(r['slug']))).map((r) => String(r['slug']));
+    if (outside.length > 0) {
+      throw new Error(`«${displayName}» is a branch of the same brand as ${outside.join(', ')}, but ${slug} is not in one group with it in config/branch-groups.json. Add it there (or fix the slug), then re-run.`);
+    }
   }
 } catch (e) {
   die(e instanceof Error ? e.message : String(e));

@@ -62,7 +62,7 @@ export function branchSideFromPlan(slug: string, plan: OnboardPlan): BranchSide 
   return {
     slug,
     contacts: i.contacts,
-    staff: plan.staff.filter((s) => s.active).flatMap((s) => [s.name, s.shortName ?? '']).filter((n) => n !== ''),
+    staff: plan.staff.filter((s) => s.active).map((s) => ({ name: s.name, shortName: s.shortName })),
     branchName: branchLabel(i.business.displayName),
     texts: [
       ...Object.entries(i.sentences).map(([kind, body]) => ({ source: `canned ${kind}`, text: body })),
@@ -87,6 +87,9 @@ export type BranchGateResult = {
   leaks: string[];
   /** A price or the booking link differs from another branch. Refuses publish; holds onboarding. */
   drift: string[];
+  /** The same, against a branch that has never been published: shown, never refusing. A branch
+   *  still being onboarded cannot block a live branch's publish; its own first publish is checked. */
+  pendingDrift: string[];
   /** Could not be checked. Refuses publish; holds onboarding. */
   unchecked: string[];
   text: string;
@@ -106,9 +109,9 @@ export async function branchGate(
     group = branchGroupOf(slug, input.groups ?? branchGroups());
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e);
-    return { group: null, others: [], leaks: [], drift: [], unchecked: [`${slug} branches: ${why}`], text: `branches: ${slug}: UNCHECKED (${why})` };
+    return { group: null, others: [], leaks: [], drift: [], pendingDrift: [], unchecked: [`${slug} branches: ${why}`], text: `branches: ${slug}: UNCHECKED (${why})` };
   }
-  if (group === null) return { group: null, others: [], leaks: [], drift: [], unchecked: [], text: `branches: ${slug} is in no branch group; nothing to compare.` };
+  if (group === null) return { group: null, others: [], leaks: [], drift: [], pendingDrift: [], unchecked: [], text: `branches: ${slug} is in no branch group; nothing to compare.` };
 
   const unchecked: string[] = [];
   const notes: string[] = [];
@@ -124,19 +127,29 @@ export async function branchGate(
   }
 
   const findings: BranchFinding[] = [];
+  const pending: BranchFinding[] = [];
   const others = group.tenants.filter((s) => s !== slug);
   for (const other of others) {
-    const { data, error } = await db.from('tenants').select('id').eq('slug', other).maybeSingle();
+    const { data, error } = await db.from('tenants').select('id, live_revision_id').eq('slug', other).maybeSingle();
     if (error) { unchecked.push(`${slug} branches: tenant ${other} unreadable: ${error.message}`); continue; }
     if (data === null) { notes.push(`branches: ${other} is not provisioned yet; nothing of it to compare.`); continue; }
     const sib = await loadBranchSide(db, { tenantId: String((data as Record<string, unknown>)['id']), slug: other });
     if (!sib.ok) { unchecked.push(`${slug} branches: ${other}: ${sib.detail}`); continue; }
-    if (own !== null) findings.push(...foreignDetails(own, sib.side, group.allowNames), ...sharedDrift(own, sib.side));
+    if (own === null) continue;
+    findings.push(...foreignDetails(own, sib.side, group.allowNames));
+    const drift = sharedDrift(own, sib.side);
+    if ((data as Record<string, unknown>)['live_revision_id'] == null) {
+      pending.push(...drift);
+      if (drift.length > 0) notes.push(`branches: ${other} has never been published, so its ${drift.length} difference(s) do not refuse this run; its own first publish will.`);
+    } else {
+      findings.push(...drift);
+    }
   }
 
   const line = (f: BranchFinding) => `${slug} branches: ${f.source}: ${f.detail}`;
   const text = [
     ...(own === null ? [] : [renderBranchFindings(slug, group.name, findings)]),
+    ...pending.map((f) => `  drift (not refusing)  ${f.source}: ${f.detail}`),
     ...notes,
     ...unchecked.map((u) => `branches: UNCHECKED ${u}`),
   ].join('\n');
@@ -145,6 +158,7 @@ export async function branchGate(
     others,
     leaks: findings.filter((f) => f.kind === 'leak').map(line),
     drift: findings.filter((f) => f.kind === 'drift').map(line),
+    pendingDrift: pending.map(line),
     unchecked,
     text,
   };

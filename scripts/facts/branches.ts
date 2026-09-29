@@ -57,7 +57,7 @@ for (const slug of group.tenants) {
 
   const gate = await branchGate(db, { slug, tenantId, groups });
   out(gate.text);
-  bad += gate.leaks.length + gate.drift.length + gate.unchecked.length;
+  bad += gate.leaks.length + gate.drift.length + gate.pendingDrift.length + gate.unchecked.length;
 
   // Is what customers are answered from the same as what the rows say now?
   const compiled = await compileStablePrefix(db, { tenantId, approvedAt: now.toISOString() });

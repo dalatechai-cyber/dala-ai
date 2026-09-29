@@ -21,7 +21,7 @@ export async function loadBranchSide(
   input: { tenantId: string; slug: string },
 ): Promise<{ ok: true; side: BranchSide } | { ok: false; detail: string }> {
   const t = input.tenantId;
-  const [tenant, copies, contacts, staff, booking, services, variants, deposits, disambig, closures] = await Promise.all([
+  const [tenant, copies, contacts, staff, booking, services, variants, deposits, disambig, closures, inner] = await Promise.all([
     db.from('tenants').select('display_name').eq('id', t).maybeSingle(),
     loadFactCopies(db, t),
     db.from('contact_points').select('kind, value').eq('tenant_id', t),
@@ -32,11 +32,18 @@ export async function loadBranchSide(
     db.from('deposit_rules').select('applies_to, rule_text').eq('tenant_id', t),
     db.from('disambiguation_pairs').select('trigger_term, question').eq('tenant_id', t),
     db.from('tenant_closures').select('title, message').eq('tenant_id', t),
+    db.from('tenant_branches').select('id').eq('tenant_id', t),
   ]);
   if (!copies.ok) return { ok: false, detail: copies.detail };
   for (const [name, r] of [['tenants', tenant], ['contact_points', contacts], ['staff_members', staff], ['tenant_booking', booking], ['services', services],
-    ['service_variants', variants], ['deposit_rules', deposits], ['disambiguation_pairs', disambig], ['tenant_closures', closures]] as const) {
+    ['service_variants', variants], ['deposit_rules', deposits], ['disambiguation_pairs', disambig], ['tenant_closures', closures], ['tenant_branches', inner]] as const) {
     if (r.error) return { ok: false, detail: `${name} unreadable: ${r.error.message}` };
+  }
+  // A branch tenant that also carries D-125 branches of its own has contacts and prices this does
+  // not read (branch_contact_points, branch_variant_prices): refused, never half-checked.
+  const innerCount = (inner.data ?? []).length;
+  if (innerCount > 0) {
+    return { ok: false, detail: `${input.slug} has ${innerCount} tenant_branches row(s) (D-125); a branch tenant is checked only without them` };
   }
 
   const nameOf = new Map(((services.data ?? []) as Row[]).map((s) => [str(s['id']), str(s['name'])]));
@@ -53,7 +60,7 @@ export async function loadBranchSide(
     side: {
       slug: input.slug,
       contacts: ((contacts.data ?? []) as Row[]).map((c) => ({ kind: str(c['kind']), value: str(c['value']) })),
-      staff: ((staff.data ?? []) as Row[]).flatMap((s) => [str(s['name']), str(s['short_name'])]).filter((n) => n !== ''),
+      staff: ((staff.data ?? []) as Row[]).map((s) => ({ name: str(s['name']), shortName: str(s['short_name']) || null })),
       branchName: branchLabel(str((tenant.data as Row | null)?.['display_name'])),
       texts: [
         ...copies.copies.map((c) => ({ source: c.source, text: c.text })),

@@ -11165,8 +11165,9 @@ inside one tenant stay built and dormant; they are not used for Tara.
 - **The branch gate** (`scripts/facts/branchGate.ts`, checker `src/lib/facts/branches.ts`):
   another branch's phone, map link, address, staff name or branch name in a tenant's rows is
   a LEAK, and refuses onboarding (before any write) and publish; a price row or booking link
-  that differs is DRIFT, and refuses publish and holds an onboarded tenant; an unreadable
-  branch is UNCHECKED and refuses. `scripts/facts/branches.ts --group <group>` shows the
+  that differs is DRIFT, and refuses publish (except against a branch never published, so a
+  branch being onboarded cannot block a live one) and holds an onboarded tenant; an
+  unreadable branch, or one with D-125 branch rows of its own, is UNCHECKED and refuses. `scripts/facts/branches.ts --group <group>` shows the
   gate and whether each branch's live snapshot is behind its rows.
 - **Why:** seven of Яармаг's reviewed rows carry its phone numbers (six canned lines and the
   fixed reply `holiday_hours_note`). A branch built by copying them would give Яармаг's phone

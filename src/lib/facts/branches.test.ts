@@ -5,6 +5,7 @@ import { branchLabel, foreignDetails, linkKey, phonesOf, renderBranchFindings, s
 // Fictional branches: every number, name, address and link is invented.
 const handoff = (phones: string) => `Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Та ${phones} дугаараар холбогдоно уу.`;
 
+const person = (name: string, shortName: string | null = null) => ({ name, shortName });
 function side(over: Partial<BranchSide> & { slug: string }): BranchSide {
   return { contacts: [], staff: [], branchName: null, texts: [], prices: [], bookingUrl: null, ...over };
 }
@@ -15,7 +16,7 @@ const east = side({
     { kind: 'maps_url', value: 'https://maps.app.goo.gl/EastDemoAbc12' },
     { kind: 'address', value: 'Баянзүрх дүүрэг, Нарны хорооллын 3-р байр' },
   ],
-  staff: ['Сарнай', 'Г. Мөнхзаяа'],
+  staff: [person('Сарнай'), person('Г. Мөнхзаяа')],
   texts: [{ source: 'canned handoff', text: handoff('99112233 эсвэл 88114455') }],
   prices: [{ service: 'Үс засалт', variant: '', kind: 'exact', min: 25000, max: null }],
   bookingUrl: 'https://demo-brand.mn/',
@@ -27,7 +28,7 @@ const west = side({
     { kind: 'maps_url', value: 'https://maps.app.goo.gl/WestDemoXyz98' },
     { kind: 'address', value: 'Сонгинохайрхан дүүрэг, 3-р хороолол' },
   ],
-  staff: ['Уянга'],
+  staff: [person('Уянга')],
   texts: [{ source: 'canned handoff', text: handoff('7711-2233') }],
   prices: [{ service: 'Үс засалт', variant: '', kind: 'exact', min: 25000, max: null }],
   bookingUrl: 'https://demo-brand.mn',
@@ -76,10 +77,10 @@ test('the other branch\'s map link, address and staff are named', () => {
 });
 
 test('a detail both branches hold is named at the contact row, once', () => {
-  const t = { ...west, contacts: [...west.contacts.filter((c) => c.kind !== 'phone'), { kind: 'phone', value: '7711-2233, 99112233' }], staff: ['Уянга', 'Сарнай'] };
+  const t = { ...west, contacts: [...west.contacts.filter((c) => c.kind !== 'phone'), { kind: 'phone', value: '7711-2233, 99112233' }], staff: [person('Уянга'), person('Сарнай')] };
   assert.deepEqual(foreignDetails(t, east).map((f) => `${f.source}: ${f.detail}`), [
     "contact_points phone: is also demo-east's phone 99112233",
-    "staff_members «Сарнай»: is also on demo-east's staff («Сарнай»)",
+    "staff_members «Сарнай»: is also on demo-east's staff",
   ]);
   assert.deepEqual(foreignDetails(t, east, ['Сарнай']).map((f) => f.source), ['contact_points phone'], 'allow_names exempts a shared person');
 });
@@ -89,7 +90,7 @@ test('a staff name is a whole word, with or without a case ending, never a piece
   const inside = { ...west, texts: [{ source: 'KB', text: 'Сарнайн цэцэг' }] };
   assert.equal(foreignDetails(inside, east).length, 1, 'a case ending of the name is the name');
   const unrelated = { ...west, texts: [{ source: 'KB', text: 'Сарнайцэцэгхэлхээ' }] };
-  assert.equal(foreignDetails({ ...unrelated }, { ...east, staff: ['Сар'] }).length, 0, 'a short name is not a prefix');
+  assert.equal(foreignDetails({ ...unrelated }, { ...east, staff: [person('Сарх')] }).length, 0, 'a short name is not a prefix');
 });
 
 test('the other branch\'s name is named, unless it is allowed', () => {
@@ -101,7 +102,26 @@ test('the other branch\'s name is named, unless it is allowed', () => {
   assert.equal(branchLabel('Demo Brand'), null);
   // A short name customers use is a staff name too.
   const nick = { ...west, texts: [{ source: 'KB', text: 'Сараа манай салбарт ажилладаг.' }] };
-  assert.equal(foreignDetails(nick, { ...east, staff: [...east.staff, 'Сараа'] }).length, 1);
+  assert.equal(foreignDetails(nick, { ...east, staff: [...east.staff, person('Сарангэрэл', 'Сараа')] }).length, 1);
+});
+
+test('two people with one first name are two people; a short name is never searched for', () => {
+  const e = { ...east, staff: [person('Б. Сараа'), person('Нарантуяа', 'Нар')] };
+  const w = { ...west, staff: [person('Г. Сараа')], texts: [{ source: 'KB', text: 'Сараа ажилладаг. Та нар ирээрэй.' }] };
+  assert.deepEqual(foreignDetails(w, e), [], 'Сараа is also this branch\'s; «Нар» is too short to search for');
+});
+
+test('a phone written with a dash, a no-break space or spaces between two numbers is still the number', () => {
+  for (const text of ['9911–2233', '9911\u00a02233', '9911 - 2233', '9911 — 2233']) {
+    assert.equal(foreignDetails({ ...west, texts: [{ source: 'KB', text }] }, east).length, 1, JSON.stringify(text));
+  }
+  assert.deepEqual(phonesOf('7711 2233 9911 4455').filter((p) => p.length === 8), ['77112233', '99114455']);
+});
+
+test('a map link shared with a query string is the same link', () => {
+  const t = { ...west, texts: [{ source: 'KB', text: 'https://maps.app.goo.gl/EastDemoAbc12?g_st=ic' }] };
+  assert.equal(foreignDetails(t, east).length, 1);
+  assert.equal(linkKey('https://demo-brand.mn/book?b=2', { query: true }), 'demo-brand.mn/book?b=2');
 });
 
 test('prices and the booking link that differ are named service by service', () => {

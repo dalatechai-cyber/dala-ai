@@ -344,14 +344,17 @@ word the rows use); only the founder adds one.
 `scripts/facts/branchGate.ts`, with the checker in `src/lib/facts/branches.ts`. No model, no
 spend, no writes. It reads each provisioned branch's rows: contact points, active staff (name
 and short name), the display name's branch label («Brand — **Branch**»), every canned line,
-fixed reply (every piece), FAQ, KB document, deposit rule, disambiguation question and closure
+enabled fixed reply (every piece), FAQ, KB document, deposit rule, disambiguation question and closure
 notice, the price rows of active services, and the booking link.
 
 | Finding | What it is | Onboarding (`scripts/onboard/tenant.ts`) | Publish (`scripts/publish/tenant.ts`) |
 |---|---|---|---|
-| **LEAK** | A row carries another branch's phone (digits only: «7711-2233», «+976 77112233» are one number), map link, address, staff name or short name (with case endings), or branch name; or the tenant's own contact or staff row holds the same value as another branch | **Refuses before anything is written**, dry run or not, naming each row. Re-checked on the rows after `--apply`: holds the tenant, keeps its reply cases off, exits 1 | **Refuses**, naming each row |
-| **DRIFT** | A service's price rows (by service name and variant) or the booking link differ from another branch's | Printed on the dry run; after `--apply`, holds the tenant (a line in the daily report) | **Refuses** |
-| **UNCHECKED** | The group config does not parse, or a provisioned branch cannot be read | Refuses | **Refuses** (rule 9) |
+| **LEAK** | A row carries another branch's phone (digits only: «7711-2233», «7711 – 2233», «+976 77112233» are one number), map link (a `?…` query ignored), address, staff name (its last word) or short name, four letters or more, with a case ending, or branch name; or the tenant's own contact rows hold another branch's phone, map link or address, or its staff the same person (whole name, initials included) | **Refuses before anything is written**, dry run or not, naming each row. Re-checked on the rows after `--apply`: holds the tenant, keeps its reply cases off, exits 1 | **Refuses**, naming each row |
+| **DRIFT** | A service's price rows (by service name and variant) or the booking link differ from another branch's | Printed on the dry run; after `--apply`, holds the tenant (a line in the daily report) | **Refuses**, except against a branch that has never been published: then shown as «drift (not refusing)», so a branch still being onboarded cannot block a live branch. Its own first publish is refused until it agrees |
+| **UNCHECKED** | The group config does not parse, a provisioned branch cannot be read, or a branch tenant also has D-125 `tenant_branches` rows (whose contacts and prices the gate does not read) | Refuses before writing; after `--apply`, holds the tenant | **Refuses** (rule 9) |
+
+Onboarding also refuses a «Brand — Branch» display name whose brand already has a tenant
+outside this slug's group, so a mistyped slug in the config cannot switch the gate off.
 
 A branch that is not provisioned yet is named and skipped. Today that is Парк Од, so
 **Яармаг's publish is unchanged** (verified on its live rows, 2026-09-29).
@@ -367,8 +370,12 @@ branch in the same session (publish prints the siblings to publish). The first b
 publish refuses until the other branch's rows agree.
 
 **What the gate does not catch** (CONVENTION, read by a person): a partial address (a
-landmark without the full address row), a staff nickname that is in no `short_name`, another
-branch's hours, and wording that describes the other branch without naming it.
+landmark without the full address row); a staff nickname that is in no `short_name`; a name
+of three letters or fewer; a name of five letters or fewer with a case ending outside the
+checker's list; another branch's Facebook, Instagram, website or e-mail contact; another
+branch's hours; a disabled fixed reply; and wording that describes the other branch without
+naming it. Two people with one first name at two branches are not told apart in a text, so
+that name is not searched for.
 
 ### Evidence (live, read-only, 2026-09-29)
 
