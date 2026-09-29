@@ -1,8 +1,9 @@
 # Дали — the reply standard
 
-**Version 1.1, 2026-09-29.** Written from the code, the tests, the live tenant data (read-only)
+**Version 1.2, 2026-09-29.** Written from the code, the tests, the live tenant data (read-only)
 and `docs/DECISIONS.md`. Version 1 changed nothing. Version 1.1 records the founder's branch
-decision and the «та» register rule, and adds the branch gate (§7). Where the repo cannot answer, the line says
+decision and the «та» register rule, and adds the branch gate (§7). Version 1.2 corrects §6 and
+§5: `deterministic_replies` and `faqs` rows have no `reviewed_at` gate (`src/lib/gate/deterministic.ts:100`); they have a `provenance` gate (D-020) that withholds rows not `tenant_confirmed`. Where the repo cannot answer, the line says
 **unclear** and names what was read.
 
 Дали is the Reception role: the AI receptionist that answers customers in Mongolian on a
@@ -200,6 +201,7 @@ reviewed row verbatim. Code backs them up only as listed.
 8. Merge authority (§6): the four founder-only categories are enforced only partly (see §6).
 9. L1 between unrelated tenants: nothing checks one tenant's rows for another's details (branch tenants are checked, §7). D10 on model replies: not stated in any signed block, not checked.
 10. G1: `ig_reel`, `reel`, `share` media kinds and the Instagram media path are unproven on real traffic.
+11. Deterministic replies and FAQs are customer-read wording with no founder-review gate, only a `provenance` gate (§6). Fixed replies and KB documents were not checked for one.
 
 **Conflicts**
 1. ~~Branches: one tenant or two?~~ **Settled 2026-09-29 (founder): two tenants, final.** D-125's branches-inside-one-tenant stays built and dormant (§7).
@@ -286,7 +288,7 @@ The metrics can tie; in 2026-09-25 the verdict came from reading the wrong answe
 
 **A new tenant (or branch tenant)**
 11. Onboarded with `scripts/onboard/tenant.ts` from the filled questionnaire; lands in shadow (D-155).
-12. Every canned row, deterministic row and FAQ reviewed by the founder; the client confirmed the summary.
+12. Every canned row, deterministic row and FAQ reviewed by the founder; the client confirmed the summary. (Only canned rows are gated by `reviewed_at`; for deterministic rows and FAQs this is a process step nothing enforces.)
 13. ✱ Contact points and staff are the tenant's own; no row carries another branch's phone, map link, address, staff name or branch name, and a branch's prices and booking link equal its siblings' (§7). The branch gate checks this at onboarding and publish; `scripts/facts/branches.ts --group <group>` shows it at any time.
 14. Facts gate passes (`scripts/facts/gate.ts`): every copy of a fact agrees.
 15. Reply cases generated and passing; shadow replies read before the channel goes live.
@@ -309,7 +311,8 @@ The metrics can tie; in 2026-09-25 the verdict came from reading the wrong answe
 | Migration | PR ⇒ local PostgreSQL suites ⇒ applied to the project | Founder if destructive (convention). Code that needs the column merges only after the push (D-058) |
 | Platform Mongolian (prompt blocks) | Draft in `prompt/drafts/` ⇒ founder signs hash in `prompt/platform-mn-review.json` ⇒ build | **Founder** (build refuses unsigned: `scripts/guards/check-mn-review.mjs`; it is a process gate, a pasted hash would pass) |
 | Tenant data (prices, rows, contacts) | Edit rows ⇒ `scripts/publish/tenant.ts` dry run ⇒ `--publish`. Edit and republish are one operation (a stale hash stops every reply) | **Founder only** can publish: `SUPABASE_SECRET_PUBLISH` is not in agent sessions |
-| Canned or deterministic row wording | Row ⇒ founder sets `reviewed_at` ⇒ publish | **Founder**. An unreviewed row refuses |
+| Canned row wording | Row ⇒ founder sets `reviewed_at` ⇒ publish | **Founder**. An unreviewed `canned_responses` row refuses |
+| Deterministic reply or FAQ wording | Row edited in the database. There is **no `reviewed_at` column and no founder-review gate** on `deterministic_replies` or `faqs`. The only gate is `provenance` (D-020): a row not `tenant_confirmed` is withheld (`src/lib/gate/deterministic.ts:187`; FAQs `src/lib/prompt/sections.ts:353`); that records where a row came from, not that the founder read its Mongolian. Deterministic rows are read live on each request and sent verbatim (`src/lib/reception/load.ts:359`, `deterministic.ts:100`); FAQs are read when the prompt is compiled. Whether an edit needs a publish to reach customers was not traced | **Founder, by convention.** Only the database write credential and `SUPABASE_SECRET_PUBLISH` limit who can change them; nothing refuses a row the founder has not read |
 | Model swap | `config/models.json` PR | **Unclear**: no written approver. By CLAUDE.md it touches money (cost) and customer Mongolian, so founder |
 | Deploy with a failing reply-case gate | Only with the founder's Ed25519 override token, one commit, time-limited, alerted | **Founder** (`src/lib/replycases/overrideKeys.ts`) |
 
@@ -317,8 +320,8 @@ The metrics can tie; in 2026-09-25 the verdict came from reading the wrong answe
 the branch gate at publish (the branch gate also at onboarding), every reply guard in §2.
 
 **Founder-only categories** (CLAUDE.md): money movement, credentials, destructive
-migrations, customer-visible Mongolian. **Enforced in tooling:** Mongolian (signing, reviewed
-rows), publish credential, override key. **Convention only:** money-movement review and
+migrations, customer-visible Mongolian. **Enforced in tooling:** Mongolian (signing of platform blocks, reviewed
+`canned_responses` rows; **not** deterministic replies or FAQs), publish credential, override key. **Convention only:** money-movement review and
 destructive-migration review. Branch protection and required checks on GitHub: **unclear**
 (no `CODEOWNERS`; settings not visible from the repo).
 

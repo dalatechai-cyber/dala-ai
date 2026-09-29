@@ -244,8 +244,10 @@ Each line has its story in `docs/history.md`.
   ~$0.0035. `RECEPTION_REPLY_ESTIMATE` is $0.041 (founder, 2026-09-15). Prefix trimming
   (`docs/prefix-trim.md`) is a margin lever.
 - **The binding cap is daily and compiled:** the lower of
-  `SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY` ($1.50) and the tenant's daily × surface
-  fraction. Ceilings are never environment variables (`check-no-ceiling-env.mjs`).
+  `SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY` ($2.00, the founder's call of 2026-09-21, D-106;
+  it was $1.50 before) and the tenant's daily × surface fraction, with
+  `PLATFORM_HARD_CAP_USD_PER_DAY` ($10.00) across all tenants (`src/config/platform.ts`).
+  Ceilings are never environment variables (`check-no-ceiling-env.mjs`).
 - **₮250,000 is Reception's list price; ₮80,000 ≈ $22.86 is the allowable model spend**
   (D-004: ceilings derive from the discounted floor). Matrix's ceiling is $28.57 (60% of
   list), set by the founder; the departure is flagged, not resolved.
