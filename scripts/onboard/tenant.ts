@@ -207,9 +207,13 @@ try {
   else if (stored !== '') [displayName, nameFrom] = [stored, 'kept from the tenant; --display-name changes it'];
   else [displayName, nameFrom] = [plan.intake.business.displayName, 'the form, 1.1'];
   // Two tenants with one label are one line in every report: refuse rather than guess which.
-  const { data: same, error: sameErr } = await db.from('tenants').select('slug').eq('display_name', displayName).neq('slug', slug);
-  if (sameErr) throw new Error(`tenants unreadable: ${sameErr.message}`);
-  const taken = (same ?? []).map((r) => String((r as Record<string, unknown>)['slug']));
+  // Compared case-folded, with every dash one dash and spaces collapsed, so «Tara Salon - Яармаг»
+  // does not pass as a different name from «Tara Salon — Яармаг».
+  const fold = (v: string) => v.normalize('NFC').toLocaleLowerCase('mn').replace(/\p{Pd}/gu, '-').replace(/\s+/gu, ' ').trim();
+  const { data: others, error: othersErr } = await db.from('tenants').select('slug, display_name').neq('slug', slug);
+  if (othersErr) throw new Error(`tenants unreadable: ${othersErr.message}`);
+  const taken = (others ?? []).map((r) => r as Record<string, unknown>)
+    .filter((r) => fold(String(r['display_name'] ?? '')) === fold(displayName)).map((r) => String(r['slug']));
   if (taken.length > 0) {
     throw new Error(`«${displayName}» is already the name of ${taken.join(', ')}; give this tenant its own with --display-name "<name>"`);
   }
