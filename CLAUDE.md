@@ -229,6 +229,12 @@ Each line has its story in `docs/history.md`.
   capitals, or a ₮ amount a named service does not carry. Publish refuses on a
   disagreement or an unreadable sibling copy, so check out `../dalatech-chatbot` first.
   A new place that repeats a tenant's facts is added to that config.
+- **A brand's branches are separate tenants** (D-157, final; D-125 stays dormant), listed in
+  `config/branch-groups.json`. The branch gate (`scripts/facts/branchGate.ts`) refuses
+  onboarding and publish when a tenant's rows carry another branch's phone, map link,
+  address, staff or branch name, and publish when prices or the booking link differ. Onboard
+  a branch from its own form, never by copying a sibling's rows. After a price change,
+  update every branch's rows, then publish every branch.
 
 ## Money and model use
 

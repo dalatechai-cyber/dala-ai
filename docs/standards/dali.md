@@ -1,7 +1,8 @@
 # Дали — the reply standard
 
-**Version 1, 2026-09-29.** Written from the code, the tests, the live tenant data (read-only)
-and `docs/DECISIONS.md`. It changes nothing. Where the repo cannot answer, the line says
+**Version 1.1, 2026-09-29.** Written from the code, the tests, the live tenant data (read-only)
+and `docs/DECISIONS.md`. Version 1 changed nothing. Version 1.1 records the founder's branch
+decision and the «та» register rule, and adds the branch gate (§7). Where the repo cannot answer, the line says
 **unclear** and names what was read.
 
 Дали is the Reception role: the AI receptionist that answers customers in Mongolian on a
@@ -19,6 +20,7 @@ Every rule has an **enforcement status**. Use exactly these words.
 | **BLOCK** | Code checks every reply. A breaking reply is never sent: it is replaced by reviewed rows or the handoff line. |
 | **FIX** | Code edits or appends to the reply. The only edits: strip an unwarranted opening apology, cut extra emoji, remove a retyped sales line or own-site sentence, cut an over-long reply at a sentence end, re-lay price rows under the tenant's price template (dropping the model's lead-in line), append rows (deposits, prices, sales line). |
 | **COUNT** | Code notices the breach and writes a quality flag or a line in the daily flaw report. The reply is still sent. |
+| **GATE** | Code checks the tenant's ROWS before they can be onboarded or published; a breaking row stops the run and is named. Nothing checks each reply. |
 | **PROMPT** | Only an instruction to the model in a signed prompt block. Nothing checks the output. |
 | **DATA** | Holds only if the tenant has the right rows (gate rules, canned lines, forbidden phrasings). The repo cannot show the rows; the live database can. |
 | **CONVENTION** | Written or said, not in code or prompt. Nobody checks it. |
@@ -98,7 +100,7 @@ rules (1)–(5) carry the same numbers in all three.
 | D7 | Emoji: at most the tenant's `reply_style.max_emoji`; none on complaints, refusals, handoff. | FIX (`capEmoji`, `src/lib/reception/style.ts`), **only when the tenant has `reply_style` set** | Live: dalatech `max_emoji = 1`; **Tara Яармаг `reply_style` is null, so no emoji cap applies** |
 | D8 | Greet once, only on a new conversation. | DATA (`greeting` deterministic row) + code keeps "history unknown" apart from "history empty" (`gate/deterministic.ts`) | |
 | D9 | Every chat ends with a next step, not pushy (D-127). | DATA (sales lines, `src/lib/sales/live.ts`) for dalatech; "not pushy" is CONVENTION, unmeasured | |
-| D10 | «та» vs «чи» register. | **UNCLEAR.** No founder rule found. Only approved rows show the practice | |
+| D10 | Address the customer with «та» (and its forms: «Танд», «Таны»…), never «чи» (founder, 2026-09-29). | Reviewed rows: DATA, held by the founder's review of every row. Model replies: **CONVENTION.** No signed block states the rule (the style blocks only show «Та» in an example) and no code checks a reply | Live rows, 2026-09-29: 0 of 101 rows (canned, fixed, FAQ, KB, both tenants) use a «чи» form; 30 use a «та» form. Enforcing it on model replies needs a signed sentence in `02_style` and/or a reply guard: both change what customers read, so both are the founder's |
 | D11 | After a correction, never repeat the same answer. | BLOCK (`correction_repeat_blocked`, `handle.ts`) + DATA (correction row) | |
 | D12 | Never copy an approved line in drifted form (paraphrase or partial). | BLOCK (`gate/pinned.ts`: exact ⇒ row; ≥0.9 similar and ≥0.8 length ⇒ row + `canned_paraphrased`; adapted inside a longer reply ⇒ the handoff line, because a topic's refusal may not fit; `handle.ts` pinned step) | |
 
@@ -178,8 +180,10 @@ reviewed row verbatim. Code backs them up only as listed.
 
 | ID | Rule | Status |
 |---|---|---|
-| L1 | A reply gives only its own tenant's phone, address, map link and staff. | PARTIAL. Every read is tenant-scoped and the model sees only its own rows. **No guard detects another tenant's details** if they sit in the tenant's own rows (§7) |
-| L2 | Inside one tenant with two or more confirmed branches (D-125): never guess the branch; ask, then give only that branch's rows. | BLOCK in code (`src/lib/branches/*`, `judgeBranches` in `handle.ts`), **dormant**: zero `tenant_branches` rows live, and the ask line (`prompt/drafts/branch_clarify.mn.txt`) is unsigned, so the handoff line would be served instead |
+| L1 | A reply gives only its own tenant's phone, address, map link and staff. | Every read is tenant-scoped, so the model sees only its own rows. For **branch tenants** (`config/branch-groups.json`): GATE, the branch gate refuses a tenant whose rows carry another branch's phone, map link, address, staff name or branch name (§7). Between unrelated tenants: no check (nothing is copied between them) |
+| L2 | Branches of one brand are **separate tenants**, one per Facebook Page (founder, 2026-09-29, final). | Rows. The group is `config/branch-groups.json`; onboarding takes the branch as its own tenant (`--display-name "Brand — Branch"`) |
+| L3 | Every branch of a brand carries the same prices and booking link. | GATE: publish refuses while any service's price rows or the booking link differ from another provisioned branch (§7). Rows, not snapshots: see §7 for publishing both |
+| L4 | Inside one tenant with two or more confirmed branches (D-125): never guess the branch; ask, then give only that branch's rows. | BLOCK in code (`src/lib/branches/*`, `judgeBranches` in `handle.ts`), **dormant and not used for Tara**: the two-tenant model (L2) is final. Zero `tenant_branches` rows live, and the ask line (`prompt/drafts/branch_clarify.mn.txt`) is unsigned |
 
 ---
 
@@ -194,11 +198,11 @@ reviewed row verbatim. Code backs them up only as listed.
 6. A9 service-name changes and A12 price violations are counted, not blocked.
 7. H1: nothing checks that a model reply does not deny being an AI.
 8. Merge authority (§6): the four founder-only categories are enforced only partly (see §6).
-9. L1: no guard stops another tenant's or branch's phone, map link or address if it sits in the tenant's own rows.
+9. L1 between unrelated tenants: nothing checks one tenant's rows for another's details (branch tenants are checked, §7). D10 on model replies: not stated in any signed block, not checked.
 10. G1: `ig_reel`, `reel`, `share` media kinds and the Instagram media path are unproven on real traffic.
 
 **Conflicts**
-1. **Branches: one tenant or two?** D-125 built branches *inside one tenant* (migration 0047, applied; zero branch rows live). CLAUDE.md and the brief say Парк Од is a *separate tenant*. Both cannot be the plan. See §7.
+1. ~~Branches: one tenant or two?~~ **Settled 2026-09-29 (founder): two tenants, final.** D-125's branches-inside-one-tenant stays built and dormant (§7).
 2. **Photo lines:** D-076 (`image_received`), D-117 #5 (photo line on any caption) and D-151/D-152 (`handover_notice`) all describe photos. Live code prefers `handover_notice` where reviewed. The older decisions are superseded in practice, not in writing.
 3. **Booking (C5):** signed Ш3 says state the deposit, then the link; the unsigned draft says link first, nothing before it. Live behaviour follows the signed block.
 4. **Refusal endings:** several Tara refusal rows carry the salon phone; `image_received` and `refusal_out_of_scope` deliberately do not (D-077, founder: *"ending at the phone number is what I keep trying to get away from"*). No rule says which future rows should.
@@ -206,7 +210,7 @@ reviewed row verbatim. Code backs them up only as listed.
 6. **Price lists vs one question (A5):** the ancestor lists all prices; signed rule 4 asks one question for four or more. `docs/reports/matrix-bakeoff.md` put this to the founder; no answer found.
 
 **Intent only (founder said it, no code or prompt)**
-- «та»/«чи» register (D10), English/Russian handling (I3): unclear.
+- «та» register (D10): now a founder rule; not enforced on model replies (D10's row). English/Russian handling (I3): unclear.
 - "Not pushy" (D-127).
 - "Calm, no argument" on complaints: only reply case r01 expects it.
 
@@ -283,7 +287,7 @@ The metrics can tie; in 2026-09-25 the verdict came from reading the wrong answe
 **A new tenant (or branch tenant)**
 11. Onboarded with `scripts/onboard/tenant.ts` from the filled questionnaire; lands in shadow (D-155).
 12. Every canned row, deterministic row and FAQ reviewed by the founder; the client confirmed the summary.
-13. Contact points, booking URL and staff are the tenant's own; no row copied from another tenant carries that tenant's phone, map link or address (§7).
+13. ✱ Contact points and staff are the tenant's own; no row carries another branch's phone, map link, address, staff name or branch name, and a branch's prices and booking link equal its siblings' (§7). The branch gate checks this at onboarding and publish; `scripts/facts/branches.ts --group <group>` shows it at any time.
 14. Facts gate passes (`scripts/facts/gate.ts`): every copy of a fact agrees.
 15. Reply cases generated and passing; shadow replies read before the channel goes live.
 16. `reply_style` set (emoji limit), `media_handoff_alert` set on purpose.
@@ -309,8 +313,8 @@ The metrics can tie; in 2026-09-25 the verdict came from reading the wrong answe
 | Model swap | `config/models.json` PR | **Unclear**: no written approver. By CLAUDE.md it touches money (cost) and customer Mongolian, so founder |
 | Deploy with a failing reply-case gate | Only with the founder's Ed25519 override token, one commit, time-limited, alerted | **Founder** (`src/lib/replycases/overrideKeys.ts`) |
 
-**Automatic:** CI, the 10 build guards, preflight, the reply-case gate, the facts gate at
-publish, every reply guard in §2.
+**Automatic:** CI, the 10 build guards, preflight, the reply-case gate, the facts gate and
+the branch gate at publish (the branch gate also at onboarding), every reply guard in §2.
 
 **Founder-only categories** (CLAUDE.md): money movement, credentials, destructive
 migrations, customer-visible Mongolian. **Enforced in tooling:** Mongolian (signing, reviewed
@@ -322,39 +326,91 @@ destructive-migration review. Branch protection and required checks on GitHub: *
 
 ## 7. The Tara branches rule
 
-**The rule (founder, 2026-09-29):** one Дали engine; two tenants, one per branch
-(«Tara Salon — Яармаг» and «Tara Salon — Парк Од»). Prices and the booking link are the
-same for both and kept in sync. Phone numbers, map links and hairdressers are per branch.
-Each Facebook Page gives only its own branch's details.
+**The rule (founder, 2026-09-29, final):** one Дали engine; one tenant per branch, each with
+its own Facebook Page: «Tara Salon — Яармаг» (`matrix-eco-salon`, live) and «Tara Salon —
+Парк Од» (`tara-park-od`, not provisioned). Prices and the booking link are the same for both
+and kept in sync. Phone numbers, map links, addresses and hairdressers are per branch. Each
+Page gives only its own branch's details. D-125's "branches inside one tenant" (migration
+0047, applied, zero rows) stays built and **dormant**; it is not used for Tara.
 
-**Status today, part by part:**
+**Which tenants are branches of one brand** is configuration, not code:
+`config/branch-groups.json` lists each group's slugs (`tara-salon`: `matrix-eco-salon`,
+`tara-park-od`). A slug may be in one group only. `allow_names` lists names that may appear in
+every branch's rows (a person who really works at both, or a name that is also an ordinary
+word the rows use); only the founder adds one.
 
-| Part | Status | Evidence |
+### The branch gate (GATE)
+
+`scripts/facts/branchGate.ts`, with the checker in `src/lib/facts/branches.ts`. No model, no
+spend, no writes. It reads each provisioned branch's rows: contact points, active staff (name
+and short name), the display name's branch label («Brand — **Branch**»), every canned line,
+enabled fixed reply (every piece), FAQ, KB document, deposit rule, disambiguation question and closure
+notice, the price rows of active services, and the booking link.
+
+| Finding | What it is | Onboarding (`scripts/onboard/tenant.ts`) | Publish (`scripts/publish/tenant.ts`) |
+|---|---|---|---|
+| **LEAK** | A row carries another branch's phone (digits only: «7711-2233», «7711 – 2233», «+976 77112233» are one number), map link (a `?…` query ignored), address, staff name (its last word) or short name, four letters or more, with a case ending, or branch name; or the tenant's own contact rows hold another branch's phone, map link or address, or its staff the same person (whole name, initials included) | **Refuses before anything is written**, dry run or not, naming each row. Re-checked on the rows after `--apply`: holds the tenant, keeps its reply cases off, exits 1 | **Refuses**, naming each row |
+| **DRIFT** | A service's price rows (by service name and variant) or the booking link differ from another branch's | Printed on the dry run; after `--apply`, holds the tenant (a line in the daily report) | **Refuses**, except against a branch that has never been published: then shown as «drift (not refusing)», so a branch still being onboarded cannot block a live branch. Its own first publish is refused until it agrees |
+| **UNCHECKED** | The group config does not parse, a provisioned branch cannot be read, or a branch tenant also has D-125 `tenant_branches` rows (whose contacts and prices the gate does not read) | Refuses before writing; after `--apply`, holds the tenant | **Refuses** (rule 9) |
+
+Onboarding also refuses a «Brand — Branch» display name whose brand already has a tenant
+outside this slug's group, so a mistyped slug in the config cannot switch the gate off.
+
+A branch that is not provisioned yet is named and skipped. Today that is Парк Од, so
+**Яармаг's publish is unchanged** (verified on its live rows, 2026-09-29).
+
+**Seeing it at any time:** `node scripts/facts/branches.ts --group tara-salon` (operator's
+environment; read-only) prints each branch's gate result and whether its **live snapshot** is
+what its rows compile to now. The gate compares rows, so rows that agree still reach a
+customer only once each branch is published: a branch whose snapshot is behind its rows is
+named STALE with the command that publishes it.
+
+**Changing a price or the booking link:** change the rows of every branch, then publish every
+branch in the same session (publish prints the siblings to publish). The first branch's
+publish refuses until the other branch's rows agree.
+
+**What the gate does not catch** (CONVENTION, read by a person): a partial address (a
+landmark without the full address row); a staff nickname that is in no `short_name`; a name
+of three letters or fewer; a name of five letters or fewer with a case ending outside the
+checker's list; another branch's Facebook, Instagram, website or e-mail contact; another
+branch's hours; a disabled fixed reply; and wording that describes the other branch without
+naming it. Two people with one first name at two branches are not told apart in a text, so
+that name is not searched for.
+
+### Evidence (live, read-only, 2026-09-29)
+
+**Seven** of Яармаг's rows carry its phone numbers (76001888, 80905498): six canned lines,
+`handoff`, `refusal_no_promotion`, `refusal_price_unlisted`, `refusal_staff_schedule`,
+`refusal_suitability`, `refusal_topic`, and the fixed reply `holiday_hours_note` (76001888
+only). The KB document «Салбарууд» names the Яармаг branch and the stylist «Оюунаа». A
+Парк Од built by copying Яармаг's rows (a harness over those live rows, with invented Парк Од
+contacts) is refused with 15 LEAK lines naming every one of them. A Парк Од onboarded from its
+own questionnaire gets its own numbers in every templated line and passes with no LEAK.
+
+### Парк Од arrives with its own details
+
+Onboard Парк Од from **its own** filled questionnaire, never by copying Яармаг's rows:
+
+    node scripts/onboard/tenant.ts --form <Парк Од form> --slug tara-park-od \
+      --facebook-page-id <Парк Од Page id> --display-name "Tara Salon — Парк Од"
+
+The onboarding templates (`scripts/provision/templates/onboarding.mn.json`, approved as
+templates 2026-09-27) fill `{phones}` from the form's own answer, so `handoff`,
+`refusal_no_promotion`, `refusal_price_unlisted`, `refusal_staff_schedule` and `refusal_topic`
+carry Парк Од's numbers. Three of Яармаг's rows have no template and are the founder's to
+decide for Парк Од (wording is the founder's; nothing here is written):
+
+| Row | Proposed for Парк Од | Note |
 |---|---|---|
-| Same engine, tenant per branch | Supported by design (a client is rows). **Парк Од is not provisioned**: no tenant, no channel | Live `tenants` table |
-| One Page ⇒ one tenant | **ENFORCED.** A live Page id maps to exactly one tenant | Unique index `channel_identity_live_key`, `supabase/migrations/0001_initial_schema.sql:246` |
-| Per-branch phone, map link | Supported: `contact_points` are per tenant | Яармаг has one phone row (holding two numbers), one maps row |
-| Per-branch hairdressers | Supported: `staff_members` are per tenant | Яармаг has 9 |
-| Prices and booking link kept in sync | **NOT BUILT.** Nothing copies or compares data across tenants. `scripts/facts/gate.ts` compares copies inside one tenant only | `config/external-fact-copies.json` has only `dalatech` |
-| A Page never gives the other branch's details | **PARTIAL.** Every read is scoped to the tenant, so the model only sees its own rows. But no guard detects another tenant's phone or address | See the risk below |
+| canned `refusal_suitability` | Яармаг's approved bytes with only the numbers changed: «Уучлаарай, энэ таны үсэнд тохирох эсэхийг би шийдэж өгөх боломжгүй. Манай мэргэжилтэн үсийг тань харж хэлнэ. Та {Парк Од phones} дугаараар холбогдоно уу.» | |
+| canned `refusal_topic` | The template's generic line (default), or Яармаг's topic line with only the numbers changed: «Уучлаарай, хүүхдийн үйлчилгээний мэдээллийг би өгөх боломжгүй. Та салоны {Парк Од phones} дугаараар холбогдож лавлана уу.» | Founder picks one |
+| fixed `holiday_hours_note` | Яармаг's bytes with only the number changed: «Баярын өдрийн цагийг {one Парк Од phone} дугаараас лавлана уу.» | |
+| KB «Салбарууд» | Not proposed: it describes the Яармаг branch and its staff. Парк Од needs its own, written by the founder | Яармаг's copy says Tara has one branch and a second «удахгүй нээгдэнэ»; it goes stale when Парк Од opens. Changing it changes what Яармаг says, so it is the founder's |
 
-**Risk found (live data, 2026-09-29).** Six of Яармаг's reviewed canned rows carry the
-branch's two phone numbers inside their text: `handoff`, `refusal_no_promotion`,
-`refusal_price_unlisted`, `refusal_staff_schedule`, `refusal_suitability`, `refusal_topic`. If Парк Од is onboarded by copying Яармаг's rows as "shared
-content", those rows would give Яармаг's phone on Парк Од's Page. The guards would not stop
-it: the allowed-number list is built from the tenant's own compiled sections
-(`src/lib/prompt/render.ts`), and the copied rows are in them.
-
-**What this standard requires until something enforces it (CONVENTION):**
-1. Shared content = prices, service names, booking link, FAQ answers that carry no contact detail.
-2. Per-branch content = phone, map link, address, hairdressers, and **every row that names any of them**.
-3. Before a branch tenant goes live, read every row for the other branch's phone, map link, address and staff names. Any hit fails the change (§5 item 13).
-4. After any price or booking-link change, publish both tenants in the same session and compare their price rows.
-
-**Decision the founder owns:** D-125 built "branches inside one tenant" (migration 0047 is
-applied; zero branch rows). The two-tenant rule makes D-125 unused for Tara. Record which
-model is final, and whether cross-tenant sync (or a cross-tenant check in the facts gate) is
-to be built.
+`{Парк Од phones}` is Парк Од's numbers joined with « эсвэл », as the templates do. An
+alternative the founder raised before (D-077: *"ending at the phone number is what I keep
+trying to get away from"*): shared rows with no phone at all, identical in both branches, with
+the phone given only from `contact_points`. That is new wording, so it is not drafted here.
 
 ---
 
@@ -386,3 +442,7 @@ Live database (read-only SELECTs): `tenants`, `tenant_channels`, `contact_points
 `canned_responses` (kinds, review state, numbers in bodies), `reply_cases` (counts),
 `deterministic_replies` (counts), `staff_members` (counts), `tenant_branches`, the migration
 ledger. Nothing was written. No model was called.
+Version 1.1 also read: `scripts/onboard/tenant.ts`, `scripts/publish/tenant.ts`,
+`src/lib/facts/*`, `src/lib/provision/plan.ts`, `scripts/provision/templates/onboarding.mn.json`,
+and, read-only, every Яармаг row the branch gate reads, plus a «та»/«чи» count over both live
+tenants' canned, fixed, FAQ and KB rows.
