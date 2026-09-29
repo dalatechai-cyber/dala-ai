@@ -714,7 +714,8 @@ async function runReceptionDelivery(
     //
     // Draft only. The send is the claim step, so a `shadow` channel records what it
     // WOULD have said and delivers nothing — the mirror's whole point.
-    // --- A photo or a video with no words goes to a person (founder, 2026-09-27). -------
+    // --- A photo, a video or a shared reel or post with no words goes to a person. -------
+    // (founder, 2026-09-27; reels and posts D-152 addendum)
     //
     // The tenant's reviewed notice, SENT here (nothing else claims a draft made outside
     // Reception), then the same hand-off as a captioned one: the thread becomes `human` for
@@ -775,7 +776,7 @@ async function runReceptionDelivery(
           }
           const handed = await applyThreadControl(db, { tenantId, conversationId, control: 'human', at: now, source: 'handover', refresh: true });
           if (!handed.ok) fx.log('error', 'media_handoff_control_failed', { tenantId, conversationId, detail: handed.detail });
-          await fx.flagQuality({ tenantId, conversationId, code: 'media_handoff', detail: 'photo or video with no text handed to staff' });
+          await fx.flagQuality({ tenantId, conversationId, code: 'media_handoff', detail: 'photo, video or shared reel or post with no text handed to staff' });
           if (fx.alertMediaHandoff !== undefined) {
             await fx.alertMediaHandoff({ tenantId, conversationId, externalId: plan.externalId ?? `${eventId}:${plan.idx}`, text: '' })
               .catch((e: unknown) => fx.log('error', 'media_handoff_alert_failed', { detail: e instanceof Error ? e.message : String(e) }));

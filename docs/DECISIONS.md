@@ -10807,6 +10807,20 @@ The founder approved these on 2026-09-27 (`scripts/provision/media-notice-tara-r
 - **A retryable send failure** (613, 5xx) asks QStash to retry, so the notice is re-sent, not
   lost.
 
+**Addendum (2026-09-29): a shared reel or post is media by its attachment.** Tara's Page
+shows what Messenger sends for a shared reel: an attachment of type `reel`, three times
+(`webhook_events` 142 and 144 with no text, 979 with the link as text). Only 979 was handed
+off, because its text held a link. A reel with no words was skipped as `no_text` and
+answered by nothing, and a reel with words but no link went to the model. `handover/media.ts`
+now treats the attachment kinds `video`, `reel`, `ig_reel` and `share` as media in both
+`isMediaMessage` and `planMediaAlone`, so the attachment decides and the typed words do not.
+`story_mention` is left out: it tags the business in a customer's story and asks nothing.
+`share` is Instagram's name for a shared post; Messenger has sent link previews as
+`fallback`, which stays out. If Messenger ever sends `share`, the cost is a person looking.
+DalaTech's Instagram channel has had 19 webhook events and no customer attachment of any
+kind, so the Instagram kinds rest on Meta's documented names and on tests with
+Instagram-shaped payloads, not on a real delivery.
+
 ## D-153 — The media hand-off alert is a per-tenant setting (2026-09-27)
 
 The founder decided this on 2026-09-27. `tenants.media_handoff_alert` (`0062`, default true)

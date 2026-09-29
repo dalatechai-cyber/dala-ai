@@ -28,19 +28,40 @@
  * ## A photo or a video sent ALONE (founder, 2026-09-27: "never silence")
  *
  * A message with no words never reaches Reception: `meta/extract.ts` skips it as `no_text`.
- * `planMediaAlone` picks those skips (a photo or a video, never a sticker, D-070) and the
- * worker serves the same notice and the same hand-off to them, sending it itself. Before
- * this, a video alone was only recorded as dropped, and a photo alone got the image line
- * DRAFTED and never sent: nothing claims those drafts (Tara, 11 rows in `draft`, the
- * newest 2026-09-25). A tenant without the notice keeps that older path.
+ * `planMediaAlone` picks those skips (a photo, a video or a shared reel or post, never a
+ * sticker, D-070) and the worker serves the same notice and the same hand-off to them,
+ * sending it itself. Before this, a video alone was only recorded as dropped, and a photo
+ * alone got the image line DRAFTED and never sent: nothing claims those drafts (Tara, 11
+ * rows in `draft`, the newest 2026-09-25). A tenant without the notice keeps that older path.
  *
- * A reel shared with Messenger's share button may arrive as a share attachment, not a link
- * in the text; that is unverified.
+ * ## A shared reel or post is an attachment, not a word
+ *
+ * A reel shared with Messenger's share button arrives as an attachment of type `reel`
+ * (`payload.url`, `payload.reel_video_id`), sometimes with no text at all: Tara's Page,
+ * `webhook_events` 142 and 144 (2026-09-18, text-less) and 979 (2026-09-27, the link as
+ * text). Before this, only 979 counted as media, and only because its text was a link; the
+ * two text-less ones were skipped as `no_text` and never answered. `MEDIA_ATTACHMENT_KINDS`
+ * is the attachment side of the rule, so it holds whatever the customer typed. Instagram's
+ * kinds for a shared reel or post (`ig_reel`, `reel`, `share`) are Meta's documented names;
+ * no Instagram customer has sent one yet, so those three are unproven on the live channel.
+ * `story_mention` is left out on purpose: it is a customer tagging the business in their
+ * own story, not a question about a picture.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { raiseAlert, type AlertOutcome } from '../alerts/alert.ts';
 import { extractUrls } from '../mn/extract.ts';
 import type { SkippedEvent } from '../meta/extract.ts';
+
+/**
+ * Attachment kinds (Meta's `attachments[].type`, verbatim) that are a video, a reel or a
+ * shared post the bot cannot open. A photo is not listed: it goes through `sentPhoto`, which
+ * already excludes a sticker declaring `image` (D-070).
+ */
+export const MEDIA_ATTACHMENT_KINDS: readonly string[] = ['video', 'reel', 'ig_reel', 'share'];
+
+function hasMediaAttachment(attachments: readonly string[]): boolean {
+  return attachments.some((k) => MEDIA_ATTACHMENT_KINDS.includes(k));
+}
 
 /** The reviewed line this path serves. */
 export const MEDIA_HANDOFF_KIND = 'handover_notice';
@@ -95,10 +116,10 @@ export function mediaLinksIn(text: string): string[] {
 
 /**
  * Did the customer send something the bot cannot see? A photo (never a sticker: the caller's
- * `sentPhoto` already excludes those, D-070), a video, or a link to either.
+ * `sentPhoto` already excludes those, D-070), a video, a shared reel or post, or a link to one.
  */
 export function isMediaMessage(input: { text: string; attachments: readonly string[]; sentPhoto: boolean }): boolean {
-  return input.sentPhoto || input.attachments.includes('video') || mediaLinksIn(input.text).length > 0;
+  return input.sentPhoto || hasMediaAttachment(input.attachments) || mediaLinksIn(input.text).length > 0;
 }
 
 /**
@@ -141,8 +162,8 @@ export async function raiseMediaHandoff(
 export type PlannedMediaAlone = { idx: number; senderId: string; externalId: string | null };
 
 /**
- * The skipped messages that are a photo or a video with no words. At most one per sender
- * per entry (three photos in one batch are one question). A sticker is never one: the
+ * The skipped messages that are a photo, a video or a shared reel or post with no words. At
+ * most one per sender per entry (three photos in one batch are one question). A sticker is never one: the
  * discriminator is `stickerIds`, never the declared `type` (D-070).
  */
 export function planMediaAlone(skipped: readonly SkippedEvent[]): PlannedMediaAlone[] {
@@ -150,7 +171,7 @@ export function planMediaAlone(skipped: readonly SkippedEvent[]): PlannedMediaAl
   const out: PlannedMediaAlone[] = [];
   for (const s of skipped) {
     if (s.reason !== 'no_text') continue;
-    if (!s.attachments.includes('image') && !s.attachments.includes('video')) continue;
+    if (!s.attachments.includes('image') && !hasMediaAttachment(s.attachments)) continue;
     if (s.stickerIds.length > 0) continue;
     if (s.senderId === null || s.senderId === '' || seen.has(s.senderId)) continue;
     seen.add(s.senderId);
