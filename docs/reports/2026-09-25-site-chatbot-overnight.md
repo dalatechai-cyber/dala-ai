@@ -19,7 +19,7 @@ written to the dala-ai project.
 ## 1. No invented contact details — done
 
 ### What was wrong
-The 99273339 answer came from the site chatbot (`dalatech-chatbot`, the widget on
+The invented phone-number answer came from the site chatbot (`dalatech-chatbot`, the widget on
 dalatech.online), not from Dala AI. Its only protection was a sentence in the prompt:
 "never write a phone number". An instruction asks the model to behave. It doesn't check
 what the model wrote.
@@ -35,7 +35,7 @@ what the model wrote.
 - **A guard on every reply, `lib/factsGuard.js`.** This is the same approach as Tara's
   facts-from-data guard (`guard/facts.ts`, D-120). The guard refuses a reply that contains
   any of these:
-  - a phone number (8 formats of 99273339 tested)
+  - a phone number (8 formats of the invented number tested)
   - an email, web address or street address that isn't in the data
   - a price that isn't in the data
   - a real price on the wrong product, or of the wrong kind (a setup fee called monthly)
@@ -69,7 +69,7 @@ can't reach the site directly), and every reply goes through the guard. The ques
 
 ### Permanent tests
 There are 16 tests in `test/facts.test.js`. They cover:
-- the 99273339 incident in 8 formats
+- the invented-phone-number incident in 8 formats
 - the three questions above, using the live replies as fixtures
 - the Dali + Vira sum
 - ordinary answers that must never be refused
