@@ -325,6 +325,7 @@ blocks) and `architect` (Opus) for design. `tester` runs on Sonnet.
 | | |
 |---|---|
 | [`docs/STATUS.md`](docs/STATUS.md) | **Where this actually is.** What is built, what is unproven |
+| [`docs/standards/dali.md`](docs/standards/dali.md) | **Дали's reply standard**: every rule, where it is enforced, the reply and change checklists |
 | [`docs/history.md`](docs/history.md) | Full pre-slim CLAUDE.md: every incident, measurement and addendum |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | The reviewable summary; start here |
 | [`docs/architecture/09-reconciliation.md`](docs/architecture/09-reconciliation.md) | **The arbitration.** Beats every section file. Canonical table and env lists |
