@@ -42,6 +42,10 @@
  * - **Sign anything by itself.** A signature needs the id of the sheet or summary a person
  *   read; a line or fact changed after that is not covered and the id is refused.
  * - **Seal a token.** That is `scripts/kek/seal.ts`, by hand (see the report's last section).
+ * - **Give a branch another branch's details** (D-157). For a slug in `config/branch-groups.json`,
+ *   a form whose rows would carry another provisioned branch's phone, map link, address, staff
+ *   or branch name is refused before anything is written; prices or a booking link that differ
+ *   from the other branches hold the tenant.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -63,6 +67,7 @@ import { onboardingReport } from '../../src/lib/provision/onboardReport.ts';
 import { supabasePublish } from '../../src/lib/supabase/clients.ts';
 import { ubStamp } from '../../src/lib/time/ub.ts';
 import { factGate } from '../facts/gate.ts';
+import { branchGate, branchSideFromPlan, type BranchGateResult } from '../facts/branchGate.ts';
 import { parseStaff, type StaffPrice } from '../../src/lib/billing/amounts.ts';
 import { billingToday, monthOf } from '../../src/lib/billing/calendar.ts';
 import { phrasesFrom, planSchedules, writeBillingRecord, type PlannedSchedule } from '../../src/lib/billing/setup.ts';
@@ -223,6 +228,22 @@ try {
 plan.intake.business.displayName = displayName;
 out(`Name       ${displayName} (${nameFrom})`);
 
+// ---- a branch gives only its own details (founder, 2026-09-29) --------------------------------
+// For a tenant in config/branch-groups.json, what this form WOULD write is checked against every
+// other provisioned branch before anything is written: a row carrying another branch's phone, map
+// link, address, staff name or branch name refuses the run, dry or not. Prices or a booking link that differ
+// from the other branches are printed here and hold the tenant once written (section 3 below).
+try {
+  const pre = await branchGate(db, { slug, tenantId, own: branchSideFromPlan(slug, plan) });
+  out(`\n${pre.text}`);
+  if (pre.leaks.length > 0 || pre.unchecked.length > 0) {
+    die(`${pre.leaks.length > 0 ? 'this form would give another branch\'s details (LEAK lines above)' : 'the other branches could not be checked'}`
+      + ' — nothing written. Each branch writes its own phone, map link, address and staff; fix the form or its answers and re-run.');
+  }
+} catch (e) {
+  die(`branch check: ${e instanceof Error ? e.message : String(e)}`);
+}
+
 let billingPlan: PlannedSchedule[] = [];
 if (billingStaff.length > 0) {
   try {
@@ -286,6 +307,7 @@ try {
 }
 const signedId = (k: string, f: string) => { const v = steps.get(k)?.[f]; return typeof v === 'string' ? v : null; };
 const gates = gateStatus(wording, facts, { wording: signedId(STEP.wording, 'sheet'), facts: signedId(STEP.facts, 'summary') });
+let post: BranchGateResult | null = null;
 try {
   // The fact check the first publish will run, run now: a copy of a fact that disagrees
   // with the price rows (a ₮ amount in an FAQ no service carries) is found here, not at the
@@ -294,7 +316,15 @@ try {
   for (const w of [...fg.wrong, ...fg.unchecked]) {
     plan.missing.push({ question: '—', what: `fact check: ${w}`, holdsReady: true, audience: 'operator' });
   }
-  if (gates.wording.signed && gates.facts.confirmed && fg.wrong.length === 0 && fg.unchecked.length === 0) {
+  // The branch check again, on the rows as written: a row this form does not carry (added by
+  // hand, or left from an earlier run) is found here. Anything it finds holds the tenant.
+  post = await branchGate(db, { slug, tenantId: tenantId! });
+  out(`\n${post.text}`);
+  const branchIssues = [...post.leaks, ...post.drift, ...post.unchecked];
+  for (const w of branchIssues) {
+    plan.missing.push({ question: '—', what: `branch check: ${w}`, holdsReady: true, audience: 'operator' });
+  }
+  if (gates.wording.signed && gates.facts.confirmed && fg.wrong.length === 0 && fg.unchecked.length === 0 && branchIssues.length === 0) {
     activated = await activateCases(db, tenantId!);
     if (activated > 0) out(`  both gates passed: ${activated} reply cases switched on`);
   } else {
@@ -339,3 +369,8 @@ if (billingPlan.length > 0) {
 }
 // The daily report is where a missing answer is seen. If it was not recorded, say so loudly.
 if (recorded.recorded === 'failed') die(`readiness was NOT recorded for the daily report: ${recorded.detail}. Re-run the same command.`, 1);
+// Written in shadow and held, but a row with another branch's details is never a quiet line in a report.
+if (post !== null && post.leaks.length > 0) {
+  die(`the tenant's rows carry another branch's details (LEAK lines above). It is held, and its reply cases stay off.\n`
+    + `  Fix each row named, then re-run the same command.`, 1);
+}

@@ -63,6 +63,7 @@ import { caseModelSeat, gateTenant, renderGate } from '../../src/lib/replycases/
 import { callReception, type CallOutcome } from '../../src/lib/model/reception.ts';
 import { priceCall, type CacheMode } from '../../src/lib/spend/settle.ts';
 import { factGate } from '../facts/gate.ts';
+import { branchGate } from '../facts/branchGate.ts';
 import { caseReferences, itemReferences, lookupOf, resolveDeterministicRows, LAUNCH_STATES, sameLaunch, type LaunchRecord, type LaunchState } from '../../src/lib/launch/launch.ts';
 
 function die(message: string): never {
@@ -383,6 +384,22 @@ process.stdout.write(`\n${facts.text}\n`);
 if (facts.wrong.length > 0 || facts.unchecked.length > 0) {
   die(`copies of this tenant's facts disagree or could not be read, so it ${doPublish ? 'was NOT published' : 'cannot be published'}.\n`
     + 'Make every copy say what the rows say (or fix the row), check out the sibling repo if one is missing, then run again.');
+}
+
+// ---- a branch gives only its own details, and shares the brand's prices (founder, 2026-09-29) ----
+// For a tenant in config/branch-groups.json: none of its rows may carry another branch's
+// phone, map link, address or staff name, and its price rows and booking link must equal
+// every other provisioned branch's. Rows, not snapshots: change both branches' rows, then
+// publish both. A branch that cannot be read stops the publish (rule 9).
+const branches = await branchGate(db, { slug, tenantId });
+process.stdout.write(`\n${branches.text}\n`);
+if (branches.leaks.length > 0 || branches.drift.length > 0 || branches.unchecked.length > 0) {
+  die(`this tenant's rows ${branches.leaks.length > 0 ? 'carry another branch\'s details' : 'differ from another branch\'s shared facts'}`
+    + `${branches.unchecked.length > 0 ? ' or could not be checked' : ''}, so it ${doPublish ? 'was NOT published' : 'cannot be published'}.\n`
+    + 'Fix the rows named above (each branch its own phone, map link, address and staff; the same prices and booking link in every branch), then run again.');
+}
+if (branches.group !== null) {
+  process.stdout.write(`branch group ${branches.group}: if this change touches prices or the booking link, publish ${branches.others.join(', ')} in this same session.\n`);
 }
 
 if (!doPublish) {

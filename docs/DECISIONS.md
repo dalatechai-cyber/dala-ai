@@ -11152,3 +11152,27 @@ text, a long random link, an "Unsubscribe" link). Clients must trust it at first
   the engine's reads, the pay page). The founder's «Туршилтын харилцагч 2» stays for tests.
 - Cleanup the same day: TEST-202609-0003 voided (`billing_resolve`), the unconfirmed test
   account «Туршилтын харилцагч» ended and its schedule deactivated.
+
+## D-157 — A brand's branches are separate tenants, checked against each other (2026-09-29, founder)
+
+The founder settled it: *"same Дали engine, two tenants"*, one per branch and Facebook Page
+(«Tara Salon — Яармаг», «Tara Salon — Парк Од»). **Two tenants is final.** D-125's branches
+inside one tenant stay built and dormant; they are not used for Tara.
+
+- **Shared:** prices and the booking link, the same in every branch. **Per branch:** phone,
+  map link, address, hairdressers. Each Page gives only its own branch's details.
+- **Which tenants are branches** is `config/branch-groups.json`, never code (a client is rows).
+- **The branch gate** (`scripts/facts/branchGate.ts`, checker `src/lib/facts/branches.ts`):
+  another branch's phone, map link, address, staff name or branch name in a tenant's rows is
+  a LEAK, and refuses onboarding (before any write) and publish; a price row or booking link
+  that differs is DRIFT, and refuses publish and holds an onboarded tenant; an unreadable
+  branch is UNCHECKED and refuses. `scripts/facts/branches.ts --group <group>` shows the
+  gate and whether each branch's live snapshot is behind its rows.
+- **Why:** seven of Яармаг's reviewed rows carry its phone numbers (six canned lines and the
+  fixed reply `holiday_hours_note`). A branch built by copying them would give Яармаг's phone
+  on its own Page, and no reply guard would notice: the allowed numbers come from the
+  tenant's own rows. The gate compares rows, not snapshots, so a price change is made in
+  every branch's rows and then every branch is published.
+- **Register (D10 in `docs/standards/dali.md`):** Дали addresses the customer with «та», never
+  «чи». Held by review for rows; not enforced on model replies (no signed block states it, no
+  guard checks it). Enforcing it changes what customers read, so it is the founder's.

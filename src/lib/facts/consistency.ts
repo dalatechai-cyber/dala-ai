@@ -48,7 +48,7 @@ const SUFFIXES = ['гийн', 'гаас', 'гээс', 'гоос', 'гөөс', '�
 
 /** «Дали», «Далигийн», «Дали-г». A head longer than five letters may carry any ending; a
  *  shorter one only a whole word or a case ending from the list. */
-function headPattern(head: string): RegExp {
+export function headPattern(head: string): RegExp {
   const h = escape(head.toLowerCase());
   if ([...head].length > SHORT_HEAD_CHARS || /\s/u.test(head)) return new RegExp(`(?<![\\p{L}\\p{N}])${h}`, 'u');
   return new RegExp(`(?<![\\p{L}\\p{N}])${h}(?:-?(?:${SUFFIXES.join('|')}))?(?![\\p{L}\\p{N}])`, 'u');

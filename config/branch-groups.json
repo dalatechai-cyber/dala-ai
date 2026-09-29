@@ -1,0 +1,7 @@
+{
+  "_doc": "Brands with one tenant per branch (founder, 2026-09-29; docs/standards/dali.md §7). Each group lists its branch tenants by slug; a slug may be in one group only, and a slug with no tenant yet is skipped until it is provisioned. scripts/facts/branchGate.ts checks each branch against the others: its rows may not carry another branch's phone, map link, address or staff name (onboarding refuses, publish refuses), and the price rows and booking link must agree across the group (publish refuses; onboarding holds the tenant). `allow_names`: staff names that may appear in every branch's rows, for a person who really works at both branches, or a name that is also an ordinary word the rows use. Only the founder adds one.",
+  "tara-salon": {
+    "tenants": ["matrix-eco-salon", "tara-park-od"],
+    "allow_names": []
+  }
+}
