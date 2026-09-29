@@ -13,6 +13,13 @@
  *     … --apply --sign-wording <sheet id> --signed-by Bilguun
  *     … --apply --client-confirmed "Болор" --confirmed-on 2026-10-01 --summary <summary id>
  *
+ *     # the name Bilguun reads (daily report, Telegram, billing alerts, these documents), when it
+ *     # is not the form's 1.1 — e.g. one brand with several branches:
+ *     … --display-name "Tara Salon — Парк Од"
+ *     #   1.1 stays the name the bot says to customers; this changes only the label. Given
+ *     #   once, it is kept on every later run (a re-run without it never reverts it), and
+ *     #   a name another tenant already carries is refused.
+ *
  *     # billing (D-156), optional, on any run: the client's billing record, UNCONFIRMED
  *     … --billing-name "Тара Парк ОД ХХК" --billing-staff "Дали — AI хүлээн авагч=250000" \
  *       --billing-start 2026-11 [--billing-email owner@example.mn] [--billing-annual]
@@ -105,6 +112,9 @@ if (confirmedBy !== undefined && (confirmedOn === undefined || summaryId === und
 if (confirmedOn !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(confirmedOn)) die('--confirmed-on is YYYY-MM-DD');
 if ((signId !== undefined || confirmedBy !== undefined) && !doApply) die('a signature is a write: add --apply');
 const outDir = arg('out') ?? join('onboarding', slug);
+// Rule 6: operator-typed Mongolian is NFC-normalised at the boundary, like every other input.
+const displayNameArg = arg('display-name')?.normalize('NFC').replace(/\s+/gu, ' ').trim();
+if (displayNameArg === '') die('--display-name needs a name');
 
 // ---- billing (D-156): parsed now, so a mistyped amount refuses before anything is written
 const billingStaffArgs = process.argv.flatMap((a, i) => (a === '--billing-staff' ? [process.argv[i + 1] ?? ''] : []));
@@ -159,7 +169,7 @@ const now = new Date();
 const findings = validateIntake(plan.intake, now).filter((f) => f.code !== 'facts_unconfirmed');
 const blockers = findings.filter((f) => f.severity === 'blocker');
 
-out(`\nTenant     ${slug} — ${plan.intake.business.displayName}`);
+out(`\nTenant     ${slug} — form 1.1 «${plan.intake.business.displayName}»`);
 out(`Vertical   ${plan.vertical.value} (${plan.vertical.reason})`);
 out(`Form       ${formPath}, filled by ${plan.signer.name || '(not signed)'} ${plan.signer.date}`);
 out(`Rows       ${plan.intake.services.length} services · ${plan.intake.hours.length} days of hours · ${plan.intake.contacts.length} contacts · ${plan.staff.length} staff · ${plan.intake.faqs.length} FAQs · ${plan.deposits.length} deposit rules · ${plan.documents.length} knowledge documents · ${plan.intake.neverSay.length} never-say rules · ${Object.keys(plan.intake.sentences).length} sentences to sign · ${cases.length} reply cases`);
@@ -181,6 +191,37 @@ try {
 } catch (e) {
   die(e instanceof Error ? e.message : String(e));
 }
+
+// ---- the name people read ------------------------------------------------------------------
+// `tenants.display_name` is the label in the daily report, Telegram alerts, billing alerts and
+// these documents. It is the form's 1.1 unless the operator names it, and once named it is not
+// silently undone: a re-run without --display-name keeps what the tenant already carries. The
+// customer-facing sentences keep 1.1 either way (`planFromForm` filled them before this).
+let displayName: string;
+let nameFrom: string;
+try {
+  const { data: t, error } = await db.from('tenants').select('display_name').eq('slug', slug).maybeSingle();
+  if (error) throw new Error(`tenants unreadable: ${error.message}`);
+  const stored = t === null ? '' : String((t as Record<string, unknown>)['display_name'] ?? '');
+  if (displayNameArg !== undefined) [displayName, nameFrom] = [displayNameArg, '--display-name'];
+  else if (stored !== '') [displayName, nameFrom] = [stored, 'kept from the tenant; --display-name changes it'];
+  else [displayName, nameFrom] = [plan.intake.business.displayName, 'the form, 1.1'];
+  // Two tenants with one label are one line in every report: refuse rather than guess which.
+  // Compared case-folded, with every dash one dash and spaces collapsed, so «Tara Salon - Яармаг»
+  // does not pass as a different name from «Tara Salon — Яармаг».
+  const fold = (v: string) => v.normalize('NFC').toLocaleLowerCase('mn').replace(/\p{Pd}/gu, '-').replace(/\s+/gu, ' ').trim();
+  const { data: others, error: othersErr } = await db.from('tenants').select('slug, display_name').neq('slug', slug);
+  if (othersErr) throw new Error(`tenants unreadable: ${othersErr.message}`);
+  const taken = (others ?? []).map((r) => r as Record<string, unknown>)
+    .filter((r) => fold(String(r['display_name'] ?? '')) === fold(displayName)).map((r) => String(r['slug']));
+  if (taken.length > 0) {
+    throw new Error(`«${displayName}» is already the name of ${taken.join(', ')}; give this tenant its own with --display-name "<name>"`);
+  }
+} catch (e) {
+  die(e instanceof Error ? e.message : String(e));
+}
+plan.intake.business.displayName = displayName;
+out(`Name       ${displayName} (${nameFrom})`);
 
 let billingPlan: PlannedSchedule[] = [];
 if (billingStaff.length > 0) {

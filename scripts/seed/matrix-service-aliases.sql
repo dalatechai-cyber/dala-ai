@@ -46,7 +46,7 @@ join (values
   ('Афро хими',   'афро'),
   ('Шулуун хими', 'шулуун хими')
 ) as v(service_name, alias) on v.service_name = s.name
-where t.display_name = 'Matrix Eco Salon'
+where t.slug = 'matrix-eco-salon'  -- the slug, never the display name: that is renamed (2026-09-29)
 on conflict (tenant_id, alias) do nothing;
 
 -- ---------------------------------------------------------------------------

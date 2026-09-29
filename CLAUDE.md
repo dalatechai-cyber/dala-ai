@@ -10,7 +10,8 @@ holds each D-xxx in full.
 
 **Dala AI**: Dalatech's multi-tenant AI staff platform for Mongolian SMBs, sold by role
 per month. One codebase, one deployment, one Supabase project, a **configuration per
-tenant**. Tenant #0 is Dalatech itself, #1 Matrix Eco Salon, #2 GS Auto Center.
+tenant**. Tenant #0 is Dalatech itself, #1 «Tara Salon — Яармаг» (slug `matrix-eco-salon`, formerly
+Matrix Eco Salon), #2 GS Auto Center. «Tara Salon — Парк Од» is the next, a separate business.
 Customer-facing text is Mongolian Cyrillic.
 
 Separate business from Core Language (`dalatech-english`): **zero shared code, customers

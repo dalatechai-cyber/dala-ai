@@ -69,6 +69,9 @@ and Brevo variables, `TELEGRAM_*`, `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SECR
     #    invoices then come to you on Telegram to forward.
     node scripts/billing/account.ts propose --tenant <slug> --name "<legal name>" --contract "<contract no>" \
       --email <client e-mail> --staff "<staff label>=<monthly ₮>" --start YYYY-MM
+    #    --name is the payer every invoice, e-mail, PDF and billing alert names. It is NOT read from
+    #    the tenant, and a second propose for the same tenant keeps the first account's name.
+    #    The Tara branches are «Tara Salon — Яармаг» and «Tara Salon — Парк Од» (or the contract's legal name).
     # 2. Write it (unconfirmed, nothing is invoiced): the same command with --apply
     # 3. Confirm each schedule exactly as printed
     node scripts/billing/account.ts confirm --schedule <id> --fingerprint <fp> --by Bilguun

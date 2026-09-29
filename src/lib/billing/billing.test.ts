@@ -643,6 +643,16 @@ test('the pay page (0070): the bank transfer and the phone for an unpaid invoice
   assert.ok(!paid.html.includes('5000123456') && !paid.html.includes('tel:'));
 });
 
+test('a branch name with an em dash renders in the PDF and the e-mail (the Tara Salon branches, 2026-09-29)', async () => {
+  const blocks: Wording = { source: 'signed', blocks: wordingOnDisk() };
+  for (const displayName of ['Tara Salon — Яармаг', 'Tara Salon — Парк Од']) {
+    const pdf = await renderInvoicePdf({ wording: blocks, invoice: invoice({}), account: { displayName, contractRef: null }, issuer: ISSUER, payUrl: PAY_URL });
+    assert.ok(pdf.ok, pdf.ok ? '' : pdf.why);
+    const mail = renderMail({ kind: 'invoice', wording: blocks, invoice: invoice({}), account: { displayName, contractRef: null }, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: '' });
+    assert.ok(mail.ok && mail.html.includes(displayName) && mail.text.includes(displayName));
+  }
+});
+
 test('the PDF refuses a character its fonts lack rather than printing an empty box', async () => {
   const blocks: Wording = { source: 'signed', blocks: wordingOnDisk() };
   const r = await renderInvoicePdf({ wording: blocks, invoice: invoice({}), account: { displayName: 'Şahin 李 ХХК', contractRef: null }, issuer: ISSUER, payUrl: PAY_URL });
