@@ -101,3 +101,64 @@ test('D-153: an unreadable setting still alerts: a silent failure would hide the
   assert.notEqual(out.outcome, 'disabled');
   assert.ok(touched.includes('alerts'));
 });
+
+// ---------------------------------------------------------------------------
+// A shared reel or post is an attachment, whatever the customer typed.
+// ---------------------------------------------------------------------------
+
+/** The attachment of Tara's `webhook_events` 142, 144 and 979 (2026-09-18/27), trimmed. */
+const realReel = { type: 'reel', payload: { url: 'https://www.facebook.com/reel/1399878458435873?fs=e&s=m', title: 'Reel', reel_video_id: 1399878458435873 } };
+
+test('REAL (Tara, events 142/144): a reel shared with no words is planned for the notice, not left silent', async () => {
+  const { extractInboundMessages } = await import('../meta/extract.ts');
+  const { planMediaAlone } = await import('./media.ts');
+  const r = extractInboundMessages({
+    id: '1520409424715591', time: 1,
+    messaging: [{ sender: { id: 'psid-r' }, recipient: { id: '1520409424715591' }, timestamp: 1, message: { mid: 'm_reel', attachments: [realReel] } }],
+  });
+  assert.equal(r.messages.length, 0);
+  assert.deepEqual(r.skipped.map((s) => s.reason), ['no_text']);
+  assert.deepEqual(planMediaAlone(r.skipped).map((p) => p.senderId), ['psid-r']);
+});
+
+test('a reel with words that hold no link is still media: the attachment decides, not the text', () => {
+  assert.equal(isMediaMessage({ text: 'Ene budalt hed boloh be?', attachments: ['reel'], sentPhoto: false }), true);
+  assert.equal(isMediaMessage({ text: 'Ene budalt hed boloh be?', attachments: [], sentPhoto: false }), false);
+});
+
+test('Instagram: a photo alone, a shared reel and a shared post each reach the notice; a story mention and audio do not', async () => {
+  const { extractInboundMessages } = await import('../meta/extract.ts');
+  const { planMediaAlone } = await import('./media.ts');
+  const ig = (sender: string, attachments: unknown[], text?: string) => ({
+    sender: { id: sender }, recipient: { id: '17841417491117031' }, timestamp: 1,
+    message: { mid: `m_${sender}`, ...(text === undefined ? {} : { text }), attachments },
+  });
+  const r = extractInboundMessages({
+    id: '17841417491117031', time: 1,
+    messaging: [
+      ig('ig-photo', [{ type: 'image', payload: { url: 'https://lookaside.fbsbx.com/ig_messaging_cdn/?asset_id=1' } }]),
+      ig('ig-reel', [{ type: 'ig_reel', payload: { url: 'https://lookaside.fbsbx.com/x', title: 't', reel_video_id: '1' } }]),
+      ig('ig-post', [{ type: 'share', payload: { url: 'https://lookaside.fbsbx.com/y' } }]),
+      ig('ig-story', [{ type: 'story_mention', payload: { url: 'https://lookaside.fbsbx.com/z' } }]),
+      ig('ig-audio', [{ type: 'audio', payload: { url: 'https://lookaside.fbsbx.com/a' } }]),
+    ],
+  });
+  assert.deepEqual(planMediaAlone(r.skipped).map((p) => p.senderId), ['ig-photo', 'ig-reel', 'ig-post']);
+});
+
+test('Instagram: a photo WITH words is parsed with its attachment, like Messenger', async () => {
+  const { extractInboundMessages } = await import('../meta/extract.ts');
+  const r = extractInboundMessages({
+    id: '17841417491117031', time: 1,
+    messaging: [{
+      sender: { id: 'igsid-1' }, recipient: { id: '17841417491117031' }, timestamp: 1,
+      message: { mid: 'm_igcap', text: 'энэ хэд вэ', attachments: [{ type: 'image', payload: { url: 'https://lookaside.fbsbx.com/p' } }] },
+    }],
+  });
+  // The parser side only: the worker's own caption tests (worker/reception.test.ts) turn
+  // these fields into `customerSentPhoto`, and they share this one parser for both providers.
+  assert.equal(r.messages.length, 1);
+  assert.deepEqual(r.messages[0]?.attachments, ['image']);
+  assert.deepEqual(r.messages[0]?.stickerIds, []);
+  assert.equal(r.messages[0]?.text, 'энэ хэд вэ');
+});
