@@ -969,13 +969,13 @@ test('D-160: a SHADOW channel sends nothing on a cap refusal: the Page is answer
   assert.equal(ceilingAlerts.length, 1, 'the refusal branch was reached');
 });
 
-test('D-160: a RETRYABLE send failure ACKs 200 — a redelivery would skip it as answered — and a person is told', async () => {
+test('D-160: a RETRYABLE send failure is 503, so the redelivery re-sends the stored line (#250); a person is told', async () => {
   const { fx, needsPerson } = stubEffects({
     tables: CAP_TABLES(REVIEWED_HANDOFF),
     deliver: async () => ({ outcome: 'failed', failure: 'rate_limited', retryable: true, detail: 'graph 429' }),
   });
   const r = await run(fx);
-  assert.equal(r.status, 200);
+  assert.equal(r.status, 503);
   assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent]), [['handoff', 'unknown']]);
 });
 

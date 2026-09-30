@@ -1418,14 +1418,18 @@ async function runReceptionDelivery(
               : delivered.outcome === 'failed' && !delivered.retryable ? 'no' : 'unknown';
             if (sentLine !== 'yes') fx.log('error', 'ceiling_handoff_not_sent', { tenantId, conversationId, outcome: delivered.outcome });
             // The line promises a colleague: a person is told, on every outcome, as the
-            // ordinary hand-off path does (D-158). A 200 even on a retryable failure: a
-            // redelivery finds the reply row and skips the message as answered, so a 503
-            // would re-send nothing, and the person has already been told.
+            // ordinary hand-off path does (D-158); `once` a day, so the retry cannot page twice.
             await fx.alertNeedsPerson({ tenantId, conversationId, reason: 'handoff', provider, sent: sentLine });
             await fx.flagQuality({
               tenantId, conversationId, code: 'ceiling_handoff',
               detail: `daily cap refused the model; hand-off line ${sentLine === 'yes' ? 'sent' : `not confirmed sent (${delivered.outcome})`}`,
             });
+            if (delivered.outcome === 'failed' && delivered.retryable) {
+              // A 503: the redelivery claims this `failed` row and re-sends its stored bytes
+              // before it ever reaches the guard (#250), exactly as for a model reply.
+              fx.log('warn', 'ceiling_handoff_send_retryable', { tenantId, failure: delivered.failure });
+              return unavailable(`worker.send_${delivered.failure}`);
+            }
           }
         }
       }

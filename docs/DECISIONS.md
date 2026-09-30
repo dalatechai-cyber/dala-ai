@@ -11275,8 +11275,8 @@ The founder settled both decisions in `docs/reports/2026-09-30-spend-alerts.md`.
     conversation get nothing more, since the person was already told.
   - The customer's row is marked `answered_by = canned`. The line is taken from the published
     config's rows, as the website takes it.
-  - A retryable send failure ACKs 200. A redelivery would skip the message as answered, and the
-    person has already been told.
+  - A retryable send failure is a 503. The redelivery re-sends the stored line before the guard,
+    as it does for any failed reply (#250).
   - It goes under the reply's own dedup key, so a redelivery finds the message answered and
     never sends the line twice.
   - The line promises a colleague, so a person is told (`alertNeedsPerson`, reason `handoff`),
