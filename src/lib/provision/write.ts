@@ -94,7 +94,11 @@ export async function refuseLiveSentenceChange(db: SupabaseClient, d: IntakeDocu
   if (tErr) die(`tenants unreadable (live revision): ${tErr.message}`);
   const row = (t ?? {}) as Record<string, unknown>;
   if (row['live_revision_id'] === null || row['live_revision_id'] === undefined) return;
-  if (String(row['default_locale']) !== d.business.locale) return;
+  // Step 1 would rewrite `default_locale`, which alone moves the published hash.
+  if (String(row['default_locale']) !== d.business.locale) {
+    die(`this tenant is live and the intake changes its default locale (${String(row['default_locale'])} → `
+      + `${d.business.locale}). Nothing was written. A live tenant's locale changes only with a republish. D-163.`);
+  }
   const { data: have, error } = await db.from('canned_responses')
     .select('kind, body').eq('tenant_id', tenantId).eq('locale', d.business.locale);
   if (error) die(`canned_responses unreadable (live check): ${error.message}`);
@@ -103,7 +107,10 @@ export async function refuseLiveSentenceChange(db: SupabaseClient, d: IntakeDocu
       .map((r) => [String((r as Record<string, unknown>)['kind']), String((r as Record<string, unknown>)['body'])]),
   );
   const moved = Object.entries(d.sentences)
-    .filter(([kind, body]) => !MODEL_INVISIBLE_KINDS.includes(kind) && bodies.get(kind)?.trim() !== body.trim())
+    // Exact bytes, as step 3 compares: any difference there is an upsert, which the
+    // database refuses on a live row (its BEFORE INSERT trigger has no old row to compare)
+    // and which would also clear the row's signature.
+    .filter(([kind, body]) => !MODEL_INVISIBLE_KINDS.includes(kind) && bodies.get(kind) !== body)
     .map(([kind]) => kind);
   if (moved.length > 0) {
     die(`this tenant is live and the intake changes its published lines (${moved.join(', ')}). `

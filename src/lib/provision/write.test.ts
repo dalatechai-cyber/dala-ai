@@ -32,9 +32,19 @@ test('D-163: a live tenant whose intake changes a published line is refused befo
   await assert.rejects(refuseLiveSentenceChange(db, doc({ handoff: 'Шинэ.' }), 't1'), /changes its published lines \(handoff\)/u);
 });
 
-test('D-163: an unchanged, whitespace-only or model-invisible change on a live tenant is allowed', async () => {
+test('D-163: an unchanged or model-invisible change on a live tenant is allowed', async () => {
   const { db } = fakeDb(LIVE, [{ kind: 'handoff', body: 'Хуучин.' }, { kind: 'image_received', body: 'А.' }]);
-  await refuseLiveSentenceChange(db, doc({ handoff: ' Хуучин. ', image_received: 'Б.', voice_received: 'В.' }), 't1');
+  await refuseLiveSentenceChange(db, doc({ handoff: 'Хуучин.', image_received: 'Б.', voice_received: 'В.' }), 't1');
+});
+
+test('D-163: a whitespace-only change on a live tenant is refused (the upsert would be refused and unsign the row)', async () => {
+  const { db } = fakeDb(LIVE, [{ kind: 'handoff', body: 'Хуучин.' }]);
+  await assert.rejects(refuseLiveSentenceChange(db, doc({ handoff: 'Хуучин. ' }), 't1'), /published lines/u);
+});
+
+test('D-163: a live tenant whose intake changes the default locale is refused before any write', async () => {
+  const { db } = fakeDb({ live_revision_id: 'r1', default_locale: 'en-US' }, []);
+  await assert.rejects(refuseLiveSentenceChange(db, doc({}), 't1'), /default locale/u);
 });
 
 test('D-163: a tenant with no live revision is never refused, and canned rows are not even read', async () => {
