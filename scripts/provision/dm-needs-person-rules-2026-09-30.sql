@@ -25,12 +25,12 @@ from tenants t
 cross join (values
   ('person_staff_mn', '{"mode":"stem_sequence","stems":["ажилтантай","яр"],"windowCp":20}'),
   ('person_staff_connect_mn', '{"mode":"stem_sequence","stems":["ажилтантай","холбогд"],"windowCp":20}'),
-  ('person_human_talk_mn', '{"mode":"all_of","matchers":[{"mode":"stem_sequence","stems":["хүнтэй","яр"],"windowCp":20},{"mode":"not","matcher":{"mode":"has_word","words":["адил","шиг","adil","shig"]}}]}'),
+  ('person_human_talk_mn', '{"mode":"all_of","matchers":[{"mode":"stem_sequence","stems":["хүнтэй","яр"],"windowCp":20},{"mode":"not","matcher":{"mode":"has_word","words":["адил","адилхан","шиг","adil","adilhan","shig"]}}]}'),
   ('person_manager_mn', '{"mode":"contains_stem","stems":["менежертэй","оператортой","админтай"]}'),
   ('person_staff_lat', '{"mode":"stem_sequence","stems":["ajiltantai","yar"],"windowCp":20}'),
   ('person_staff_connect_lat', '{"mode":"stem_sequence","stems":["ajiltantai","holbogd"],"windowCp":20}'),
-  ('person_human_talk_lat', '{"mode":"all_of","matchers":[{"mode":"stem_sequence","stems":["huntei","yar"],"windowCp":20},{"mode":"not","matcher":{"mode":"has_word","words":["адил","шиг","adil","shig"]}}]}'),
-  ('person_human_talk_lat2', '{"mode":"all_of","matchers":[{"mode":"stem_sequence","stems":["hvntei","yar"],"windowCp":20},{"mode":"not","matcher":{"mode":"has_word","words":["адил","шиг","adil","shig"]}}]}'),
+  ('person_human_talk_lat', '{"mode":"all_of","matchers":[{"mode":"stem_sequence","stems":["huntei","yar"],"windowCp":20},{"mode":"not","matcher":{"mode":"has_word","words":["адил","адилхан","шиг","adil","adilhan","shig"]}}]}'),
+  ('person_human_talk_lat2', '{"mode":"all_of","matchers":[{"mode":"stem_sequence","stems":["hvntei","yar"],"windowCp":20},{"mode":"not","matcher":{"mode":"has_word","words":["адил","адилхан","шиг","adil","adilhan","shig"]}}]}'),
   ('person_manager_lat', '{"mode":"contains_stem","stems":["menejertei","operatortoi","admintai"]}')
 ) as r(rule_key, matcher)
 where t.slug in ('dalatech', 'matrix-eco-salon')
