@@ -29,7 +29,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { CannedRow } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
-import type { CommentRule } from '../comments/classify.ts';
+import { ruleAppliesTo, type CommentRule } from '../comments/classify.ts';
 import type { Spelling } from '../mn/latin.ts';
 import { matchingText } from '../mn/chat.ts';
 import { servicesFromPrefix } from '../quality/serviceNames.ts';
@@ -90,7 +90,7 @@ async function load(db: SupabaseClient, input: SalesShadowInput): Promise<{ ok: 
       .select('kind, body, reviewed_at, link, priority, is_default, intent_matcher, enabled')
       .eq('tenant_id', input.tenantId),
     db.from('service_pairings').select('service_name, related_name, enabled, provenance').eq('tenant_id', input.tenantId),
-    db.from('comment_rules').select('rule_key, verdict, matcher')
+    db.from('comment_rules').select('rule_key, verdict, matcher, surfaces')
       .eq('tenant_id', input.tenantId).eq('enabled', true).eq('verdict', 'escalate'),
     db.from('quality_flags').select('flag, detail')
       .eq('tenant_id', input.tenantId).eq('conversation_id', input.conversationId)
@@ -120,7 +120,9 @@ async function load(db: SupabaseClient, input: SalesShadowInput): Promise<{ ok: 
     ok: true,
     value: {
       playbook: parsed.playbook,
-      complaintRules: ((rules.data ?? []) as Record<string, unknown>[]).map((r) => ({
+      // The DM's complaint rows (0073): a comment-only row is not a DM complaint.
+      complaintRules: ((rules.data ?? []) as Record<string, unknown>[])
+        .filter((r) => ruleAppliesTo(r['surfaces'], 'direct_message')).map((r) => ({
         ruleKey: String(r['rule_key']), verdict: 'escalate' as const, matcher: r['matcher'],
       })),
       body: bodyRow === null || typeof bodyRow['body'] !== 'string' ? null : bodyRow['body'],

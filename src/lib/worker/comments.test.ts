@@ -1339,3 +1339,21 @@ test('praise and complaints never cost the earlier-comments read', async () => {
     assert.equal(authorReads.length, 0, message);
   }
 });
+
+test('0073: a DM-only escalate row never decides a comment; a comment-only row still does', async () => {
+  const onlyDm = [
+    ...RULE_ROWS,
+    { rule_key: 'person_staff_mn', verdict: 'escalate', surfaces: ['direct_message'], matcher: { mode: 'stem_sequence', stems: ['ажилтан', 'ярь'], windowCp: 20 } },
+  ];
+  const dm = stubFx({ tables: { comment_rules: { data: onlyDm, error: null } } });
+  const a = await runCommentJob(dm.fx, { ...baseInput, rawPayload: entry([comment({ message: 'Үнэ хэд вэ? ажилтантай ярьмаар байна' })]) });
+  assert.equal(a.refused['comment_escalated'] ?? 0, 0, 'the wall reads the comment exactly as before');
+
+  const wallOnly = [
+    ...RULE_ROWS,
+    { rule_key: 'complaint_wall', verdict: 'escalate', surfaces: ['public_comment'], matcher: { mode: 'contains_stem', stems: ['муудсан'] } },
+  ];
+  const wall = stubFx({ tables: { comment_rules: { data: wallOnly, error: null } } });
+  const b = await runCommentJob(wall.fx, { ...baseInput, rawPayload: entry([comment({ message: 'Үс муудсан' })]) });
+  assert.equal(b.refused['comment_escalated'], 1);
+});

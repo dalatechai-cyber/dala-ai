@@ -1,4 +1,4 @@
-# DM-only "needs a person" words: proposal, not live (2026-09-30)
+# DM-only "needs a person" words (approved 2026-09-30; live via scripts/provision/dm-needs-person-rules-2026-09-30.sql)
 
 The founder asked for a list of words that trigger the DM alert (`conversation.needs_person`)
 and leave comment handling unchanged. Nothing here is applied. Matchers use the existing
@@ -16,22 +16,29 @@ backfill), and the tenant-rows rule holds: the words are rows, not code.
 Also proposed: rows that are right on the wall but wrong in a DM get `{public_comment}`, so
 the DM alert stops reading them. Candidates below; the founder decides.
 
-## 1. Asks for a person (new, both tenants)
+## 1. Asks for a person (live, both tenants; nine rows, revised in review)
+
+Every stem is in the «-тай» (with) form, because the bare words are DalaTech's own product
+vocabulary («Утасны оператор», «Нова — Харилцагчийн менежер», «админ самбар», «AI ажилтан …
+ярьдаг») and would have turned a sales question into a complaint.
 
 | Key | Matcher | Catches |
 |---|---|---|
-| `person_staff_mn` | stem_sequence [«ажилтан», «ярь»] within 20 | «ажилтантай ярих», «ажилтантай ярьмаар» |
-| `person_staff_connect_mn` | stem_sequence [«ажилтан», «холбо»] within 20 | «ажилтантай холбогдох», «ажилтантай холбоно уу» |
-| `person_human_talk_mn` | stem_sequence [«хүнтэй», «ярь»] within 20 | «хүнтэй ярих», «жинхэнэ хүнтэй ярьмаар» |
-| `person_real_mn` | stem_sequence [«жинхэнэ», «хүн»] within 15 | «жинхэнэ хүн байна уу» |
-| `person_is_there_mn` | stem_sequence [«хүн», «байна уу»] within 10 | «хүн байна уу» |
-| `person_manager_mn` | contains_stem [«менежер», «оператор», «админ»] | «менежертэй холбогдох», «оператор» |
-| `person_staff_lat` | stem_sequence [«ajiltan», «yari»] / [«ajiltan», «holbo»] | Latin forms of the two above |
-| `person_human_lat` | stem_sequence [«huntei», «yari»], [«hvntei», «yari»], [«jinhene», «hun»] | Latin forms |
-| `person_manager_lat` | contains_stem [«menejer», «operator», «admin»] | Latin forms |
+| `person_staff_mn` | stem_sequence [«ажилтантай», «яр»] within 20 | «ажилтантай ярих», «ажилтантай ярьмаар» |
+| `person_staff_connect_mn` | stem_sequence [«ажилтантай», «холбогд»] within 20 | «ажилтантай холбогдох»; not «ажилтантай холбоотой» (*related to*) |
+| `person_human_talk_mn` | stem_sequence [«хүнтэй», «яр»] within 20, and not the word «адил», «адилхан» or «шиг» | «хүнтэй ярих», «хүнтэй ярилцмаар»; not «хүнтэй адил ярьдаг» (DalaTech's own claim for Эхо) |
+| `person_manager_mn` | contains_stem [«менежертэй», «оператортой», «админтай»] | «менежертэй холбогдох» |
+| `person_staff_lat`, `person_staff_connect_lat` | [«ajiltantai», «yar»], [«ajiltantai», «holbogd»] | Latin forms |
+| `person_human_talk_lat`, `_lat2` | [«huntei», «yar»], [«hvntei», «yar»], not «adil», «adilhan», «shig» | Latin forms |
+| `person_manager_lat` | contains_stem [«menejertei», «operatortoi», «admintai»] | Latin forms |
 
-Kept as they are (already both surfaces): `complaint_human_mn` / `_lat` («хүнтэй холбог»),
+Dropped from the first proposal: «жинхэнэ хүн» (fires on «жинхэнэ хүний үс», real human hair)
+and «хүн байна уу» (fires on «Одоо хүн байна уу», *is it busy now?*, a booking question).
+Kept as they are (both surfaces): `complaint_human_mn` / `_lat` («хүнтэй холбог»),
 `complaint_words` («ai bish», «бот биш»).
+
+A DM row counts as a complaint everywhere a DM reads one: the needs-person alert, the apology
+reminder in place of answer-first, no emoji, no sales line.
 
 ## 2. Comment-only candidates (founder's call, a language question)
 

@@ -377,3 +377,11 @@ test('DONE-TEST: THE MATCHER THE WRITER BUILDS IS THE MATCHER THE VALIDATOR CHEC
   };
   assert.ok(!codes(fine).includes('topic_rule_matcher'));
 });
+
+test('0073: a comment rule\'s surfaces are a non-empty subset of the two, or absent for both', () => {
+  const rule = (surfaces: unknown) => ({ ...stemRule('person', 'escalate', ['менежертэй']), surfaces }) as IntakeDocument['commentRules'][number];
+  assert.ok(!codes(withRules([rule(undefined)])).includes('comment_rule_surfaces'));
+  assert.ok(!codes(withRules([rule(['direct_message'])])).includes('comment_rule_surfaces'));
+  assert.ok(codes(withRules([rule([])])).includes('comment_rule_surfaces'));
+  assert.ok(codes(withRules([rule(['dm'])])).includes('comment_rule_surfaces'));
+});

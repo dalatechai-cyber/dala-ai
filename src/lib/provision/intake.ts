@@ -94,7 +94,8 @@ export type IntakeDocument = {
    * Every rule lands `enabled: false`. A rule is written, read by a human, then switched
    * on, because this is the surface where a mistake is public and permanent.
    */
-  commentRules: { key: string; verdict: string; matcher: unknown }[];
+  /** `surfaces` (0073): absent or null means both; otherwise `direct_message` and/or `public_comment`. */
+  commentRules: { key: string; verdict: string; matcher: unknown; surfaces?: string[] | null }[];
 };
 
 export type ShapeProblem = { path: string; detail: string };
@@ -278,6 +279,7 @@ export function readIntake(raw: unknown): { ok: true; doc: IntakeDocument } | { 
     // language rather than a second one for provisioning.
     commentRules: pick(raw['commentRules'], (c) => ({
       key: str(c['key']), verdict: str(c['verdict']), matcher: c['matcher'],
+      ...(Array.isArray(c['surfaces']) ? { surfaces: (c['surfaces'] as unknown[]).map((s) => String(s)) } : {}),
     })),
   } };
 }
