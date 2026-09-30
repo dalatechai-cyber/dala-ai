@@ -1,6 +1,6 @@
 # Дали — the reply standard
 
-**Version 1.2, 2026-09-29.** Written from the code, the tests, the live tenant data (read-only)
+**Version 1.3, 2026-09-30.** Version 1.3 brings F2–F5, G4, K4 and §3 up to what is live after D-158 and its addenda. **Version 1.2, 2026-09-29.** Written from the code, the tests, the live tenant data (read-only)
 and `docs/DECISIONS.md`. Version 1 changed nothing. Version 1.1 records the founder's branch
 decision and the «та» register rule, and adds the branch gate (§7). Version 1.2 corrects §6 and
 §5: `deterministic_replies` and `faqs` rows have no `reviewed_at` gate (`src/lib/gate/deterministic.ts:100`); they have a `provenance` gate (D-020) that withholds rows not `tenant_confirmed`. Where the repo cannot answer, the line says
@@ -129,9 +129,10 @@ reviewed row verbatim. Code backs them up only as listed.
 |---|---|---|---|
 | F1 | When a person has replied in the inbox, Дали stays silent for the cooldown (`tenants.human_takeover_cooldown_minutes`, 30 on both live tenants). | BLOCK (`humanHoldsThread`, `src/lib/handover/control.ts`, called in `src/lib/worker/reception.ts`) | A staff echo moves the thread to `human` only on `live` channels; the check refuses on `human` in any mode. Unreadable state ⇒ Дали answers and logs |
 | F2 | Re-check just before sending that no person replied meanwhile. | BLOCK (`src/lib/handover/presend.ts`) | Unreadable ⇒ sends |
+| F2a | A reply whose send failed (Meta 613 or 5xx) is re-sent on the redelivery, never twice, never out of order, never over a person. | Code (`resumeStoredReply`, `src/lib/worker/reception.ts`; D-158 addendum): the STORED body is claimed and sent, no model call; superseded by a newer message, a later reply or a staff reply ⇒ refused and flagged | Not proven on a real 613 |
 | F3 | When Дали cannot answer, it sends the tenant's reviewed `handoff` line. | BLOCK (every guard refusal, model refusal, empty or cut reply ends there) | The handoff line is a sentence only. **It does not pass the thread to a person** |
-| F4 | Pass the conversation to a human (Meta `pass_thread_control`) and take it back. | **NOT BUILT.** Graph calls exist in `handover/graph.ts`; nothing calls them. Reclaim code is unwired (`docs/handover.md`) | |
-| F5 | Customer asks for a person, or complains, in a DM, or is served the handoff line ⇒ a person told. | COUNT (alert): founder's Telegram at once, every tenant (D-158, `src/lib/handover/needsPerson.ts`). Trigger is the tenant's own complaint rows (`comment_rules` `escalate`), so a phrasing no row covers is not seen: DATA | The reply is unchanged and the thread is not passed (F4). Only on delivering channels |
+| F4 | Pass the conversation to a human (Meta `pass_thread_control`) and take it back. | **NOT BUILT, by decision** (D-161: stays unconnected while owners read their own messages; revisit when more clients are onboarded). Graph calls exist in `handover/graph.ts`; nothing calls them. Reclaim code is unwired (`docs/handover.md`); no `handover_reclaim` row exists | The only silence is the 30-minute window after a staff reply or a media hand-off; the bot never speaks on a timer |
+| F5 | Customer asks for a person, or complains, in a DM, or is served the handoff line ⇒ a person told. | COUNT (alert): founder's Telegram at once, every tenant (D-158, `src/lib/handover/needsPerson.ts`). Trigger is the tenant's DM complaint rows (`comment_rules` `escalate` with `surfaces` NULL or `direct_message`, 0073), including nine DM-only «ажилтантай ярих», «хүнтэй ярих», «менежертэй» rows per live tenant; a phrasing no row covers is not seen: DATA | The reply is unchanged and the thread is not passed (F4). Only on delivering channels |
 | F6 | A customer who wants to buy is never told "we have no information" (D-127 `fallbackLine`). | DATA + code on the website (callback line swapped in, `handle.ts`) | |
 
 ### G. Media, photos, stickers, voice
@@ -139,7 +140,7 @@ reviewed row verbatim. Code backs them up only as listed.
 | ID | Rule | Status | Where |
 |---|---|---|---|
 | G1 | Video, reel, shared post (`video`, `reel`, `ig_reel`, `share`) ⇒ reviewed `handover_notice` line, thread set to `human`, Telegram alert (if the tenant has it on). | BLOCK/DATA (`src/lib/handover/media.ts`, `MEDIA_ATTACHMENT_KINDS`) | Both live tenants have a reviewed `handover_notice`. Alert: dalatech on, **Tara Яармаг off** (`tenants.media_handoff_alert`, D-153). `ig_reel`, `reel`, `share` are unproven on real traffic |
-| G2 | Photo ⇒ the media line above, or the reviewed `image_received` line. Never a guess about what the photo shows. | DATA + code (`handle.ts`, `src/lib/inbound/imageReply.ts`) | Unreviewed row ⇒ nothing sent |
+| G2 | Photo ⇒ the media line above, or the reviewed `image_received` line. Never a guess about what the photo shows. | DATA + code (`handle.ts`, `src/lib/inbound/imageReply.ts`) | Unreviewed row ⇒ nothing sent. **Gap:** after the hand-off line nothing more happens if nobody replies (no alert for Tara, D-153; no reclaim, F4) |
 | G3 | Sticker ⇒ no reply, recorded as dropped. Keyed on `sticker_id`, never on type (D-070). | Code (`src/lib/inbound/dropped.ts`) | |
 | G4 | Voice/audio ⇒ a person told at once; the customer gets the reviewed `voice_received` line. | COUNT (alert, D-158) + DATA: reviewed `voice_received` row on both live tenants (founder, 2026-09-30) | Alert on every voice message on a delivering channel; the thread is not handed over |
 | G5 | Story mention. | Deliberately not media (`media.ts` comment). What happens next: **unclear** | |
@@ -194,13 +195,14 @@ reviewed row verbatim. Code backs them up only as listed.
 1. D2 brevity (2–3 sentences) and D4 no-markdown: prompt only. The 1,900-character ceiling is the only hard limit.
 2. D5 polite full sentences, D9 "not pushy", Ш7 "do not moralise": no measure.
 3. D7: closed 2026-09-30 (D-160). Tara Яармаг's `reply_style` is `{"max_emoji": 1}`. Measured before: 280 replies in 30 days, 3 with two emoji; her 17 approved rows carry at most one.
-4. F4: no real hand-off to a person (`pass_thread_control`). F5/K4 alert the founder only (D-158); a request for a person that no complaint row covers is missed.
+4. F4: no real hand-off to a person (`pass_thread_control`), unconnected by decision (D-161). F5/K4 alert the founder at once (D-158), including DM-only person rows (0073); a request for a person that no DM complaint row covers is missed. Failed sends are re-sent on the redelivery (F2a).
 5. ~~G4~~: voice messages are answered with the approved `voice_received` line and alerted (D-158).
 6. A9 service-name changes and A12 price violations are counted, not blocked.
 7. H1: nothing checks that a model reply does not deny being an AI.
 8. Merge authority (§6): the four founder-only categories are enforced only partly (see §6).
 9. L1 between unrelated tenants: nothing checks one tenant's rows for another's details (branch tenants are checked, §7). D10 on model replies: not stated in any signed block, not checked.
 10. G1: `ig_reel`, `reel`, `share` media kinds and the Instagram media path are unproven on real traffic.
+12. G1/G2: a customer who sends a photo or video gets the hand-off line and the thread goes quiet for 30 minutes; if nobody replies, nothing more happens (Tara's media alert is off, D-153, and reclaim is unconnected, D-161). The customer's next message is answered as usual.
 11. Deterministic replies and FAQs are customer-read wording with no founder-review gate, only a `provenance` gate (§6). Fixed replies and KB documents were not checked for one.
 
 **Conflicts**
