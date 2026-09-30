@@ -2374,6 +2374,7 @@ test('D-163: the CAP hand-off still sends the published row when the snapshot ca
   });
   assert.equal((await run(fx)).status, 200);
   assert.equal(delivered.length, 1);
+});
 
 // ── The reclaim job: staff took the chat and went quiet (handover/reclaim.ts, worker/reclaim.ts) ──
 

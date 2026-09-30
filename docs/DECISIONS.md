@@ -11383,3 +11383,29 @@ same bytes is refused (safe, but it breaks re-running old provision SQL). The on
 tenant fails whole, not halfway. When `MODEL_INVISIBLE_KINDS` grows, deploy the code before the
 migration that redefines the trigger function.
 
+
+## D-164 — Take the chat back after a staff takeover that went quiet (2026-09-30, founder; supersedes D-162)
+
+**Why.** The 23–24 Sep investigation (`docs/reports/2026-09-30-tara-23-24-sep.md`) found customers
+waiting 24–33 hours after staff took a chat: a message held while a person holds the thread
+(`human_has_thread`) is never looked at again, even after the 30-minute cooldown ends.
+
+**Decided.** If staff have taken over a chat and nobody has replied within 2 hours of the
+salon's opening hours, Дали sends one approved line and resumes. Built as follows
+(`src/lib/handover/reclaim.ts`, `src/lib/worker/reclaim.ts`, `docs/handover.md`):
+- The hourly health run finds chats held by a staff echo whose customer wrote after the last
+  staff activity, with no reply of ours since, 120 open minutes ago (closed hours and
+  closures do not count), while the salon is open now and the message is under 23 hours old
+  (Meta's standard messaging window).
+- The reception worker sends the tenant's reviewed `handover_reclaim` row, byte for byte, no
+  model, once per held message (`reclaim:<mid>`), re-checking that no person replied, then
+  flips the thread to `bot` (source `reclaim`) only if staff have not acted meanwhile.
+- A person is told (`conversation.needs_person`): on a send, on a message past 23 hours, and
+  on a thread Meta itself handed to another app (`handover`, which also covers the bot's own
+  media hand-off). Those are paged, never sent to, because `take_thread_control` has never been
+  exercised live.
+- **Inert until the founder approves the wording** and a reviewed `handover_reclaim` row
+  exists for the tenant. The draft is `prompt/drafts/handover_reclaim_staff.mn.txt`.
+
+**Not covered.** Latency is the hourly run: up to about three hours after the customer wrote.
+Passing a chat to a person (`pass_thread_control`) stays unbuilt.
