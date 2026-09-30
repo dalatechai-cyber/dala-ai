@@ -11374,8 +11374,7 @@ since the cutover, the same edit today would leave every customer in silence.
    exactly the ones in the published prefix, so an edit to the hand-off row itself sends
    nothing new. Other retries are unchanged.
 
-**Not covered:** the website widget still answers `canned_stale` with a retry; the page and the
-hourly check cover it. The hourly check, not the trigger, catches: an edit made with the escape
+**Not covered:** the hourly check, not the trigger, catches: an edit made with the escape
 and then not republished; `TRUNCATE`; `session_replication_role = replica`; a change to
 `tenants.default_locale`. An `insert … on conflict do update` rewriting a live row with the
 same bytes is refused (safe, but it breaks re-running old provision SQL). The onboarding writer
@@ -11383,6 +11382,23 @@ same bytes is refused (safe, but it breaks re-running old provision SQL). The on
 tenant fails whole, not halfway. When `MODEL_INVISIBLE_KINDS` grows, deploy the code before the
 migration that redefines the trigger function.
 
+
+**Addendum (2026-09-30, same founder instruction; #258).** The founder's ask was that an
+edit to approved lines can never *silently* stop every reply. `canned_stale` is one of three
+codes that do; the other two are `canned_response_unreviewed` (any unsigned row in the default
+locale, model-invisible kinds included) and `canned_response_missing` (a kind the prefix or a
+rule requires, with no row). So:
+- The worker's page and published hand-off line fire on all three (`isApprovedLinesRefusal`).
+- The hourly check also raises on an unsigned row or a missing required kind, names which, and
+  never closes the episode while either holds. An unreadable rule table is a counted failure.
+- Migration `0075_canned_unsigned_guard` refuses a write that leaves a live tenant's row unsigned
+  (un-signing, or an unsigned insert of any kind), with no escape: 0074's `republish` escape is
+  what operators type for every live edit, and a republish never repairs an unsigned row. Sign
+  in the same statement.
+- `provision/write.ts` refuses a changed model-invisible sentence on a live tenant too: step 3
+  writes every changed sentence unsigned.
+- The website widget answers all three with the reviewed callback line where the tenant has no
+  inbox (D-139), else the hand-off row whose bytes are the published ones, and tells a person.
 
 ## D-164 — Take the chat back after a staff takeover that went quiet (2026-09-30, founder; supersedes D-162)
 

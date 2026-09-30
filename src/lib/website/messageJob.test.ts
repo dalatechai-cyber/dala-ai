@@ -156,6 +156,7 @@ function effects(db: ReturnType<typeof stubDb>, over: Partial<MessageEffects> = 
     afterResponse: () => { db.trace.push('afterResponse'); },
     alertHandoff: async () => { db.trace.push('alertHandoff'); },
     alertCeilingReached: async () => { db.trace.push('alertCeilingReached'); return 'sent'; },
+    alertCannedStale: async () => { db.trace.push('alertCannedStale'); return 'sent'; },
     log: () => {},
     ...over,
   };
@@ -623,4 +624,55 @@ test('DONE-TEST: the reply gets the verified widget hosts and the website versio
   assert.deepEqual(seen[0]?.['ownSiteHosts'], ['dalatech.online']);
   const ctx = seen[0]?.['ctx'] as { deterministic: { body: string }[] };
   assert.equal(ctx.deterministic[0]?.body, 'Web body');
+});
+
+test('D-163: an approved-lines refusal serves the PUBLISHED hand-off row, pages after the response and tells a person', async () => {
+  const prompt = 'Т\n=== БЭЛЭН ХАРИУЛТ ===\n"handoff": Нийтлэгдсэн мөр.\n=== ДАРАА ===';
+  const handoffRow = { kind: 'handoff', body: 'Нийтлэгдсэн мөр.', reviewedAt: '2026-09-01T00:00:00Z' };
+  for (const detail of ['canned_stale: changed', 'canned_response_unreviewed: booking_line', 'canned_response_missing: refusal_x']) {
+    const kept: Promise<unknown>[] = [];
+    let paged = 0;
+    let told = 0;
+    const r = await runMessageJob(effects(stubDb(), {
+      loadContext: async () => ({ ok: true, context: { ...(CTX as object), promptStable: prompt, canned: [handoffRow], fallbackLine: null } as never, timings: { snapshot: 0, batch: 0 } }),
+      generateReply: async () => ({ kind: 'retry', detail }) as never,
+      afterResponse: (w) => { kept.push(w); },
+      alertCannedStale: async () => { paged += 1; return 'sent'; },
+      alertHandoff: async () => { told += 1; },
+    }), req());
+    await Promise.all(kept);
+    assert.equal(r.status, 200, detail);
+    assert.equal(r.body['reply'], 'Нийтлэгдсэн мөр.', detail);
+    assert.equal(paged, 1, detail);
+    assert.equal(told, 1, `${detail}: the line promises a person, so a person is told`);
+  }
+
+  // No inbox: the reviewed callback line (D-139), which the approved lines cannot touch.
+  const keptCb: Promise<unknown>[] = [];
+  const cb = await runMessageJob(effects(stubDb(), {
+    loadContext: async () => ({ ok: true, context: { ...(CTX as object), promptStable: prompt, canned: [handoffRow], fallbackLine: 'Бид эргэн залгана.' } as never, timings: { snapshot: 0, batch: 0 } }),
+    generateReply: async () => ({ kind: 'retry', detail: 'canned_stale: changed' }) as never,
+    afterResponse: (w) => { keptCb.push(w); },
+  }), req());
+  await Promise.all(keptCb);
+  assert.equal(cb.body['reply'], 'Бид эргэн залгана.');
+
+  // An EDITED hand-off row (not the published bytes) is never served: the old 503, still paged.
+  const keptEd: Promise<unknown>[] = [];
+  let pagedEd = 0;
+  const ed = await runMessageJob(effects(stubDb(), {
+    loadContext: async () => ({ ok: true, context: { ...(CTX as object), promptStable: prompt, canned: [{ ...handoffRow, body: 'Засварласан.' }], fallbackLine: null } as never, timings: { snapshot: 0, batch: 0 } }),
+    generateReply: async () => ({ kind: 'retry', detail: 'canned_stale: changed' }) as never,
+    afterResponse: (w) => { keptEd.push(w); },
+    alertCannedStale: async () => { pagedEd += 1; return 'sent'; },
+  }), req());
+  await Promise.all(keptEd);
+  assert.equal(ed.status, 503);
+  assert.equal(pagedEd, 1);
+
+  // Any other retry: 503, nobody paged.
+  const other = stubDb();
+  const rOther = await runMessageJob(effects(other, { generateReply: async () => ({ kind: 'retry', detail: 'model_unavailable: 529' }) as never }), req());
+  assert.equal(rOther.status, 503);
+  assert.ok(!other.trace.includes('alertCannedStale'));
 });

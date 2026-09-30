@@ -11,7 +11,9 @@ rehearsed during a shadow mirror, and the receiver configuration on Matrix's Pag
 known.
 
 **The staff-hold reclaim is BUILT (founder, 2026-09-30, superseding D-162) and inert** until
-a tenant has a reviewed `handover_reclaim` row; no tenant has one. See
+a tenant has a reviewed `handover_reclaim` row; no tenant has one. On a live tenant that row
+goes in as ONE insert that carries `reviewed_at` and `reviewed_by`: migration 0075 refuses an
+unsigned row, because any unsigned row stops every reply (D-163 addendum). See
 [The staff-hold reclaim](#the-staff-hold-reclaim-built-2026-09-30-inert-until-a-reviewed-row)
 below. It needs no Graph call.
 

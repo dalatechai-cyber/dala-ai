@@ -72,6 +72,7 @@ import type { Turn } from '../inbound/persist.ts';
 import type { Reservation } from '../spend/reserve.ts';
 import { SALES_SHADOW_WAIT_MS, type SalesShadowArgs } from '../worker/reception.ts';
 import { ownSiteHosts, websiteContext } from './ownSite.ts';
+import { isApprovedLinesRefusal, publishedLine } from '../prompt/cannedDrift.ts';
 
 /** A widget conversation is private. D-082. */
 const WEB_SURFACE: VolatileSurface = 'direct_message';
@@ -164,6 +165,8 @@ export type MessageEffects = {
    */
   alertCeilingReached: (args: { tenantId: string; timezone: string }) => Promise<string>;
   alertHandoff: (args: { tenantId: string; conversationId: string; messageId: string; question: string; ctx: ReceptionContext }) => Promise<void>;
+  /** An approved-lines refusal (D-163): pages once per episode. Bounded; never throws. */
+  alertCannedStale: (args: { tenantId: string }) => Promise<string>;
   log: (level: 'info' | 'warn' | 'error', event: string, fields?: Record<string, unknown>) => void;
 };
 
@@ -447,6 +450,24 @@ export async function runMessageJob(effects: MessageEffects, req: MessageRequest
   });
 
   if (outcome.kind === 'retry') {
+    if (isApprovedLinesRefusal(outcome.detail)) {
+      // The approved lines stop every reply (D-163): page once per episode, after the
+      // response, and answer the visitor as after a cap refusal — the reviewed callback line
+      // where nobody reads an inbox (D-139), else the hand-off row whose bytes are the
+      // published ones. Either way a person is told, because the line promises one.
+      effects.afterResponse(effects.alertCannedStale({ tenantId })
+        .then((o) => effects.log(/^(failed|timed_out|recorded_undelivered)/.test(o) ? 'error' : 'info', 'canned_stale_alert', { tenantId, outcome: o }))
+        .catch((e: unknown) => effects.log('error', 'canned_stale_alert', { tenantId, outcome: `failed: ${e instanceof Error ? e.message : String(e)}` })));
+      const handoff = ctx.canned.find((c) => c.kind === 'handoff' && c.reviewedAt !== null
+        && publishedLine(ctx.promptStable, 'handoff', c.body));
+      const line = ctx.fallbackLine ?? handoff?.body;
+      if (line !== undefined) {
+        effects.afterResponse(Promise.resolve().then(() => effects.alertHandoff({
+          tenantId, conversationId, messageId: stored.value.messageId, question: text, ctx,
+        })).catch(() => undefined));
+        return withOrigin({ status: 200, body: { reply: line, answered_by: 'canned', refusal: 'approved_lines' } });
+      }
+    }
     return withOrigin(refuse(503, 'reception_retry', { tenantId, detail: outcome.detail }));
   }
   if (outcome.kind === 'dropped') {

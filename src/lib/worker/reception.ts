@@ -40,7 +40,7 @@ import { applyThreadControl, recordHandover, readThreadState } from '../handover
 import { personRepliedSince } from '../handover/presend.ts';
 import { humanHoldsThread } from '../handover/control.ts';
 import { isMediaMessage, mediaAloneDedupKey, planMediaAlone, readCannedLine, readHandoverNotice } from '../handover/media.ts';
-import { publishedLine } from '../prompt/cannedDrift.ts';
+import { isApprovedLinesRefusal, publishedLine } from '../prompt/cannedDrift.ts';
 import { planVoiceAlone, voiceDedupKey, VOICE_REPLY_KIND, type NeedsPersonReason, type ReplySent } from '../handover/needsPerson.ts';
 import { CREDENTIAL_FAILURE_STATUS, clearCredentialFailure } from '../channel/recover.ts';
 import { CATCH_UP_WINDOW_MINUTES, HELD_FLAG } from '../channel/catchup.ts';
@@ -1456,7 +1456,7 @@ async function runReceptionDelivery(
       await fx.alertNeedsPerson({ tenantId, conversationId, reason: 'handoff', provider, sent: sentLine });
       await fx.flagQuality({
         tenantId, conversationId, code: `${reason}_handoff`,
-        detail: `${reason === 'ceiling' ? 'daily cap refused the model' : 'approved lines changed without a republish'}; `
+        detail: `${reason === 'ceiling' ? 'daily cap refused the model' : 'approved lines changed, unsigned or missing'}; `
           + `hand-off line ${sentLine === 'yes' ? 'sent' : `not confirmed sent (${delivered.outcome})`}`,
       });
       if (delivered.outcome === 'failed' && delivered.retryable) {
@@ -1590,8 +1590,9 @@ async function runReceptionDelivery(
       // that means "something in handleReception" — the founder read that code 29 times
       // and it never once said what to do (republish).
       trace.detail = outcome.detail;
-      if (outcome.detail.startsWith('canned_stale')) {
-        // Approved lines changed without a republish (D-163). Every reply stops until the
+      if (isApprovedLinesRefusal(outcome.detail)) {
+        // Approved lines changed without a republish, or a row unsigned or missing (D-163):
+        // each refuses every reply the same way. Every reply stops until the
         // tenant is republished, so the founder is paged NOW, once per episode, rather than
         // by the exhausted alert minutes later; and the customer gets the published hand-off
         // line instead of silence. Only when it went out is the message ACKed: otherwise the

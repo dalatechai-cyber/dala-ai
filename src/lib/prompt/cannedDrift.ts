@@ -27,6 +27,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { raiseAlert, resolveEpisodes } from '../alerts/alert.ts';
 import { cannedHashOf } from './sections.ts';
+import { kindsReferencedBy } from '../gate/match.ts';
 
 export const CANNED_STALE_KIND = 'config.canned_stale';
 
@@ -38,11 +39,29 @@ export function cannedStaleKey(tenantId: string): string {
   return `${CANNED_STALE_KIND}:${tenantId}`;
 }
 
-export function cannedStaleBody(input: { name: string; source: 'reply' | 'hourly check'; channels: readonly string[] }): string {
+/**
+ * Is this `retry` detail a refusal caused by the approved lines themselves? Three codes stop
+ * EVERY reply until an operator fixes the rows: `canned_stale` (rows differ from the published
+ * hash), `canned_response_unreviewed` (any row in the default locale is unsigned, model-invisible
+ * kinds included) and `canned_response_missing` (a line the prefix or a rule requires has no
+ * row). All three page and serve the published hand-off line (founder, 2026-09-30).
+ */
+export function isApprovedLinesRefusal(detail: string | null | undefined): boolean {
+  return typeof detail === 'string' && (detail.startsWith('canned_stale')
+    || detail.startsWith('canned_response_unreviewed') || detail.startsWith('canned_response_missing'));
+}
+
+export function cannedStaleBody(input: {
+  name: string; source: 'reply' | 'hourly check'; channels: readonly string[];
+  /** What is wrong, when the hourly check knows more than "the hash moved". */
+  unsigned?: readonly string[]; missing?: readonly string[];
+}): string {
   const where = input.channels.length === 0 ? '' : ` (${input.channels.join(', ')})`;
-  return `Approved lines changed without a republish — ${input.name}${where}. `
-    + `Found by the ${input.source}. Every reply is refused (canned_stale) until the tenant is republished: `
-    + 'customers get the published hand-off line once per conversation a day, and otherwise nothing. '
+  const unsigned = (input.unsigned ?? []).length > 0 ? ` Unsigned: ${input.unsigned!.join(', ')} — sign it.` : '';
+  const missing = (input.missing ?? []).length > 0 ? ` No row for: ${input.missing!.join(', ')} — add and sign it.` : '';
+  return `Approved lines changed, unsigned or missing — ${input.name}${where}. `
+    + `Found by the ${input.source}.${unsigned}${missing} Every reply is refused until it is fixed (and republished if a `
+    + 'body or kind changed): customers get the published hand-off line (Messenger and Instagram once per conversation a day), and otherwise nothing. '
     + 'Republish now (scripts/publish/tenant.ts), or undo the edit.';
 }
 
@@ -109,26 +128,39 @@ export async function checkCannedDrift(db: SupabaseClient, now: Date): Promise<D
     const out = { checked: 0, drifted: 0, raised: 0, closed: 0, failures: 0 };
     for (const t of (Array.isArray(tenants) ? tenants : []) as Record<string, unknown>[]) {
       const tenantId = String(t['id']);
-      const [snaps, rows] = await Promise.all([
-        db.from('config_snapshots').select('channel, canned_hash')
+      const [snaps, rows, disclosure, outOfScope] = await Promise.all([
+        db.from('config_snapshots').select('channel, canned_hash, prompt_stable')
           .eq('tenant_id', tenantId).eq('revision_id', String(t['live_revision_id'])),
-        db.from('canned_responses').select('kind, body')
+        db.from('canned_responses').select('kind, body, reviewed_at')
           .eq('tenant_id', tenantId).eq('locale', String(t['default_locale'] ?? 'mn-MN')),
+        db.from('disclosure_rules').select('response_kind').eq('tenant_id', tenantId),
+        db.from('out_of_scope_topics').select('response_kind').eq('tenant_id', tenantId),
       ]);
-      if (snaps.error || rows.error) { out.failures += 1; continue; }
-      const current = cannedHashOf(((rows.data ?? []) as Record<string, unknown>[])
-        .map((r) => ({ kind: String(r['kind']), body: String(r['body']) })));
-      const stale = ((snaps.data ?? []) as Record<string, unknown>[])
-        .filter((s) => typeof s['canned_hash'] === 'string')
-        .filter((s) => s['canned_hash'] !== current)
-        .map((s) => String(s['channel']));
+      // An unreadable table is a counted failure and the episode is left as it is: "in step"
+      // on a guess would close a stall the reply path is still in.
+      if (snaps.error || rows.error || disclosure.error || outOfScope.error) { out.failures += 1; continue; }
+      const cannedRows = (rows.data ?? []) as Record<string, unknown>[];
+      const current = cannedHashOf(cannedRows.map((r) => ({ kind: String(r['kind']), body: String(r['body']) })));
+      const hashed = ((snaps.data ?? []) as Record<string, unknown>[]).filter((s) => typeof s['canned_hash'] === 'string');
+      const stale = hashed.filter((s) => s['canned_hash'] !== current).map((s) => String(s['channel']));
+      // The two other total stops `renderCannedSection` refuses on, read the way `handle.ts`
+      // reads them: any unsigned row, and any kind the prefix or the tenant's rules require
+      // with no row. On EVERY live revision, section or not, because the reply path refuses
+      // on both regardless; otherwise this would close an episode the reply path reopens.
+      const unsigned = cannedRows.filter((r) => r['reviewed_at'] === null).map((r) => String(r['kind'])).sort();
+      const present = new Set(cannedRows.map((r) => String(r['kind'])));
+      const ruleKinds = [...(disclosure.data ?? []), ...(outOfScope.data ?? [])]
+        .map((r) => String((r as Record<string, unknown>)['response_kind'] ?? '')).filter((k) => k !== '');
+      const prefixes = ((snaps.data ?? []) as Record<string, unknown>[]).map((s) => s['prompt_stable'])
+        .filter((p): p is string => typeof p === 'string');
+      const missing = [...new Set([...kindsReferencedBy(prefixes), ...ruleKinds])].filter((k) => !present.has(k)).sort();
       out.checked += 1;
-      if (stale.length > 0) {
+      if (stale.length > 0 || unsigned.length > 0 || missing.length > 0) {
         out.drifted += 1;
         const name = typeof t['display_name'] === 'string' && t['display_name'] !== '' ? String(t['display_name']) : tenantId;
         const res = await raiseAlert(db, {
           tenantId, severity: 'critical', kind: CANNED_STALE_KIND, dedupKey: cannedStaleKey(tenantId),
-          route: 'now', repeat: 'on_change', body: cannedStaleBody({ name, source: 'hourly check', channels: stale }),
+          route: 'now', repeat: 'on_change', body: cannedStaleBody({ name, source: 'hourly check', channels: stale, unsigned, missing }),
         });
         if (res.outcome === 'sent' || res.outcome === 'recorded_undelivered') out.raised += 1;
         if (res.outcome === 'failed') out.failures += 1;

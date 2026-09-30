@@ -2274,6 +2274,24 @@ test('DONE-TEST (D-163): CANNED_STALE PAGES AT ONCE AND SENDS THE PUBLISHED HAND
   assert.ok(flags.some((f) => f.code === 'canned_stale_handoff'));
 });
 
+test('D-163: an UNSIGNED or MISSING line stops every reply the same way — it pages and serves the published hand-off too', async () => {
+  for (const detail of ['canned_response_unreviewed: booking_line', 'canned_response_missing: refusal_kids']) {
+    const { fx, delivered, staleAlerts } = stubEffects({
+      generateReply: async () => ({ kind: 'retry' as const, detail }),
+      tables: STALE_TABLES(REVIEWED_HANDOFF),
+    });
+    const r = await run(fx);
+    assert.equal(r.status, 200, detail);
+    assert.equal(staleAlerts.length, 1, detail);
+    assert.equal(delivered[0]?.body, CAP_HANDOFF, detail);
+  }
+  // Any other retry keeps its 503 and pages nobody.
+  const other = stubEffects({ generateReply: async () => ({ kind: 'retry' as const, detail: 'model_unavailable: 529' }), tables: STALE_TABLES(REVIEWED_HANDOFF) });
+  assert.equal((await run(other.fx)).status, 503);
+  assert.equal(other.staleAlerts.length, 0);
+  assert.equal(other.delivered.length, 0);
+});
+
 test('D-163: an EDITED hand-off row (not the published bytes) is never sent; the page still goes and QStash retries', async () => {
   const edited = [{ kind: 'handoff', body: 'ШИНЭЭР ЗАССАН МӨР', reviewed_at: '2026-09-01' }];
   const { fx, delivered, staleAlerts, logs } = stubEffects({ generateReply: async () => STALE, tables: STALE_TABLES(edited) });

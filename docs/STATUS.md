@@ -1,5 +1,11 @@
 # STATUS — what is built, what is stubbed, what has never been proven
 
+> **2026-09-30 — approved lines can no longer stop replies silently (D-163 and its addendum).**
+> Changed, unsigned or missing approved lines each page at once, are found hourly, and get
+> customers the published hand-off line (Messenger, Instagram, website). Migrations 0074 and
+> 0075 refuse such edits on a live tenant once applied to the project. **Not proven:** a real refusal or page on the
+> project; unit and local-SQL tests only.
+
 > **2026-09-30 — spend visibility (D-159).** The daily report prints each client's model
 > spend for the month in ₮ against the rulebook's 20,000 ₮ normal limit, marks 70% and 100%,
 > and counts Messenger messages a daily cap refused. A cap refusal now pages the founder at
