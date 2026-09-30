@@ -40,7 +40,7 @@ import { applyThreadControl, recordHandover, readThreadState } from '../handover
 import { personRepliedSince } from '../handover/presend.ts';
 import { humanHoldsThread } from '../handover/control.ts';
 import { mediaAloneDedupKey, planMediaAlone, readCannedLine, readHandoverNotice } from '../handover/media.ts';
-import { planVoiceAlone, voiceDedupKey, VOICE_REPLY_KIND, type NeedsPersonReason } from '../handover/needsPerson.ts';
+import { planVoiceAlone, voiceDedupKey, VOICE_REPLY_KIND, type NeedsPersonReason, type ReplySent } from '../handover/needsPerson.ts';
 import { CREDENTIAL_FAILURE_STATUS, clearCredentialFailure } from '../channel/recover.ts';
 import { CATCH_UP_WINDOW_MINUTES, HELD_FLAG } from '../channel/catchup.ts';
 import { loadReceptionContext } from '../reception/load.ts';
@@ -204,9 +204,10 @@ export type WorkerEffects = {
   /**
    * A customer needs a person: a complaint, the handoff line, or a voice message
    * (`handover/needsPerson.ts`). Required, so no wiring can leave it silently unset. Must
-   * never reject: the binding logs its own failures.
+   * never reject: the binding logs its own failures. Resolves false only when this exact
+   * alert was already raised (a redelivery), so the caller can skip its own bookkeeping.
    */
-  alertNeedsPerson: (args: { tenantId: string; conversationId: string; reason: NeedsPersonReason; provider: string; answered: boolean }) => Promise<void>;
+  alertNeedsPerson: (args: { tenantId: string; conversationId: string; reason: NeedsPersonReason; provider: string; sent: ReplySent }) => Promise<boolean>;
 };
 
 export type SalesShadowArgs = {
@@ -827,7 +828,7 @@ async function runReceptionDelivery(
           continue;
         }
 
-        let answered = false;
+        let sentLine: ReplySent = 'no';
         if (voiceLine !== null) {
           const drafted = await draftOnce(db, {
             tenantId, kind: 'reply', dedupKey: voiceDedupKey(eventId, plan.idx),
@@ -840,8 +841,9 @@ async function runReceptionDelivery(
           const held = await claim(db, { id: drafted.row.id, tenantId, now });
           if (held.outcome === 'unavailable') return unavailable('worker.claim_unavailable');
           if (held.outcome !== 'claimed') {
-            // Sent by an earlier attempt, or another worker holds it: answered either way.
-            answered = true;
+            // Sent by an earlier attempt; or another worker holds it, or it was refused or is
+            // indeterminate, which this attempt cannot tell apart.
+            sentLine = held.outcome === 'already_sent' ? 'yes' : 'unknown';
           } else {
             const delivered = await fx.deliver({
               tenantId, channelId, pageId, recipientId: plan.senderId, outboundId: held.id,
@@ -854,15 +856,19 @@ async function runReceptionDelivery(
               fx.log('warn', 'voice_alone_send_retryable', { tenantId, failure: delivered.failure });
               return unavailable(`worker.send_${delivered.failure}`);
             }
-            answered = delivered.outcome === 'sent';
-            if (!answered) fx.log('error', 'voice_alone_not_sent', { tenantId, conversationId, outcome: delivered.outcome });
+            sentLine = delivered.outcome === 'sent' ? 'yes' : delivered.outcome === 'indeterminate' ? 'unknown' : 'no';
+            if (sentLine !== 'yes') fx.log('error', 'voice_alone_not_sent', { tenantId, conversationId, outcome: delivered.outcome });
           }
         }
-        await fx.flagQuality({
-          tenantId, conversationId, code: 'voice_received',
-          detail: answered ? 'voice message: reviewed line sent, a person told' : 'voice message: nothing sent, a person told',
-        });
-        await fx.alertNeedsPerson({ tenantId, conversationId, reason: 'voice', provider, answered });
+        // Flagged once, by the attempt that raised the alert: a redelivery of the same entry
+        // re-runs this block and must not count the same voice message twice.
+        const told = await fx.alertNeedsPerson({ tenantId, conversationId, reason: 'voice', provider, sent: sentLine });
+        if (told) {
+          await fx.flagQuality({
+            tenantId, conversationId, code: 'voice_received',
+            detail: sentLine === 'yes' ? 'voice message: reviewed line sent, a person told' : 'voice message: no line sent, a person told',
+          });
+        }
       }
     }
 
@@ -1424,11 +1430,16 @@ async function runReceptionDelivery(
     }
 
     // A complaint, a request for a person, or the handoff line: a person is told (Дали F5,
-    // K4). Not on a retryable failure: the redelivery sends the reply and tells them then.
+    // K4). On EVERY outcome, a retryable failure included: an ordinary redelivery finds the
+    // reply row and skips the message as answered (`findReplyFor`), so this attempt is the
+    // only one that reaches here. `once` per day keeps a later attempt from paging twice.
     const needs: NeedsPersonReason | null = outcome.complaint === true ? 'complaint'
       : outcome.handedOff === true ? 'handoff' : null;
-    if (needs !== null && !(delivered.outcome === 'failed' && delivered.retryable)) {
-      await fx.alertNeedsPerson({ tenantId, conversationId, reason: needs, provider, answered: delivered.outcome === 'sent' });
+    if (needs !== null) {
+      await fx.alertNeedsPerson({
+        tenantId, conversationId, reason: needs, provider,
+        sent: delivered.outcome === 'sent' ? 'yes' : delivered.outcome === 'failed' && !delivered.retryable ? 'no' : 'unknown',
+      });
     }
 
     if (delivered.outcome === 'sent') {

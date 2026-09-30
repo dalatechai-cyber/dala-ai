@@ -214,10 +214,12 @@ function effects(now: Date): WorkerEffects {
         if (outcome.outcome === 'failed' || outcome.outcome === 'recorded_undelivered') {
           console.error('[worker] needs_person_alert_undelivered', { conversationId: input.conversationId, reason: input.reason, ...outcome });
         }
+        return outcome.outcome !== 'suppressed_duplicate';
       } catch (e) {
         console.error('[worker] needs_person_alert_failed', {
           conversationId: input.conversationId, reason: input.reason, detail: e instanceof Error ? e.message : String(e),
         });
+        return true;
       }
     },
 

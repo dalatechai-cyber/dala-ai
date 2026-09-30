@@ -75,13 +75,23 @@ const WHAT: Record<NeedsPersonReason, string> = {
 };
 
 /** Ids and the reason only, never the customer's words (see the module docstring). */
+/**
+ * Did the customer get the bot's reply? `unknown` when the send is being retried or Meta's
+ * answer was indeterminate: the alert must not claim either way.
+ */
+export type ReplySent = 'yes' | 'no' | 'unknown';
+
+const SENT: Record<ReplySent, string> = {
+  yes: 'The bot replied, but nobody has taken the chat. Open the Page inbox and answer them.\n',
+  no: 'The bot sent NOTHING. Open the Page inbox and answer them.\n',
+  unknown: 'The bot\'s reply may not have reached them. Open the Page inbox and answer them.\n',
+};
+
 export function needsPersonAlertBody(input: {
-  tenantName: string; reason: NeedsPersonReason; channel: string; conversationId: string; answered: boolean;
+  tenantName: string; reason: NeedsPersonReason; channel: string; conversationId: string; sent: ReplySent;
 }): string {
   return `🙋 ${input.tenantName} (${input.channel}): a customer ${WHAT[input.reason]}.\n`
-    + (input.answered
-      ? 'The bot replied, but nobody has taken the chat. Open the Page inbox and answer them.\n'
-      : 'The bot sent NOTHING. Open the Page inbox and answer them.\n')
+    + SENT[input.sent]
     + `Conversation ${input.conversationId}`;
 }
 
@@ -97,7 +107,7 @@ export function channelLabel(provider: string): string {
 
 export async function raiseNeedsPerson(
   db: SupabaseClient,
-  input: { tenantId: string; conversationId: string; reason: NeedsPersonReason; provider: string; answered: boolean; now: Date },
+  input: { tenantId: string; conversationId: string; reason: NeedsPersonReason; provider: string; sent: ReplySent; now: Date },
 ): Promise<AlertOutcome> {
   // The tenant's name, not its id: the founder reads this on a phone. Unreadable is not a
   // reason to stay silent, so it falls back to the id (as `comments/complaint.ts` does).
@@ -112,7 +122,7 @@ export async function raiseNeedsPerson(
     dedupKey: needsPersonDedupKey(input.conversationId, input.reason, input.now),
     body: needsPersonAlertBody({
       tenantName: name, reason: input.reason, channel: channelLabel(input.provider),
-      conversationId: input.conversationId, answered: input.answered,
+      conversationId: input.conversationId, sent: input.sent,
     }),
     route: 'now',
     repeat: 'once',

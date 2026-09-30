@@ -182,7 +182,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     sendPrivateReply: async () => { throw new Error('the DM path must never reach the comment surface'); },
     lookupComment: async () => { throw new Error('the DM path must never reach the comment surface'); },
     alertComplaint: async () => { throw new Error('the DM path must never reach the comment surface'); },
-    alertNeedsPerson: async (a) => { needsPerson.push(a); },
+    alertNeedsPerson: async (a) => { needsPerson.push(a); return true; },
     log: (level, event, fields) => {
       logs.push(fields === undefined ? { level, event } : { level, event, fields });
     },
@@ -1724,7 +1724,7 @@ test('DONE-TEST: A VOICE MESSAGE WITH NO REVIEWED LINE SENDS NOTHING AND TELLS A
   assert.equal(r.status, 200);
   assert.equal(generated.length, 0);
   assert.equal(delivered.length, 0, 'no unapproved sentence reaches the customer');
-  assert.deepEqual(needsPerson.map((a) => [a.reason, a.answered, a.conversationId]), [['voice', false, 'conv-1']]);
+  assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent, a.conversationId]), [['voice', 'no', 'conv-1']]);
   assert.ok(flags.some((f) => f.code === 'voice_received'));
 });
 
@@ -1740,7 +1740,7 @@ test('a voice message with a REVIEWED line gets that line, and a person is still
   await run(fx);
   assert.equal(delivered.length, 1);
   assert.equal(delivered[0]?.body, VOICE_LINE);
-  assert.deepEqual(needsPerson.map((a) => [a.reason, a.answered]), [['voice', true]]);
+  assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent]), [['voice', 'yes']]);
   assert.ok(!ops.some((o) => o.table === 'conversations' && o.op === 'update' && o.patch?.['thread_control'] === 'human'),
     'the thread is not handed over: the bot must answer what the customer types next');
 });
@@ -1756,7 +1756,7 @@ test('an UNREVIEWED voice line is never sent, and a person is told nothing was',
   await run(fx);
   assert.equal(delivered.length, 0);
   assert.ok(reasons(logs).includes('voice_line_unreviewed'));
-  assert.deepEqual(needsPerson.map((a) => a.answered), [false]);
+  assert.deepEqual(needsPerson.map((a) => a.sent), ['no']);
 });
 
 test('an unreadable voice line still tells a person', async () => {
@@ -1832,7 +1832,7 @@ test('DONE-TEST: A DM COMPLAINT IS ANSWERED AS TODAY AND A PERSON IS TOLD', asyn
   });
   await run(fx);
   assert.equal(delivered.length, 1, 'the reply itself is unchanged');
-  assert.deepEqual(needsPerson.map((a) => [a.reason, a.answered, a.conversationId]), [['complaint', true, 'conv-1']]);
+  assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent, a.conversationId]), [['complaint', 'yes', 'conv-1']]);
 });
 
 test('the handoff line in a DM tells a person; an ordinary answer tells nobody', async () => {
@@ -1853,17 +1853,31 @@ test('a complaint whose send failed terminally still tells a person, and says no
     deliver: async () => ({ outcome: 'failed', failure: 'recipient_unavailable', retryable: false, detail: '551' }) as never,
   });
   await run(fx);
-  assert.deepEqual(needsPerson.map((a) => a.answered), [false]);
+  assert.deepEqual(needsPerson.map((a) => a.sent), ['no']);
 });
 
-test('a complaint whose send is retryable tells nobody on this attempt: the redelivery does', async () => {
+test('a complaint whose send is retryable tells a person NOW: a redelivery skips it as answered', async () => {
   const { fx, needsPerson } = stubEffects({
     generateReply: async () => ({ kind: 'drafted', outboundId: 'om-1', answeredBy: 'model', complaint: true }),
     deliver: async () => ({ outcome: 'failed', failure: 'rate_limited', retryable: true, detail: '613' }) as never,
   });
   const r = await run(fx);
   assert.equal(r.status, 503);
-  assert.equal(needsPerson.length, 0);
+  assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent]), [['complaint', 'unknown']]);
+});
+
+test('a voice alert already raised by an earlier attempt writes no second flag', async () => {
+  const { fx, flags, needsPerson } = stubEffects({
+    alertNeedsPerson: async (a) => { needsPerson.push(a); return false; },
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: VOICE }) } },
+      canned_responses: { data: null, error: null },
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(needsPerson.length, 1);
+  assert.ok(!flags.some((f) => f.code === 'voice_received'));
 });
 
 test('a complaint in SHADOW is drafted and tells nobody', async () => {

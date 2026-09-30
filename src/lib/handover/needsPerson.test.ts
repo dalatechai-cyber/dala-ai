@@ -35,12 +35,13 @@ test('the complaint check reads only escalate rows, and a malformed rule pages n
 });
 
 test('the alert carries ids and the reason, never the customer\'s words', () => {
-  const body = needsPersonAlertBody({ tenantName: 'Tara Salon — Яармаг', reason: 'voice', channel: 'Messenger', conversationId: 'conv-9', answered: false });
+  const body = needsPersonAlertBody({ tenantName: 'Tara Salon — Яармаг', reason: 'voice', channel: 'Messenger', conversationId: 'conv-9', sent: 'no' });
   assert.match(body, /Tara Salon — Яармаг \(Messenger\)/);
   assert.match(body, /voice message/);
   assert.match(body, /sent NOTHING/);
   assert.match(body, /conv-9/);
-  assert.match(needsPersonAlertBody({ tenantName: 'T', reason: 'complaint', channel: 'Instagram', conversationId: 'c', answered: true }), /The bot replied/);
+  assert.match(needsPersonAlertBody({ tenantName: 'T', reason: 'complaint', channel: 'Instagram', conversationId: 'c', sent: 'yes' }), /The bot replied/);
+  assert.match(needsPersonAlertBody({ tenantName: 'T', reason: 'handoff', channel: 'Messenger', conversationId: 'c', sent: 'unknown' }), /may not have reached/);
 });
 
 test('one alert per conversation, reason and Ulaanbaatar day (D-151)', () => {
@@ -70,7 +71,7 @@ test('raiseNeedsPerson pages now, once, with the tenant\'s name, and ignores the
   process.env['ALERTS_ENABLED'] = 'false';
   try {
     const out = await raiseNeedsPerson({ from } as never, {
-      tenantId: 't', conversationId: 'conv-1', reason: 'voice', provider: 'facebook_page', answered: false, now: new Date('2026-09-30T02:00:00Z'),
+      tenantId: 't', conversationId: 'conv-1', reason: 'voice', provider: 'facebook_page', sent: 'no', now: new Date('2026-09-30T02:00:00Z'),
     });
     assert.equal(out.outcome, 'recorded_undelivered');
   } finally {
