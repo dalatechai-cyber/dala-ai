@@ -99,7 +99,8 @@ Changing either the line or the cache mode is money, so it is the founder's call
 
 ## Cheap levers that keep reply quality
 
-1. **Switch the prompt cache from 1 hour to 5 minutes for low-traffic tenants.**
+1. **Switch the prompt cache from 1 hour to 5 minutes for low-traffic tenants.** *Done for Tara on
+   2026-09-30 (D-161); measured in the daily report.*
    - It changes one row, `tenants.prompt_cache_mode`, and no wording.
    - It cuts cache-write cost by about 37% at today's traffic.
    - The risk is more misses inside slow conversations.
