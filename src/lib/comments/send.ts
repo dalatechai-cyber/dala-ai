@@ -25,7 +25,24 @@
  * This function cannot compose, append to, or vary it — it puts the given bytes on the
  * wire. A public surface is the wrong place for a function that could do otherwise.
  */
-import { classify, DEFAULT_SEND_TIMEOUT_MS, type SendFailure } from '../meta/send.ts';
+import { classify, type SendFailure } from '../meta/send.ts';
+
+/**
+ * How long a public reply's POST may take before it is given up as `indeterminate` (D-166).
+ *
+ * 25 s, not the 10 s every other send uses (`meta/send.ts` `DEFAULT_SEND_TIMEOUT_MS`, still
+ * the private reply's and the DM's). Measured 2026-09-27..30: 9 of 13 public replies timed
+ * out at 10 s, and every one of the 9 had in fact posted exactly once — Meta's `feed` notice
+ * of the Page's own comment arrived 16–29 s after the draft, with the reply's text and the
+ * same `created_time` second as the draft. Meta creates the comment at once and answers the
+ * POST late. A longer wait turns most of those into an ordinary `sent`; the ones it still
+ * misses are matched to that notice afterwards (`comments/reconcile.ts`), never re-posted.
+ *
+ * Its own constant rather than a change to the shared one, so the DM path's timing is
+ * untouched. The comment worker's time budget reads it (`worker/comments.ts`), so a slow
+ * reply cannot push the run past the platform's limit.
+ */
+export const COMMENT_REPLY_TIMEOUT_MS = 25_000;
 
 /**
  * The Graph edge for a public reply to a comment. **UNVERIFIED** — see the module note.
@@ -126,7 +143,7 @@ export async function sendCommentReply(input: CommentSendInput): Promise<Comment
   const doFetch = input.fetchImpl ?? fetch;
   const url = `https://graph.facebook.com/${input.graphVersion}/${encodeURIComponent(input.commentId)}/${input.edge ?? REPLY_EDGE}`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? DEFAULT_SEND_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), input.timeoutMs ?? COMMENT_REPLY_TIMEOUT_MS);
 
   let res: Response;
   try {
