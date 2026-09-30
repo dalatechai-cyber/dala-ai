@@ -131,7 +131,7 @@ reviewed row verbatim. Code backs them up only as listed.
 | F2 | Re-check just before sending that no person replied meanwhile. | BLOCK (`src/lib/handover/presend.ts`) | Unreadable ⇒ sends |
 | F3 | When Дали cannot answer, it sends the tenant's reviewed `handoff` line. | BLOCK (every guard refusal, model refusal, empty or cut reply ends there) | The handoff line is a sentence only. **It does not pass the thread to a person** |
 | F4 | Pass the conversation to a human (Meta `pass_thread_control`) and take it back. | **NOT BUILT.** Graph calls exist in `handover/graph.ts`; nothing calls them. Reclaim code is unwired (`docs/handover.md`) | |
-| F5 | Customer asks for a person, or complains, in a DM ⇒ founder or staff told. | **NOT BUILT** for DMs. Only comments have an `escalate` verdict (`src/lib/comments/classify.ts`) | Visible only in the daily flaw report |
+| F5 | Customer asks for a person, or complains, in a DM, or is served the handoff line ⇒ a person told. | COUNT (alert): founder's Telegram at once, every tenant (D-158, `src/lib/handover/needsPerson.ts`). Trigger is the tenant's own complaint rows (`comment_rules` `escalate`), so a phrasing no row covers is not seen: DATA | The reply is unchanged and the thread is not passed (F4). Only on delivering channels |
 | F6 | A customer who wants to buy is never told "we have no information" (D-127 `fallbackLine`). | DATA + code on the website (callback line swapped in, `handle.ts`) | |
 
 ### G. Media, photos, stickers, voice
@@ -141,7 +141,7 @@ reviewed row verbatim. Code backs them up only as listed.
 | G1 | Video, reel, shared post (`video`, `reel`, `ig_reel`, `share`) ⇒ reviewed `handover_notice` line, thread set to `human`, Telegram alert (if the tenant has it on). | BLOCK/DATA (`src/lib/handover/media.ts`, `MEDIA_ATTACHMENT_KINDS`) | Both live tenants have a reviewed `handover_notice`. Alert: dalatech on, **Tara Яармаг off** (`tenants.media_handoff_alert`, D-153). `ig_reel`, `reel`, `share` are unproven on real traffic |
 | G2 | Photo ⇒ the media line above, or the reviewed `image_received` line. Never a guess about what the photo shows. | DATA + code (`handle.ts`, `src/lib/inbound/imageReply.ts`) | Unreviewed row ⇒ nothing sent |
 | G3 | Sticker ⇒ no reply, recorded as dropped. Keyed on `sticker_id`, never on type (D-070). | Code (`src/lib/inbound/dropped.ts`) | |
-| G4 | Voice/audio. | **Not handled.** Skipped as `no_text`, recorded as dropped, never answered, no alert. Counted in the digest | Gap |
+| G4 | Voice/audio ⇒ a person told at once; the customer gets the reviewed `voice_received` line. | COUNT (alert, D-158) + DATA: **no tenant has a reviewed `voice_received` row yet** (draft `prompt/drafts/voice_received.mn.txt`), so the customer still gets nothing until the founder approves one | Alert on every voice message on a delivering channel; the thread is not handed over |
 | G5 | Story mention. | Deliberately not media (`media.ts` comment). What happens next: **unclear** | |
 
 ### H. Identity and disclosure
@@ -175,7 +175,7 @@ reviewed row verbatim. Code backs them up only as listed.
 | K1 | Immediate Telegram (`route: 'now'`): media hand-off, comment complaint, customer message never answered (exhausted), stranded event not rescued, send/delivery failures, model outage, credential or key problems. Warnings marked quiet go to the daily report instead when `DAILY_REPORT_V2` is on (`quietRoute`). | Code (`src/lib/alerts/alert.ts` and callers) |
 | K2 | Daily report at 00:05 Ulaanbaatar, sent even on a clean day; an unreadable count prints UNREADABLE. Includes the flaw report: corrected, repeated, handoff, refusal, own-words refusal, "didn't understand", old name, internal mention. | Code (`src/lib/alerts/digest.ts`, `src/lib/quality/flaws.ts`). The schedule lives in QStash, not the repo |
 | K3 | Channel silent 180 minutes in open hours ⇒ alert on the quiet route (daily report when `DAILY_REPORT_V2` is on). | Code (`src/lib/health/watch.ts`) |
-| K4 | DM complaint, DM booking request, "I want a person" ⇒ founder told at once. | **NOT BUILT** (F5) |
+| K4 | DM complaint, DM booking request, "I want a person" ⇒ founder told at once. | Built for complaints, requests for a person, hand-offs and voice (F5, G4, D-158). A DM booking request: not built |
 
 ### L. Tenants and branches
 
@@ -194,8 +194,8 @@ reviewed row verbatim. Code backs them up only as listed.
 1. D2 brevity (2–3 sentences) and D4 no-markdown: prompt only. The 1,900-character ceiling is the only hard limit.
 2. D5 polite full sentences, D9 "not pushy", Ш7 "do not moralise": no measure.
 3. D7: Tara Яармаг has no `reply_style`, so the model's emoji are not capped there.
-4. F4/F5/K4: no real hand-off to a person, no alert for a DM complaint or request for a human.
-5. G4: voice messages are never answered and never alerted.
+4. F4: no real hand-off to a person (`pass_thread_control`). F5/K4 alert the founder only (D-158); a request for a person that no complaint row covers is missed.
+5. G4: voice messages are alerted (D-158) but not answered until the founder approves the `voice_received` line.
 6. A9 service-name changes and A12 price violations are counted, not blocked.
 7. H1: nothing checks that a model reply does not deny being an AI.
 8. Merge authority (§6): the four founder-only categories are enforced only partly (see §6).

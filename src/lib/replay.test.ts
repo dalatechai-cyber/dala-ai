@@ -303,6 +303,7 @@ function worker(s: ReturnType<typeof store>, eventId: number) {
     verifySignature: async () => true,
     alertStandby: async () => {},
     alertDeliveryExhausted: async () => {},
+    alertNeedsPerson: async () => {},
     showTyping: async () => {},
     graphVersionDefault: () => 'v21.0',
     generateReply: async (a) => {

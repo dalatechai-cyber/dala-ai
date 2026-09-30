@@ -152,6 +152,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
   const exhausted: ExhaustedInput[] = [];
   const typed: { tenantId: string; channelId: string; recipientId: string }[] = [];
   const shadowed: SalesShadowArgs[] = [];
+  const needsPerson: Parameters<WorkerEffects['alertNeedsPerson']>[0][] = [];
 
   const fx: WorkerEffects = {
     db,
@@ -181,12 +182,13 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     sendPrivateReply: async () => { throw new Error('the DM path must never reach the comment surface'); },
     lookupComment: async () => { throw new Error('the DM path must never reach the comment surface'); },
     alertComplaint: async () => { throw new Error('the DM path must never reach the comment surface'); },
+    alertNeedsPerson: async (a) => { needsPerson.push(a); },
     log: (level, event, fields) => {
       logs.push(fields === undefined ? { level, event } : { level, event, fields });
     },
     ...rest,
   };
-  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted, typed, shadowed };
+  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted, typed, shadowed, needsPerson };
 }
 
 const run = (fx: WorkerEffects, rawBody = job(), signature: string | null = 'sig') =>
@@ -1703,4 +1705,173 @@ test('a retryable send failure on a media-alone notice asks QStash to retry, nev
   });
   const r = await run(fx);
   assert.equal(r.status, 503);
+});
+
+// ── Дали G4, F5, K4: a customer who needs a person is never left with nobody told ──────
+
+const VOICE = [{ type: 'audio', payload: { url: 'https://x/a.mp4' } }];
+const VOICE_LINE = 'ТУРШИЛТЫН ДУУТ ЗУРВАСЫН МӨР';
+
+test('DONE-TEST: A VOICE MESSAGE WITH NO REVIEWED LINE SENDS NOTHING AND TELLS A PERSON THAT', async () => {
+  const { fx, delivered, generated, needsPerson, flags } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: VOICE }) } },
+      canned_responses: { data: null, error: null },
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(generated.length, 0);
+  assert.equal(delivered.length, 0, 'no unapproved sentence reaches the customer');
+  assert.deepEqual(needsPerson.map((a) => [a.reason, a.answered, a.conversationId]), [['voice', false, 'conv-1']]);
+  assert.ok(flags.some((f) => f.code === 'voice_received'));
+});
+
+test('a voice message with a REVIEWED line gets that line, and a person is still told', async () => {
+  const { fx, delivered, needsPerson, ops } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: VOICE }) } },
+      canned_responses: { data: { body: VOICE_LINE, reviewed_at: '2026-09-30' }, error: null },
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: { data: { id: 'om-7', body: VOICE_LINE, attempts: 0, state: 'draft' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0]?.body, VOICE_LINE);
+  assert.deepEqual(needsPerson.map((a) => [a.reason, a.answered]), [['voice', true]]);
+  assert.ok(!ops.some((o) => o.table === 'conversations' && o.op === 'update' && o.patch?.['thread_control'] === 'human'),
+    'the thread is not handed over: the bot must answer what the customer types next');
+});
+
+test('an UNREVIEWED voice line is never sent, and a person is told nothing was', async () => {
+  const { fx, delivered, needsPerson, logs } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: VOICE }) } },
+      canned_responses: { data: { body: VOICE_LINE, reviewed_at: null }, error: null },
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.ok(reasons(logs).includes('voice_line_unreviewed'));
+  assert.deepEqual(needsPerson.map((a) => a.answered), [false]);
+});
+
+test('an unreadable voice line still tells a person', async () => {
+  const { fx, delivered, needsPerson, logs } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: VOICE }) } },
+      canned_responses: { data: null, error: { message: 'reset' } },
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.ok(reasons(logs).includes('voice_line_unreadable'));
+  assert.equal(needsPerson.length, 1);
+});
+
+test('a voice message in SHADOW alerts nobody and sends nothing: the Page is answered as before', async () => {
+  const { fx, delivered, needsPerson } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: VOICE }) } },
+      tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'shadow', graph_version_override: null }, error: null },
+      canned_responses: { data: { body: VOICE_LINE, reviewed_at: '2026-09-30' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.equal(needsPerson.length, 0);
+});
+
+test('a voice message in a thread a person holds is left to them', async () => {
+  const { fx, delivered, needsPerson, logs } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: VOICE }) } },
+      canned_responses: { data: { body: VOICE_LINE, reviewed_at: '2026-09-30' }, error: null },
+      conversations: { data: { id: 'conv-1', thread_control: 'human', thread_control_at: '2026-09-04T11:50:00Z' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.equal(needsPerson.length, 0);
+  assert.ok(reasons(logs).includes('voice_alone_person_has_thread'));
+});
+
+test('a retryable send failure on the voice line retries, and tells nobody yet', async () => {
+  const { fx, needsPerson } = stubEffects({
+    deliver: async () => ({ outcome: 'failed', failure: 'rate_limited', retryable: true, detail: '613' }) as never,
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: VOICE }) } },
+      canned_responses: { data: { body: VOICE_LINE, reviewed_at: '2026-09-30' }, error: null },
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: { data: { id: 'om-7', body: VOICE_LINE, attempts: 0, state: 'draft' }, error: null },
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+  assert.equal(needsPerson.length, 0);
+});
+
+test('a sticker is not a voice message: no alert', async () => {
+  const { fx, needsPerson } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'image', payload: { sticker_id: 369239263222822 } }] }) } },
+      canned_responses: { data: null, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(needsPerson.length, 0);
+});
+
+test('DONE-TEST: A DM COMPLAINT IS ANSWERED AS TODAY AND A PERSON IS TOLD', async () => {
+  const { fx, delivered, needsPerson } = stubEffects({
+    generateReply: async () => ({ kind: 'drafted', outboundId: 'om-1', answeredBy: 'model', complaint: true }),
+  });
+  await run(fx);
+  assert.equal(delivered.length, 1, 'the reply itself is unchanged');
+  assert.deepEqual(needsPerson.map((a) => [a.reason, a.answered, a.conversationId]), [['complaint', true, 'conv-1']]);
+});
+
+test('the handoff line in a DM tells a person; an ordinary answer tells nobody', async () => {
+  const handed = stubEffects({
+    generateReply: async () => ({ kind: 'drafted', outboundId: 'om-1', answeredBy: 'canned', refusal: 'outbound_price', handedOff: true }),
+  });
+  await run(handed.fx);
+  assert.deepEqual(handed.needsPerson.map((a) => a.reason), ['handoff']);
+
+  const plain = stubEffects();
+  await run(plain.fx);
+  assert.equal(plain.needsPerson.length, 0);
+});
+
+test('a complaint whose send failed terminally still tells a person, and says nothing was sent', async () => {
+  const { fx, needsPerson } = stubEffects({
+    generateReply: async () => ({ kind: 'drafted', outboundId: 'om-1', answeredBy: 'model', complaint: true }),
+    deliver: async () => ({ outcome: 'failed', failure: 'recipient_unavailable', retryable: false, detail: '551' }) as never,
+  });
+  await run(fx);
+  assert.deepEqual(needsPerson.map((a) => a.answered), [false]);
+});
+
+test('a complaint whose send is retryable tells nobody on this attempt: the redelivery does', async () => {
+  const { fx, needsPerson } = stubEffects({
+    generateReply: async () => ({ kind: 'drafted', outboundId: 'om-1', answeredBy: 'model', complaint: true }),
+    deliver: async () => ({ outcome: 'failed', failure: 'rate_limited', retryable: true, detail: '613' }) as never,
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+  assert.equal(needsPerson.length, 0);
+});
+
+test('a complaint in SHADOW is drafted and tells nobody', async () => {
+  const { fx, needsPerson, delivered } = stubEffects({
+    generateReply: async () => ({ kind: 'drafted', outboundId: 'om-1', answeredBy: 'model', complaint: true }),
+    tables: { tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'shadow', graph_version_override: null }, error: null } },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.equal(needsPerson.length, 0);
 });
