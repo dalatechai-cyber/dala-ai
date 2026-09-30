@@ -42,8 +42,11 @@
  *   wrote it). If Meta really holds the thread elsewhere, reclaiming needs
  *   `take_thread_control` (`graph.ts`) first, a live mutation of the salon's inbox that has
  *   never been exercised and whose effect on a Page Inbox that is the primary receiver is not
- *   known here. So these are NOT sent to: a person is paged instead (`meta_holds_thread`),
- *   at the moment a send would have happened, and the count says so.
+ *   known here. So these are NOT sent to, and NOT paged: they are counted
+ *   (`meta_holds_thread`) at the moment a send would have happened. Not paged because the
+ *   bot's own media hand-off (`media.ts`) also writes `handover`, so a page saying "staff took
+ *   the chat through Meta's inbox" would be false for every photo, and it would re-create the
+ *   hand-off page the founder switched off for Tara (D-153).
  * - **`passed`**: this platform's own Graph pass. Nothing writes it today (D-162 left the
  *   pass unwired). It is a Meta ownership change like `handover`, so it is treated like one.
  *   The old 15-minute reclaim of `passed` threads (D-091) is retired with the sweeper that
@@ -56,9 +59,22 @@
  *
  * ## Inert until the founder approves the wording
  *
- * A tenant with no REVIEWED `handover_reclaim` row gets nothing: no send, no flip, no page.
- * Every conversation that WOULD have been acted on is counted `no_reviewed_line`, so a
- * switched-off feature never reads as a clean zero.
+ * A tenant with no REVIEWED `handover_reclaim` row gets nothing: no send, no flip. Every
+ * conversation that WOULD have been sent to is counted `no_reviewed_line`, so a switched-off
+ * feature never reads as a clean zero.
+ *
+ * ## The sweep pages nobody
+ *
+ * The only page on this path is the worker's `reclaim_sent`, raised after a line went out
+ * and the thread was flipped. The sweep itself only counts, in the health run's receipt:
+ * - `window_missed`: the message aged past the send limit before a send happened. Not paged,
+ *   because the sweep cannot tell a customer it failed from one it never could have served
+ *   (a message that aged out before the reviewed line existed, before the first sweep after
+ *   deploy, or in a closure that ate the two open hours), and switching the feature on would
+ *   otherwise page every 23 to 48 hour old held message at once.
+ * - `meta_holds_thread`: see above.
+ * - `reclaim_refused`: the worker refused this message for good (a person had replied, or
+ *   the send failed in a way no retry fixes). Its row is `refused`, so it is never retried.
  *
  * ## Crash order
  *
@@ -77,7 +93,6 @@ import { openAt, openMinutesSince } from '../health/silence.ts';
 import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
 import { readCannedLine } from './media.ts';
-import { raiseNeedsPerson, type NeedsPersonReason } from './needsPerson.ts';
 
 /** The canned row the customer is sent. Served whole, no model. Model-invisible (`gate/match.ts`). */
 export const RECLAIM_KIND = 'handover_reclaim';
@@ -95,9 +110,9 @@ export const RECLAIM_AFTER_OPEN_MINUTES = 120;
 export const RECLAIM_MAX_AGE_MINUTES = 23 * 60;
 
 /**
- * How far back the sweep looks. Past the send window, so a message that aged out while
- * unanswered is seen at least once more and a person is told; bounded, so it is not
- * counted every hour for ever.
+ * How far back the sweep looks. Past the send window, so a line sent just inside it whose
+ * flip was lost is still finished, and a message that aged out while unanswered is counted
+ * (`window_missed`); bounded, so it is not counted every hour for ever.
  */
 export const RECLAIM_LOOKBACK_MINUTES = 48 * 60;
 
@@ -132,13 +147,20 @@ export type ReclaimSkip =
   /** Staff acted after the customer's latest message: nobody is waiting on the bot. */
   | 'staff_replied_after'
   | 'bot_replied'
-  /** This message's reclaim was refused before the send (a person replied): terminal. */
+  /**
+   * The worker refused this message for good and marked its row `refused`: a person had
+   * replied, or the send failed in a way no retry fixes. Terminal.
+   */
   | 'reclaim_refused'
   /** Parked by `deliver` and already alerted: no automatic retry may touch it. */
   | 'reclaim_indeterminate'
   | 'reclaim_in_flight'
   /** `human` from a source this rule does not cover (null: predates `0027`). */
   | 'unknown_source'
+  /** Past the send limit before a send happened. Counted, never paged (module docstring). */
+  | 'window_missed'
+  /** `handover`/`passed`: Meta may hold the thread elsewhere. Counted, never sent to or paged. */
+  | 'meta_holds_thread'
   /** Fewer than two opening hours have passed. */
   | 'waiting'
   | 'closed_now'
@@ -153,8 +175,6 @@ export type ReclaimVerdict =
   | { readonly action: 'send'; readonly openMinutesAtLeast: number }
   /** The line was sent and the thread not flipped (a crash between the two): flip only. */
   | { readonly action: 'finish' }
-  /** Tell a person; send nothing. */
-  | { readonly action: 'page'; readonly reason: 'window_missed' | 'meta_holds_thread' }
   | { readonly action: 'skip'; readonly reason: ReclaimSkip };
 
 /**
@@ -182,7 +202,7 @@ export function decideReclaim(f: ReclaimFacts): ReclaimVerdict {
   if (f.source !== 'echo' && f.source !== 'handover' && f.source !== 'passed') return skip('unknown_source');
 
   const ageMinutes = (f.now.getTime() - f.latest.at.getTime()) / 60_000;
-  if (ageMinutes >= RECLAIM_MAX_AGE_MINUTES) return { action: 'page', reason: 'window_missed' };
+  if (ageMinutes >= RECLAIM_MAX_AGE_MINUTES) return skip('window_missed');
 
   const walked = openMinutesSince(
     { ...f.schedule, now: f.now, thresholdOpenMinutes: RECLAIM_AFTER_OPEN_MINUTES },
@@ -195,7 +215,7 @@ export function decideReclaim(f: ReclaimFacts): ReclaimVerdict {
   if (openNow === null) return skip('hours_not_configured');
   if (!openNow) return skip('closed_now');
 
-  if (f.source !== 'echo') return { action: 'page', reason: 'meta_holds_thread' };
+  if (f.source !== 'echo') return skip('meta_holds_thread');
   return { action: 'send', openMinutesAtLeast: Math.floor(walked.minutes) };
 }
 
@@ -207,16 +227,9 @@ export type ReclaimJob = {
   provider: string; dedupKey: string; eventId: number; tenantId: string; channelId: string; reclaimMid: string;
 };
 
-export type ReclaimPage = {
-  tenantId: string; conversationId: string; provider: string; mid: string;
-  reason: 'window_missed' | 'meta_holds_thread';
-};
-
 export type ReclaimSweepInput = {
   now: Date;
   enqueue: (job: ReclaimJob) => Promise<EnqueueResult>;
-  /** Tell a person. Injected for tests; production raises `conversation.needs_person`. */
-  page?: (p: ReclaimPage) => Promise<void>;
 };
 
 export type ReclaimSweepOutcome =
@@ -235,50 +248,27 @@ const date = (v: unknown): Date | null => {
 };
 const bump = (into: Record<string, number>, key: string) => { into[key] = (into[key] ?? 0) + 1; };
 
-const PAGE_REASON: Record<ReclaimPage['reason'], NeedsPersonReason> = {
-  window_missed: 'reclaim_window_missed',
-  meta_holds_thread: 'reclaim_meta_holds_thread',
-};
-
-/** The production page: `conversation.needs_person`, once per held message. Never rejects. */
-export function pageNeedsPerson(db: SupabaseClient, now: Date): (p: ReclaimPage) => Promise<void> {
-  return async (p) => {
-    try {
-      const out = await raiseNeedsPerson(db, {
-        tenantId: p.tenantId, conversationId: p.conversationId, reason: PAGE_REASON[p.reason],
-        provider: p.provider, sent: 'no', now,
-        // Per held message, not per day: the lookback sees one message on two runs a day apart.
-        dedupKey: `needs_person:${p.conversationId}:${PAGE_REASON[p.reason]}:${p.mid}`,
-      });
-      if (out.outcome === 'failed' || out.outcome === 'recorded_undelivered') {
-        console.error('[reclaim] page_undelivered', { conversationId: p.conversationId, reason: p.reason, ...out });
-      }
-    } catch (e) {
-      console.error('[reclaim] page_failed', { conversationId: p.conversationId, detail: e instanceof Error ? e.message : String(e) });
-    }
-  };
-}
-
-type TenantView =
-  | { ok: true; schedule: ReclaimFacts['schedule']; line: 'reviewed' | 'none' | 'unreadable' }
+export type OpenScheduleRead =
+  | { ok: true; schedule: ReclaimFacts['schedule'] }
   | { ok: false; detail: string };
 
-/** A tenant's clock, week, closures and whether it has a reviewed line. Read once per run. */
-async function readTenant(db: SupabaseClient, tenantId: string, now: Date): Promise<TenantView> {
-  const tenant = await db.from('tenants').select('timezone, default_locale').eq('id', tenantId).maybeSingle();
-  if (tenant.error || tenant.data === null) return { ok: false, detail: `tenants: ${tenant.error?.message ?? 'no row'}` };
-  const t = tenant.data as Record<string, unknown>;
-  const timezone = str(t['timezone']);
+/**
+ * A tenant's week and the closures that could touch a walk back to `oldest`. Shared by the
+ * sweep and the worker's own "open now" re-check, so the two read the same calendar.
+ */
+export async function readOpenSchedule(
+  db: SupabaseClient,
+  input: { tenantId: string; timezone: string; oldest: Date },
+): Promise<OpenScheduleRead> {
+  const { tenantId, timezone } = input;
   // No default zone: a wrong calendar would count the wrong hours as open.
   if (timezone === '') return { ok: false, detail: 'tenant timezone missing' };
-  const locale = str(t['default_locale']) || 'mn-MN';
-  // Closures that could touch the walk. The date is on the tenant's own calendar, with a day
-  // of slack beyond the lookback so a read filter can never exclude one the walk reaches.
-  const oldest = tenantClock(new Date(now.getTime() - RECLAIM_LOOKBACK_MINUTES * 60_000 - 24 * 60 * 60_000), timezone).date;
-  const [hoursRes, closuresRes, line] = await Promise.all([
+  // The date is on the tenant's own calendar, with a day of slack so a read filter can never
+  // exclude a closure the walk reaches.
+  const oldestDate = tenantClock(new Date(input.oldest.getTime() - 24 * 60 * 60_000), timezone).date;
+  const [hoursRes, closuresRes] = await Promise.all([
     db.from('business_hours').select('weekday, opens, closes, closed').eq('tenant_id', tenantId).order('weekday'),
-    db.from('tenant_closures').select('starts_on, ends_on, title, message').eq('tenant_id', tenantId).gte('ends_on', oldest),
-    readCannedLine(db, { tenantId, locale, kind: RECLAIM_KIND }),
+    db.from('tenant_closures').select('starts_on, ends_on, title, message').eq('tenant_id', tenantId).gte('ends_on', oldestDate),
   ]);
   if (hoursRes.error) return { ok: false, detail: `business_hours: ${hoursRes.error.message}` };
   if (closuresRes.error) return { ok: false, detail: `tenant_closures: ${closuresRes.error.message}` };
@@ -291,23 +281,41 @@ async function readTenant(db: SupabaseClient, tenantId: string, now: Date): Prom
   const closures: Closure[] = rows(closuresRes.data).map((r) => ({
     startsOn: str(r['starts_on']), endsOn: str(r['ends_on']), title: str(r['title']), message: str(r['message']),
   }));
+  return { ok: true, schedule: { timezone, hours, closures } };
+}
+
+type TenantView =
+  | { ok: true; schedule: ReclaimFacts['schedule']; line: 'reviewed' | 'none' | 'unreadable' }
+  | { ok: false; detail: string };
+
+/** A tenant's clock, week, closures and whether it has a reviewed line. Read once per run. */
+async function readTenant(db: SupabaseClient, tenantId: string, now: Date): Promise<TenantView> {
+  const tenant = await db.from('tenants').select('timezone, default_locale').eq('id', tenantId).maybeSingle();
+  if (tenant.error || tenant.data === null) return { ok: false, detail: `tenants: ${tenant.error?.message ?? 'no row'}` };
+  const t = tenant.data as Record<string, unknown>;
+  const timezone = str(t['timezone']);
+  const locale = str(t['default_locale']) || 'mn-MN';
+  const [schedule, line] = await Promise.all([
+    readOpenSchedule(db, { tenantId, timezone, oldest: new Date(now.getTime() - RECLAIM_LOOKBACK_MINUTES * 60_000) }),
+    readCannedLine(db, { tenantId, locale, kind: RECLAIM_KIND }),
+  ]);
+  if (!schedule.ok) return schedule;
   return {
     ok: true,
-    schedule: { timezone, hours, closures },
+    schedule: schedule.schedule,
     line: !line.ok ? 'unreadable'
       : line.line !== null && line.line.reviewed && line.line.body.trim() !== '' ? 'reviewed' : 'none',
   };
 }
 
 /**
- * Find every chat staff took and left, and act on each: enqueue the reclaim, finish one a
- * crash interrupted, or page a person. Refuses the run (`ok: false`) only when the channel
- * or conversation lists are unreadable; any narrower read failure skips that tenant or
- * conversation this run, counted `unreadable`, and sends nothing for it.
+ * Find every chat staff took and left, and act on each: enqueue the reclaim, or finish one a
+ * crash interrupted. Everything else is counted, never paged. Refuses the run (`ok: false`)
+ * only when the channel or conversation lists are unreadable; any narrower read failure
+ * skips that tenant or conversation this run, counted `unreadable`, and sends nothing for it.
  */
 export async function reclaimHeldConversations(db: SupabaseClient, input: ReclaimSweepInput): Promise<ReclaimSweepOutcome> {
   const counts: Record<string, number> = {};
-  const page = input.page ?? pageNeedsPerson(db, input.now);
 
   // Live, delivering Messenger and Instagram channels only. `shadow` never reaches here.
   const channels = await db
@@ -357,18 +365,11 @@ export async function reclaimHeldConversations(db: SupabaseClient, input: Reclai
     // Inert without the founder's approved line. `finish` is exempt: the line was already
     // sent under an earlier approval, and leaving the thread `human` would only keep the
     // customer's next message waiting.
-    if (verdict.action !== 'finish') {
+    if (verdict.action === 'send') {
       if (view.line === 'unreadable') { bump(counts, 'reclaim_line_unreadable'); continue; }
       if (view.line === 'none') { bump(counts, 'no_reviewed_line'); continue; }
     }
     const mid = facts.latest?.externalId ?? '';
-    const provider = str(channel['provider']);
-
-    if (verdict.action === 'page') {
-      await page({ tenantId, conversationId, provider, mid, reason: verdict.reason });
-      bump(counts, `paged_${verdict.reason}`);
-      continue;
-    }
 
     const event = await db.from('webhook_events')
       .select('id, provider')

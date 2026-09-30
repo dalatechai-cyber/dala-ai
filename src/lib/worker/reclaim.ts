@@ -12,10 +12,14 @@
  * ## Everything the sweep decided is re-checked here, against fresh reads
  *
  * The job may arrive a minute or half an hour after the sweep (QStash redelivers). So before
- * anything is written: the channel still delivers; the message is inside the send window by
- * Meta's own timestamp; the thread is still `human` from an `echo`; no staff activity after
- * the message; no person reply in the stored echoes since (`personRepliedSince`); a reviewed
- * line exists.
+ * the line is sent: the channel still delivers; the thread is still `human` from an `echo`;
+ * no staff activity after the message; and, only when the line has not gone out yet, the
+ * message is inside the send window by Meta's own timestamp, the salon is open NOW (a
+ * redelivery can land after closing; unreadable or unentered hours refuse), a reviewed line
+ * exists, and no person replied in the stored echoes since (`personRepliedSince`).
+ *
+ * A line already `sent` whose flip was lost is finished at any age: the window and the
+ * opening hours govern a send, and the flip sends nothing.
  *
  * ## Every refusal is a 200
  *
@@ -24,7 +28,17 @@
  * (`RECEPTION_MAX_DELIVERIES`), which would tell the founder a customer "was not answered"
  * about a line that is optional by design. So an unreadable check refuses with a 200 and a
  * logged reason, and SENDS NOTHING: fail closed, retried by the schedule. A retryable send
- * failure leaves the row `failed`, which the next sweep's job claims and re-sends.
+ * failure leaves the row `failed`, which the next sweep's job claims and re-sends. (A reclaim
+ * job is also never counted as a delivery attempt of the event it re-uses: `reception.ts`.)
+ *
+ * ## Terminal refusals are written, so the sweep stops
+ *
+ * Two refusals are for good, and both leave the message's own `reclaim:<mid>` row `refused`,
+ * which the sweep reads as `reclaim_refused` and never re-enqueues: a person replied since the
+ * message (the row is drafted first so there is a row to mark), and a send that failed in a
+ * way no retry fixes (`retryable: false`: recipient unreachable, consent, a revoked token).
+ * Without the row, the sweep would re-enqueue the same refusal every hour for the rest of the
+ * day. Every other refusal writes nothing and is retried by the schedule.
  *
  * ## Send, then flip
  *
@@ -37,8 +51,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { conversationForPsid } from '../handover/record.ts';
 import { personRepliedSince } from '../handover/presend.ts';
 import { readCannedLine } from '../handover/media.ts';
-import { RECLAIM_KIND, RECLAIM_MAX_AGE_MINUTES, reclaimDedupKey } from '../handover/reclaim.ts';
-import { claim, draftOnce, findReplyFor } from '../outbound/claim.ts';
+import { RECLAIM_KIND, RECLAIM_MAX_AGE_MINUTES, readOpenSchedule, reclaimDedupKey } from '../handover/reclaim.ts';
+import { openAt } from '../health/silence.ts';
+import { claim, draftOnce, findReplyFor, markRefused } from '../outbound/claim.ts';
 import { isFresh } from './freshness.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
 import type { DeliverArgs, JobResult, WorkerEffects } from './reception.ts';
@@ -49,6 +64,8 @@ export type ReclaimServeInput = {
   eventId: number;
   provider: string;
   locale: string;
+  /** The tenant's own zone, already read by the worker: "open now" is on its calendar. */
+  timezone: string;
   /** The held message, from the stored entry. Null when the entry does not carry it. */
   message: { senderId: string; externalId: string; sentAt: Date } | null;
   /** `delivery.deliver`: a live channel. Shadow testers are NOT included: a reclaim is live-only. */
@@ -76,8 +93,6 @@ export async function serveReclaim(
   const message = input.message;
   if (message === null) return refuse('message_missing', {}, 'error');
   const mid = message.externalId;
-  // Meta's own timestamp: the window is Meta's. An unparseable time is not inside it.
-  if (!isFresh(message.sentAt, now, RECLAIM_MAX_AGE_MINUTES)) return refuse('outside_window', { mid });
 
   const conversationId = await conversationForPsid(db, { tenantId, channelId, psid: message.senderId });
   if (conversationId === 'unreadable') return refuse('unreadable', { what: 'conversation' }, 'error');
@@ -115,26 +130,48 @@ export async function serveReclaim(
       // `sending`, `claiming`, `refused` or a parked `indeterminate`: not ours to touch.
       return refuse('row_not_claimable', { conversationId, state: existing.state });
     }
+    // Meta's own timestamp: the window is Meta's. An unparseable time is not inside it. Only
+    // on this path: a line already sent is finished (flipped) at any age.
+    if (!isFresh(message.sentAt, now, RECLAIM_MAX_AGE_MINUTES)) return refuse('outside_window', { mid });
+
+    // Open NOW, re-read: the sweep decided at its own minute, and a redelivery can land after
+    // closing. Unreadable or unentered hours refuse, as the sweep's own walk does.
+    const hours = await readOpenSchedule(db, { tenantId, timezone: input.timezone, oldest: now })
+      .catch((e: unknown) => ({ ok: false as const, detail: e instanceof Error ? e.message : String(e) }));
+    if (!hours.ok) return refuse('unreadable', { what: 'opening hours', detail: hours.detail }, 'error');
+    const open = openAt(hours.schedule, now);
+    if (open === null) return refuse('hours_not_configured', { conversationId });
+    if (!open) return refuse('closed_now', { conversationId });
+
+    const line = await readCannedLine(db, { tenantId, locale: input.locale, kind: RECLAIM_KIND });
+    if (!line.ok) return refuse('unreadable', { what: 'reclaim line', detail: line.detail }, 'error');
+    if (line.line === null || !line.line.reviewed || line.line.body.trim() === '') return refuse('no_reviewed_line', { conversationId });
+
+    // Drafted BEFORE the person check, so a person's reply has a row to refuse: that refusal
+    // is terminal, and the sweep can only see what a row says.
+    const drafted = await draftOnce(db, {
+      tenantId, kind: 'reply', dedupKey, body: line.line.body, channelId, conversationId,
+    });
+    if (!drafted.ok) return refuse('draft_failed', { conversationId, detail: drafted.detail }, 'error');
+
     const spoke = await personRepliedSince(db, {
       tenantId, channelId, conversationId, psid: message.senderId, eventId: input.eventId, since: msgAt,
       ourAppId: input.ourAppId, automationTexts: input.automationTexts,
     }).catch((e: unknown) => ({ replied: 'unreadable' as const, detail: e instanceof Error ? e.message : String(e) }));
     // Unlike the ordinary send, unreadable REFUSES: this line is optional, and talking over a
     // person on the strength of a failed read is the failure this whole path must not add.
+    // Not terminal: the draft stays claimable and the next sweep asks again.
     if (spoke.replied === 'unreadable') return refuse('unreadable', { what: 'person check', detail: spoke.detail }, 'error');
     if (spoke.replied === true) {
+      const marked = await markRefused(db, {
+        id: drafted.row.id, tenantId, reason: 'reclaim_person_replied', from: ['draft', 'failed'],
+      });
+      // Unmarked is still not sent: the next sweep re-enqueues and this check refuses again.
+      if (!marked.ok) fx.log('error', 'reclaim_refusal_unrecorded', { tenantId, conversationId, detail: marked.detail });
       await fx.flagQuality({ tenantId, conversationId, code: 'reclaim_person_replied', detail: `reclaim not sent: ${spoke.detail}` });
       return refuse('person_replied', { conversationId, via: spoke.via });
     }
 
-    const line = await readCannedLine(db, { tenantId, locale: input.locale, kind: RECLAIM_KIND });
-    if (!line.ok) return refuse('unreadable', { what: 'reclaim line', detail: line.detail }, 'error');
-    if (line.line === null || !line.line.reviewed || line.line.body.trim() === '') return refuse('no_reviewed_line', { conversationId });
-
-    const drafted = await draftOnce(db, {
-      tenantId, kind: 'reply', dedupKey, body: line.line.body, channelId, conversationId,
-    });
-    if (!drafted.ok) return refuse('draft_failed', { conversationId, detail: drafted.detail }, 'error');
     const held = await claim(db, { id: drafted.row.id, tenantId, now });
     if (held.outcome === 'unavailable') return refuse('unreadable', { what: 'claim', detail: held.detail }, 'error');
     if (held.outcome === 'not_ours') return refuse('row_not_claimable', { conversationId, state: held.state });
@@ -144,8 +181,15 @@ export async function serveReclaim(
         ...input.send, recipientId: message.senderId, outboundId: held.id, body: held.body, attempts: held.attempts,
       });
       if (delivered.outcome !== 'sent') {
-        // `failed` is re-claimed by the next sweep's job; `indeterminate` is parked and
-        // alerted by `deliver`. Neither flips the thread.
+        // A retryable `failed` is re-claimed by the next sweep's job; `indeterminate` is
+        // parked and alerted by `deliver`. A failure no retry fixes is made terminal, so the
+        // sweep stops re-sending it every hour. None of them flips the thread.
+        if (delivered.outcome === 'failed' && !delivered.retryable) {
+          const marked = await markRefused(db, {
+            id: held.id, tenantId, reason: `reclaim_send_not_retryable: ${delivered.failure}`, from: ['failed'],
+          });
+          if (!marked.ok) fx.log('error', 'reclaim_refusal_unrecorded', { tenantId, conversationId, detail: marked.detail });
+        }
         return refuse('not_sent', {
           conversationId, outcome: delivered.outcome,
           ...(delivered.outcome === 'failed' ? { failure: delivered.failure, retryable: delivered.retryable } : {}),

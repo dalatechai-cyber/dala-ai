@@ -57,7 +57,7 @@ test('ACROSS A CLOSED NIGHT: the hours the salon is shut do not count', () => {
   assert.equal(v.action === 'send' && v.openMinutesAtLeast, 125);
 });
 
-test('A CLOSURE DAY is not open time, and the customer then ages out and a person is paged', () => {
+test('A CLOSURE DAY is not open time, and the customer then ages out: counted, never paged', () => {
   // Written 19:00 Friday; Saturday is a holiday.
   const latest = { externalId: 'm_1', at: at('2026-09-25T11:00:00Z') };
   const controlAt = at('2026-09-25T10:00:00Z');
@@ -70,11 +70,11 @@ test('A CLOSURE DAY is not open time, and the customer then ages out and a perso
     decideReclaim(facts({ latest, controlAt, now: saturday, schedule: { ...SCHEDULE, closures } })),
     { action: 'skip', reason: 'waiting' },
   );
-  // Sunday 10:30: past Meta's window before two open hours ever passed. Nothing is sent;
-  // a person is told, so the customer is not simply forgotten.
+  // Sunday 10:30: past Meta's window before two open hours ever passed. Nothing is sent and
+  // nobody is paged: the closure ate the two hours, so no send was ever owed. Counted.
   assert.deepEqual(
     decideReclaim(facts({ latest, controlAt, now: at('2026-09-27T02:30:00Z'), schedule: { ...SCHEDULE, closures } })),
-    { action: 'page', reason: 'window_missed' },
+    { action: 'skip', reason: 'window_missed' },
   );
 });
 
@@ -88,13 +88,15 @@ test('only while the salon is open NOW', () => {
   assert.deepEqual(v, { action: 'skip', reason: 'closed_now' });
 });
 
-test('THE 24-HOUR WINDOW: past the send limit nothing is sent and a person is paged', () => {
+test('THE 24-HOUR WINDOW: past the send limit nothing is sent; counted, not paged', () => {
   // Written 12:00 Friday, so the limit falls at 11:00 Saturday, while open.
   const latest = { externalId: 'm_1', at: at('2026-09-25T04:00:00Z') };
   const justInside = new Date(latest.at.getTime() + (RECLAIM_MAX_AGE_MINUTES - 1) * 60_000);
   const atLimit = new Date(latest.at.getTime() + RECLAIM_MAX_AGE_MINUTES * 60_000);
   assert.equal(decideReclaim(facts({ latest, now: justInside })).action, 'send'); // 10:59 Saturday, open
-  assert.deepEqual(decideReclaim(facts({ latest, now: atLimit })), { action: 'page', reason: 'window_missed' });
+  assert.deepEqual(decideReclaim(facts({ latest, now: atLimit })), { action: 'skip', reason: 'window_missed' });
+  // A line already sent whose flip was lost is still finished past the limit: the flip sends nothing.
+  assert.deepEqual(decideReclaim(facts({ latest, now: atLimit, reclaimRow: 'sent' })), { action: 'finish' });
   assert.ok(RECLAIM_MAX_AGE_MINUTES < 24 * 60, 'the limit stays inside Meta\'s 24 hours');
 });
 
@@ -109,6 +111,8 @@ test('THE BOT ALREADY REPLIED after the message: nothing is sent', () => {
 });
 
 test('THE RECLAIM ROW decides a repeat: sent finishes the flip, never a second send', () => {
+  // `refused` is what the worker writes when a person replied or a send failed for good
+  // (`worker/reclaim.ts`): terminal, so the sweep stops re-enqueueing it.
   assert.deepEqual(decideReclaim(facts({ reclaimRow: 'sent' })), { action: 'finish' });
   // Its own row is not "the bot replied": a crash after the send must still be finished.
   assert.deepEqual(decideReclaim(facts({ reclaimRow: 'sent', botReplied: false })), { action: 'finish' });
@@ -120,9 +124,11 @@ test('THE RECLAIM ROW decides a repeat: sent finishes the flip, never a second s
   assert.equal(decideReclaim(facts({ reclaimRow: 'draft' })).action, 'send');
 });
 
-test('a Meta handover or our own pass is paged, never sent to: Meta may hold the thread elsewhere', () => {
+test('a Meta handover or our own pass is never sent to and never paged, only counted', () => {
+  // Not paged: the bot's own media hand-off also writes `handover`, so "staff took the chat
+  // through Meta's inbox" would be false for every photo (and Tara switched that page off, D-153).
   for (const source of ['handover', 'passed'] as const) {
-    assert.deepEqual(decideReclaim(facts({ source })), { action: 'page', reason: 'meta_holds_thread' }, source);
+    assert.deepEqual(decideReclaim(facts({ source })), { action: 'skip', reason: 'meta_holds_thread' }, source);
     // And only once the same timing a send would need has passed.
     assert.deepEqual(decideReclaim(facts({ source, now: at('2026-09-25T04:00:00Z') })), { action: 'skip', reason: 'waiting' }, source);
   }

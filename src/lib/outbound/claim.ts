@@ -331,13 +331,21 @@ export async function markIndeterminate(
  */
 export async function markRefused(
   db: SupabaseClient,
-  input: { id: string; tenantId: string; reason: string },
+  input: {
+    id: string; tenantId: string; reason: string;
+    /**
+     * The states it may be refused from. Default `draft`/`sending`, the guard's case. The
+     * staff-hold reclaim (`worker/reclaim.ts`) also refuses a `failed` row for good, so the
+     * hourly sweep stops re-claiming a line that must never go out.
+     */
+    from?: readonly OutboundState[];
+  },
 ): Promise<{ ok: true } | { ok: false; detail: string }> {
   const { error } = await db
     .from('outbound_messages')
     .update({ state: 'refused', refused_reason: input.reason, lease_until: null })
     .eq('id', input.id)
     .eq('tenant_id', input.tenantId)
-    .in('state', ['draft', 'sending']);
+    .in('state', [...(input.from ?? ['draft', 'sending'])]);
   return error ? { ok: false, detail: `markRefused failed: ${error.message}` } : { ok: true };
 }

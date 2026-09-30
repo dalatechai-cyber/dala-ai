@@ -32,7 +32,7 @@ import { quietRoute, raiseAlert } from '../alerts/alert.ts';
 import type { EnqueueResult } from '../queue/qstash.ts';
 import { closeStaleCeilingEpisodes } from '../spend/ceilingAlert.ts';
 import { checkCannedDrift } from '../prompt/cannedDrift.ts';
-import { reclaimHeldConversations, type ReclaimPage } from '../handover/reclaim.ts';
+import { reclaimHeldConversations } from '../handover/reclaim.ts';
 
 export type HealthEffects = {
   db: SupabaseClient;
@@ -43,8 +43,6 @@ export type HealthEffects = {
    * hands a held message back to the worker (`catchUpMid`).
    */
   enqueue: (job: Parameters<SweepInput['enqueue']>[0] & { catchUpMid?: string; reclaimMid?: string }) => Promise<EnqueueResult>;
-  /** The reclaim sweep's page. Absent in production, which raises `conversation.needs_person`. */
-  reclaimPage?: (p: ReclaimPage) => Promise<void>;
 };
 
 export type HealthJobResult = { status: number; body: Record<string, unknown> };
@@ -115,10 +113,7 @@ export async function runHealthJob(
   // up to about three hours. Unreadable is a 503 like the other sweeps: "nobody is waiting"
   // and "I could not look" must not read the same. Everything above is idempotent, so the
   // retry costs reads and nothing else.
-  const reclaim = await reclaimHeldConversations(effects.db, {
-    now: effects.now, enqueue: effects.enqueue,
-    ...(effects.reclaimPage === undefined ? {} : { page: effects.reclaimPage }),
-  });
+  const reclaim = await reclaimHeldConversations(effects.db, { now: effects.now, enqueue: effects.enqueue });
   if (!reclaim.ok) return { status: 503, body: { error: 'unavailable', detail: reclaim.detail } };
 
   // The counts, not the verdicts: this body goes to QStash's delivery log, and a channel's

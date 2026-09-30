@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reclaimHeldConversations, type ReclaimJob, type ReclaimPage } from './reclaim.ts';
+import { reclaimHeldConversations, type ReclaimJob } from './reclaim.ts';
 
 // 13:30 Ulaanbaatar, Friday 2026-09-25. The customer wrote at 11:00, staff last at 10:59.
 const NOW = new Date('2026-09-25T05:30:00Z');
@@ -49,12 +49,12 @@ function fakeDb(over: Record<string, Answer | Answer[]> = {}) {
 function sweep(over: Record<string, Answer | Answer[]> = {}, now = NOW) {
   const { db, reads } = fakeDb(over);
   const jobs: ReclaimJob[] = [];
-  const pages: ReclaimPage[] = [];
   const run = reclaimHeldConversations(db, {
     now,
     enqueue: async (j) => { jobs.push(j); return { ok: true, messageId: 'q-1', deduplicated: false }; },
-    page: async (p) => { pages.push(p); },
   });
+  // The sweep pages nobody: a page (`raiseNeedsPerson` / `raiseAlert`) goes through `alerts`.
+  const pages = () => reads.filter((x) => x.table === 'alerts');
   return { run, jobs, pages, reads };
 }
 
@@ -67,7 +67,7 @@ test('a qualifying chat is handed to the worker as a reclaim of its own held mes
   assert.equal(jobs[0]?.eventId, 77);
   assert.equal(jobs[0]?.tenantId, 't-1');
   assert.ok(jobs[0]?.dedupKey.startsWith('reclaim:m_held:'));
-  assert.equal(pages.length, 0);
+  assert.equal(pages().length, 0);
   // Live channels only: shadow never reaches the sweep.
   const channelRead = reads.find((x) => x.table === 'tenant_channels');
   assert.deepEqual(channelRead?.eq, [['delivery_mode', 'live'], ['token_status', 'active']]);
@@ -79,12 +79,12 @@ test('NO REVIEWED LINE: inert — nothing enqueued, nothing paged, and counted, 
     const r = await run;
     assert.deepEqual(r, { ok: true, channels: 1, counts: { no_reviewed_line: 1 } });
     assert.equal(jobs.length, 0);
-    assert.equal(pages.length, 0);
+    assert.equal(pages().length, 0);
   }
-  // Also inert for a page: a window-missed customer is counted, not paged, until approval.
+  // A window-missed customer is counted under its own name, line or no line, and never paged.
   const late = sweep({ canned_responses: { data: null, error: null } }, new Date('2026-09-26T03:00:00Z'));
-  assert.deepEqual((await late.run), { ok: true, channels: 1, counts: { no_reviewed_line: 1 } });
-  assert.equal(late.pages.length, 0);
+  assert.deepEqual((await late.run), { ok: true, channels: 1, counts: { window_missed: 1 } });
+  assert.equal(late.pages().length, 0);
 });
 
 test('an unreadable line sends nothing and says so', async () => {
@@ -111,18 +111,35 @@ test('A REPEAT SWEEP after the send finishes the flip; after the flip there is n
   assert.equal(flipped.jobs.length, 0);
 });
 
-test('THE WINDOW: a message past the send limit is paged once per message, never sent', async () => {
-  const { run, jobs, pages } = sweep({}, new Date('2026-09-26T03:00:00Z')); // 24 h after
-  assert.deepEqual(await run, { ok: true, channels: 1, counts: { paged_window_missed: 1 } });
-  assert.equal(jobs.length, 0);
-  assert.deepEqual(pages, [{ tenantId: 't-1', conversationId: 'conv-1', provider: 'facebook_page', mid: 'm_held', reason: 'window_missed' }]);
+test('THE WINDOW: a message past the send limit is counted, never sent and never paged, on every run', async () => {
+  // Two hourly runs over the same aged-out message: the receipt counts it each time and
+  // nothing is written anywhere, so switching the feature on cannot page a backlog at once.
+  for (const now of [new Date('2026-09-26T03:00:00Z'), new Date('2026-09-26T04:00:00Z')]) {
+    const { run, jobs, pages, reads } = sweep({}, now);
+    assert.deepEqual(await run, { ok: true, channels: 1, counts: { window_missed: 1 } });
+    assert.equal(jobs.length, 0);
+    assert.equal(pages().length, 0);
+    assert.equal(reads.some((x) => x.table === 'webhook_events'), false, 'not even looked up for a job');
+  }
 });
 
-test('a Meta handover thread is paged, not sent to', async () => {
-  const { run, jobs, pages } = sweep({ conversations: { data: [{ id: 'conv-1', tenant_id: 't-1', channel_id: 'ch-1', thread_control: 'human', thread_control_source: 'handover', thread_control_at: '2026-09-25T02:59:00Z' }], error: null } });
-  assert.deepEqual(await run, { ok: true, channels: 1, counts: { paged_meta_holds_thread: 1 } });
-  assert.equal(jobs.length, 0);
-  assert.equal(pages[0]?.reason, 'meta_holds_thread');
+test('a Meta handover thread (or the bot\'s own media hand-off) is counted, never sent to or paged', async () => {
+  for (const source of ['handover', 'passed']) {
+    const { run, jobs, pages } = sweep({ conversations: { data: [{ id: 'conv-1', tenant_id: 't-1', channel_id: 'ch-1', thread_control: 'human', thread_control_source: source, thread_control_at: '2026-09-25T02:59:00Z' }], error: null } });
+    assert.deepEqual(await run, { ok: true, channels: 1, counts: { meta_holds_thread: 1 } }, source);
+    assert.equal(jobs.length, 0, source);
+    assert.equal(pages().length, 0, source);
+  }
+});
+
+test('A TERMINAL REFUSAL the worker wrote stops the sweep: never re-enqueued', async () => {
+  // The state `worker/reclaim.ts` leaves when a person replied or a send failed for good.
+  for (const run of [1, 2]) {
+    const { run: r, jobs } = sweep({ outbound_messages: { data: [{ dedup_key: 'reclaim:m_held', state: 'refused' }], error: null } },
+      new Date(NOW.getTime() + run * 3_600_000));
+    assert.deepEqual(await r, { ok: true, channels: 1, counts: { reclaim_refused: 1 } });
+    assert.equal(jobs.length, 0);
+  }
 });
 
 test('UNREADABLE: the lists refuse the run; a narrower read skips that chat and sends nothing', async () => {

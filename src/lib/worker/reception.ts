@@ -476,12 +476,20 @@ async function runReceptionDelivery(
   trace.channelId = channelId;
   const priorAttempts = typeof eventRow['attempts'] === 'number' ? eventRow['attempts'] : 0;
   clock.lap('event_read');
+  // A reclaim job is NOT a delivery of this event. It re-uses the held message's stored row
+  // (the sweep has no other handle on it), so counting it would bump `attempts` on an event
+  // that was answered, or held, long ago, and `trace.attempts >= RECEPTION_MAX_DELIVERIES`
+  // would then page `webhook.delivery_exhausted` about a customer whose own delivery finished
+  // hours earlier. So it is neither written nor carried in the trace: `trace.attempts` stays 0
+  // and the exhaustion alert cannot fire for a reclaim job. Its own retries are the hourly
+  // sweep's. (The catch-up job has the same shape but is left counting: it IS the customer's
+  // reply, and an exhausted catch-up is a customer going unanswered.)
   // Three independent round trips, issued together (speed, D-124): the attempt counter,
   // the tenant's settings and the channel. None depends on another, and each result is
   // still EVALUATED in the order the code below always used, so every refusal fires exactly
   // where it did — only the waiting overlaps. Measured live: ~180ms sequential.
   const [counted, tenantRead, channelRead] = await Promise.all([
-    recordDeliveryAttempt(db, eventId, priorAttempts),
+    reclaimMid === null ? recordDeliveryAttempt(db, eventId, priorAttempts) : Promise.resolve(null),
     db
       .from('tenants')
       .select('default_locale, prompt_cache_mode, timezone, max_reply_age_minutes, human_takeover_cooldown_minutes')
@@ -495,8 +503,10 @@ async function runReceptionDelivery(
       .maybeSingle(),
   ]);
   clock.lap('attempt_write');
-  trace.attempts = counted.attempts;
-  if (!counted.ok) fx.log('error', 'attempt_count_failed', { eventId, detail: counted.detail });
+  if (counted !== null) {
+    trace.attempts = counted.attempts;
+    if (!counted.ok) fx.log('error', 'attempt_count_failed', { eventId, detail: counted.detail });
+  }
 
   const receivedRaw = eventRow['received_at'];
   const receivedMs = typeof receivedRaw === 'string' ? new Date(receivedRaw).getTime() : Number.NaN;
@@ -674,7 +684,7 @@ async function runReceptionDelivery(
   if (reclaimMid !== null) {
     const held = messages[0];
     return serveReclaim(fx, {
-      tenantId, channelId, eventId, provider, locale: settings.defaultLocale,
+      tenantId, channelId, eventId, provider, locale: settings.defaultLocale, timezone,
       message: held === undefined ? null : { senderId: held.senderId, externalId: held.externalId, sentAt: held.sentAt },
       // Live only. A shadow tester is answered for real by the ordinary path, but a reclaim
       // flips thread ownership on the Page, which a mirror must never do.

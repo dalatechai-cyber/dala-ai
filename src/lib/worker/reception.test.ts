@@ -76,7 +76,7 @@ function stubDb(over: Record<string, Reply | Reply[]> = {}) {
     // Recorded, so a test can say WHICH snapshot or channel a read asked for (D-141).
     chain['eq'] = (k: string, v: unknown) => { (rec.eq ??= []).push([k, v]); return chain; };
     // Range and inequality filters, recorded so a test can say WHICH time a query compares.
-    for (const m of ['gt', 'neq', 'gte', 'in'] as const) {
+    for (const m of ['gt', 'lt', 'neq', 'gte', 'in'] as const) {
       chain[m] = (k: string, v: unknown) => { (rec.filters ??= []).push([m, k, v]); return chain; };
     }
     // A jsonb containment read is its own queue (`<table>:contains`), so the pre-send echo
@@ -2387,7 +2387,7 @@ const heldThread = (over: Record<string, unknown> = {}) =>
 
 /** The reads a reclaim makes, per table in order. */
 const reclaimTables = (o: {
-  thread?: Record<string, unknown>; existing?: Record<string, unknown> | null; canned?: Reply; flipped?: unknown[];
+  thread?: Record<string, unknown>; existing?: Record<string, unknown> | null; canned?: Reply; flipped?: unknown[]; hours?: Reply;
 } = {}): Record<string, Reply | Reply[]> => ({
   conversations: [
     { data: { id: 'conv-1' }, error: null },                   // conversationForPsid
@@ -2402,9 +2402,19 @@ const reclaimTables = (o: {
     { data: { id: 'om-r', body: RECLAIM_LINE, attempts: 0 }, error: null },                  // claim
   ],
   canned_responses: o.canned ?? { data: { body: RECLAIM_LINE, reviewed_at: '2026-09-30T00:00:00Z' }, error: null },
+  // NOW is 20:00 Friday in Ulaanbaatar: open until 22:00, so "open now" holds.
+  business_hours: o.hours ?? { data: RECLAIM_HOURS('09:00', '22:00'), error: null },
+  tenant_closures: { data: [], error: null },
 });
 
-const flipOf = (ops: { table: string; op: string; patch?: Record<string, unknown>; eq?: [string, unknown][] }[]) =>
+const RECLAIM_HOURS = (opens: string, closes: string) =>
+  [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({ weekday, opens, closes, closed: false }));
+
+/** The reclaim row's own writes after the draft: `refused` marks a terminal refusal. */
+const refusalsOf = (ops: { table: string; op: string; patch?: Record<string, unknown> }[]) =>
+  ops.filter((o) => o.table === 'outbound_messages' && o.op === 'update' && o.patch?.['state'] === 'refused');
+
+const flipOf = (ops: { table: string; op: string; patch?: Record<string, unknown>; eq?: [string, unknown][]; filters?: [string, string, unknown][] }[]) =>
   ops.find((o) => o.table === 'conversations' && o.op === 'update');
 
 test('RECLAIM: the reviewed row\'s bytes are sent once, no model, then the thread is the bot\'s again', async () => {
@@ -2424,6 +2434,12 @@ test('RECLAIM: the reviewed row\'s bytes are sent once, no model, then the threa
     { control: 'bot', source: 'reclaim' },
   );
   assert.ok(flip?.eq?.some(([k, v]) => k === 'thread_control' && v === 'human'), 'the flip is conditional on the thread still being held');
+  // ...and on no staff activity since the customer's message: `thread_control_at < message time`.
+  assert.deepEqual(
+    flip?.filters?.filter(([m]) => m === 'lt'),
+    [['lt', 'thread_control_at', new Date(HELD_AT).toISOString()]],
+    'a staff echo stored after the message wins the race',
+  );
   assert.deepEqual(needsPerson.map((n) => [n.reason, n.sent]), [['reclaim_sent', 'yes']]);
   assert.ok(flags.some((f) => f.code === 'handover_reclaim'));
 });
@@ -2440,6 +2456,9 @@ test('RECLAIM: a repeat job after the send never sends again; it only finishes t
   assert.equal(r2.body['refused'], 'not_human');
   assert.equal(flipped.delivered.length, 0);
   assert.equal(flipOf(flipped.ops), undefined);
+  // The page is raised only after a flip THIS job made, and the flip is conditional on
+  // `human`, so a second job for the same message cannot page again.
+  assert.equal(flipped.needsPerson.length, 0, 'no second page');
   // A claim that finds the row already sent (a racing job) sends nothing either.
   const raced = stubEffects({
     tables: {
@@ -2497,6 +2516,12 @@ test('RECLAIM: staff active since the message, or a person\'s echo stored since,
   assert.equal((await run(person.fx, job({ reclaimMid: MID }))).body['refused'], 'person_replied');
   assert.equal(person.delivered.length, 0);
   assert.equal(flipOf(person.ops), undefined);
+  // TERMINAL: the message's own reclaim row is drafted and marked `refused`, which the sweep
+  // reads as `reclaim_refused` and never re-enqueues (it used to write nothing, so the sweep
+  // re-drove the same refusal every hour for the rest of the day).
+  const draft = person.ops.find((o) => o.table === 'outbound_messages' && o.op === 'insert');
+  assert.equal(draft?.patch?.['dedup_key'], `reclaim:${MID}`);
+  assert.deepEqual(refusalsOf(person.ops).map((o) => o.patch?.['refused_reason']), ['reclaim_person_replied']);
 });
 
 test('RECLAIM: an unreadable person check FAILS CLOSED: nothing sent, a 200 the next sweep retries', async () => {
@@ -2520,6 +2545,75 @@ test('RECLAIM: past the send window by Meta\'s own timestamp, nothing is sent', 
   assert.equal(delivered.length, 0);
 });
 
+test('RECLAIM: a line already SENT whose flip was lost is finished past the window (the flip sends nothing)', async () => {
+  const old = NOW.getTime() - 23 * 60 * 60_000 - 60_000;
+  const { fx, ops, delivered, needsPerson } = stubEffects({
+    tables: {
+      ...reclaimTables({ existing: { id: 'om-r', state: 'sent' } }),
+      // No person check on this path, so the flip is the third read.
+      conversations: [{ data: { id: 'conv-1' }, error: null }, heldThread(), { data: [{ id: 'conv-1' }], error: null }],
+      webhook_events: { data: { raw_payload: payload({ ts: old }) } },
+    },
+  });
+  const r = await run(fx, job({ reclaimMid: MID }));
+  assert.equal(r.body['refused'], undefined);
+  assert.equal(delivered.length, 0);
+  assert.equal(flipOf(ops)?.patch?.['thread_control'], 'bot');
+  assert.deepEqual(needsPerson.map((n) => n.reason), ['reclaim_sent']);
+});
+
+test('RECLAIM: OPEN NOW is re-checked by the worker; closed or unknown hours send nothing', async () => {
+  const cases: [string, Reply, string][] = [
+    ['closed at 20:00', { data: RECLAIM_HOURS('09:00', '19:00'), error: null }, 'closed_now'],
+    ['no hours entered', { data: [], error: null }, 'hours_not_configured'],
+    ['hours unreadable', { data: null, error: { message: 'reset' } }, 'unreadable'],
+  ];
+  for (const [what, hours, reason] of cases) {
+    const { fx, ops, delivered, exhausted } = stubEffects({ tables: reclaimTables({ hours }) });
+    const r = await run(fx, job({ reclaimMid: MID }));
+    assert.equal(r.status, 200, what);
+    assert.equal(r.body['refused'], reason, what);
+    assert.equal(delivered.length, 0, what);
+    assert.equal(ops.some((o) => o.table === 'outbound_messages' && o.op === 'insert'), false, `${what}: nothing drafted`);
+    assert.equal(flipOf(ops), undefined, what);
+    assert.equal(exhausted.length, 0, what);
+  }
+  // A closure today outranks the week.
+  const holiday = stubEffects({
+    tables: { ...reclaimTables(), tenant_closures: { data: [{ starts_on: '2026-09-04', ends_on: '2026-09-04', title: 'Баяр', message: 'Амарна' }], error: null } },
+  });
+  assert.equal((await run(holiday.fx, job({ reclaimMid: MID }))).body['refused'], 'closed_now');
+  assert.equal(holiday.delivered.length, 0);
+  // Finishing a line already sent is not a send: it flips after closing too.
+  const finish = stubEffects({ tables: reclaimTables({ existing: { id: 'om-r', state: 'sent' }, hours: { data: RECLAIM_HOURS('09:00', '19:00'), error: null } }) });
+  await run(finish.fx, job({ reclaimMid: MID }));
+  assert.equal(flipOf(finish.ops)?.patch?.['thread_control'], 'bot');
+});
+
+test('RECLAIM: a reclaim job is never counted as a delivery of the event it re-uses, and never pages exhaustion', async () => {
+  // The held message's event was delivered long ago; its row says so.
+  const used = { data: { raw_payload: payload(), attempts: 5, received_at: SENT_AT.toISOString() }, error: null };
+  const attemptWrites = (ops: { table: string; op: string; patch?: Record<string, unknown> }[]) =>
+    ops.filter((o) => o.table === 'webhook_events' && o.op === 'update' && o.patch !== undefined && 'attempts' in o.patch);
+
+  const served = stubEffects({ tables: { ...reclaimTables(), webhook_events: used } });
+  assert.equal((await run(served.fx, job({ reclaimMid: MID }))).status, 200);
+  assert.deepEqual(attemptWrites(served.ops), [], 'no attempt counted');
+
+  // A 503 before the reclaim is reached (tenant unreadable): QStash retries, nobody is paged.
+  const failing = stubEffects({ tables: { ...reclaimTables(), webhook_events: used, tenants: { error: { message: 'reset' } } } });
+  const r = await run(failing.fx, job({ reclaimMid: MID }));
+  assert.equal(r.status, 503);
+  assert.deepEqual(attemptWrites(failing.ops), []);
+  assert.equal(failing.exhausted.length, 0, 'no false webhook.delivery_exhausted page');
+
+  // Control: the same 503 on an ordinary delivery of that event still counts and pages.
+  const ordinary = stubEffects({ tables: { webhook_events: used, tenants: { error: { message: 'reset' } } } });
+  assert.equal((await run(ordinary.fx, job())).status, 503);
+  assert.equal(attemptWrites(ordinary.ops).length, 1);
+  assert.equal(ordinary.exhausted.length, 1);
+});
+
 test('RECLAIM: a failed send leaves the thread held for the next sweep; a lost flip race keeps it the staff\'s', async () => {
   const failed = stubEffects({
     tables: reclaimTables(),
@@ -2530,6 +2624,23 @@ test('RECLAIM: a failed send leaves the thread held for the next sweep; a lost f
   assert.equal(r.body['refused'], 'not_sent');
   assert.equal(flipOf(failed.ops), undefined);
   assert.equal(failed.needsPerson.length, 0);
+  // Retryable: the row stays `failed` for the next sweep's job.
+  assert.deepEqual(refusalsOf(failed.ops), []);
+
+  // NOT retryable (Meta says the recipient cannot be reached): the row is made terminal, so
+  // the sweep stops re-claiming it every hour. Only from `failed`, the state `deliver` left.
+  const dead = stubEffects({
+    tables: reclaimTables(),
+    deliver: async () => ({ outcome: 'failed', failure: 'recipient_unreachable', retryable: false, detail: '100' }) as DeliverOutcome,
+  });
+  assert.equal((await run(dead.fx, job({ reclaimMid: MID }))).body['refused'], 'not_sent');
+  const [refusal] = refusalsOf(dead.ops);
+  assert.equal(refusal?.patch?.['refused_reason'], 'reclaim_send_not_retryable: recipient_unreachable');
+  assert.deepEqual(
+    (refusal as { filters?: [string, string, unknown][] } | undefined)?.filters?.find(([m, k]) => m === 'in' && k === 'state'),
+    ['in', 'state', ['failed']],
+  );
+  assert.equal(flipOf(dead.ops), undefined);
 
   const race = stubEffects({ tables: reclaimTables({ flipped: [] }) });
   const r2 = await run(race.fx, job({ reclaimMid: MID }));

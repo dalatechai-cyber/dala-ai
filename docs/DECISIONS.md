@@ -11400,10 +11400,19 @@ salon's opening hours, Дали sends one approved line and resumes. Built as fo
 - The reception worker sends the tenant's reviewed `handover_reclaim` row, byte for byte, no
   model, once per held message (`reclaim:<mid>`), re-checking that no person replied, then
   flips the thread to `bot` (source `reclaim`) only if staff have not acted meanwhile.
-- A person is told (`conversation.needs_person`): on a send, on a message past 23 hours, and
-  on a thread Meta itself handed to another app (`handover`, which also covers the bot's own
-  media hand-off). Those are paged, never sent to, because `take_thread_control` has never been
-  exercised live.
+- **Paged** (`conversation.needs_person`, reason `reclaim_sent`): only when the line was sent
+  and the thread flipped, once per held message. **Counted in the hourly health receipt, never
+  paged:** a message past 23 hours (`window_missed`: the sweep cannot tell a customer it failed
+  from one that aged out before the feature could act, and switching it on would page a
+  backlog); a thread Meta handed to another app or the bot's own media hand-off
+  (`handover`/`passed`, `meta_holds_thread`: never sent to, because `take_thread_control` has
+  never been exercised live, and not paged, because for media the page would be false and
+  would re-create the page D-153 switched off for Tara); a person replied since, or a send Meta
+  says no retry fixes (`reclaim_refused`: the `reclaim:<mid>` row is marked `refused`, so the
+  sweep never retries it). A reclaim job is not a delivery of the event it re-uses: it does not
+  bump `webhook_events.attempts` and cannot raise `webhook.delivery_exhausted`. The worker
+  re-checks open-now (fail closed on unreadable hours) and the 23-hour window before a send,
+  never before finishing a line already sent.
 - **Inert until the founder approves the wording** and a reviewed `handover_reclaim` row
   exists for the tenant. The draft is `prompt/drafts/handover_reclaim_staff.mn.txt`.
 

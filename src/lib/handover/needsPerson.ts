@@ -54,11 +54,7 @@ export const NEEDS_PERSON_ALERT_KIND = 'conversation.needs_person';
 export type NeedsPersonReason =
   | 'complaint' | 'handoff' | 'voice'
   /** Staff took the chat, went quiet for two opening hours, and the bot took it back. */
-  | 'reclaim_sent'
-  /** Staff took the chat and nobody answered the customer inside Meta's window. */
-  | 'reclaim_window_missed'
-  /** As `reclaim_sent`, but Meta names another app as the thread's owner: the bot did not. */
-  | 'reclaim_meta_holds_thread';
+  | 'reclaim_sent';
 
 /**
  * Is this message a complaint by the tenant's own escalate rows?
@@ -80,8 +76,6 @@ const WHAT: Record<NeedsPersonReason, string> = {
   handoff: 'was told a person will help (the bot could not answer)',
   voice: 'sent a voice message the bot cannot play',
   reclaim_sent: 'waited two opening hours after staff took the chat, and nobody replied',
-  reclaim_window_missed: 'wrote after staff took the chat, and nobody replied inside Meta\'s 24-hour window',
-  reclaim_meta_holds_thread: 'waited two opening hours after staff took the chat through Meta\'s inbox, and nobody replied',
 };
 
 /**
