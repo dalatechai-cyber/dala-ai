@@ -11455,3 +11455,47 @@ Passing a chat to a person (`pass_thread_control`) stays unbuilt.
   `tenant_booking.booking_url` do. All three must change the day the new Tara domain goes
   live (`docs/tenants/tara-yarmag.md`, rebrand checklist).
 
+
+## D-166 — Public comment replies: wait 25 s, reconcile from Meta's notice, count and page the unconfirmed (2026-09-30, founder)
+
+**Measured.** 9 of 13 public comment replies since 27 September timed out at 10 s and were parked
+`indeterminate`, all on one tenant. Every one had in fact posted exactly once. Meta's `feed`
+notice of the Page's own comment (the same `parent_id`, byte-identical text, `created_time` in the
+draft's second) arrived 16–29 s after the draft. Nothing read it and nothing alerted.
+
+**Decided and built.**
+
+1. **The public reply's POST waits 25 s** (`COMMENT_REPLY_TIMEOUT_MS`). It is its own constant, so
+   the private reply and every DM keep the shared 10 s (`DEFAULT_SEND_TIMEOUT_MS`, unchanged).
+2. **Reconcile, never retry.** A parked (or still `sending`) public reply becomes `sent`, with the
+   notice's comment id as `provider_message_id`, only when a stored notice matches it exactly:
+   same tenant, the channel's Page, `add`, `parent_id = dedup_key`, same text (NFC, trimmed),
+   stamped no more than 60 s before the draft. The move is a single UPDATE conditioned on the
+   state. The sender's `markSent`/`markIndeterminate` already condition on `sending`, so either
+   ordering ends `sent` exactly once and a late timeout cannot overwrite it. There are two readers.
+   The comment worker reads each Page `feed` entry as it arrives; this is fast and catches the
+   notice while the POST is still open. The hourly health run sweeps stored `webhook_events`,
+   which is robust because it matches a notice stored before the row was parked, or one whose
+   job failed. The nine existing rows are fixed by
+   `scripts/provision/comment-reply-reconcile-2026-09-30.sql`. It is idempotent, verified
+   locally, and not applied by the session that wrote it.
+3. **"Never retry" is unchanged.** Nothing in this change posts. `indeterminate` stays outside
+   `CLAIMABLE`.
+4. **The comment job has a time budget.** It has 50 s of the route's 60 s. A lookup or send starts
+   only if its own timeout plus 5 s fits. Otherwise the job stops before the claim and 503s
+   (`worker.comment_deferred`), and the redelivery sends the stored draft through the same claim.
+   Flags are looked up before they are written, so a redelivery does not count a comment twice.
+   The Instagram poll worker never sends (it enqueues entries) and already had its own 40 s
+   budget. Each Instagram comment is its own reception job.
+5. **Unconfirmed replies are not silent.** A public reply is unconfirmed when it is still
+   `indeterminate` with no matching notice ten minutes after its draft. The draft's `created_at`
+   stands in for the attempt time, which is not stored. The daily report prints the count per
+   tenant every day, or UNREADABLE. The hourly health run pages (`comment_reply.unconfirmed`,
+   `warn`, `route: 'now'`) at a tenant's third unconfirmed reply in one Ulaanbaatar day. It uses
+   `repeat: 'daily'` with the day in the key (D-063). This is an event about a day, not an
+   `on_change` episode, because nothing observes a parked reply becoming confirmed, so an episode
+   would have no closer.
+
+**Not covered.** Instagram replies (no notice reaches this platform) are always counted as
+unconfirmed. An entry that needs more than QStash's three deliveries' worth of slow sends leaves
+drafts unsent and pages through the existing exhaustion alert.

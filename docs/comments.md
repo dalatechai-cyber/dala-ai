@@ -359,13 +359,15 @@ post cap has no such key. The honest fix is the shape `0015` used for the spend 
 that is a migration and an RPC, not a filter. The exposure is bounded meanwhile: the cap is
 per post per day and the loser of the race posts one extra reply, not a stream.
 
-**`recordCommentFlag` has no idempotency key.** `quality_flags` carries no unique
-constraint, and a redelivery re-runs the loop, so one comment can produce several rows. The
-write now happens after `decideCommentReply` rather than beside the classifier, which is
-the half that mattered — it keeps staff comments and ancient-post spam off the operator's
-list entirely — but duplicates are still possible. The `comment_id` in every payload is
-what lets them be collapsed on read; a unique index is a migration and belongs with whoever
-builds the operator's view of this list.
+**`recordCommentFlag` has no unique key, only a look before the write (D-166).**
+`quality_flags` carries no unique constraint, and a redelivery re-runs the loop. Since D-166
+the write first reads for a row with the same tenant, flag, `comment_id` (and `at`, for the
+staff flag), and skips the insert when one exists, because the time budget now asks for
+redeliveries on purpose and each one would otherwise count the entry's earlier comments
+again in the daily report. It is a read-then-write: two workers racing the same entry can
+still both insert, and an unreadable check inserts anyway. The `comment_id` in every payload
+is what lets such duplicates be collapsed on read; a unique index is a migration and belongs
+with whoever builds the operator's view of this list.
 
 **The cap still counts `indeterminate`, and that is deliberate.** The review argued for
 excluding it alongside `failed` and `refused`. It is kept because `indeterminate` means the
@@ -378,6 +380,56 @@ personal account is refused by the ignore list, and the refusal persists nothing
 customer replying to her in the same thread arrives in a later delivery, finds no
 `outbound_messages` row for that thread, and is answerable. Fixing it means a durable
 thread-level claim for a comment we deliberately did not answer, which is a new kind of row.
+
+## Public replies that time out (D-166, 2026-09-30)
+
+**Measured.** From 27 to 30 September, 9 of 13 public replies timed out at 10 s and were parked
+`indeterminate`, all on one tenant. Every one had posted exactly once. The Page's `feed`
+subscription delivers the Page's own comments, so each reply came back as a stored entry: the
+change is `item = 'comment'`, `verb = 'add'` and `from.id` = the Page. Its `parent_id` equals the
+row's `dedup_key`, its `comment_id` is the reply's id, its `message` is byte-identical to the
+body, and its `created_time` is the same second as the draft. It arrived 16–29 s after the
+draft; confirmed sends arrive in 5–9 s. Meta created the comment at once and answered the POST
+late. No alert fired.
+
+**What changed.**
+
+- **The public reply waits 25 s** (`COMMENT_REPLY_TIMEOUT_MS`, `comments/send.ts`). It is its own
+  constant: the private reply and every DM keep the shared 10 s (`meta/send.ts`).
+- **A parked reply is matched to Meta's notice** (`comments/reconcile.ts`). It matches only on the
+  same tenant, the channel's Page as both the entry and the author, an `add`, `parent_id` =
+  `dedup_key`, the same text (NFC, trimmed) and a `created_time` no more than 60 s before the
+  draft. Only `sending` and `indeterminate` rows move, to `sent` with the notice's id, in one
+  UPDATE whose WHERE carries the state. There are two readers:
+  - The comment worker runs on every Page `feed` entry, before deciding the entry's own
+    comments, so a notice that lands while our 25 s POST is still open moves the row from
+    `sending`. The sender's own `markSent`/`markIndeterminate` CAS on `sending` and then match
+    nothing, so a late timeout can never overwrite `sent`.
+  - The hourly health run sweeps every public reply still `indeterminate` since 00:00 yesterday
+    (Ulaanbaatar) against the stored `webhook_events`. The result therefore does not depend on
+    which arrived first, or on whether the notice's own job managed the write.
+  - Nothing here posts. `indeterminate` stays outside `CLAIMABLE`, and a reconciled row is `sent`.
+- **Unconfirmed replies are visible.** A public reply still `indeterminate` with no matching
+  notice ten minutes after its draft is "unconfirmed" (the draft's `created_at` stands in for the
+  attempt; no attempt time is stored). The daily report prints the count per tenant on every
+  day, or UNREADABLE. The hourly run pages (`comment_reply.unconfirmed`, `warn`, `route: 'now'`)
+  at the third unconfirmed reply in one Ulaanbaatar day for a tenant, once per tenant per day
+  (`repeat: 'daily'`, the day in the key). It is an event about a day, not an episode, because
+  nothing ever observes a parked reply becoming confirmed by itself.
+- **The comment job has a time budget.** The job gets `msLeft`: 50 s of the route's 60 s,
+  measured from the start of the reception job. A lookup, a public send or a private send
+  starts only if its own timeout plus a 5 s margin fits. Otherwise the job defers: it stops
+  before the claim, leaves the row `draft`, and 503s (`worker.comment_deferred`). The
+  redelivery finds the thread answered, and `resumePending` sends the stored row through the
+  same claim CAS. The first send of a run always fits, so every delivery makes progress. After
+  QStash's three deliveries, an entry that still has drafts pages through the existing
+  exhaustion alert.
+- **The existing parked rows** are corrected by
+  `scripts/provision/comment-reply-reconcile-2026-09-30.sql`, which applies the same rule in SQL.
+  It is idempotent and was not applied by the session that wrote it.
+
+**Not covered.** Instagram replies send no notice this platform receives, so an Instagram reply
+that times out stays unconfirmed. A notice the purge has already nulled cannot be read either.
 
 ## What is blocked, and on whom
 

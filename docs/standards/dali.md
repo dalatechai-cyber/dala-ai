@@ -169,13 +169,15 @@ reviewed row verbatim. Code backs them up only as listed.
 | J1 | A public comment reply is only a reviewed row; no model text is posted. | BLOCK by construction (`worker/comments.ts`; classifier returns a verdict, never text). `outboundGuard` is not applied there, which is correct only while this holds |
 | J2 | No price, number, staff name or booking detail in public (Ш0). | BLOCK by J1 + PROMPT (Ш0) for the DM path |
 | J3 | One public reply per thread; daily cap per post; adverts and staff-handled threads skipped; complaints get no reply and a Telegram alert. | Code (`src/lib/comments/*`, `docs/comments.md`) |
+| J4 | A public reply is posted at most once. One that times out (25 s) is never re-posted. It becomes `sent` only when Meta's own notice of the Page's comment matches it exactly (same thread, same text); otherwise it stays parked and is counted as unconfirmed after 10 minutes. | Code (`comments/send.ts` `COMMENT_REPLY_TIMEOUT_MS`, `comments/reconcile.ts`, D-166). Instagram replies cannot be matched and are always counted as unconfirmed |
+| J5 | One comment run never outlives the route: a lookup or send starts only if it can finish inside the 50 s budget. The rest is sent on the redelivery, from the stored row, through the same claim. | Code (`worker/comments.ts` `COMMENT_JOB_BUDGET_MS`, D-166) |
 
 ### K. Escalation to the founder
 
 | ID | Rule | Status |
 |---|---|---|
-| K1 | Immediate Telegram (`route: 'now'`): media hand-off, comment complaint, customer message never answered (exhausted), stranded event not rescued, send/delivery failures, model outage, credential or key problems, a daily spend cap refusing replies (`spend/ceilingAlert.ts`, D-159). Warnings marked quiet go to the daily report instead when `DAILY_REPORT_V2` is on (`quietRoute`). | Code (`src/lib/alerts/alert.ts` and callers) |
-| K2 | Daily report at 00:05 Ulaanbaatar, sent even on a clean day; an unreadable count prints UNREADABLE. Includes the flaw report: corrected, repeated, handoff, refusal, own-words refusal, "didn't understand", old name, internal mention. | Code (`src/lib/alerts/digest.ts`, `src/lib/quality/flaws.ts`). The schedule lives in QStash, not the repo |
+| K1 | Immediate Telegram (`route: 'now'`): media hand-off, comment complaint, customer message never answered (exhausted), stranded event not rescued, send/delivery failures, model outage, credential or key problems, a daily spend cap refusing replies (`spend/ceilingAlert.ts`, D-159), a tenant's third unconfirmed public comment reply in one Ulaanbaatar day (once per tenant per day, `comments/reconcile.ts`, D-166). Warnings marked quiet go to the daily report instead when `DAILY_REPORT_V2` is on (`quietRoute`). | Code (`src/lib/alerts/alert.ts` and callers) |
+| K2 | Daily report at 00:05 Ulaanbaatar, sent even on a clean day; an unreadable count prints UNREADABLE. Includes the unconfirmed public comment replies per tenant (D-166) and the flaw report: corrected, repeated, handoff, refusal, own-words refusal, "didn't understand", old name, internal mention. | Code (`src/lib/alerts/digest.ts`, `src/lib/quality/flaws.ts`). The schedule lives in QStash, not the repo |
 | K3 | Channel silent 180 minutes in open hours ⇒ alert on the quiet route (daily report when `DAILY_REPORT_V2` is on). | Code (`src/lib/health/watch.ts`) |
 | K4 | DM complaint, DM booking request, "I want a person" ⇒ founder told at once. | Built for complaints, requests for a person, hand-offs and voice (F5, G4, D-158). A DM booking request: not built |
 
