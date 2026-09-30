@@ -1,4 +1,4 @@
-# DM-only "needs a person" words: proposal, not live (2026-09-30)
+# DM-only "needs a person" words (approved 2026-09-30; live via scripts/provision/dm-needs-person-rules-2026-09-30.sql)
 
 The founder asked for a list of words that trigger the DM alert (`conversation.needs_person`)
 and leave comment handling unchanged. Nothing here is applied. Matchers use the existing
@@ -20,14 +20,14 @@ the DM alert stops reading them. Candidates below; the founder decides.
 
 | Key | Matcher | Catches |
 |---|---|---|
-| `person_staff_mn` | stem_sequence [«ажилтан», «ярь»] within 20 | «ажилтантай ярих», «ажилтантай ярьмаар» |
+| `person_staff_mn` | stem_sequence [«ажилтан», «яр»] within 20 | «ажилтантай ярих», «ажилтантай ярьмаар» |
 | `person_staff_connect_mn` | stem_sequence [«ажилтан», «холбо»] within 20 | «ажилтантай холбогдох», «ажилтантай холбоно уу» |
-| `person_human_talk_mn` | stem_sequence [«хүнтэй», «ярь»] within 20 | «хүнтэй ярих», «жинхэнэ хүнтэй ярьмаар» |
+| `person_human_talk_mn` | stem_sequence [«хүнтэй», «яр»] within 20 | «хүнтэй ярих», «жинхэнэ хүнтэй ярьмаар» |
 | `person_real_mn` | stem_sequence [«жинхэнэ», «хүн»] within 15 | «жинхэнэ хүн байна уу» |
 | `person_is_there_mn` | stem_sequence [«хүн», «байна уу»] within 10 | «хүн байна уу» |
 | `person_manager_mn` | contains_stem [«менежер», «оператор», «админ»] | «менежертэй холбогдох», «оператор» |
-| `person_staff_lat` | stem_sequence [«ajiltan», «yari»] / [«ajiltan», «holbo»] | Latin forms of the two above |
-| `person_human_lat` | stem_sequence [«huntei», «yari»], [«hvntei», «yari»], [«jinhene», «hun»] | Latin forms |
+| `person_staff_lat` | stem_sequence [«ajiltan», «yar»] / [«ajiltan», «holbo»] | Latin forms of the two above |
+| `person_human_lat` | stem_sequence [«huntei», «yar»], [«hvntei», «yar»], [«jinhene», «hun»] | Latin forms |
 | `person_manager_lat` | contains_stem [«menejer», «operator», «admin»] | Latin forms |
 
 Kept as they are (already both surfaces): `complaint_human_mn` / `_lat` («хүнтэй холбог»),

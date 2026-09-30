@@ -353,3 +353,13 @@ test('complaint rows: the escalate rows as the classifier takes them; a failed r
     [{ ruleKey: 'complaint_bad', verdict: 'escalate', matcher: m }]);
   assert.deepEqual(complaintRulesOf({ data: null, error: { message: 'down' } }), []);
 });
+
+test('0073: a DM reads its own and shared complaint rows, never a comment-only one', () => {
+  const m = { mode: 'has_word', words: ['муу'] };
+  const rows = [
+    { rule_key: 'shared', verdict: 'escalate', matcher: m, surfaces: null },
+    { rule_key: 'dm', verdict: 'escalate', matcher: m, surfaces: ['direct_message'] },
+    { rule_key: 'wall', verdict: 'escalate', matcher: m, surfaces: ['public_comment'] },
+  ];
+  assert.deepEqual(complaintRulesOf({ data: rows, error: null }).map((r) => r.ruleKey), ['shared', 'dm']);
+});
