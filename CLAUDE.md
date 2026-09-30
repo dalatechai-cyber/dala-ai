@@ -218,6 +218,10 @@ Each line has its story in `docs/history.md`.
   retired. A publish that bypasses it is untrusted until something independent reproduces
   its `content_hash`, **before** the write.
 - It renders with the operator's checkout: **deploy, `git pull`, then publish.**
+- **Live tenants' `canned_responses` are write-guarded** (0074/0075, D-163). A deliberate edit
+  runs in one transaction with `set local dala.canned_edit = 'republish';`, signs in the same
+  statement, then the tenant is published at once. A live row can never be left unsigned (0075
+  has no escape).
 - It runs the reply cases against the new prefix; a failing or unverifiable case stops it.
 - `SUPABASE_SECRET_PUBLISH` is not set in cloud sessions, so no session can publish by
   accident. Its absence is a safety, not an oversight; do not ask for it to be added.

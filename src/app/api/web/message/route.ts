@@ -38,6 +38,7 @@ import { runMessageJob, type MessageEffects } from '@/lib/website/messageJob';
 import { salesShadowEffect } from '@/lib/sales/shadow';
 import { alertWebHandoff } from '@/lib/website/handoffAlert';
 import { alertCeilingReached } from '@/lib/spend/ceilingAlert';
+import { alertCannedStale } from '@/lib/prompt/cannedDrift';
 import { servicesFromPrefix, sectionRows, faqAnswersFromPrefix } from '@/lib/quality/serviceNames';
 
 export const runtime = 'nodejs';
@@ -155,6 +156,7 @@ function effects(now: Date): MessageEffects {
     alertCeilingReached: ({ tenantId, timezone }) =>
       alertCeilingReached(db, { tenantId, timezone, channel: WEB_CHANNEL, surface: 'reception', estimate: RECEPTION_REPLY_ESTIMATE, now }),
 
+    alertCannedStale: ({ tenantId }) => alertCannedStale(db, { tenantId, channel: WEB_CHANNEL }),
     alertHandoff: async (a) => {
       try {
         const r = await alertWebHandoff(db, {

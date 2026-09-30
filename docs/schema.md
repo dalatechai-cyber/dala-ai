@@ -280,6 +280,17 @@ partial, one of four tables.
 - **Billing of tenants' own customers** — `0065` invoices DalaTech's clients for DalaTech's
   fee. Nothing here bills a tenant's customers.
 
+### `0075_canned_unsigned_guard`
+
+**Additive: one trigger function and one row trigger, no data change.** D-163 addendum.
+`ops.refuse_unsigning_live_canned()` runs BEFORE INSERT or UPDATE on `canned_responses` and
+refuses (P0001) a write that leaves a row of a tenant with a `live_revision_id`, in its default
+locale, unsigned (`reviewed_at` null) when it was not unsigned before: un-signing, or an
+unsigned insert of any kind, model-invisible kinds included. Any unsigned row stops every reply
+(`canned_response_unreviewed`), and 0074 lets both writes through. An already-unsigned row may
+stay unsigned. No escape, not even 0074's (a republish never repairs an unsigned row).
+`scripts/verify/canned-edit.sql` CE13–CE15 test it.
+
 ### `0074_canned_edit_guard`
 
 **Additive: one trigger function and one row trigger, no data change.** D-163.

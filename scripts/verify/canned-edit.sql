@@ -70,7 +70,8 @@ begin
     where tenant_id = live and kind = 'handoff';
   raise notice 'CE6 PASS: signing (reviewed_at only) allowed'; n := n + 1;
   update canned_responses set body = 'Зураг хүлээж авлаа.' where tenant_id = live and kind = 'image_received';
-  insert into canned_responses (tenant_id, kind, body) values (live, 'voice_received', 'Дуут зурвас.');
+  -- Signed as it goes in: an unsigned row of any kind stops every reply (0075, CE14).
+  insert into canned_responses (tenant_id, kind, body, reviewed_at, reviewed_by) values (live, 'voice_received', 'Дуут зурвас.', now(), 'founder');
   delete from canned_responses where tenant_id = live and kind = 'voice_received';
   raise notice 'CE7 PASS: model-invisible kinds editable'; n := n + 1;
   update canned_responses set body = 'Өөр.' where tenant_id = onboard;
@@ -94,6 +95,35 @@ begin
     raise notice 'CE12 PASS: moving a row into the default locale refused'; n := n + 1;
   end;
 
+  -- CE13-CE14 (0075): a write that leaves a live tenant's line unsigned stops every reply
+  -- (canned_response_unreviewed), so it is refused too.
+  begin
+    update canned_responses set reviewed_at = null, reviewed_by = null where tenant_id = live and kind = 'handoff';
+    raise exception 'CE13 FAILED: un-signing a live row went through';
+  exception when raise_exception then
+    if sqlerrm not like 'canned_responses:%' then raise; end if;
+    raise notice 'CE13 PASS: un-signing refused'; n := n + 1;
+  end;
+  begin
+    insert into canned_responses (tenant_id, kind, body) values (live, 'handover_reclaim', 'Үргэлжлүүлье.');
+    raise exception 'CE14 FAILED: an unsigned model-invisible row went into a live tenant';
+  exception when raise_exception then
+    if sqlerrm not like 'canned_responses:%' then raise; end if;
+    raise notice 'CE14 PASS: unsigned insert of an invisible kind refused'; n := n + 1;
+  end;
+
+  -- CE15: the republish escape does NOT let a live row be un-signed (a republish never
+  -- repairs an unsigned row, so nothing is gained and every reply would stop).
+  perform set_config('dala.canned_edit', 'republish', true);
+  begin
+    update canned_responses set body = 'Шинэ.', reviewed_at = null where tenant_id = live and kind = 'handoff';
+    raise exception 'CE15 FAILED: the escape let a live row be un-signed';
+  exception when raise_exception then
+    if sqlerrm not like 'canned_responses:%' then raise; end if;
+    raise notice 'CE15 PASS: un-signing refused even with the escape'; n := n + 1;
+  end;
+  perform set_config('dala.canned_edit', '', true);
+
   -- The declared republish path.
   perform set_config('dala.canned_edit', 'republish', true);
   update canned_responses set body = 'Шинэ мөр.' where tenant_id = live and kind = 'booking_line';
@@ -102,9 +132,9 @@ begin
   if not procedure_ok then raise exception 'CE9 FAILED: republish-declared edit did not land'; end if;
   raise notice 'CE9 PASS: edit with dala.canned_edit = republish allowed'; n := n + 1;
 
-  if n <> 12 then raise exception 'CANNED EDIT SUITE: % of 12 checks ran', n; end if;
+  if n <> 15 then raise exception 'CANNED EDIT SUITE: % of 15 checks ran', n; end if;
 end $$;
 
-do $$ begin raise notice 'CANNED EDIT SUITE PASSED: 12 checks'; end $$;
+do $$ begin raise notice 'CANNED EDIT SUITE PASSED: 15 checks'; end $$;
 
 rollback;

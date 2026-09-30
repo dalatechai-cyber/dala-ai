@@ -11,7 +11,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IntakeDocument } from './intake.ts';
 import { topicMatcher } from './matchers.ts';
-import { MODEL_INVISIBLE_KINDS } from '../gate/match.ts';
 
 /** A write that failed, naming the table. Nothing after it was attempted. */
 export class WriteError extends Error {}
@@ -84,9 +83,10 @@ async function commentRuleState(
 }
 
 /**
- * Refuse, before any write, an intake whose sentences would change a live tenant's published
- * lines. The rule is the trigger's (0074): a model-visible kind, in the tenant's default
- * locale, on a tenant with a live revision. Unreadable refuses too.
+ * Refuse, before any write, an intake whose sentences would change a live tenant's lines in
+ * its default locale. A model-visible kind moves the published hash (0074); a model-invisible
+ * one does not, but step 3 writes every changed sentence UNSIGNED, and any unsigned row stops
+ * every reply (`canned_response_unreviewed`, refused by 0075). Unreadable refuses too.
  */
 export async function refuseLiveSentenceChange(db: SupabaseClient, d: IntakeDocument, tenantId: string): Promise<void> {
   const { data: t, error: tErr } = await db.from('tenants')
@@ -110,10 +110,10 @@ export async function refuseLiveSentenceChange(db: SupabaseClient, d: IntakeDocu
     // Exact bytes, as step 3 compares: any difference there is an upsert, which the
     // database refuses on a live row (its BEFORE INSERT trigger has no old row to compare)
     // and which would also clear the row's signature.
-    .filter(([kind, body]) => !MODEL_INVISIBLE_KINDS.includes(kind) && bodies.get(kind) !== body)
+    .filter(([kind, body]) => bodies.get(kind) !== body)
     .map(([kind]) => kind);
   if (moved.length > 0) {
-    die(`this tenant is live and the intake changes its published lines (${moved.join(', ')}). `
+    die(`this tenant is live and the intake changes its approved lines (${moved.join(', ')}). `
       + 'Nothing was written. Edit those rows in one SQL transaction with '
       + "set local dala.canned_edit = 'republish', then publish at once (scripts/publish/tenant.ts). D-163.");
   }
