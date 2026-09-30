@@ -190,11 +190,19 @@ export async function readHandoverNotice(
   db: SupabaseClient,
   input: { tenantId: string; locale: string },
 ): Promise<{ ok: true; line: { body: string; reviewed: boolean } | null } | { ok: false; detail: string }> {
+  return readCannedLine(db, { ...input, kind: MEDIA_HANDOFF_KIND });
+}
+
+/** One canned line of `kind` with its review state; the caller decides what missing or unreviewed means. */
+export async function readCannedLine(
+  db: SupabaseClient,
+  input: { tenantId: string; locale: string; kind: string },
+): Promise<{ ok: true; line: { body: string; reviewed: boolean } | null } | { ok: false; detail: string }> {
   const { data, error } = await db
     .from('canned_responses')
     .select('body, reviewed_at')
     .eq('tenant_id', input.tenantId)
-    .eq('kind', MEDIA_HANDOFF_KIND)
+    .eq('kind', input.kind)
     .eq('locale', input.locale)
     .maybeSingle();
   if (error) return { ok: false, detail: `canned_responses unreadable: ${error.message}` };

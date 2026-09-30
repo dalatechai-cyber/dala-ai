@@ -1362,3 +1362,22 @@ test('the rule reaches the sales line too: a step with no website version loses 
   assert.ok(web.drafts.at(-1)?.body.endsWith('\n\n🤖 24/7 хариулна.\n🎁 Демо: https://app.dalatech.online'), web.drafts.at(-1)?.body);
   assert.ok(!web.drafts.at(-1)?.body.includes('https://dalatech.online'));
 });
+
+test('DONE-TEST (Дали F5): a complaint or a request for a person is marked for the worker; the reply is unchanged', async () => {
+  const rules = [
+    { ruleKey: 'complaint', verdict: 'escalate' as const, matcher: { mode: 'contains_stem', stems: ['гомдол'] } },
+    { ruleKey: 'complaint_human_mn', verdict: 'escalate' as const, matcher: { mode: 'stem_sequence', stems: ['хүнтэй', 'холбог'], windowCp: 20 } },
+  ];
+  for (const [message, want] of [
+    ['Гомдол гаргамаар байна', true],
+    ['Хүнтэй холбогдмоор байна', true],
+    ['Вэбсайт хийдэг үү', false],
+  ] as const) {
+    const withRules = deps();
+    const r = await handleReception(withRules.deps, { ...base, customerMessage: message, complaintRules: rules });
+    assert.equal(r.kind === 'drafted' && r.complaint === true, want, message);
+    const without = deps();
+    await handleReception(without.deps, { ...base, customerMessage: message, complaintRules: [] });
+    assert.equal(withRules.drafts.at(-1)?.body, without.drafts.at(-1)?.body, `the reply is unchanged: ${message}`);
+  }
+});

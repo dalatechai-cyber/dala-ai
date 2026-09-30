@@ -1,0 +1,40 @@
+# UNSIGNED DRAFT, 2026-09-30. Nothing loads this file. Awaiting the founder's wording.
+#
+# Row: canned_responses (kind = 'voice_received', locale mn-MN), one per tenant (dalatech,
+# matrix-eco-salon). Kind registered by migration 0072. Served whole by the reception worker
+# (src/lib/worker/reception.ts, voice block); never model-generated. Until a REVIEWED row
+# exists the customer gets nothing and the founder's Telegram says "The bot sent NOTHING".
+#
+# Why: a voice message has no text, so it was never answered and nobody was told (Дали G4;
+# DalaTech had eight by 2026-09-19). A person is now told on every voice message whatever
+# this row says; this row decides what the CUSTOMER reads meanwhile.
+
+## Proposed (A, recommended): honest, keeps them in the conversation
+
+Уучлаарай, би дуут зурвас сонсох боломжгүй. Та асуултаа бичиж илгээвэл баяртайгаар хариулна.
+
+# - «Та» register (D10). No emoji (a refusal, D7). No phone, as image_received (D-077).
+# - Vocabulary from approved rows: «Уучлаарай» (handoff), «…боломжгүй» (image_received,
+#   refusal_health), «бичвэл / баяртайгаар хариулна» (image_received, refusal_off_topic).
+# - It promises nothing a person must do, so it stays true for Tara, whose staff are told
+#   only through the founder. The bot keeps the thread and answers what they type.
+
+## Alternative (B): promises a person
+
+Баярлалаа! Таны дуут зурвасыг манай ажилтан сонсоод удахгүй хариулна.
+
+# - Mirrors the approved handover_notice. True only if someone at the business really
+#   listens; for Tara that means the founder passes each alert to the salon.
+# - If chosen, the voice path should also hand the thread to staff for the takeover
+#   cooldown, as the media path does, so the bot does not talk over the person. That is a
+#   code change not made here: say so and it will be.
+#
+# Language questions for the founder (not asserted): «дуут зурвас» vs «дуу бичлэг» vs
+# «voice»; «сонсох боломжгүй» vs «сонсож чадахгүй».
+#
+# To make it live after approval (the founder, or with the founder's go-ahead):
+#   insert into canned_responses (tenant_id, kind, locale, body, reviewed_at, reviewed_by)
+#   select id, 'voice_received', 'mn-MN', '<approved text>', now(), 'Bilguun'
+#   from tenants where slug in ('dalatech', 'matrix-eco-salon');
+# No republish: the kind is model-invisible, so canned_hash does not move (0033's rule),
+# but migration 0072 and this PR's deploy must both be live first.
