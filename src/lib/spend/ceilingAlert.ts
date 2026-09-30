@@ -5,7 +5,8 @@
  * "it alerts the founder immediately". Until 2026-09-30 it did not. A refused reservation
  * marked the event `shed`, answered QStash 200 so nothing retried, and the Messenger
  * customer got no reply at all — while the founder heard nothing, because the exhausted
- * alert only fires when QStash's retries run out, and a 200 has none to run out.
+ * alert only fires when QStash's retries run out, and a 200 has none to run out. Since
+ * D-160 the customer gets the tenant's reviewed hand-off line where one exists.
  *
  * ## What this must never do
  *
@@ -121,8 +122,9 @@ export function ceilingBody(input: {
 }): string {
   const today = tenantClock(input.now, input.timezone);
   return `Daily spend cap reached — ${input.name} (${input.surface}, ${input.channel}). `
-    + `Refused by ${input.which}. Until midnight ${input.timezone}, Messenger customers get NO reply and `
-    + `website visitors get the handoff line; nothing more is spent. `
+    + `Refused by ${input.which}. Until midnight ${input.timezone}, on a live channel customers get the tenant's `
+    + `reviewed hand-off line where it has one (once per conversation a day; the website may use the callback `
+    + `line), and otherwise no reply; nothing more is spent. `
     + `${counterLine(`Tenant ${today.date}`, input.tenant)}. ${counterLine('Platform today', input.platform)}. `
     + `The cap is unchanged; raising it is your decision.`;
 }

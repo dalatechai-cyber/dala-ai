@@ -195,11 +195,11 @@ v0.3 and by the two doc fixes below.
    still unstated. §2.4's exception clause cites item 9 and is inactive with it.
 2. **§3.1 against the code: settled in code on 2026-09-30 (D-159), one part open.** The
    normal limit is now an alert that stops nothing (the daily report's month and 70% mark), and
-   the emergency brake (the daily caps, unchanged) now pages at once. **Open, for the founder:**
-   what the customer receives after a refusal. Traced: on Messenger the event is marked `shed`
-   and the customer gets no reply; on the website the visitor gets the tenant's reviewed handoff
-   (or callback) line. A Messenger reply is drafted in `docs/reports/2026-09-30-spend-alerts.md`
-   and ships only with the founder's yes. `on_exhausted` still has no reader.
+   the emergency brake (the daily caps, unchanged) now pages at once. What the customer receives
+   after a refusal was settled by the founder the same day (D-160): the tenant's own reviewed
+   hand-off line where one exists, on a live channel, once per conversation a day, with no
+   model call (the website serves the callback line where there is no inbox); where none
+   exists nothing is sent and the founder is paged. `on_exhausted` still has no reader.
 3. **§3.1 20,000 ₮ against CLAUDE.md's ₮80,000 allowable model spend**: settled as an alert
    threshold, not a cap. The code's emergency ceiling is unchanged. CLAUDE.md's "$1.50" was wrong
    and is now $2.00. `docs/STATUS.md` (open item 3) carried the same stale $1.50; the live budget
