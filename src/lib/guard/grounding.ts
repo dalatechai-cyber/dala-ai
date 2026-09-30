@@ -26,13 +26,13 @@
  * and 0.89 covered; c02's first is 0.34.
  *
  * The corpus is the tenant region of the compiled prefix — everything after the data
- * marker — so a sentence cannot be grounded by the platform's own gate blocks, which are
- * instructions and not facts about the business.
+ * marker's heading LINE — so a sentence cannot be grounded by the platform's own gate
+ * blocks, which are instructions and not facts about the business.
  *
  * Rule 6: folded, code points, no `\b`. A sentence of fewer than `MIN_SENTENCE_CP`
  * characters is not judged: «Тийм.» carries no claim and is in no document.
  */
-import { fold } from '../mn/text.ts';
+import { fold, nfc } from '../mn/text.ts';
 
 export const MIN_RUN_CP = 12;
 /**
@@ -56,10 +56,35 @@ function squash(s: string): string {
   return fold(s).replace(/\s+/gu, ' ').trim();
 }
 
-/** Everything after the data marker, or '' when the prefix carries no tenant region. */
+/**
+ * Everything after the data marker's heading LINE, or '' when the prefix carries none.
+ *
+ * The heading is matched as the renderer emits it — `=== ${label} ===` on a line of its
+ * own, compared after trimming — the same test `hasTenantData` (`prompt/tenant.ts`) and
+ * the publish script use. A substring search found the label first inside the signed
+ * `01_data_marker` block's own sentence («Доорх «=== ТУХАЙН БАЙГУУЛЛАГЫН МЭДЭЭЛЭЛ ===»
+ * тэмдэглэгээнээс доош…», ~char 2,087 of the live prefix, the real heading being at
+ * ~14,498), so ~12,400 characters of platform gate text — its БУРУУ ЖИШЭЭ examples
+ * included — counted as the tenant's data, and a reply copying a platform example could
+ * pass as grounded (`docs/proposals/2026-09-30-tara-prompt-trim.md` §6). `tenant.test.ts`
+ * asserts no signed block carries the heading on a line of its own, so the first such
+ * line is the tenant's.
+ *
+ * No heading line means no tenant region: the corpus is empty and every judged sentence
+ * is ungrounded. That is the refusing direction, on purpose — a prefix that cannot be
+ * split must not let the platform's own words ground a reply.
+ */
 export function tenantRegion(promptStable: string, dataMarker: string): string {
-  const i = promptStable.indexOf(dataMarker);
-  return i === -1 ? '' : promptStable.slice(i + dataMarker.length);
+  const marker = `=== ${nfc(dataMarker)} ===`;
+  const text = nfc(promptStable);
+  let start = 0;
+  for (;;) {
+    const nl = text.indexOf('\n', start);
+    const end = nl === -1 ? text.length : nl;
+    if (text.slice(start, end).trim() === marker) return nl === -1 ? '' : text.slice(nl + 1);
+    if (nl === -1) return '';
+    start = nl + 1;
+  }
 }
 
 /** Share of the sentence's code points inside a verbatim run of MIN_RUN_CP or more. */
