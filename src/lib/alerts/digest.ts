@@ -56,6 +56,9 @@ import { ADVERT_FLAG, CAPPED_FLAG } from '../worker/comments.ts';
 import { DRAFT_LOST_KIND } from '../health/answered.ts';
 import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
 import { localDayStart, tenantClock } from '../time/clock.ts';
+import {
+  countShed, monthlySpendBlock, readMonthlySpend, shedLine, type MonthlySpendSummary, type ShedSummary,
+} from '../spend/monthly.ts';
 import { buildFlawReport, previousDate } from '../quality/flaws.ts';
 
 /**
@@ -238,6 +241,10 @@ export function planDigest(
     dropped: DroppedSummary; capped: CappedSummary; lostDrafts: LostDraftsSummary;
     /** Required, never defaulted (D-083): a default of "none" would assert it for a caller who never counted. */
     adverts: AdvertsSummary;
+    /** Each client's month against the rulebook's normal limit (§3.1). Required, for D-083's reason. */
+    monthlySpend: MonthlySpendSummary;
+    /** Messenger messages a daily cap refused over the reported day. Required, likewise. */
+    shed: ShedSummary;
   },
 ): DigestPlan {
   // The Ulaanbaatar day the counts and the flaw report cover — the one that has just ended
@@ -260,13 +267,16 @@ export function planDigest(
   const lost = lostDraftsLine(input.lostDrafts);
   const advertsText = advertsLine(input.adverts);
   const adverts = advertsText === null ? '' : `\n${advertsText}.`;
+  // Spend last in the header, as its own block: every day, so a clean month reads as a
+  // figure and not as a missing line.
+  const spend = `\n${shedLine(input.shed)}.\n\n${monthlySpendBlock(input.monthlySpend)}`;
 
   if (ranked.length === 0) {
-    return { summary: `Dala AI — ${date}\nNothing open. ${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.${adverts}`, escalate: [] };
+    return { summary: `Dala AI — ${date}\nNothing open. ${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.${adverts}${spend}`, escalate: [] };
   }
 
   const header = `Dala AI — ${date}\n${ranked.length} open condition${ranked.length === 1 ? '' : 's'}. `
-    + `${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.${adverts}`;
+    + `${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.${adverts}${spend}`;
   const lines: string[] = [];
   let used = header.length;
   let omitted = 0;
@@ -690,6 +700,10 @@ export async function runDigestJob(
     capped: await countCapped(effects.db, effects.now),
     lostDrafts: await countLostDrafts(effects.db, effects.now),
     adverts: await countAdverts(effects.db, effects.now),
+    // Both degrade to UNREADABLE inside themselves and never throw: a spend figure that
+    // could not be read must not cost the founder the rest of the report.
+    monthlySpend: await readMonthlySpend(effects.db, reportWindow(effects.now).until),
+    shed: await countShed(effects.db, reportWindow(effects.now).since, reportWindow(effects.now).until),
   });
 
   // ALERTS_ENABLED=false silences every path or it silences none of them — the same escape

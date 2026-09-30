@@ -198,6 +198,12 @@ export type WorkerEffects = {
   sendPrivateReply: CommentEffects['sendPrivateReply'];
   lookupComment: CommentEffects['lookupComment'];
   alertComplaint: CommentEffects['alertComplaint'];
+  /**
+   * A daily cap refused this reply (rulebook §3.1: the emergency brake "alerts the founder
+   * immediately"). Required, so a binding cannot forget it. Must never reject and must return
+   * within its own bound (`spend/ceilingAlert.ts`); the result is only logged.
+   */
+  alertCeilingReached: (args: { tenantId: string; timezone: string; channel: string }) => Promise<string>;
   /** A customer's photo, video or media link was handed to staff (`handover/media.ts`). Optional: absent sends nothing. */
   alertMediaHandoff?: (args: { tenantId: string; conversationId: string; externalId: string; text: string }) => Promise<void>;
 };
@@ -1123,9 +1129,18 @@ async function runReceptionDelivery(
       });
       // 503 means "we could not determine" — QStash must retry, so nothing is lost.
       if (refusal.status === 503) return unavailable(refusal.code);
-      // 403/429 are determinate. Retrying cannot change them, so ACK and let the §5.7
-      // degradation ladder answer the customer. Never silence.
+      // 403/429 are determinate. Retrying cannot change them, so ACK. The §5.7 ladder that
+      // was to answer the customer is not built, so a Messenger customer gets no reply here.
       await markEventState(db, eventId, refusal.status === 429 ? 'shed' : 'blocked_no_token');
+      if (refusal.status === 429) {
+        // The founder is paged once per brake episode. After the event is marked, so the
+        // record is written first; the result is logged and never changes the ACK — a 503
+        // here would make QStash deliver a message the brake will refuse again.
+        const alerted = await fx.alertCeilingReached({ tenantId, timezone, channel: provider })
+          .catch((e: unknown) => `failed: ${e instanceof Error ? e.message : String(e)}`);
+        fx.log(alerted.startsWith('failed') || alerted.startsWith('timed_out') || alerted.startsWith('recorded_undelivered')
+          ? 'error' : 'info', 'ceiling_alert', { tenantId, eventId, outcome: alerted });
+      }
       return ok({ refused: refusal.code });
     }
 

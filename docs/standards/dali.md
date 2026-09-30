@@ -98,7 +98,7 @@ rules (1)–(5) carry the same numbers in all three.
 | D4 | No markdown: no `**`, `#`, `•`, leading `-`, HTML. | PROMPT (`02_style` rule 3). Not checked in code | |
 | D5 | Full, polite sentences with a proper ending; never a bare «Тийм.»; discounts written «10%-ийн хөнгөлөлт» (D-150). | PROMPT (`02_style` rule 5) | |
 | D6 | No apology unless something is refused or the customer complains. | FIX (`guard/apology.ts`, strips opening «Уучлаарай», flag `apology_removed`) + PROMPT (Ш7) | |
-| D7 | Emoji: at most the tenant's `reply_style.max_emoji`; none on complaints, refusals, handoff. | FIX (`capEmoji`, `src/lib/reception/style.ts`), **only when the tenant has `reply_style` set** | Live: dalatech `max_emoji = 1`; **Tara Яармаг `reply_style` is null, so no emoji cap applies** |
+| D7 | Emoji: at most the tenant's `reply_style.max_emoji`; none on complaints, refusals, handoff. | FIX (`capEmoji`, `src/lib/reception/style.ts`), **only when the tenant has `reply_style` set** | Live: dalatech `max_emoji = 1`; **Tara Яармаг `reply_style` is null, so no emoji cap applies.** `max_emoji = 1` is proposed for her and waits for the founder (`docs/reports/2026-09-30-spend-alerts.md`) |
 | D8 | Greet once, only on a new conversation. | DATA (`greeting` deterministic row) + code keeps "history unknown" apart from "history empty" (`gate/deterministic.ts`) | |
 | D9 | Every chat ends with a next step, not pushy (D-127). | DATA (sales lines, `src/lib/sales/live.ts`) for dalatech; "not pushy" is CONVENTION, unmeasured | |
 | D10 | Address the customer with «та» (and its forms: «Танд», «Таны»…), never «чи» (founder, 2026-09-29). | Reviewed rows: DATA, held by the founder's review of every row. Model replies: **CONVENTION.** No signed block states the rule (the style blocks only show «Та» in an example) and no code checks a reply | Live rows, 2026-09-29: 0 of 101 rows (canned, fixed, FAQ, KB, both tenants) use a «чи» form; 30 use a «та» form. Enforcing it on model replies needs a signed sentence in `02_style` and/or a reply guard: both change what customers read, so both are the founder's |
@@ -172,7 +172,7 @@ reviewed row verbatim. Code backs them up only as listed.
 
 | ID | Rule | Status |
 |---|---|---|
-| K1 | Immediate Telegram (`route: 'now'`): media hand-off, comment complaint, customer message never answered (exhausted), stranded event not rescued, send/delivery failures, model outage, credential or key problems. Warnings marked quiet go to the daily report instead when `DAILY_REPORT_V2` is on (`quietRoute`). | Code (`src/lib/alerts/alert.ts` and callers) |
+| K1 | Immediate Telegram (`route: 'now'`): media hand-off, comment complaint, customer message never answered (exhausted), stranded event not rescued, send/delivery failures, model outage, credential or key problems, a daily spend cap refusing replies (`spend/ceilingAlert.ts`, D-158). Warnings marked quiet go to the daily report instead when `DAILY_REPORT_V2` is on (`quietRoute`). | Code (`src/lib/alerts/alert.ts` and callers) |
 | K2 | Daily report at 00:05 Ulaanbaatar, sent even on a clean day; an unreadable count prints UNREADABLE. Includes the flaw report: corrected, repeated, handoff, refusal, own-words refusal, "didn't understand", old name, internal mention. | Code (`src/lib/alerts/digest.ts`, `src/lib/quality/flaws.ts`). The schedule lives in QStash, not the repo |
 | K3 | Channel silent 180 minutes in open hours ⇒ alert on the quiet route (daily report when `DAILY_REPORT_V2` is on). | Code (`src/lib/health/watch.ts`) |
 | K4 | DM complaint, DM booking request, "I want a person" ⇒ founder told at once. | **NOT BUILT** (F5) |
@@ -193,7 +193,7 @@ reviewed row verbatim. Code backs them up only as listed.
 **Gaps (rule stated, nothing enforces it)**
 1. D2 brevity (2–3 sentences) and D4 no-markdown: prompt only. The 1,900-character ceiling is the only hard limit.
 2. D5 polite full sentences, D9 "not pushy", Ш7 "do not moralise": no measure.
-3. D7: Tara Яармаг has no `reply_style`, so the model's emoji are not capped there.
+3. D7: Tara Яармаг has no `reply_style`, so the model's emoji are not capped there. Measured 2026-09-30 over 30 days: 280 drafts, 262 with none, 15 with one, 3 with two; her 17 approved rows carry at most one. `max_emoji = 1` is proposed, not applied.
 4. F4/F5/K4: no real hand-off to a person, no alert for a DM complaint or request for a human.
 5. G4: voice messages are never answered and never alerted.
 6. A9 service-name changes and A12 price violations are counted, not blocked.

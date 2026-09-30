@@ -119,7 +119,7 @@ or configuration would have to be added.
 | **2.11** No paid runs unless the founder starts or approves them | GATE | The two paid workflows (`bakeoff-arms.yml`, `testset-dalatech.yml`) are `workflow_dispatch` only. `verify` (`schema.yml`) has no model step (all steps read). Model reply cases run only with `REPLY_GATE_MODEL=1` or `--with-model` (`scripts/replycases/gate.ts:66`, `scripts/publish/tenant.ts:351`), which is the D-151 pre-publish run the rule now allows with his go-ahead. `ANTHROPIC_API_KEY` unset in this session. Nothing records the go-ahead: it is asked in words. A person with Actions rights and the repo secret can still start a run | No |
 | **2.12** No "done" without evidence | CONVENTION | CLAUDE.md rule 9 | Yes |
 | **3** Total ceiling 150,000 ₮ a month | CONVENTION | No code totals variable spend across model, Higgsfield and ads | Yes |
-| **3.1** 20,000 ₮ a month per client is the alert threshold; alert at 70%; the normal limit never stops a reply; only the emergency brake may, and it alerts at once | UNCLEAR for the 70% alert (none found in `src/lib/spend`); CONVENTION for the 20,000 ₮ figure; BLOCK for the emergency ceiling; **the code has no separate "normal limit"** | Emergency ceiling: `SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY = 2.0` (`src/config/platform.ts:60`, the founder's call of 2026-09-21, D-106) and `PLATFORM_HARD_CAP_USD_PER_DAY = 10.0` (`:66`); `reserve.ts` refuses at either (`ceiling_reached`). A tenant's own budget row can only lower the per-surface figure (`effectiveDailyCeiling` takes the minimum), and a lower figure refuses the same way, so the code has one daily limit that stops replies, not two. No monthly limit is read (`monthly_ceiling_nanousd` has no reader, D-072). The immediate alert for an unanswered customer exists (`worker/exhaustedAlert.ts`); an alert raised by the ceiling itself was not found | Yes |
+| **3.1** 20,000 ₮ a month per client is the alert threshold; alert at 70%; the normal limit never stops a reply; only the emergency brake may, and it alerts at once | COUNT for the 70% alert (daily report, D-158); BLOCK for the emergency brake, and its alert is immediate (D-158); the normal limit stops nothing, as the rule says | `CLIENT_MONTHLY_NORMAL_LIMIT_MNT = 20_000` and `CLIENT_MONTHLY_ALERT_FRACTION = 0.7` (`src/config/platform.ts`) are read only by `src/lib/spend/monthly.ts`, which the 00:05 daily report runs: each client's month from `spend_ledger.cost_mnt`, marked at 70% and at 100%, and UNREADABLE when it cannot be summed. The brake is `SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY = 2.0` and `PLATFORM_HARD_CAP_USD_PER_DAY = 10.0`, lowered by a tenant's budget row when tighter (Tara Яармаг: $1.90). A refusal pages the founder on the immediate route (`src/lib/spend/ceilingAlert.ts`, from `worker/reception.ts` and `website/messageJob.ts`), once per tenant and surface until the hourly health run closes the episode after midnight. The 70% alert is a line in the daily report, not a separate page, because §4 sends everything but payments, a bot down, an unanswered customer and credentials to the daily brief. Not counted: spend in `ledger_deadletter`. The rule counts "from when billing is live"; the report counts now | No |
 | **3.2** Internal agents' per-task and total caps | CONVENTION | No agent metering in the repo | Yes |
 | **3.3** Higgsfield cap; top-up cap; auto top-up off | CONVENTION | Nothing named Higgsfield in `src`, `scripts` or `config` | Yes |
 | **3.4** Ad boosts: founder approves; 25,000 ₮ | CONVENTION | Nothing in code | Yes |
@@ -180,8 +180,7 @@ and deterministic replies. The findings below are what those two pieces would ha
 Grammar check, wording-edit log and review gate (1.9, and what activates it). A manager role and an identity on each change (1.8,
 1.9, 4e). A per-row hash of the reviewed body, or a `reviewed_at` gate on `deterministic_replies`
 and `faqs` (1.4). A secret scanner (2.2). A tenant-in-`src/` guard (2.8). Spend metering for
-internal agents, Higgsfield and ads, and a total across them (3, 3.2–3.4, 2.1). A 70% alert
-(3.1). A bot-down alert on the immediate route (4b). Nexus's 22:00 brief
+internal agents, Higgsfield and ads, and a total across them (3, 3.2–3.4, 2.1). A bot-down alert on the immediate route (4b). Nexus's 22:00 brief
 (4c), when it is built. Required review on `main` (5.2). Everything else marked CONVENTION is a
 process rule that tooling could hold, but nothing here requires it.
 
@@ -194,16 +193,18 @@ v0.3 and by the two doc fixes below.
    Item 9 is inactive, so all wording stays founder-only. Open point: the rulebook says it wins
    over an agent's standard, but CLAUDE.md is not an agent standard, so precedence between them is
    still unstated. §2.4's exception clause cites item 9 and is inactive with it.
-2. **§3.1 against the code, still open.** The rulebook now separates a normal limit that never
-   stops a reply from an emergency brake. The code has one daily limit, and it stops replies:
-   the compiled $2.00 per tenant per surface, lowered by the tenant's budget row when that is
-   tighter (`reserve.ts`). No 70% alert exists, no monthly limit is read, and `on_exhausted` has
-   no reader, so a tenant at its ceiling may go quiet (what the customer receives after a refusal was not traced). Making the code match the rule is new
-   tooling.
+2. **§3.1 against the code: settled in code on 2026-09-30 (D-158), one part open.** The
+   normal limit is now an alert that stops nothing (the daily report's month and 70% mark), and
+   the emergency brake (the daily caps, unchanged) now pages at once. **Open, for the founder:**
+   what the customer receives after a refusal. Traced: on Messenger the event is marked `shed`
+   and the customer gets no reply; on the website the visitor gets the tenant's reviewed handoff
+   (or callback) line. A Messenger reply is drafted in `docs/reports/2026-09-30-spend-alerts.md`
+   and ships only with the founder's yes. `on_exhausted` still has no reader.
 3. **§3.1 20,000 ₮ against CLAUDE.md's ₮80,000 allowable model spend**: settled as an alert
    threshold, not a cap. The code's emergency ceiling is unchanged. CLAUDE.md's "$1.50" was wrong
-   and is now $2.00. `docs/STATUS.md` (open item 3) carries the same stale $1.50 and a "$1.90 row"
-   figure that could not be re-checked without reading the live budget row; it was left alone.
+   and is now $2.00. `docs/STATUS.md` (open item 3) carried the same stale $1.50; the live budget
+   row was read on 2026-09-30 (id 3: $2.00 × 0.95), so Tara Яармаг's Reception cap is $1.90, and
+   STATUS and CLAUDE.md now say so.
 4. **§4 22:00 brief against the 00:05 digest**: settled for the brief; the digest is the brief for now.
    `dali.md` K3 still sends channel silence to the quiet route, so §4's "a bot down" is not
    immediate today (row 4b).

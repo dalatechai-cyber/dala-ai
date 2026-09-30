@@ -63,6 +63,14 @@ const plan = planDigest(open, {
   capped: { total: 0, posts: 0, unavailable: false },
   lostDrafts: { total: 0, latest: null, unavailable: false },
   adverts: { ok: true, byTenant: [{ tenant: 'Sample Salon', count: 3 }] },
+  shed: { ok: true, byTenant: [], capped: false },
+  monthlySpend: {
+    ok: true,
+    tenants: [
+      { tenant: 'Sample Salon', month: '2026-09', mntCents: 1_412_000, usd: 3_940_000_000n, daysCovered: 25, daysInMonth: 30 },
+      { tenant: 'Sample Clinic', month: '2026-09', mntCents: 334_800, usd: 960_000_000n, daysCovered: 25, daysInMonth: 30 },
+    ],
+  },
 });
 
 // Section C's input: what `quietRoute()` held back yesterday.
