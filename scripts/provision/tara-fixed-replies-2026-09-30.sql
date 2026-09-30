@@ -1,3 +1,4 @@
+-- APPLIED 2026-09-30 (D-165).
 -- Tara Яармаг's five fixed replies, approved by the founder 2026-09-30 in chat, with the price
 -- line changed to «Та ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.». Drafts and evidence:
 -- prompt/drafts/tara_fixed_replies.mn.txt, docs/reports/2026-09-30-tara-model-questions.md.

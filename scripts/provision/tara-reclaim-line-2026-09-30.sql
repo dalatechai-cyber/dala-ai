@@ -1,4 +1,4 @@
--- Tara Яармаг's take-back line (D-164), approved by the founder 2026-09-30, option (b):
+-- APPLIED 2026-09-30 14:36 UTC (D-165). Tara Яармаг's take-back line (D-164), approved by the founder 2026-09-30, option (b):
 --   «Уучлаарай, хүлээлгэсэнд. Би үргэлжлүүлэн туслая. Танд юугаар туслах вэ?»
 -- This row switches the staff-hold reclaim ON for this tenant only: with no reviewed
 -- `handover_reclaim` row the sweep is inert (`no_reviewed_line`). DalaTech gets no row.
