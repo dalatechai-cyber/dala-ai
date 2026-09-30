@@ -60,8 +60,8 @@ export function cannedStaleBody(input: {
   const unsigned = (input.unsigned ?? []).length > 0 ? ` Unsigned: ${input.unsigned!.join(', ')} — sign it.` : '';
   const missing = (input.missing ?? []).length > 0 ? ` No row for: ${input.missing!.join(', ')} — add and sign it.` : '';
   return `Approved lines changed, unsigned or missing — ${input.name}${where}. `
-    + `Found by the ${input.source}.${unsigned}${missing} Every reply is refused until it is fixed and the tenant `
-    + 'is republished: customers get the published hand-off line (Messenger and Instagram once per conversation a day), and otherwise nothing. '
+    + `Found by the ${input.source}.${unsigned}${missing} Every reply is refused until it is fixed (and republished if a `
+    + 'body or kind changed): customers get the published hand-off line (Messenger and Instagram once per conversation a day), and otherwise nothing. '
     + 'Republish now (scripts/publish/tenant.ts), or undo the edit.';
 }
 
