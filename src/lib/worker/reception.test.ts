@@ -1540,16 +1540,21 @@ test('DONE-TEST: A CATCH-UP JOB ANSWERS A 2-HOUR-OLD HELD MESSAGE whose reply fa
 // ── A reply whose send failed is RE-SENT on the redelivery, never regenerated, never twice ──
 
 const STORED = 'ХАДГАЛСАН ХАРИУЛТ';
+/** The reads a resume makes, in order: the latest inbound is this message, nothing sent since. */
+const resumeTables = (state: string, o: { latestMid?: string; laterSent?: unknown[]; body?: string } = {}) => ({
+  messages: [
+    ...DUPLICATE_INBOUND,
+    { data: [{ external_id: o.latestMid ?? MID }], error: null },                     // latest inbound
+  ],
+  outbound_messages: [
+    { data: { id: 'om-7', state }, error: null },                                     // findReplyFor
+    { data: o.laterSent ?? [], error: null },                                         // sent since
+    { data: { id: 'om-7', body: o.body ?? STORED, attempts: 1 }, error: null },       // claim
+  ],
+});
 const resumeWith = (state: string, over: Parameters<typeof stubEffects>[0] = {}) => stubEffects({
   ...over,
-  tables: {
-    messages: DUPLICATE_INBOUND,
-    outbound_messages: [
-      { data: { id: 'om-7', state }, error: null },                                   // findReplyFor
-      { data: { id: 'om-7', body: STORED, attempts: 1 }, error: null },               // claim
-    ],
-    ...(over.tables ?? {}),
-  },
+  tables: { ...resumeTables(state), ...(over.tables ?? {}) },
 });
 
 test('DONE-TEST (founder, 2026-09-30): AN ORDINARY REDELIVERY RE-SENDS A FAILED REPLY\'S STORED BODY, WITHOUT THE MODEL', async () => {
@@ -1583,9 +1588,10 @@ test('a reply that is sent, being sent, refused or parked is NEVER sent again', 
 test('the claim is the guard against a duplicate: another worker holding it means no send', async () => {
   const { fx, delivered } = stubEffects({
     tables: {
-      messages: DUPLICATE_INBOUND,
+      messages: resumeTables('failed').messages,
       outbound_messages: [
         { data: { id: 'om-7', state: 'failed' }, error: null },   // findReplyFor
+        { data: [], error: null },                                 // sent since
         { data: null, error: null },                               // claim CAS matched nothing
         { data: { state: 'sending' }, error: null },               // why: another worker holds it
       ],
@@ -1612,16 +1618,78 @@ test('a stored reply past the reply age limit is not re-sent, and says so', asyn
   assert.ok(flags.some((f) => f.code === 'reply_too_late'));
 });
 
-test('a stored reply is not re-sent over a person who replied since', async () => {
-  const { fx, delivered, logs } = resumeWith('failed', {
+test('a stored reply is not re-sent over a person who replied since, and is refused for good', async () => {
+  const { fx, delivered, ops, flags } = resumeWith('failed', {
     tables: {
       'webhook_events:contains': { data: [STAFF_ECHO], error: null },
       tenant_channels: { data: { ...LIVE_WITH_APP }, error: null },
     },
   });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(delivered.length, 0);
+  assert.ok(ops.some((o) => o.op === 'update' && o.patch?.['refused_reason'] === 'human_replied_before_send'));
+  assert.ok(flags.some((f) => f.code === 'human_replied_before_send'));
+});
+
+test('a stored reply superseded by a NEWER customer message is refused for good, never sent out of order', async () => {
+  const { fx, delivered, ops, flags } = stubEffects({ tables: resumeTables('failed', { latestMid: 'm_newer' }) });
   await run(fx);
   assert.equal(delivered.length, 0);
-  assert.ok(reasons(logs).includes('human_replied_before_resend'));
+  const refused = ops.find((o) => o.table === 'outbound_messages' && o.op === 'update' && o.patch?.['state'] === 'refused');
+  assert.equal(refused?.patch?.['refused_reason'], 'superseded_newer_message', 'terminal: no later redelivery tries again');
+  assert.ok(flags.some((f) => f.code === 'resume_superseded'));
+});
+
+test('a stored reply is refused when one of our replies was sent after this message', async () => {
+  const { fx, delivered, ops } = stubEffects({ tables: resumeTables('failed', { laterSent: [{ id: 'om-8' }] }) });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.ok(ops.some((o) => o.op === 'update' && o.patch?.['refused_reason'] === 'superseded_later_reply'));
+});
+
+test('an unreadable supersede check retries, and leaves the row claimable', async () => {
+  const t = resumeTables('failed');
+  const { fx, delivered, ops } = stubEffects({
+    tables: { ...t, outbound_messages: [t.outbound_messages[0] as Reply, { data: null, error: { message: 'reset' } }] },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+  assert.equal(delivered.length, 0);
+  assert.ok(!ops.some((o) => o.table === 'outbound_messages' && o.op === 'update'), 'nothing claimed, nothing stuck in sending');
+});
+
+test('a resumed media notice still hands the thread to staff and alerts', async () => {
+  const alerts: unknown[] = [];
+  const t = resumeTables('failed', { body: NOTICE });
+  const { fx, delivered, ops, flags } = stubEffects({
+    alertMediaHandoff: async (a) => { alerts.push(a); },
+    tables: {
+      ...t,
+      webhook_events: { data: { raw_payload: payload({ text: 'Энэ хэд вэ?', attachments: [{ type: 'video', payload: { url: 'https://x/v.mp4' } }] }) } },
+      canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered[0]?.body, NOTICE);
+  assert.ok(ops.some((o) => o.table === 'conversations' && o.op === 'update' && o.patch?.['thread_control'] === 'human'));
+  assert.ok(flags.some((f) => f.code === 'media_handoff'));
+  assert.equal(alerts.length, 1);
+});
+
+test('a resumed ordinary reply to a media message is not mistaken for the notice', async () => {
+  const alerts: unknown[] = [];
+  const { fx, delivered } = stubEffects({
+    alertMediaHandoff: async (a) => { alerts.push(a); },
+    tables: {
+      ...resumeTables('failed'),
+      webhook_events: { data: { raw_payload: payload({ text: 'Энэ хэд вэ?', attachments: [{ type: 'video', payload: { url: 'https://x/v.mp4' } }] }) } },
+      canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 1);
+  assert.equal(alerts.length, 0);
 });
 
 test('a re-send that fails retryably again asks QStash for another attempt', async () => {
@@ -2017,4 +2085,17 @@ test('a complaint in SHADOW is drafted and tells nobody', async () => {
   await run(fx);
   assert.equal(delivered.length, 0);
   assert.equal(needsPerson.length, 0);
+});
+
+test('a listed tester on a SHADOW channel gets the resumed reply; on an OFF channel nobody does', async () => {
+  const tester = stubEffects({
+    tables: { ...resumeTables('failed'), tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'shadow', graph_version_override: null, test_sender_ids: [PSID] }, error: null } },
+  });
+  await run(tester.fx);
+  assert.equal(tester.delivered.length, 1);
+  const off = stubEffects({
+    tables: { ...resumeTables('failed'), tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'off', graph_version_override: null, test_sender_ids: [PSID] }, error: null } },
+  });
+  await run(off.fx);
+  assert.equal(off.delivered.length, 0);
 });

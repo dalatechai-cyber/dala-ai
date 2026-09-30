@@ -39,7 +39,7 @@ import { draftImageReplies, planImageReplies, readImageLine } from '../inbound/i
 import { applyThreadControl, recordHandover, readThreadState } from '../handover/record.ts';
 import { personRepliedSince } from '../handover/presend.ts';
 import { humanHoldsThread } from '../handover/control.ts';
-import { mediaAloneDedupKey, planMediaAlone, readCannedLine, readHandoverNotice } from '../handover/media.ts';
+import { isMediaMessage, mediaAloneDedupKey, planMediaAlone, readCannedLine, readHandoverNotice } from '../handover/media.ts';
 import { planVoiceAlone, voiceDedupKey, VOICE_REPLY_KIND, type NeedsPersonReason, type ReplySent } from '../handover/needsPerson.ts';
 import { CREDENTIAL_FAILURE_STATUS, clearCredentialFailure } from '../channel/recover.ts';
 import { CATCH_UP_WINDOW_MINUTES, HELD_FLAG } from '../channel/catchup.ts';
@@ -977,15 +977,40 @@ async function runReceptionDelivery(
   const sent: string[] = [];
 
   /**
-   * Re-send a reply an earlier attempt stored but did not deliver. Only on a delivering
-   * channel, only while the message is still fresh, never over a person who has replied
-   * since, and only through `claim`, whose CAS admits `draft` and `failed` rows alone. The
-   * body is the one stored: nothing is generated and nothing is spent. `retry` and
-   * `unavailable` ask QStash for another attempt, exactly as the ordinary send path does.
+   * The media hand-off that follows a SENT handover notice: the thread becomes the staff's
+   * for the takeover cooldown, the flag is written and the founder is alerted. After the
+   * send and not before: the pre-send check reads a `human` thread set after the customer's
+   * message as "a person replied" and would have dropped the notice itself. One helper, so
+   * the ordinary send and a resumed send cannot drift apart.
+   */
+  const handOffAfterNotice = async (a: { conversationId: string; externalId: string; text: string }): Promise<void> => {
+    const handed = await applyThreadControl(db, { tenantId, conversationId: a.conversationId, control: 'human', at: now, source: 'handover', refresh: true });
+    if (!handed.ok) fx.log('error', 'media_handoff_control_failed', { tenantId, conversationId: a.conversationId, detail: handed.detail });
+    await fx.flagQuality({ tenantId, conversationId: a.conversationId, code: 'media_handoff', detail: 'photo, video or media link handed to staff' });
+    if (fx.alertMediaHandoff !== undefined) {
+      await fx.alertMediaHandoff({ tenantId, conversationId: a.conversationId, externalId: a.externalId, text: a.text })
+        .catch((e: unknown) => fx.log('error', 'media_handoff_alert_failed', { detail: e instanceof Error ? e.message : String(e) }));
+    }
+  };
+
+  /**
+   * Re-send a reply an earlier attempt stored but did not deliver (founder, 2026-09-30).
+   *
+   * Only on a delivering channel, only while the message is still fresh, and only through
+   * `claim`, whose CAS admits `draft` and `failed` rows alone, so a second copy cannot go
+   * out. The STORED body is sent: nothing is generated and nothing is spent.
+   *
+   * Never out of order and never over a person, the catch-up sweep's rules
+   * (`channel/catchup.ts`): a newer customer message in the conversation, or one of our
+   * replies sent after this message, or a person who replied since, SUPERSEDES the stored
+   * reply. It is then claimed and marked `refused` (terminal, so no later redelivery tries
+   * again) and flagged. Every read happens BEFORE the claim, so an unreadable one asks for a
+   * retry without leaving a row in `sending`, which nothing re-claims.
    */
   const resumeStoredReply = async (r: {
-    outboundId: string; conversationId: string; senderId: string; eventAt: Date; deliverThis: boolean;
-  }): Promise<'sent' | 'skipped' | 'failed' | 'retry' | 'unavailable'> => {
+    outboundId: string; conversationId: string; eventAt: Date; deliverThis: boolean;
+    message: { senderId: string; externalId: string; text: string; attachments: readonly string[]; stickerIds: readonly string[] };
+  }): Promise<'sent' | 'skipped' | 'superseded' | 'failed' | 'retry' | 'unavailable'> => {
     if (!r.deliverThis) return 'skipped';
     if (!isFresh(r.eventAt, now, replyAgeLimit)) {
       await fx.flagQuality({
@@ -994,27 +1019,67 @@ async function runReceptionDelivery(
       });
       return 'skipped';
     }
-    const spoke = await personRepliedSince(db, {
-      tenantId, channelId, conversationId: r.conversationId, psid: r.senderId, eventId, since: r.eventAt,
-      ourAppId: metaAppId, automationTexts,
-    }).catch((e: unknown) => ({ replied: 'unreadable' as const, detail: e instanceof Error ? e.message : String(e) }));
-    if (spoke.replied === true) {
-      fx.log('info', 'human_replied_before_resend', { tenantId, conversationId: r.conversationId, outboundId: r.outboundId });
-      return 'skipped';
+
+    const [latestRes, laterSent, spoke] = await Promise.all([
+      db.from('messages').select('external_id').eq('tenant_id', tenantId).eq('conversation_id', r.conversationId)
+        .eq('direction', 'inbound').order('at', { ascending: false }).limit(1),
+      db.from('outbound_messages').select('id').eq('tenant_id', tenantId).eq('conversation_id', r.conversationId)
+        .eq('state', 'sent').gt('created_at', r.eventAt.toISOString()).limit(1),
+      personRepliedSince(db, {
+        tenantId, channelId, conversationId: r.conversationId, psid: r.message.senderId, eventId, since: r.eventAt,
+        ourAppId: metaAppId, automationTexts,
+      }).catch((e: unknown) => ({ replied: 'unreadable' as const, detail: e instanceof Error ? e.message : String(e) })),
+    ]);
+    if (latestRes.error || laterSent.error) {
+      fx.log('error', 'resume_check_unreadable', { tenantId, detail: (latestRes.error ?? laterSent.error)?.message ?? '' });
+      return 'unavailable';
     }
+    const latest = Array.isArray(latestRes.data) ? (latestRes.data[0] as Record<string, unknown> | undefined) : undefined;
+    const reason = latest !== undefined && String(latest['external_id'] ?? '') !== r.message.externalId
+      ? 'superseded_newer_message'
+      : Array.isArray(laterSent.data) && laterSent.data.length > 0 ? 'superseded_later_reply'
+      : spoke.replied === true ? 'human_replied_before_send'
+      : null;
+    // As the ordinary send path: an unreadable person check sends rather than mute a tenant.
+    if (spoke.replied === 'unreadable') fx.log('error', 'human_reply_check_unreadable', { tenantId, conversationId: r.conversationId, detail: spoke.detail });
+
     const held = await claim(db, { id: r.outboundId, tenantId, now });
     if (held.outcome === 'unavailable') {
       fx.log('error', 'claim_unavailable', { detail: held.detail });
       return 'unavailable';
     }
     if (held.outcome !== 'claimed') return 'skipped';
+
+    if (reason !== null) {
+      const refused = await markRefused(db, { id: held.id, tenantId, reason });
+      if (!refused.ok) fx.log('error', 'resume_refuse_failed', { outboundId: held.id, detail: refused.detail });
+      await fx.flagQuality({
+        tenantId, conversationId: r.conversationId, code: reason === 'human_replied_before_send' ? reason : 'resume_superseded',
+        detail: `a stored reply was not re-sent: ${reason}`,
+      });
+      return 'superseded';
+    }
+
     const delivered = await fx.deliver({
-      tenantId, channelId, pageId, recipientId: r.senderId, outboundId: held.id,
+      tenantId, channelId, pageId, recipientId: r.message.senderId, outboundId: held.id,
       body: held.body, attempts: held.attempts, graphVersion,
       ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
       ...(maxTextBytes === undefined ? {} : { maxTextBytes }),
     });
-    if (delivered.outcome === 'sent') return 'sent';
+    if (delivered.outcome === 'sent') {
+      // A resumed media notice still hands the thread over: the first attempt returned
+      // before its hand-off, so this is the only place it can happen. Recognised exactly as
+      // the reply path chose it: a media message answered with the tenant's reviewed notice.
+      const sentPhoto = r.message.attachments.includes('image') && r.message.stickerIds.length === 0;
+      if (isMediaMessage({ text: r.message.text, attachments: r.message.attachments, sentPhoto })) {
+        const notice = await readHandoverNotice(db, { tenantId, locale: settings.defaultLocale });
+        if (!notice.ok) fx.log('error', 'handover_notice_unreadable', { eventId, detail: notice.detail });
+        else if (notice.line !== null && notice.line.body.trim() === held.body.trim()) {
+          await handOffAfterNotice({ conversationId: r.conversationId, externalId: r.message.externalId, text: r.message.text });
+        }
+      }
+      return 'sent';
+    }
     if (delivered.outcome === 'failed' && delivered.retryable) {
       fx.log('warn', 'send_retryable', { outboundId: held.id, failure: delivered.failure, resumed: true });
       return 'retry';
@@ -1121,7 +1186,7 @@ async function runReceptionDelivery(
       if (answered.outcome === 'answered' && catchUpMid === null
           && (answered.state === 'draft' || answered.state === 'failed')) {
         const resumed = await resumeStoredReply({
-          outboundId: answered.outboundId, conversationId, senderId: message.senderId, eventAt,
+          outboundId: answered.outboundId, conversationId, eventAt, message,
           deliverThis: delivery.generate && deliverThis,
         });
         if (resumed === 'retry') return unavailable('worker.resume_send_retryable');
@@ -1511,8 +1576,10 @@ async function runReceptionDelivery(
 
     // A complaint, a request for a person, or the handoff line: a person is told (Дали F5,
     // K4). On EVERY outcome, a retryable failure included: a redelivery re-sends the stored
-    // row (`resumeStoredReply`) without regenerating, so it never reaches here and this
-    // attempt is the only one that can tell a person. `once` per day keeps it to one page.
+    // row (`resumeStoredReply`) without regenerating and never reaches here, so this is the
+    // one place a person is told. An attempt that died between the draft and this line (a
+    // killed lambda, a claim that could not be read) is not alerted by the resume: it cannot
+    // tell a complaint from the stored row. `once` per day keeps it to one page.
     const needs: NeedsPersonReason | null = outcome.complaint === true ? 'complaint'
       : outcome.handedOff === true ? 'handoff' : null;
     if (needs !== null) {
@@ -1526,16 +1593,8 @@ async function runReceptionDelivery(
       sent.push(held.id);
       if (outcome.mediaHandoff === true) {
         // The customer has been told a person will look. Now the thread is theirs, for the
-        // tenant's takeover cooldown as after any staff reply, and the founder is told. After the send and not
-        // before: the pre-send check reads a `human` thread set after the customer's
-        // message as "a person replied" and would have dropped this notice.
-        const handed = await applyThreadControl(db, { tenantId, conversationId, control: 'human', at: now, source: 'handover', refresh: true });
-        if (!handed.ok) fx.log('error', 'media_handoff_control_failed', { tenantId, conversationId, detail: handed.detail });
-        await fx.flagQuality({ tenantId, conversationId, code: 'media_handoff', detail: 'photo, video or media link handed to staff' });
-        if (fx.alertMediaHandoff !== undefined) {
-          await fx.alertMediaHandoff({ tenantId, conversationId, externalId: message.externalId, text: message.text })
-            .catch((e: unknown) => fx.log('error', 'media_handoff_alert_failed', { detail: e instanceof Error ? e.message : String(e) }));
-        }
+        // tenant's takeover cooldown as after any staff reply, and the founder is told.
+        await handOffAfterNotice({ conversationId, externalId: message.externalId, text: message.text });
       }
       if (delivered.bookkeeping !== undefined) {
         // The customer has the message. Everything after that is bookkeeping, and a
