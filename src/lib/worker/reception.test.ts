@@ -2374,4 +2374,171 @@ test('D-163: the CAP hand-off still sends the published row when the snapshot ca
   });
   assert.equal((await run(fx)).status, 200);
   assert.equal(delivered.length, 1);
+
+// ── The reclaim job: staff took the chat and went quiet (handover/reclaim.ts, worker/reclaim.ts) ──
+
+const RECLAIM_LINE = 'Уучлаарай, хүлээлгэчихлээ. Би туслая.';
+/** Staff's last echo, a minute before the customer's held message was stored. */
+const STAFF_AT = '2026-09-04T11:57:00.000Z';
+const HELD_AT = '2026-09-04T11:58:01.000Z';
+const heldThread = (over: Record<string, unknown> = {}) =>
+  ({ data: { thread_control: 'human', thread_control_source: 'echo', thread_control_at: STAFF_AT, ...over }, error: null });
+
+/** The reads a reclaim makes, per table in order. */
+const reclaimTables = (o: {
+  thread?: Record<string, unknown>; existing?: Record<string, unknown> | null; canned?: Reply; flipped?: unknown[];
+} = {}): Record<string, Reply | Reply[]> => ({
+  conversations: [
+    { data: { id: 'conv-1' }, error: null },                   // conversationForPsid
+    heldThread(o.thread),                                       // the thread, re-read
+    heldThread(o.thread),                                       // personRepliedSince's own read
+    { data: o.flipped ?? [{ id: 'conv-1' }], error: null },     // the conditional flip
+  ],
+  messages: { data: { at: HELD_AT }, error: null },
+  outbound_messages: [
+    { data: o.existing ?? null, error: null },                                              // findReplyFor
+    { data: { id: 'om-r', body: RECLAIM_LINE, state: 'draft', attempts: 0 }, error: null },  // draftOnce
+    { data: { id: 'om-r', body: RECLAIM_LINE, attempts: 0 }, error: null },                  // claim
+  ],
+  canned_responses: o.canned ?? { data: { body: RECLAIM_LINE, reviewed_at: '2026-09-30T00:00:00Z' }, error: null },
+});
+
+const flipOf = (ops: { table: string; op: string; patch?: Record<string, unknown>; eq?: [string, unknown][] }[]) =>
+  ops.find((o) => o.table === 'conversations' && o.op === 'update');
+
+test('RECLAIM: the reviewed row\'s bytes are sent once, no model, then the thread is the bot\'s again', async () => {
+  const { fx, ops, generated, delivered, needsPerson, flags } = stubEffects({ tables: reclaimTables() });
+  const r = await run(fx, job({ reclaimMid: MID }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body['reclaim'], true);
+  assert.equal(generated.length, 0, 'no model');
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0]?.body, RECLAIM_LINE);
+  assert.equal(delivered[0]?.recipientId, PSID);
+  const draft = ops.find((o) => o.table === 'outbound_messages' && o.op === 'insert');
+  assert.equal(draft?.patch?.['dedup_key'], `reclaim:${MID}`, 'keyed on Meta\'s own mid');
+  const flip = flipOf(ops);
+  assert.deepEqual(
+    { control: flip?.patch?.['thread_control'], source: flip?.patch?.['thread_control_source'] },
+    { control: 'bot', source: 'reclaim' },
+  );
+  assert.ok(flip?.eq?.some(([k, v]) => k === 'thread_control' && v === 'human'), 'the flip is conditional on the thread still being held');
+  assert.deepEqual(needsPerson.map((n) => [n.reason, n.sent]), [['reclaim_sent', 'yes']]);
+  assert.ok(flags.some((f) => f.code === 'handover_reclaim'));
+});
+
+test('RECLAIM: a repeat job after the send never sends again; it only finishes the flip', async () => {
+  const again = stubEffects({ tables: reclaimTables({ existing: { id: 'om-r', state: 'sent' } }) });
+  const r = await run(again.fx, job({ reclaimMid: MID }));
+  assert.equal(r.status, 200);
+  assert.equal(again.delivered.length, 0);
+  assert.equal(flipOf(again.ops)?.patch?.['thread_control'], 'bot');
+  // Already flipped: the thread is the bot's, and nothing is sent or written.
+  const flipped = stubEffects({ tables: reclaimTables({ existing: { id: 'om-r', state: 'sent' }, thread: { thread_control: 'bot', thread_control_source: 'reclaim' } }) });
+  const r2 = await run(flipped.fx, job({ reclaimMid: MID }));
+  assert.equal(r2.body['refused'], 'not_human');
+  assert.equal(flipped.delivered.length, 0);
+  assert.equal(flipOf(flipped.ops), undefined);
+  // A claim that finds the row already sent (a racing job) sends nothing either.
+  const raced = stubEffects({
+    tables: {
+      ...reclaimTables(),
+      outbound_messages: [
+        { data: null, error: null },
+        { data: { id: 'om-r', body: RECLAIM_LINE, state: 'draft', attempts: 0 }, error: null },
+        { data: null, error: null },                 // the CAS matched nothing
+        { data: { state: 'sent' }, error: null },    // because it is sent
+      ],
+    },
+  });
+  await run(raced.fx, job({ reclaimMid: MID }));
+  assert.equal(raced.delivered.length, 0);
+});
+
+test('RECLAIM: no reviewed row is inert: nothing drafted, sent or flipped', async () => {
+  for (const canned of [{ data: null, error: null }, { data: { body: RECLAIM_LINE, reviewed_at: null }, error: null }]) {
+    const { fx, ops, delivered } = stubEffects({ tables: reclaimTables({ canned }) });
+    const r = await run(fx, job({ reclaimMid: MID }));
+    assert.equal(r.body['refused'], 'no_reviewed_line');
+    assert.equal(delivered.length, 0);
+    assert.equal(ops.some((o) => o.table === 'outbound_messages' && o.op === 'insert'), false);
+    assert.equal(flipOf(ops), undefined);
+  }
+});
+
+test('RECLAIM: a shadow channel sends and flips nothing, testers included', async () => {
+  const { fx, ops, delivered } = stubEffects({
+    tables: { ...reclaimTables(), tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'shadow', graph_version_override: null, test_sender_ids: [PSID] }, error: null } },
+  });
+  const r = await run(fx, job({ reclaimMid: MID }));
+  assert.equal(r.body['refused'], 'not_delivering');
+  assert.equal(delivered.length, 0);
+  assert.equal(ops.some((o) => o.table === 'outbound_messages'), false);
+  assert.equal(flipOf(ops), undefined);
+});
+
+test('RECLAIM: staff active since the message, or a person\'s echo stored since, sends nothing', async () => {
+  const staff = stubEffects({ tables: reclaimTables({ thread: { thread_control_at: '2026-09-04T11:59:00.000Z' } }) });
+  assert.equal((await run(staff.fx, job({ reclaimMid: MID }))).body['refused'], 'staff_active');
+  assert.equal(staff.delivered.length, 0);
+
+  const echo = {
+    messaging: [{ sender: { id: '100000000000001' }, recipient: { id: PSID }, timestamp: NOW.getTime(),
+      message: { is_echo: true, mid: 'm_staff', app_id: 263902037430900, text: 'Сайн байна уу, одоо шалгая' } }],
+  };
+  const person = stubEffects({
+    tables: {
+      ...reclaimTables(),
+      tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'live', graph_version_override: null, meta_app_id: '999' }, error: null },
+      'webhook_events:contains': { data: [{ id: EVENT_ID + 1, raw_payload: echo }], error: null },
+    },
+  });
+  assert.equal((await run(person.fx, job({ reclaimMid: MID }))).body['refused'], 'person_replied');
+  assert.equal(person.delivered.length, 0);
+  assert.equal(flipOf(person.ops), undefined);
+});
+
+test('RECLAIM: an unreadable person check FAILS CLOSED: nothing sent, a 200 the next sweep retries', async () => {
+  const { fx, delivered, exhausted } = stubEffects({
+    tables: { ...reclaimTables(), 'webhook_events:contains': { data: null, error: { message: 'reset' } } },
+  });
+  const r = await run(fx, job({ reclaimMid: MID }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body['refused'], 'unreadable');
+  assert.equal(delivered.length, 0);
+  assert.equal(exhausted.length, 0, 'an optional line never pages as an unanswered customer');
+});
+
+test('RECLAIM: past the send window by Meta\'s own timestamp, nothing is sent', async () => {
+  const old = NOW.getTime() - 23 * 60 * 60_000 - 60_000;
+  const { fx, delivered } = stubEffects({
+    tables: { ...reclaimTables(), webhook_events: { data: { raw_payload: payload({ ts: old }) } } },
+  });
+  const r = await run(fx, job({ reclaimMid: MID }));
+  assert.equal(r.body['refused'], 'outside_window');
+  assert.equal(delivered.length, 0);
+});
+
+test('RECLAIM: a failed send leaves the thread held for the next sweep; a lost flip race keeps it the staff\'s', async () => {
+  const failed = stubEffects({
+    tables: reclaimTables(),
+    deliver: async () => ({ outcome: 'failed', failure: 'rate_limited', retryable: true, detail: '613' }) as DeliverOutcome,
+  });
+  const r = await run(failed.fx, job({ reclaimMid: MID }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body['refused'], 'not_sent');
+  assert.equal(flipOf(failed.ops), undefined);
+  assert.equal(failed.needsPerson.length, 0);
+
+  const race = stubEffects({ tables: reclaimTables({ flipped: [] }) });
+  const r2 = await run(race.fx, job({ reclaimMid: MID }));
+  assert.equal(r2.body['refused'], 'flip_lost_race');
+  assert.equal(race.delivered.length, 1);
+});
+
+test('a job carrying both a catch-up and a reclaim is ours published wrong, and dropped', async () => {
+  const { fx, delivered } = stubEffects({ tables: reclaimTables() });
+  const r = await run(fx, job({ reclaimMid: MID, catchUpMid: MID }));
+  assert.equal(r.body['dropped'], 'job_conflicting_modes');
+  assert.equal(delivered.length, 0);
 });

@@ -1,240 +1,434 @@
 /**
- * Taking a thread back when the handover went nowhere.
+ * Taking a chat back when staff took it and then went quiet (founder, 2026-09-30,
+ * superseding D-162).
  *
- * `docs/handover.md` step 3 is the whole reason the Handover Protocol is worth building
- * here: the founder's stated motive is a phone that went unanswered for two days, and a
- * pass into an inbox nobody reads is that same failure with better plumbing — worse, in
- * fact, because the customer now gets silence from a bot that deliberately stopped
- * talking. So the reclaim ships with the pass or the pass does not ship.
+ * > "If staff have taken over a chat and nobody has replied within 2 hours during the
+ * > salon's opening hours, Дали sends one approved line and resumes."
  *
- * ## `passed` is the whole design, and it is why this could not be built before
+ * ## What was wrong
  *
- * The blocker `docs/handover.md` records is arithmetic: the reclaim window is 15 minutes
- * and `human_takeover_cooldown_minutes` is 30, so a sweeper that reclaims ANY `human`
- * thread takes it back before the cooldown has run and the cooldown becomes unreachable.
- * The design answer is to reclaim only threads WE passed — and `thread_control_source`
- * could not express that, because `handover` was written both when this platform passes a
- * thread and when a receptionist takes one through Meta's own UI.
+ * A staff reply typed in the Page inbox (an echo, `record.ts`) or a Meta handover event
+ * makes a thread `human`, and the reception worker then holds every customer message for the
+ * tenant's takeover cooldown (`humanHoldsThread`, check 4). A held message is never looked
+ * at again: nothing re-drives it once the cooldown has run. Measured on Tara's Page: a
+ * customer who wrote two seconds after a staff reply waited ~33 hours for the next staff
+ * answer, and another ~24.5 hours. The bot was allowed to speak after thirty minutes; no
+ * message arrived to let it.
  *
- * `0033` adds `passed`. Everything below turns on it: a thread a person took is never
- * ours to take back, at any age, and the only rows this sweeper can reach are the ones
- * this platform handed away itself. Widening that test to `handover` would silence the
- * cooldown for every tenant at once — the same shape as widening check 4 to refuse on
- * `unknown` (see `control.ts`).
+ * ## The design: the hourly health run finds them, the reception worker sends
  *
- * ## The SQL filter is not the decision
+ * `reclaimHeldConversations` runs inside the hourly health job (`worker/health.ts`). It
+ * reads, decides with the pure `decideReclaim`, and for each conversation that qualifies
+ * re-enqueues the held message's OWN stored webhook event to the reception worker with
+ * `reclaimMid` — the shape `channel/catchup.ts` already uses with `catchUpMid`. The worker
+ * (`worker/reclaim.ts`) then serves the tenant's reviewed `handover_reclaim` row bytes
+ * through the one send path every reply uses: the channel's token and Page, `draftOnce`,
+ * `claim`'s CAS, `deliver`, and the person-replied re-check before the send. There is no
+ * second sender, and nothing here calls a model or spends.
  *
- * `sweepReclaimable` narrows in the query AND re-decides every row with `decideReclaim`.
- * That looks redundant and is the point: D-064 found a `.is('replied_at', null)` filter
- * that could not exclude a single row because nothing ever wrote the column, harmless
- * only because a filter beside it happened to carry the load. A filter is an optimisation;
- * the verdict is the rule, it is pure, and it is what the tests assert.
+ * Why the hourly run and not a delayed QStash message at hold time: "two OPENING hours" is
+ * not a wall-clock delay, so a message held at 19:30 by a salon closing at 20:00 would need
+ * rescheduling across the night; and the health run is already signed, scheduled and
+ * retried. The cost is latency: the send happens at the first hourly run after 120 open
+ * minutes have passed, so up to about **three hours** after the customer wrote on an open
+ * afternoon. The cadence lives in the QStash console, not this repository.
  *
- * ## An unknown age is not an expired one
+ * ## Which threads, and why only `echo`
  *
- * A `human` thread with a null `thread_control_at` is a real state — `0027` shipped every
- * pre-existing conversation with no timestamp. `humanHoldsThread` reads that as "assume
- * control is current" and refuses to answer; this reads it the same way and refuses to
- * reclaim. Both resolve towards leaving the person alone, which is the only direction
- * where being wrong is cheap.
+ * - **`echo`**: staff typed in the Page inbox. Meta moved nothing; this platform inferred a
+ *   person. After the cooldown the ordinary path already answers such threads without any
+ *   Graph call, so a send here is the proven path. These are reclaimed.
+ * - **`handover`**: Meta named another app as the owner (or the bot's own media hand-off
+ *   wrote it). If Meta really holds the thread elsewhere, reclaiming needs
+ *   `take_thread_control` (`graph.ts`) first, a live mutation of the salon's inbox that has
+ *   never been exercised and whose effect on a Page Inbox that is the primary receiver is not
+ *   known here. So these are NOT sent to: a person is paged instead (`meta_holds_thread`),
+ *   at the moment a send would have happened, and the count says so.
+ * - **`passed`**: this platform's own Graph pass. Nothing writes it today (D-162 left the
+ *   pass unwired). It is a Meta ownership change like `handover`, so it is treated like one.
+ *   The old 15-minute reclaim of `passed` threads (D-091) is retired with the sweeper that
+ *   implemented it; the Graph take stays in `graph.ts`, wired to nothing.
+ *
+ * ## The decision is pure, and the SQL filter is not it
+ *
+ * The query narrows; `decideReclaim` decides, and it is what the tests assert. D-064 found a
+ * filter that could not exclude a row because nothing wrote the column.
+ *
+ * ## Inert until the founder approves the wording
+ *
+ * A tenant with no REVIEWED `handover_reclaim` row gets nothing: no send, no flip, no page.
+ * Every conversation that WOULD have been acted on is counted `no_reviewed_line`, so a
+ * switched-off feature never reads as a clean zero.
+ *
+ * ## Crash order
+ *
+ * Send first, flip after (the worker). A crash after the send leaves the thread `human` with
+ * the reclaim row `sent`; the next sweep sees that row and re-enqueues, and the worker's
+ * claim answers `already_sent` and only flips. The row's dedup key is Meta's own `mid`
+ * (`reclaim:<mid>`), so no sweep, retry or redelivery can send the line twice for one held
+ * message.
  */
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ControlSource } from './record.ts';
 import type { ThreadControl } from './control.ts';
+import type { OutboundState } from '../outbound/claim.ts';
+import type { EnqueueResult } from '../queue/qstash.ts';
+import { openAt, openMinutesSince } from '../health/silence.ts';
+import type { BusinessHours, Closure } from '../reception/volatile.ts';
+import { tenantClock } from '../time/clock.ts';
+import { readCannedLine } from './media.ts';
+import { raiseNeedsPerson, type NeedsPersonReason } from './needsPerson.ts';
 
-/**
- * How long to wait before concluding nobody is coming. Founder's call, 2026-09-19 (D-091).
- *
- * Matrix's own corpus is the argument for minutes rather than hours — «Утсаа авахгүй
- * байна», then «2 өдөр залгаж байна», then a customer asking for a human rather than an
- * AI. A customer who has been told a person is coming and then waits an hour has learned
- * that asking for a person does not work.
- */
-export const RECLAIM_WINDOW_MINUTES = 15;
-
-/** The canned row the customer is sent when the window expires. Served whole, no model. */
+/** The canned row the customer is sent. Served whole, no model. Model-invisible (`gate/match.ts`). */
 export const RECLAIM_KIND = 'handover_reclaim';
 
-/** One conversation, as the sweeper reads it. */
-export type ReclaimCandidate = {
-  readonly conversationId: string;
+/** Founder, 2026-09-30: two hours, counted only while the salon is open. */
+export const RECLAIM_AFTER_OPEN_MINUTES = 120;
+
+/**
+ * The oldest held message a reclaim is sent for. Meta's standard messaging window is 24
+ * hours from the customer's message; this stops an hour short because the job is enqueued,
+ * then delivered, and QStash's last redelivery was measured about 33 minutes after the first
+ * (`RECEPTION_MAX_DELIVERIES`). The worker re-checks the same limit against Meta's own
+ * timestamp before it sends.
+ */
+export const RECLAIM_MAX_AGE_MINUTES = 23 * 60;
+
+/**
+ * How far back the sweep looks. Past the send window, so a message that aged out while
+ * unanswered is seen at least once more and a person is told; bounded, so it is not
+ * counted every hour for ever.
+ */
+export const RECLAIM_LOOKBACK_MINUTES = 48 * 60;
+
+/** `reclaim:<mid>`: Meta's own message id, so one held message gets one line (D-039). */
+export function reclaimDedupKey(mid: string): string {
+  return `reclaim:${mid}`;
+}
+
+/** One conversation, as the sweep reads it. */
+export type ReclaimFacts = {
   readonly control: ThreadControl;
   /** Null for every conversation that predates `0027`. */
   readonly source: ControlSource | null;
-  /** When control last changed hands. Null is a real state, not a missing field. */
-  readonly at: Date | null;
+  /** The last staff activity: when control moved, or the last staff echo refreshed it. */
+  readonly controlAt: Date | null;
+  /** The customer's latest stored message (`messages.at`, our clock, as `controlAt` is). */
+  readonly latest: { readonly externalId: string; readonly at: Date } | null;
+  /** The state of this message's own reclaim row, null when there is none. */
+  readonly reclaimRow: OutboundState | null;
+  /** A reply of ours, other than the reclaim row, drafted at or after the message and sent or sending. */
+  readonly botReplied: boolean;
+  readonly now: Date;
+  readonly schedule: { readonly timezone: string; readonly hours: readonly BusinessHours[]; readonly closures: readonly Closure[] };
 };
 
+export type ReclaimSkip =
+  /** Control is `bot` or `unknown`: nothing is held. */
+  | 'not_human'
+  /** `human` with no timestamp: read as current, as check 4 reads it. */
+  | 'no_timestamp'
+  | 'no_customer_message'
+  /** Staff acted after the customer's latest message: nobody is waiting on the bot. */
+  | 'staff_replied_after'
+  | 'bot_replied'
+  /** This message's reclaim was refused before the send (a person replied): terminal. */
+  | 'reclaim_refused'
+  /** Parked by `deliver` and already alerted: no automatic retry may touch it. */
+  | 'reclaim_indeterminate'
+  | 'reclaim_in_flight'
+  /** `human` from a source this rule does not cover (null: predates `0027`). */
+  | 'unknown_source'
+  /** Fewer than two opening hours have passed. */
+  | 'waiting'
+  | 'closed_now'
+  /** No usable `business_hours` row on a day the walk crossed: cannot count, so does not act. */
+  | 'hours_not_configured';
+
 export type ReclaimVerdict =
-  | { readonly reclaim: true; readonly waitedMinutes: number }
-  | {
-      readonly reclaim: false;
-      readonly reason:
-        /** Control is `bot` or `unknown`; there is nothing to take back. */
-        | 'not_human'
-        /** A person took this thread. Never ours to reclaim, at any age. */
-        | 'not_ours_to_reclaim'
-        /** `human` with no timestamp — read as current, exactly as check 4 reads it. */
-        | 'no_timestamp'
-        /** Passed by us, and the window has not run out yet. */
-        | 'window_open';
-      readonly waitedMinutes: number | null;
-    };
+  /**
+   * Send the reviewed line and hand the thread back to the bot. `openMinutesAtLeast` is a
+   * FLOOR: the walk stops once it has counted past the threshold, as the silence watch does.
+   */
+  | { readonly action: 'send'; readonly openMinutesAtLeast: number }
+  /** The line was sent and the thread not flipped (a crash between the two): flip only. */
+  | { readonly action: 'finish' }
+  /** Tell a person; send nothing. */
+  | { readonly action: 'page'; readonly reason: 'window_missed' | 'meta_holds_thread' }
+  | { readonly action: 'skip'; readonly reason: ReclaimSkip };
 
 /**
- * May this thread be taken back?
+ * May this conversation be taken back now?
  *
- * Pure, and ordered so that every refusal names the narrowest true reason. `not_human`
- * before `not_ours_to_reclaim` because a `bot` thread with `source = 'passed'` is a
- * thread already reclaimed, and reporting that as "not ours" would read as a bug in the
- * discriminator rather than as a no-op.
+ * Pure. Ordered so each refusal names the narrowest true reason, and so every question that
+ * can be answered without the schedule is answered before the walk.
  */
-export function decideReclaim(
-  candidate: ReclaimCandidate,
-  now: Date,
-  windowMinutes: number = RECLAIM_WINDOW_MINUTES,
-): ReclaimVerdict {
-  if (candidate.control !== 'human') return { reclaim: false, reason: 'not_human', waitedMinutes: null };
-  if (candidate.source !== 'passed') {
-    return { reclaim: false, reason: 'not_ours_to_reclaim', waitedMinutes: null };
-  }
-  if (candidate.at === null) return { reclaim: false, reason: 'no_timestamp', waitedMinutes: null };
+export function decideReclaim(f: ReclaimFacts): ReclaimVerdict {
+  const skip = (reason: ReclaimSkip): ReclaimVerdict => ({ action: 'skip', reason });
+  if (f.control !== 'human') return skip('not_human');
+  if (f.controlAt === null) return skip('no_timestamp');
+  if (f.latest === null) return skip('no_customer_message');
+  // Strictly after. A staff echo stored at the same instant as the message is staff acting.
+  if (f.latest.at.getTime() <= f.controlAt.getTime()) return skip('staff_replied_after');
 
-  const waited = (now.getTime() - candidate.at.getTime()) / 60_000;
-  // `>=` so a window of 0 means "reclaim immediately" rather than "never", matching how
-  // `humanHoldsThread` reads a cooldown of 0 as "resume immediately". A window nobody can
-  // switch off is a window somebody will work around.
-  if (waited >= windowMinutes) return { reclaim: true, waitedMinutes: Math.floor(waited) };
-  return { reclaim: false, reason: 'window_open', waitedMinutes: Math.floor(waited) };
+  switch (f.reclaimRow) {
+    case 'sent': return { action: 'finish' };
+    case 'refused': return skip('reclaim_refused');
+    case 'indeterminate': return skip('reclaim_indeterminate');
+    case 'sending': case 'claiming': return skip('reclaim_in_flight');
+    default: break; // none, draft or failed: still to be sent
+  }
+  if (f.botReplied) return skip('bot_replied');
+  if (f.source !== 'echo' && f.source !== 'handover' && f.source !== 'passed') return skip('unknown_source');
+
+  const ageMinutes = (f.now.getTime() - f.latest.at.getTime()) / 60_000;
+  if (ageMinutes >= RECLAIM_MAX_AGE_MINUTES) return { action: 'page', reason: 'window_missed' };
+
+  const walked = openMinutesSince(
+    { ...f.schedule, now: f.now, thresholdOpenMinutes: RECLAIM_AFTER_OPEN_MINUTES },
+    f.latest.at,
+  );
+  if ('notConfigured' in walked) return skip('hours_not_configured');
+  if (walked.minutes < RECLAIM_AFTER_OPEN_MINUTES) return skip('waiting');
+
+  const openNow = openAt(f.schedule, f.now);
+  if (openNow === null) return skip('hours_not_configured');
+  if (!openNow) return skip('closed_now');
+
+  if (f.source !== 'echo') return { action: 'page', reason: 'meta_holds_thread' };
+  return { action: 'send', openMinutesAtLeast: Math.floor(walked.minutes) };
 }
 
 /* ------------------------------------------------------------------------- *
  * The sweep
  * ------------------------------------------------------------------------- */
 
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { applyThreadControl } from './record.ts';
-
-/** Why a candidate was not reclaimed, counted rather than logged one line each. */
-export type ReclaimSkip = ReclaimVerdict extends { reclaim: false; reason: infer R } ? R : never;
-
-export type ReclaimOutcome = {
-  /** Threads taken back, with a line drafted for each. */
-  readonly reclaimed: number;
-  /** Verdict counts, including the ones the SQL filter was supposed to have excluded. */
-  readonly skipped: Record<string, number>;
-  /** Candidates the sweep could not finish. Each is retried on the next run. */
-  readonly failed: Record<string, number>;
-  readonly retry: boolean;
+export type ReclaimJob = {
+  provider: string; dedupKey: string; eventId: number; tenantId: string; channelId: string; reclaimMid: string;
 };
 
-export type ReclaimDeps = {
-  readonly db: SupabaseClient;
-  readonly now: Date;
-  /**
-   * The reviewed `handover_reclaim` body, or null when the tenant has no row or the row is
-   * unreviewed. Resolved by the caller so this function never decides what a customer reads.
-   */
-  readonly reclaimLine: (tenantId: string) => Promise<string | null | 'unreadable'>;
-  /**
-   * `take_thread_control` against Graph. `accepted` is the only outcome that proceeds:
-   * `graph.ts` is explicit that an INDETERMINATE take means "assume it did not happen,
-   * stay quiet", the opposite of how an indeterminate SEND is read, because a bot talking
-   * over a person is the failure this whole feature exists to prevent.
-   */
-  readonly takeControl: (input: { tenantId: string; conversationId: string }) => Promise<'accepted' | 'refused' | 'indeterminate'>;
-  readonly draft: (input: {
-    tenantId: string; conversationId: string; dedupKey: string; body: string;
-  }) => Promise<{ ok: true } | { ok: false; detail: string }>;
+export type ReclaimPage = {
+  tenantId: string; conversationId: string; provider: string; mid: string;
+  reason: 'window_missed' | 'meta_holds_thread';
 };
 
+export type ReclaimSweepInput = {
+  now: Date;
+  enqueue: (job: ReclaimJob) => Promise<EnqueueResult>;
+  /** Tell a person. Injected for tests; production raises `conversation.needs_person`. */
+  page?: (p: ReclaimPage) => Promise<void>;
+};
+
+export type ReclaimSweepOutcome =
+  | { ok: true; channels: number; counts: Record<string, number> }
+  | { ok: false; detail: string };
+
+/** Bound on each list read. */
+const LIMIT = 500;
+
+const rows = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+const str = (v: unknown): string => (typeof v === 'string' ? v : v === null || v === undefined ? '' : String(v));
+const date = (v: unknown): Date | null => {
+  if (typeof v !== 'string' || v === '') return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
 const bump = (into: Record<string, number>, key: string) => { into[key] = (into[key] ?? 0) + 1; };
 
+const PAGE_REASON: Record<ReclaimPage['reason'], NeedsPersonReason> = {
+  window_missed: 'reclaim_window_missed',
+  meta_holds_thread: 'reclaim_meta_holds_thread',
+};
+
+/** The production page: `conversation.needs_person`, once per held message. Never rejects. */
+export function pageNeedsPerson(db: SupabaseClient, now: Date): (p: ReclaimPage) => Promise<void> {
+  return async (p) => {
+    try {
+      const out = await raiseNeedsPerson(db, {
+        tenantId: p.tenantId, conversationId: p.conversationId, reason: PAGE_REASON[p.reason],
+        provider: p.provider, sent: 'no', now,
+        // Per held message, not per day: the lookback sees one message on two runs a day apart.
+        dedupKey: `needs_person:${p.conversationId}:${PAGE_REASON[p.reason]}:${p.mid}`,
+      });
+      if (out.outcome === 'failed' || out.outcome === 'recorded_undelivered') {
+        console.error('[reclaim] page_undelivered', { conversationId: p.conversationId, reason: p.reason, ...out });
+      }
+    } catch (e) {
+      console.error('[reclaim] page_failed', { conversationId: p.conversationId, detail: e instanceof Error ? e.message : String(e) });
+    }
+  };
+}
+
+type TenantView =
+  | { ok: true; schedule: ReclaimFacts['schedule']; line: 'reviewed' | 'none' | 'unreadable' }
+  | { ok: false; detail: string };
+
+/** A tenant's clock, week, closures and whether it has a reviewed line. Read once per run. */
+async function readTenant(db: SupabaseClient, tenantId: string, now: Date): Promise<TenantView> {
+  const tenant = await db.from('tenants').select('timezone, default_locale').eq('id', tenantId).maybeSingle();
+  if (tenant.error || tenant.data === null) return { ok: false, detail: `tenants: ${tenant.error?.message ?? 'no row'}` };
+  const t = tenant.data as Record<string, unknown>;
+  const timezone = str(t['timezone']);
+  // No default zone: a wrong calendar would count the wrong hours as open.
+  if (timezone === '') return { ok: false, detail: 'tenant timezone missing' };
+  const locale = str(t['default_locale']) || 'mn-MN';
+  // Closures that could touch the walk. The date is on the tenant's own calendar, with a day
+  // of slack beyond the lookback so a read filter can never exclude one the walk reaches.
+  const oldest = tenantClock(new Date(now.getTime() - RECLAIM_LOOKBACK_MINUTES * 60_000 - 24 * 60 * 60_000), timezone).date;
+  const [hoursRes, closuresRes, line] = await Promise.all([
+    db.from('business_hours').select('weekday, opens, closes, closed').eq('tenant_id', tenantId).order('weekday'),
+    db.from('tenant_closures').select('starts_on, ends_on, title, message').eq('tenant_id', tenantId).gte('ends_on', oldest),
+    readCannedLine(db, { tenantId, locale, kind: RECLAIM_KIND }),
+  ]);
+  if (hoursRes.error) return { ok: false, detail: `business_hours: ${hoursRes.error.message}` };
+  if (closuresRes.error) return { ok: false, detail: `tenant_closures: ${closuresRes.error.message}` };
+  const hours: BusinessHours[] = rows(hoursRes.data).map((r) => ({
+    weekday: Number(r['weekday']),
+    opens: r['opens'] === null ? null : str(r['opens']),
+    closes: r['closes'] === null ? null : str(r['closes']),
+    closed: r['closed'] === true,
+  }));
+  const closures: Closure[] = rows(closuresRes.data).map((r) => ({
+    startsOn: str(r['starts_on']), endsOn: str(r['ends_on']), title: str(r['title']), message: str(r['message']),
+  }));
+  return {
+    ok: true,
+    schedule: { timezone, hours, closures },
+    line: !line.ok ? 'unreadable'
+      : line.line !== null && line.line.reviewed && line.line.body.trim() !== '' ? 'reviewed' : 'none',
+  };
+}
+
 /**
- * Take back every thread this platform passed and nobody picked up.
- *
- * ## Why a reviewed line is REQUIRED, and what that costs
- *
- * A tenant with no reviewed `handover_reclaim` row is skipped entirely — the thread stays
- * `human` and the bot stays quiet. That is the worse outcome for the customer in the
- * moment, and it is still the right rule: reclaiming silently means the customer was told
- * a person was coming, got nobody, and then gets a bot answering as if nothing happened.
- * The sentence is the thing that makes the reclaim honest, so a reclaim without it is not
- * a degraded reclaim, it is a different and worse behaviour.
- *
- * It is stated rather than discovered because the skip is invisible from outside: with no
- * row, this returns `reclaimed: 0` and a clean-looking sweep. `no_reviewed_line` in
- * `failed` is what tells an operator the feature is switched off rather than idle.
- *
- * ## The order is take → draft → flip, and each step is safe to repeat
- *
- * Flipping first would leave a thread marked `bot` with nothing sent if the process died,
- * which is the silent reclaim above arrived at by accident. Drafting first is safe because
- * `draftOnce`'s dedup key makes the insert idempotent, and the key carries the PASS
- * INSTANT — so a thread passed again tomorrow gets its own line rather than finding
- * yesterday's row and sending nothing.
+ * Find every chat staff took and left, and act on each: enqueue the reclaim, finish one a
+ * crash interrupted, or page a person. Refuses the run (`ok: false`) only when the channel
+ * or conversation lists are unreadable; any narrower read failure skips that tenant or
+ * conversation this run, counted `unreadable`, and sends nothing for it.
  */
-export async function sweepReclaimable(
-  deps: ReclaimDeps,
-  input: { tenantId: string; windowMinutes?: number; limit?: number },
-): Promise<ReclaimOutcome> {
-  const windowMinutes = input.windowMinutes ?? RECLAIM_WINDOW_MINUTES;
-  const out = { reclaimed: 0, skipped: {} as Record<string, number>, failed: {} as Record<string, number>, retry: false };
+export async function reclaimHeldConversations(db: SupabaseClient, input: ReclaimSweepInput): Promise<ReclaimSweepOutcome> {
+  const counts: Record<string, number> = {};
+  const page = input.page ?? pageNeedsPerson(db, input.now);
 
-  const cutoff = new Date(deps.now.getTime() - windowMinutes * 60_000);
-  const { data, error } = await deps.db
+  // Live, delivering Messenger and Instagram channels only. `shadow` never reaches here.
+  const channels = await db
+    .from('tenant_channels')
+    .select('id, tenant_id, provider')
+    .in('provider', ['facebook_page', 'instagram'])
+    .eq('delivery_mode', 'live')
+    .eq('token_status', 'active');
+  if (channels.error) return { ok: false, detail: `tenant_channels unreadable: ${channels.error.message}` };
+  const live = new Map(rows(channels.data).map((c) => [str(c['id']), c]));
+  if (live.size === 0) return { ok: true, channels: 0, counts };
+
+  const since = new Date(input.now.getTime() - RECLAIM_LOOKBACK_MINUTES * 60_000);
+  const convRes = await db
     .from('conversations')
-    .select('id, thread_control, thread_control_source, thread_control_at')
-    .eq('tenant_id', input.tenantId)
+    .select('id, tenant_id, channel_id, thread_control, thread_control_source, thread_control_at')
+    .in('channel_id', [...live.keys()])
     .eq('thread_control', 'human')
-    .eq('thread_control_source', 'passed')
-    .lte('thread_control_at', cutoff.toISOString())
-    .order('thread_control_at')
-    .limit(input.limit ?? 100);
-  if (error) {
-    // Unreadable is never "nothing to do". D-062 is eleven days of exactly that reading.
-    return { ...out, failed: { conversations_unreadable: 1 }, retry: true };
-  }
-  const rows = (data ?? []) as Record<string, unknown>[];
-  if (rows.length === 0) return out;
+    .gte('last_message_at', since.toISOString())
+    .order('last_message_at', { ascending: true })
+    .limit(LIMIT);
+  if (convRes.error) return { ok: false, detail: `conversations unreadable: ${convRes.error.message}` };
 
-  const line = await deps.reclaimLine(input.tenantId);
-  if (line === 'unreadable') return { ...out, failed: { reclaim_line_unreadable: rows.length }, retry: true };
-  if (line === null) return { ...out, failed: { no_reviewed_line: rows.length } };
+  const tenants = new Map<string, TenantView>();
+  for (const conv of rows(convRes.data)) {
+    const tenantId = str(conv['tenant_id']);
+    const channelId = str(conv['channel_id']);
+    const conversationId = str(conv['id']);
+    const channel = live.get(channelId);
+    // The composite key keeps a channel inside its tenant; a mismatch is not ours to act on.
+    if (channel === undefined || str(channel['tenant_id']) !== tenantId) { bump(counts, 'channel_mismatch'); continue; }
 
-  for (const row of rows) {
-    const at = row['thread_control_at'];
-    const candidate: ReclaimCandidate = {
-      conversationId: String(row['id']),
-      control: String(row['thread_control'] ?? 'unknown') as ThreadControl,
-      source: (row['thread_control_source'] ?? null) as ControlSource | null,
-      at: typeof at === 'string' ? new Date(at) : null,
-    };
-    // Re-decided, not trusted from the query. See the module header: a filter is an
-    // optimisation and the verdict is the rule.
-    const verdict = decideReclaim(candidate, deps.now, windowMinutes);
-    if (!verdict.reclaim) { bump(out.skipped, verdict.reason); continue; }
+    let view = tenants.get(tenantId);
+    if (view === undefined) {
+      view = await readTenant(db, tenantId, input.now).catch((e: unknown) =>
+        ({ ok: false as const, detail: e instanceof Error ? e.message : String(e) }));
+      tenants.set(tenantId, view);
+      if (!view.ok) console.error('[reclaim] tenant_unreadable', { tenantId, detail: view.detail });
+    }
+    if (!view.ok) { bump(counts, 'unreadable'); continue; }
 
-    const taken = await deps.takeControl({ tenantId: input.tenantId, conversationId: candidate.conversationId });
-    if (taken !== 'accepted') { bump(out.failed, `take_${taken}`); out.retry = true; continue; }
+    const facts = await readFacts(db, { tenantId, conversationId, conv, now: input.now, schedule: view.schedule });
+    if (facts === 'unreadable') { bump(counts, 'unreadable'); continue; }
+    const verdict = decideReclaim(facts);
+    if (verdict.action === 'skip') { bump(counts, verdict.reason); continue; }
 
-    const drafted = await deps.draft({
-      tenantId: input.tenantId,
-      conversationId: candidate.conversationId,
-      // The pass instant, so a thread passed twice is reclaimed twice.
-      dedupKey: `reclaim:${candidate.conversationId}:${candidate.at?.toISOString() ?? 'null'}`,
-      body: line,
+    // Inert without the founder's approved line. `finish` is exempt: the line was already
+    // sent under an earlier approval, and leaving the thread `human` would only keep the
+    // customer's next message waiting.
+    if (verdict.action !== 'finish') {
+      if (view.line === 'unreadable') { bump(counts, 'reclaim_line_unreadable'); continue; }
+      if (view.line === 'none') { bump(counts, 'no_reviewed_line'); continue; }
+    }
+    const mid = facts.latest?.externalId ?? '';
+    const provider = str(channel['provider']);
+
+    if (verdict.action === 'page') {
+      await page({ tenantId, conversationId, provider, mid, reason: verdict.reason });
+      bump(counts, `paged_${verdict.reason}`);
+      continue;
+    }
+
+    const event = await db.from('webhook_events')
+      .select('id, provider')
+      .eq('tenant_id', tenantId).eq('channel_id', channelId)
+      .contains('raw_payload', { messaging: [{ message: { mid } }] })
+      .order('id', { ascending: true }).limit(1);
+    if (event.error) { bump(counts, 'unreadable'); continue; }
+    const ev = rows(event.data)[0];
+    // Purged, or never stored: nothing to hand the worker. The customer is still waiting.
+    if (ev === undefined) { bump(counts, 'event_missing'); continue; }
+    const queued = await input.enqueue({
+      provider: str(ev['provider']) || 'meta',
+      // Its own QStash identity, and a new one each hour: the sweep is the retry loop, and a
+      // failed first attempt must not be swallowed by the queue's dedup window. The send
+      // itself is deduplicated by the row's key, not by this.
+      dedupKey: `${reclaimDedupKey(mid)}:${Math.floor(input.now.getTime() / 3_600_000)}`,
+      eventId: Number(ev['id']), tenantId, channelId, reclaimMid: mid,
     });
-    if (!drafted.ok) { bump(out.failed, 'draft_failed'); out.retry = true; continue; }
-
-    const applied = await applyThreadControl(deps.db, {
-      tenantId: input.tenantId,
-      conversationId: candidate.conversationId,
-      control: 'bot',
-      source: 'reclaim',
-      at: deps.now,
-    });
-    if (!applied.ok) { bump(out.failed, 'control_not_written'); out.retry = true; continue; }
-    out.reclaimed += 1;
+    if (!queued.ok) { bump(counts, 'enqueue_failed'); console.error('[reclaim] enqueue_failed', { conversationId, detail: queued.detail }); continue; }
+    bump(counts, verdict.action === 'send' ? 'enqueued' : 'finish_enqueued');
   }
-  return out;
+  return { ok: true, channels: live.size, counts };
+}
+
+async function readFacts(
+  db: SupabaseClient,
+  c: { tenantId: string; conversationId: string; conv: Record<string, unknown>; now: Date; schedule: ReclaimFacts['schedule'] },
+): Promise<ReclaimFacts | 'unreadable'> {
+  const base = {
+    control: (str(c.conv['thread_control']) || 'unknown') as ThreadControl,
+    source: (c.conv['thread_control_source'] ?? null) as ControlSource | null,
+    controlAt: date(c.conv['thread_control_at']),
+    now: c.now, schedule: c.schedule,
+  };
+  const latestRes = await db.from('messages').select('external_id, at')
+    .eq('tenant_id', c.tenantId).eq('conversation_id', c.conversationId).eq('direction', 'inbound')
+    .order('at', { ascending: false }).limit(1);
+  if (latestRes.error) return 'unreadable';
+  const m = rows(latestRes.data)[0];
+  const at = m === undefined ? null : date(m['at']);
+  const mid = m === undefined ? '' : str(m['external_id']);
+  // A stored message with no Meta id cannot be keyed or re-driven; an unparseable time cannot
+  // be measured. Neither is "no message".
+  if (m !== undefined && (at === null || mid === '')) return 'unreadable';
+  if (m === undefined || at === null) return { ...base, latest: null, reclaimRow: null, botReplied: false };
+
+  const outRes = await db.from('outbound_messages').select('dedup_key, state')
+    .eq('tenant_id', c.tenantId).eq('conversation_id', c.conversationId)
+    .gte('created_at', at.toISOString())
+    .limit(LIMIT);
+  if (outRes.error) return 'unreadable';
+  const key = reclaimDedupKey(mid);
+  let reclaimRow: OutboundState | null = null;
+  let botReplied = false;
+  for (const r of rows(outRes.data)) {
+    const state = str(r['state']) as OutboundState;
+    if (str(r['dedup_key']) === key) { reclaimRow = state; continue; }
+    // A reply parked `indeterminate` may have reached the customer: counted as replied, the
+    // direction that cannot double-message.
+    if (state === 'sent' || state === 'sending' || state === 'claiming' || state === 'indeterminate') botReplied = true;
+  }
+  return { ...base, latest: { externalId: mid, at }, reclaimRow, botReplied };
 }

@@ -32,6 +32,7 @@ import { quietRoute, raiseAlert } from '../alerts/alert.ts';
 import type { EnqueueResult } from '../queue/qstash.ts';
 import { closeStaleCeilingEpisodes } from '../spend/ceilingAlert.ts';
 import { checkCannedDrift } from '../prompt/cannedDrift.ts';
+import { reclaimHeldConversations, type ReclaimPage } from '../handover/reclaim.ts';
 
 export type HealthEffects = {
   db: SupabaseClient;
@@ -41,7 +42,9 @@ export type HealthEffects = {
    * How the sweep re-publishes a job that never reached the queue, and how the catch-up
    * hands a held message back to the worker (`catchUpMid`).
    */
-  enqueue: (job: Parameters<SweepInput['enqueue']>[0] & { catchUpMid?: string }) => Promise<EnqueueResult>;
+  enqueue: (job: Parameters<SweepInput['enqueue']>[0] & { catchUpMid?: string; reclaimMid?: string }) => Promise<EnqueueResult>;
+  /** The reclaim sweep's page. Absent in production, which raises `conversation.needs_person`. */
+  reclaimPage?: (p: ReclaimPage) => Promise<void>;
 };
 
 export type HealthJobResult = { status: number; body: Record<string, unknown> };
@@ -106,6 +109,17 @@ export async function runHealthJob(
   // must not be re-run for it.
   const drift = await checkCannedDrift(effects.db, effects.now);
   if (!drift.ok) console.error('[health] canned_drift_failed', { detail: drift.detail });
+  // Seventh, and last so a failure here re-runs nothing it could skip: chats staff took and
+  // then left for two opening hours get the tenant's reviewed reclaim line and the bot back
+  // (founder, 2026-09-30; `handover/reclaim.ts`). Hourly is the latency, so a customer waits
+  // up to about three hours. Unreadable is a 503 like the other sweeps: "nobody is waiting"
+  // and "I could not look" must not read the same. Everything above is idempotent, so the
+  // retry costs reads and nothing else.
+  const reclaim = await reclaimHeldConversations(effects.db, {
+    now: effects.now, enqueue: effects.enqueue,
+    ...(effects.reclaimPage === undefined ? {} : { page: effects.reclaimPage }),
+  });
+  if (!reclaim.ok) return { status: 503, body: { error: 'unavailable', detail: reclaim.detail } };
 
   // The counts, not the verdicts: this body goes to QStash's delivery log, and a channel's
   // health belongs in `channel_health` and the alert rather than in a queue receipt.
@@ -121,6 +135,9 @@ export async function runHealthJob(
     status: 200,
     body: {
       checked: run.checked, states: counts, swept: sweptCounts, catch_up: caughtCounts,
+      // Every verdict counted, `no_reviewed_line` included: a feature switched off by a
+      // missing approval must not read as a quiet hour.
+      reclaim: reclaim.counts,
       ceiling_episodes: { closed: ceilings.ok ? ceilings.closed : 0, failures: ceilings.ok ? 0 : 1 },
       canned_drift: drift.ok
         ? { checked: drift.checked, drifted: drift.drifted, raised: drift.raised, closed: drift.closed, failures: drift.failures }

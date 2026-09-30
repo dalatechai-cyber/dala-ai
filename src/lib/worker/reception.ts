@@ -55,6 +55,7 @@ import { markEventState, recordDeliveryAttempt } from '../webhook/events.ts';
 import { usdToNano } from '../money.ts';
 import { isFresh, replyAgeLimitMinutes } from './freshness.ts';
 import { runCommentJob, type CommentEffects, type CommentJobResult } from './comments.ts';
+import { serveReclaim } from './reclaim.ts';
 import type { ReceptionOutcome } from '../reception/handle.ts';
 import type { Turn } from '../inbound/persist.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
@@ -413,7 +414,7 @@ async function runReceptionDelivery(
     return { status: 401, body: { error: 'worker.signature_invalid' } };
   }
 
-  let job: { eventId?: unknown; tenantId?: unknown; channelId?: unknown; catchUpMid?: unknown };
+  let job: { eventId?: unknown; tenantId?: unknown; channelId?: unknown; catchUpMid?: unknown; reclaimMid?: unknown };
   try {
     job = JSON.parse(request.rawBody) as typeof job;
   } catch {
@@ -429,10 +430,20 @@ async function runReceptionDelivery(
   // A catch-up job (`channel/catchup.ts`): answer this ONE message, held while the channel
   // was halted, and nothing else in the entry. Null on every ordinary delivery.
   const catchUpMid = typeof job.catchUpMid === 'string' && job.catchUpMid !== '' ? job.catchUpMid : null;
+  // A reclaim job (`handover/reclaim.ts`): serve the tenant's reviewed reclaim line for this
+  // ONE held message and hand the thread back (`worker/reclaim.ts`). Nothing else runs.
+  const reclaimMid = typeof job.reclaimMid === 'string' && job.reclaimMid !== '' ? job.reclaimMid : null;
   if (eventId === null || tenantId === null || channelId === null) {
     fx.log('error', 'job_missing_fields');
     return ok({ dropped: 'job_missing_fields' });
   }
+  if (catchUpMid !== null && reclaimMid !== null) {
+    // We published it wrong: the two modes answer the same message in different ways.
+    fx.log('error', 'job_conflicting_modes');
+    return ok({ dropped: 'job_conflicting_modes' });
+  }
+  // One message re-driven by a sweep: the catch-up or the reclaim.
+  const onlyMid = catchUpMid ?? reclaimMid;
 
   const { db, now } = fx;
   const clock = stopwatch();
@@ -496,10 +507,11 @@ async function runReceptionDelivery(
   // In catch-up mode only the held message is re-run. The entry's echoes, stickers,
   // photographs and standby count were all handled when it first arrived; repeating them
   // would re-count handovers and re-answer pictures.
-  const messages = catchUpMid === null
-    ? extracted.messages : extracted.messages.filter((m) => m.externalId === catchUpMid);
-  const skipped = catchUpMid === null ? extracted.skipped : [];
-  const standby = catchUpMid === null ? extracted.standby : 0;
+  // A reclaim job is the same: only its held message, nothing else in the entry.
+  const messages = onlyMid === null
+    ? extracted.messages : extracted.messages.filter((m) => m.externalId === onlyMid);
+  const skipped = onlyMid === null ? extracted.skipped : [];
+  const standby = onlyMid === null ? extracted.standby : 0;
   trace.turns = messages.map((m) => ({ psid: m.senderId, sentAt: m.sentAt }));
 
   // --- Tenant settings, read once for the whole entry. ----------------------
@@ -561,7 +573,8 @@ async function runReceptionDelivery(
   const startContext = (): Promise<Awaited<ReturnType<typeof loadReceptionContext>>> =>
     loadReceptionContext(db, { tenantId, channel: provider, settings, localDate })
       .catch((e: unknown) => ({ ok: false as const, code: 'unavailable' as const, detail: `context load threw: ${e instanceof Error ? e.message : String(e)}` }));
-  const contextPromise = messages.length > 0 && provider !== '' ? startContext() : null;
+  // Not for a reclaim job: it serves a stored row and never needs the context.
+  const contextPromise = messages.length > 0 && provider !== '' && reclaimMid === null ? startContext() : null;
 
   // --- Secondary receiver (§3.7). Never a drop. -----------------------------
   //
@@ -653,6 +666,27 @@ async function runReceptionDelivery(
   trace.ourAppId = metaAppId;
   const override = c['graph_version_override'];
   const graphVersion = typeof override === 'string' && override !== '' ? override : fx.graphVersionDefault();
+
+  // --- A reclaim job ends here. ------------------------------------------------------------
+  // After the channel is resolved, so it sends as the ordinary reply would (Page, token,
+  // Instagram's limit), and before anything that re-reads the entry: its echoes, media and
+  // comments were all handled when it first arrived. The event's state is not rewritten.
+  if (reclaimMid !== null) {
+    const held = messages[0];
+    return serveReclaim(fx, {
+      tenantId, channelId, eventId, provider, locale: settings.defaultLocale,
+      message: held === undefined ? null : { senderId: held.senderId, externalId: held.externalId, sentAt: held.sentAt },
+      // Live only. A shadow tester is answered for real by the ordinary path, but a reclaim
+      // flips thread ownership on the Page, which a mirror must never do.
+      deliverable: delivery.deliver,
+      ourAppId: metaAppId, automationTexts,
+      send: {
+        tenantId, channelId, pageId, graphVersion,
+        ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
+        ...(maxTextBytes === undefined ? {} : { maxTextBytes }),
+      },
+    });
+  }
 
   // --- What we saw and will not answer. Recorded BEFORE anything that can return. -----
   //
