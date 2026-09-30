@@ -590,6 +590,49 @@ function section(
 }
 
 /**
+ * The «ХОРИОТОЙ СЭДВҮҮД» lines: one per distinct question, every key that shares it joined
+ * (proposal C1, `docs/proposals/2026-09-30-tara-prompt-trim.md` §3(c)).
+ *
+ * Tara's nine `suitability_*` rows carry one question, and rendering it nine times cost
+ * ~1,360 characters of prefix for no information. So a question renders ONCE, at the
+ * position of its first row, with its keys in code-point order: `- a, b, c: question`.
+ * Every key still appears, so Ш1's list names the same topics.
+ *
+ * What stays exactly as it was, and why:
+ *  - **A question held by one key renders byte-identically** (`- key: question`). A tenant
+ *    with no shared question — DalaTech today — keeps its prefix and `content_hash`.
+ *  - **Order is the input's order**, which `sections.ts` sorts by key; a joined line sits
+ *    where its first key sat. Nothing is re-sorted here, so a unique-question list is
+ *    untouched even if a caller hands it over unsorted.
+ *  - **A row with no question renders its own bare key**, never joined: an empty question
+ *    is an absence, not a shared value (the rule in `renderTenantSections` below).
+ *
+ * Questions are compared exactly. They arrive NFC from the row; a near-duplicate stays two
+ * lines, which costs characters and never merges two topics that are not the same.
+ * No code parses this section back out of the prefix; the gate matches on `matcher` stems.
+ */
+export function refusalTopicLines(topics: TenantKb['refusalTopics']): string[] {
+  const keysByQuestion = new Map<string, string[]>();
+  for (const t of topics) {
+    if (t.question === '') continue;
+    const keys = keysByQuestion.get(t.question);
+    if (keys === undefined) keysByQuestion.set(t.question, [t.key]);
+    else keys.push(t.key);
+  }
+  const lines: string[] = [];
+  const emitted = new Set<string>();
+  for (const t of topics) {
+    if (t.question === '') { lines.push(`- ${t.key}`); continue; }
+    if (emitted.has(t.question)) continue;
+    emitted.add(t.question);
+    const keys = keysByQuestion.get(t.question) ?? [t.key];
+    const joined = keys.length === 1 ? t.key : [...keys].sort(byCodePoint).join(', ');
+    lines.push(`- ${joined}: ${t.question}`);
+  }
+  return lines;
+}
+
+/**
  * Render one tenant's L2 and L3.
  *
  * `approvedAt` is the REVISION's approval, applied to every section, and that is
@@ -615,7 +658,7 @@ export function renderTenantSections(tenantKb: TenantKb, approvedAt: string): Pr
   // looked. A row whose question is missing still renders its key: a topic that appears
   // without its Mongolian is worse read than one that does not appear at all.
   out.push(section('L2', 'refusal_topics', 1, SECTION_LABELS.refusalTopics,
-    kb.refusalTopics.map((t) => (t.question === '' ? `- ${t.key}` : `- ${t.key}: ${t.question}`)), approvedAt));
+    refusalTopicLines(kb.refusalTopics), approvedAt));
 
   out.push(section('L2', 'clarify_axes', 2, SECTION_LABELS.clarify,
     kb.clarify.map((c) => `- ${c.term}: ${c.question}`), approvedAt));

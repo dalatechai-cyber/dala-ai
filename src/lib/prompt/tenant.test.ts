@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { clockTime, formatMoney, hasTenantData, renderTenantSections, SECTION_LABELS, type TenantKb } from './tenant.ts';
+import { clockTime, formatMoney, hasTenantData, refusalTopicLines, renderTenantSections, SECTION_LABELS, type TenantKb } from './tenant.ts';
+import { byCodePoint } from '../mn/text.ts';
 import { cannedSectionBody, renderCannedSection } from '../gate/match.ts';
 import { CANNED_ROWS, DAY_ONE_KB, EMPTY_KB } from './tenantKb.fixtures.ts';
 import { renderStablePrefix, type PromptSection } from './render.ts';
@@ -713,4 +714,120 @@ test('an unknown contact kind falls back to the key, never disappears', () => {
   const kb = { ...MATRIX, contacts: [{ kind: 'telegram', value: '@matrix' }] };
   const body = bodyOf(renderTenantSections(kb, APPROVED), 'contacts');
   assert.match(body, /- telegram: @matrix/);
+});
+
+// ---------------------------------------------------------------------------
+// «ХОРИОТОЙ СЭДВҮҮД»: one line per distinct question (proposal C1, 2026-09-30)
+// ---------------------------------------------------------------------------
+
+/** The renderer as it was before C1, kept here as the control the new one is held to. */
+const legacyRefusalLines = (topics: TenantKb['refusalTopics']): string[] =>
+  topics.map((t) => (t.question === '' ? `- ${t.key}` : `- ${t.key}: ${t.question}`));
+
+/**
+ * The full compiled prefix and its hash, rendered once with the current code and once with
+ * the refusal section rebuilt by the pre-C1 renderer. Every other section is shared, so a
+ * difference can only come from the refusal list.
+ */
+function oldAndNewPrefix(kb: TenantKb): { before: { text: string; hash: string }; after: { text: string; hash: string } } {
+  const platform: PromptSection = {
+    layer: 'L0', key: '01_data_marker', ordinal: 1, origin: 'platform', reviewedAt: APPROVED,
+    body: readFileSync('prompt/platform/01_data_marker.mn.txt', 'utf8'),
+  };
+  const after = renderTenantSections(kb, APPROVED);
+  const before = after.map((s) => {
+    if (s.key !== 'refusal_topics') return s;
+    const heading = s.body.split('\n')[0] ?? '';
+    return { ...s, body: [heading, ...legacyRefusalLines(kb.refusalTopics)].join('\n').normalize('NFC') };
+  });
+  const out = (sections: PromptSection[]) => {
+    const r = renderStablePrefix([platform, ...sections]);
+    assert.equal(r.ok, true);
+    return r.ok ? { text: r.rendered.promptStable, hash: r.rendered.contentHash } : { text: '', hash: '' };
+  };
+  return { before: out(before), after: out(after) };
+}
+
+/** Refusal topics as `sections.ts` builds them from dumped rows: both tables, sorted by key. */
+function topicsFromDump(path: string): TenantKb['refusalTopics'] {
+  const dump = JSON.parse(readFileSync(path, 'utf8')) as Record<string, { topic_key?: string; decision_question?: string }[]>;
+  return [...(dump['disclosure_rules'] ?? []), ...(dump['out_of_scope_topics'] ?? [])]
+    .map((r) => ({ key: r.topic_key ?? '', question: r.decision_question ?? '' }))
+    .filter((t) => t.key !== '')
+    .sort((a, b) => byCodePoint(a.key, b.key));
+}
+
+const SHARED_Q = 'Сүүлийн мессеж үс будах, химийн эмчилгээ хийлгэх боломжтой эсэхийг асууж байна уу?';
+
+test('C1: identical questions collapse to ONE line, keys joined in code-point order', () => {
+  const lines = refusalTopicLines([
+    { key: 'suitability_lat_buda', question: SHARED_Q },
+    { key: 'suitability_lat_himi', question: SHARED_Q },
+    { key: 'suitability_mn_ungu', question: SHARED_Q },
+  ]);
+  assert.deepEqual(lines, [`- suitability_lat_buda, suitability_lat_himi, suitability_mn_ungu: ${SHARED_Q}`]);
+});
+
+test('C1: keys inside a joined line are in code-point order, whatever order they arrive in', () => {
+  const lines = refusalTopicLines([
+    { key: 'b_topic', question: SHARED_Q },
+    { key: 'a_topic', question: 'Өөр асуулт уу?' },
+    { key: 'B_topic', question: SHARED_Q },
+    { key: 'Ö_topic', question: SHARED_Q },
+  ]);
+  // The joined line sits where its FIRST row sat; inside it «B» < «b» < «Ö» by code point.
+  assert.deepEqual(lines, [`- B_topic, b_topic, Ö_topic: ${SHARED_Q}`, '- a_topic: Өөр асуулт уу?']);
+});
+
+test('C1: a list with no shared question renders byte-identically to before', () => {
+  assert.deepEqual(refusalTopicLines(MATRIX.refusalTopics), legacyRefusalLines(MATRIX.refusalTopics));
+  const { before, after } = oldAndNewPrefix(MATRIX);
+  assert.equal(after.text, before.text);
+  assert.equal(after.hash, before.hash);
+});
+
+test('C1: the DalaTech dump (no shared question) keeps its prefix and content_hash', () => {
+  const topics = topicsFromDump('scripts/bakeoff/dalatech-live.json');
+  assert.ok(topics.length > 0, 'the dump carries refusal rows');
+  assert.equal(new Set(topics.map((t) => t.question)).size, topics.length, 'fixture has no shared question');
+  const { before, after } = oldAndNewPrefix({ ...MATRIX, refusalTopics: topics });
+  assert.equal(after.text, before.text);
+  assert.equal(after.hash, before.hash);
+});
+
+test('C1: a topic with a missing question still renders its bare key, and is never joined', () => {
+  assert.deepEqual(
+    refusalTopicLines([{ key: 'a_empty', question: '' }, { key: 'b_empty', question: '' }]),
+    ['- a_empty', '- b_empty'],
+  );
+});
+
+test('C1: mixed list: unique, shared and missing questions each keep their place', () => {
+  const topics = [
+    { key: 'children_services', question: 'Сүүлийн мессеж хүүхдийн үйлчилгээ, үнийн тухай юу?' },
+    { key: 'medical_advice', question: '' },
+    { key: 'suitability_lat_buda', question: SHARED_Q },
+    { key: 'suitability_lat_himi', question: SHARED_Q },
+    { key: 'suitability_mn_ungu', question: SHARED_Q },
+  ];
+  const body = bodyOf(renderTenantSections({ ...MATRIX, refusalTopics: topics }, APPROVED), 'refusal_topics');
+  assert.deepEqual(body.split('\n').slice(1), [
+    '- children_services: Сүүлийн мессеж хүүхдийн үйлчилгээ, үнийн тухай юу?',
+    '- medical_advice',
+    `- suitability_lat_buda, suitability_lat_himi, suitability_mn_ungu: ${SHARED_Q}`,
+  ]);
+  // Every key is still named, so Ш1's list covers the same topics.
+  for (const t of topics) assert.ok(body.includes(t.key), t.key);
+  // The question survives exactly once, so grounding's substring coverage still finds it.
+  assert.equal(body.split(SHARED_Q).length - 1, 1);
+});
+
+test('C1: the live Tara KB dump shrinks, and only in the refusal section', () => {
+  const kb = JSON.parse(readFileSync('scripts/bakeoff/live-kb.json', 'utf8')) as TenantKb;
+  const { before, after } = oldAndNewPrefix(kb);
+  assert.ok([...after.text].length < [...before.text].length);
+  const newLines = refusalTopicLines(kb.refusalTopics).join('\n');
+  const oldLines = legacyRefusalLines(kb.refusalTopics).join('\n');
+  assert.ok(after.text.includes(newLines) && before.text.includes(oldLines));
+  assert.equal(after.text.replace(newLines, ''), before.text.replace(oldLines, ''));
 });
