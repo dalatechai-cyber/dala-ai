@@ -155,7 +155,7 @@ test('SHED: counted per tenant by name, «none» said, UNREADABLE never zero', a
     tenants: [{ data: [{ id: 't1', display_name: 'Salon A' }], error: null }],
   });
   const s = await countShed(db, 'a', 'b');
-  assert.match(shedLine(s), /^🔴 .*customer got no reply.*Salon A ×2/);
+  assert.match(shedLine(s), /^🔴 .*daily cap.*reviewed hand-off line is sent where one exists.*Salon A ×2/);
   assert.equal(shedLine({ ok: true, byTenant: [], capped: false }), 'No Messenger messages refused by a daily cap (yesterday)');
   const failed = await countShed(stubDb({ webhook_events: [{ data: null, error: { message: 'x' } }] }).db, 'a', 'b');
   assert.match(shedLine(failed), /UNREADABLE/);

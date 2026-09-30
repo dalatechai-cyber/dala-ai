@@ -1,6 +1,8 @@
 # Spend alerts, the reply after a cap, and Tara Яармаг's emoji cap (2026-09-30)
 
-Written for the founder. Two decisions below are yours; nothing in this file is live.
+Written for the founder. **Both decisions were taken on 2026-09-30 (D-160):** option A (the
+tenant's reviewed hand-off line, every tenant that has one) is built, and `max_emoji = 1` is
+applied to Tara Яармаг. The text below is kept as the record of what was proposed.
 The code that shipped with it (D-159) only reports and pages. It stops no reply and moves no cap.
 
 ## What was true before, measured

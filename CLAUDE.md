@@ -253,8 +253,9 @@ Each line has its story in `docs/history.md`.
   `CLIENT_MONTHLY_NORMAL_LIMIT_MNT` (₮20,000) is read only by the daily report, which shows
   each client's month from `spend_ledger.cost_mnt` and marks 70%. A cap refusal pages at once
   (`spend/ceilingAlert.ts`, one `on_change` episode per tenant and surface, closed by the
-  hourly health run after midnight). After a refusal a Messenger customer gets **no reply**
-  and a website visitor gets the handoff line; a Messenger reply waits for the founder.
+  hourly health run after midnight). After a refusal the customer gets the tenant's own reviewed
+  `handoff` row where one exists, on a live channel, once per conversation a day (Messenger
+  since D-160, website since D-139), no model and no spend, and a person is told; with no reviewed row nothing is sent and the page is the signal.
 - **₮250,000 is Reception's list price; ₮80,000 ≈ $22.86 is the allowable model spend**
   (D-004: ceilings derive from the discounted floor). Matrix's ceiling is $28.57 (60% of
   list), set by the founder; the departure is flagged, not resolved.
