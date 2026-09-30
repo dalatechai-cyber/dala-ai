@@ -11440,8 +11440,8 @@ Passing a chat to a person (`pass_thread_control`) stays unbuilt.
 - **Take-back (D-164) is on for Tara Яармаг only**, with the line «Уучлаарай, хүлээлгэсэнд.
   Би үргэлжлүүлэн туслая. Танд юугаар туслах вэ?» (option b). Applied as one signed
   `handover_reclaim` row (`scripts/provision/tara-reclaim-line-2026-09-30.sql`). The kind is
-  model-invisible, so the published `canned_hash` did not move (checked: it still equals the
-  live snapshot's). DalaTech has no row, so it stays inert there.
+  model-invisible, so the published `canned_hash` did not move (checked by this session
+  after the insert: `cannedHashOf` over the live rows equals the live snapshot's `canned_hash`). DalaTech has no row, so it stays inert there.
 - **Option (a) is deferred.** In (a), Дали would answer the held message after the line
   instead of asking again. It would reuse the catch-up path, cost one model call and send two
   messages back to back. Not to be built until the founder approves it separately.

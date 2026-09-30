@@ -196,14 +196,14 @@ reviewed row verbatim. Code backs them up only as listed.
 1. D2 brevity (2–3 sentences) and D4 no-markdown: prompt only. The 1,900-character ceiling is the only hard limit.
 2. D5 polite full sentences, D9 "not pushy", Ш7 "do not moralise": no measure.
 3. D7: closed 2026-09-30 (D-160). Tara Яармаг's `reply_style` is `{"max_emoji": 1}`. Measured before: 280 replies in 30 days, 3 with two emoji; her 17 approved rows carry at most one.
-4. F4: no real hand-off to a person (`pass_thread_control`). The staff-hold reclaim is built and inert until the founder approves its wording and a reviewed `handover_reclaim` row exists; until then a customer who writes while staff hold the chat waits for staff. F5/K4 alert the founder at once (D-158), including DM-only person rows (0073); a request for a person that no DM complaint row covers is missed. Failed sends are re-sent on the redelivery (F2a).
+4. F4: no real hand-off to a person (`pass_thread_control`). The staff-hold reclaim is live for Tara Яармаг only (D-165) and inert for any tenant without a reviewed `handover_reclaim` row; there, a customer who writes while staff hold the chat waits for staff. F5/K4 alert the founder at once (D-158), including DM-only person rows (0073); a request for a person that no DM complaint row covers is missed. Failed sends are re-sent on the redelivery (F2a).
 5. ~~G4~~: voice messages are answered with the approved `voice_received` line and alerted (D-158).
 6. A9 service-name changes and A12 price violations are counted, not blocked.
 7. H1: nothing checks that a model reply does not deny being an AI.
 8. Merge authority (§6): the four founder-only categories are enforced only partly (see §6).
 9. L1 between unrelated tenants: nothing checks one tenant's rows for another's details (branch tenants are checked, §7). D10 on model replies: not stated in any signed block, not checked.
 10. G1: `ig_reel`, `reel`, `share` media kinds and the Instagram media path are unproven on real traffic.
-12. G1/G2: a customer who sends a photo or video gets the hand-off line and the thread goes quiet for 30 minutes; if nobody replies, nothing more happens (Tara's media alert is off, D-153; the reclaim pages rather than sends on a media hand-off, because it is recorded as `handover`, and is inert until a reviewed row exists). The customer's next message is answered as usual.
+12. G1/G2: a customer who sends a photo or video gets the hand-off line and the thread goes quiet for 30 minutes; if nobody replies, nothing more happens (Tara's media alert is off, D-153; the reclaim neither sends nor pages on a media hand-off, because it is recorded as `handover`; it only counts it (`meta_holds_thread`)). The customer's next message is answered as usual.
 11. Deterministic replies and FAQs are customer-read wording with no founder-review gate, only a `provenance` gate (§6). Fixed replies and KB documents were not checked for one.
 
 **Conflicts**
