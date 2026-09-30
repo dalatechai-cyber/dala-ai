@@ -37,6 +37,7 @@ import {
   CLIENT_MONTHLY_ALERT_FRACTION, CLIENT_MONTHLY_NORMAL_LIMIT_MNT, PLATFORM_TIMEZONE,
 } from '../../config/platform.ts';
 import { localDayStart, tenantClock } from '../time/clock.ts';
+import { previousDate } from '../quality/flaws.ts';
 import { fromDb, type NanoUsd } from '../money.ts';
 
 /** How many ledger rows one request asks for. The loop does not trust it as the page size. */
@@ -76,12 +77,6 @@ function daysIn(month: string): number {
   const [y, m] = month.split('-').map(Number);
   // Day 0 of the next month is the last day of this one. UTC, so no zone moves it.
   return new Date(Date.UTC(y ?? 1970, m ?? 1, 0)).getUTCDate();
-}
-
-/** «2026-09-30» → «2026-10-01». UTC arithmetic on a bare date, so no zone can move it. */
-function nextDate(date: string): string {
-  const [y, m, d] = date.split('-').map(Number);
-  return new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, (d ?? 1) + 1)).toISOString().slice(0, 10); // a bare date's own arithmetic, not a day taken from a timestamp (D-151)
 }
 
 /** «₮12,922» from cents. */
@@ -142,14 +137,11 @@ async function sumTenantMonth(
  * Every tenant's month so far. `reportUntil` is the end of the day the report covers
  * (`reportWindow(now).until`).
  */
-export async function readMonthlySpend(db: SupabaseClient, reportUntil: string): Promise<MonthlySpendSummary> {
+export async function readMonthlySpend(db: SupabaseClient, now: Date): Promise<MonthlySpendSummary> {
   try {
     const { data, error } = await db.from('tenants').select('id, display_name, timezone');
     if (error) return { ok: false, detail: `tenants unreadable: ${error.message}` };
-    const until = new Date(reportUntil);
-    if (Number.isNaN(until.getTime())) return { ok: false, detail: 'report window unreadable' };
-    // The last instant of the reported day: its month is the month being reported.
-    const anchor = new Date(until.getTime() - 1);
+    if (Number.isNaN(now.getTime())) return { ok: false, detail: 'report time unreadable' };
 
     const out: TenantMonthSpend[] = [];
     for (const row of Array.isArray(data) ? data : []) {
@@ -157,12 +149,14 @@ export async function readMonthlySpend(db: SupabaseClient, reportUntil: string):
       const id = String(r['id']);
       const name = typeof r['display_name'] === 'string' && r['display_name'] !== '' ? r['display_name'] : id;
       const zone = typeof r['timezone'] === 'string' && r['timezone'] !== '' ? r['timezone'] : PLATFORM_TIMEZONE;
-      const day = tenantClock(anchor, zone).date;
+      // The tenant's last COMPLETED day on its own calendar: its month is the month being
+      // reported, and the window ends at the tenant's own midnight. Anchoring on the
+      // platform's midnight would give a tenant east of Ulaanbaatar "1 of 31 days" on the 1st.
+      const today = tenantClock(now, zone).date;
+      const day = previousDate(today);
       const month = day.slice(0, 7);
       const since = localDayStart(`${month}-01`, zone).toISOString();
-      // The END of that day on the tenant's own calendar, so a tenant outside Ulaanbaatar
-      // gets whole days of their own and not a platform-day edge.
-      const end = localDayStart(nextDate(day), zone).toISOString();
+      const end = localDayStart(today, zone).toISOString();
       const summed = await sumTenantMonth(db, id, since, end);
       out.push({
         tenant: name, month,

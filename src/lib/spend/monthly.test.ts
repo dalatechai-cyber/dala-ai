@@ -34,6 +34,7 @@ function stubDb(tables: Record<string, Reply[]>) {
 }
 
 const UNTIL = '2026-09-25T16:00:00.000Z'; // 00:00 Ulaanbaatar on 09-26: the report covers 09-25.
+const RUN = new Date('2026-09-25T16:05:00.000Z'); // the 00:05 run
 const TENANTS: Reply = { data: [{ id: 't1', display_name: 'Salon A', timezone: 'Asia/Ulaanbaatar' }], error: null };
 
 function tenant(over: Partial<TenantMonthSpend> = {}): TenantMonthSpend {
@@ -61,7 +62,7 @@ test('SUMS EVERY PAGE, stopping only on an EMPTY page (a short page is not the l
       { data: [], error: null },
     ],
   });
-  const s = await readMonthlySpend(db, UNTIL);
+  const s = await readMonthlySpend(db, RUN);
   assert.ok(s.ok);
   assert.equal(s.tenants[0]?.mntCents, 16_025);
   assert.equal(s.tenants[0]?.usd, 45_000_000n);
@@ -82,7 +83,7 @@ test('SUMS EVERY PAGE, stopping only on an EMPTY page (a short page is not the l
 
 test('the report at 00:05 on the 1st reports the month that JUST ENDED', async () => {
   const { db, calls } = stubDb({ tenants: [TENANTS], spend_ledger: [{ data: [], error: null }] });
-  const s = await readMonthlySpend(db, '2026-09-30T16:00:00.000Z'); // 00:00 UB on 10-01
+  const s = await readMonthlySpend(db, new Date('2026-09-30T16:05:00.000Z')); // 00:05 UB on 10-01
   assert.ok(s.ok);
   assert.equal(s.tenants[0]?.month, '2026-09');
   assert.equal(s.tenants[0]?.daysCovered, 30);
@@ -91,7 +92,7 @@ test('the report at 00:05 on the 1st reports the month that JUST ENDED', async (
 
 test('A FAILED LEDGER READ IS UNREADABLE, NEVER ZERO', async () => {
   const { db } = stubDb({ tenants: [TENANTS], spend_ledger: [{ data: null, error: { message: 'timeout' } }] });
-  const s = await readMonthlySpend(db, UNTIL);
+  const s = await readMonthlySpend(db, RUN);
   assert.ok(s.ok);
   assert.equal(s.tenants[0]?.mntCents, null);
   assert.match(tenantSpendLine(s.tenants[0] as TenantMonthSpend), /UNREADABLE — spend_ledger unreadable: timeout/);
@@ -99,7 +100,7 @@ test('A FAILED LEDGER READ IS UNREADABLE, NEVER ZERO', async () => {
 
 test('an unparsable ₮ figure makes the tenant UNREADABLE rather than skipping the row', async () => {
   const { db } = stubDb({ tenants: [TENANTS], spend_ledger: [{ data: [{ id: 9, cost_mnt: 'abc', cost_nanousd: 1 }], error: null }] });
-  const s = await readMonthlySpend(db, UNTIL);
+  const s = await readMonthlySpend(db, RUN);
   assert.ok(s.ok);
   assert.equal(s.tenants[0]?.mntCents, null);
 });
@@ -107,7 +108,7 @@ test('an unparsable ₮ figure makes the tenant UNREADABLE rather than skipping 
 test('a ledger that never ends is UNREADABLE after the page limit, not a partial sum', async () => {
   const page: Reply = { data: [{ id: 1, cost_mnt: 1, cost_nanousd: 1 }], error: null };
   const { db } = stubDb({ tenants: [TENANTS], spend_ledger: [page] }); // the one reply repeats for ever
-  const s = await readMonthlySpend(db, UNTIL);
+  const s = await readMonthlySpend(db, RUN);
   assert.ok(s.ok);
   assert.equal(s.tenants[0]?.mntCents, null);
   assert.match(s.tenants[0]?.detail ?? '', /pages/);
@@ -115,7 +116,7 @@ test('a ledger that never ends is UNREADABLE after the page limit, not a partial
 
 test('an unreadable tenants table fails the whole block, and the block says so', async () => {
   const { db } = stubDb({ tenants: [{ data: null, error: { message: 'down' } }] });
-  const s = await readMonthlySpend(db, UNTIL);
+  const s = await readMonthlySpend(db, RUN);
   assert.equal(s.ok, false);
   assert.match(monthlySpendBlock(s), /UNREADABLE — tenants unreadable: down/);
 });
@@ -158,4 +159,18 @@ test('SHED: counted per tenant by name, «none» said, UNREADABLE never zero', a
   assert.equal(shedLine({ ok: true, byTenant: [], capped: false }), 'No Messenger messages refused by a daily cap (yesterday)');
   const failed = await countShed(stubDb({ webhook_events: [{ data: null, error: { message: 'x' } }] }).db, 'a', 'b');
   assert.match(shedLine(failed), /UNREADABLE/);
+});
+
+test('a tenant EAST of Ulaanbaatar still gets its own whole previous month on the 1st', async () => {
+  const { db, calls } = stubDb({
+    tenants: [{ data: [{ id: 't9', display_name: 'Tokyo', timezone: 'Asia/Tokyo' }], error: null }],
+    spend_ledger: [{ data: [], error: null }],
+  });
+  // 00:05 Ulaanbaatar on 10-01 is 01:05 in Tokyo on 10-01: Tokyo's last whole day is 09-30.
+  const s = await readMonthlySpend(db, new Date('2026-09-30T16:05:00.000Z'));
+  assert.ok(s.ok);
+  assert.equal(s.tenants[0]?.month, '2026-09');
+  assert.equal(s.tenants[0]?.daysCovered, 30);
+  const f = calls.find((c) => c.table === 'spend_ledger')?.filters ?? [];
+  assert.ok(f.some(([m, , v]) => m === 'lt' && v === '2026-09-30T15:00:00.000Z'), 'ends at Tokyo midnight');
 });

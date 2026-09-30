@@ -712,7 +712,7 @@ export async function runDigestJob(
     adverts: await countAdverts(effects.db, effects.now),
     // Both degrade to UNREADABLE inside themselves and never throw: a spend figure that
     // could not be read must not cost the founder the rest of the report.
-    monthlySpend: await readMonthlySpend(effects.db, reportWindow(effects.now).until),
+    monthlySpend: await readMonthlySpend(effects.db, effects.now),
     shed: await countShed(effects.db, reportWindow(effects.now).since, reportWindow(effects.now).until),
     ceilingPages: await readCeilingPages(effects.db, reportWindow(effects.now).since, reportWindow(effects.now).until),
   });

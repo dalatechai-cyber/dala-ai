@@ -47,8 +47,9 @@ The code that shipped with it (D-158) only reports and pages. It stops no reply 
 
    Later refusals are silent while the episode is open. The hourly health run closes the episode
    once the day has rolled over, so a cap that trips again the next day pages again.
-3. **Replies never wait for any of this.** On Messenger the page is sent after the event is
-   recorded. It is bounded at 5 seconds and cannot change the answer to QStash. On the website it
+3. **No reply waits for any of this.** On Messenger the page is sent after the event is
+   recorded, for a message the cap already refused. QStash's acknowledgement waits at most
+   5 seconds for it, and the page cannot change that acknowledgement. On the website it
    runs after the visitor's response. The month block comes after the open conditions in the
    report, so it can never push a critical out of the message.
 

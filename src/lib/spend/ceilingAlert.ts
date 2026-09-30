@@ -226,9 +226,14 @@ export async function closeStaleCeilingEpisodes(
       // A tenant whose zone cannot be read is left open: closing on a guess would hide a
       // brake that may still be on.
       if (zone === undefined) continue;
-      const tenantRolled = dayKey(at, zone) !== dayKey(now, zone);
-      const platformRolled = dayKey(at, PLATFORM_TIMEZONE) !== dayKey(now, PLATFORM_TIMEZONE);
-      if (tenantRolled && platformRolled) stale.push(Number(r['id']));
+      // Per row: one bad zone leaves that episode open and must not stop the others closing.
+      try {
+        const tenantRolled = dayKey(at, zone) !== dayKey(now, zone);
+        const platformRolled = dayKey(at, PLATFORM_TIMEZONE) !== dayKey(now, PLATFORM_TIMEZONE);
+        if (tenantRolled && platformRolled) stale.push(Number(r['id']));
+      } catch {
+        continue;
+      }
     }
     if (stale.length === 0) return { ok: true, closed: 0 };
 
