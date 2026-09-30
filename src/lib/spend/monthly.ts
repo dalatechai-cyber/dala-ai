@@ -90,7 +90,7 @@ function usdText(n: NanoUsd): string {
 }
 
 /** Tögrög-cents from a `numeric(14,2)` as PostgREST sends it. Null when it is not a number. */
-function cents(value: unknown): number | null {
+export function cents(value: unknown): number | null {
   const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
   return Number.isFinite(n) ? Math.round(n * 100) : null;
 }

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MonthlySpendSummary, ShedSummary } from '../spend/monthly.ts';
 import type { CeilingPagesSummary } from '../spend/ceilingAlert.ts';
+import type { CacheSummary } from '../spend/cacheReport.ts';
 import {
   advertsLine, cappedLine, composeDailyReport, DAILY_REPORT_LIMIT, DEFAULT_APP_SECTION_URL, ESCALATE_AFTER_DAYS, fetchAppSection,
   lostDraftsLine, planDigest, renderYesterday, reportWindow, runDigestJob, SECTION_JOIN, type ReportSection,
@@ -28,9 +29,10 @@ const NO_ADVERTS = { ok: true, byTenant: [] } as const;
 const NO_SHED: ShedSummary = { ok: true, byTenant: [], capped: false };
 const NO_SPEND: MonthlySpendSummary = { ok: true, tenants: [] };
 const NO_PAGES: CeilingPagesSummary = { ok: true, pages: [] };
+const NO_CACHE: CacheSummary = { ok: true, tenants: [] };
 const CLEAN = {
   now: NOW, watchdogLastRan: RAN, channelsChecked: 2, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS,
-  shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES,
+  shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES, cache: NO_CACHE,
 };
 
 test('DONE-TEST: A CLEAN DAY STILL SENDS, AND CARRIES PROOF OF LIFE', () => {
@@ -47,7 +49,7 @@ test('DONE-TEST: and when the watchdog has never run, the clean day SAYS SO', ()
   // `channel_health` is upserted on every run including healthy ones, precisely so that its
   // absence is a statement. A digest reading "nothing open" over a watchdog that has never
   // executed would be the most confident wrong sentence this system could produce.
-  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS, shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES });
+  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS, shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES, cache: NO_CACHE });
   assert.match(plan.summary, /never recorded an observation/);
   assert.doesNotMatch(plan.summary, /last ran/);
 });
@@ -712,8 +714,24 @@ test('THE SPEND BLOCK comes after the open conditions and never pushes a critica
     body: 'x'.repeat(180), at: new Date('2026-09-12T00:00:00Z'), notifiedAt: null,
   }));
   const plan = planDigest(many, CLEAN);
-  assert.ok(plan.summary.length <= 3800 + 60, `${plan.summary.length}`);
-  assert.match(plan.summary, /Model spend this month: not shown \(message length\)\.$/);
+  // The body is held to 3,800; two one-line fallbacks may follow. Still under the report's
+  // 3,900 split point and Telegram's 4,096.
+  assert.ok(plan.summary.length <= DAILY_REPORT_LIMIT, `${plan.summary.length}`);
+  assert.match(plan.summary, /Model spend this month: not shown \(message length\)\./);
+  assert.match(plan.summary, /Prompt cache: not shown \(message length\)\.$/, 'each block names itself when it does not fit');
   const one = planDigest([many[0] as (typeof many)[number]], CLEAN).summary;
   assert.ok(one.indexOf('🔴 k') < one.indexOf('Model spend this month'), 'open conditions first');
+});
+
+test('the cache block never pushes the month out: the month is fitted first', () => {
+  const long = Array.from({ length: 60 }, (_, i) => ({
+    tenant: `Tenant ${String(i).padStart(2, '0')}`, mode: '5m',
+    yesterday: { calls: 1, cold: 1, mntCents: 100, coldMntCents: 100 },
+    last: { calls: 1, cold: 1, mntCents: 100, coldMntCents: 100 },
+    before: { calls: 1, cold: 1, mntCents: 100, coldMntCents: 100 },
+  }));
+  const plan = planDigest([], { ...CLEAN, cache: { ok: true, tenants: long } });
+  assert.match(plan.summary, /Model spend this month \(normal limit/);
+  assert.match(plan.summary, /Prompt cache: not shown \(message length\)\.$/);
+  assert.ok(plan.summary.length <= DAILY_REPORT_LIMIT);
 });

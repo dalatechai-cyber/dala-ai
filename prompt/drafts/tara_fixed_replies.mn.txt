@@ -1,0 +1,152 @@
+# UNSIGNED DRAFT — NOT APPROVED. Loaded by nothing. 2026-09-30.
+#
+# Tenant: Tara Salon — Яармаг (slug `matrix-eco-salon`). Rows: `deterministic_replies`
+# (fixed replies), one per section below. Nothing has been written to the database; no
+# publish, no model run. Evidence and counts: docs/reports/2026-09-30-tara-model-questions.md.
+#
+# Written by a session, not a native speaker. Every body is the founder's call. Observations
+# about the Mongolian are put as questions, not asserted.
+#
+# WHY THIS FILE MATTERS MORE THAN A CANNED DRAFT: a `deterministic_replies` body is sent
+# verbatim with no model in the loop and NO `reviewed_at` gate (docs/standards/dali.md §6;
+# src/lib/gate/deterministic.ts). The only gate is `provenance = 'tenant_confirmed'`. So the
+# founder reading this file is the only review these sentences get.
+#
+# Rules followed in every body:
+#   - only facts already in Tara's rows (contact_points, canned_responses, live fixed rows);
+#   - no price typed anywhere (prices are served from the price rows, D-075);
+#   - no phone number or link that her rows do not already carry, typed exactly as they do;
+#   - «та» register, never «чи» (D10); at most one emoji (D7, reply_style max_emoji = 1);
+#   - no promise a person has to keep.
+# Matching (src/lib/gate/deterministic.ts, src/lib/mn/match.ts):
+#   - whole_message: the whole message, folded, equals one stem;
+#   - covers_message: some word starts with a stem AND every other word is a stem or one of
+#     the cover words; stems under 4 letters match whole; skipped when a photo is attached;
+#   - no \b, no \w, no substring over user text; Latin-script Mongolian gets Latin stems (D-067).
+# Replayed read-only through the repo's own matchDeterministic against 137 real questions and
+# 24 adversarial negatives (scratch script, not committed); results are in the report.
+
+
+# ==== 1. intent = address ==================================================================
+# match_mode    covers_message
+# placement     replace
+# requires_empty_history  false
+# stems (Cyrillic)  хаяг, байршил, байрла, хаана
+# stems (Latin)     hayag, hayg, xayg, bairshil, bairla, baishil, haana, haan
+# cover_words       уу үү вэ бэ ве юу / сайн байна бна бну бнуу / танайх танай салон салоны
+#                   байдаг бдаг тодорхой явуулаад өгөөч өгөөрэй чинь хаашаа болсон
+#                   uu vv we ve be yu sain bna bnu bnuu sn hi hello tanaih tanai tanaah salon
+#                   salonii baidag bdag bdg todorhoi ywuulaad yvuulaad yavuulaad ogooch
+#                   ogoorei chin haashaa bolson
+#
+# Source rows for each fact:
+#   «Хаяг», «Байршлын холбоос»  = the labels the compiled prefix already prints for these two
+#                                 contact kinds (CONTACT_KIND_LABELS, src/lib/prompt/tenant.ts)
+#   «Яармагийн Номин Хайпермаркетын баруун талд» = contact_points kind 'address', verbatim
+#   https://maps.app.goo.gl/ckEXBLoq4FnxJHq16    = contact_points kind 'maps_url', verbatim
+#
+# Option A (recommended): nothing but the two rows under their existing labels.
+Хаяг: Яармагийн Номин Хайпермаркетын баруун талд
+Байршлын холбоос: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16
+#
+# Option B: one sentence, as the model wrote it live on 09-26/27.
+Манай салон Яармагийн Номин Хайпермаркетын баруун талд байрладаг. Байршлын холбоос: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16
+#
+# Questions for the founder:
+#   - B uses «байрладаг», which no approved Tara row contains (the model used it). Is it right?
+#     «Манай салон» is from refusal_service_unavailable.
+#   - The address and link are TYPED here. This makes a second copy of contact_points, and
+#     scripts/facts/gate.ts checks prices only, not addresses. If the salon moves or the link
+#     changes, this row must be edited in the same change.
+#   - A bare «Хаана вэ?» fires this row (it is a stem). In a salon DM that is almost always the
+#     address; if you would rather not, make хаана/haana cover words (then «tanaih haana bdag
+#     we» goes to the model).
+#   - One live customer (09-28) said the sign outside had been taken down and they turned back
+#     at the door. Should the address line mention anything about finding the entrance? No
+#     such fact is in her rows, so nothing is drafted.
+
+
+# ==== 2. intent = booking ==================================================================
+# match_mode    covers_message
+# placement     replace
+# requires_empty_history  false
+# stems (Cyrillic)  авах, авья, авъя, авий, авмаар, авдаг, захиалах, захиалъя, захиалья,
+#                   захиалмаар, захиалдаг
+# stems (Latin)     awah, avah, awhuu, avahuu, avhuu, awii, avii, awya, avya, awdag, avdag,
+#                   awmaar, avmaar, zahialah, zahialya, zahialmaar, zahialdag
+# cover_words       цаг цагаа гэсэн юм би танайх танайд онлайн яаж + question particles and
+#                   greetings as in 1; tsag tsagaa gesen gsn yum bi tanaih tanaid online onlain yaaj
+#
+# Source rows: the body is the reviewed canned_responses row kind 'booking_line', byte for
+# byte. The deposit rows are NOT typed: every reply path ends in `withDeposits`
+# (src/lib/reception/handle.ts), which puts the compiled «УРЬДЧИЛГАА ТӨЛБӨР» rows above this
+# exact line when the reply lacks them (C4). Read in the code, not executed.
+Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.
+#
+# Deliberately NOT matched (they go to the model, which must say it cannot see free slots):
+#   «Өнөөдрийн цаг байнуу», «10 сарын 3 нд цаг байна уу», «ochihdoo zaawal tsag awah uu»,
+#   «Цаг захиалмаар байна, утас хэд вэ?». Exact forms of захиал- are listed, not the prefix, so
+#   «Би цаг захиалсан» (already booked) does not get the booking line.
+# Question for the founder: is the booking line alone (plus the deposits the platform adds)
+# the whole answer you want to «Цаг авах»? It is what the model sent live on 09-30.
+
+
+# ==== 3. intent = acknowledgement ==========================================================
+# match_mode    whole_message
+# placement     replace
+# requires_empty_history  false
+# stems         ok, okey, okay, ок, окей, за, заа, за за, аан за, аа за, за ойлголоо,
+#               ойлголоо, oilgoloo, za, zaa, aan za, aa za, ok za
+#
+# Source rows: the second sentence of the live `thanks` fixed reply, verbatim
+# («Зүгээр ээ 😊 Өөр асуух зүйл байвал бичээрэй.»).
+Өөр асуух зүйл байвал бичээрэй.
+#
+# Questions for the founder:
+#   - Live, the model answered «Ok» and «Аан за» with almost this sentence (09-27, 09-30).
+#   - «тийм» and «за тийм» are left OUT: they are the answer to a question, and this line
+#     would ignore it. Should «за» be out too, for the same reason?
+#   - Would you rather send nothing to a bare «Ok»? That needs code, not a row.
+
+
+# ==== 4. intent = salon_phone ==============================================================
+# match_mode    covers_message
+# placement     replace
+# requires_empty_history  false
+# stems (Cyrillic)  утас, утсаа, утсыг, утасны, дугаар
+# stems (Latin)     utas, utsaa, utsiig, utasnii, dugaar
+# cover_words       холбогдох салбарын яармаг салоны танайх өгөөч өгөөрэй хэд + particles and
+#                   greetings as in 1; holbogdoh salbariin yarmag salonii tanaih ogooch ogoorei
+#                   hed hedve hedbe
+#
+# Source rows: the closing sentence of the reviewed `handoff` and `refusal_suitability`
+# rows, verbatim, with the numbers exactly as those rows (and contact_points 'phone') carry.
+Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.
+#
+# Not matched, on purpose: a stylist's own number («Badmaa stylestiin dugaar hed we»), «Утсаа
+# авахгүй байна» (a complaint that nobody answers), «Парк Од салбарын утас».
+
+
+# ==== 5. intent = price_which_service ======================================================
+# match_mode    covers_message
+# placement     replace
+# requires_empty_history  TRUE (proposed): mid-conversation «үнэ хэд вэ?» usually follows a
+#                         service the customer already named, and this line would ignore it.
+# stems (Cyrillic)  үнэ (whole word), үнийн, үнэтэй
+# stems (Latin)     vne, une (whole words), vniin, uniin, unetei, vnetei
+# cover_words       мэдээлэл авья авъя авий авах хэд хэдэн ямар танайх + particles and
+#                   greetings as in 1; medeelel awii avii awya avya awah avah hed hedve hedbe
+#                   heden yamar ymar tanaih
+#
+# Source rows: the last sentence of the live `stylist_tier` fixed reply, verbatim.
+Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.
+#
+# Question for the founder: the sentence is «...хэлбэл ... хэлье» in the live row. Is it
+# right as a reply on its own, or does it need an opener?
+
+
+# ==== 6. Stem additions to two LIVE rows (no new wording) ==================================
+# greeting (whole_message): add «sainu», «сайну». Live 09-29 «Sainu» went to the model.
+# dye_prices (covers_message): add stems «будх», «budh»; add cover words «байдаг», «baidag»,
+#   «бол», «bol». Live 09-29 «Үс будхад хэд байдаг бол» went to the model, which answered with
+#   this row's own clarifying question.
