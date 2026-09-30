@@ -1455,7 +1455,7 @@
         "mode": "stem_sequence",
         "stems": [
           "ажилтантай",
-          "холбо"
+          "холбогд"
         ],
         "windowCp": 20
       }
@@ -1467,12 +1467,29 @@
         "direct_message"
       ],
       "matcher": {
-        "mode": "stem_sequence",
-        "stems": [
-          "хүнтэй",
-          "яр"
-        ],
-        "windowCp": 20
+        "mode": "all_of",
+        "matchers": [
+          {
+            "mode": "stem_sequence",
+            "stems": [
+              "хүнтэй",
+              "яр"
+            ],
+            "windowCp": 20
+          },
+          {
+            "mode": "not",
+            "matcher": {
+              "mode": "has_word",
+              "words": [
+                "адил",
+                "шиг",
+                "adil",
+                "shig"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -1515,7 +1532,7 @@
         "mode": "stem_sequence",
         "stems": [
           "ajiltantai",
-          "holbo"
+          "holbogd"
         ],
         "windowCp": 20
       }
@@ -1527,12 +1544,29 @@
         "direct_message"
       ],
       "matcher": {
-        "mode": "stem_sequence",
-        "stems": [
-          "huntei",
-          "yar"
-        ],
-        "windowCp": 20
+        "mode": "all_of",
+        "matchers": [
+          {
+            "mode": "stem_sequence",
+            "stems": [
+              "huntei",
+              "yar"
+            ],
+            "windowCp": 20
+          },
+          {
+            "mode": "not",
+            "matcher": {
+              "mode": "has_word",
+              "words": [
+                "адил",
+                "шиг",
+                "adil",
+                "shig"
+              ]
+            }
+          }
+        ]
       }
     },
     {
@@ -1542,12 +1576,29 @@
         "direct_message"
       ],
       "matcher": {
-        "mode": "stem_sequence",
-        "stems": [
-          "hvntei",
-          "yar"
-        ],
-        "windowCp": 20
+        "mode": "all_of",
+        "matchers": [
+          {
+            "mode": "stem_sequence",
+            "stems": [
+              "hvntei",
+              "yar"
+            ],
+            "windowCp": 20
+          },
+          {
+            "mode": "not",
+            "matcher": {
+              "mode": "has_word",
+              "words": [
+                "адил",
+                "шиг",
+                "adil",
+                "shig"
+              ]
+            }
+          }
+        ]
       }
     },
     {

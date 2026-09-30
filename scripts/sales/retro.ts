@@ -18,7 +18,7 @@ import { maskPhonesInText, publishedNumbers } from '../../src/lib/sales/phone.ts
 import { wholeMessageMatches } from '../../src/lib/mn/match.ts';
 import { servicesFromPrefix } from '../../src/lib/quality/serviceNames.ts';
 import { SECTION_LABELS } from '../../src/lib/prompt/tenant.ts';
-import type { CommentRule } from '../../src/lib/comments/classify.ts';
+import { ruleAppliesTo, type CommentRule } from '../../src/lib/comments/classify.ts';
 
 type Row = [string, 'T' | 'D', string, string, string, string, boolean, boolean, boolean, string, boolean];
 
@@ -67,9 +67,10 @@ function playbookFor(template: string, demoLink: string | null): Playbook {
 
 function complaintRulesFor(template: string): CommentRule[] {
   const doc = JSON.parse(readFileSync(here(`../provision/templates/comment_rules.${template}.json`), 'utf8')) as {
-    rules: { rule_key: string; verdict: string; matcher: unknown }[];
+    rules: { rule_key: string; verdict: string; matcher: unknown; surfaces?: string[] }[];
   };
-  return doc.rules.filter((r) => r.verdict === 'escalate')
+  // The DM's complaint rows, as the live DM path reads them (0073).
+  return doc.rules.filter((r) => r.verdict === 'escalate' && ruleAppliesTo(r.surfaces ?? null, 'direct_message'))
     .map((r) => ({ ruleKey: r.rule_key, verdict: 'escalate' as const, matcher: r.matcher }));
 }
 

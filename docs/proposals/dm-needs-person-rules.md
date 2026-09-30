@@ -25,11 +25,11 @@ vocabulary («Утасны оператор», «Нова — Харилцагч
 | Key | Matcher | Catches |
 |---|---|---|
 | `person_staff_mn` | stem_sequence [«ажилтантай», «яр»] within 20 | «ажилтантай ярих», «ажилтантай ярьмаар» |
-| `person_staff_connect_mn` | stem_sequence [«ажилтантай», «холбо»] within 20 | «ажилтантай холбогдох» |
-| `person_human_talk_mn` | stem_sequence [«хүнтэй», «яр»] within 20 | «хүнтэй ярих», «хүнтэй ярилцмаар» |
+| `person_staff_connect_mn` | stem_sequence [«ажилтантай», «холбогд»] within 20 | «ажилтантай холбогдох»; not «ажилтантай холбоотой» (*related to*) |
+| `person_human_talk_mn` | stem_sequence [«хүнтэй», «яр»] within 20, and not the word «адил» / «шиг» | «хүнтэй ярих», «хүнтэй ярилцмаар»; not «хүнтэй адил ярьдаг» (DalaTech's own claim for Эхо) |
 | `person_manager_mn` | contains_stem [«менежертэй», «оператортой», «админтай»] | «менежертэй холбогдох» |
-| `person_staff_lat`, `person_staff_connect_lat` | [«ajiltantai», «yar»], [«ajiltantai», «holbo»] | Latin forms |
-| `person_human_talk_lat`, `_lat2` | [«huntei», «yar»], [«hvntei», «yar»] | Latin forms |
+| `person_staff_lat`, `person_staff_connect_lat` | [«ajiltantai», «yar»], [«ajiltantai», «holbogd»] | Latin forms |
+| `person_human_talk_lat`, `_lat2` | [«huntei», «yar»], [«hvntei», «yar»], not «adil» / «shig» | Latin forms |
 | `person_manager_lat` | contains_stem [«menejertei», «operatortoi», «admintai»] | Latin forms |
 
 Dropped from the first proposal: «жинхэнэ хүн» (fires on «жинхэнэ хүний үс», real human hair)

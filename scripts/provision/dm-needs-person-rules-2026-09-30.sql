@@ -4,7 +4,9 @@
 --
 -- 1. Nine escalate rows per live tenant, DM only, all in the «-тай» (with) form so product
 --    names («Утасны оператор», «Нова менежер», «админ самбар», «AI ажилтан … ярьдаг») and
---    «жинхэнэ хүний үс» do not fire (review, 2026-09-30).
+--    «жинхэнэ хүний үс» do not fire; «хүнтэй» rows skip «адил»/«шиг» («хүнтэй адил ярьдаг»,
+--    DalaTech's own claim for Эхо) and the connect rows need «холбогд», not «холбоотой»
+--    (review, 2026-09-30).
 -- 2. «муудсан», «хүлээлгэ», «дундуур» (and Latin forms) move out of `complaint` into a wall-only
 --    row that copies `complaint`'s `enabled`, so the wall reads the same stems in the same state.
 begin;
@@ -22,13 +24,13 @@ select t.id, r.rule_key, 'escalate', r.matcher::jsonb, true, 'seeded', array['di
 from tenants t
 cross join (values
   ('person_staff_mn', '{"mode":"stem_sequence","stems":["ажилтантай","яр"],"windowCp":20}'),
-  ('person_staff_connect_mn', '{"mode":"stem_sequence","stems":["ажилтантай","холбо"],"windowCp":20}'),
-  ('person_human_talk_mn', '{"mode":"stem_sequence","stems":["хүнтэй","яр"],"windowCp":20}'),
+  ('person_staff_connect_mn', '{"mode":"stem_sequence","stems":["ажилтантай","холбогд"],"windowCp":20}'),
+  ('person_human_talk_mn', '{"mode":"all_of","matchers":[{"mode":"stem_sequence","stems":["хүнтэй","яр"],"windowCp":20},{"mode":"not","matcher":{"mode":"has_word","words":["адил","шиг","adil","shig"]}}]}'),
   ('person_manager_mn', '{"mode":"contains_stem","stems":["менежертэй","оператортой","админтай"]}'),
   ('person_staff_lat', '{"mode":"stem_sequence","stems":["ajiltantai","yar"],"windowCp":20}'),
-  ('person_staff_connect_lat', '{"mode":"stem_sequence","stems":["ajiltantai","holbo"],"windowCp":20}'),
-  ('person_human_talk_lat', '{"mode":"stem_sequence","stems":["huntei","yar"],"windowCp":20}'),
-  ('person_human_talk_lat2', '{"mode":"stem_sequence","stems":["hvntei","yar"],"windowCp":20}'),
+  ('person_staff_connect_lat', '{"mode":"stem_sequence","stems":["ajiltantai","holbogd"],"windowCp":20}'),
+  ('person_human_talk_lat', '{"mode":"all_of","matchers":[{"mode":"stem_sequence","stems":["huntei","yar"],"windowCp":20},{"mode":"not","matcher":{"mode":"has_word","words":["адил","шиг","adil","shig"]}}]}'),
+  ('person_human_talk_lat2', '{"mode":"all_of","matchers":[{"mode":"stem_sequence","stems":["hvntei","yar"],"windowCp":20},{"mode":"not","matcher":{"mode":"has_word","words":["адил","шиг","adil","shig"]}}]}'),
   ('person_manager_lat', '{"mode":"contains_stem","stems":["menejertei","operatortoi","admintai"]}')
 ) as r(rule_key, matcher)
 where t.slug in ('dalatech', 'matrix-eco-salon')
