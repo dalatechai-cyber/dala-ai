@@ -157,6 +157,12 @@ export type MessageEffects = {
    * never reject; handed to `afterResponse` like the sales record, so the reply never waits
    * on Telegram.
    */
+  /**
+   * A daily cap refused this turn (rulebook §3.1). Required, so a binding cannot forget it.
+   * Must never reject and returns within its own bound; run after the response, so the
+   * visitor's answer never waits for it.
+   */
+  alertCeilingReached: (args: { tenantId: string; timezone: string }) => Promise<string>;
   alertHandoff: (args: { tenantId: string; conversationId: string; messageId: string; question: string; ctx: ReceptionContext }) => Promise<void>;
   log: (level: 'info' | 'warn' | 'error', event: string, fields?: Record<string, unknown>) => void;
 };
@@ -398,6 +404,14 @@ export async function runMessageJob(effects: MessageEffects, req: MessageRequest
     // With no inbox, the tenant's reviewed callback line rather than the handoff line (D-139):
     // «a colleague will answer» is not true of a conversation nobody reads, and a spent budget
     // is exactly when the visitor needs a person. The founder is told, as for any hand-off.
+    if (refusal.status === 429) {
+      effects.afterResponse(effects.alertCeilingReached({ tenantId, timezone })
+        .then((outcome) => effects.log(
+          /^(failed|timed_out|recorded_undelivered)/.test(outcome) ? 'error' : 'info', 'ceiling_alert', { tenantId, outcome }))
+        .catch((e: unknown) => effects.log('error', 'ceiling_alert', {
+          tenantId, outcome: `failed: ${e instanceof Error ? e.message : String(e)}`,
+        })));
+    }
     if (refusal.status !== 503) {
       const handoff = ctx.canned.find((c) => c.kind === 'handoff' && c.reviewedAt !== null);
       const line = ctx.fallbackLine ?? handoff?.body;

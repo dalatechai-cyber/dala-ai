@@ -37,6 +37,7 @@ import { clientIpOf } from '@/lib/website/clientIp';
 import { runMessageJob, type MessageEffects } from '@/lib/website/messageJob';
 import { salesShadowEffect } from '@/lib/sales/shadow';
 import { alertWebHandoff } from '@/lib/website/handoffAlert';
+import { alertCeilingReached } from '@/lib/spend/ceilingAlert';
 import { servicesFromPrefix, sectionRows, faqAnswersFromPrefix } from '@/lib/quality/serviceNames';
 
 export const runtime = 'nodejs';
@@ -151,6 +152,9 @@ function effects(now: Date): MessageEffects {
     afterResponse: (work) => after(work),
 
     // Logged and swallowed: the reply is already on its way (D-139).
+    alertCeilingReached: ({ tenantId, timezone }) =>
+      alertCeilingReached(db, { tenantId, timezone, channel: WEB_CHANNEL, surface: 'reception', estimate: RECEPTION_REPLY_ESTIMATE, now }),
+
     alertHandoff: async (a) => {
       try {
         const r = await alertWebHandoff(db, {

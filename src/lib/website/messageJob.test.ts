@@ -155,6 +155,7 @@ function effects(db: ReturnType<typeof stubDb>, over: Partial<MessageEffects> = 
     salesShadow: async () => { db.trace.push('salesShadow'); },
     afterResponse: () => { db.trace.push('afterResponse'); },
     alertHandoff: async () => { db.trace.push('alertHandoff'); },
+    alertCeilingReached: async () => { db.trace.push('alertCeilingReached'); return 'sent'; },
     log: () => {},
     ...over,
   };
@@ -213,6 +214,38 @@ test('DONE-TEST: a ceiling refusal burns no turn and calls no model', async () =
   assert.equal(r.status, 200);
   assert.equal(r.body['reply'], 'Түр хүлээнэ үү');
   assert.equal(r.body['refusal'], 'ceiling_reached');
+});
+
+test('a ceiling refusal PAGES THE FOUNDER after the response, and a failed page changes nothing', async () => {
+  const db = stubDb();
+  const kept: Promise<unknown>[] = [];
+  const pages: { tenantId: string; timezone: string }[] = [];
+  const logs: { level: string; event: string; fields?: Record<string, unknown> }[] = [];
+  const r = await runMessageJob(effects(db, {
+    checkGuard: async () => ({ ok: false, refusal: { status: 429, code: 'ceiling_reached' } }) as never,
+    afterResponse: (w) => { kept.push(w); },
+    alertCeilingReached: async (a) => { pages.push(a); throw new Error('telegram down'); },
+    log: (level, event, fields) => { logs.push({ level, event, ...(fields === undefined ? {} : { fields }) }); },
+  }), req());
+  await Promise.all(kept);
+  assert.equal(r.status, 200, 'the visitor still gets the reviewed line');
+  assert.equal(pages.length, 1);
+  assert.equal(typeof pages[0]?.timezone, 'string');
+  const line = logs.find((l) => l.event === 'ceiling_alert');
+  assert.equal(line?.level, 'error', 'a rejected page is logged, not swallowed');
+  assert.match(String(line?.fields?.['outcome']), /telegram down/);
+
+  // A 503 is "could not determine", not a brake: no page.
+  const db2 = stubDb();
+  const kept2: Promise<unknown>[] = [];
+  let paged = 0;
+  await runMessageJob(effects(db2, {
+    checkGuard: async () => ({ ok: false, refusal: { status: 503, code: 'guard_unavailable', detail: 'x' } }) as never,
+    afterResponse: (w) => { kept2.push(w); },
+    alertCeilingReached: async () => { paged += 1; return 'sent'; },
+  }), req());
+  await Promise.all(kept2);
+  assert.equal(paged, 0);
 });
 
 test('an unavailable guard is 503 and never reaches the model', async () => {

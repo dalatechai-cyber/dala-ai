@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { MonthlySpendSummary, ShedSummary } from '../spend/monthly.ts';
+import type { CeilingPagesSummary } from '../spend/ceilingAlert.ts';
 import {
   advertsLine, cappedLine, composeDailyReport, DAILY_REPORT_LIMIT, DEFAULT_APP_SECTION_URL, ESCALATE_AFTER_DAYS, fetchAppSection,
   lostDraftsLine, planDigest, renderYesterday, reportWindow, runDigestJob, SECTION_JOIN, type ReportSection,
@@ -23,8 +25,12 @@ const NO_DROPS = { total: 0, byKind: {}, unavailable: false };
 const NO_CAPS = { total: 0, posts: 0, unavailable: false };
 const NO_LOST = { total: 0, latest: null, unavailable: false };
 const NO_ADVERTS = { ok: true, byTenant: [] } as const;
+const NO_SHED: ShedSummary = { ok: true, byTenant: [], capped: false };
+const NO_SPEND: MonthlySpendSummary = { ok: true, tenants: [] };
+const NO_PAGES: CeilingPagesSummary = { ok: true, pages: [] };
 const CLEAN = {
   now: NOW, watchdogLastRan: RAN, channelsChecked: 2, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS,
+  shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES,
 };
 
 test('DONE-TEST: A CLEAN DAY STILL SENDS, AND CARRIES PROOF OF LIFE', () => {
@@ -41,7 +47,7 @@ test('DONE-TEST: and when the watchdog has never run, the clean day SAYS SO', ()
   // `channel_health` is upserted on every run including healthy ones, precisely so that its
   // absence is a statement. A digest reading "nothing open" over a watchdog that has never
   // executed would be the most confident wrong sentence this system could produce.
-  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS });
+  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS, shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES });
   assert.match(plan.summary, /never recorded an observation/);
   assert.doesNotMatch(plan.summary, /last ran/);
 });
@@ -662,7 +668,7 @@ test('adverts: one line, per tenant, most first', () => {
   const line = advertsLine({ ok: true, byTenant: [{ tenant: 'Dalatech', count: 1 }, { tenant: 'Matrix Eco Salon', count: 3 }] });
   assert.equal(line, 'Comments ignored as adverts (yesterday): Matrix Eco Salon 3, Dalatech 1');
   const summary = planDigest([], { ...CLEAN, adverts: { ok: true, byTenant: [{ tenant: 'Matrix Eco Salon', count: 3 }] } }).summary;
-  assert.match(summary, /\nComments ignored as adverts \(yesterday\): Matrix Eco Salon 3\.$/);
+  assert.match(summary, /\nComments ignored as adverts \(yesterday\): Matrix Eco Salon 3\.\n/);
 });
 
 test('adverts: an unreadable count prints UNREADABLE, never nothing', () => {
@@ -675,4 +681,39 @@ test('adverts: five tenants named, the rest summed; a capped read prints as a lo
     'Comments ignored as adverts (yesterday): T0 10, T1 9, T2 8, T3 7, T4 6, and 3 more (12)');
   assert.equal(advertsLine({ ok: true, capped: true, byTenant: [{ tenant: 'A', count: 1000 }] }),
     'Comments ignored as adverts (yesterday): A ≥1000');
+});
+
+test('THE SPEND BLOCK is in every report, clean or not, and an alert tenant is marked', () => {
+  const clean = planDigest([], CLEAN);
+  assert.match(clean.summary, /No Messenger messages refused by a daily cap \(yesterday\)/);
+  assert.match(clean.summary, /Model spend this month \(normal limit ₮20,000 per client, alert at 70%; alerts only, never stops replies\)/);
+
+  const alert = planDigest([], {
+    ...CLEAN,
+    monthlySpend: { ok: true, tenants: [{ tenant: 'Salon A', month: '2026-09', mntCents: 1_500_000, usd: 4_190_000_000n, daysCovered: 12, daysInMonth: 30 }] },
+    shed: { ok: true, byTenant: [{ tenant: 'Salon A', count: 4 }], capped: false },
+  });
+  assert.match(alert.summary, /🟠 Salon A \(2026-09, 12 of 30 days\): ₮15,000 = 75% · \$4\.19 · on pace for ₮37,500 by month end — 70% ALERT\./);
+  assert.match(alert.summary, /Salon A ×4/);
+
+  const pages = planDigest([], { ...CLEAN, ceilingPages: { ok: true, pages: [{ tenant: 'Salon A', delivered: false }] } });
+  assert.match(pages.summary, /🔴 Daily-cap pages \(yesterday\): Salon A \(NOT DELIVERED/);
+  assert.match(clean.summary, /No daily-cap pages \(yesterday\)/);
+  assert.match(planDigest([], { ...CLEAN, ceilingPages: { ok: false } }).summary, /Daily-cap pages \(yesterday\): UNREADABLE/);
+
+  const unreadable = planDigest([], { ...CLEAN, monthlySpend: { ok: false, detail: 'tenants unreadable: x' }, shed: { ok: false } });
+  assert.match(unreadable.summary, /Model spend this month[^\n]*\nUNREADABLE — tenants unreadable: x/);
+  assert.match(unreadable.summary, /refused by a daily cap \(yesterday\): UNREADABLE/);
+});
+
+test('THE SPEND BLOCK comes after the open conditions and never pushes a critical out', () => {
+  const many = Array.from({ length: 40 }, (_, i) => ({
+    id: i + 1, tenantId: null, severity: 'critical' as const, kind: 'k', dedupKey: `k${i}`,
+    body: 'x'.repeat(180), at: new Date('2026-09-12T00:00:00Z'), notifiedAt: null,
+  }));
+  const plan = planDigest(many, CLEAN);
+  assert.ok(plan.summary.length <= 3800 + 60, `${plan.summary.length}`);
+  assert.match(plan.summary, /Model spend this month: not shown \(message length\)\.$/);
+  const one = planDigest([many[0] as (typeof many)[number]], CLEAN).summary;
+  assert.ok(one.indexOf('🔴 k') < one.indexOf('Model spend this month'), 'open conditions first');
 });

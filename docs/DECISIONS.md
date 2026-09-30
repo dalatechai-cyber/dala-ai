@@ -11221,3 +11221,43 @@ promptly whenever one is needed.
   `sent`, `sending`, `refused` and a parked `indeterminate` are never re-sent). Not on a shadow
   or halted channel, not past the reply age limit, not over a person who replied since.
 - **DM-only complaint words:** proposed in `docs/proposals/dm-needs-person-rules.md`, not live.
+
+## D-159 — The month is seen and the brake pages; neither stops a reply (2026-09-30)
+
+Rulebook §3.1 (v0.3) asks for a 20,000 ₮ monthly normal limit per client that only alerts (at 70%),
+and an emergency brake that may stop replies and alerts at once. Before this, the code read no
+month, and a cap refusal left a Messenger customer unanswered with no alert to anyone.
+
+- **The month is a line in the daily report**, never a page:
+  - It is computed by `src/lib/spend/monthly.ts` from `spend_ledger.cost_mnt`, the ₮ figure
+    snapshotted at settle time.
+  - It covers the tenant's calendar month through the reported day and excludes `platform_ops`.
+  - Marks: 🟠 at 70%, 🔴 at 100%. Both say replies continue.
+  - `CLIENT_MONTHLY_NORMAL_LIMIT_MNT` and `CLIENT_MONTHLY_ALERT_FRACTION` are compiled in
+    `src/config/platform.ts` and have no other reader.
+  - Rulebook §4 sends everything except payments, a bot down, an unanswered customer and
+    credentials to the daily brief, so the 70% alert is not a separate Telegram message.
+- **The brake pages at once** (`src/lib/spend/ceilingAlert.ts`):
+  - It is raised from the refusal branch of the Messenger worker and of the website job.
+  - Critical, `route: 'now'`, `on_change`, keyed by tenant and surface with no period.
+  - The hourly health run closes it once both the tenant's and the platform's day have rolled
+    over. A brake that trips again the next day pages again.
+  - The page names both counters, and which cap refused when the counters show it. A missing
+    tenant counter beside a platform counter under its cap is read as a zero budget, because
+    `reserve.ts` refuses that case before seeding a counter.
+  - It is bounded at 5 s and never throws. On Messenger it runs after the event is marked `shed`
+    and cannot change the ACK; on the website it runs after the visitor's response. It writes
+    only `alerts`, so it cannot move a counter or the ledger.
+  - The report also lists the day's cap pages, open or closed, and names any page Telegram did
+    not deliver. An undelivered first page leaves the episode open, which silences later pages
+    that day, so the report is where that is seen.
+- **The report also counts `shed` events** per tenant for the reported day. Those are the
+  Messenger messages a cap left unanswered.
+- **Not changed:**
+  - both caps;
+  - `tenant_budgets`;
+  - `on_exhausted`, which still has no reader;
+  - what any customer sees.
+
+  A Messenger reply after a refusal, and Tara Яармаг's `max_emoji = 1`, are drafted in
+  `docs/reports/2026-09-30-spend-alerts.md` and wait for the founder.
