@@ -86,7 +86,9 @@ test('the body carries counts, never the verdicts themselves', async () => {
   // This lands in QStash's delivery log. A channel's health belongs in `channel_health`
   // and in the alert, not in a queue receipt somebody may or may not read.
   const r = await runHealthJob(effects(), { rawBody: '{}', signature: 'sig' });
-  assert.deepEqual(Object.keys(r.body).sort(), ['canned_drift', 'catch_up', 'ceiling_episodes', 'checked', 'reclaim', 'secrets', 'states', 'swept']);
+  assert.deepEqual(Object.keys(r.body).sort(), ['canned_drift', 'catch_up', 'ceiling_episodes', 'checked', 'parked_replies', 'reclaim', 'secrets', 'states', 'swept']);
+  // D-166: which replies are unconfirmed is in the page, never in the receipt.
+  for (const [k, v] of Object.entries(r.body['parked_replies'] as Record<string, unknown>)) assert.equal(typeof v, 'number', `${k} is a count`);
   for (const [k, v] of Object.entries(r.body['canned_drift'] as Record<string, unknown>)) assert.equal(typeof v, 'number', `${k} is a count`);
   // The reclaim sweep's verdicts are counts by reason, never a conversation id.
   for (const [k, v] of Object.entries(r.body['reclaim'] as Record<string, unknown>)) assert.equal(typeof v, 'number', `${k} is a count`);

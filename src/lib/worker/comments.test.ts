@@ -177,6 +177,8 @@ function stubFx(over: {
       return over.lookup ?? { tagsPerson: false, postCreatedAt: new Date(NOW.getTime() - 86_400_000), problems: [] };
     },
     alertComplaint: async (a) => { complaints.push({ commentId: a.commentId, text: a.text, link: a.link }); },
+    // The whole budget, every time: these cases are about decisions, not time (D-166 has its own).
+    msLeft: () => 50_000,
     log: (_l, e) => logs.push(e),
   };
   return { fx, ops, posted, privates, lookups, complaints, logs };

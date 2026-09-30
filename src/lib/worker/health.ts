@@ -33,6 +33,7 @@ import type { EnqueueResult } from '../queue/qstash.ts';
 import { closeStaleCeilingEpisodes } from '../spend/ceilingAlert.ts';
 import { checkCannedDrift } from '../prompt/cannedDrift.ts';
 import { reclaimHeldConversations } from '../handover/reclaim.ts';
+import { sweepParkedReplies } from '../comments/reconcile.ts';
 
 export type HealthEffects = {
   db: SupabaseClient;
@@ -107,6 +108,13 @@ export async function runHealthJob(
   // must not be re-run for it.
   const drift = await checkCannedDrift(effects.db, effects.now);
   if (!drift.ok) console.error('[health] canned_drift_failed', { detail: drift.detail });
+  // Public comment replies parked `indeterminate` (D-166): match each to Meta's stored notice
+  // of the Page's own comment and mark it sent, then page once per tenant per Ulaanbaatar day
+  // with three or more still unconfirmed ten minutes on. Posts nothing. NOT a 503 when it
+  // fails, like the two above: the daily report counts the same rows on its own and prints
+  // UNREADABLE when it cannot, and the next hourly run tries again.
+  const parked = await sweepParkedReplies(effects.db, { now: effects.now });
+  if (!parked.ok) console.error('[health] parked_reply_sweep_failed', { detail: parked.detail });
   // Seventh, and last so a failure here re-runs nothing it could skip: chats staff took and
   // then left for two opening hours get the tenant's reviewed reclaim line and the bot back
   // (founder, 2026-09-30; `handover/reclaim.ts`). Hourly is the latency, so a customer waits
@@ -133,6 +141,9 @@ export async function runHealthJob(
       // Every verdict counted, `no_reviewed_line` included: a feature switched off by a
       // missing approval must not read as a quiet hour.
       reclaim: reclaim.counts,
+      parked_replies: parked.ok
+        ? { reconciled: parked.reconciled, unconfirmed: parked.unconfirmed, paged: parked.paged, page_failures: parked.pageFailures, capped: parked.capped ? 1 : 0 }
+        : { failures: 1 },
       ceiling_episodes: { closed: ceilings.ok ? ceilings.closed : 0, failures: ceilings.ok ? 0 : 1 },
       canned_drift: drift.ok
         ? { checked: drift.checked, drifted: drift.drifted, raised: drift.raised, closed: drift.closed, failures: drift.failures }

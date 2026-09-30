@@ -8,7 +8,7 @@
  *
  * What it is NOT: PostgREST. It evaluates `eq`, `in`, `gte`, `is`, `not … is null`, jsonb
  * `contains` and one unique index the way the database does for the reads the comment path
- * makes, and nothing else — a green replay is not evidence about the transport
+ * makes (plus `lt`, for the parked-reply scan), and nothing else — a green replay is not evidence about the transport
  * (`scripts/verify/postgrest.ts` is).
  */
 import { runCommentJob, type CommentEffects, type CommentJobInput, type CommentJobResult } from './comments.ts';
@@ -56,6 +56,7 @@ export function memoryDb(seed: Record<string, Row[]>, clock: () => Date = () => 
     chain['eq'] = (c: string, v: unknown) => (preds.push((r) => String(r[c]) === String(v)), chain);
     chain['in'] = (c: string, v: unknown[]) => (preds.push((r) => v.map(String).includes(String(r[c]))), chain);
     chain['gte'] = (c: string, v: unknown) => (preds.push((r) => String(r[c]) >= String(v)), chain);
+    chain['lt'] = (c: string, v: unknown) => (preds.push((r) => String(r[c]) < String(v)), chain);
     chain['is'] = (c: string, v: unknown) => (preds.push((r) => (r[c] ?? null) === v), chain);
     chain['not'] = (c: string, o: string, v: unknown) => {
       if (o !== 'is' || v !== null) throw new Error(`memoryDb: not.${o} is not modelled`);
@@ -137,6 +138,7 @@ export async function replayComments(input: {
       // and "no person tagged" is an assumption the caller states.
       lookupComment: async ({ postId }) => ({ tagsPerson: false, postCreatedAt: POST_CREATED[postId] ?? null, problems: [] }),
       alertComplaint: async () => {},
+      msLeft: () => 50_000,
       log: () => {},
     };
     const job: CommentJobInput = {

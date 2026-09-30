@@ -62,6 +62,7 @@ import {
 import { ceilingPagesLine, readCeilingPages, type CeilingPagesSummary } from '../spend/ceilingAlert.ts';
 import { cacheBlock, readCacheStats, type CacheSummary } from '../spend/cacheReport.ts';
 import { buildFlawReport, previousDate } from '../quality/flaws.ts';
+import { countUnconfirmed, unconfirmedLine, type UnconfirmedSummary } from '../comments/reconcile.ts';
 
 /**
  * How long an open `critical` may go unmentioned before it gets its own message again.
@@ -251,6 +252,8 @@ export function planDigest(
     ceilingPages: CeilingPagesSummary;
     /** Each tenant's prompt-cache figures (D-161). Required, for D-083's reason. */
     cache: CacheSummary;
+    /** Public comment replies still unconfirmed, per tenant (D-166). Required, for D-083's reason. */
+    unconfirmed: UnconfirmedSummary;
   },
 ): DigestPlan {
   // The Ulaanbaatar day the counts and the flaw report cover — the one that has just ended
@@ -276,7 +279,7 @@ export function planDigest(
   // The cap lines sit with the other day counts. The month block goes LAST, after the open
   // conditions, so a long tenant list can never push a critical out of the message; if it
   // does not fit it says so rather than vanishing.
-  const caps = `\n${shedLine(input.shed)}.\n${ceilingPagesLine(input.ceilingPages)}.`;
+  const caps = `\n${shedLine(input.shed)}.\n${ceilingPagesLine(input.ceilingPages)}.\n${unconfirmedLine(input.unconfirmed)}.`;
   // Fitted one after another, money first: the cache block is informational and must never
   // push the month out, and each says so by name when it does not fit.
   const spendBlock = `\n\n${monthlySpendBlock(input.monthlySpend)}`;
@@ -726,6 +729,10 @@ export async function runDigestJob(
     shed: await countShed(effects.db, reportWindow(effects.now).since, reportWindow(effects.now).until),
     ceilingPages: await readCeilingPages(effects.db, reportWindow(effects.now).since, reportWindow(effects.now).until),
     cache: await readCacheStats(effects.db, reportWindow(effects.now).date),
+    // Read-only and never throws; unreadable prints UNREADABLE (D-166).
+    unconfirmed: await countUnconfirmed(effects.db, {
+      since: new Date(reportWindow(effects.now).since), until: new Date(reportWindow(effects.now).until), now: effects.now,
+    }),
   });
 
   // ALERTS_ENABLED=false silences every path or it silences none of them — the same escape
