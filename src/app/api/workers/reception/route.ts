@@ -30,7 +30,8 @@ import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
 import { SECTION_LABELS } from '@/lib/prompt/tenant';
 import { raiseAlert } from '@/lib/alerts/alert';
-import { runReceptionJob, type WorkerEffects } from '@/lib/worker/reception';
+import { RECEPTION_REPLY_ESTIMATE, runReceptionJob, type WorkerEffects } from '@/lib/worker/reception';
+import { alertCeilingReached } from '@/lib/spend/ceilingAlert';
 import { raiseDeliveryExhausted } from '@/lib/worker/exhaustedAlert';
 import { servicesFromPrefix, sectionRows, faqAnswersFromPrefix } from '@/lib/quality/serviceNames';
 import { salesShadowEffect } from '@/lib/sales/shadow';
@@ -196,6 +197,10 @@ function effects(now: Date): WorkerEffects {
         ? lookupInstagramComment({ commentId, postId, pageId, token: secret.secret, graphVersion, text: text ?? '' })
         : lookupComment({ commentId, postId, pageId, token: secret.secret, graphVersion });
     },
+
+    // Surface and estimate are Reception's, the same the guard reserved (see `withTenantRole`'s call).
+    alertCeilingReached: ({ tenantId, timezone, channel }) =>
+      alertCeilingReached(db, { tenantId, timezone, channel, surface: 'reception', estimate: RECEPTION_REPLY_ESTIMATE, now }),
 
     alertMediaHandoff: async (input) => {
       const outcome = await raiseMediaHandoff(db, input);

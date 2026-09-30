@@ -104,6 +104,24 @@ export const QUALITY_RUN_BUDGET_USD = 0;
 export const RECEPTION_CONVERSATION_BAND_PER_MONTH = 400;
 
 /**
+ * The rulebook's NORMAL monthly limit for one client's model spend, in tögrög
+ * (`docs/standards/rulebook.md` §3.1: 20,000 ₮, about 8% of a 250,000 ₮ fee).
+ *
+ * **This stops nothing.** It is an alert threshold, read only by the daily report
+ * (`spend/monthly.ts`). The rulebook says the normal limit never stops a live customer's
+ * reply; only the emergency brake above (`SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY`,
+ * `PLATFORM_HARD_CAP_USD_PER_DAY`) may, and nothing here reads or moves that brake.
+ *
+ * In tögrög, not dollars, because the rule is written in tögrög and the ledger snapshots a
+ * tögrög figure onto every row (`spend_ledger.cost_mnt`, never re-derived). Compiled rather
+ * than a row for the reason at the top of this file: moving it is a commit with an approver.
+ */
+export const CLIENT_MONTHLY_NORMAL_LIMIT_MNT = 20_000;
+
+/** At this share of the normal limit the daily report raises the rulebook's 70% alert. */
+export const CLIENT_MONTHLY_ALERT_FRACTION = 0.7;
+
+/**
  * D-010: model ids are platform constants, never tenant config. A tenant carries a
  * `model_tier`; this registry is the only place a tier becomes an id, so a tenant's
  * configuration can never change what WE pay per message.

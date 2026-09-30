@@ -150,6 +150,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
   const flags: { tenantId: string; conversationId: string; code: string; detail: string }[] = [];
   const standbyAlerts: { tenantId: string; channelId: string; dayKey: string; events: number }[] = [];
   const exhausted: ExhaustedInput[] = [];
+  const ceilingAlerts: { tenantId: string; timezone: string; channel: string }[] = [];
   const typed: { tenantId: string; channelId: string; recipientId: string }[] = [];
   const shadowed: SalesShadowArgs[] = [];
   const needsPerson: Parameters<WorkerEffects['alertNeedsPerson']>[0][] = [];
@@ -160,6 +161,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     verifySignature: async () => true,
     alertStandby: async (a) => { standbyAlerts.push(a); },
     alertDeliveryExhausted: async (a) => { exhausted.push(a); },
+    alertCeilingReached: async (a) => { ceilingAlerts.push(a); return 'sent'; },
     showTyping: async (a) => { typed.push(a); },
     graphVersionDefault: () => 'v21.0',
     generateReply: async (a) => {
@@ -188,7 +190,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     },
     ...rest,
   };
-  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted, typed, shadowed, needsPerson };
+  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted, ceilingAlerts, typed, shadowed, needsPerson };
 }
 
 const run = (fx: WorkerEffects, rawBody = job(), signature: string | null = 'sig') =>
@@ -837,6 +839,49 @@ test('DONE-TEST: a 503 refusal logs the DETAIL, not just the category', async ()
   const refused = logs.find((l) => l.event === 'refused');
   assert.equal(refused?.fields?.['code'], 'guard_unavailable');
   assert.match(String(refused?.fields?.['detail']), /permission denied/);
+});
+
+// ---------------------------------------------------------------------------
+// The emergency brake pages the founder (rulebook §3.1), and the page never changes the ACK.
+// ---------------------------------------------------------------------------
+
+/** A budget row that gives Reception nothing: the guard refuses 429 before any RPC. */
+const ZERO_RECEPTION_BUDGET = {
+  tenant_budgets: { data: { daily_ceiling_nanousd: 1_000_000_000, surface_fractions: { reception: 0 } }, error: null },
+};
+
+test('A CAP REFUSAL PAGES THE FOUNDER, marks the event shed, and ACKs', async () => {
+  const { fx, ops, ceilingAlerts, generated, typed, logs } = stubEffects({ tables: ZERO_RECEPTION_BUDGET });
+  const r = await run(fx);
+  assert.equal(r.status, 200, 'determinate: QStash must not redeliver');
+  assert.equal(generated.length, 0, 'nothing generated, nothing spent');
+  assert.equal(typed.length, 0, 'no typing bubble for a reply that is not coming');
+  assert.equal(ceilingAlerts.length, 1);
+  assert.equal(ceilingAlerts[0]?.tenantId, TENANT);
+  assert.equal(typeof ceilingAlerts[0]?.timezone, 'string');
+  assert.ok(ops.some((o) => o.table === 'webhook_events' && o.op === 'update' && o.patch?.['state'] === 'shed'));
+  assert.equal(logs.find((l) => l.event === 'ceiling_alert')?.fields?.['outcome'], 'sent');
+});
+
+test('a cap alert that FAILS is logged as an error and the job still ACKs 200', async () => {
+  const { fx, logs } = stubEffects({
+    tables: ZERO_RECEPTION_BUDGET,
+    alertCeilingReached: async () => { throw new Error('telegram down'); },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200, 'a failed page must never turn into a redelivery');
+  const line = logs.find((l) => l.event === 'ceiling_alert');
+  assert.equal(line?.level, 'error');
+  assert.match(String(line?.fields?.['outcome']), /telegram down/);
+});
+
+test('a guard that is merely UNAVAILABLE (503) does not page the cap alert', async () => {
+  const { fx, ceilingAlerts } = stubEffects({
+    tables: { tenant_roles: { data: null, error: { message: 'permission denied' } } },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+  assert.equal(ceilingAlerts.length, 0);
 });
 
 // ---------------------------------------------------------------------------

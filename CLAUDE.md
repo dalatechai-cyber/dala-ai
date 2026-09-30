@@ -243,11 +243,18 @@ Each line has its story in `docs/history.md`.
 - **The unit of cost is the conversation** (D-072). A cold reply is ~$0.0406, a warm one
   ~$0.0035. `RECEPTION_REPLY_ESTIMATE` is $0.041 (founder, 2026-09-15). Prefix trimming
   (`docs/prefix-trim.md`) is a margin lever.
-- **The binding cap is daily and compiled:** the lower of
+- **The binding cap is daily:** the lower of the compiled
   `SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY` ($2.00, the founder's call of 2026-09-21, D-106;
-  it was $1.50 before) and the tenant's daily × surface fraction, with
+  it was $1.50 before) and the tenant's `tenant_budgets` daily × surface fraction, with
   `PLATFORM_HARD_CAP_USD_PER_DAY` ($10.00) across all tenants (`src/config/platform.ts`).
-  Ceilings are never environment variables (`check-no-ceiling-env.mjs`).
+  Read 2026-09-30: Tara Яармаг's Reception cap is **$1.90** (her row, $2.00 × 0.95), DalaTech's
+  $2.00 (the constant). Ceilings are never environment variables (`check-no-ceiling-env.mjs`).
+- **The monthly figure is an alert, never a stop** (rulebook §3.1, D-159):
+  `CLIENT_MONTHLY_NORMAL_LIMIT_MNT` (₮20,000) is read only by the daily report, which shows
+  each client's month from `spend_ledger.cost_mnt` and marks 70%. A cap refusal pages at once
+  (`spend/ceilingAlert.ts`, one `on_change` episode per tenant and surface, closed by the
+  hourly health run after midnight). After a refusal a Messenger customer gets **no reply**
+  and a website visitor gets the handoff line; a Messenger reply waits for the founder.
 - **₮250,000 is Reception's list price; ₮80,000 ≈ $22.86 is the allowable model spend**
   (D-004: ceilings derive from the discounted floor). Matrix's ceiling is $28.57 (60% of
   list), set by the founder; the departure is flagged, not resolved.

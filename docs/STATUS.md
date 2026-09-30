@@ -1,5 +1,14 @@
 # STATUS — what is built, what is stubbed, what has never been proven
 
+> **2026-09-30 — spend visibility (D-159).** The daily report prints each client's model
+> spend for the month in ₮ against the rulebook's 20,000 ₮ normal limit, marks 70% and 100%,
+> and counts Messenger messages a daily cap refused. A cap refusal now pages the founder at
+> once (one episode per tenant and surface; closed by the hourly health run after midnight).
+> Nothing here stops a reply; the caps did not move. **Not built, waiting for the founder:**
+> a reply to the Messenger customer after a refusal (today: none) and Tara Яармаг's emoji cap
+> (`docs/reports/2026-09-30-spend-alerts.md`). **Not proven:** a real 70% crossing or a real
+> cap trip on the project; both are covered by unit tests only.
+
 > **2026-09-27 — onboarding (D-155).** `scripts/onboard/tenant.ts` turns a filled
 > questionnaire into a tenant in shadow behind two gates. Proven end to end on a LOCAL
 > REPLICA with a fictional tenant only; never run against the project. Not proven: the one
@@ -369,12 +378,14 @@ remains:
    bold. Flagged, not resolved — a pricing call (D-072 addendum).
 3. **The ceiling you raised enforces nothing today.** `monthly_ceiling_nanousd` has no
    reader in `src/` or in any migration, and neither does `on_exhausted`, so the degradation
-   ladder is designed and not built. What binds is the DAILY cap, and it is **compiled**:
-   the lower of `SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY` ($1.50) and the row's daily ×
-   surface fraction ($1.90), so Matrix's live reception ceiling is **$1.50/day from a
-   constant**, unaffected by its budget row. Whether $1.50 is right is money and is yours:
-   it affords roughly **37 cold conversations in a day**, against D-016's measured spread of
-   28–94 replies/day.
+   ladder is designed and not built. What binds is the DAILY cap: the lower of
+   `SURFACE_HARD_CAP_USD_PER_TENANT_PER_DAY` (**$2.00** since 2026-09-21, D-106; it was
+   $1.50) and the row's daily × surface fraction ($2.00 × 0.95 = **$1.90**, `tenant_budgets`
+   id 3, read 2026-09-30). So Tara Яармаг's live Reception ceiling is **$1.90/day from her
+   row**, about 46 cold conversations. *Corrected 2026-09-30:* this item said $1.50 from the
+   constant, which stopped being true when the constant moved to $2.00.
+   Since D-159 the month is **seen** (the daily report prints each client's ₮ month and
+   marks the rulebook's 70% alert) and a cap refusal pages at once; neither stops a reply.
 
 All twenty-one Mongolian blocks were signed on 2026-09-04 and are seeded by
 `0010`; `prompt/drafts/` is empty of blocks and is now the design record.
