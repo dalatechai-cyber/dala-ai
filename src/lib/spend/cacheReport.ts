@@ -10,15 +10,16 @@
  *   figure the 1h -> 5m change moves directly (2x -> 1.25x the input rate).
  * - **₮ per call**: the two together, which is what the tenant costs.
  *
- * Each is printed for the reported day and for the last 14 days against the 14 before, so on
- * the fourteenth report after the switch the comparison is exactly after against before. Read
+ * Each is printed for the reported day and for the last 14 days against the 14 before. Tara
+ * switched at 12:35 on 30 Sep, a mixed day: the report for 14 Oct (sent 00:05 on 15 Oct) is the
+ * first whose last 14 days are all after the switch, and its 14 before still hold 30 Sep. Read
  * from `spend_ledger` (settled truth, `cost_mnt` snapshotted), `platform_ops` excluded, on the
  * platform's calendar. Reads only; an unreadable tenant prints UNREADABLE, never zero.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { PLATFORM_TIMEZONE } from '../../config/platform.ts';
 import { localDayStart } from '../time/clock.ts';
-import { groupDigits } from './monthly.ts';
+import { cents, groupDigits } from './monthly.ts';
 
 const PAGE = 1000;
 const MAX_PAGES = 30;
@@ -52,13 +53,14 @@ export async function readCacheStats(db: SupabaseClient, reportDate: string): Pr
   try {
     const { data, error } = await db.from('tenants').select('id, display_name, prompt_cache_mode');
     if (error) return { ok: false, detail: `tenants unreadable: ${error.message}` };
+    if (!Array.isArray(data)) return { ok: false, detail: 'tenants read returned no list' };
     const end = localDayStart(minusDays(reportDate, -1), PLATFORM_TIMEZONE).getTime();
     const dayStart = localDayStart(reportDate, PLATFORM_TIMEZONE).getTime();
     const lastStart = localDayStart(minusDays(reportDate, WINDOW_DAYS - 1), PLATFORM_TIMEZONE).getTime();
     const beforeStart = localDayStart(minusDays(reportDate, 2 * WINDOW_DAYS - 1), PLATFORM_TIMEZONE).getTime();
 
     const out: TenantCache[] = [];
-    for (const row of Array.isArray(data) ? data : []) {
+    for (const row of data) {
       const r = row as Record<string, unknown>;
       const id = String(r['id']);
       const tenant = typeof r['display_name'] === 'string' && r['display_name'] !== '' ? r['display_name'] : id;
@@ -78,19 +80,21 @@ export async function readCacheStats(db: SupabaseClient, reportDate: string): Pr
           .order('id', { ascending: true })
           .range(offset, offset + PAGE - 1);
         if (lErr) { failed = `spend_ledger unreadable: ${lErr.message}`; break; }
-        const list = Array.isArray(rows) ? rows : [];
+        if (!Array.isArray(rows)) { failed = 'spend_ledger read returned no list'; break; }
+        const list = rows;
         // Stop on an EMPTY page, never a short one (`monthly.ts`, same reason).
         if (list.length === 0) { finished = true; break; }
         for (const x of list) {
           const l = x as Record<string, unknown>;
           const at = new Date(String(l['at'])).getTime();
-          const n = typeof l['cost_mnt'] === 'number' ? l['cost_mnt'] : Number(l['cost_mnt']);
-          const writes = Number(l['cache_write_tokens'] ?? 0);
-          if (Number.isNaN(at) || !Number.isFinite(n) || !Number.isFinite(writes)) {
+          // Only a number or a numeric string counts (`cents`); a missing write count is not
+          // «warm», it is unreadable.
+          const c = cents(l['cost_mnt']);
+          const writes = l['cache_write_tokens'];
+          if (Number.isNaN(at) || c === null || typeof writes !== 'number' || !Number.isFinite(writes)) {
             failed = `spend_ledger row ${String(l['id'])} unreadable`;
             break;
           }
-          const c = Math.round(n * 100);
           const cold = writes > 0;
           const add = (win: CacheWindow): void => {
             win.calls += 1; win.mntCents += c;
@@ -124,6 +128,11 @@ function windowText(w: CacheWindow): string {
 
 export function cacheLine(t: TenantCache): string {
   if ('unreadable' in t) return `${t.tenant} [${t.mode}]: UNREADABLE — ${t.unreadable}`;
+  // With caching off nothing is ever written, so «0% cold» would read as a perfect cache.
+  if (t.mode === 'off') {
+    return `${t.tenant} [off]: cache off · yesterday ${t.yesterday.calls} call${t.yesterday.calls === 1 ? '' : 's'} · `
+      + `last ${WINDOW_DAYS}d ${per(t.last.mntCents, t.last.calls)}/call · the ${WINDOW_DAYS}d before ${per(t.before.mntCents, t.before.calls)}/call`;
+  }
   return `${t.tenant} [${t.mode}]: yesterday ${t.yesterday.calls} call${t.yesterday.calls === 1 ? '' : 's'}, `
     + `${t.yesterday.cold} cold · last ${WINDOW_DAYS}d ${windowText(t.last)} · the ${WINDOW_DAYS}d before ${windowText(t.before)}`;
 }

@@ -69,3 +69,20 @@ test('an unparsable row makes the tenant UNREADABLE rather than skipping it', as
   }).db, DATE);
   assert.match(cacheBlock(s), /UNREADABLE — spend_ledger row 9 unreadable/);
 });
+
+test('a tenant with caching OFF says «cache off», never «0% cold»', () => {
+  const w = { calls: 2, cold: 0, mntCents: 20_000, coldMntCents: 0 };
+  const line = cacheLine({ tenant: 'Salon B', mode: 'off', yesterday: w, last: w, before: w });
+  assert.match(line, /^Salon B \[off\]: cache off/);
+  assert.doesNotMatch(line, /% cold/);
+});
+
+test('a row with a missing write count or a null cost is UNREADABLE, not warm or ₮0', async () => {
+  for (const bad of [
+    { id: 5, at: '2026-10-14T03:00:00Z', cost_mnt: null, cache_write_tokens: 0 },
+    { id: 6, at: '2026-10-14T03:00:00Z', cost_mnt: 10 },
+  ]) {
+    const s = await readCacheStats(stubDb({ tenants: [TENANTS], spend_ledger: [{ data: [bad], error: null }] }).db, DATE);
+    assert.match(cacheBlock(s), /UNREADABLE — spend_ledger row \d unreadable/);
+  }
+});

@@ -277,10 +277,17 @@ export function planDigest(
   // conditions, so a long tenant list can never push a critical out of the message; if it
   // does not fit it says so rather than vanishing.
   const caps = `\n${shedLine(input.shed)}.\n${ceilingPagesLine(input.ceilingPages)}.`;
-  const spendBlock = `\n\n${monthlySpendBlock(input.monthlySpend)}\n\n${cacheBlock(input.cache)}`;
-  const spendFits = (used: number): string => (used + spendBlock.length <= MAX_MESSAGE_CHARS
-    ? spendBlock
-    : '\n\nModel spend this month: not shown (message length).');
+  // Fitted one after another, money first: the cache block is informational and must never
+  // push the month out, and each says so by name when it does not fit.
+  const spendBlock = `\n\n${monthlySpendBlock(input.monthlySpend)}`;
+  const cacheText = `\n\n${cacheBlock(input.cache)}`;
+  const spendFits = (used: number): string => {
+    const month = used + spendBlock.length <= MAX_MESSAGE_CHARS
+      ? spendBlock : '\n\nModel spend this month: not shown (message length).';
+    const cache = used + month.length + cacheText.length <= MAX_MESSAGE_CHARS
+      ? cacheText : '\n\nPrompt cache: not shown (message length).';
+    return `${month}${cache}`;
+  };
 
   if (ranked.length === 0) {
     const head = `Dala AI — ${date}\nNothing open. ${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.${adverts}${caps}`;

@@ -11309,16 +11309,16 @@ The founder settled both decisions in `docs/reports/2026-09-30-spend-alerts.md`.
   - Live traffic was 2–5 conversations a day, so most conversations started cold whatever the
     cache lifetime.
   - Cache writes were 88% of live spend (`docs/reports/2026-09-30-tara-spend.md`).
-  - A 5-minute write costs 1.25× the input rate against 2× for 1 hour, so about 37% less per
-    cold call.
+  - A 5-minute write costs 1.25× the input rate against 2× for 1 hour: about 37% less on the
+    cache write, and somewhat less per cold call.
   - The risk: turns more than 5 minutes apart inside one conversation now miss the cache.
 - **Measured in the daily report for two weeks.** A new block, `src/lib/spend/cacheReport.ts`,
   shows for each tenant with model calls:
   - yesterday's calls and cold calls;
   - for the last 14 days against the 14 before: ₮ per call, the cold share and ₮ per cold call.
 
-  On the 14th report after the switch, "last 14" is entirely after it and "the 14 before"
-  entirely before. It reads `spend_ledger` only, and an unreadable tenant prints UNREADABLE.
+  30 Sep is a mixed day. The report for 14 Oct (sent 00:05 on 15 Oct) is the first whose last
+  14 days are all after the switch; its 14 before still include 30 Sep. It reads `spend_ledger` only, and an unreadable tenant prints UNREADABLE.
 - **Unchanged:**
   - the 20,000 ₮ line, which is revisited after the two weeks (founder);
   - the caps;
