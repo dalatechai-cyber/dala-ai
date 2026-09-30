@@ -13,11 +13,19 @@
 -- republish:
 --     begin; set local dala.canned_edit = 'republish'; <edit>; commit;
 --     then scripts/publish/tenant.ts --slug <slug> (dry run, then --publish) at once.
--- Allowed without it: an UPDATE that changes neither body, kind, locale nor tenant (signing:
--- `reviewed_at`, `reviewed_by`); rows of a model-invisible kind (`MODEL_INVISIBLE_KINDS`,
+-- Allowed without it: an UPDATE that changes neither kind, locale, tenant nor the trimmed body
+-- (signing: `reviewed_at`, `reviewed_by`); rows in a locale other than the tenant's default
+-- (never compiled); rows of a model-invisible kind (`MODEL_INVISIBLE_KINDS`,
 -- `gate/match.ts`, kept in step by `check-gate-keys`), which never enter the prefix; tenants
 -- with no live revision (onboarding). A live tenant cannot be deleted anyway (`config_audit`
 -- is append-only), so no cascade path is needed.
+--
+-- Not covered, by design (the hourly drift check catches each within the hour): TRUNCATE (row
+-- triggers do not fire), `session_replication_role = replica`, a change to
+-- `tenants.default_locale`, and an `insert ... on conflict do update` that rewrites a live row
+-- with identical bytes (a BEFORE INSERT trigger fires before the conflict is known, so it is
+-- refused). When MODEL_INVISIBLE_KINDS grows, deploy the code before the migration that
+-- redefines this function.
 --
 -- Not destructive: no row is changed. The hourly drift check and the reply path's page
 -- (`prompt/cannedDrift.ts`) still catch anything that gets past this.
@@ -30,33 +38,40 @@ declare
   invisible constant text[] := array['image_received', 'comment_public_reply', 'comment_private_reply',
     'handover_notice', 'handover_reclaim', 'clarify_branch', 'comment_cta_public_reply',
     'comment_cta_private_reply', 'voice_received'];
-  tenants_hit uuid[];
+  old_counts boolean := false;
+  new_counts boolean := false;
 begin
   if coalesce(current_setting('dala.canned_edit', true), '') = 'republish' then
     return coalesce(new, old);
   end if;
+  -- Signing, or a body that differs only in surrounding spaces: the hash reads the kind and
+  -- the TRIMMED body, so neither moves it. `btrim` trims spaces only, fewer characters than
+  -- JavaScript's `trim()`, so any other difference is still refused (the safe direction).
   if tg_op = 'UPDATE'
-     and new.body is not distinct from old.body and new.kind = old.kind
+     and btrim(new.body) is not distinct from btrim(old.body) and new.kind = old.kind
      and new.locale = old.locale and new.tenant_id = old.tenant_id then
     return new;
   end if;
-  if (tg_op = 'INSERT' and new.kind = any(invisible))
-     or (tg_op = 'DELETE' and old.kind = any(invisible))
-     or (tg_op = 'UPDATE' and new.kind = any(invisible) and old.kind = any(invisible)) then
-    return coalesce(new, old);
-  end if;
 
-  tenants_hit := case tg_op
-    when 'INSERT' then array[new.tenant_id]
-    when 'DELETE' then array[old.tenant_id]
-    else array[new.tenant_id, old.tenant_id] end;
-  if not exists (select 1 from public.tenants t where t.id = any(tenants_hit) and t.live_revision_id is not null) then
+  -- A row is in the published hash when its kind is model-visible, its locale is its
+  -- tenant's default locale (the only one compiled), and that tenant has a live revision.
+  if tg_op in ('UPDATE', 'DELETE') and not (old.kind = any(invisible)) then
+    select exists (select 1 from public.tenants t
+                   where t.id = old.tenant_id and t.live_revision_id is not null
+                     and t.default_locale = old.locale) into old_counts;
+  end if;
+  if tg_op in ('UPDATE', 'INSERT') and not (new.kind = any(invisible)) then
+    select exists (select 1 from public.tenants t
+                   where t.id = new.tenant_id and t.live_revision_id is not null
+                     and t.default_locale = new.locale) into new_counts;
+  end if;
+  if not (old_counts or new_counts) then
     return coalesce(new, old);
   end if;
 
   raise exception 'canned_responses: this edit changes a live tenant''s published lines, and every reply would stop (canned_stale) until a republish'
     using errcode = 'P0001',
-          hint = 'Run it as: begin; set local dala.canned_edit = ''republish''; <edit>; commit; then publish the tenant at once (scripts/publish/tenant.ts). D-163.';
+          hint = 'In one SQL transaction: begin; set local dala.canned_edit = ''republish''; <edit>; commit; then publish the tenant at once (scripts/publish/tenant.ts). PostgREST and scripts/provision cannot set this; edit through SQL. D-163.';
 end $$;
 
 create trigger canned_responses_refuse_unpublished_edit

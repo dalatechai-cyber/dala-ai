@@ -11375,6 +11375,11 @@ since the cutover, the same edit today would leave every customer in silence.
    nothing new. Other retries are unchanged.
 
 **Not covered:** the website widget still answers `canned_stale` with a retry; the page and the
-hourly check cover it. An edit made with the escape and then not republished is caught by the
-hourly check, not refused.
+hourly check cover it. The hourly check, not the trigger, catches: an edit made with the escape
+and then not republished; `TRUNCATE`; `session_replication_role = replica`; a change to
+`tenants.default_locale`. An `insert … on conflict do update` rewriting a live row with the
+same bytes is refused (safe, but it breaks re-running old provision SQL). The onboarding writer
+(`provision/write.ts`) checks the same rule before its first write, so a re-run on a published
+tenant fails whole, not halfway. When `MODEL_INVISIBLE_KINDS` grows, deploy the code before the
+migration that redefines the trigger function.
 

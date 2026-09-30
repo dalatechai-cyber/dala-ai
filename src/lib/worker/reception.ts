@@ -1351,8 +1351,12 @@ async function runReceptionDelivery(
      * sent, for the reason logged), or a job result to return (a 503 that QStash retries).
      */
     const serveHandoff = async (reason: 'ceiling' | 'canned_stale'): Promise<'sent' | 'skipped' | JobResult> => {
+      // The published bytes whenever the snapshot carries the canned section: a row edited
+      // since the last publish keeps its old `reviewed_at`, so the stamp alone would send
+      // unpublished words (D-163 review). A snapshot older than D-058 has no section to check,
+      // except on `canned_stale`, which is only ever raised against a section.
       const handoff = ctx.canned.find((c) => c.kind === 'handoff' && c.reviewedAt !== null && c.body.trim() !== ''
-        && (reason !== 'canned_stale' || publishedLine(ctx.promptStable, 'handoff', c.body)));
+        && ((reason !== 'canned_stale' && ctx.cannedHash === null) || publishedLine(ctx.promptStable, 'handoff', c.body)));
       const said = !deliverThis || handoff === undefined ? 'no'
         : await handoffSaidToday(db, { tenantId, conversationId, body: handoff.body, since: localDayStart(localDate, timezone) });
       // Unreadable sends the line: a repeat is better than a customer left with nothing.
@@ -1371,14 +1375,16 @@ async function runReceptionDelivery(
         fx.log('info', `${reason}_handoff_already_said`, { tenantId, conversationId });
         return 'skipped';
       }
-      const drafted = await draftOnce(db, {
+      const line = await draftOnce(db, {
         tenantId, kind: 'reply', dedupKey: replyDedupKey(message.externalId), body: handoff.body, channelId, conversationId,
       });
-      if (!drafted.ok) {
+      if (!line.ok) {
         // A 503: the message is stored and unanswered, and the redelivery tries again.
-        fx.log('error', `${reason}_handoff_draft_failed`, { tenantId, detail: drafted.detail });
+        fx.log('error', `${reason}_handoff_draft_failed`, { tenantId, detail: line.detail });
         return unavailable(`worker.${reason}_handoff_draft_failed`);
       }
+      // Counted as the entry's reply, so the event's `replied_at` says one was produced.
+      drafted.push(line.row.id);
       // The customer's row says who answered it, as every answer does. Bookkeeping: a
       // failure is logged and never turns the reply into a retry.
       const traced = await traceAnswer(db, {
@@ -1386,7 +1392,7 @@ async function runReceptionDelivery(
         revisionId: ctx.revisionId, promptHash: ctx.contentHash,
       });
       if (!traced.ok) fx.log('error', 'trace_failed', { tenantId, conversationId, detail: traced.detail ?? '' });
-      const held = await claim(db, { id: drafted.row.id, tenantId, now });
+      const held = await claim(db, { id: line.row.id, tenantId, now });
       if (held.outcome === 'unavailable') return unavailable('worker.claim_unavailable');
       if (held.outcome !== 'claimed') {
         fx.log('info', `${reason}_handoff_not_ours`, { tenantId, outcome: held.outcome });
@@ -1549,9 +1555,22 @@ async function runReceptionDelivery(
         const paged = await fx.alertCannedStale({ tenantId, channel: provider })
           .catch((e: unknown) => `failed: ${e instanceof Error ? e.message : String(e)}`);
         fx.log(/^(failed|timed_out|recorded_undelivered)/u.test(paged) ? 'error' : 'info', 'canned_stale_alert', { tenantId, eventId, outcome: paged });
+        // Read BEFORE the send, as for any reply: the refusal took milliseconds, so the
+        // «typing…» bubble can land after the line and must then be cleared (D-124).
+        const typingLate = typing !== null && !typingSettled;
         const served = await serveHandoff('canned_stale');
         if (typeof served !== 'string') return served;
-        if (served === 'sent') continue;
+        if (served === 'sent') {
+          if (typingLate && typing !== null) {
+            await settleWithin(typing, TYPING_WAIT_MS);
+            await settleWithin(
+              fx.showTyping({ tenantId, channelId, recipientId: message.senderId, pageId, ...viaToken, action: 'typing_off' }).catch(() => {}),
+              TYPING_WAIT_MS,
+            );
+            fx.log('info', 'typing_cleared_after_reply', { externalId: message.externalId });
+          }
+          continue;
+        }
       }
       return unavailable('worker.reception_retry');
     }

@@ -11,6 +11,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IntakeDocument } from './intake.ts';
 import { topicMatcher } from './matchers.ts';
+import { MODEL_INVISIBLE_KINDS } from '../gate/match.ts';
 
 /** A write that failed, naming the table. Nothing after it was attempted. */
 export class WriteError extends Error {}
@@ -82,12 +83,47 @@ async function commentRuleState(
   return out;
 }
 
+/**
+ * Refuse, before any write, an intake whose sentences would change a live tenant's published
+ * lines. The rule is the trigger's (0074): a model-visible kind, in the tenant's default
+ * locale, on a tenant with a live revision. Unreadable refuses too.
+ */
+export async function refuseLiveSentenceChange(db: SupabaseClient, d: IntakeDocument, tenantId: string): Promise<void> {
+  const { data: t, error: tErr } = await db.from('tenants')
+    .select('live_revision_id, default_locale').eq('id', tenantId).maybeSingle();
+  if (tErr) die(`tenants unreadable (live revision): ${tErr.message}`);
+  const row = (t ?? {}) as Record<string, unknown>;
+  if (row['live_revision_id'] === null || row['live_revision_id'] === undefined) return;
+  if (String(row['default_locale']) !== d.business.locale) return;
+  const { data: have, error } = await db.from('canned_responses')
+    .select('kind, body').eq('tenant_id', tenantId).eq('locale', d.business.locale);
+  if (error) die(`canned_responses unreadable (live check): ${error.message}`);
+  const bodies = new Map(
+    (Array.isArray(have) ? have : [])
+      .map((r) => [String((r as Record<string, unknown>)['kind']), String((r as Record<string, unknown>)['body'])]),
+  );
+  const moved = Object.entries(d.sentences)
+    .filter(([kind, body]) => !MODEL_INVISIBLE_KINDS.includes(kind) && bodies.get(kind)?.trim() !== body.trim())
+    .map(([kind]) => kind);
+  if (moved.length > 0) {
+    die(`this tenant is live and the intake changes its published lines (${moved.join(', ')}). `
+      + 'Nothing was written. Edit those rows in one SQL transaction with '
+      + "set local dala.canned_edit = 'republish', then publish at once (scripts/publish/tenant.ts). D-163.");
+  }
+}
+
 /** Write the rows, in foreign-key order, reporting each step. Throws nothing silently. */
 export async function applyIntake(
   db: SupabaseClient, d: IntakeDocument, tenantId: string | null,
 ): Promise<string[]> {
   const log: string[] = [];
   const fail = (what: string, detail: string): never => die(`${what}: ${detail}`);
+
+  // 0. D-163. On a tenant with a live revision the database refuses any sentence change that
+  //    would move the published canned hash (migration 0074), and these writes are separate
+  //    PostgREST calls, not one transaction. So the refusal is found HERE, before the first
+  //    write, rather than at step 3 with steps 1-2 already applied.
+  if (tenantId !== null) await refuseLiveSentenceChange(db, d, tenantId);
 
   // 1. The tenant. `status` is left at its default `provisioning` and never advanced here —
   //    `active` needs a probe run, and a script that wrote it would be asserting a test it

@@ -56,10 +56,12 @@ begin
     raise notice 'CE4 PASS: kind change out of the prefix refused'; n := n + 1;
   end;
   begin
-    update canned_responses set tenant_id = live where tenant_id = onboard and kind = 'handoff';
+    -- A kind the live tenant has no row of, so only the trigger can refuse the move.
+    insert into canned_responses (tenant_id, kind, body) values (onboard, 'greeting', 'Сайн байна уу.');
+    update canned_responses set tenant_id = live where tenant_id = onboard and kind = 'greeting';
     raise exception 'CE5 FAILED: moving a row onto a live tenant went through';
-  exception when raise_exception or unique_violation then
-    if sqlstate = 'P0001' and sqlerrm not like 'canned_responses:%' then raise; end if;
+  exception when raise_exception then
+    if sqlerrm not like 'canned_responses:%' then raise; end if;
     raise notice 'CE5 PASS: row moved onto a live tenant refused'; n := n + 1;
   end;
 
@@ -76,6 +78,22 @@ begin
   delete from canned_responses where tenant_id = onboard and kind = 'closing';
   raise notice 'CE8 PASS: tenant with no live revision editable'; n := n + 1;
 
+  -- CE10-CE11: edits that cannot move the hash.
+  update canned_responses set body = body || '  ' where tenant_id = live and kind = 'handoff';
+  raise notice 'CE10 PASS: trailing-space-only change allowed'; n := n + 1;
+  insert into canned_responses (tenant_id, kind, locale, body) values (live, 'closing', 'en-US', 'Thanks.');
+  update canned_responses set body = 'Thank you.' where tenant_id = live and locale = 'en-US';
+  delete from canned_responses where tenant_id = live and locale = 'en-US';
+  raise notice 'CE11 PASS: rows outside the default locale editable'; n := n + 1;
+  begin
+    insert into canned_responses (tenant_id, kind, locale, body) values (live, 'closing', 'en-US', 'Bye.');
+    update canned_responses set locale = 'mn-MN' where tenant_id = live and locale = 'en-US';
+    raise exception 'CE12 FAILED: moving a row into the default locale went through';
+  exception when raise_exception then
+    if sqlerrm not like 'canned_responses:%' then raise; end if;
+    raise notice 'CE12 PASS: moving a row into the default locale refused'; n := n + 1;
+  end;
+
   -- The declared republish path.
   perform set_config('dala.canned_edit', 'republish', true);
   update canned_responses set body = 'Шинэ мөр.' where tenant_id = live and kind = 'booking_line';
@@ -84,9 +102,9 @@ begin
   if not procedure_ok then raise exception 'CE9 FAILED: republish-declared edit did not land'; end if;
   raise notice 'CE9 PASS: edit with dala.canned_edit = republish allowed'; n := n + 1;
 
-  if n <> 9 then raise exception 'CANNED EDIT SUITE: % of 9 checks ran', n; end if;
+  if n <> 12 then raise exception 'CANNED EDIT SUITE: % of 12 checks ran', n; end if;
 end $$;
 
-do $$ begin raise notice 'CANNED EDIT SUITE PASSED: 9 checks'; end $$;
+do $$ begin raise notice 'CANNED EDIT SUITE PASSED: 12 checks'; end $$;
 
 rollback;

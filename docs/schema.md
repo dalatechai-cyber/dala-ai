@@ -286,8 +286,9 @@ partial, one of four tables.
 `ops.refuse_unpublished_canned_edit()` runs BEFORE INSERT, UPDATE or DELETE on
 `canned_responses` and refuses (P0001) an edit that would move the published `canned_hash`
 of a tenant whose `live_revision_id` is set, because every reply of that tenant would then
-stop with `canned_stale` until a republish. Allowed: an UPDATE that changes no body, kind,
-locale or tenant (signing); rows of a model-invisible kind (its SQL copy of
+stop with `canned_stale` until a republish. Allowed: an UPDATE that changes no kind, locale,
+tenant or trimmed body (signing); rows outside the tenant's default locale; rows of a
+model-invisible kind (its SQL copy of
 `MODEL_INVISIBLE_KINDS` is checked by `check-gate-keys`); tenants with no live revision.
 The declared escape is `set local dala.canned_edit = 'republish'` in the same transaction,
 followed at once by `scripts/publish/tenant.ts`. `scripts/verify/canned-edit.sql` tests it.

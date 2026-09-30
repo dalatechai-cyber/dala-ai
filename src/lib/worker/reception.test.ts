@@ -2329,3 +2329,49 @@ test('D-163: a failed page never changes the outcome; any other retry is untouch
   assert.equal(other.staleAlerts.length, 0);
   assert.equal(other.delivered.length, 0);
 });
+
+// D-163 review fixes.
+test('D-163: after a canned_stale hand-off, a typing bubble that landed late is cleared (D-124)', async () => {
+  const order: string[] = [];
+  const { fx, logs } = stubEffects({ generateReply: async () => STALE, tables: STALE_TABLES(REVIEWED_HANDOFF) });
+  const realDeliver = fx.deliver;
+  fx.showTyping = async (a) => {
+    if (a.action === 'typing_off') { order.push('typing_off'); return; }
+    await new Promise((r) => setTimeout(r, 40));
+    order.push('typing_on');
+  };
+  fx.deliver = async (a) => { order.push('deliver'); return realDeliver(a); };
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.deepEqual(order, ['deliver', 'typing_on', 'typing_off']);
+  assert.ok(reasons(logs).includes('typing_cleared_after_reply'));
+});
+
+test('D-163: a sent canned_stale hand-off stamps the event as replied', async () => {
+  const { fx, ops } = stubEffects({ generateReply: async () => STALE, tables: STALE_TABLES(REVIEWED_HANDOFF) });
+  assert.equal((await run(fx)).status, 200);
+  assert.ok(ops.some((o) => o.table === 'webhook_events' && o.op === 'update'
+    && o.patch?.['state'] === 'processed' && o.patch?.['replied_at'] != null));
+});
+
+test('D-163: the CAP hand-off also refuses an edited row once the snapshot carries the canned section', async () => {
+  const edited = [{ kind: 'handoff', body: 'ШИНЭЭР ЗАССАН МӨР', reviewed_at: '2026-09-01' }];
+  const { fx, delivered, logs } = stubEffects({
+    tables: CAP_TABLES(edited, {
+      config_snapshots: { data: { content_hash: 'h1', prompt_stable: PUBLISHED_PREFIX, allowed_numbers: [], canned_hash: 'ch1' }, error: null },
+    }),
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.ok(reasons(logs).includes('ceiling_no_reply'));
+});
+
+test('D-163: the CAP hand-off still sends the published row when the snapshot carries the canned section', async () => {
+  const { fx, delivered } = stubEffects({
+    tables: CAP_TABLES(REVIEWED_HANDOFF, {
+      config_snapshots: { data: { content_hash: 'h1', prompt_stable: PUBLISHED_PREFIX, allowed_numbers: [], canned_hash: 'ch1' }, error: null },
+    }),
+  });
+  assert.equal((await run(fx)).status, 200);
+  assert.equal(delivered.length, 1);
+});
