@@ -5,6 +5,7 @@ import type { ReceptionOutcome } from '../reception/handle.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
 import type { ExhaustedInput } from './exhaustedAlert.ts';
 import { replyDedupKey } from '../outbound/claim.ts';
+import { localDayStart, tenantClock } from '../time/clock.ts';
 
 const TENANT = 't-1';
 const CHANNEL = 'c-1';
@@ -75,7 +76,7 @@ function stubDb(over: Record<string, Reply | Reply[]> = {}) {
     // Recorded, so a test can say WHICH snapshot or channel a read asked for (D-141).
     chain['eq'] = (k: string, v: unknown) => { (rec.eq ??= []).push([k, v]); return chain; };
     // Range and inequality filters, recorded so a test can say WHICH time a query compares.
-    for (const m of ['gt', 'neq'] as const) {
+    for (const m of ['gt', 'neq', 'gte', 'in'] as const) {
       chain[m] = (k: string, v: unknown) => { (rec.filters ??= []).push([m, k, v]); return chain; };
     }
     // A jsonb containment read is its own queue (`<table>:contains`), so the pre-send echo
@@ -939,6 +940,14 @@ test('D-160: the line is said ONCE per conversation per day, not to every capped
   assert.equal(delivered.length, 0);
   assert.equal(needsPerson.length, 0);
   assert.ok(logs.some((l) => l.event === 'ceiling_handoff_already_said'));
+  // The read asks about THIS conversation, THIS line, sent or sending, since Ulaanbaatar midnight.
+  const said = ops.find((o) => o.table === 'outbound_messages' && (o.filters ?? []).some(([m, k]) => m === 'gte' && k === 'created_at'));
+  assert.ok(said, 'the once-a-day read ran');
+  assert.deepEqual((said?.filters ?? []).find(([m, k]) => m === 'gte' && k === 'created_at'),
+    ['gte', 'created_at', localDayStart(tenantClock(NOW, 'Asia/Ulaanbaatar').date, 'Asia/Ulaanbaatar').toISOString()]);
+  assert.deepEqual((said?.filters ?? []).find(([m]) => m === 'in'), ['in', 'state', ['sending', 'sent']]);
+  assert.ok(said?.eq?.some(([k, v]) => k === 'conversation_id' && v === 'conv-1'));
+  assert.ok(said?.eq?.some(([k, v]) => k === 'body' && v === CAP_HANDOFF));
 });
 
 test('D-160: a REDELIVERY of an answered message sends nothing and never reaches the guard', async () => {
@@ -953,6 +962,19 @@ test('D-160: a REDELIVERY of an answered message sends nothing and never reaches
   assert.equal(delivered.length, 0);
   assert.equal(needsPerson.length, 0);
   assert.equal(ceilingAlerts.length, 0);
+  assert.equal(generated.length, 0);
+});
+
+test('D-160 with #250: a FAILED cap line is re-sent on the redelivery, before the guard, with no second page', async () => {
+  const { fx, delivered, ceilingAlerts, needsPerson, generated } = stubEffects({
+    tables: { ...ZERO_RECEPTION_BUDGET, ...resumeTables('failed', { body: CAP_HANDOFF }) },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0]?.body, CAP_HANDOFF);
+  assert.equal(ceilingAlerts.length, 0, 'never reached the guard');
+  assert.equal(needsPerson.length, 0);
   assert.equal(generated.length, 0);
 });
 

@@ -1373,17 +1373,22 @@ async function runReceptionDelivery(
           ? 'error' : 'info', 'ceiling_alert', { tenantId, eventId, outcome: alerted });
 
         // The customer gets the tenant's own reviewed hand-off line, the sentence the website
-        // already serves here (founder, 2026-09-30, D-160). From the published config's rows,
-        // as the website takes it, so there is no second read to fail. No model: nothing spent.
+        // already serves here (founder, 2026-09-30, D-160). From the tenant's live
+        // `canned_responses` rows already loaded, the same read the website uses, so there is
+        // no second read to fail. No model: nothing spent.
         // No reviewed line, or a channel that does not deliver: nothing is sent, as before,
         // and the page above is the founder's signal. Under the reply's own key, so a
         // redelivery finds this message answered and never sends the line twice.
         const handoff = ctx.canned.find((c) => c.kind === 'handoff' && c.reviewedAt !== null && c.body.trim() !== '');
+        const said = !deliverThis || handoff === undefined ? 'no'
+          : await handoffSaidToday(db, { tenantId, conversationId, body: handoff.body, since: localDayStart(localDate, timezone) });
+        // Unreadable sends the line: a repeat is better than a customer left with nothing.
+        if (said === 'unreadable') fx.log('error', 'ceiling_handoff_said_unreadable', { tenantId, conversationId });
         if (!deliverThis) {
           fx.log('info', 'not_delivering', { tenantId, channelId, detail: 'ceiling refusal' });
         } else if (handoff === undefined) {
           fx.log('warn', 'ceiling_no_reply', { tenantId, eventId, detail: 'no reviewed handoff row' });
-        } else if (await handoffSaidToday(db, { tenantId, conversationId, body: handoff.body, since: localDayStart(localDate, timezone) })) {
+        } else if (said === 'yes') {
           // Once per conversation per day. Every later message until midnight would otherwise
           // get the same «I can't answer» line again; the person told the first time is enough.
           fx.log('info', 'ceiling_handoff_already_said', { tenantId, conversationId });
@@ -1753,13 +1758,14 @@ async function runReceptionDelivery(
 }
 
 /**
- * Has this conversation already been sent the hand-off line since `since` (D-160)? A read
- * that fails says no: a repeated line is better than a customer left with nothing.
+ * Has this conversation already been sent the hand-off line since `since` (D-160)? By body,
+ * so a hand-off the model path served earlier that day counts too. `unreadable` is reported
+ * to the caller, which logs it and sends.
  */
 async function handoffSaidToday(
   db: SupabaseClient,
   input: { tenantId: string; conversationId: string; body: string; since: Date },
-): Promise<boolean> {
+): Promise<'yes' | 'no' | 'unreadable'> {
   const { data, error } = await db
     .from('outbound_messages')
     .select('id')
@@ -1770,5 +1776,6 @@ async function handoffSaidToday(
     .in('state', ['sending', 'sent'])
     .gte('created_at', input.since.toISOString())
     .limit(1);
-  return !error && Array.isArray(data) && data.length > 0;
+  if (error) return 'unreadable';
+  return Array.isArray(data) && data.length > 0 ? 'yes' : 'no';
 }

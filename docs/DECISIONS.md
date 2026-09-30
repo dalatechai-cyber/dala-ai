@@ -11273,8 +11273,11 @@ The founder settled both decisions in `docs/reports/2026-09-30-spend-alerts.md`.
     the listed testers who already receive replies there (D-141).
   - It is sent once per conversation per Ulaanbaatar day. Later capped messages in that
     conversation get nothing more, since the person was already told.
-  - The customer's row is marked `answered_by = canned`. The line is taken from the published
-    config's rows, as the website takes it.
+  - The customer's row is marked `answered_by = canned`. The line comes from the tenant's live
+    `canned_responses` rows, the same read the website uses.
+  - "Already said" matches on the body. So if the model path served the same hand-off row in
+    that conversation earlier the same day, the capped message gets no line; the person was
+    already told. A once-a-day check that cannot be read sends the line, and says so in the log.
   - A retryable send failure is a 503. The redelivery re-sends the stored line before the guard,
     as it does for any failed reply (#250).
   - It goes under the reply's own dedup key, so a redelivery finds the message answered and
@@ -11285,6 +11288,11 @@ The founder settled both decisions in `docs/reports/2026-09-30-spend-alerts.md`.
     the founder's signal.
   - Known and unchanged: when one Meta entry carries several messages and the first is capped,
     the rest are neither stored nor answered, because the loop returns. This predates D-160.
+  - Known, accepted:
+    - A line re-sent by a redelivery (#250) ends with the event `processed`, not `shed`, so the
+      daily report's cap count misses it.
+    - If the first attempt dies after drafting and before sending, the redelivery re-sends the
+      line, but no person is paged. The founder's cap page did go out.
   - Code: the refusal branch of `src/lib/worker/reception.ts`.
 - **Tara Яармаг `reply_style = {"max_emoji": 1}`**, applied on the project on 2026-09-30.
   - Record: `scripts/provision/matrix-emoji-cap-2026-09-30.sql`.
