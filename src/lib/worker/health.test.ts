@@ -86,8 +86,10 @@ test('the body carries counts, never the verdicts themselves', async () => {
   // This lands in QStash's delivery log. A channel's health belongs in `channel_health`
   // and in the alert, not in a queue receipt somebody may or may not read.
   const r = await runHealthJob(effects(), { rawBody: '{}', signature: 'sig' });
-  assert.deepEqual(Object.keys(r.body).sort(), ['canned_drift', 'catch_up', 'ceiling_episodes', 'checked', 'secrets', 'states', 'swept']);
+  assert.deepEqual(Object.keys(r.body).sort(), ['canned_drift', 'catch_up', 'ceiling_episodes', 'checked', 'reclaim', 'secrets', 'states', 'swept']);
   for (const [k, v] of Object.entries(r.body['canned_drift'] as Record<string, unknown>)) assert.equal(typeof v, 'number', `${k} is a count`);
+  // The reclaim sweep's verdicts are counts by reason, never a conversation id.
+  for (const [k, v] of Object.entries(r.body['reclaim'] as Record<string, unknown>)) assert.equal(typeof v, 'number', `${k} is a count`);
   const ceilings = r.body['ceiling_episodes'] as Record<string, unknown>;
   for (const [k, v] of Object.entries(ceilings)) assert.equal(typeof v, 'number', `${k} is a count`);
   // The expiry clause obeys the same rule one level down: which tenant's credential is

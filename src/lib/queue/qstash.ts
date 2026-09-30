@@ -57,6 +57,8 @@ export async function enqueueReception(payload: {
   channelId: string;
   /** A catch-up job: re-run only this held message (`channel/catchup.ts`). */
   catchUpMid?: string;
+  /** A reclaim job: serve the reviewed reclaim line for this held message (`handover/reclaim.ts`). */
+  reclaimMid?: string;
 }): Promise<EnqueueResult> {
   try {
     const client = new Client({ token: required('QSTASH_TOKEN') });

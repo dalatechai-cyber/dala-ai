@@ -79,17 +79,25 @@ export const PROBE_MINUTES = 5;
  */
 export const MAX_LOOKBACK_DAYS = 14;
 
-export type SilenceInput = {
-  /** The most recent event Meta actually delivered for this channel, or null. */
-  lastInboundAt: Date | null;
-  /** When this channel started expecting traffic. Used when nothing has ever arrived. */
-  liveSince: Date | null;
+/**
+ * A tenant's week, closures and clock, and how many open minutes decide a question. The
+ * part of `SilenceInput` the walk reads, exported so the staff-hold reclaim
+ * (`handover/reclaim.ts`) measures "two opening hours" with this walk rather than a second.
+ */
+export type OpenSchedule = {
   now: Date;
   timezone: string;
   hours: readonly BusinessHours[];
   closures: readonly Closure[];
-  /** Open minutes of silence that count as a fault. */
+  /** The walk stops once it has counted MORE than this many open minutes. */
   thresholdOpenMinutes: number;
+};
+
+export type SilenceInput = OpenSchedule & {
+  /** The most recent event Meta actually delivered for this channel, or null. */
+  lastInboundAt: Date | null;
+  /** When this channel started expecting traffic. Used when nothing has ever arrived. */
+  liveSince: Date | null;
 };
 
 export type SilenceVerdict =
@@ -137,7 +145,7 @@ export type SilenceVerdict =
  * shut. A closure outranks the weekly schedule, exactly as it does in L4 — a holiday is
  * precisely the case where the schedule says open and the door is locked.
  */
-function openAt(input: SilenceInput, at: Date): boolean | null {
+export function openAt(input: Pick<OpenSchedule, 'timezone' | 'hours' | 'closures'>, at: Date): boolean | null {
   const clock = tenantClock(at, input.timezone);
   if (activeClosure(input.closures, clock.date) !== null) return false;
   return isOpenAt(input.hours, clock.weekday, clock.time);
@@ -151,7 +159,7 @@ function openAt(input: SilenceInput, at: Date): boolean | null {
  * months ago costs the same handful of probes as one revoked this morning; the forward
  * version would walk ninety days to reach a conclusion it had after the first three hours.
  */
-function openMinutesSince(input: SilenceInput, since: Date): { minutes: number; exhausted: boolean } | { notConfigured: string } {
+export function openMinutesSince(input: OpenSchedule, since: Date): { minutes: number; exhausted: boolean } | { notConfigured: string } {
   const floor = input.now.getTime() - MAX_LOOKBACK_DAYS * 24 * 60 * 60_000;
   const stop = Math.max(since.getTime(), floor);
   const step = PROBE_MINUTES * 60_000;

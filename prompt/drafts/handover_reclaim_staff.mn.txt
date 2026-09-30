@@ -1,0 +1,21 @@
+UNSIGNED DRAFT — NOT APPROVED. Loaded by nothing. 2026-09-30 (D-164).
+
+Kind: `handover_reclaim` (canned_responses, one row per tenant, served whole, no model).
+Sent when staff took over a chat and nobody replied within 2 opening-hours hours
+(founder, 2026-09-30). After it, Дали answers the customer's next message.
+
+Уучлаарай, хүлээлгэсэнд. Би үргэлжлүүлэн туслая. Та асуултаа дахин бичнэ үү.
+
+    "Sorry to keep you waiting. Let me carry on helping you. Please write your
+     question again."
+
+Why:
+  — The first two sentences are the founder's own reclaim wording of 2026-09-19
+    (`handover_notice_and_reclaim.mn.txt`), kept byte for byte.
+  — The third replaces "say so if you need a person": here the person already had the
+    chat and did not answer, and the line does not answer the held question itself
+    (no model), so the customer is asked to send it again; Дали then answers it.
+  — No time, no reason, no promise a person must keep. «та» register (D10). No emoji.
+
+Question for the founder: would you rather Дали answer the held question directly
+(a model reply, normal spend) instead of asking the customer to repeat it?

@@ -51,7 +51,10 @@ export const NEEDS_PERSON_ALERT_KIND = 'conversation.needs_person';
  * - `handoff`: the customer was served the handoff line (or the callback line in its place).
  * - `voice`: a voice message the bot cannot play.
  */
-export type NeedsPersonReason = 'complaint' | 'handoff' | 'voice';
+export type NeedsPersonReason =
+  | 'complaint' | 'handoff' | 'voice'
+  /** Staff took the chat, went quiet for two opening hours, and the bot took it back. */
+  | 'reclaim_sent';
 
 /**
  * Is this message a complaint by the tenant's own escalate rows?
@@ -72,6 +75,18 @@ const WHAT: Record<NeedsPersonReason, string> = {
   complaint: 'complained or asked for a person',
   handoff: 'was told a person will help (the bot could not answer)',
   voice: 'sent a voice message the bot cannot play',
+  reclaim_sent: 'waited two opening hours after staff took the chat, and nobody replied',
+};
+
+/**
+ * What the bot did, where the reason decides it rather than the send outcome. A reclaim that
+ * was sent means the bot is answering this chat again, which the generic "nobody has taken
+ * the chat" line would misstate.
+ */
+const SENT_FOR: Partial<Record<NeedsPersonReason, Partial<Record<ReplySent, string>>>> = {
+  reclaim_sent: {
+    yes: 'The bot sent the tenant\'s approved line and is answering this chat again. Read it in the Page inbox.\n',
+  },
 };
 
 /** Ids and the reason only, never the customer's words (see the module docstring). */
@@ -91,7 +106,7 @@ export function needsPersonAlertBody(input: {
   tenantName: string; reason: NeedsPersonReason; channel: string; conversationId: string; sent: ReplySent;
 }): string {
   return `🙋 ${input.tenantName} (${input.channel}): a customer ${WHAT[input.reason]}.\n`
-    + SENT[input.sent]
+    + (SENT_FOR[input.reason]?.[input.sent] ?? SENT[input.sent])
     + `Conversation ${input.conversationId}`;
 }
 
@@ -107,7 +122,11 @@ export function channelLabel(provider: string): string {
 
 export async function raiseNeedsPerson(
   db: SupabaseClient,
-  input: { tenantId: string; conversationId: string; reason: NeedsPersonReason; provider: string; sent: ReplySent; now: Date },
+  input: {
+    tenantId: string; conversationId: string; reason: NeedsPersonReason; provider: string; sent: ReplySent; now: Date;
+    /** Replaces the per-conversation-and-day key where one situation is narrower (a held message's `mid`). */
+    dedupKey?: string;
+  },
 ): Promise<AlertOutcome> {
   // The tenant's name, not its id: the founder reads this on a phone. Unreadable is not a
   // reason to stay silent, so it falls back to the id (as `comments/complaint.ts` does).
@@ -119,7 +138,7 @@ export async function raiseNeedsPerson(
     tenantId: input.tenantId,
     severity: 'warn',
     kind: NEEDS_PERSON_ALERT_KIND,
-    dedupKey: needsPersonDedupKey(input.conversationId, input.reason, input.now),
+    dedupKey: input.dedupKey ?? needsPersonDedupKey(input.conversationId, input.reason, input.now),
     body: needsPersonAlertBody({
       tenantName: name, reason: input.reason, channel: channelLabel(input.provider),
       conversationId: input.conversationId, sent: input.sent,

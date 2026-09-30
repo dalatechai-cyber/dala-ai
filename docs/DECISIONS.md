@@ -11383,3 +11383,38 @@ same bytes is refused (safe, but it breaks re-running old provision SQL). The on
 tenant fails whole, not halfway. When `MODEL_INVISIBLE_KINDS` grows, deploy the code before the
 migration that redefines the trigger function.
 
+
+## D-164 — Take the chat back after a staff takeover that went quiet (2026-09-30, founder; supersedes D-162)
+
+**Why.** The 23–24 Sep investigation (`docs/reports/2026-09-30-tara-23-24-sep.md`) found customers
+waiting 24–33 hours after staff took a chat: a message held while a person holds the thread
+(`human_has_thread`) is never looked at again, even after the 30-minute cooldown ends.
+
+**Decided.** If staff have taken over a chat and nobody has replied within 2 hours of the
+salon's opening hours, Дали sends one approved line and resumes. Built as follows
+(`src/lib/handover/reclaim.ts`, `src/lib/worker/reclaim.ts`, `docs/handover.md`):
+- The hourly health run finds chats held by a staff echo whose customer wrote after the last
+  staff activity, with no reply of ours since, 120 open minutes ago (closed hours and
+  closures do not count), while the salon is open now and the message is under 23 hours old
+  (Meta's standard messaging window).
+- The reception worker sends the tenant's reviewed `handover_reclaim` row, byte for byte, no
+  model, once per held message (`reclaim:<mid>`), re-checking that no person replied, then
+  flips the thread to `bot` (source `reclaim`) only if staff have not acted meanwhile.
+- **Paged** (`conversation.needs_person`, reason `reclaim_sent`): only when the line was sent
+  and the thread flipped, once per held message. **Counted in the hourly health receipt, never
+  paged:** a message past 23 hours (`window_missed`: the sweep cannot tell a customer it failed
+  from one that aged out before the feature could act, and switching it on would page a
+  backlog); a thread Meta handed to another app or the bot's own media hand-off
+  (`handover`/`passed`, `meta_holds_thread`: never sent to, because `take_thread_control` has
+  never been exercised live, and not paged, because for media the page would be false and
+  would re-create the page D-153 switched off for Tara); a person replied since, or a send Meta
+  says no retry fixes (`reclaim_refused`: the `reclaim:<mid>` row is marked `refused`, so the
+  sweep never retries it). A reclaim job is not a delivery of the event it re-uses: it does not
+  bump `webhook_events.attempts` and cannot raise `webhook.delivery_exhausted`. The worker
+  re-checks open-now (fail closed on unreadable hours) and the 23-hour window before a send,
+  never before finishing a line already sent.
+- **Inert until the founder approves the wording** and a reviewed `handover_reclaim` row
+  exists for the tenant. The draft is `prompt/drafts/handover_reclaim_staff.mn.txt`.
+
+**Not covered.** Latency is the hourly run: up to about three hours after the customer wrote.
+Passing a chat to a person (`pass_thread_control`) stays unbuilt.
