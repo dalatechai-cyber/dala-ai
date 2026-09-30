@@ -398,18 +398,26 @@ late. No alert fired.
   constant: the private reply and every DM keep the shared 10 s (`meta/send.ts`).
 - **A parked reply is matched to Meta's notice** (`comments/reconcile.ts`). It matches only on the
   same tenant, the channel's Page as both the entry and the author, an `add`, `parent_id` =
-  `dedup_key`, the same text (NFC, trimmed) and a `created_time` no more than 60 s before the
-  draft. Only `sending` and `indeterminate` rows move, to `sent` with the notice's id, in one
-  UPDATE whose WHERE carries the state. There are two readers:
+  `dedup_key` (the thread root only; the row does not store the in-thread comment id the reply
+  was POSTed to), the same text (NFC, trimmed), and a `created_time` from 60 s before the draft
+  to 10 minutes after it. There is no match without a `created_time`. Only `sending`,
+  `indeterminate` and `failed` rows move, to `sent` with the notice's id, in one UPDATE whose
+  WHERE carries the state. There are three readers:
   - The comment worker runs on every Page `feed` entry, before deciding the entry's own
     comments, so a notice that lands while our 25 s POST is still open moves the row from
     `sending`. The sender's own `markSent`/`markIndeterminate` CAS on `sending` and then match
     nothing, so a late timeout can never overwrite `sent`.
-  - The hourly health run sweeps every public reply still `indeterminate` since 00:00 yesterday
-    (Ulaanbaatar) against the stored `webhook_events`. The result therefore does not depend on
+  - The hourly health run sweeps every public reply still `indeterminate`, or `sending` with an
+    expired lease (a run killed after the POST), since 00:00 yesterday (Ulaanbaatar). It
+    checks them against the stored `webhook_events` with one read per channel, capped at 100
+    rows and 1,000 Page comments per channel.
+  - Before a row that failed before is posted again, its stored notices are read (a retryable
+    5xx can come back after Meta created the comment). A match marks it `sent`. An unreadable
+    check posts nothing. The staff check counts a Page comment that matches one of our
+    unfinished rows as ours, not as staff. The result therefore does not depend on
     which arrived first, or on whether the notice's own job managed the write.
   - Nothing here posts. `indeterminate` stays outside `CLAIMABLE`, and a reconciled row is `sent`.
-- **Unconfirmed replies are visible.** A public reply still `indeterminate` with no matching
+- **Unconfirmed replies are visible.** A public reply still parked (`indeterminate`, or `sending` with an expired lease) with no matching
   notice ten minutes after its draft is "unconfirmed" (the draft's `created_at` stands in for the
   attempt; no attempt time is stored). The daily report prints the count per tenant on every
   day, or UNREADABLE. The hourly run pages (`comment_reply.unconfirmed`, `warn`, `route: 'now'`)

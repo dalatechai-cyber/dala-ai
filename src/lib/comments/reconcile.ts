@@ -18,13 +18,22 @@
  * All of: the same tenant; the channel's Page (the entry's `id` AND the change's `from.id`
  * are the channel's `external_id`); an `add`; `parent_id` equal to the row's `dedup_key` (the
  * thread root, which is where Facebook files a reply to a reply as well); the same text,
- * compared NFC-normalised and trimmed (rule 6, `sameReplyText`); and a `created_time` no
- * earlier than a minute before the draft was written, so a line staff pasted by hand under the
- * same comment on an earlier day is not taken for ours. A notice that differs in any of these
- * leaves the row exactly as it was. The first matching notice in store order wins.
+ * compared NFC-normalised and trimmed (rule 6, `sameReplyText`); and a `created_time` from a
+ * minute before the draft to ten minutes after it (`NOTICE_MAX_AFTER_DRAFT_MS`), so a line
+ * staff paste by hand under the same comment later is not taken for ours. No `created_time`,
+ * no match. A notice that differs in any of these leaves the row exactly as it was. The first
+ * matching notice in store order wins.
  *
- * Only `sending` and `indeterminate` rows move. `draft` and `failed` were never posted by
- * us, `sent` already has its id, and `refused` was decided against. The move is one UPDATE
+ * `parent_id` is compared with the thread root ONLY. A reply to an in-thread comment is POSTed
+ * to that comment's own id, and if Meta ever reports THAT id as `parent_id`, the row will not
+ * match: the row does not store the id we replied to (`dedup_key` is the root; there is no
+ * `comment_id` column), so there is nothing else to compare with. All nine measured notices
+ * carried the root. Such a row stays parked and is counted as unconfirmed.
+ *
+ * Only `sending`, `indeterminate` and `failed` rows move. `failed` is included (D-166 review)
+ * because a retryable 5xx can come back after Meta created the comment; a failed row whose
+ * notice matches was posted, and re-sending it would post it twice. `draft` was never posted
+ * by us, `sent` already has its id, and `refused` was decided against. The move is one UPDATE
  * whose WHERE clause carries the state, so it cannot interleave with the sender:
  *
  *  - **notice first, while the POST is still open** (possible now that the wait is 25 s):
@@ -40,11 +49,18 @@
  *    notice's job runs seconds after the reply, and the Page's own comment was being skipped
  *    there as `comment_self` with nothing else looking at it. It catches both orderings above.
  * 2. **The hourly sweep** (`sweepParkedReplies`, from `worker/health.ts`) over the stored
- *    `webhook_events`, for every public reply still `indeterminate` since the start of
- *    yesterday (Ulaanbaatar). This is what makes the result independent of timing: a notice
+ *    `webhook_events`, for every public reply still `indeterminate` (or `sending` with an
+ *    expired lease: a run killed after the POST) since the start of yesterday (Ulaanbaatar),
+ *    with one notice read per channel. This is what makes the result independent of timing: a notice
  *    whose job ran while the row was in a state the fast path does not move, a notice job that
  *    failed or ran with comments switched off, or a write that failed on arrival, are all
  *    matched later from what was stored. Store order and row order stop mattering.
+ *
+ * 3. **Before a re-send** (`reconcileHeldReply`, D-166 review). A `failed` row is claimable,
+ *    and a retryable failure (a 5xx) can come back after Meta created the comment. So a row
+ *    that failed before is checked against the stored notices after it is claimed and before it
+ *    is posted again; a match marks it `sent` and nothing is posted. An unreadable check posts
+ *    nothing and leaves the row for the next delivery.
  *
  * A failure on arrival is logged and does NOT fail the comment job: nothing is lost by
  * leaving the row parked one more hour, and a 503 would re-run every customer comment in the
@@ -85,11 +101,32 @@ export const UNCONFIRMED_PAGE_AT = 3;
 /** How far before the draft a notice may be stamped and still be ours (Meta's clock, second-resolution). */
 export const NOTICE_CLOCK_SLACK_MS = 60_000;
 
+/**
+ * How far AFTER the draft a notice may be stamped and still be ours (D-166 review). Measured:
+ * the notice's `created_time` is the draft's own second. Without an upper bound, staff pasting
+ * the same line by hand under the same comment days later would "prove" a reply we never
+ * posted. A reply sent much later than its draft (a resumed draft) is therefore never
+ * reconciled; it stays parked and is counted as unconfirmed, which is the safe direction.
+ */
+export const NOTICE_MAX_AFTER_DRAFT_MS = 10 * 60_000;
+
+
 /** The alert kind for the page. */
 export const UNCONFIRMED_ALERT_KIND = 'comment_reply.unconfirmed';
 
 /** At most this many rows are read per sweep; more is reported, never silently dropped. */
-export const PARKED_SCAN_LIMIT = 500;
+export const PARKED_SCAN_LIMIT = 100;
+
+/**
+ * At most this many stored Page comments are read per channel per scan. A channel whose Page
+ * wrote more in the window reads as capped, and a reply whose notice was not read stays
+ * unconfirmed: the safe direction. Together with `PARKED_SCAN_LIMIT` and one notice read per
+ * channel (never per row), this bounds the hourly sweep so the reclaim after it still runs.
+ */
+export const NOTICE_SCAN_LIMIT = 1000;
+
+/** Notices are read from events received no earlier than this before the oldest parked draft. */
+const NOTICE_LOOKBACK_MS = 60 * 60_000;
 
 /** One of the Page's own new comments, as a stored `feed` entry carried it. */
 export type OwnReplyNotice = {
@@ -150,7 +187,12 @@ export function matchNotice(
   for (const n of notices) {
     if (n.parentId !== row.dedupKey) continue;
     if (!sameReplyText(n.text, row.body)) continue;
-    if (n.createdAt !== null && n.createdAt.getTime() < row.createdAt.getTime() - NOTICE_CLOCK_SLACK_MS) continue;
+    // Both bounds, and no stamp is no match (D-166 review): a notice that cannot be placed in
+    // time cannot be told apart from staff pasting the same line later.
+    if (n.createdAt === null || Number.isNaN(n.createdAt.getTime())) continue;
+    const at = n.createdAt.getTime();
+    const drafted = row.createdAt.getTime();
+    if (at < drafted - NOTICE_CLOCK_SLACK_MS || at > drafted + NOTICE_MAX_AFTER_DRAFT_MS) continue;
     return n;
   }
   return null;
@@ -175,7 +217,7 @@ function parkedRow(r: Record<string, unknown>): ParkedRow {
 }
 
 /**
- * Move one row to `sent` on the strength of a notice. The WHERE clause carries the state, so
+ * Move one row (`sending`, `indeterminate` or `failed`) to `sent` on the strength of a notice. The WHERE clause carries the state, so
  * a row the sender has meanwhile marked, or another reconciler already moved, is untouched.
  * Returns whether THIS call moved it.
  */
@@ -198,7 +240,7 @@ async function markReconciled(
     .eq('id', row.id)
     .eq('tenant_id', row.tenantId)
     .eq('kind', 'comment_reply')
-    .in('state', ['sending', 'indeterminate'])
+    .in('state', ['sending', 'indeterminate', 'failed'])
     .select('id')
     .maybeSingle();
   if (error) return { ok: false, detail: `outbound_messages reconcile failed: ${error.message}` };
@@ -211,7 +253,7 @@ export type ReconcileOutcome =
 
 /**
  * The fast path: the Page's own comments in the entry being processed, matched to this
- * channel's public replies that are `sending` or `indeterminate`. One read when the entry
+ * channel's public replies that are `sending`, `indeterminate` or `failed`. One read when the entry
  * carries a Page comment with a parent; none otherwise.
  */
 export async function reconcileFromEntry(
@@ -227,7 +269,7 @@ export async function reconcileFromEntry(
     .eq('channel_id', input.channelId)
     .eq('kind', 'comment_reply')
     .in('dedup_key', [...new Set(notices.map((n) => n.parentId))])
-    .in('state', ['sending', 'indeterminate']);
+    .in('state', ['sending', 'indeterminate', 'failed']);
   if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
   let reconciled = 0;
   let mismatched = 0;
@@ -235,7 +277,7 @@ export async function reconcileFromEntry(
     const row = parkedRow(raw as Record<string, unknown>);
     // Re-checked here rather than trusted from the filter: a row this function did not ask
     // for must not be moved because a stub or a transport returned it.
-    if (row.tenantId !== input.tenantId || (row.state !== 'sending' && row.state !== 'indeterminate')) continue;
+    if (row.tenantId !== input.tenantId || !['sending', 'indeterminate', 'failed'].includes(row.state)) continue;
     const notice = matchNotice(row, notices);
     if (notice === null) {
       if (notices.some((n) => n.parentId === row.dedupKey)) mismatched += 1;
@@ -267,9 +309,44 @@ export type ParkedScan =
   | { ok: false; detail: string };
 
 /**
- * Every public reply still `indeterminate` and drafted in `[since, until)`, each matched
- * against the stored notices of its channel's Page. With `write`, a match is reconciled;
- * without it (the daily report), a match is only counted, so the report never writes.
+ * The Page's own `add` comments stored for this tenant since `since`, in store order: ONE read
+ * per channel, however many parked rows it has (D-166 review). With `parentId`, only notices
+ * under that comment (the re-send check in `worker/comments.ts`).
+ */
+export async function readPageNotices(
+  db: SupabaseClient,
+  input: { tenantId: string; pageId: string; since: Date; parentId?: string },
+): Promise<{ ok: true; notices: OwnReplyNotice[]; capped: boolean } | { ok: false; detail: string }> {
+  const value: Record<string, unknown> = { item: 'comment', verb: 'add', from: { id: input.pageId } };
+  if (input.parentId !== undefined) value['parent_id'] = input.parentId;
+  const { data, error } = await db
+    .from('webhook_events')
+    .select('raw_payload')
+    .eq('tenant_id', input.tenantId)
+    .not('raw_payload', 'is', null)
+    .contains('raw_payload', { id: input.pageId, changes: [{ field: 'feed', value }] })
+    .gte('received_at', input.since.toISOString())
+    .order('id', { ascending: true })
+    .limit(NOTICE_SCAN_LIMIT);
+  if (error) return { ok: false, detail: `webhook_events unreadable: ${error.message}` };
+  const rows = Array.isArray(data) ? data : [];
+  return {
+    ok: true,
+    capped: rows.length >= NOTICE_SCAN_LIMIT,
+    notices: rows.flatMap((e) => ownRepliesIn((e as Record<string, unknown>)['raw_payload'], input.pageId)),
+  };
+}
+
+
+/**
+ * Every public reply that is parked and drafted in `[since, until)`, each matched against the
+ * stored notices of its channel's Page. With `write`, a match is reconciled; without it (the
+ * daily report), a match is only counted, so the report never writes.
+ *
+ * "Parked" is `indeterminate`, and also `sending` with an EXPIRED lease (D-166 review): a run
+ * the platform killed after the POST left leaves the row `sending`, which no claim ever picks
+ * up again, and it must not be invisible. A `sending` row whose lease is still live belongs to
+ * a worker that may be mid-POST, and is neither read nor counted.
  *
  * Any read that fails fails the whole scan: a count built from the rows that happened to be
  * readable would print a smaller number than the truth, which is the quiet-alarm failure.
@@ -278,7 +355,8 @@ export async function scanParkedReplies(
   db: SupabaseClient,
   input: { since: Date; until: Date; now: Date; write: boolean },
 ): Promise<ParkedScan> {
-  const { data, error } = await db
+  // Two reads rather than one `or`: each is a plain filter, and together they are the set.
+  const parked = await db
     .from('outbound_messages')
     .select('id, tenant_id, channel_id, dedup_key, body, state, refused_reason, created_at')
     .eq('kind', 'comment_reply')
@@ -287,9 +365,28 @@ export async function scanParkedReplies(
     .lt('created_at', input.until.toISOString())
     .order('created_at', { ascending: true })
     .limit(PARKED_SCAN_LIMIT);
-  if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
-  const rows = (Array.isArray(data) ? data : []).map((r) => parkedRow(r as Record<string, unknown>));
-  const out = { reconciled: 0, provable: 0, unconfirmed: [] as UnconfirmedReply[], young: 0, capped: rows.length >= PARKED_SCAN_LIMIT };
+  if (parked.error) return { ok: false, detail: `outbound_messages unreadable: ${parked.error.message}` };
+  const stale = await db
+    .from('outbound_messages')
+    .select('id, tenant_id, channel_id, dedup_key, body, state, refused_reason, created_at')
+    .eq('kind', 'comment_reply')
+    .eq('state', 'sending')
+    .lt('lease_until', input.now.toISOString())
+    .gte('created_at', input.since.toISOString())
+    .lt('created_at', input.until.toISOString())
+    .order('created_at', { ascending: true })
+    .limit(PARKED_SCAN_LIMIT);
+  if (stale.error) return { ok: false, detail: `outbound_messages unreadable: ${stale.error.message}` };
+  const read = [...(Array.isArray(parked.data) ? parked.data : []), ...(Array.isArray(stale.data) ? stale.data : [])]
+    .map((r) => parkedRow(r as Record<string, unknown>))
+    // Re-checked, not trusted from the filters: a live lease is never parked.
+    .filter((r) => r.state === 'indeterminate' || r.state === 'sending')
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  const capped = read.length >= PARKED_SCAN_LIMIT
+    || (Array.isArray(parked.data) && parked.data.length >= PARKED_SCAN_LIMIT)
+    || (Array.isArray(stale.data) && stale.data.length >= PARKED_SCAN_LIMIT);
+  const rows = read.slice(0, PARKED_SCAN_LIMIT);
+  const out = { reconciled: 0, provable: 0, unconfirmed: [] as UnconfirmedReply[], young: 0, capped };
   if (rows.length === 0) return { ok: true, ...out };
 
   const channelIds = [...new Set(rows.flatMap((r) => (r.channelId === null ? [] : [r.channelId])))];
@@ -306,27 +403,26 @@ export async function scanParkedReplies(
     }
   }
 
-  for (const row of rows) {
-    const page = row.channelId === null ? undefined : pages.get(row.channelId);
-    let notice: OwnReplyNotice | null = null;
+  // One notice read per channel, from an hour before its oldest parked draft.
+  const noticesByChannel = new Map<string, OwnReplyNotice[]>();
+  for (const channelId of channelIds) {
+    const page = pages.get(channelId);
     // Only a Page's replies come back as a notice; see the module note on Instagram.
-    if (page !== undefined && page.tenantId === row.tenantId && page.provider === 'facebook_page'
-        && page.externalId !== '' && row.dedupKey !== '') {
-      const { data: events, error: evErr } = await db
-        .from('webhook_events')
-        .select('raw_payload')
-        .eq('tenant_id', row.tenantId)
-        .not('raw_payload', 'is', null)
-        .contains('raw_payload', {
-          id: page.externalId,
-          changes: [{ field: 'feed', value: { item: 'comment', verb: 'add', parent_id: row.dedupKey, from: { id: page.externalId } } }],
-        })
-        .order('id', { ascending: true });
-      if (evErr) return { ok: false, detail: `webhook_events unreadable: ${evErr.message}` };
-      const notices = (Array.isArray(events) ? events : [])
-        .flatMap((e) => ownRepliesIn((e as Record<string, unknown>)['raw_payload'], page.externalId));
-      notice = matchNotice(row, notices);
-    }
+    if (page === undefined || page.provider !== 'facebook_page' || page.externalId === '') continue;
+    const own = rows.filter((r) => r.channelId === channelId && r.tenantId === page.tenantId);
+    if (own.length === 0) continue;
+    const oldest = Math.min(...own.map((r) => r.createdAt.getTime()));
+    const read = await readPageNotices(db, {
+      tenantId: page.tenantId, pageId: page.externalId, since: new Date(oldest - NOTICE_LOOKBACK_MS),
+    });
+    if (!read.ok) return read;
+    if (read.capped) out.capped = true;
+    noticesByChannel.set(channelId, read.notices);
+  }
+
+  for (const row of rows) {
+    const notices = row.channelId === null ? undefined : noticesByChannel.get(row.channelId);
+    const notice = notices === undefined || row.dedupKey === '' ? null : matchNotice(row, notices);
     if (notice !== null) {
       if (!input.write) { out.provable += 1; continue; }
       const moved = await markReconciled(db, row, notice, input.now);
@@ -341,6 +437,43 @@ export async function scanParkedReplies(
     }
   }
   return { ok: true, ...out };
+}
+
+export type HeldReconcile = { ok: true; reconciled: boolean } | { ok: false; detail: string };
+
+/**
+ * The check before a RE-send (D-166 review). A `failed` public reply is claimable, and a
+ * retryable failure (a 5xx) can come back after Meta already created the comment. So before a
+ * row that has failed before is posted again, the stored notices are read; on a match the row
+ * is marked `sent` with the notice's id and nothing is posted. The row must be `sending` (held
+ * by the caller's claim). Unreadable is `ok: false`, and the caller must not post.
+ */
+export async function reconcileHeldReply(
+  db: SupabaseClient,
+  input: { tenantId: string; rowId: string; pageId: string; now: Date },
+): Promise<HeldReconcile> {
+  const { data, error } = await db
+    .from('outbound_messages')
+    .select('id, tenant_id, channel_id, dedup_key, body, state, refused_reason, created_at')
+    .eq('id', input.rowId)
+    .eq('tenant_id', input.tenantId)
+    .maybeSingle();
+  if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
+  if (data === null) return { ok: false, detail: 'held row not found' };
+  const row = parkedRow(data as Record<string, unknown>);
+  if (row.state !== 'sending' || row.dedupKey === '' || input.pageId === '') return { ok: true, reconciled: false };
+  const read = await readPageNotices(db, {
+    tenantId: input.tenantId, pageId: input.pageId, parentId: row.dedupKey,
+    since: new Date(row.createdAt.getTime() - NOTICE_LOOKBACK_MS),
+  });
+  if (!read.ok) return read;
+  const notice = matchNotice(row, read.notices);
+  if (notice === null) return { ok: true, reconciled: false };
+  const moved = await markReconciled(db, row, notice, input.now);
+  if (!moved.ok) return { ok: false, detail: moved.detail };
+  // Posted, whether this call moved the row or another reconciler got there first: either way
+  // the caller must not post it again.
+  return { ok: true, reconciled: true };
 }
 
 /** Unconfirmed replies grouped by tenant and Ulaanbaatar day (of the draft). */

@@ -36,6 +36,12 @@ function parked(tenant: string, at: string, over: Row = {}): Row {
   };
 }
 
+function receivedFor(e: Row): string {
+  const change = ((e['raw_payload'] as Row)['changes'] as Row[])[0] as Row;
+  const t = (change['value'] as Row)['created_time'];
+  return new Date((typeof t === 'number' ? t : 0) * 1000 + 5_000).toISOString();
+}
+
 function db(outbound: Row[], events: Row[] = []) {
   return memoryDb({
     tenants: [{ id: T1, display_name: 'Salon One' }, { id: T2, display_name: 'Salon Two' }],
@@ -45,7 +51,9 @@ function db(outbound: Row[], events: Row[] = []) {
       { id: 'ch-ig', tenant_id: T1, provider: 'instagram', external_id: '1784' },
     ],
     outbound_messages: outbound,
-    webhook_events: events,
+    // Received five seconds after Meta stamped it, unless the case says otherwise, so the
+    // sweep's `received_at` lookback is exercised rather than compared against `undefined`.
+    webhook_events: events.map((e) => ({ received_at: receivedFor(e), ...e })),
     alerts: [],
   });
 }
@@ -80,7 +88,11 @@ test('matchNotice: same parent AND same text AND not stamped well before the dra
   const n = (over: Partial<{ parentId: string; text: string; createdAt: Date | null }>) =>
     ({ commentId: 'r', parentId: 'p_c1', text: LINE, createdAt: new Date(1_790_000_000_000), ...over });
   assert.notEqual(matchNotice(row, [n({})]), null);
-  assert.notEqual(matchNotice(row, [n({ createdAt: null })]), null, 'no created_time: judged on the rest');
+  assert.equal(matchNotice(row, [n({ createdAt: null })]), null, 'no created_time: no match (D-166 review)');
+  assert.equal(matchNotice(row, [n({ createdAt: new Date(Number.NaN) })]), null, 'unparseable created_time: no match');
+  assert.notEqual(matchNotice(row, [n({ createdAt: new Date(1_790_000_000_000 + 9 * 60_000) })]), null, 'nine minutes after the draft');
+  assert.equal(matchNotice(row, [n({ createdAt: new Date(1_790_000_000_000 + 11 * 60_000) })]), null, 'eleven minutes after: not ours');
+  assert.equal(matchNotice(row, [n({ createdAt: new Date(1_790_000_000_000 + 3 * 86_400_000) })]), null, 'staff pasting the line days later');
   assert.equal(matchNotice(row, [n({ parentId: 'p_c2' })]), null);
   assert.equal(matchNotice(row, [n({ text: 'Өөр.' })]), null);
   assert.equal(matchNotice(row, [n({ createdAt: new Date(1_790_000_000_000 - 3_600_000) })]), null, 'an hour before our draft is not ours');
@@ -121,7 +133,8 @@ test('sweep: text mismatch, another tenant\'s event, another Page, Instagram —
 
 test('sweep: sent and sending rows are never read, let alone touched', async () => {
   const sent = parked(T1, '2026-09-30T01:00:00.000Z', { state: 'sent', provider_message_id: 'mine' });
-  const sending = parked(T1, '2026-09-30T01:00:00.000Z', { state: 'sending' });
+  // A LIVE lease: a worker may be mid-POST. Never read, never counted.
+  const sending = parked(T1, '2026-09-30T01:00:00.000Z', { state: 'sending', lease_until: '2026-09-30T02:00:30.000Z' });
   const s = db([sent, sending], [
     { id: 1, tenant_id: T1, raw_payload: noticeEntry(String(sent['dedup_key'])) },
     { id: 2, tenant_id: T1, raw_payload: noticeEntry(String(sending['dedup_key'])) },
@@ -130,6 +143,51 @@ test('sweep: sent and sending rows are never read, let alone touched', async () 
   assert.equal(out.ok && out.reconciled, 0);
   assert.equal(s.rows('outbound_messages')[0]?.['provider_message_id'], 'mine');
   assert.equal(s.rows('outbound_messages')[1]?.['state'], 'sending');
+  assert.equal(out.ok && out.unconfirmed, 0, 'a live sending row is not unconfirmed');
+});
+
+test('D-166 review: a sending row whose lease EXPIRED (run killed after the POST) is treated as parked', async () => {
+  const at = Date.parse('2026-09-30T01:00:03Z') / 1000;
+  const killedProvable = parked(T1, '2026-09-30T01:00:00.000Z', { state: 'sending', lease_until: '2026-09-30T01:01:00.000Z' });
+  const killedSilent = parked(T1, '2026-09-30T01:05:00.000Z', { state: 'sending', lease_until: '2026-09-30T01:06:00.000Z' });
+  const live = parked(T1, '2026-09-30T01:59:50.000Z', { state: 'sending', lease_until: '2026-09-30T02:00:50.000Z' });
+  const s = db([killedProvable, killedSilent, live], [
+    { id: 1, tenant_id: T1, received_at: '2026-09-30T01:00:20.000Z', raw_payload: noticeEntry(String(killedProvable['dedup_key']), { created_time: at }) },
+  ]);
+  const now = new Date('2026-09-30T02:00:00Z');
+  // The daily report counts the killed row that no notice proves, and not the live one.
+  const u = await countUnconfirmed(s.db, { since: new Date('2026-09-29T16:00:00Z'), until: now, now });
+  assert.deepEqual(u.ok ? u.byTenant : null, [{ tenant: 'Salon One', count: 1 }]);
+  const out = await sweepParkedReplies(s.db, { now });
+  assert.equal(out.ok && out.reconciled, 1);
+  assert.equal(out.ok && out.unconfirmed, 1);
+  assert.equal(s.rows('outbound_messages')[0]?.['state'], 'sent');
+  assert.equal(s.rows('outbound_messages')[1]?.['state'], 'sending', 'unproven: left, counted');
+  assert.equal(s.rows('outbound_messages')[2]?.['state'], 'sending', 'live lease: untouched');
+});
+
+test('D-166 review: the sweep reads notices once per channel, not once per parked row', async () => {
+  const rows = Array.from({ length: 6 }, (_, i) => parked(i % 2 === 0 ? T1 : T2, `2026-09-30T01:0${i}:00.000Z`));
+  const s = db(rows);
+  let reads = 0;
+  const from = (table: string) => {
+    if (table === 'webhook_events') reads += 1;
+    return (s.db as unknown as { from: (t: string) => unknown }).from(table);
+  };
+  const out = await sweepParkedReplies({ from } as never, { now: new Date('2026-09-30T02:00:00Z') });
+  assert.equal(out.ok && out.unconfirmed, 6);
+  assert.equal(reads, 2, 'two channels, two reads');
+});
+
+test('D-166 review: the same line pasted by staff days later never reconciles', async () => {
+  const row = parked(T1, '2026-09-29T01:00:00.000Z');
+  const s = db([row], [{
+    id: 1, tenant_id: T1, received_at: '2026-09-30T01:00:00.000Z',
+    raw_payload: noticeEntry(String(row['dedup_key']), { created_time: Date.parse('2026-09-30T01:00:00Z') / 1000 }),
+  }]);
+  const out = await sweepParkedReplies(s.db, { now: new Date('2026-09-30T02:00:00Z') });
+  assert.equal(out.ok && out.reconciled, 0);
+  assert.equal(s.rows('outbound_messages')[0]?.['state'], 'indeterminate');
 });
 
 // ---------------------------------------------------------------------------------------------

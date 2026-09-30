@@ -11499,3 +11499,31 @@ draft's second) arrived 16–29 s after the draft. Nothing read it and nothing a
 **Not covered.** Instagram replies (no notice reaches this platform) are always counted as
 unconfirmed. An entry that needs more than QStash's three deliveries' worth of slow sends leaves
 drafts unsent and pages through the existing exhaustion alert.
+
+**Review addendum (2026-09-30).**
+
+- **Upper time bound.** A notice must carry a `created_time` between 60 s before the draft and
+  10 minutes after it. A missing or unparseable stamp is no match. Staff pasting the same line
+  days later can therefore never reconcile a row. A draft sent more than 10 minutes after it
+  was written is never reconciled and is counted as unconfirmed instead, which is the safe
+  direction. The backfill SQL applies the same bound, with the cast guarded inside a CASE.
+- **Killed runs.** A `sending` row whose lease has expired is treated as parked by the sweep, the
+  daily count and the backfill: it is reconciled, or counted as unconfirmed. A row with a live
+  lease is never read or counted.
+- **Retryable failures.** A retryable 5xx can come back after Meta created the comment.
+  - The on-arrival path also moves a `failed` row whose notice matches.
+  - A Page comment that matches one of our unfinished rows now counts as ours in the staff
+    check, not as staff. Before this, the redelivery refused the thread as `staff_replied` and
+    flagged a reply no person wrote.
+  - When a row that failed before is re-claimed, its notices are read before it is posted
+    again. A match marks it `sent` and posts nothing. An unreadable check posts nothing and
+    returns the row to `failed`.
+  - Still open: a redelivery that arrives before Meta's notice cannot know, and re-posts, as it
+    did before.
+- **Sweep cost.** The sweep reads notices once per channel, not once per row. It is bounded to
+  100 parked rows and 1,000 stored Page comments per channel, and either cap is reported. It
+  cannot starve the reclaim step that runs after it.
+- **In-thread replies.** `parent_id` is compared with the thread root only. The row does not
+  store the comment id the reply was POSTed to: there is no `comment_id` column, and no
+  migration was added. If Meta ever reports the in-thread comment as `parent_id`, that row stays
+  parked and is counted as unconfirmed. All nine measured notices carried the root.

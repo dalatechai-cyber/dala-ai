@@ -81,7 +81,7 @@ import { advertByText, isRepeatedComment, mayBeRepeat, type AdvertCheck } from '
 import { cpLength } from '../mn/text.ts';
 import { COMMENT_REPLY_TIMEOUT_MS, type CommentSendOutcome } from '../comments/send.ts';
 import { DEFAULT_SEND_TIMEOUT_MS } from '../meta/send.ts';
-import { reconcileFromEntry } from '../comments/reconcile.ts';
+import { matchNotice, ownRepliesIn, reconcileFromEntry, reconcileHeldReply } from '../comments/reconcile.ts';
 import { claim, draftOnce, markFailed, markIndeterminate, markRefused, markSent } from '../outbound/claim.ts';
 import { MESSENGER_SEND_UNIT_COST } from '../../config/platform.ts';
 
@@ -654,6 +654,29 @@ async function readStaffActivity(
     .in('provider_message_id', pageComments.map((c) => c.commentId));
   if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
   const ours = new Set((Array.isArray(data) ? data : []).map((r) => String((r as Record<string, unknown>)['provider_message_id'])));
+  // Our own reply whose row does not carry its id yet — the POST timed out, a 5xx came back
+  // after Meta created it, or the run was killed — is still OURS, not a person's (D-166
+  // review). Read as staff, it refused the thread as `staff_replied` and flagged a reply no
+  // person wrote, and the row was never reconciled. A Page comment that `matchNotice` ties to
+  // one of our unfinished rows is added to `ours`, so the thread reads as answered and the
+  // resume path's re-send check (`reconcileHeldReply`) marks the row sent without posting.
+  const unclaimed = entries.flatMap((e) => ownRepliesIn(e, input.pageId)).filter((n) => !ours.has(n.commentId));
+  if (unclaimed.length > 0) {
+    const { data: pending, error: pErr } = await db
+      .from('outbound_messages')
+      .select('dedup_key, body, created_at, state')
+      .eq('tenant_id', input.tenantId)
+      .eq('kind', 'comment_reply')
+      .in('dedup_key', [...new Set(unclaimed.map((n) => n.parentId))])
+      .in('state', ['failed', 'sending', 'indeterminate']);
+    if (pErr) return { ok: false, detail: `outbound_messages unreadable: ${pErr.message}` };
+    for (const raw of Array.isArray(pending) ? pending : []) {
+      const r = raw as Record<string, unknown>;
+      if (typeof r['dedup_key'] !== 'string' || typeof r['body'] !== 'string') continue;
+      const n = matchNotice({ dedupKey: r['dedup_key'], body: r['body'], createdAt: new Date(String(r['created_at'])) }, unclaimed);
+      if (n !== null) ours.add(n.commentId);
+    }
+  }
   return { ok: true, pageComments, ours };
 }
 
@@ -1345,6 +1368,27 @@ async function sendPublic(
     // Already sent, or another worker holds a live lease. Neither is an error.
     count(result.refused, 'thread_already_answered');
     return 'done';
+  }
+  // A row that failed before may have been created by Meta anyway: a retryable 5xx can come
+  // back after the comment exists. Its notice is checked before it is posted again (D-166
+  // review); a match marks it `sent` and nothing is posted. Unreadable posts nothing: the row
+  // goes back to `failed` for the next delivery. Instagram sends no notice, so it cannot be
+  // checked there.
+  if (held.attempts > 0 && (input.provider ?? 'facebook_page') === 'facebook_page') {
+    const prior = await reconcileHeldReply(fx.db, {
+      tenantId: input.tenantId, rowId: held.id, pageId: input.selfId ?? input.pageExternalId, now: fx.now,
+    });
+    if (!prior.ok) {
+      fx.log('error', 'comment_resend_check_unreadable', { commentId, detail: prior.detail });
+      await markFailed(fx.db, { id: held.id, tenantId: input.tenantId, attempts: held.attempts, reason: 'notice check unreadable before a re-send' });
+      result.retry = true;
+      return 'retry';
+    }
+    if (prior.reconciled) {
+      fx.log('info', 'comment_reply_reconciled_before_resend', { commentId });
+      result.reconciled += 1;
+      return 'done';
+    }
   }
   // Held, and not yet posted: the last moment the staff check can still stop it.
   const hold = await holdForStaff(fx, input, held, result, gate);

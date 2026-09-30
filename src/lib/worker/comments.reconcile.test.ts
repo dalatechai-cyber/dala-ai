@@ -279,3 +279,80 @@ test('D-166 a redelivery does not write the same flag twice', async () => {
   const flags = s.rows('quality_flags').filter((f) => f['flag'] === 'comment_unclassified');
   assert.equal(flags.length, 1);
 });
+
+test('D-166 review: a retryable 5xx after Meta created the comment is never posted again', async () => {
+  const h = harness();
+  const fx5xx = h.fx(async () => ({
+    outcome: 'failed', failure: 'transient', retryable: true, code: 2, subcode: null, status: 500, detail: 'graph 500',
+  }));
+  const r1 = await runCommentJob(fx5xx, job(entry([customer(1)])));
+  assert.equal(r1.retry, true);
+  assert.equal(publicRows(h.s)[0]?.['state'], 'failed');
+
+  // Meta's notice arrives: its own job matches the `failed` row and marks it sent.
+  const stored = entry([notice(1)]);
+  h.s.rows('webhook_events').push({ id: 1, tenant_id: TENANT, received_at: NOW.toISOString(), raw_payload: stored });
+  const n = await runCommentJob(fx5xx, job(stored));
+  assert.equal(n.reconciled, 1);
+
+  // QStash redelivers the customer's entry: nothing is posted, and our own reply is not
+  // mistaken for staff.
+  const r2 = await runCommentJob(h.fx(async () => { throw new Error('must not post twice'); }), job(entry([customer(1)])));
+  assert.equal(r2.retry, false);
+  assert.equal(r2.refused['staff_replied'], undefined, 'our reply is ours, not a person\'s');
+  assert.equal(h.posted.length, 1, 'the one 5xx attempt, never a second post');
+  assert.equal(publicRows(h.s)[0]?.['state'], 'sent');
+  assert.equal(publicRows(h.s)[0]?.['provider_message_id'], `${PAGE}_r1`);
+});
+
+test('D-166 review: a failed row with NO matching notice is re-sent as before', async () => {
+  const h = harness();
+  let n = 0;
+  const flaky = h.fx(async (commentId) => (++n === 1
+    ? { outcome: 'failed', failure: 'transient', retryable: true, code: 2, subcode: null, status: 500, detail: 'graph 500' }
+    : { outcome: 'sent', providerCommentId: `${commentId}_ok` }));
+  await runCommentJob(flaky, job(entry([customer(1)])));
+  await runCommentJob(flaky, job(entry([customer(1)])));
+  assert.equal(h.posted.length, 2);
+  assert.equal(publicRows(h.s)[0]?.['provider_message_id'], `${PAGE}_c1_ok`);
+});
+
+test('D-166 review: an unreadable notice check before a re-send posts nothing and leaves the row for the next delivery', async () => {
+  const h = harness();
+  const fx5xx = h.fx(async () => ({
+    outcome: 'failed', failure: 'transient', retryable: true, code: 2, subcode: null, status: 500, detail: 'graph 500',
+  }));
+  await runCommentJob(fx5xx, job(entry([customer(1)])));
+  const base = h.fx(async () => { throw new Error('must not post'); });
+  // Every read works except the re-send check's notice read (the only one with a `limit`).
+  const real = h.s.db as unknown as { from: (x: string) => Record<string, unknown> };
+  const broken = { ...base, db: { from: (t: string) => {
+    const chain = real.from(t);
+    if (t === 'webhook_events') {
+      chain['limit'] = () => ({ then: (res: (v: unknown) => unknown) => res({ data: null, error: { message: 'timeout' } }) });
+    }
+    return chain;
+  } } as never };
+  const r = await runCommentJob(broken, job(entry([customer(1)])));
+  assert.equal(r.retry, true);
+  assert.equal(h.posted.length, 1, 'only the first attempt');
+  assert.equal(publicRows(h.s)[0]?.['state'], 'failed', 'claimable again on the next delivery');
+  assert.equal(publicRows(h.s)[0]?.['refused_reason'], 'notice check unreadable before a re-send', 'stopped by the re-send check itself');
+});
+
+test('D-166 review: a notice STORED but never processed is found by the re-send check, which posts nothing', async () => {
+  const h = harness();
+  const fx5xx = h.fx(async () => ({
+    outcome: 'failed', failure: 'transient', retryable: true, code: 2, subcode: null, status: 500, detail: 'graph 500',
+  }));
+  await runCommentJob(fx5xx, job(entry([customer(1)])));
+  // Stored, but its own job never ran (it failed, or comments were switched off then).
+  h.s.rows('webhook_events').push({ id: 1, tenant_id: TENANT, received_at: NOW.toISOString(), raw_payload: entry([notice(1)]) });
+  const r = await runCommentJob(h.fx(async () => { throw new Error('must not post twice'); }), job(entry([customer(1)])));
+  assert.equal(r.refused['staff_replied'], undefined, 'not read as staff');
+  assert.equal(r.reconciled, 1, 'reconciled by the check before the re-send');
+  assert.equal(h.posted.length, 1);
+  assert.equal(publicRows(h.s)[0]?.['state'], 'sent');
+  assert.equal(publicRows(h.s)[0]?.['provider_message_id'], `${PAGE}_r1`);
+  assert.equal(h.s.rows('quality_flags').filter((f) => f['flag'] === 'comment_staff_answered').length, 0);
+});
