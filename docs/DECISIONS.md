@@ -11208,6 +11208,20 @@ promptly whenever one is needed.
 - **Telegram sends are now bounded** (`TELEGRAM_TIMEOUT_MS`, 5 s): these alerts run on the reply
   path after the send, and a hanging Telegram must not hold the worker.
 
+### D-158 addendum (2026-09-30, founder)
+
+- **Voice line approved:** option A, «Уучлаарай, би дуут зурвас сонсох боломжгүй. Та асуултаа
+  бичиж илгээвэл баяртайгаар хариулна.» Inserted as the reviewed `voice_received` row on both
+  live tenants. Model-invisible, so `canned_hash` is unchanged and no republish was needed.
+- **"A person will help" alerts stay instant.**
+- **A reply whose send failed is re-sent on the redelivery** (`resumeStoredReply` in
+  `worker/reception.ts`). Before, `findReplyFor` read a `draft` or `failed` row as answered and
+  the customer was never answered. Now an ordinary redelivery claims that row and sends its
+  STORED body: no model call, no second copy (the claim's CAS admits only `draft` and `failed`;
+  `sent`, `sending`, `refused` and a parked `indeterminate` are never re-sent). Not on a shadow
+  or halted channel, not past the reply age limit, not over a person who replied since.
+- **DM-only complaint words:** proposed in `docs/proposals/dm-needs-person-rules.md`, not live.
+
 ## D-159 — The month is seen and the brake pages; neither stops a reply (2026-09-30)
 
 Rulebook §3.1 (v0.3) asks for a 20,000 ₮ monthly normal limit per client that only alerts (at 70%),

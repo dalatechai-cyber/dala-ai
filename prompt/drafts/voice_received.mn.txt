@@ -1,4 +1,6 @@
-# UNSIGNED DRAFT, 2026-09-30. Nothing loads this file. Awaiting the founder's wording.
+# APPROVED 2026-09-30 by the founder: option A, «та» register, «дуут зурвас». Live as the
+# reviewed `voice_received` row on dalatech and matrix-eco-salon (inserted 2026-09-30).
+# Kept as the record; the live sentence is the row, not this file.
 #
 # Row: canned_responses (kind = 'voice_received', locale mn-MN), one per tenant (dalatech,
 # matrix-eco-salon). Kind registered by migration 0072. Served whole by the reception worker
