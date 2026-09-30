@@ -10,8 +10,8 @@ Passing control is a live mutation of a real salon's thread ownership: it cannot
 rehearsed during a shadow mirror, and the receiver configuration on Matrix's Page is not yet
 known.
 
-**The staff-hold reclaim is BUILT (founder, 2026-09-30, superseding D-162) and inert** until
-a tenant has a reviewed `handover_reclaim` row; no tenant has one. On a live tenant that row
+**The staff-hold reclaim is BUILT (founder, 2026-09-30, superseding D-162) and live for Tara
+Яармаг only** (reviewed `handover_reclaim` row, D-165); it stays inert for every tenant without one. On a live tenant that row
 goes in as ONE insert that carries `reviewed_at` and `reviewed_by`: migration 0075 refuses an
 unsigned row, because any unsigned row stops every reply (D-163 addendum). See
 [The staff-hold reclaim](#the-staff-hold-reclaim-built-2026-09-30-inert-until-a-reviewed-row)

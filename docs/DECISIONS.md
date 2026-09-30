@@ -11434,3 +11434,24 @@ salon's opening hours, Дали sends one approved line and resumes. Built as fo
 
 **Not covered.** Latency is the hourly run: up to about three hours after the customer wrote.
 Passing a chat to a person (`pass_thread_control`) stays unbuilt.
+
+## D-165 — Tara Яармаг: take-back switched on, five fixed replies live (2026-09-30, founder)
+
+- **Take-back (D-164) is on for Tara Яармаг only**, with the line «Уучлаарай, хүлээлгэсэнд.
+  Би үргэлжлүүлэн туслая. Танд юугаар туслах вэ?» (option b). Applied as one signed
+  `handover_reclaim` row (`scripts/provision/tara-reclaim-line-2026-09-30.sql`). The kind is
+  model-invisible, so the published `canned_hash` did not move (checked by this session
+  after the insert: `cannedHashOf` over the live rows equals the live snapshot's `canned_hash`). DalaTech has no row, so it stays inert there.
+- **Option (a) is deferred.** In (a), Дали would answer the held message after the line
+  instead of asking again. It would reuse the catch-up path, cost one model call and send two
+  messages back to back. Not to be built until the founder approves it separately.
+- **Five fixed replies are live for Tara Яармаг**: address (option A), booking, «ок/за»,
+  salon phone (Яармаг only) and a first-message «үнэ?». The price line was reworded by the
+  founder to «Та ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.». Four exact reply cases were
+  added; booking has none, because the deposit rows are placed above its line.
+  `scripts/provision/tara-fixed-replies-2026-09-30.sql`. No republish was needed:
+  deterministic rows are read per request.
+- **Rebrand:** the booking reply types `matrixecosalon.org`, as `booking_line` and
+  `tenant_booking.booking_url` do. All three must change the day the new Tara domain goes
+  live (`docs/tenants/tara-yarmag.md`, rebrand checklist).
+
