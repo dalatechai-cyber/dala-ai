@@ -26,6 +26,7 @@ import { lookupComment, lookupInstagramComment } from '@/lib/comments/lookup';
 import { raiseCommentComplaint } from '@/lib/comments/complaint';
 import { raiseMediaHandoff } from '@/lib/handover/media';
 import { raiseNeedsPerson } from '@/lib/handover/needsPerson';
+import { alertCannedStale } from '@/lib/prompt/cannedDrift';
 import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
 import { SECTION_LABELS } from '@/lib/prompt/tenant';
@@ -210,6 +211,8 @@ function effects(now: Date): WorkerEffects {
         console.error('[worker] media_handoff_alert_undelivered', { conversationId: input.conversationId, ...outcome });
       }
     },
+
+    alertCannedStale: (input) => alertCannedStale(db, input),
 
     alertNeedsPerson: async (input) => {
       // Never rejects: an alert that cannot be raised is logged, and the customer's reply

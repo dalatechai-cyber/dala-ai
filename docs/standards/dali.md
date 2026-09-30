@@ -1,6 +1,6 @@
 # Дали — the reply standard
 
-**Version 1.3, 2026-09-30.** Version 1.3 brings F2–F5, G4, K4 and §3 up to what is live after D-158 and its addenda. **Version 1.2, 2026-09-29.** Written from the code, the tests, the live tenant data (read-only)
+**Version 1.4, 2026-09-30.** Version 1.4 adds F7 (D-163). **Version 1.3, 2026-09-30.** Version 1.3 brings F2–F5, G4, K4 and §3 up to what is live after D-158 and its addenda. **Version 1.2, 2026-09-29.** Written from the code, the tests, the live tenant data (read-only)
 and `docs/DECISIONS.md`. Version 1 changed nothing. Version 1.1 records the founder's branch
 decision and the «та» register rule, and adds the branch gate (§7). Version 1.2 corrects §6 and
 §5: `deterministic_replies` and `faqs` rows have no `reviewed_at` gate (`src/lib/gate/deterministic.ts:100`); they have a `provenance` gate (D-020) that withholds rows not `tenant_confirmed`. Where the repo cannot answer, the line says
@@ -134,6 +134,7 @@ reviewed row verbatim. Code backs them up only as listed.
 | F4 | Pass the conversation to a human (Meta `pass_thread_control`) and take it back. | **NOT BUILT, by decision** (D-162: stays unconnected while owners read their own messages; revisit when more clients are onboarded). Graph calls exist in `handover/graph.ts`; nothing calls them. Reclaim code is unwired (`docs/handover.md`); no `handover_reclaim` row exists | The only silence is the 30-minute window after a staff reply or a media hand-off; the bot never speaks on a timer |
 | F5 | Customer asks for a person, or complains, in a DM, or is served the handoff line ⇒ a person told. | COUNT (alert): founder's Telegram at once, every tenant (D-158, `src/lib/handover/needsPerson.ts`). Trigger is the tenant's DM complaint rows (`comment_rules` `escalate` with `surfaces` NULL or `direct_message`, 0073), including nine DM-only «ажилтантай ярих», «хүнтэй ярих», «менежертэй» rows per live tenant; a phrasing no row covers is not seen: DATA | The reply is unchanged and the thread is not passed (F4). Only on delivering channels |
 | F6 | A customer who wants to buy is never told "we have no information" (D-127 `fallbackLine`). | DATA + code on the website (callback line swapped in, `handle.ts`) | |
+| F7 | An edit to approved lines never silently stops every reply (`canned_stale`, D-163). | BLOCK: migration `0074` refuses a live tenant's hash-moving `canned_responses` edit unless the transaction declares a republish. COUNT: first refused reply and the hourly check page the founder (`config.canned_stale`, `prompt/cannedDrift.ts`). FIX: while refused, Messenger/Instagram customers get the published `handoff` row once per conversation per day, no model | Website still retries (page and hourly check cover it) |
 
 ### G. Media, photos, stickers, voice
 

@@ -280,6 +280,19 @@ partial, one of four tables.
 - **Billing of tenants' own customers** — `0065` invoices DalaTech's clients for DalaTech's
   fee. Nothing here bills a tenant's customers.
 
+### `0074_canned_edit_guard`
+
+**Additive: one trigger function and one row trigger, no data change.** D-163.
+`ops.refuse_unpublished_canned_edit()` runs BEFORE INSERT, UPDATE or DELETE on
+`canned_responses` and refuses (P0001) an edit that would move the published `canned_hash`
+of a tenant whose `live_revision_id` is set, because every reply of that tenant would then
+stop with `canned_stale` until a republish. Allowed: an UPDATE that changes no kind, locale,
+tenant or trimmed body (signing); rows outside the tenant's default locale; rows of a
+model-invisible kind (its SQL copy of
+`MODEL_INVISIBLE_KINDS` is checked by `check-gate-keys`); tenants with no live revision.
+The declared escape is `set local dala.canned_edit = 'republish'` in the same transaction,
+followed at once by `scripts/publish/tenant.ts`. `scripts/verify/canned-edit.sql` tests it.
+
 ### `0073_comment_rule_surfaces`
 
 **Additive: one nullable column and a CHECK.** `comment_rules.surfaces text[]`: which surfaces
