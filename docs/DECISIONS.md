@@ -11299,3 +11299,27 @@ The founder settled both decisions in `docs/reports/2026-09-30-spend-alerts.md`.
   - Only the model's own words are capped. Approved rows are served whole. The price layout is
     unchanged.
 - **Not changed:** the caps, `tenant_budgets`, and any row's wording.
+
+## D-161 — Tara Яармаг's prompt cache is 5 minutes, measured in the daily report (2026-09-30, founder)
+
+- **The change.** `tenants.prompt_cache_mode` for `matrix-eco-salon` went from `1h` to `5m` at
+  12:35 Ulaanbaatar on 2026-09-30. The record is `scripts/provision/matrix-cache-5m-2026-09-30.sql`.
+  The setting is read per request, so no publish was needed.
+- **Why.**
+  - Live traffic was 2–5 conversations a day, so most conversations started cold whatever the
+    cache lifetime.
+  - Cache writes were 88% of live spend (`docs/reports/2026-09-30-tara-spend.md`).
+  - A 5-minute write costs 1.25× the input rate against 2× for 1 hour, so about 37% less per
+    cold call.
+  - The risk: turns more than 5 minutes apart inside one conversation now miss the cache.
+- **Measured in the daily report for two weeks.** A new block, `src/lib/spend/cacheReport.ts`,
+  shows for each tenant with model calls:
+  - yesterday's calls and cold calls;
+  - for the last 14 days against the 14 before: ₮ per call, the cold share and ₮ per cold call.
+
+  On the 14th report after the switch, "last 14" is entirely after it and "the 14 before"
+  entirely before. It reads `spend_ledger` only, and an unreadable tenant prints UNREADABLE.
+- **Unchanged:**
+  - the 20,000 ₮ line, which is revisited after the two weeks (founder);
+  - the caps;
+  - any wording.

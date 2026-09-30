@@ -65,6 +65,7 @@ const plan = planDigest(open, {
   adverts: { ok: true, byTenant: [{ tenant: 'Sample Salon', count: 3 }] },
   shed: { ok: true, byTenant: [], capped: false },
   ceilingPages: { ok: true, pages: [] },
+  cache: { ok: true, tenants: [{ tenant: 'Sample Salon', mode: '5m', yesterday: { calls: 7, cold: 3, mntCents: 52_000, coldMntCents: 43_000 }, last: { calls: 60, cold: 25, mntCents: 520_000, coldMntCents: 430_000 }, before: { calls: 40, cold: 18, mntCents: 469_900, coldMntCents: 413_000 } }] },
   monthlySpend: {
     ok: true,
     tenants: [

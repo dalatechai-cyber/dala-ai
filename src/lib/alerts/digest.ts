@@ -60,6 +60,7 @@ import {
   countShed, monthlySpendBlock, readMonthlySpend, shedLine, type MonthlySpendSummary, type ShedSummary,
 } from '../spend/monthly.ts';
 import { ceilingPagesLine, readCeilingPages, type CeilingPagesSummary } from '../spend/ceilingAlert.ts';
+import { cacheBlock, readCacheStats, type CacheSummary } from '../spend/cacheReport.ts';
 import { buildFlawReport, previousDate } from '../quality/flaws.ts';
 
 /**
@@ -248,6 +249,8 @@ export function planDigest(
     shed: ShedSummary;
     /** The day's cap pages, open or closed, delivered or not. Required, likewise. */
     ceilingPages: CeilingPagesSummary;
+    /** Each tenant's prompt-cache figures (D-161). Required, for D-083's reason. */
+    cache: CacheSummary;
   },
 ): DigestPlan {
   // The Ulaanbaatar day the counts and the flaw report cover — the one that has just ended
@@ -274,7 +277,7 @@ export function planDigest(
   // conditions, so a long tenant list can never push a critical out of the message; if it
   // does not fit it says so rather than vanishing.
   const caps = `\n${shedLine(input.shed)}.\n${ceilingPagesLine(input.ceilingPages)}.`;
-  const spendBlock = `\n\n${monthlySpendBlock(input.monthlySpend)}`;
+  const spendBlock = `\n\n${monthlySpendBlock(input.monthlySpend)}\n\n${cacheBlock(input.cache)}`;
   const spendFits = (used: number): string => (used + spendBlock.length <= MAX_MESSAGE_CHARS
     ? spendBlock
     : '\n\nModel spend this month: not shown (message length).');
@@ -715,6 +718,7 @@ export async function runDigestJob(
     monthlySpend: await readMonthlySpend(effects.db, effects.now),
     shed: await countShed(effects.db, reportWindow(effects.now).since, reportWindow(effects.now).until),
     ceilingPages: await readCeilingPages(effects.db, reportWindow(effects.now).since, reportWindow(effects.now).until),
+    cache: await readCacheStats(effects.db, reportWindow(effects.now).date),
   });
 
   // ALERTS_ENABLED=false silences every path or it silences none of them — the same escape
