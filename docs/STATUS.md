@@ -4,9 +4,10 @@
 > spend for the month in ₮ against the rulebook's 20,000 ₮ normal limit, marks 70% and 100%,
 > and counts Messenger messages a daily cap refused. A cap refusal now pages the founder at
 > once (one episode per tenant and surface; closed by the hourly health run after midnight).
-> Nothing here stops a reply; the caps did not move. **Not built, waiting for the founder:**
-> a reply to the Messenger customer after a refusal (today: none) and Tara Яармаг's emoji cap
-> (`docs/reports/2026-09-30-spend-alerts.md`). **Not proven:** a real 70% crossing or a real
+> Nothing here stops a reply; the caps did not move. **Founder's decisions of 2026-09-30,
+> done (D-160):** after a cap refusal a Messenger customer gets the tenant's reviewed hand-off
+> line where one exists (else nothing, as before), and Tara Яармаг's `reply_style` is
+> `{"max_emoji": 1}` on the project. **Not proven:** a real 70% crossing or a real
 > cap trip on the project; both are covered by unit tests only.
 
 > **2026-09-27 — onboarding (D-155).** `scripts/onboard/tenant.ts` turns a filled

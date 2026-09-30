@@ -98,7 +98,7 @@ rules (1)–(5) carry the same numbers in all three.
 | D4 | No markdown: no `**`, `#`, `•`, leading `-`, HTML. | PROMPT (`02_style` rule 3). Not checked in code | |
 | D5 | Full, polite sentences with a proper ending; never a bare «Тийм.»; discounts written «10%-ийн хөнгөлөлт» (D-150). | PROMPT (`02_style` rule 5) | |
 | D6 | No apology unless something is refused or the customer complains. | FIX (`guard/apology.ts`, strips opening «Уучлаарай», flag `apology_removed`) + PROMPT (Ш7) | |
-| D7 | Emoji: at most the tenant's `reply_style.max_emoji`; none on complaints, refusals, handoff. | FIX (`capEmoji`, `src/lib/reception/style.ts`), **only when the tenant has `reply_style` set** | Live: dalatech `max_emoji = 1`; **Tara Яармаг `reply_style` is null, so no emoji cap applies.** `max_emoji = 1` is proposed for her and waits for the founder (`docs/reports/2026-09-30-spend-alerts.md`) |
+| D7 | Emoji: at most the tenant's `reply_style.max_emoji`; none on complaints, refusals, handoff. | FIX (`capEmoji`, `src/lib/reception/style.ts`), **only when the tenant has `reply_style` set** | Live: dalatech `max_emoji = 1`; Tara Яармаг `max_emoji = 1` since 2026-09-30 (founder, D-160; `scripts/provision/matrix-emoji-cap-2026-09-30.sql`) |
 | D8 | Greet once, only on a new conversation. | DATA (`greeting` deterministic row) + code keeps "history unknown" apart from "history empty" (`gate/deterministic.ts`) | |
 | D9 | Every chat ends with a next step, not pushy (D-127). | DATA (sales lines, `src/lib/sales/live.ts`) for dalatech; "not pushy" is CONVENTION, unmeasured | |
 | D10 | Address the customer with «та» (and its forms: «Танд», «Таны»…), never «чи» (founder, 2026-09-29). | Reviewed rows: DATA, held by the founder's review of every row. Model replies: **CONVENTION.** No signed block states the rule (the style blocks only show «Та» in an example) and no code checks a reply | Live rows, 2026-09-29: 0 of 101 rows (canned, fixed, FAQ, KB, both tenants) use a «чи» form; 30 use a «та» form. Enforcing it on model replies needs a signed sentence in `02_style` and/or a reply guard: both change what customers read, so both are the founder's |
@@ -193,7 +193,7 @@ reviewed row verbatim. Code backs them up only as listed.
 **Gaps (rule stated, nothing enforces it)**
 1. D2 brevity (2–3 sentences) and D4 no-markdown: prompt only. The 1,900-character ceiling is the only hard limit.
 2. D5 polite full sentences, D9 "not pushy", Ш7 "do not moralise": no measure.
-3. D7: Tara Яармаг has no `reply_style`, so the model's emoji are not capped there. Measured 2026-09-30 over 30 days: 280 drafts, 262 with none, 15 with one, 3 with two; her 17 approved rows carry at most one. `max_emoji = 1` is proposed, not applied.
+3. D7: closed 2026-09-30 (D-160). Tara Яармаг's `reply_style` is `{"max_emoji": 1}`. Measured before: 280 replies in 30 days, 3 with two emoji; her 17 approved rows carry at most one.
 4. F4: no real hand-off to a person (`pass_thread_control`). F5/K4 alert the founder only (D-158); a request for a person that no complaint row covers is missed.
 5. G4: voice messages are alerted (D-158) but not answered until the founder approves the `voice_received` line.
 6. A9 service-name changes and A12 price violations are counted, not blocked.

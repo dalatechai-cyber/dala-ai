@@ -11247,3 +11247,24 @@ month, and a cap refusal left a Messenger customer unanswered with no alert to a
 
   A Messenger reply after a refusal, and Tara Яармаг's `max_emoji = 1`, are drafted in
   `docs/reports/2026-09-30-spend-alerts.md` and wait for the founder.
+
+## D-160 — After a cap refusal the customer gets the reviewed hand-off line; Tara's emoji cap is 1 (2026-09-30, founder)
+
+The founder settled both decisions in `docs/reports/2026-09-30-spend-alerts.md`.
+
+- **After a daily-cap refusal**, a Messenger or Instagram customer gets the tenant's own reviewed
+  `handoff` row. This applies to every tenant that has one. There is no new wording and no model
+  call, so nothing is spent. It is the sentence the website already serves in this case (D-139).
+  - It is sent only on a delivering channel. A `shadow` channel stays silent, as before.
+  - It goes under the reply's own dedup key, so a redelivery finds the message answered and
+    never sends the line twice.
+  - The line promises a colleague, so a person is told (`alertNeedsPerson`, reason `handoff`),
+    as on the ordinary hand-off path (D-158).
+  - A missing, unreviewed, empty or unreadable row means nothing is sent, as before. The cap page
+    (D-159) is the founder's signal.
+  - Code: the refusal branch of `src/lib/worker/reception.ts`.
+- **Tara Яармаг `reply_style = {"max_emoji": 1}`**, applied on the project on 2026-09-30.
+  - Record: `scripts/provision/matrix-emoji-cap-2026-09-30.sql`.
+  - Only the model's own words are capped. Approved rows are served whole. The price layout is
+    unchanged.
+- **Not changed:** the caps, `tenant_budgets`, and any row's wording.

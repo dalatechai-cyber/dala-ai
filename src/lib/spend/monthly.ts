@@ -267,5 +267,6 @@ export function shedLine(s: ShedSummary): string {
   const parts = [...s.byTenant]
     .sort((a, b) => (b.count - a.count) || (a.tenant < b.tenant ? -1 : a.tenant > b.tenant ? 1 : 0))
     .map((t) => `${t.tenant} ×${mark}${t.count}`);
-  return `🔴 Messenger messages refused by a daily cap, customer got no reply (yesterday): ${parts.join(', ')}`;
+  return `🔴 Messenger messages the model did not answer because of a daily cap (yesterday; the tenant's `
+    + `hand-off line was sent where it has one): ${parts.join(', ')}`;
 }

@@ -875,6 +875,76 @@ test('a cap alert that FAILS is logged as an error and the job still ACKs 200', 
   assert.match(String(line?.fields?.['outcome']), /telegram down/);
 });
 
+const CAP_HANDOFF = 'Уучлаарай, манай ажилтан Танд туслахад бэлэн байна.';
+/** The context read sees the rows as a list; the refusal's own read asks for one row. */
+const CAP_TABLES = (row: Record<string, unknown> | null) => ({
+  ...ZERO_RECEPTION_BUDGET,
+  canned_responses: [
+    { data: [{ kind: 'handoff', body: 'Утсаар холбогдоно уу.', reviewed_at: '2026-09-01' }], error: null },
+    { data: row, error: null },
+  ],
+  outbound_messages: { data: { id: 'om-9', body: CAP_HANDOFF, attempts: 0, state: 'draft' }, error: null },
+});
+
+test('D-160: A CAP REFUSAL SENDS THE REVIEWED HAND-OFF LINE, tells a person, and spends nothing', async () => {
+  const { fx, delivered, generated, needsPerson, ceilingAlerts, flags } = stubEffects({
+    tables: CAP_TABLES({ body: CAP_HANDOFF, reviewed_at: '2026-09-01' }),
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(generated.length, 0, 'no model call');
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0]?.body, CAP_HANDOFF, 'the stored, reviewed bytes');
+  assert.equal(ceilingAlerts.length, 1, 'the founder is still paged');
+  assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent]), [['handoff', 'yes']]);
+  assert.ok(flags.some((f) => f.code === 'ceiling_handoff'));
+});
+
+test('D-160: NO reviewed hand-off line: nothing is sent, the founder is paged, as before', async () => {
+  for (const row of [null, { body: CAP_HANDOFF, reviewed_at: null }, { body: '   ', reviewed_at: '2026-09-01' }]) {
+    const { fx, delivered, needsPerson, ceilingAlerts } = stubEffects({ tables: CAP_TABLES(row) });
+    const r = await run(fx);
+    assert.equal(r.status, 200);
+    assert.equal(delivered.length, 0, JSON.stringify(row));
+    assert.equal(needsPerson.length, 0);
+    assert.equal(ceilingAlerts.length, 1);
+  }
+});
+
+test('D-160: a SHADOW channel sends nothing on a cap refusal: the Page is answered as before', async () => {
+  const { fx, delivered, needsPerson, ceilingAlerts } = stubEffects({
+    tables: {
+      ...CAP_TABLES({ body: CAP_HANDOFF, reviewed_at: '2026-09-01' }),
+      tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'shadow', graph_version_override: null } },
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(delivered.length, 0);
+  assert.equal(needsPerson.length, 0);
+  assert.equal(ceilingAlerts.length, 1, 'the refusal branch was reached');
+});
+
+test('D-160: an UNREADABLE hand-off line sends nothing and still ACKs', async () => {
+  const tables = CAP_TABLES(null);
+  tables.canned_responses[1] = { data: null, error: { message: 'timeout' } } as never;
+  const { fx, delivered, logs } = stubEffects({ tables });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(delivered.length, 0);
+  assert.ok(logs.some((l) => l.event === 'ceiling_handoff_unreadable'));
+});
+
+test('D-160: a RETRYABLE send failure is 503, and a person has already been told', async () => {
+  const { fx, needsPerson } = stubEffects({
+    tables: CAP_TABLES({ body: CAP_HANDOFF, reviewed_at: '2026-09-01' }),
+    deliver: async () => ({ outcome: 'failed', failure: 'rate_limited', retryable: true, detail: 'graph 429' }),
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+  assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent]), [['handoff', 'unknown']]);
+});
+
 test('a guard that is merely UNAVAILABLE (503) does not page the cap alert', async () => {
   const { fx, ceilingAlerts } = stubEffects({
     tables: { tenant_roles: { data: null, error: { message: 'permission denied' } } },
