@@ -26,7 +26,7 @@ if (slug === undefined || !/^[a-z0-9-]+$/.test(slug) || template === undefined |
   process.exit(2);
 }
 
-type Row = { rule_key: string; verdict: string; matcher: unknown };
+type Row = { rule_key: string; verdict: string; matcher: unknown; surfaces?: string[] };
 const doc = JSON.parse(readFileSync(new URL(`./templates/comment_rules.${template}.json`, import.meta.url), 'utf8')) as { rules: Row[] };
 
 const bad: string[] = [];
@@ -34,6 +34,11 @@ for (const r of doc.rules) {
   const p = parseMatcher(r.matcher);
   if (!p.ok) bad.push(`${r.rule_key}: ${p.detail}`);
   if (!['escalate', 'reply', 'ignore'].includes(r.verdict)) bad.push(`${r.rule_key}: verdict ${r.verdict}`);
+  // 0073: absent means both surfaces; otherwise a non-empty subset of the two.
+  if (r.surfaces !== undefined && (!Array.isArray(r.surfaces) || r.surfaces.length === 0
+      || r.surfaces.some((s) => s !== 'direct_message' && s !== 'public_comment'))) {
+    bad.push(`${r.rule_key}: surfaces ${JSON.stringify(r.surfaces)}`);
+  }
 }
 if (bad.length > 0) {
   console.error(`refusing: the template has rules the runtime would refuse:\n  ${bad.join('\n  ')}`);
@@ -45,7 +50,8 @@ const q = (s: string): string => {
   if (s.includes('$r$')) throw new Error('template contains the quoting tag');
   return `$r$${s}$r$`;
 };
-const values = doc.rules.map((r) => `  (${q(r.rule_key)}, ${q(r.verdict)}, ${q(JSON.stringify(r.matcher))}::jsonb)`).join(',\n');
+const surfacesSql = (r: Row): string => (r.surfaces === undefined ? 'null::text[]' : `array[${r.surfaces.map(q).join(', ')}]::text[]`);
+const values = doc.rules.map((r) => `  (${q(r.rule_key)}, ${q(r.verdict)}, ${q(JSON.stringify(r.matcher))}::jsonb, ${surfacesSql(r)})`).join(',\n');
 const keys = doc.rules.map((r) => q(r.rule_key)).join(', ');
 
 console.log(`-- ${doc.rules.length} comment rules from templates/comment_rules.${template}.json for tenant ${slug}
@@ -53,12 +59,12 @@ begin;
 update comment_rules set enabled = false
  where tenant_id = (select id from tenants where slug = ${q(slug)})
    and rule_key not in (${keys});
-insert into comment_rules (tenant_id, rule_key, verdict, matcher, enabled, provenance)
-select t.id, v.rule_key, v.verdict, v.matcher, true, 'seeded'
+insert into comment_rules (tenant_id, rule_key, verdict, matcher, enabled, provenance, surfaces)
+select t.id, v.rule_key, v.verdict, v.matcher, true, 'seeded', v.surfaces
   from tenants t, (values
 ${values}
-  ) as v(rule_key, verdict, matcher)
+  ) as v(rule_key, verdict, matcher, surfaces)
  where t.slug = ${q(slug)}
 on conflict (tenant_id, rule_key) do update
-   set verdict = excluded.verdict, matcher = excluded.matcher, enabled = true;
+   set verdict = excluded.verdict, matcher = excluded.matcher, enabled = true, surfaces = excluded.surfaces;
 commit;`);

@@ -280,6 +280,15 @@ partial, one of four tables.
 - **Billing of tenants' own customers** — `0065` invoices DalaTech's clients for DalaTech's
   fee. Nothing here bills a tenant's customers.
 
+### `0073_comment_rule_surfaces`
+
+**Additive: one nullable column and a CHECK.** `comment_rules.surfaces text[]`: which surfaces
+read the rule, `{direct_message}`, `{public_comment}` or both; NULL (every row before 0073)
+means both, so nothing changed when it was applied. The comment worker skips DM-only rows; the
+DM readers (`reception/load.ts` complaint rows, `sales/shadow.ts`) skip comment-only rows, via
+`ruleAppliesTo` (`comments/classify.ts`). CHECK `comment_rule_surfaces_known`: non-empty and a
+subset of the two surfaces.
+
 ### `0072_voice_received_kind`
 
 **Additive: one `canned_response_kinds` row, no DDL.** Registers `voice_received`, the line a

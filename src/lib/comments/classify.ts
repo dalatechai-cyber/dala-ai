@@ -61,6 +61,21 @@ export type CommentVerdict = 'escalate' | 'reply' | 'ignore' | 'unclassified';
  */
 const PRECEDENCE: readonly CommentVerdict[] = ['escalate', 'reply', 'ignore'];
 
+/**
+ * Which surface reads a `comment_rules` row (`surfaces`, 0073). NULL, the value of every row
+ * written before 0073, means both, so no existing rule changed when the column arrived. A
+ * DM-only row carries `{direct_message}` and the comment worker never sees it; a
+ * comment-only row carries `{public_comment}` and no DM reader sees it (founder, 2026-09-30:
+ * «ажилтантай ярих» is a DM request for a person, «үс муудсан» in a DM is often a treatment
+ * question). A value that is not an array reads as both, the pre-0073 meaning, rather than
+ * silently dropping a complaint rule; the column's CHECK keeps that from happening.
+ */
+export type RuleSurface = 'direct_message' | 'public_comment';
+export function ruleAppliesTo(surfaces: unknown, surface: RuleSurface): boolean {
+  if (!Array.isArray(surfaces)) return true;
+  return surfaces.includes(surface);
+}
+
 /** A rule's verdict. `unclassified` is structurally unavailable — see `CommentVerdict`. */
 export type RuleVerdict = 'escalate' | 'reply' | 'ignore';
 

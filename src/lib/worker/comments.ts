@@ -52,7 +52,7 @@ import { decideAfterLookup, decideCommentReply, type CommentChannelConfig, type 
 import type { CommentLookup } from '../comments/lookup.ts';
 import { isAutomationText } from '../handover/automation.ts';
 import { pageCommentsIn, staffHandled, type PageComment, type StaffCheck } from '../comments/staff.ts';
-import { classifyComment, type CommentRule } from '../comments/classify.ts';
+import { classifyComment, ruleAppliesTo, type CommentRule } from '../comments/classify.ts';
 import { advertByText, isRepeatedComment, mayBeRepeat, type AdvertCheck } from '../comments/advert.ts';
 import { cpLength } from '../mn/text.ts';
 import type { CommentSendOutcome } from '../comments/send.ts';
@@ -335,11 +335,13 @@ async function readCommentRules(
 ): Promise<{ ok: true; rules: CommentRule[] } | { ok: false; detail: string }> {
   const { data, error } = await db
     .from('comment_rules')
-    .select('rule_key, verdict, matcher, public_kind, private_kind')
+    .select('rule_key, verdict, matcher, public_kind, private_kind, surfaces')
     .eq('tenant_id', input.tenantId)
     .eq('enabled', true);
   if (error) return { ok: false, detail: `comment_rules unreadable: ${error.message}` };
-  const rows = Array.isArray(data) ? data : [];
+  // A DM-only row (`surfaces = {direct_message}`, 0073) is never a comment rule.
+  const rows = (Array.isArray(data) ? data : [])
+    .filter((r) => ruleAppliesTo((r as Record<string, unknown>)['surfaces'], 'public_comment'));
   return {
     ok: true,
     rules: rows.map((r) => {

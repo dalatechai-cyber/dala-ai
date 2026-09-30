@@ -11262,6 +11262,21 @@ month, and a cap refusal left a Messenger customer unanswered with no alert to a
   A Messenger reply after a refusal, and Tara Яармаг's `max_emoji = 1`, are drafted in
   `docs/reports/2026-09-30-spend-alerts.md` and wait for the founder.
 
+### D-158 second addendum: DM-only "needs a person" words (2026-09-30, founder)
+
+The founder approved `docs/proposals/dm-needs-person-rules.md` as proposed: DM only, comments
+unchanged. `0073` adds `comment_rules.surfaces` (NULL = both, every existing row). The comment
+worker skips DM-only rows; the DM readers (complaint rows in `reception/load.ts`, the sales
+shadow) skip comment-only ones (`ruleAppliesTo`). Data: `scripts/provision/dm-needs-person-rules-2026-09-30.sql`
+adds nine DM-only escalate rows per live tenant, all in the «-тай» form («ажилтантай ярих/холбогдох»,
+«хүнтэй ярих», «менежертэй», «оператортой», «админтай», Latin forms; bare «оператор»/«менежер» are
+DalaTech product names), also in `templates/comment_rules.*.json`, and moves
+«муудсан», «хүлээлгэ», «дундуур» (and Latin forms) from `complaint` to a wall-only row, checked
+in the same transaction to leave the wall's stems unchanged. A DM row is a complaint row
+everywhere a DM reads one: the needs-person alert, the complaint reminder, no emoji, no sales
+line. The founder confirmed the Tara salon gets no alert of its own: the owner reads her
+messages herself.
+
 ## D-160 — After a cap refusal the customer gets the reviewed hand-off line; Tara's emoji cap is 1 (2026-09-30, founder)
 
 The founder settled both decisions in `docs/reports/2026-09-30-spend-alerts.md`.

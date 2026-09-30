@@ -163,8 +163,10 @@ const plan = planFromForm(read.answers, {
 const commentTemplate = new URL(`comment_rules.${plan.vertical.value}.json`, root);
 if (plan.commentsRequested) {
   if (existsSync(commentTemplate)) {
-    const t = JSON.parse(readFileSync(commentTemplate, 'utf8')) as { rules: { rule_key: string; verdict: string; matcher: unknown }[] };
-    plan.intake.commentRules = t.rules.map((r) => ({ key: r.rule_key, verdict: r.verdict, matcher: r.matcher }));
+    const t = JSON.parse(readFileSync(commentTemplate, 'utf8')) as { rules: { rule_key: string; verdict: string; matcher: unknown; surfaces?: string[] }[] };
+    plan.intake.commentRules = t.rules.map((r) => ({
+      key: r.rule_key, verdict: r.verdict, matcher: r.matcher, ...(r.surfaces === undefined ? {} : { surfaces: r.surfaces }),
+    }));
   } else {
     plan.manual.push(`2.2: comment replies were requested and there is no comment_rules.${plan.vertical.value}.json template; comments stay off until rules are written.`);
   }

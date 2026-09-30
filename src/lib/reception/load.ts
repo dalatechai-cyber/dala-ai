@@ -11,7 +11,7 @@ import { DEFAULT_GATE, GATE_BY_RESPONSE_KIND, scriptForLocale } from '../../conf
 import { loadLiveSnapshot, type LiveSnapshot } from '../prompt/publish.ts';
 import { parseMatcher, type CannedRow, type GateRule } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
-import type { CommentRule } from '../comments/classify.ts';
+import { ruleAppliesTo, type CommentRule } from '../comments/classify.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
 import { MAX_REPLY_CHARS } from './handle.ts';
 import type { BusinessHours, Closure } from './volatile.ts';
@@ -326,7 +326,7 @@ export async function loadReceptionContext(
     const r = await db.from('tenants').select('reply_style').eq('id', input.tenantId).maybeSingle();
     return r.error || r.data === null ? null : replyStyleOf((r.data as Record<string, unknown>)['reply_style']);
   })().then((r) => r, () => null);
-  const complaintRead = (async () => db.from('comment_rules').select('rule_key, verdict, matcher')
+  const complaintRead = (async () => db.from('comment_rules').select('rule_key, verdict, matcher, surfaces')
     .eq('tenant_id', input.tenantId).eq('enabled', true).eq('verdict', 'escalate'))()
     .then((r) => r, () => ({ data: null, error: { message: 'threw' } }));
   const [disclosure, outOfScope, canned, booking, services, phrasings, hoursRes, closuresRes, detRes, contactsRes, aliasRes, spellRes] = await Promise.all([
@@ -581,11 +581,14 @@ export function fallbackLineOf(res: { data: unknown; error: unknown }): string |
   return row === undefined ? null : String(row['body']).trim();
 }
 
-/** The escalate rows as the classifier takes them, or `[]` when the read failed. */
+/**
+ * The escalate rows that apply in a DM (`surfaces` NULL or containing `direct_message`, 0073)
+ * as the classifier takes them, or `[]` when the read failed.
+ */
 export function complaintRulesOf(res: { data: unknown; error: unknown }): CommentRule[] {
   if (res.error !== null && res.error !== undefined) return [];
   const rows = Array.isArray(res.data) ? res.data as Record<string, unknown>[] : [];
-  return rows.filter((r) => r['verdict'] === 'escalate')
+  return rows.filter((r) => r['verdict'] === 'escalate' && ruleAppliesTo(r['surfaces'], 'direct_message'))
     .map((r) => ({ ruleKey: String(r['rule_key']), verdict: 'escalate' as const, matcher: r['matcher'] }));
 }
 

@@ -207,6 +207,8 @@ export async function applyIntake(
     const { error } = await db.from('comment_rules').upsert(
       d.commentRules.map((c) => ({
         tenant_id: id, rule_key: c.key, verdict: c.verdict, matcher: c.matcher,
+        // 0073: the template decides which surfaces read the rule; absent is both (NULL).
+        surfaces: c.surfaces ?? null,
         enabled: prior.get(c.key)?.enabled ?? false,
         provenance: prior.get(c.key)?.provenance ?? 'seeded',
       })), { onConflict: 'tenant_id,rule_key' });
