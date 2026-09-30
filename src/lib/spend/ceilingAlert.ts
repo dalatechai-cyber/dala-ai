@@ -55,7 +55,12 @@ export type CeilingAlertInput = {
   estimate: NanoUsd;
 };
 
-type CounterRead = { used: NanoUsd; ceiling: NanoUsd | null } | null;
+/**
+ * A counter as read: its figures, `'absent'` when there is no row for the day, or null when
+ * the read failed. Absent and unreadable are different facts: `reserve.ts` refuses a surface
+ * whose budget is zero BEFORE it seeds a counter, so a missing row is how that case looks.
+ */
+type CounterRead = { used: NanoUsd; ceiling: NanoUsd | null } | 'absent' | null;
 
 /** «$1.98», from nano-USD, without floating point on the way to the cents. */
 function usd(n: NanoUsd): string {
@@ -77,7 +82,8 @@ async function readCounter(
     .eq('period_kind', 'day')
     .eq('period_key', periodKey)
     .maybeSingle();
-  if (error || data === null) return null;
+  if (error) return null;
+  if (data === null) return 'absent';
   const r = data as Record<string, unknown>;
   try {
     const used = fromDb(r['reserved_nanousd'], 'reserved_nanousd') + fromDb(r['settled_nanousd'], 'settled_nanousd');
@@ -90,13 +96,19 @@ async function readCounter(
 
 function counterLine(label: string, c: CounterRead): string {
   if (c === null) return `${label}: UNREADABLE`;
+  if (c === 'absent') return `${label}: no counter yet today`;
   return `${label}: ${usd(c.used)} of ${c.ceiling === null ? 'no ceiling' : usd(c.ceiling)}`;
 }
 
 /** Which ceiling refused, from what the counters say now. Null when neither read says. */
 export function whichCeiling(tenant: CounterRead, platform: CounterRead, estimate: NanoUsd): string {
-  const over = (c: CounterRead): boolean => c !== null && c.ceiling !== null && c.used + estimate > c.ceiling;
-  if (tenant !== null && tenant.ceiling === 0n) return 'this tenant\'s budget gives this surface nothing';
+  const over = (c: CounterRead): boolean =>
+    c !== null && c !== 'absent' && c.ceiling !== null && c.used + estimate > c.ceiling;
+  // No tenant counter while the platform's is readable and under its cap: the reservation was
+  // refused before any counter was seeded, which `reserve.ts` does only for a zero budget.
+  if (tenant === 'absent' && platform !== null && !over(platform)) {
+    return 'this tenant\'s budget gives this surface nothing (tenant_budgets surface fraction is 0)';
+  }
   if (over(tenant) && over(platform)) return 'both the tenant\'s and the platform\'s daily cap';
   if (over(tenant)) return 'the tenant\'s daily cap';
   if (over(platform)) return 'the platform\'s daily cap (all tenants together)';
@@ -192,8 +204,10 @@ export async function closeStaleCeilingEpisodes(
     const open = (Array.isArray(data) ? data : []).map((r) => r as Record<string, unknown>);
     if (open.length === 0) return { ok: true, closed: 0 };
 
-    const tenantIds = [...new Set(open.map((r) => String(r['tenant_id'])))];
-    const { data: tenants, error: tErr } = await db.from('tenants').select('id, timezone').in('id', tenantIds);
+    const tenantIds = [...new Set(open.flatMap((r) => (r['tenant_id'] === null || r['tenant_id'] === undefined ? [] : [String(r['tenant_id'])])))];
+    const { data: tenants, error: tErr } = tenantIds.length === 0
+      ? { data: [], error: null }
+      : await db.from('tenants').select('id, timezone').in('id', tenantIds);
     if (tErr) return { ok: false, detail: `tenants unreadable: ${tErr.message}` };
     const zones = new Map<string, string>();
     for (const t of Array.isArray(tenants) ? tenants : []) {
@@ -204,10 +218,14 @@ export async function closeStaleCeilingEpisodes(
     const stale: number[] = [];
     for (const r of open) {
       const at = new Date(String(r['at']));
-      const zone = zones.get(String(r['tenant_id']));
+      if (Number.isNaN(at.getTime())) continue;
+      // `alerts.tenant_id` is `on delete set null`: a deleted tenant has no counter left to
+      // brake, so only the platform's day decides.
+      const deleted = r['tenant_id'] === null || r['tenant_id'] === undefined;
+      const zone = deleted ? PLATFORM_TIMEZONE : zones.get(String(r['tenant_id']));
       // A tenant whose zone cannot be read is left open: closing on a guess would hide a
       // brake that may still be on.
-      if (Number.isNaN(at.getTime()) || zone === undefined) continue;
+      if (zone === undefined) continue;
       const tenantRolled = dayKey(at, zone) !== dayKey(now, zone);
       const platformRolled = dayKey(at, PLATFORM_TIMEZONE) !== dayKey(now, PLATFORM_TIMEZONE);
       if (tenantRolled && platformRolled) stale.push(Number(r['id']));
@@ -225,4 +243,63 @@ export async function closeStaleCeilingEpisodes(
   } catch (err) {
     return { ok: false, detail: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/** The cap pages raised over a day, whether or not their episode has since closed. */
+export type CeilingPagesSummary =
+  | { ok: true; pages: { tenant: string; delivered: boolean }[] }
+  | { ok: false };
+
+/**
+ * Read the day's cap pages for the daily report.
+ *
+ * The report lists open episodes, and the health run closes these after midnight, so without
+ * this a page that fired yesterday could be gone from the report by the time it runs. It also
+ * catches the page that never arrived: the row is written before Telegram is called, so a
+ * failed or abandoned send leaves `delivered = false` and suppresses every later page that
+ * day. That row is printed here as NOT DELIVERED.
+ */
+export async function readCeilingPages(db: SupabaseClient, since: string, until: string): Promise<CeilingPagesSummary> {
+  try {
+    const { data, error } = await db
+      .from('alerts')
+      .select('tenant_id, delivered')
+      .eq('kind', CEILING_KIND)
+      .gte('at', since)
+      .lt('at', until);
+    if (error) return { ok: false };
+    const rows = (Array.isArray(data) ? data : []).map((r) => r as Record<string, unknown>);
+    if (rows.length === 0) return { ok: true, pages: [] };
+    const ids = [...new Set(rows.flatMap((r) => (r['tenant_id'] === null || r['tenant_id'] === undefined ? [] : [String(r['tenant_id'])])))];
+    const names = new Map<string, string>();
+    if (ids.length > 0) {
+      const { data: tenants, error: tErr } = await db.from('tenants').select('id, display_name').in('id', ids);
+      if (tErr) return { ok: false };
+      for (const t of Array.isArray(tenants) ? tenants : []) {
+        const r = t as Record<string, unknown>;
+        if (typeof r['display_name'] === 'string' && r['display_name'] !== '') names.set(String(r['id']), r['display_name']);
+      }
+    }
+    return {
+      ok: true,
+      pages: rows.map((r) => ({
+        tenant: r['tenant_id'] === null || r['tenant_id'] === undefined
+          ? 'deleted tenant'
+          : names.get(String(r['tenant_id'])) ?? String(r['tenant_id']),
+        delivered: r['delivered'] === true,
+      })),
+    };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** Always printed; UNREADABLE is never folded into «none». */
+export function ceilingPagesLine(s: CeilingPagesSummary): string {
+  if (!s.ok) return 'Daily-cap pages (yesterday): UNREADABLE';
+  if (s.pages.length === 0) return 'No daily-cap pages (yesterday)';
+  const parts = [...s.pages]
+    .sort((a, b) => (a.tenant < b.tenant ? -1 : a.tenant > b.tenant ? 1 : 0))
+    .map((p) => `${p.tenant} (${p.delivered ? 'delivered' : 'NOT DELIVERED — later refusals that day were silent'})`);
+  return `🔴 Daily-cap pages (yesterday): ${parts.join(', ')}`;
 }

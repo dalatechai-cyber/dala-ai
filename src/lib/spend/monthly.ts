@@ -78,6 +78,12 @@ function daysIn(month: string): number {
   return new Date(Date.UTC(y ?? 1970, m ?? 1, 0)).getUTCDate();
 }
 
+/** «2026-09-30» → «2026-10-01». UTC arithmetic on a bare date, so no zone can move it. */
+function nextDate(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, (d ?? 1) + 1)).toISOString().slice(0, 10); // a bare date's own arithmetic, not a day taken from a timestamp (D-151)
+}
+
 /** «₮12,922» from cents. */
 function mnt(cents: number): string {
   return `₮${groupDigits(cents / 100)}`;
@@ -154,7 +160,10 @@ export async function readMonthlySpend(db: SupabaseClient, reportUntil: string):
       const day = tenantClock(anchor, zone).date;
       const month = day.slice(0, 7);
       const since = localDayStart(`${month}-01`, zone).toISOString();
-      const summed = await sumTenantMonth(db, id, since, until.toISOString());
+      // The END of that day on the tenant's own calendar, so a tenant outside Ulaanbaatar
+      // gets whole days of their own and not a platform-day edge.
+      const end = localDayStart(nextDate(day), zone).toISOString();
+      const summed = await sumTenantMonth(db, id, since, end);
       out.push({
         tenant: name, month,
         mntCents: summed.ok ? summed.mntCents : null,

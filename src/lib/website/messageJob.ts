@@ -408,7 +408,9 @@ export async function runMessageJob(effects: MessageEffects, req: MessageRequest
       effects.afterResponse(effects.alertCeilingReached({ tenantId, timezone })
         .then((outcome) => effects.log(
           /^(failed|timed_out|recorded_undelivered)/.test(outcome) ? 'error' : 'info', 'ceiling_alert', { tenantId, outcome }))
-        .catch(() => undefined));
+        .catch((e: unknown) => effects.log('error', 'ceiling_alert', {
+          tenantId, outcome: `failed: ${e instanceof Error ? e.message : String(e)}`,
+        })));
     }
     if (refusal.status !== 503) {
       const handoff = ctx.canned.find((c) => c.kind === 'handoff' && c.reviewedAt !== null);

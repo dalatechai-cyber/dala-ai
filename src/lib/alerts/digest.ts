@@ -59,6 +59,7 @@ import { localDayStart, tenantClock } from '../time/clock.ts';
 import {
   countShed, monthlySpendBlock, readMonthlySpend, shedLine, type MonthlySpendSummary, type ShedSummary,
 } from '../spend/monthly.ts';
+import { ceilingPagesLine, readCeilingPages, type CeilingPagesSummary } from '../spend/ceilingAlert.ts';
 import { buildFlawReport, previousDate } from '../quality/flaws.ts';
 
 /**
@@ -245,6 +246,8 @@ export function planDigest(
     monthlySpend: MonthlySpendSummary;
     /** Messenger messages a daily cap refused over the reported day. Required, likewise. */
     shed: ShedSummary;
+    /** The day's cap pages, open or closed, delivered or not. Required, likewise. */
+    ceilingPages: CeilingPagesSummary;
   },
 ): DigestPlan {
   // The Ulaanbaatar day the counts and the flaw report cover — the one that has just ended
@@ -267,16 +270,22 @@ export function planDigest(
   const lost = lostDraftsLine(input.lostDrafts);
   const advertsText = advertsLine(input.adverts);
   const adverts = advertsText === null ? '' : `\n${advertsText}.`;
-  // Spend last in the header, as its own block: every day, so a clean month reads as a
-  // figure and not as a missing line.
-  const spend = `\n${shedLine(input.shed)}.\n\n${monthlySpendBlock(input.monthlySpend)}`;
+  // The cap lines sit with the other day counts. The month block goes LAST, after the open
+  // conditions, so a long tenant list can never push a critical out of the message; if it
+  // does not fit it says so rather than vanishing.
+  const caps = `\n${shedLine(input.shed)}.\n${ceilingPagesLine(input.ceilingPages)}.`;
+  const spendBlock = `\n\n${monthlySpendBlock(input.monthlySpend)}`;
+  const spendFits = (used: number): string => (used + spendBlock.length <= MAX_MESSAGE_CHARS
+    ? spendBlock
+    : '\n\nModel spend this month: not shown (message length).');
 
   if (ranked.length === 0) {
-    return { summary: `Dala AI — ${date}\nNothing open. ${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.${adverts}${spend}`, escalate: [] };
+    const head = `Dala AI — ${date}\nNothing open. ${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.${adverts}${caps}`;
+    return { summary: `${head}${spendFits(head.length)}`, escalate: [] };
   }
 
   const header = `Dala AI — ${date}\n${ranked.length} open condition${ranked.length === 1 ? '' : 's'}. `
-    + `${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.${adverts}${spend}`;
+    + `${heartbeat}.\n${dropped}.\n${capped}.\n${lost}.${adverts}${caps}`;
   const lines: string[] = [];
   let used = header.length;
   let omitted = 0;
@@ -297,7 +306,8 @@ export function planDigest(
     (a) => a.severity === 'critical' && (a.notifiedAt ?? a.at).getTime() < cutoff,
   );
 
-  return { summary: `${header}${lines.join('')}${tail}`, escalate };
+  const body = `${header}${lines.join('')}${tail}`;
+  return { summary: `${body}${spendFits(body.length)}`, escalate };
 }
 
 /**
@@ -704,6 +714,7 @@ export async function runDigestJob(
     // could not be read must not cost the founder the rest of the report.
     monthlySpend: await readMonthlySpend(effects.db, reportWindow(effects.now).until),
     shed: await countShed(effects.db, reportWindow(effects.now).since, reportWindow(effects.now).until),
+    ceilingPages: await readCeilingPages(effects.db, reportWindow(effects.now).since, reportWindow(effects.now).until),
   });
 
   // ALERTS_ENABLED=false silences every path or it silences none of them — the same escape

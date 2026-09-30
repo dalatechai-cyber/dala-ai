@@ -64,6 +64,7 @@ const plan = planDigest(open, {
   lostDrafts: { total: 0, latest: null, unavailable: false },
   adverts: { ok: true, byTenant: [{ tenant: 'Sample Salon', count: 3 }] },
   shed: { ok: true, byTenant: [], capped: false },
+  ceilingPages: { ok: true, pages: [] },
   monthlySpend: {
     ok: true,
     tenants: [

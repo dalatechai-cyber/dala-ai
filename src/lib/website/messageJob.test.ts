@@ -231,6 +231,9 @@ test('a ceiling refusal PAGES THE FOUNDER after the response, and a failed page 
   assert.equal(r.status, 200, 'the visitor still gets the reviewed line');
   assert.equal(pages.length, 1);
   assert.equal(typeof pages[0]?.timezone, 'string');
+  const line = logs.find((l) => l.event === 'ceiling_alert');
+  assert.equal(line?.level, 'error', 'a rejected page is logged, not swallowed');
+  assert.match(String(line?.fields?.['outcome']), /telegram down/);
 
   // A 503 is "could not determine", not a brake: no page.
   const db2 = stubDb();

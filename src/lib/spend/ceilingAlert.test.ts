@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  alertCeilingReached, ceilingBody, ceilingEpisodeKey, closeStaleCeilingEpisodes, whichCeiling, CEILING_KIND,
+  alertCeilingReached, ceilingBody, ceilingPagesLine, readCeilingPages, ceilingEpisodeKey, closeStaleCeilingEpisodes, whichCeiling, CEILING_KIND,
 } from './ceilingAlert.ts';
 
 type Reply = { data: unknown; error: { message: string; code?: string } | null };
@@ -46,7 +46,10 @@ test('WHICH CEILING: tenant, platform, both, a zero budget, or honestly unknown'
   assert.match(whichCeiling(at(1_990_000_000n, 2_000_000_000n), at(0n, 10_000_000_000n), est), /tenant's daily cap/);
   assert.match(whichCeiling(at(0n, 2_000_000_000n), at(9_990_000_000n, 10_000_000_000n), est), /platform's daily cap/);
   assert.match(whichCeiling(at(1_990_000_000n, 2_000_000_000n), at(9_990_000_000n, 10_000_000_000n), est), /both/);
-  assert.match(whichCeiling(at(0n, 0n), null, est), /gives this surface nothing/);
+  // `reserve.ts` refuses a zero budget BEFORE seeding a counter: no tenant row, platform under.
+  assert.match(whichCeiling('absent', at(0n, 10_000_000_000n), est), /gives this surface nothing/);
+  // An absent tenant row beside an unreadable platform row is not guessed at.
+  assert.match(whichCeiling('absent', null, est), /no longer show which/);
   assert.match(whichCeiling(null, null, est), /no longer show which/);
 });
 
@@ -146,4 +149,32 @@ test('CLOSE reports an unreadable alerts table instead of claiming nothing was o
   const s = stubDb({ 'alerts:select': [{ data: null, error: { message: 'down' } }] });
   const r = await closeStaleCeilingEpisodes(s.db, NOW);
   assert.equal(r.ok, false);
+});
+
+test('an ABSENT tenant counter reads as absent, not UNREADABLE', () => {
+  const body = ceilingBody({
+    name: 'Salon A', channel: 'messenger', surface: 'reception', timezone: 'Asia/Ulaanbaatar', now: NOW,
+    which: 'x', tenant: 'absent', platform: { used: 0n, ceiling: 10_000_000_000n },
+  });
+  assert.match(body, /Tenant 2026-09-25: no counter yet today/);
+  assert.doesNotMatch(body, /UNREADABLE/);
+});
+
+test('CLOSE: an episode whose tenant was deleted closes on the platform\'s day alone', async () => {
+  const s = stubDb({
+    'alerts:select': [{ data: [{ id: 4, tenant_id: null, dedup_key: 'k', at: '2026-09-20T00:00:00Z' }], error: null }],
+    'alerts:update': [{ data: [{ id: 4 }], error: null }],
+  });
+  assert.deepEqual(await closeStaleCeilingEpisodes(s.db, NOW), { ok: true, closed: 1 });
+});
+
+test('THE DAY\'S PAGES are read whatever their resolved state, and an undelivered one is named', async () => {
+  const s = stubDb({
+    alerts: [{ data: [{ tenant_id: T, delivered: false }], error: null }],
+    tenants: [{ data: [{ id: T, display_name: 'Salon A' }], error: null }],
+  });
+  const r = await readCeilingPages(s.db, 'a', 'b');
+  assert.deepEqual(r, { ok: true, pages: [{ tenant: 'Salon A', delivered: false }] });
+  assert.match(ceilingPagesLine(r), /Salon A \(NOT DELIVERED/);
+  assert.equal(ceilingPagesLine({ ok: false }), 'Daily-cap pages (yesterday): UNREADABLE');
 });

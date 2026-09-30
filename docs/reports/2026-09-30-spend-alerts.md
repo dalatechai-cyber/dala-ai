@@ -35,19 +35,22 @@ The code that shipped with it (D-158) only reports and pages. It stops no reply 
    - the figure in ₮ (the ledger's own snapshotted figure), its share of 20,000 ₮, the figure in
      dollars, and the pace to month end;
    - 🟠 at 70% (the rulebook's alert) and 🔴 at 100%, which says that replies continue;
-   - a count of the Messenger messages a cap refused on the day before;
+   - a count of the Messenger messages a cap refused on the day before, and the cap pages sent
+     that day, with any that Telegram did not deliver;
    - UNREADABLE when a figure could not be summed. It is never shown as zero.
 2. **The moment a cap refuses a reply**, you get one immediate 🔴 page. It names:
    - the tenant;
-   - which cap refused (the tenant's, the platform's, or a budget that gives the surface nothing);
+   - which cap refused (the tenant's, the platform's, or a budget that gives the surface nothing),
+     when the counters show it;
    - both counters;
    - what the customer gets.
 
    Later refusals are silent while the episode is open. The hourly health run closes the episode
    once the day has rolled over, so a cap that trips again the next day pages again.
-3. **Replies never wait for any of this.** The page is sent after the event is recorded. It is
-   bounded at 5 seconds and cannot change the answer to QStash. On the website it runs after the
-   visitor's response.
+3. **Replies never wait for any of this.** On Messenger the page is sent after the event is
+   recorded. It is bounded at 5 seconds and cannot change the answer to QStash. On the website it
+   runs after the visitor's response. The month block comes after the open conditions in the
+   report, so it can never push a critical out of the message.
 
 ## Decision 1 — what a Messenger customer receives after a cap refusal
 

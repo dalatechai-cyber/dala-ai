@@ -11198,9 +11198,15 @@ month, and a cap refusal left a Messenger customer unanswered with no alert to a
   - Critical, `route: 'now'`, `on_change`, keyed by tenant and surface with no period.
   - The hourly health run closes it once both the tenant's and the platform's day have rolled
     over. A brake that trips again the next day pages again.
-  - The page names which cap refused and both counters.
-  - It is bounded at 5 s, never throws, runs after the event is marked `shed`, and cannot change
-    the ACK. It writes only `alerts`, so it cannot move a counter or the ledger.
+  - The page names both counters, and which cap refused when the counters show it. A missing
+    tenant counter beside a platform counter under its cap is read as a zero budget, because
+    `reserve.ts` refuses that case before seeding a counter.
+  - It is bounded at 5 s and never throws. On Messenger it runs after the event is marked `shed`
+    and cannot change the ACK; on the website it runs after the visitor's response. It writes
+    only `alerts`, so it cannot move a counter or the ledger.
+  - The report also lists the day's cap pages, open or closed, and names any page Telegram did
+    not deliver. An undelivered first page leaves the episode open, which silences later pages
+    that day, so the report is where that is seen.
 - **The report also counts `shed` events** per tenant for the reported day. Those are the
   Messenger messages a cap left unanswered.
 - **Not changed:**
