@@ -969,6 +969,53 @@ async function runReceptionDelivery(
   // --- One message, one reservation, one reply. -----------------------------
   const drafted: string[] = [];
   const sent: string[] = [];
+
+  /**
+   * Re-send a reply an earlier attempt stored but did not deliver. Only on a delivering
+   * channel, only while the message is still fresh, never over a person who has replied
+   * since, and only through `claim`, whose CAS admits `draft` and `failed` rows alone. The
+   * body is the one stored: nothing is generated and nothing is spent. `retry` and
+   * `unavailable` ask QStash for another attempt, exactly as the ordinary send path does.
+   */
+  const resumeStoredReply = async (r: {
+    outboundId: string; conversationId: string; senderId: string; eventAt: Date; deliverThis: boolean;
+  }): Promise<'sent' | 'skipped' | 'failed' | 'retry' | 'unavailable'> => {
+    if (!r.deliverThis) return 'skipped';
+    if (!isFresh(r.eventAt, now, replyAgeLimit)) {
+      await fx.flagQuality({
+        tenantId, conversationId: r.conversationId, code: 'reply_too_late',
+        detail: 'a stored reply was not re-sent: the message is past the reply age limit',
+      });
+      return 'skipped';
+    }
+    const spoke = await personRepliedSince(db, {
+      tenantId, channelId, conversationId: r.conversationId, psid: r.senderId, eventId, since: r.eventAt,
+      ourAppId: metaAppId, automationTexts,
+    }).catch((e: unknown) => ({ replied: 'unreadable' as const, detail: e instanceof Error ? e.message : String(e) }));
+    if (spoke.replied === true) {
+      fx.log('info', 'human_replied_before_resend', { tenantId, conversationId: r.conversationId, outboundId: r.outboundId });
+      return 'skipped';
+    }
+    const held = await claim(db, { id: r.outboundId, tenantId, now });
+    if (held.outcome === 'unavailable') {
+      fx.log('error', 'claim_unavailable', { detail: held.detail });
+      return 'unavailable';
+    }
+    if (held.outcome !== 'claimed') return 'skipped';
+    const delivered = await fx.deliver({
+      tenantId, channelId, pageId, recipientId: r.senderId, outboundId: held.id,
+      body: held.body, attempts: held.attempts, graphVersion,
+      ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
+      ...(maxTextBytes === undefined ? {} : { maxTextBytes }),
+    });
+    if (delivered.outcome === 'sent') return 'sent';
+    if (delivered.outcome === 'failed' && delivered.retryable) {
+      fx.log('warn', 'send_retryable', { outboundId: held.id, failure: delivered.failure, resumed: true });
+      return 'retry';
+    }
+    fx.log('error', 'resend_not_sent', { outboundId: held.id, outcome: delivered.outcome });
+    return 'failed';
+  };
   const stale: string[] = [];
   /** Stored and deliberately not answered: the channel cannot send and is not mirroring. */
   const notGenerated: string[] = [];
@@ -1058,6 +1105,24 @@ async function runReceptionDelivery(
       if (answered.outcome === 'unavailable') {
         fx.log('error', 'reply_lookup_failed', { eventId, detail: answered.detail });
         return unavailable('worker.reply_lookup_failed');
+      }
+      // A reply drafted or failed by an earlier attempt of THIS delivery is re-sent, never
+      // re-generated and never skipped (founder, 2026-09-30). Before this, a 613 or a 5xx on
+      // the send 503'd, QStash redelivered, `findReplyFor` read the unsent row as
+      // "answered", and the customer waited in silence for ever. The STORED body is sent,
+      // under the claim's CAS, so a second copy cannot go out: `sent`, `sending`,
+      // `refused` and a parked `indeterminate` are never claimable.
+      if (answered.outcome === 'answered' && catchUpMid === null
+          && (answered.state === 'draft' || answered.state === 'failed')) {
+        const resumed = await resumeStoredReply({
+          outboundId: answered.outboundId, conversationId, senderId: message.senderId, eventAt,
+          deliverThis: delivery.generate && deliverThis,
+        });
+        if (resumed === 'retry') return unavailable('worker.resume_send_retryable');
+        if (resumed === 'unavailable') return unavailable('worker.claim_unavailable');
+        if (resumed === 'sent') sent.push(answered.outboundId);
+        fx.log('info', 'redelivery_resumed', { eventId, outboundId: answered.outboundId, from: answered.state, outcome: resumed });
+        continue;
       }
       // A catch-up may claim a reply that FAILED on the credential: it is the latest message
       // in its conversation (the sweep checked), so its stored body answers exactly it.
@@ -1430,9 +1495,9 @@ async function runReceptionDelivery(
     }
 
     // A complaint, a request for a person, or the handoff line: a person is told (Дали F5,
-    // K4). On EVERY outcome, a retryable failure included: an ordinary redelivery finds the
-    // reply row and skips the message as answered (`findReplyFor`), so this attempt is the
-    // only one that reaches here. `once` per day keeps a later attempt from paging twice.
+    // K4). On EVERY outcome, a retryable failure included: a redelivery re-sends the stored
+    // row (`resumeStoredReply`) without regenerating, so it never reaches here and this
+    // attempt is the only one that can tell a person. `once` per day keeps it to one page.
     const needs: NeedsPersonReason | null = outcome.complaint === true ? 'complaint'
       : outcome.handedOff === true ? 'handoff' : null;
     if (needs !== null) {

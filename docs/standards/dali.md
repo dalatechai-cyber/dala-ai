@@ -141,7 +141,7 @@ reviewed row verbatim. Code backs them up only as listed.
 | G1 | Video, reel, shared post (`video`, `reel`, `ig_reel`, `share`) ⇒ reviewed `handover_notice` line, thread set to `human`, Telegram alert (if the tenant has it on). | BLOCK/DATA (`src/lib/handover/media.ts`, `MEDIA_ATTACHMENT_KINDS`) | Both live tenants have a reviewed `handover_notice`. Alert: dalatech on, **Tara Яармаг off** (`tenants.media_handoff_alert`, D-153). `ig_reel`, `reel`, `share` are unproven on real traffic |
 | G2 | Photo ⇒ the media line above, or the reviewed `image_received` line. Never a guess about what the photo shows. | DATA + code (`handle.ts`, `src/lib/inbound/imageReply.ts`) | Unreviewed row ⇒ nothing sent |
 | G3 | Sticker ⇒ no reply, recorded as dropped. Keyed on `sticker_id`, never on type (D-070). | Code (`src/lib/inbound/dropped.ts`) | |
-| G4 | Voice/audio ⇒ a person told at once; the customer gets the reviewed `voice_received` line. | COUNT (alert, D-158) + DATA: **no tenant has a reviewed `voice_received` row yet** (draft `prompt/drafts/voice_received.mn.txt`), so the customer still gets nothing until the founder approves one | Alert on every voice message on a delivering channel; the thread is not handed over |
+| G4 | Voice/audio ⇒ a person told at once; the customer gets the reviewed `voice_received` line. | COUNT (alert, D-158) + DATA: reviewed `voice_received` row on both live tenants (founder, 2026-09-30) | Alert on every voice message on a delivering channel; the thread is not handed over |
 | G5 | Story mention. | Deliberately not media (`media.ts` comment). What happens next: **unclear** | |
 
 ### H. Identity and disclosure
@@ -195,7 +195,7 @@ reviewed row verbatim. Code backs them up only as listed.
 2. D5 polite full sentences, D9 "not pushy", Ш7 "do not moralise": no measure.
 3. D7: Tara Яармаг has no `reply_style`, so the model's emoji are not capped there.
 4. F4: no real hand-off to a person (`pass_thread_control`). F5/K4 alert the founder only (D-158); a request for a person that no complaint row covers is missed.
-5. G4: voice messages are alerted (D-158) but not answered until the founder approves the `voice_received` line.
+5. ~~G4~~: voice messages are answered with the approved `voice_received` line and alerted (D-158).
 6. A9 service-name changes and A12 price violations are counted, not blocked.
 7. H1: nothing checks that a model reply does not deny being an AI.
 8. Merge authority (§6): the four founder-only categories are enforced only partly (see §6).

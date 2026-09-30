@@ -1492,15 +1492,99 @@ test('DONE-TEST: A CATCH-UP JOB ANSWERS A 2-HOUR-OLD HELD MESSAGE whose reply fa
   assert.equal(reasons(logs).includes('already_answered'), false);
 });
 
-test('an ORDINARY redelivery still treats a failed reply as answered — only a catch-up re-drives it', async () => {
-  const { fx, generated } = stubEffects({
+// ── A reply whose send failed is RE-SENT on the redelivery, never regenerated, never twice ──
+
+const STORED = 'ХАДГАЛСАН ХАРИУЛТ';
+const resumeWith = (state: string, over: Parameters<typeof stubEffects>[0] = {}) => stubEffects({
+  ...over,
+  tables: {
+    messages: DUPLICATE_INBOUND,
+    outbound_messages: [
+      { data: { id: 'om-7', state }, error: null },                                   // findReplyFor
+      { data: { id: 'om-7', body: STORED, attempts: 1 }, error: null },               // claim
+    ],
+    ...(over.tables ?? {}),
+  },
+});
+
+test('DONE-TEST (founder, 2026-09-30): AN ORDINARY REDELIVERY RE-SENDS A FAILED REPLY\'S STORED BODY, WITHOUT THE MODEL', async () => {
+  const { fx, generated, delivered, logs } = resumeWith('failed');
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(generated.length, 0, 'nothing regenerated, nothing spent');
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0]?.body, STORED, 'the stored body, exactly');
+  assert.equal(delivered[0]?.outboundId, 'om-7');
+  assert.equal(r.body['sent'], 1);
+  assert.ok(reasons(logs).includes('redelivery_resumed'));
+});
+
+test('a reply drafted but never claimed (the attempt died before the send) is sent on the redelivery', async () => {
+  const { fx, generated, delivered } = resumeWith('draft');
+  await run(fx);
+  assert.equal(generated.length, 0);
+  assert.equal(delivered.length, 1);
+});
+
+test('a reply that is sent, being sent, refused or parked is NEVER sent again', async () => {
+  for (const state of ['sent', 'sending', 'refused', 'indeterminate']) {
+    const { fx, generated, delivered } = resumeWith(state);
+    await run(fx);
+    assert.equal(generated.length, 0, state);
+    assert.equal(delivered.length, 0, state);
+  }
+});
+
+test('the claim is the guard against a duplicate: another worker holding it means no send', async () => {
+  const { fx, delivered } = stubEffects({
     tables: {
       messages: DUPLICATE_INBOUND,
-      outbound_messages: { data: { id: 'om-7', state: 'failed' }, error: null },
+      outbound_messages: [
+        { data: { id: 'om-7', state: 'failed' }, error: null },   // findReplyFor
+        { data: null, error: null },                               // claim CAS matched nothing
+        { data: { state: 'sending' }, error: null },               // why: another worker holds it
+      ],
     },
   });
   await run(fx);
-  assert.equal(generated.length, 0);
+  assert.equal(delivered.length, 0);
+});
+
+test('in SHADOW a stored draft is never sent by a redelivery', async () => {
+  const { fx, delivered } = resumeWith('draft', {
+    tables: { tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'shadow', graph_version_override: null }, error: null } },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+});
+
+test('a stored reply past the reply age limit is not re-sent, and says so', async () => {
+  const { fx, delivered, flags } = resumeWith('failed', {
+    tables: { webhook_events: { data: { raw_payload: payload({ ts: NOW.getTime() - 3 * 60 * 60_000 }) } } },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.ok(flags.some((f) => f.code === 'reply_too_late'));
+});
+
+test('a stored reply is not re-sent over a person who replied since', async () => {
+  const { fx, delivered, logs } = resumeWith('failed', {
+    tables: {
+      'webhook_events:contains': { data: [STAFF_ECHO], error: null },
+      tenant_channels: { data: { ...LIVE_WITH_APP }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.ok(reasons(logs).includes('human_replied_before_resend'));
+});
+
+test('a re-send that fails retryably again asks QStash for another attempt', async () => {
+  const { fx } = resumeWith('failed', {
+    deliver: async () => ({ outcome: 'failed', failure: 'rate_limited', retryable: true, detail: '613' }) as never,
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
 });
 
 test('a catch-up job answers ONLY its message, and a sent reply is never sent twice', async () => {
