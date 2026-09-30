@@ -259,6 +259,13 @@ export function validateIntake(doc: IntakeDocument, now = new Date()): Finding[]
         + 'assert it would edit the operator\u2019s own to-do list.');
     }
 
+    // 0073's CHECK, before the write rather than at it: a non-empty subset of the two surfaces.
+    if (rule.surfaces !== undefined && rule.surfaces !== null && (rule.surfaces.length === 0
+        || rule.surfaces.some((x) => x !== 'direct_message' && x !== 'public_comment'))) {
+      add('blocker', 'comment_rule_surfaces',
+        `comment rule «${rule.key}» has surfaces ${JSON.stringify(rule.surfaces)}; use direct_message and/or public_comment, or leave it out for both`);
+    }
+
     const parsed = parseMatcher(rule.matcher);
     if (!parsed.ok) {
       add('blocker', 'comment_rule_matcher', `comment rule «${rule.key}»: ${parsed.detail}`);

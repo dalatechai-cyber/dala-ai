@@ -11268,8 +11268,9 @@ The founder approved `docs/proposals/dm-needs-person-rules.md` as proposed: DM o
 unchanged. `0073` adds `comment_rules.surfaces` (NULL = both, every existing row). The comment
 worker skips DM-only rows; the DM readers (complaint rows in `reception/load.ts`, the sales
 shadow) skip comment-only ones (`ruleAppliesTo`). Data: `scripts/provision/dm-needs-person-rules-2026-09-30.sql`
-adds twelve DM-only escalate rows per live tenant («ажилтантай ярих/холбогдох», «хүнтэй ярих»,
-«жинхэнэ хүн», «хүн байна уу», «менежер», «оператор», «админ», Latin forms) and moves
+adds nine DM-only escalate rows per live tenant, all in the «-тай» form («ажилтантай ярих/холбогдох»,
+«хүнтэй ярих», «менежертэй», «оператортой», «админтай», Latin forms; bare «оператор»/«менежер» are
+DalaTech product names), also in `templates/comment_rules.*.json`, and moves
 «муудсан», «хүлээлгэ», «дундуур» (and Latin forms) from `complaint` to a wall-only row, checked
 in the same transaction to leave the wall's stems unchanged. A DM row is a complaint row
 everywhere a DM reads one: the needs-person alert, the complaint reminder, no emoji, no sales

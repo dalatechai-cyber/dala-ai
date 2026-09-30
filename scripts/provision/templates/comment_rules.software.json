@@ -27,8 +27,6 @@
           "shatsan",
           "шатчих",
           "shatchih",
-          "муудсан",
-          "muudsan",
           "муудуул",
           "muuduul",
           "ичгүүргүй",
@@ -40,13 +38,8 @@
           "хариулахгүй",
           "hariulahgui",
           "hariulahgvi",
-          "хүлээлгэ",
-          "huleelge",
-          "hvleelge",
           "хүлээсээр",
           "huleeseer",
-          "дундуур",
-          "dunduur",
           "худлаа",
           "hudlaa",
           "муухай",
@@ -1415,6 +1408,160 @@
           "hi",
           "hello",
           "сайн байцгаана уу"
+        ]
+      }
+    },
+    {
+      "rule_key": "complaint_wall_only",
+      "verdict": "escalate",
+      "surfaces": [
+        "public_comment"
+      ],
+      "matcher": {
+        "mode": "contains_stem",
+        "stems": [
+          "муудсан",
+          "muudsan",
+          "хүлээлгэ",
+          "huleelge",
+          "hvleelge",
+          "дундуур",
+          "dunduur"
+        ]
+      }
+    },
+    {
+      "rule_key": "person_staff_mn",
+      "verdict": "escalate",
+      "surfaces": [
+        "direct_message"
+      ],
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "ажилтантай",
+          "яр"
+        ],
+        "windowCp": 20
+      }
+    },
+    {
+      "rule_key": "person_staff_connect_mn",
+      "verdict": "escalate",
+      "surfaces": [
+        "direct_message"
+      ],
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "ажилтантай",
+          "холбо"
+        ],
+        "windowCp": 20
+      }
+    },
+    {
+      "rule_key": "person_human_talk_mn",
+      "verdict": "escalate",
+      "surfaces": [
+        "direct_message"
+      ],
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "хүнтэй",
+          "яр"
+        ],
+        "windowCp": 20
+      }
+    },
+    {
+      "rule_key": "person_manager_mn",
+      "verdict": "escalate",
+      "surfaces": [
+        "direct_message"
+      ],
+      "matcher": {
+        "mode": "contains_stem",
+        "stems": [
+          "менежертэй",
+          "оператортой",
+          "админтай"
+        ]
+      }
+    },
+    {
+      "rule_key": "person_staff_lat",
+      "verdict": "escalate",
+      "surfaces": [
+        "direct_message"
+      ],
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "ajiltantai",
+          "yar"
+        ],
+        "windowCp": 20
+      }
+    },
+    {
+      "rule_key": "person_staff_connect_lat",
+      "verdict": "escalate",
+      "surfaces": [
+        "direct_message"
+      ],
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "ajiltantai",
+          "holbo"
+        ],
+        "windowCp": 20
+      }
+    },
+    {
+      "rule_key": "person_human_talk_lat",
+      "verdict": "escalate",
+      "surfaces": [
+        "direct_message"
+      ],
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "huntei",
+          "yar"
+        ],
+        "windowCp": 20
+      }
+    },
+    {
+      "rule_key": "person_human_talk_lat2",
+      "verdict": "escalate",
+      "surfaces": [
+        "direct_message"
+      ],
+      "matcher": {
+        "mode": "stem_sequence",
+        "stems": [
+          "hvntei",
+          "yar"
+        ],
+        "windowCp": 20
+      }
+    },
+    {
+      "rule_key": "person_manager_lat",
+      "verdict": "escalate",
+      "surfaces": [
+        "direct_message"
+      ],
+      "matcher": {
+        "mode": "contains_stem",
+        "stems": [
+          "menejertei",
+          "operatortoi",
+          "admintai"
         ]
       }
     }
