@@ -2535,6 +2535,14 @@ test('RECLAIM: an unreadable person check FAILS CLOSED: nothing sent, a 200 the 
   assert.equal(exhausted.length, 0, 'an optional line never pages as an unanswered customer');
 });
 
+test('RECLAIM: an unreadable person check writes NO draft (a draft is shown to the model as said)', async () => {
+  const { fx, ops } = stubEffects({
+    tables: { ...reclaimTables(), 'webhook_events:contains': { data: null, error: { message: 'reset' } } },
+  });
+  await run(fx, job({ reclaimMid: MID }));
+  assert.ok(!ops.some((o) => o.table === 'outbound_messages' && (o.op === 'insert' || o.op === 'upsert')));
+});
+
 test('RECLAIM: past the send window by Meta\'s own timestamp, nothing is sent', async () => {
   const old = NOW.getTime() - 23 * 60 * 60_000 - 60_000;
   const { fx, delivered } = stubEffects({

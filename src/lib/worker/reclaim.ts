@@ -147,30 +147,37 @@ export async function serveReclaim(
     if (!line.ok) return refuse('unreadable', { what: 'reclaim line', detail: line.detail }, 'error');
     if (line.line === null || !line.line.reviewed || line.line.body.trim() === '') return refuse('no_reviewed_line', { conversationId });
 
-    // Drafted BEFORE the person check, so a person's reply has a row to refuse: that refusal
-    // is terminal, and the sweep can only see what a row says.
-    const drafted = await draftOnce(db, {
-      tenantId, kind: 'reply', dedupKey, body: line.line.body, channelId, conversationId,
-    });
-    if (!drafted.ok) return refuse('draft_failed', { conversationId, detail: drafted.detail }, 'error');
-
+    // The person check runs BEFORE anything is drafted. `readHistory` shows the model every
+    // `draft` row as a turn it said, so a draft must never outlive this job unsent: the send
+    // path drafts and claims back to back, as the ordinary reply does.
     const spoke = await personRepliedSince(db, {
       tenantId, channelId, conversationId, psid: message.senderId, eventId: input.eventId, since: msgAt,
       ourAppId: input.ourAppId, automationTexts: input.automationTexts,
     }).catch((e: unknown) => ({ replied: 'unreadable' as const, detail: e instanceof Error ? e.message : String(e) }));
     // Unlike the ordinary send, unreadable REFUSES: this line is optional, and talking over a
     // person on the strength of a failed read is the failure this whole path must not add.
-    // Not terminal: the draft stays claimable and the next sweep asks again.
+    // Not terminal: nothing is written, and the next sweep asks again.
     if (spoke.replied === 'unreadable') return refuse('unreadable', { what: 'person check', detail: spoke.detail }, 'error');
     if (spoke.replied === true) {
-      const marked = await markRefused(db, {
-        id: drafted.row.id, tenantId, reason: 'reclaim_person_replied', from: ['draft', 'failed'],
+      // Terminal, so the sweep never re-enqueues it: the row is written only to be refused
+      // at once, and a `refused` row is never shown to the model.
+      const row = await draftOnce(db, {
+        tenantId, kind: 'reply', dedupKey, body: line.line.body, channelId, conversationId,
       });
-      // Unmarked is still not sent: the next sweep re-enqueues and this check refuses again.
+      const marked = row.ok
+        ? await markRefused(db, { id: row.row.id, tenantId, reason: 'reclaim_person_replied', from: ['draft', 'failed'] })
+        : { ok: false as const, detail: row.detail };
+      // Unrecorded is still not sent, and the next sweep refuses again. The one residue is a
+      // `draft` left if the refusal write alone failed; logged so it is visible.
       if (!marked.ok) fx.log('error', 'reclaim_refusal_unrecorded', { tenantId, conversationId, detail: marked.detail });
       await fx.flagQuality({ tenantId, conversationId, code: 'reclaim_person_replied', detail: `reclaim not sent: ${spoke.detail}` });
       return refuse('person_replied', { conversationId, via: spoke.via });
     }
+
+    const drafted = await draftOnce(db, {
+      tenantId, kind: 'reply', dedupKey, body: line.line.body, channelId, conversationId,
+    });
+    if (!drafted.ok) return refuse('draft_failed', { conversationId, detail: drafted.detail }, 'error');
 
     const held = await claim(db, { id: drafted.row.id, tenantId, now });
     if (held.outcome === 'unavailable') return refuse('unreadable', { what: 'claim', detail: held.detail }, 'error');
