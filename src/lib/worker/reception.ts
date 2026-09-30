@@ -1008,7 +1008,7 @@ async function runReceptionDelivery(
    * retry without leaving a row in `sending`, which nothing re-claims.
    */
   const resumeStoredReply = async (r: {
-    outboundId: string; conversationId: string; eventAt: Date; deliverThis: boolean;
+    outboundId: string; conversationId: string; messageId: string; eventAt: Date; deliverThis: boolean;
     message: { senderId: string; externalId: string; text: string; attachments: readonly string[]; stickerIds: readonly string[] };
   }): Promise<'sent' | 'skipped' | 'superseded' | 'failed' | 'retry' | 'unavailable'> => {
     if (!r.deliverThis) return 'skipped';
@@ -1020,23 +1020,38 @@ async function runReceptionDelivery(
       return 'skipped';
     }
 
-    const [latestRes, laterSent, spoke] = await Promise.all([
-      db.from('messages').select('external_id').eq('tenant_id', tenantId).eq('conversation_id', r.conversationId)
-        .eq('direction', 'inbound').order('at', { ascending: false }).limit(1),
+    // Times from OUR rows, never Meta's timestamp: this reply row's `created_at` and this
+    // message's stored `at`. Messages in one entry share one stored `at`, so only a strictly
+    // later one is newer; and a sent reply drafted after THIS row can only answer a newer
+    // message, because a retryable failure returns before the loop drafts a sibling.
+    const [ownRow, ownMsg] = await Promise.all([
+      db.from('outbound_messages').select('created_at').eq('tenant_id', tenantId).eq('id', r.outboundId).maybeSingle(),
+      db.from('messages').select('at').eq('tenant_id', tenantId).eq('id', r.messageId).maybeSingle(),
+    ]);
+    const rowAt = typeof (ownRow.data as Record<string, unknown> | null)?.['created_at'] === 'string'
+      ? String((ownRow.data as Record<string, unknown>)['created_at']) : null;
+    const msgAt = typeof (ownMsg.data as Record<string, unknown> | null)?.['at'] === 'string'
+      ? String((ownMsg.data as Record<string, unknown>)['at']) : null;
+    if (ownRow.error || ownMsg.error || rowAt === null || msgAt === null) {
+      fx.log('error', 'resume_check_unreadable', { tenantId, detail: (ownRow.error ?? ownMsg.error)?.message ?? 'own row or message time missing' });
+      return 'unavailable';
+    }
+
+    const [newerRes, laterSent, spoke] = await Promise.all([
+      db.from('messages').select('id').eq('tenant_id', tenantId).eq('conversation_id', r.conversationId)
+        .eq('direction', 'inbound').gt('at', msgAt).limit(1),
       db.from('outbound_messages').select('id').eq('tenant_id', tenantId).eq('conversation_id', r.conversationId)
-        .eq('state', 'sent').gt('created_at', r.eventAt.toISOString()).limit(1),
+        .eq('kind', 'reply').eq('state', 'sent').neq('id', r.outboundId).gt('created_at', rowAt).limit(1),
       personRepliedSince(db, {
         tenantId, channelId, conversationId: r.conversationId, psid: r.message.senderId, eventId, since: r.eventAt,
         ourAppId: metaAppId, automationTexts,
       }).catch((e: unknown) => ({ replied: 'unreadable' as const, detail: e instanceof Error ? e.message : String(e) })),
     ]);
-    if (latestRes.error || laterSent.error) {
-      fx.log('error', 'resume_check_unreadable', { tenantId, detail: (latestRes.error ?? laterSent.error)?.message ?? '' });
+    if (newerRes.error || laterSent.error) {
+      fx.log('error', 'resume_check_unreadable', { tenantId, detail: (newerRes.error ?? laterSent.error)?.message ?? '' });
       return 'unavailable';
     }
-    const latest = Array.isArray(latestRes.data) ? (latestRes.data[0] as Record<string, unknown> | undefined) : undefined;
-    const reason = latest !== undefined && String(latest['external_id'] ?? '') !== r.message.externalId
-      ? 'superseded_newer_message'
+    const reason = Array.isArray(newerRes.data) && newerRes.data.length > 0 ? 'superseded_newer_message'
       : Array.isArray(laterSent.data) && laterSent.data.length > 0 ? 'superseded_later_reply'
       : spoke.replied === true ? 'human_replied_before_send'
       : null;
@@ -1186,11 +1201,11 @@ async function runReceptionDelivery(
       if (answered.outcome === 'answered' && catchUpMid === null
           && (answered.state === 'draft' || answered.state === 'failed')) {
         const resumed = await resumeStoredReply({
-          outboundId: answered.outboundId, conversationId, eventAt, message,
+          outboundId: answered.outboundId, conversationId, messageId: stored.value.messageId, eventAt, message,
           deliverThis: delivery.generate && deliverThis,
         });
         if (resumed === 'retry') return unavailable('worker.resume_send_retryable');
-        if (resumed === 'unavailable') return unavailable('worker.claim_unavailable');
+        if (resumed === 'unavailable') return unavailable('worker.resume_unavailable');
         if (resumed === 'sent') sent.push(answered.outboundId);
         fx.log('info', 'redelivery_resumed', { eventId, outboundId: answered.outboundId, from: answered.state, outcome: resumed });
         continue;

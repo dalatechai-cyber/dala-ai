@@ -53,7 +53,7 @@ const job = (over: Record<string, unknown> = {}) =>
 type Reply = { data?: unknown; error?: unknown };
 
 function stubDb(over: Record<string, Reply | Reply[]> = {}) {
-  const ops: { table: string; op: string; patch?: Record<string, unknown>; eq?: [string, unknown][] }[] = [];
+  const ops: { table: string; op: string; patch?: Record<string, unknown>; eq?: [string, unknown][]; filters?: [string, string, unknown][] }[] = [];
   const queues = new Map<string, Reply[]>();
   queues.set('tenants', [...TENANTS_QUEUE]);
   for (const [table, v] of Object.entries(over)) queues.set(table, Array.isArray(v) ? [...v] : [v]);
@@ -73,6 +73,10 @@ function stubDb(over: Record<string, Reply | Reply[]> = {}) {
     }
     // Recorded, so a test can say WHICH snapshot or channel a read asked for (D-141).
     chain['eq'] = (k: string, v: unknown) => { (rec.eq ??= []).push([k, v]); return chain; };
+    // Range and inequality filters, recorded so a test can say WHICH time a query compares.
+    for (const m of ['gt', 'neq'] as const) {
+      chain[m] = (k: string, v: unknown) => { (rec.filters ??= []).push([m, k, v]); return chain; };
+    }
     // A jsonb containment read is its own queue (`<table>:contains`), so the pre-send echo
     // scan can be steered without disturbing the event read on the same table.
     let key = table;
@@ -1541,14 +1545,19 @@ test('DONE-TEST: A CATCH-UP JOB ANSWERS A 2-HOUR-OLD HELD MESSAGE whose reply fa
 
 const STORED = 'ХАДГАЛСАН ХАРИУЛТ';
 /** The reads a resume makes, in order: the latest inbound is this message, nothing sent since. */
-const resumeTables = (state: string, o: { latestMid?: string; laterSent?: unknown[]; body?: string } = {}) => ({
+const ROW_AT = '2026-09-04T11:58:05.000Z';
+const MSG_AT = '2026-09-04T11:58:01.000Z';
+/** The reads a resume makes, per table in order: own times, then "anything newer", then the claim. */
+const resumeTables = (state: string, o: { newer?: unknown[]; laterSent?: unknown[]; body?: string } = {}) => ({
   messages: [
     ...DUPLICATE_INBOUND,
-    { data: [{ external_id: o.latestMid ?? MID }], error: null },                     // latest inbound
+    { data: { at: MSG_AT }, error: null },                                            // this message's stored at
+    { data: o.newer ?? [], error: null },                                             // a strictly newer inbound
   ],
   outbound_messages: [
     { data: { id: 'om-7', state }, error: null },                                     // findReplyFor
-    { data: o.laterSent ?? [], error: null },                                         // sent since
+    { data: { created_at: ROW_AT }, error: null },                                    // this row's created_at
+    { data: o.laterSent ?? [], error: null },                                         // a reply sent after it
     { data: { id: 'om-7', body: o.body ?? STORED, attempts: 1 }, error: null },       // claim
   ],
 });
@@ -1591,6 +1600,7 @@ test('the claim is the guard against a duplicate: another worker holding it mean
       messages: resumeTables('failed').messages,
       outbound_messages: [
         { data: { id: 'om-7', state: 'failed' }, error: null },   // findReplyFor
+        { data: { created_at: ROW_AT }, error: null },             // this row's created_at
         { data: [], error: null },                                 // sent since
         { data: null, error: null },                               // claim CAS matched nothing
         { data: { state: 'sending' }, error: null },               // why: another worker holds it
@@ -1633,7 +1643,7 @@ test('a stored reply is not re-sent over a person who replied since, and is refu
 });
 
 test('a stored reply superseded by a NEWER customer message is refused for good, never sent out of order', async () => {
-  const { fx, delivered, ops, flags } = stubEffects({ tables: resumeTables('failed', { latestMid: 'm_newer' }) });
+  const { fx, delivered, ops, flags } = stubEffects({ tables: resumeTables('failed', { newer: [{ id: 'msg-9' }] }) });
   await run(fx);
   assert.equal(delivered.length, 0);
   const refused = ops.find((o) => o.table === 'outbound_messages' && o.op === 'update' && o.patch?.['state'] === 'refused');
@@ -1646,6 +1656,20 @@ test('a stored reply is refused when one of our replies was sent after this mess
   await run(fx);
   assert.equal(delivered.length, 0);
   assert.ok(ops.some((o) => o.op === 'update' && o.patch?.['refused_reason'] === 'superseded_later_reply'));
+});
+
+test('the supersede checks compare OUR stored times, never Meta\'s: a sibling answered moments earlier does not silence this one', async () => {
+  // Founder's burst case: A and B arrive seconds apart, A is answered, B's send hits a 613.
+  // A's reply was drafted AFTER B's Meta timestamp but BEFORE B's own row, so it must not
+  // count as superseding B. The queries must ask about times after B's ROW and B's stored MESSAGE.
+  const { fx, delivered, ops } = resumeWith('failed');
+  await run(fx);
+  assert.equal(delivered.length, 1, 'B is answered');
+  const later = ops.find((o) => o.table === 'outbound_messages' && o.filters?.some(([m]) => m === 'neq'));
+  assert.deepEqual(later?.filters, [['neq', 'id', 'om-7'], ['gt', 'created_at', ROW_AT]]);
+  assert.ok(later?.eq?.some(([k, v]) => k === 'kind' && v === 'reply'));
+  const newer = ops.find((o) => o.table === 'messages' && o.filters?.some(([m, k]) => m === 'gt' && k === 'at'));
+  assert.deepEqual(newer?.filters, [['gt', 'at', MSG_AT]], 'strictly after: a same-entry sibling shares the stored at');
 });
 
 test('an unreadable supersede check retries, and leaves the row claimable', async () => {
