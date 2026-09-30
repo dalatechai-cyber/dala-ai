@@ -42,6 +42,14 @@ through 2026-09-30 ~12:00 Ulaanbaatar. No paid model was run. All model calls we
     against 29 model answers.
 - **September total:** ₮12,922.
 
+Three caveats on these figures:
+- **09-30 is a partial day** (read at about 12:00). Over 5.5 days the live rate is about ₮854 a
+  day, so the October figures below are on the low side: about ₮26,500 at that rate.
+- **"Per conversation" counts conversation-days.** A conversation that spans two days is counted
+  twice, so the true cost per conversation is ₮276 or more.
+- **40 model calls against 29 model answers.** A call is not always an answer the customer
+  received. The difference was not traced.
+
 ## Where the money goes (live days)
 
 Cache writes are 88% of live spend: $1.18 of $1.34.

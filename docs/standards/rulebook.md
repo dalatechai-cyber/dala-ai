@@ -197,8 +197,9 @@ v0.3 and by the two doc fixes below.
    normal limit is now an alert that stops nothing (the daily report's month and 70% mark), and
    the emergency brake (the daily caps, unchanged) now pages at once. What the customer receives
    after a refusal was settled by the founder the same day (D-160): the tenant's own reviewed
-   hand-off line where one exists, on Messenger as on the website, with no model call; where
-   none exists nothing is sent and the founder is paged. `on_exhausted` still has no reader.
+   hand-off line where one exists, on a live channel, once per conversation a day, with no
+   model call (the website serves the callback line where there is no inbox); where none
+   exists nothing is sent and the founder is paged. `on_exhausted` still has no reader.
 3. **§3.1 20,000 ₮ against CLAUDE.md's ₮80,000 allowable model spend**: settled as an alert
    threshold, not a cap. The code's emergency ceiling is unchanged. CLAUDE.md's "$1.50" was wrong
    and is now $2.00. `docs/STATUS.md` (open item 3) carried the same stale $1.50; the live budget

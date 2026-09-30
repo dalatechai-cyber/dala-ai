@@ -59,7 +59,8 @@ test('THE BODY says what the customer gets, what is spent, and that the cap did 
     which: 'the tenant\'s daily cap',
     tenant: { used: 1_990_000_000n, ceiling: 2_000_000_000n }, platform: null,
   });
-  assert.match(body, /customers get the tenant's approved hand-off line where it has one, and no reply where it has none/);
+  assert.match(body, /on a live channel customers get the tenant's reviewed hand-off line where it has one/);
+  assert.match(body, /otherwise no reply/);
   assert.match(body, /nothing more is spent/);
   assert.match(body, /Tenant 2026-09-25: \$1\.99 of \$2\.00/);
   assert.match(body, /Platform today: UNREADABLE/, 'an unreadable counter is said, never shown as $0');

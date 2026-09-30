@@ -6,7 +6,7 @@
 > once (one episode per tenant and surface; closed by the hourly health run after midnight).
 > Nothing here stops a reply; the caps did not move. **Founder's decisions of 2026-09-30,
 > done (D-160):** after a cap refusal a Messenger customer gets the tenant's reviewed hand-off
-> line where one exists (else nothing, as before), and Tara Яармаг's `reply_style` is
+> line where one exists, once per conversation a day, on live channels (else nothing, as before), and Tara Яармаг's `reply_style` is
 > `{"max_emoji": 1}` on the project. **Not proven:** a real 70% crossing or a real
 > cap trip on the project; both are covered by unit tests only.
 

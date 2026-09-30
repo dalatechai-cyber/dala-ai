@@ -122,8 +122,9 @@ export function ceilingBody(input: {
 }): string {
   const today = tenantClock(input.now, input.timezone);
   return `Daily spend cap reached — ${input.name} (${input.surface}, ${input.channel}). `
-    + `Refused by ${input.which}. Until midnight ${input.timezone}, customers get the tenant's approved `
-    + `hand-off line where it has one, and no reply where it has none; nothing more is spent. `
+    + `Refused by ${input.which}. Until midnight ${input.timezone}, on a live channel customers get the tenant's `
+    + `reviewed hand-off line where it has one (once per conversation a day; the website may use the callback `
+    + `line), and otherwise no reply; nothing more is spent. `
     + `${counterLine(`Tenant ${today.date}`, input.tenant)}. ${counterLine('Platform today', input.platform)}. `
     + `The cap is unchanged; raising it is your decision.`;
 }

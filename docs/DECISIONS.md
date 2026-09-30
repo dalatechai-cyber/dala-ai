@@ -11255,13 +11255,22 @@ The founder settled both decisions in `docs/reports/2026-09-30-spend-alerts.md`.
 - **After a daily-cap refusal**, a Messenger or Instagram customer gets the tenant's own reviewed
   `handoff` row. This applies to every tenant that has one. There is no new wording and no model
   call, so nothing is spent. It is the sentence the website already serves in this case (D-139).
-  - It is sent only on a delivering channel. A `shadow` channel stays silent, as before.
+  - It is sent only on a delivering channel. A `shadow` channel stays silent, as before, except to
+    the listed testers who already receive replies there (D-141).
+  - It is sent once per conversation per Ulaanbaatar day. Later capped messages in that
+    conversation get nothing more, since the person was already told.
+  - The customer's row is marked `answered_by = canned`. The line is taken from the published
+    config's rows, as the website takes it.
+  - A retryable send failure ACKs 200. A redelivery would skip the message as answered, and the
+    person has already been told.
   - It goes under the reply's own dedup key, so a redelivery finds the message answered and
     never sends the line twice.
   - The line promises a colleague, so a person is told (`alertNeedsPerson`, reason `handoff`),
     as on the ordinary hand-off path (D-158).
-  - A missing, unreviewed, empty or unreadable row means nothing is sent, as before. The cap page
-    (D-159) is the founder's signal.
+  - A missing, unreviewed or empty row means nothing is sent, as before. The cap page (D-159) is
+    the founder's signal.
+  - Known and unchanged: when one Meta entry carries several messages and the first is capped,
+    the rest are neither stored nor answered, because the loop returns. This predates D-160.
   - Code: the refusal branch of `src/lib/worker/reception.ts`.
 - **Tara Яармаг `reply_style = {"max_emoji": 1}`**, applied on the project on 2026-09-30.
   - Record: `scripts/provision/matrix-emoji-cap-2026-09-30.sql`.

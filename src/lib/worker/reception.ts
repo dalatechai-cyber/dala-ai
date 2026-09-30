@@ -46,7 +46,7 @@ import { CATCH_UP_WINDOW_MINUTES, HELD_FLAG } from '../channel/catchup.ts';
 import { loadReceptionContext } from '../reception/load.ts';
 import { renderVolatile } from '../reception/volatile.ts';
 import type { Surface } from '../reception/volatile.ts';
-import { tenantClock } from '../time/clock.ts';
+import { localDayStart, tenantClock } from '../time/clock.ts';
 import { RECEPTION_HISTORY_TURNS } from '../model/reception.ts';
 import { withTenantRole } from '../guard/withTenantRole.ts';
 import { claim, draftOnce, findReplyFor, markRefused, replyDedupKey } from '../outbound/claim.ts';
@@ -1228,52 +1228,59 @@ async function runReceptionDelivery(
           ? 'error' : 'info', 'ceiling_alert', { tenantId, eventId, outcome: alerted });
 
         // The customer gets the tenant's own reviewed hand-off line, the sentence the website
-        // already serves here (founder, 2026-09-30, D-160). No model, so it spends nothing.
-        // No reviewed line, an unreadable one or a channel that does not deliver: nothing is
-        // sent, as before, and the page above is the founder's signal. Under the reply's own
-        // key, so a redelivery finds this message answered and never sends the line twice.
-        if (deliverThis) {
-          const read = await readCannedLine(db, { tenantId, locale: settings.defaultLocale, kind: 'handoff' });
-          if (!read.ok) fx.log('error', 'ceiling_handoff_unreadable', { tenantId, eventId, detail: read.detail });
-          else if (read.line !== null && !read.line.reviewed) fx.log('error', 'ceiling_handoff_unreviewed', { tenantId, eventId });
-          const line = read.ok && read.line !== null && read.line.reviewed && read.line.body.trim() !== '' ? read.line.body : null;
-          if (line === null) {
-            fx.log('warn', 'ceiling_no_reply', { tenantId, eventId });
+        // already serves here (founder, 2026-09-30, D-160). From the published config's rows,
+        // as the website takes it, so there is no second read to fail. No model: nothing spent.
+        // No reviewed line, or a channel that does not deliver: nothing is sent, as before,
+        // and the page above is the founder's signal. Under the reply's own key, so a
+        // redelivery finds this message answered and never sends the line twice.
+        const handoff = ctx.canned.find((c) => c.kind === 'handoff' && c.reviewedAt !== null && c.body.trim() !== '');
+        if (!deliverThis) {
+          fx.log('info', 'not_delivering', { tenantId, channelId, detail: 'ceiling refusal' });
+        } else if (handoff === undefined) {
+          fx.log('warn', 'ceiling_no_reply', { tenantId, eventId, detail: 'no reviewed handoff row' });
+        } else if (await handoffSaidToday(db, { tenantId, conversationId, body: handoff.body, since: localDayStart(localDate, timezone) })) {
+          // Once per conversation per day. Every later message until midnight would otherwise
+          // get the same «I can't answer» line again; the person told the first time is enough.
+          fx.log('info', 'ceiling_handoff_already_said', { tenantId, conversationId });
+        } else {
+          const drafted = await draftOnce(db, {
+            tenantId, kind: 'reply', dedupKey: replyDedupKey(message.externalId), body: handoff.body, channelId, conversationId,
+          });
+          if (!drafted.ok) {
+            // A 503: the message is stored and unanswered, and the redelivery tries again.
+            fx.log('error', 'ceiling_handoff_draft_failed', { tenantId, detail: drafted.detail });
+            return unavailable('worker.ceiling_handoff_draft_failed');
+          }
+          // The customer's row says who answered it, as every answer does. Bookkeeping: a
+          // failure is logged and never turns the reply into a retry.
+          const traced = await traceAnswer(db, {
+            tenantId, messageId: stored.value.messageId, answeredBy: 'canned',
+            revisionId: ctx.revisionId, promptHash: ctx.contentHash,
+          });
+          if (!traced.ok) fx.log('error', 'trace_failed', { tenantId, conversationId, detail: traced.detail ?? '' });
+          const held = await claim(db, { id: drafted.row.id, tenantId, now });
+          if (held.outcome === 'unavailable') return unavailable('worker.claim_unavailable');
+          if (held.outcome !== 'claimed') {
+            fx.log('info', 'ceiling_handoff_not_ours', { tenantId, outcome: held.outcome });
           } else {
-            const drafted = await draftOnce(db, {
-              tenantId, kind: 'reply', dedupKey: replyDedupKey(message.externalId), body: line, channelId, conversationId,
+            const delivered = await fx.deliver({
+              tenantId, channelId, pageId, recipientId: message.senderId, outboundId: held.id,
+              body: held.body, attempts: held.attempts, graphVersion,
+              ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
+              ...(maxTextBytes === undefined ? {} : { maxTextBytes }),
             });
-            if (!drafted.ok) {
-              // A 503: the message is stored and unanswered, and the redelivery tries again.
-              fx.log('error', 'ceiling_handoff_draft_failed', { tenantId, detail: drafted.detail });
-              return unavailable('worker.ceiling_handoff_draft_failed');
-            }
-            const held = await claim(db, { id: drafted.row.id, tenantId, now });
-            if (held.outcome === 'unavailable') return unavailable('worker.claim_unavailable');
-            let sentLine: ReplySent = held.outcome === 'already_sent' ? 'yes' : 'unknown';
-            if (held.outcome === 'claimed') {
-              const delivered = await fx.deliver({
-                tenantId, channelId, pageId, recipientId: message.senderId, outboundId: held.id,
-                body: held.body, attempts: held.attempts, graphVersion,
-                ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
-                ...(maxTextBytes === undefined ? {} : { maxTextBytes }),
-              });
-              sentLine = delivered.outcome === 'sent' ? 'yes'
-                : delivered.outcome === 'failed' && !delivered.retryable ? 'no' : 'unknown';
-              if (sentLine !== 'yes') fx.log('error', 'ceiling_handoff_not_sent', { tenantId, conversationId, outcome: delivered.outcome });
-              // The line promises a colleague: a person is told, on every outcome, as the
-              // ordinary hand-off path does (D-158). Only by the attempt that claimed the row.
-              await fx.alertNeedsPerson({ tenantId, conversationId, reason: 'handoff', provider, sent: sentLine });
-              await fx.flagQuality({
-                tenantId, conversationId, code: 'ceiling_handoff',
-                detail: `daily cap refused the model; hand-off line ${sentLine === 'yes' ? 'sent' : `not confirmed sent (${delivered.outcome})`}`,
-              });
-              if (delivered.outcome === 'failed' && delivered.retryable) {
-                fx.log('warn', 'ceiling_handoff_send_retryable', { tenantId, failure: delivered.failure });
-                return unavailable(`worker.send_${delivered.failure}`);
-              }
-            }
-            if (held.outcome !== 'claimed') fx.log('info', 'ceiling_handoff_not_ours', { tenantId, outcome: held.outcome, sent: sentLine });
+            const sentLine: ReplySent = delivered.outcome === 'sent' ? 'yes'
+              : delivered.outcome === 'failed' && !delivered.retryable ? 'no' : 'unknown';
+            if (sentLine !== 'yes') fx.log('error', 'ceiling_handoff_not_sent', { tenantId, conversationId, outcome: delivered.outcome });
+            // The line promises a colleague: a person is told, on every outcome, as the
+            // ordinary hand-off path does (D-158). A 200 even on a retryable failure: a
+            // redelivery finds the reply row and skips the message as answered, so a 503
+            // would re-send nothing, and the person has already been told.
+            await fx.alertNeedsPerson({ tenantId, conversationId, reason: 'handoff', provider, sent: sentLine });
+            await fx.flagQuality({
+              tenantId, conversationId, code: 'ceiling_handoff',
+              detail: `daily cap refused the model; hand-off line ${sentLine === 'yes' ? 'sent' : `not confirmed sent (${delivered.outcome})`}`,
+            });
           }
         }
       }
@@ -1600,4 +1607,25 @@ async function runReceptionDelivery(
     notGenerated: notGenerated.length,
     ...(commentResult === null ? {} : { comments: commentResult }),
   });
+}
+
+/**
+ * Has this conversation already been sent the hand-off line since `since` (D-160)? A read
+ * that fails says no: a repeated line is better than a customer left with nothing.
+ */
+async function handoffSaidToday(
+  db: SupabaseClient,
+  input: { tenantId: string; conversationId: string; body: string; since: Date },
+): Promise<boolean> {
+  const { data, error } = await db
+    .from('outbound_messages')
+    .select('id')
+    .eq('tenant_id', input.tenantId)
+    .eq('conversation_id', input.conversationId)
+    .eq('kind', 'reply')
+    .eq('body', input.body)
+    .in('state', ['sending', 'sent'])
+    .gte('created_at', input.since.toISOString())
+    .limit(1);
+  return !error && Array.isArray(data) && data.length > 0;
 }

@@ -4,6 +4,7 @@ import { RECEPTION_MAX_DELIVERIES, runReceptionJob, SALES_SHADOW_WAIT_MS, TYPING
 import type { ReceptionOutcome } from '../reception/handle.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
 import type { ExhaustedInput } from './exhaustedAlert.ts';
+import { replyDedupKey } from '../outbound/claim.ts';
 
 const TENANT = 't-1';
 const CHANNEL = 'c-1';
@@ -876,47 +877,86 @@ test('a cap alert that FAILS is logged as an error and the job still ACKs 200', 
 });
 
 const CAP_HANDOFF = 'Уучлаарай, манай ажилтан Танд туслахад бэлэн байна.';
-/** The context read sees the rows as a list; the refusal's own read asks for one row. */
-const CAP_TABLES = (row: Record<string, unknown> | null) => ({
+/** A zero Reception budget, and the published config's canned rows as given. */
+const CAP_TABLES = (canned: Record<string, unknown>[], extra: Record<string, Reply | Reply[]> = {}) => ({
   ...ZERO_RECEPTION_BUDGET,
-  canned_responses: [
-    { data: [{ kind: 'handoff', body: 'Утсаар холбогдоно уу.', reviewed_at: '2026-09-01' }], error: null },
-    { data: row, error: null },
-  ],
+  canned_responses: { data: canned, error: null },
   outbound_messages: { data: { id: 'om-9', body: CAP_HANDOFF, attempts: 0, state: 'draft' }, error: null },
+  ...extra,
 });
+const REVIEWED_HANDOFF = [{ kind: 'handoff', body: CAP_HANDOFF, reviewed_at: '2026-09-01' }];
 
 test('D-160: A CAP REFUSAL SENDS THE REVIEWED HAND-OFF LINE, tells a person, and spends nothing', async () => {
-  const { fx, delivered, generated, needsPerson, ceilingAlerts, flags } = stubEffects({
-    tables: CAP_TABLES({ body: CAP_HANDOFF, reviewed_at: '2026-09-01' }),
+  const { fx, ops, delivered, generated, typed, needsPerson, ceilingAlerts, flags } = stubEffects({
+    tables: CAP_TABLES(REVIEWED_HANDOFF),
   });
   const r = await run(fx);
   assert.equal(r.status, 200);
   assert.equal(generated.length, 0, 'no model call');
+  assert.equal(typed.length, 0, 'no typing bubble');
+  assert.ok(!ops.some((o) => o.table === 'spend_reservations'), 'nothing reserved');
+  const draft = ops.find((o) => o.table === 'outbound_messages' && (o.op === 'insert' || o.op === 'upsert'));
+  assert.equal(draft?.patch?.['body'], CAP_HANDOFF, 'the reviewed row\'s bytes are what is drafted');
+  assert.equal(draft?.patch?.['kind'], 'reply');
+  assert.equal(draft?.patch?.['dedup_key'], replyDedupKey(MID), 'the reply\'s own key: a redelivery sees it answered');
   assert.equal(delivered.length, 1);
-  assert.equal(delivered[0]?.body, CAP_HANDOFF, 'the stored, reviewed bytes');
+  assert.ok(ops.some((o) => o.table === 'messages' && o.op === 'update' && o.patch?.['answered_by'] === 'canned'),
+    'the customer\'s row says who answered');
+  assert.ok(ops.some((o) => o.table === 'webhook_events' && o.op === 'update' && o.patch?.['state'] === 'shed'));
   assert.equal(ceilingAlerts.length, 1, 'the founder is still paged');
   assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent]), [['handoff', 'yes']]);
   assert.ok(flags.some((f) => f.code === 'ceiling_handoff'));
 });
 
 test('D-160: NO reviewed hand-off line: nothing is sent, the founder is paged, as before', async () => {
-  for (const row of [null, { body: CAP_HANDOFF, reviewed_at: null }, { body: '   ', reviewed_at: '2026-09-01' }]) {
-    const { fx, delivered, needsPerson, ceilingAlerts } = stubEffects({ tables: CAP_TABLES(row) });
+  // `[]` would be a tenant with no canned rows at all, which refuses earlier as not provisioned.
+  const OTHER = { kind: 'refusal_off_topic', body: 'Өөр мөр.', reviewed_at: '2026-09-01' };
+  for (const canned of [[OTHER], [OTHER, { kind: 'handoff', body: CAP_HANDOFF, reviewed_at: null }], [OTHER, { kind: 'handoff', body: '  ', reviewed_at: '2026-09-01' }]]) {
+    const { fx, delivered, needsPerson, ceilingAlerts } = stubEffects({ tables: CAP_TABLES(canned) });
     const r = await run(fx);
     assert.equal(r.status, 200);
-    assert.equal(delivered.length, 0, JSON.stringify(row));
+    assert.equal(delivered.length, 0, JSON.stringify(canned));
     assert.equal(needsPerson.length, 0);
     assert.equal(ceilingAlerts.length, 1);
   }
 });
 
+test('D-160: the line is said ONCE per conversation per day, not to every capped message', async () => {
+  const { fx, delivered, needsPerson, logs, ops } = stubEffects({
+    // An earlier read of the table happens before the guard; the second is the «said today?» read.
+    tables: CAP_TABLES(REVIEWED_HANDOFF, { outbound_messages: [
+      { data: null, error: null },
+      { data: [{ id: 'om-earlier' }], error: null },
+      { data: { id: 'om-9', body: CAP_HANDOFF, attempts: 0, state: 'draft' }, error: null },
+    ] }),
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(delivered.length, 0);
+  assert.equal(needsPerson.length, 0);
+  assert.ok(logs.some((l) => l.event === 'ceiling_handoff_already_said'));
+});
+
+test('D-160: a REDELIVERY of an answered message sends nothing and never reaches the guard', async () => {
+  const { fx, delivered, needsPerson, ceilingAlerts, generated } = stubEffects({
+    tables: CAP_TABLES(REVIEWED_HANDOFF, {
+      messages: DUPLICATE_INBOUND,
+      outbound_messages: { data: { id: 'om-9', state: 'sent' }, error: null },
+    }),
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(delivered.length, 0);
+  assert.equal(needsPerson.length, 0);
+  assert.equal(ceilingAlerts.length, 0);
+  assert.equal(generated.length, 0);
+});
+
 test('D-160: a SHADOW channel sends nothing on a cap refusal: the Page is answered as before', async () => {
   const { fx, delivered, needsPerson, ceilingAlerts } = stubEffects({
-    tables: {
-      ...CAP_TABLES({ body: CAP_HANDOFF, reviewed_at: '2026-09-01' }),
+    tables: CAP_TABLES(REVIEWED_HANDOFF, {
       tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'shadow', graph_version_override: null } },
-    },
+    }),
   });
   const r = await run(fx);
   assert.equal(r.status, 200);
@@ -925,23 +965,13 @@ test('D-160: a SHADOW channel sends nothing on a cap refusal: the Page is answer
   assert.equal(ceilingAlerts.length, 1, 'the refusal branch was reached');
 });
 
-test('D-160: an UNREADABLE hand-off line sends nothing and still ACKs', async () => {
-  const tables = CAP_TABLES(null);
-  tables.canned_responses[1] = { data: null, error: { message: 'timeout' } } as never;
-  const { fx, delivered, logs } = stubEffects({ tables });
-  const r = await run(fx);
-  assert.equal(r.status, 200);
-  assert.equal(delivered.length, 0);
-  assert.ok(logs.some((l) => l.event === 'ceiling_handoff_unreadable'));
-});
-
-test('D-160: a RETRYABLE send failure is 503, and a person has already been told', async () => {
+test('D-160: a RETRYABLE send failure ACKs 200 — a redelivery would skip it as answered — and a person is told', async () => {
   const { fx, needsPerson } = stubEffects({
-    tables: CAP_TABLES({ body: CAP_HANDOFF, reviewed_at: '2026-09-01' }),
+    tables: CAP_TABLES(REVIEWED_HANDOFF),
     deliver: async () => ({ outcome: 'failed', failure: 'rate_limited', retryable: true, detail: 'graph 429' }),
   });
   const r = await run(fx);
-  assert.equal(r.status, 503);
+  assert.equal(r.status, 200);
   assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent]), [['handoff', 'unknown']]);
 });
 
