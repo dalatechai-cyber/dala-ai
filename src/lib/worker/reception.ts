@@ -39,7 +39,8 @@ import { draftImageReplies, planImageReplies, readImageLine } from '../inbound/i
 import { applyThreadControl, recordHandover, readThreadState } from '../handover/record.ts';
 import { personRepliedSince } from '../handover/presend.ts';
 import { humanHoldsThread } from '../handover/control.ts';
-import { mediaAloneDedupKey, planMediaAlone, readHandoverNotice } from '../handover/media.ts';
+import { mediaAloneDedupKey, planMediaAlone, readCannedLine, readHandoverNotice } from '../handover/media.ts';
+import { planVoiceAlone, voiceDedupKey, VOICE_REPLY_KIND, type NeedsPersonReason, type ReplySent } from '../handover/needsPerson.ts';
 import { CREDENTIAL_FAILURE_STATUS, clearCredentialFailure } from '../channel/recover.ts';
 import { CATCH_UP_WINDOW_MINUTES, HELD_FLAG } from '../channel/catchup.ts';
 import { loadReceptionContext } from '../reception/load.ts';
@@ -206,6 +207,13 @@ export type WorkerEffects = {
   alertCeilingReached: (args: { tenantId: string; timezone: string; channel: string }) => Promise<string>;
   /** A customer's photo, video or media link was handed to staff (`handover/media.ts`). Optional: absent sends nothing. */
   alertMediaHandoff?: (args: { tenantId: string; conversationId: string; externalId: string; text: string }) => Promise<void>;
+  /**
+   * A customer needs a person: a complaint, the handoff line, or a voice message
+   * (`handover/needsPerson.ts`). Required, so no wiring can leave it silently unset. Must
+   * never reject: the binding logs its own failures. Resolves false only when this exact
+   * alert was already raised (a redelivery), so the caller can skip its own bookkeeping.
+   */
+  alertNeedsPerson: (args: { tenantId: string; conversationId: string; reason: NeedsPersonReason; provider: string; sent: ReplySent }) => Promise<boolean>;
 };
 
 export type SalesShadowArgs = {
@@ -791,6 +799,85 @@ async function runReceptionDelivery(
       }
     }
 
+    // --- A voice message is a customer waiting, not a sticker (Дали G4). ------------------
+    //
+    // It has no text, so it never reaches Reception, and until this it was only recorded as
+    // dropped (DalaTech: eight by 2026-09-19, none answered, nobody told). Now a person is
+    // ALWAYS told (`handover/needsPerson.ts`), and the customer gets the tenant's reviewed
+    // `voice_received` line when one exists. No tenant has one yet: the wording waits for the
+    // founder (`prompt/drafts/voice_received.mn.txt`), and until then the alert says the bot
+    // sent nothing. The thread is not handed over: the line asks the customer to type, and
+    // the bot must be free to answer what they type. Only on a delivering channel: in
+    // `shadow` the bot speaks to nobody and the Page is answered as it was before.
+    const plannedVoice = planVoiceAlone(skipped);
+    if (plannedVoice.length > 0) {
+      const read = await readCannedLine(db, { tenantId, locale: settings.defaultLocale, kind: VOICE_REPLY_KIND });
+      if (!read.ok) fx.log('error', 'voice_line_unreadable', { eventId, detail: read.detail });
+      else if (read.line !== null && !read.line.reviewed) fx.log('error', 'voice_line_unreviewed', { tenantId, count: plannedVoice.length });
+      // An unreadable, missing or unreviewed line sends nothing, and the alert says so.
+      const voiceLine = read.ok && read.line !== null && read.line.reviewed && read.line.body.trim() !== '' ? read.line.body : null;
+      for (const plan of plannedVoice) {
+        if (!(delivery.deliver || testSenders.has(plan.senderId))) {
+          fx.log('info', 'not_delivering', { tenantId, channelId, detail: 'voice alone' });
+          continue;
+        }
+        const contact = await ensureContact(db, { tenantId, channelId, externalId: plan.senderId, now });
+        if (!contact.ok) return unavailable('worker.voice_contact_failed');
+        const conv = await openConversation(db, { tenantId, contactId: contact.value.contactId, channelId, now });
+        if (!conv.ok) return unavailable('worker.voice_conversation_failed');
+        const conversationId = conv.value.conversationId;
+
+        const state = await readThreadState(db, { tenantId, conversationId });
+        if (state !== 'unreadable' && humanHoldsThread(state, cooldownMinutes, now).refuse) {
+          // A person is already in this chat and will hear the voice message themselves.
+          fx.log('info', 'voice_alone_person_has_thread', { tenantId, conversationId });
+          continue;
+        }
+
+        let sentLine: ReplySent = 'no';
+        if (voiceLine !== null) {
+          const drafted = await draftOnce(db, {
+            tenantId, kind: 'reply', dedupKey: voiceDedupKey(eventId, plan.idx),
+            body: voiceLine, channelId, conversationId,
+          });
+          if (!drafted.ok) {
+            fx.log('error', 'voice_alone_draft_failed', { tenantId, detail: drafted.detail });
+            return unavailable('worker.voice_draft_failed');
+          }
+          const held = await claim(db, { id: drafted.row.id, tenantId, now });
+          if (held.outcome === 'unavailable') return unavailable('worker.claim_unavailable');
+          if (held.outcome !== 'claimed') {
+            // Sent by an earlier attempt; or another worker holds it, or it was refused or is
+            // indeterminate, which this attempt cannot tell apart.
+            sentLine = held.outcome === 'already_sent' ? 'yes' : 'unknown';
+          } else {
+            const delivered = await fx.deliver({
+              tenantId, channelId, pageId, recipientId: plan.senderId, outboundId: held.id,
+              body: held.body, attempts: held.attempts, graphVersion,
+              ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
+              ...(maxTextBytes === undefined ? {} : { maxTextBytes }),
+            });
+            if (delivered.outcome === 'failed' && delivered.retryable) {
+              // The redelivery re-sends the stored row, and tells a person then.
+              fx.log('warn', 'voice_alone_send_retryable', { tenantId, failure: delivered.failure });
+              return unavailable(`worker.send_${delivered.failure}`);
+            }
+            sentLine = delivered.outcome === 'sent' ? 'yes' : delivered.outcome === 'indeterminate' ? 'unknown' : 'no';
+            if (sentLine !== 'yes') fx.log('error', 'voice_alone_not_sent', { tenantId, conversationId, outcome: delivered.outcome });
+          }
+        }
+        // Flagged once, by the attempt that raised the alert: a redelivery of the same entry
+        // re-runs this block and must not count the same voice message twice.
+        const told = await fx.alertNeedsPerson({ tenantId, conversationId, reason: 'voice', provider, sent: sentLine });
+        if (told) {
+          await fx.flagQuality({
+            tenantId, conversationId, code: 'voice_received',
+            detail: sentLine === 'yes' ? 'voice message: reviewed line sent, a person told' : 'voice message: no line sent, a person told',
+          });
+        }
+      }
+    }
+
     const plannedImages = mediaHandled ? [] : planImageReplies(skipped);
     if (plannedImages.length > 0) {
       const line = await readImageLine(db, { tenantId, locale: settings.defaultLocale });
@@ -1355,6 +1442,19 @@ async function runReceptionDelivery(
         TYPING_WAIT_MS,
       );
       fx.log('info', 'typing_cleared_after_reply', { externalId: message.externalId });
+    }
+
+    // A complaint, a request for a person, or the handoff line: a person is told (Дали F5,
+    // K4). On EVERY outcome, a retryable failure included: an ordinary redelivery finds the
+    // reply row and skips the message as answered (`findReplyFor`), so this attempt is the
+    // only one that reaches here. `once` per day keeps a later attempt from paging twice.
+    const needs: NeedsPersonReason | null = outcome.complaint === true ? 'complaint'
+      : outcome.handedOff === true ? 'handoff' : null;
+    if (needs !== null) {
+      await fx.alertNeedsPerson({
+        tenantId, conversationId, reason: needs, provider,
+        sent: delivered.outcome === 'sent' ? 'yes' : delivered.outcome === 'failed' && !delivered.retryable ? 'no' : 'unknown',
+      });
     }
 
     if (delivered.outcome === 'sent') {

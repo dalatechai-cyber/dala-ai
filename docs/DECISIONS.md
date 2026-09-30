@@ -11178,7 +11178,37 @@ inside one tenant stay built and dormant; they are not used for Tara.
   «чи». Held by review for rows; not enforced on model replies (no signed block states it, no
   guard checks it). Enforcing it changes what customers read, so it is the founder's.
 
-## D-158 — The month is seen and the brake pages; neither stops a reply (2026-09-30)
+## D-158 — A customer who needs a person is told to a person, on every DM surface (2026-09-30)
+
+The founder, 2026-09-30, from the Дали standard (G4, F5, K4): a voice message got no reply and
+nobody was told; a DM complaint or «I want to talk to someone» got a sentence saying a person
+would help while nothing told a person. Goal: no customer waits in silence, and a person is told
+promptly whenever one is needed.
+
+- **What raises it** (`src/lib/handover/needsPerson.ts`, wired in `worker/reception.ts`), on a
+  delivering Messenger or Instagram channel only (in `shadow` the bot speaks to nobody):
+  1. the message fires one of the tenant's own complaint rows (`comment_rules`, verdict
+     `escalate`, the rows comments and the sales line already use; «хүнтэй холбог» is one);
+  2. the customer was served the handoff line or the callback line in its place (`handedOff`);
+  3. a voice message (`audio` attachment, no text).
+- **Where it goes: the founder's Telegram, for every tenant, now** (`route: 'now'`,
+  `once` per conversation, reason and Ulaanbaatar day). No tenant has its own bot: Tara's
+  `lead_route` is `none`, and `tenant_telegram` / `page_label` have no sender. So for Tara the
+  founder is told and passes the chat to the salon. `tenants.media_handoff_alert` (D-153) is not
+  read: it was about photos and links the salon sees anyway. The body carries ids and the reason,
+  never the customer's words (the chat is shared).
+- **What the customer receives is unchanged**, except a voice message gets the tenant's reviewed
+  `voice_received` row when one exists (kind registered by `0072`, model-invisible). No row
+  exists: the wording is an unsigned draft (`prompt/drafts/voice_received.mn.txt`). Until the
+  founder approves and a reviewed row is inserted, a voice message still gets no reply, and the
+  alert says "The bot sent NOTHING".
+- **Not changed:** thread control (F4, `pass_thread_control`, stays unbuilt; the bot keeps
+  answering after a complaint), comment handling (J3 already alerts on escalate, in shadow too),
+  the website (D-139 already alerts on its hand-offs for `founder_telegram` tenants).
+- **Telegram sends are now bounded** (`TELEGRAM_TIMEOUT_MS`, 5 s): these alerts run on the reply
+  path after the send, and a hanging Telegram must not hold the worker.
+
+## D-159 — The month is seen and the brake pages; neither stops a reply (2026-09-30)
 
 Rulebook §3.1 (v0.3) asks for a 20,000 ₮ monthly normal limit per client that only alerts (at 70%),
 and an emergency brake that may stop replies and alerts at once. Before this, the code read no

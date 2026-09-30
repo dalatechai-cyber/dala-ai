@@ -25,6 +25,7 @@ import { sendMessage, sendSenderAction } from '@/lib/meta/send';
 import { lookupComment, lookupInstagramComment } from '@/lib/comments/lookup';
 import { raiseCommentComplaint } from '@/lib/comments/complaint';
 import { raiseMediaHandoff } from '@/lib/handover/media';
+import { raiseNeedsPerson } from '@/lib/handover/needsPerson';
 import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
 import { SECTION_LABELS } from '@/lib/prompt/tenant';
@@ -207,6 +208,23 @@ function effects(now: Date): WorkerEffects {
       if (outcome.outcome === 'disabled') console.info('[worker] media_handoff_alert_disabled', { conversationId: input.conversationId });
       if (outcome.outcome === 'failed' || outcome.outcome === 'recorded_undelivered') {
         console.error('[worker] media_handoff_alert_undelivered', { conversationId: input.conversationId, ...outcome });
+      }
+    },
+
+    alertNeedsPerson: async (input) => {
+      // Never rejects: an alert that cannot be raised is logged, and the customer's reply
+      // is already decided.
+      try {
+        const outcome = await raiseNeedsPerson(db, { ...input, now });
+        if (outcome.outcome === 'failed' || outcome.outcome === 'recorded_undelivered') {
+          console.error('[worker] needs_person_alert_undelivered', { conversationId: input.conversationId, reason: input.reason, ...outcome });
+        }
+        return outcome.outcome !== 'suppressed_duplicate';
+      } catch (e) {
+        console.error('[worker] needs_person_alert_failed', {
+          conversationId: input.conversationId, reason: input.reason, detail: e instanceof Error ? e.message : String(e),
+        });
+        return true;
       }
     },
 

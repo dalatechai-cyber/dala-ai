@@ -1,6 +1,6 @@
 # STATUS — what is built, what is stubbed, what has never been proven
 
-> **2026-09-30 — spend visibility (D-158).** The daily report prints each client's model
+> **2026-09-30 — spend visibility (D-159).** The daily report prints each client's model
 > spend for the month in ₮ against the rulebook's 20,000 ₮ normal limit, marks 70% and 100%,
 > and counts Messenger messages a daily cap refused. A cap refusal now pages the founder at
 > once (one episode per tenant and surface; closed by the hourly health run after midnight).
@@ -384,7 +384,7 @@ remains:
    id 3, read 2026-09-30). So Tara Яармаг's live Reception ceiling is **$1.90/day from her
    row**, about 46 cold conversations. *Corrected 2026-09-30:* this item said $1.50 from the
    constant, which stopped being true when the constant moved to $2.00.
-   Since D-158 the month is **seen** (the daily report prints each client's ₮ month and
+   Since D-159 the month is **seen** (the daily report prints each client's ₮ month and
    marks the rulebook's 70% alert) and a cap refusal pages at once; neither stops a reply.
 
 All twenty-one Mongolian blocks were signed on 2026-09-04 and are seeded by

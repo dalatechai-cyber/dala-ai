@@ -24,6 +24,7 @@
  * knowledge base at all. The cheapest refusals are first, and none of them costs a token.
  */
 import { isMediaMessage, MEDIA_HANDOFF_KIND } from '../handover/media.ts';
+import { complaintFires } from '../handover/needsPerson.ts';
 import type { CallOutcome, ReceptionRequest, TerminalReason } from '../model/reception.ts';
 import { isStale } from '../model/reception.ts';
 import type { Usage } from '../spend/settle.ts';
@@ -266,6 +267,12 @@ export type ReceptionOutcome =
     handedOff?: true;
     /** A photo, video or media link answered with the handover notice: the worker hands the thread to staff. */
     mediaHandoff?: true;
+    /**
+     * The customer's message fired one of the tenant's own complaint rows (a complaint, or a
+     * request for a person). The reply is unchanged; the worker tells a person
+     * (`handover/needsPerson.ts`).
+     */
+    complaint?: true;
   }
   /** Could not determine something. The caller must 503 so QStash retries. */
   | { kind: 'retry'; detail: string }
@@ -575,7 +582,13 @@ export async function handleReception(
   // answer — carries the labelled row and no path can carry the bare one.
   const labelled = { ...input, depositRows: input.depositRows.map(depositRow) };
   const out = await receive(deps, labelled, state);
-  return out.kind === 'drafted' && state.handedOff ? { ...out, handedOff: true } : out;
+  if (out.kind !== 'drafted') return out;
+  const complaint = complaintFires(input.customerMessage, input.complaintRules, matchingText(input.customerMessage, input.spellings));
+  return {
+    ...out,
+    ...(state.handedOff ? { handedOff: true as const } : {}),
+    ...(complaint ? { complaint: true as const } : {}),
+  };
 }
 
 async function receive(

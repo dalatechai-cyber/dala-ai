@@ -1,7 +1,7 @@
 # Spend alerts, the reply after a cap, and Tara Яармаг's emoji cap (2026-09-30)
 
 Written for the founder. Two decisions below are yours; nothing in this file is live.
-The code that shipped with it (D-158) only reports and pages. It stops no reply and moves no cap.
+The code that shipped with it (D-159) only reports and pages. It stops no reply and moves no cap.
 
 ## What was true before, measured
 
@@ -28,7 +28,7 @@ The code that shipped with it (D-158) only reports and pages. It stops no reply 
   Tara will probably pass 70% before the month ends, so the first report on 1 October may show
   the alert.
 
-## What now happens (D-158)
+## What now happens (D-159)
 
 1. **Every daily report (00:05 Ulaanbaatar)** has a block with each client's model spend for the
    month:

@@ -249,7 +249,7 @@ Each line has its story in `docs/history.md`.
   `PLATFORM_HARD_CAP_USD_PER_DAY` ($10.00) across all tenants (`src/config/platform.ts`).
   Read 2026-09-30: Tara Яармаг's Reception cap is **$1.90** (her row, $2.00 × 0.95), DalaTech's
   $2.00 (the constant). Ceilings are never environment variables (`check-no-ceiling-env.mjs`).
-- **The monthly figure is an alert, never a stop** (rulebook §3.1, D-158):
+- **The monthly figure is an alert, never a stop** (rulebook §3.1, D-159):
   `CLIENT_MONTHLY_NORMAL_LIMIT_MNT` (₮20,000) is read only by the daily report, which shows
   each client's month from `spend_ledger.cost_mnt` and marks 70%. A cap refusal pages at once
   (`spend/ceilingAlert.ts`, one `on_change` episode per tenant and surface, closed by the

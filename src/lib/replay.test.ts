@@ -304,6 +304,7 @@ function worker(s: ReturnType<typeof store>, eventId: number) {
     alertStandby: async () => {},
     alertDeliveryExhausted: async () => {},
     alertCeilingReached: async () => 'sent',
+    alertNeedsPerson: async () => true,
     showTyping: async () => {},
     graphVersionDefault: () => 'v21.0',
     generateReply: async (a) => {

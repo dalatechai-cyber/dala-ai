@@ -174,6 +174,9 @@ export function severityMark(severity: Severity): string {
   return severity === 'critical' ? '🔴' : severity === 'warn' ? '🟠' : 'ℹ️';
 }
 
+/** How long one Telegram send may take before it counts as not delivered. */
+export const TELEGRAM_TIMEOUT_MS = 5_000;
+
 export type TelegramOutcome = { ok: true; messageId: string } | { ok: false; detail: string };
 
 /**
@@ -191,6 +194,10 @@ export async function sendTelegram(text: string): Promise<TelegramOutcome> {
         disable_web_page_preview: true,
       }),
       cache: 'no-store',
+      // Bounded: several alerts are raised on the reply path, after the customer's send, and
+      // a Telegram that hangs must not hold the worker until the platform kills it. A
+      // timeout lands in the catch below and leaves the row undelivered and visible.
+      signal: AbortSignal.timeout(TELEGRAM_TIMEOUT_MS),
     });
     // A 2xx from a messaging provider means "accepted", never "delivered" — and a non-2xx
     // here means not even that.
