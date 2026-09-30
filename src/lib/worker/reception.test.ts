@@ -160,6 +160,7 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
   const typed: { tenantId: string; channelId: string; recipientId: string }[] = [];
   const shadowed: SalesShadowArgs[] = [];
   const needsPerson: Parameters<WorkerEffects['alertNeedsPerson']>[0][] = [];
+  const staleAlerts: Parameters<WorkerEffects['alertCannedStale']>[0][] = [];
 
   const fx: WorkerEffects = {
     db,
@@ -191,12 +192,13 @@ function stubEffects(over: Partial<WorkerEffects> & { tables?: Record<string, Re
     lookupComment: async () => { throw new Error('the DM path must never reach the comment surface'); },
     alertComplaint: async () => { throw new Error('the DM path must never reach the comment surface'); },
     alertNeedsPerson: async (a) => { needsPerson.push(a); return true; },
+    alertCannedStale: async (a) => { staleAlerts.push(a); return 'sent'; },
     log: (level, event, fields) => {
       logs.push(fields === undefined ? { level, event } : { level, event, fields });
     },
     ...rest,
   };
-  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted, ceilingAlerts, typed, shadowed, needsPerson };
+  return { fx, ops, logs, generated, delivered, flags, standbyAlerts, exhausted, ceilingAlerts, typed, shadowed, needsPerson, staleAlerts };
 }
 
 const run = (fx: WorkerEffects, rawBody = job(), signature: string | null = 'sig') =>
@@ -2244,4 +2246,86 @@ test('a listed tester on a SHADOW channel gets the resumed reply; on an OFF chan
   });
   await run(off.fx);
   assert.equal(off.delivered.length, 0);
+});
+
+// ── D-163: approved lines changed without a republish never mean silence ──────────────
+
+const STALE = { kind: 'retry' as const, detail: 'canned_stale: the canned lines have changed since this configuration was published' };
+const PUBLISHED_PREFIX = `ТОГТМОЛ ХЭСЭГ\n=== БЭЛЭН ХАРИУЛТ ===\n"handoff": ${CAP_HANDOFF}\n"refusal_off_topic": Өөр мөр.`;
+const STALE_TABLES = (canned: Record<string, unknown>[], prefix = PUBLISHED_PREFIX, extra: Record<string, Reply | Reply[]> = {}) => ({
+  config_snapshots: { data: { content_hash: 'h1', prompt_stable: prefix, allowed_numbers: [] }, error: null },
+  canned_responses: { data: canned, error: null },
+  outbound_messages: { data: { id: 'om-9', body: CAP_HANDOFF, attempts: 0, state: 'draft' }, error: null },
+  ...extra,
+});
+
+test('DONE-TEST (D-163): CANNED_STALE PAGES AT ONCE AND SENDS THE PUBLISHED HAND-OFF LINE INSTEAD OF SILENCE', async () => {
+  const { fx, delivered, staleAlerts, needsPerson, flags, ops } = stubEffects({
+    generateReply: async () => STALE,
+    tables: STALE_TABLES(REVIEWED_HANDOFF),
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200, 'answered, so ACKed');
+  assert.deepEqual(staleAlerts.map((a) => a.tenantId), [TENANT]);
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0]?.body, CAP_HANDOFF);
+  assert.equal(ops.find((o) => o.table === 'outbound_messages' && (o.op === 'insert' || o.op === 'upsert'))?.patch?.['dedup_key'], replyDedupKey(MID));
+  assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent]), [['handoff', 'yes']]);
+  assert.ok(flags.some((f) => f.code === 'canned_stale_handoff'));
+});
+
+test('D-163: an EDITED hand-off row (not the published bytes) is never sent; the page still goes and QStash retries', async () => {
+  const edited = [{ kind: 'handoff', body: 'ШИНЭЭР ЗАССАН МӨР', reviewed_at: '2026-09-01' }];
+  const { fx, delivered, staleAlerts, logs } = stubEffects({ generateReply: async () => STALE, tables: STALE_TABLES(edited) });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+  assert.equal(delivered.length, 0);
+  assert.equal(staleAlerts.length, 1);
+  assert.ok(reasons(logs).includes('canned_stale_no_reply'));
+});
+
+test('D-163: an unreviewed hand-off row is never sent', async () => {
+  const unreviewed = [{ kind: 'handoff', body: CAP_HANDOFF, reviewed_at: null }];
+  const { fx, delivered } = stubEffects({ generateReply: async () => STALE, tables: STALE_TABLES(unreviewed) });
+  assert.equal((await run(fx)).status, 503);
+  assert.equal(delivered.length, 0);
+});
+
+test('D-163: once per conversation per day; a second stale message is retried, not answered again', async () => {
+  const { fx, delivered, logs } = stubEffects({
+    generateReply: async () => STALE,
+    tables: STALE_TABLES(REVIEWED_HANDOFF, PUBLISHED_PREFIX, { outbound_messages: [
+      { data: null, error: null },
+      { data: [{ id: 'om-earlier' }], error: null },
+      { data: { id: 'om-9', body: CAP_HANDOFF, attempts: 0, state: 'draft' }, error: null },
+    ] }),
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+  assert.equal(delivered.length, 0);
+  assert.ok(reasons(logs).includes('canned_stale_handoff_already_said'));
+});
+
+test('D-163: in SHADOW nothing is sent on canned_stale, and the page still goes', async () => {
+  const { fx, delivered, staleAlerts } = stubEffects({
+    generateReply: async () => STALE,
+    tables: { ...STALE_TABLES(REVIEWED_HANDOFF), tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'shadow', graph_version_override: null }, error: null } },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.equal(staleAlerts.length, 1);
+});
+
+test('D-163: a failed page never changes the outcome; any other retry is untouched', async () => {
+  const failing = stubEffects({
+    generateReply: async () => STALE,
+    alertCannedStale: async () => 'failed: telegram down',
+    tables: STALE_TABLES(REVIEWED_HANDOFF),
+  });
+  assert.equal((await run(failing.fx)).status, 200);
+  assert.equal(failing.logs.find((l) => l.event === 'canned_stale_alert')?.level, 'error');
+  const other = stubEffects({ generateReply: async () => ({ kind: 'retry', detail: 'matcher unusable: x' }), tables: STALE_TABLES(REVIEWED_HANDOFF) });
+  assert.equal((await run(other.fx)).status, 503);
+  assert.equal(other.staleAlerts.length, 0);
+  assert.equal(other.delivered.length, 0);
 });

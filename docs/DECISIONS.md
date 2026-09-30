@@ -11346,3 +11346,35 @@ The reclaim sweeper (`src/lib/handover/reclaim.ts`) and the Graph thread-control
 the bot never passes a chat to a person and never takes one back on a timer; the only silence
 is the 30-minute window after a staff reply or a media hand-off. No `handover_reclaim` row
 exists on either tenant. Revisit when more clients are onboarded. No code change.
+
+## D-163 — An edit to a live tenant's approved lines can no longer silently stop every reply (2026-09-30, founder)
+
+**The problem.** When a tenant's `canned_responses` rows no longer hash to the published
+snapshot's `canned_hash`, the reply path refuses every reply (`canned_stale`, D-058). On
+21–24 Sep a direct edit without a republish did this for two and a half days (D-113); the
+only signal was a `webhook.delivery_exhausted` page minutes later. With the ancestor gone
+since the cutover, the same edit today would leave every customer in silence.
+
+**Decided (founder, 2026-09-30):**
+1. **Refuse, do not auto-republish.** Migration `0074` refuses an INSERT, UPDATE or DELETE on
+   `canned_responses` that would move a live tenant's hash, unless the transaction sets
+   `dala.canned_edit = 'republish'`. Refusing is the safer of the two options offered: a
+   publish needs the operator's checkout, the facts, branch and reply-case gates and the
+   founder's secret, none of which a trigger can run. Signing (`reviewed_at`), model-invisible
+   kinds and not-yet-live tenants stay editable.
+2. **Page at once, and hourly.** The first reply refused for `canned_stale` pages the founder's
+   Telegram (`config.canned_stale`, critical, one `on_change` episode per tenant,
+   `prompt/cannedDrift.ts`). The hourly health run compares every live tenant's snapshot
+   `canned_hash` with its current rows by the reply path's own function, raises the same
+   episode on a mismatch and closes it when they match again.
+3. **The customer gets the hand-off line, not silence.** While a Messenger/Instagram reply is
+   refused for `canned_stale`, the tenant's reviewed `handoff` row is sent, once per
+   conversation per Ulaanbaatar day, with no model and no spend, on a live channel only, and a
+   person is told (`conversation.needs_person`). The row is sent only if its current bytes are
+   exactly the ones in the published prefix, so an edit to the hand-off row itself sends
+   nothing new. Other retries are unchanged.
+
+**Not covered:** the website widget still answers `canned_stale` with a retry; the page and the
+hourly check cover it. An edit made with the escape and then not republished is caught by the
+hourly check, not refused.
+

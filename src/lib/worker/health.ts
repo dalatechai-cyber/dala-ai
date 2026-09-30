@@ -31,6 +31,7 @@ import { catchUpHeldMessages } from '../channel/catchup.ts';
 import { quietRoute, raiseAlert } from '../alerts/alert.ts';
 import type { EnqueueResult } from '../queue/qstash.ts';
 import { closeStaleCeilingEpisodes } from '../spend/ceilingAlert.ts';
+import { checkCannedDrift } from '../prompt/cannedDrift.ts';
 
 export type HealthEffects = {
   db: SupabaseClient;
@@ -97,6 +98,15 @@ export async function runHealthJob(
   const ceilings = await closeStaleCeilingEpisodes(effects.db, effects.now);
   if (!ceilings.ok) console.error('[health] ceiling_close_failed', { detail: ceilings.detail });
 
+  // Sixth: approved lines changed without a republish (D-163). Every reply of that tenant is
+  // refused until it is republished, so this looks before a customer does: the live snapshot's
+  // `canned_hash` against the current rows, the reply path's own comparison. A mismatch pages
+  // once (the same `on_change` episode the reply path opens); a match closes it. NOT a 503 when
+  // it fails, like the ceilings above: the reply path pages on its own, and the four jobs above
+  // must not be re-run for it.
+  const drift = await checkCannedDrift(effects.db, effects.now);
+  if (!drift.ok) console.error('[health] canned_drift_failed', { detail: drift.detail });
+
   // The counts, not the verdicts: this body goes to QStash's delivery log, and a channel's
   // health belongs in `channel_health` and the alert rather than in a queue receipt.
   const counts: Record<string, number> = {};
@@ -112,6 +122,9 @@ export async function runHealthJob(
     body: {
       checked: run.checked, states: counts, swept: sweptCounts, catch_up: caughtCounts,
       ceiling_episodes: { closed: ceilings.ok ? ceilings.closed : 0, failures: ceilings.ok ? 0 : 1 },
+      canned_drift: drift.ok
+        ? { checked: drift.checked, drifted: drift.drifted, raised: drift.raised, closed: drift.closed, failures: drift.failures }
+        : { failures: 1 },
       // `unknown` is reported beside the findings rather than folded into them: a run that
       // examined ten credentials and knows the expiry of none is not a clean run, and the
       // receipt should not read like one.

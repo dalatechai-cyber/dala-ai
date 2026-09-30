@@ -84,6 +84,32 @@ if (fs.existsSync(MATCH_TS)) {
   }
 }
 
+// D-163. The trigger that refuses an unpublished edit to a live tenant's lines skips the
+// same kinds, from its own SQL copy of the list. A kind missing there makes an edit to a
+// harmless row refuse; a kind wrongly there lets a hash-moving edit through. The newest
+// migration that defines the function is the one the database runs.
+{
+  const defs = fs.readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort()
+    .filter((f) => fs.readFileSync(path.join(MIGRATIONS, f), 'utf8').includes('function ops.refuse_unpublished_canned_edit('));
+  if (defs.length > 0) {
+    const newest = defs[defs.length - 1];
+    const sql = fs.readFileSync(path.join(MIGRATIONS, newest), 'utf8');
+    const m = sql.match(/invisible\s+constant\s+text\[\]\s*:=\s*array\[([^\]]*)\]/);
+    if (m === null) {
+      problems.push(`Could not read the invisible-kinds array out of ${newest} (ops.refuse_unpublished_canned_edit).`);
+    } else {
+      // ascii-safe: a canned kind is a lower_snake ASCII token in straight single quotes.
+      const inSql = [...m[1].matchAll(/'([a-z][a-z_]*)'/g)].map((x) => x[1]).sort();
+      if (inSql.join(',') !== [...INVISIBLE].sort().join(',')) {
+        problems.push(
+          `ops.refuse_unpublished_canned_edit in ${newest} skips [${inSql.join(', ')}], but ` +
+          `MODEL_INVISIBLE_KINDS is [${[...INVISIBLE].sort().join(', ')}]. Add a migration that ` +
+          `redefines the function with the same list.`);
+      }
+    }
+  }
+}
+
 for (const [key, files] of referenced) {
   if (INVISIBLE.includes(key)) {
     problems.push(
