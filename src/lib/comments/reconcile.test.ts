@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  countUnconfirmed, matchNotice, ownRepliesIn, sameReplyText, scanParkedReplies, sweepParkedReplies,
+  countUnconfirmed, reconcileHeldReply, RESEND_MATCH_REASON_PREFIX, IDENTICAL_EXISTS_REASON, matchNotice, ownRepliesIn, sameReplyText, scanParkedReplies, sweepParkedReplies,
   unconfirmedAlertBody, unconfirmedDedupKey, unconfirmedLine, UNCONFIRMED_ALERT_KIND, UNCONFIRMED_PAGE_AT,
 } from './reconcile.ts';
 import { memoryDb } from '../worker/commentReplay.fixtures.ts';
@@ -305,4 +305,38 @@ test('alert body: ids and UB times only, and a long list is cut', () => {
   assert.match(body, /2026-09-30 09:00 UB time, under comment p_c0/);
   assert.match(body, /…and 2 more/);
   assert.doesNotMatch(body, new RegExp(LINE));
+});
+
+test('D-166 re-review: the check before a re-send has no upper bound; in the window it is sent (probably ours), past it refused', async () => {
+  const drafted = Date.parse('2026-09-28T01:00:00Z');
+  for (const [offsetMs, want] of [[60_000, 'sent'], [3 * 86_400_000, 'refused']] as const) {
+    const row = parked(T1, new Date(drafted).toISOString(), { state: 'sending', attempts: 1 });
+    const s = db([row], [{
+      id: 1, tenant_id: T1,
+      raw_payload: noticeEntry(String(row['dedup_key']), { comment_id: 'pasted', created_time: (drafted + offsetMs) / 1000 }),
+    }]);
+    const out = await reconcileHeldReply(s.db, { tenantId: T1, rowId: String(row['id']), pageId: PAGE, now: new Date(drafted + offsetMs + 60_000) });
+    assert.deepEqual(out, { ok: true, outcome: want });
+    const r = s.rows('outbound_messages')[0];
+    assert.equal(r?.['state'], want);
+    if (want === 'sent') {
+      assert.equal(r?.['provider_message_id'], 'pasted');
+      assert.ok(String(r?.['refused_reason']).startsWith(RESEND_MATCH_REASON_PREFIX), 'marked as not proven');
+    } else {
+      assert.equal(r?.['provider_message_id'] ?? null, null);
+      assert.ok(String(r?.['refused_reason']).startsWith(IDENTICAL_EXISTS_REASON));
+    }
+  }
+});
+
+test('D-166 re-review: the arrival path leaves a FAILED row alone', async () => {
+  const { reconcileFromEntry } = await import('./reconcile.ts');
+  const row = parked(T1, '2026-09-28T01:00:00.000Z', { state: 'failed' });
+  const s = db([row]);
+  const out = await reconcileFromEntry(s.db, {
+    tenantId: T1, channelId: 'ch-1', pageId: PAGE, now: new Date('2026-09-28T01:01:00Z'),
+    rawPayload: noticeEntry(String(row['dedup_key']), { created_time: Date.parse('2026-09-28T01:00:10Z') / 1000 }),
+  });
+  assert.deepEqual(out, { ok: true, reconciled: 0, mismatched: 0 });
+  assert.equal(s.rows('outbound_messages')[0]?.['state'], 'failed');
 });

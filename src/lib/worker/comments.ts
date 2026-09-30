@@ -81,7 +81,7 @@ import { advertByText, isRepeatedComment, mayBeRepeat, type AdvertCheck } from '
 import { cpLength } from '../mn/text.ts';
 import { COMMENT_REPLY_TIMEOUT_MS, type CommentSendOutcome } from '../comments/send.ts';
 import { DEFAULT_SEND_TIMEOUT_MS } from '../meta/send.ts';
-import { matchNotice, ownRepliesIn, reconcileFromEntry, reconcileHeldReply } from '../comments/reconcile.ts';
+import { matchNotice, ownRepliesIn, reconcileFromEntry, reconcileHeldReply, RESEND_MATCH_REASON_PREFIX } from '../comments/reconcile.ts';
 import { claim, draftOnce, markFailed, markIndeterminate, markRefused, markSent } from '../outbound/claim.ts';
 import { MESSENGER_SEND_UNIT_COST } from '../../config/platform.ts';
 
@@ -627,8 +627,11 @@ async function repliesPerPost(
 async function readStaffActivity(
   db: SupabaseClient,
   input: { tenantId: string; pageId: string; postIds: readonly string[]; automationTexts?: readonly string[] },
-): Promise<{ ok: true; pageComments: PageComment[]; ours: Set<string> } | { ok: false; detail: string }> {
-  if (input.postIds.length === 0) return { ok: true, pageComments: [], ours: new Set() };
+): Promise<
+  | { ok: true; pageComments: PageComment[]; ours: Set<string>; probablyOurs: Set<string> }
+  | { ok: false; detail: string }
+> {
+  if (input.postIds.length === 0) return { ok: true, pageComments: [], ours: new Set(), probablyOurs: new Set() };
   const entries: unknown[] = [];
   for (const postId of input.postIds) {
     const { data, error } = await db
@@ -645,22 +648,33 @@ async function readStaffActivity(
   // 2026-09-26, «chat bicnuu» created in the same second as the comment it answered.
   const pageComments = pageCommentsIn(entries, input.pageId)
     .filter((c) => !isAutomationText(c.text, input.automationTexts ?? []));
-  if (pageComments.length === 0) return { ok: true, pageComments, ours: new Set() };
+  if (pageComments.length === 0) return { ok: true, pageComments, ours: new Set(), probablyOurs: new Set() };
   const { data, error } = await db
     .from('outbound_messages')
-    .select('provider_message_id')
+    .select('provider_message_id, refused_reason')
     .eq('tenant_id', input.tenantId)
     .eq('kind', 'comment_reply')
     .in('provider_message_id', pageComments.map((c) => c.commentId));
   if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
-  const ours = new Set((Array.isArray(data) ? data : []).map((r) => String((r as Record<string, unknown>)['provider_message_id'])));
+  const ours = new Set<string>();
+  const probablyOurs = new Set<string>();
+  for (const raw of Array.isArray(data) ? data : []) {
+    const r = raw as Record<string, unknown>;
+    // A row the re-send check marked `sent` was `failed`: its author is not proven (D-166
+    // re-review), so that comment stays "probably ours" for good.
+    const probable = typeof r['refused_reason'] === 'string' && r['refused_reason'].startsWith(RESEND_MATCH_REASON_PREFIX);
+    (probable ? probablyOurs : ours).add(String(r['provider_message_id']));
+  }
   // Our own reply whose row does not carry its id yet — the POST timed out, a 5xx came back
-  // after Meta created it, or the run was killed — is still OURS, not a person's (D-166
+  // after Meta created it, or the run was killed — may be OURS rather than a person's (D-166
   // review). Read as staff, it refused the thread as `staff_replied` and flagged a reply no
-  // person wrote, and the row was never reconciled. A Page comment that `matchNotice` ties to
-  // one of our unfinished rows is added to `ours`, so the thread reads as answered and the
-  // resume path's re-send check (`reconcileHeldReply`) marks the row sent without posting.
-  const unclaimed = entries.flatMap((e) => ownRepliesIn(e, input.pageId)).filter((n) => !ours.has(n.commentId));
+  // person wrote. But a match by text and time does not prove the author: a person may have
+  // pasted the same line (D-166 re-review). So such a comment is kept apart, as "probably
+  // ours": the DECISION treats it as ours (thread answered, no false staff flag, and the resume
+  // path's re-send check settles the row without posting), while every check BEFORE A SEND
+  // treats it as staff and refuses — being unsure is not "clear".
+  const unclaimed = entries.flatMap((e) => ownRepliesIn(e, input.pageId))
+    .filter((n) => !ours.has(n.commentId) && !probablyOurs.has(n.commentId));
   if (unclaimed.length > 0) {
     const { data: pending, error: pErr } = await db
       .from('outbound_messages')
@@ -674,10 +688,10 @@ async function readStaffActivity(
       const r = raw as Record<string, unknown>;
       if (typeof r['dedup_key'] !== 'string' || typeof r['body'] !== 'string') continue;
       const n = matchNotice({ dedupKey: r['dedup_key'], body: r['body'], createdAt: new Date(String(r['created_at'])) }, unclaimed);
-      if (n !== null) ours.add(n.commentId);
+      if (n !== null) probablyOurs.add(n.commentId);
     }
   }
-  return { ok: true, pageComments, ours };
+  return { ok: true, pageComments, ours, probablyOurs };
 }
 
 /**
@@ -752,6 +766,7 @@ function staffGateFor(
         fx.log('error', 'comment_staff_unreadable_before_send', { commentId: comment.commentId, detail: activity.detail });
         return 'unreadable';
       }
+      // Only PROVEN ours here: a probably-ours comment reads as staff before any send (D-166 re-review).
       const staff = staffHandled({ comment, pageComments: activity.pageComments, ours: activity.ours });
       const refusal = staffRefusal(staff);
       if (refusal === null) return 'clear';
@@ -1014,7 +1029,10 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       }
       if (isRepeatedComment(comment, earlier.earlier)) advert = { advert: true, signals: ['repeated'] };
     }
-    const staff = staffHandled({ comment, pageComments: staffActivity.pageComments, ours: staffActivity.ours });
+    // The decision counts probably-ours as ours (D-166): the thread is answered, not staff-handled.
+    const staff = staffHandled({
+      comment, pageComments: staffActivity.pageComments, ours: new Set([...staffActivity.ours, ...staffActivity.probablyOurs]),
+    });
     // The rule's own lines (D-144), when the rules that fired agree on one pair, both rows are
     // reviewed, and the policy sends both — a public line saying the details went by chat has
     // no business on a channel that does not send them. Otherwise the general pair, exactly as
@@ -1370,8 +1388,9 @@ async function sendPublic(
     return 'done';
   }
   // A row that failed before may have been created by Meta anyway: a retryable 5xx can come
-  // back after the comment exists. Its notice is checked before it is posted again (D-166
-  // review); a match marks it `sent` and nothing is posted. Unreadable posts nothing: the row
+  // back after the comment exists. Any identical Page comment under the thread is checked
+  // before it is posted again, however late (D-166 review): inside the normal window the row is
+  // marked `sent` (probably ours), past it `refused`; either way nothing is posted. Unreadable posts nothing: the row
   // goes back to `failed` for the next delivery. Instagram sends no notice, so it cannot be
   // checked there.
   if (held.attempts > 0 && (input.provider ?? 'facebook_page') === 'facebook_page') {
@@ -1384,9 +1403,16 @@ async function sendPublic(
       result.retry = true;
       return 'retry';
     }
-    if (prior.reconciled) {
+    if (prior.outcome === 'sent') {
       fx.log('info', 'comment_reply_reconciled_before_resend', { commentId });
       result.reconciled += 1;
+      return 'done';
+    }
+    if (prior.outcome === 'refused') {
+      // An identical Page comment exists but cannot be shown to be ours: never posted again,
+      // never given its id (D-166 re-review).
+      fx.log('warn', 'comment_resend_refused_identical_exists', { commentId });
+      count(result.refused, 'send_failed');
       return 'done';
     }
   }

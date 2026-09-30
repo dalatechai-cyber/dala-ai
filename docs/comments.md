@@ -400,9 +400,10 @@ late. No alert fired.
   same tenant, the channel's Page as both the entry and the author, an `add`, `parent_id` =
   `dedup_key` (the thread root only; the row does not store the in-thread comment id the reply
   was POSTed to), the same text (NFC, trimmed), and a `created_time` from 60 s before the draft
-  to 10 minutes after it. There is no match without a `created_time`. Only `sending`,
-  `indeterminate` and `failed` rows move, to `sent` with the notice's id, in one UPDATE whose
-  WHERE carries the state. There are three readers:
+  to 10 minutes after it. There is no match without a `created_time`. The arrival path and
+  the sweep move only `sending` and `indeterminate` rows (our POST left and got no answer), to
+  `sent` with the notice's id, in one UPDATE whose WHERE carries the state. A `failed` row is
+  settled only by the check before its re-send. There are three readers:
   - The comment worker runs on every Page `feed` entry, before deciding the entry's own
     comments, so a notice that lands while our 25 s POST is still open moves the row from
     `sending`. The sender's own `markSent`/`markIndeterminate` CAS on `sending` and then match
@@ -410,12 +411,23 @@ late. No alert fired.
   - The hourly health run sweeps every public reply still `indeterminate`, or `sending` with an
     expired lease (a run killed after the POST), since 00:00 yesterday (Ulaanbaatar). It
     checks them against the stored `webhook_events` with one read per channel, capped at 100
-    rows and 1,000 Page comments per channel.
-  - Before a row that failed before is posted again, its stored notices are read (a retryable
-    5xx can come back after Meta created the comment). A match marks it `sent`. An unreadable
-    check posts nothing. The staff check counts a Page comment that matches one of our
-    unfinished rows as ours, not as staff. The result therefore does not depend on
-    which arrived first, or on whether the notice's own job managed the write.
+    rows and 1,000 Page comments per channel. The result therefore does not depend on which
+    arrived first, or on whether the notice's own job managed the write.
+  - Before a row that failed before is posted again (a retryable 5xx can come back after Meta
+    created the comment), every identical Page comment under the thread is read, with no
+    upper time bound. Inside the normal window the row is marked `sent` with that id, tagged
+    `matched before a re-send`, because the author is likely but not proven to be us. Past the
+    window it is marked `refused` («an identical Page comment already exists»), never given
+    someone else's id. Either way nothing is posted. An unreadable check posts nothing.
+- **Ours, probably ours, and staff.** The staff check keeps two sets apart:
+  - **Proven ours** is a comment whose id one of our rows got from Meta's answer, or from
+    reconciling a `sending` or `indeterminate` row.
+  - **Probably ours** is a Page comment that matches one of our unfinished rows by text and
+    time, or a row the re-send check marked `sent`.
+  - The DECISION counts probably-ours as ours: the thread reads as answered, and no false
+    `staff_replied` flag is written.
+  - Every check BEFORE A SEND, the private message included, counts it as STAFF and refuses. A
+    person may have pasted our line, and being unsure is not "clear".
   - Nothing here posts. `indeterminate` stays outside `CLAIMABLE`, and a reconciled row is `sent`.
 - **Unconfirmed replies are visible.** A public reply still parked (`indeterminate`, or `sending` with an expired lease) with no matching
   notice ten minutes after its draft is "unconfirmed" (the draft's `created_at` stands in for the

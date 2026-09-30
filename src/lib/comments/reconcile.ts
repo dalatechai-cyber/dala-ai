@@ -30,10 +30,12 @@
  * `comment_id` column), so there is nothing else to compare with. All nine measured notices
  * carried the root. Such a row stays parked and is counted as unconfirmed.
  *
- * Only `sending`, `indeterminate` and `failed` rows move. `failed` is included (D-166 review)
- * because a retryable 5xx can come back after Meta created the comment; a failed row whose
- * notice matches was posted, and re-sending it would post it twice. `draft` was never posted
- * by us, `sent` already has its id, and `refused` was decided against. The move is one UPDATE
+ * The arrival path and the sweep move only `sending` and `indeterminate` rows: our POST left
+ * and got no answer, so a matching notice is ours. A `failed` row got an ERROR answer, so a
+ * matching Page comment may be a person's paste (D-166 re-review); it is settled only by the
+ * check before its re-send (`reconcileHeldReply`), which posts nothing on any match and gives
+ * the row that id only inside the normal window. `draft` was never posted by us, `sent`
+ * already has its id, and `refused` was decided against. The move is one UPDATE
  * whose WHERE clause carries the state, so it cannot interleave with the sender:
  *
  *  - **notice first, while the POST is still open** (possible now that the wait is 25 s):
@@ -59,7 +61,8 @@
  * 3. **Before a re-send** (`reconcileHeldReply`, D-166 review). A `failed` row is claimable,
  *    and a retryable failure (a 5xx) can come back after Meta created the comment. So a row
  *    that failed before is checked against the stored notices after it is claimed and before it
- *    is posted again; a match marks it `sent` and nothing is posted. An unreadable check posts
+ *    is posted again, with no upper time bound; any match posts nothing (`sent` inside the
+ *    window, `refused` past it). An unreadable check posts
  *    nothing and leaves the row for the next delivery.
  *
  * A failure on arrival is logged and does NOT fail the comment job: nothing is lost by
@@ -183,6 +186,12 @@ export function sameReplyText(a: string, b: string): boolean {
 export function matchNotice(
   row: { dedupKey: string; body: string; createdAt: Date },
   notices: readonly OwnReplyNotice[],
+  /**
+   * `false` only for the check before a re-send (`reconcileHeldReply`): there ANY identical Page
+   * comment under the thread must stop the post, however late, so the ten-minute bound is not
+   * applied. A match past it never becomes `sent` (see there).
+   */
+  opts: { upperBound: boolean } = { upperBound: true },
 ): OwnReplyNotice | null {
   for (const n of notices) {
     if (n.parentId !== row.dedupKey) continue;
@@ -192,11 +201,30 @@ export function matchNotice(
     if (n.createdAt === null || Number.isNaN(n.createdAt.getTime())) continue;
     const at = n.createdAt.getTime();
     const drafted = row.createdAt.getTime();
-    if (at < drafted - NOTICE_CLOCK_SLACK_MS || at > drafted + NOTICE_MAX_AFTER_DRAFT_MS) continue;
+    if (at < drafted - NOTICE_CLOCK_SLACK_MS) continue;
+    if (opts.upperBound && at > drafted + NOTICE_MAX_AFTER_DRAFT_MS) continue;
     return n;
   }
   return null;
 }
+
+/** Is the notice inside the normal window: 60 s before the draft to 10 minutes after it? */
+export function inNoticeWindow(notice: OwnReplyNotice, draftedAt: Date): boolean {
+  if (notice.createdAt === null || Number.isNaN(notice.createdAt.getTime())) return false;
+  const at = notice.createdAt.getTime();
+  return at >= draftedAt.getTime() - NOTICE_CLOCK_SLACK_MS && at <= draftedAt.getTime() + NOTICE_MAX_AFTER_DRAFT_MS;
+}
+
+/**
+ * The `refused_reason` prefix of a row the re-send check marked `sent` (D-166 re-review). Such
+ * a row was `failed`, so its author is NOT proven: a person may have pasted the same line.
+ * `worker/comments.ts` reads the prefix and treats that Page comment as "probably ours" —
+ * ours for the decision, staff for every check before a send.
+ */
+export const RESEND_MATCH_REASON_PREFIX = 'matched before a re-send: ';
+
+/** The reason a re-send is refused when an identical Page comment exists but cannot be ours. */
+export const IDENTICAL_EXISTS_REASON = 'an identical Page comment already exists';
 
 type ParkedRow = {
   id: string; tenantId: string; channelId: string | null; dedupKey: string;
@@ -222,7 +250,7 @@ function parkedRow(r: Record<string, unknown>): ParkedRow {
  * Returns whether THIS call moved it.
  */
 async function markReconciled(
-  db: SupabaseClient, row: ParkedRow, notice: OwnReplyNotice, now: Date,
+  db: SupabaseClient, row: ParkedRow, notice: OwnReplyNotice, now: Date, reasonPrefix = '',
 ): Promise<{ ok: true; moved: boolean } | { ok: false; detail: string }> {
   const { data, error } = await db
     .from('outbound_messages')
@@ -235,7 +263,7 @@ async function markReconciled(
       sent_at: (notice.createdAt ?? now).toISOString(),
       lease_until: null,
       // Kept, not cleared: why it was parked is the evidence a person may still want.
-      refused_reason: `reconciled from Meta's feed notice ${notice.commentId} (was ${row.state}${row.refusedReason === null ? '' : `: ${row.refusedReason}`})`,
+      refused_reason: `${reasonPrefix}reconciled from Meta's feed notice ${notice.commentId} (was ${row.state}${row.refusedReason === null ? '' : `: ${row.refusedReason}`})`,
     })
     .eq('id', row.id)
     .eq('tenant_id', row.tenantId)
@@ -253,7 +281,7 @@ export type ReconcileOutcome =
 
 /**
  * The fast path: the Page's own comments in the entry being processed, matched to this
- * channel's public replies that are `sending`, `indeterminate` or `failed`. One read when the entry
+ * channel's public replies that are `sending` or `indeterminate`. One read when the entry
  * carries a Page comment with a parent; none otherwise.
  */
 export async function reconcileFromEntry(
@@ -269,7 +297,7 @@ export async function reconcileFromEntry(
     .eq('channel_id', input.channelId)
     .eq('kind', 'comment_reply')
     .in('dedup_key', [...new Set(notices.map((n) => n.parentId))])
-    .in('state', ['sending', 'indeterminate', 'failed']);
+    .in('state', ['sending', 'indeterminate']);
   if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
   let reconciled = 0;
   let mismatched = 0;
@@ -277,7 +305,10 @@ export async function reconcileFromEntry(
     const row = parkedRow(raw as Record<string, unknown>);
     // Re-checked here rather than trusted from the filter: a row this function did not ask
     // for must not be moved because a stub or a transport returned it.
-    if (row.tenantId !== input.tenantId || !['sending', 'indeterminate', 'failed'].includes(row.state)) continue;
+    // Not `failed` (D-166 re-review): a failed row's POST was answered with an error, so a
+    // matching Page comment may be a person's paste. That row is settled only by the check
+    // before its re-send, which never gives it someone else's id on a guess.
+    if (row.tenantId !== input.tenantId || (row.state !== 'sending' && row.state !== 'indeterminate')) continue;
     const notice = matchNotice(row, notices);
     if (notice === null) {
       if (notices.some((n) => n.parentId === row.dedupKey)) mismatched += 1;
@@ -439,14 +470,21 @@ export async function scanParkedReplies(
   return { ok: true, ...out };
 }
 
-export type HeldReconcile = { ok: true; reconciled: boolean } | { ok: false; detail: string };
+export type HeldReconcile =
+  /** `none`: no identical Page comment, post. `sent` / `refused`: settled, do NOT post. */
+  | { ok: true; outcome: 'none' | 'sent' | 'refused' }
+  | { ok: false; detail: string };
 
 /**
  * The check before a RE-send (D-166 review). A `failed` public reply is claimable, and a
  * retryable failure (a 5xx) can come back after Meta already created the comment. So before a
- * row that has failed before is posted again, the stored notices are read; on a match the row
- * is marked `sent` with the notice's id and nothing is posted. The row must be `sending` (held
- * by the caller's claim). Unreadable is `ok: false`, and the caller must not post.
+ * row that has failed before is posted again, the stored notices are read, with NO upper time
+ * bound (D-166 re-review): an identical Page comment under the thread stops the post however
+ * late it is. Inside the normal window (60 s before to 10 minutes after the draft) the row is
+ * marked `sent` with that id and `RESEND_MATCH_REASON_PREFIX`, because the author is likely but
+ * not proven to be us. Past the window it is marked `refused` (`IDENTICAL_EXISTS_REASON`): not
+ * posted, and not given someone else's id. The row must be `sending` (held by the caller's
+ * claim). Unreadable is `ok: false`, and the caller must not post.
  */
 export async function reconcileHeldReply(
   db: SupabaseClient,
@@ -461,19 +499,30 @@ export async function reconcileHeldReply(
   if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
   if (data === null) return { ok: false, detail: 'held row not found' };
   const row = parkedRow(data as Record<string, unknown>);
-  if (row.state !== 'sending' || row.dedupKey === '' || input.pageId === '') return { ok: true, reconciled: false };
+  if (row.state !== 'sending' || row.dedupKey === '' || input.pageId === '') return { ok: true, outcome: 'none' };
   const read = await readPageNotices(db, {
     tenantId: input.tenantId, pageId: input.pageId, parentId: row.dedupKey,
     since: new Date(row.createdAt.getTime() - NOTICE_LOOKBACK_MS),
   });
   if (!read.ok) return read;
-  const notice = matchNotice(row, read.notices);
-  if (notice === null) return { ok: true, reconciled: false };
-  const moved = await markReconciled(db, row, notice, input.now);
-  if (!moved.ok) return { ok: false, detail: moved.detail };
-  // Posted, whether this call moved the row or another reconciler got there first: either way
-  // the caller must not post it again.
-  return { ok: true, reconciled: true };
+  const notice = matchNotice(row, read.notices, { upperBound: false });
+  if (notice === null) return { ok: true, outcome: 'none' };
+  if (inNoticeWindow(notice, row.createdAt)) {
+    const moved = await markReconciled(db, row, notice, input.now, RESEND_MATCH_REASON_PREFIX);
+    if (!moved.ok) return { ok: false, detail: moved.detail };
+    // Whether this call moved the row or another reconciler got there first, it must not be
+    // posted again.
+    return { ok: true, outcome: 'sent' };
+  }
+  const { error: rErr } = await db
+    .from('outbound_messages')
+    .update({ state: 'refused', refused_reason: `${IDENTICAL_EXISTS_REASON} (${notice.commentId})`, lease_until: null })
+    .eq('id', row.id)
+    .eq('tenant_id', row.tenantId)
+    .eq('kind', 'comment_reply')
+    .eq('state', 'sending');
+  if (rErr) return { ok: false, detail: `outbound_messages refuse failed: ${rErr.message}` };
+  return { ok: true, outcome: 'refused' };
 }
 
 /** Unconfirmed replies grouped by tenant and Ulaanbaatar day (of the draft). */

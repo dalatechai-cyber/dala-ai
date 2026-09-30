@@ -5,7 +5,10 @@
 -- 2026-09-30: 9 of 13 public replies since 27 Sep, all on one tenant, each with exactly one
 -- matching notice. This file names no tenant: it reconciles whatever the notices prove.
 --
--- A row moves only when ALL of these hold (the same rule as `src/lib/comments/reconcile.ts`):
+-- A row moves only when ALL of these hold. This is the rule of the hourly sweep in
+-- `src/lib/comments/reconcile.ts` (`scanParkedReplies`), NOT the whole of that file: it never
+-- moves a `failed` row, and it has no counterpart of the check before a re-send
+-- (`reconcileHeldReply`, which may also refuse a row). `failed` rows are left to that check.
 --   * outbound_messages.kind = 'comment_reply', and state = 'indeterminate', or 'sending' with an
 --     expired lease (a run killed after the POST; no claim ever picks it up again);
 --   * a stored webhook_events entry of the SAME tenant, whose `id` is the row's channel's Page

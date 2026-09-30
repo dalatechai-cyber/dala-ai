@@ -289,17 +289,20 @@ test('D-166 review: a retryable 5xx after Meta created the comment is never post
   assert.equal(r1.retry, true);
   assert.equal(publicRows(h.s)[0]?.['state'], 'failed');
 
-  // Meta's notice arrives: its own job matches the `failed` row and marks it sent.
+  // Meta's notice arrives. Its own job leaves a `failed` row alone (D-166 re-review): the
+  // author of a Page comment matching a failed POST is not proven.
   const stored = entry([notice(1)]);
   h.s.rows('webhook_events').push({ id: 1, tenant_id: TENANT, received_at: NOW.toISOString(), raw_payload: stored });
   const n = await runCommentJob(fx5xx, job(stored));
-  assert.equal(n.reconciled, 1);
+  assert.equal(n.reconciled, 0);
+  assert.equal(publicRows(h.s)[0]?.['state'], 'failed');
 
   // QStash redelivers the customer's entry: nothing is posted, and our own reply is not
   // mistaken for staff.
   const r2 = await runCommentJob(h.fx(async () => { throw new Error('must not post twice'); }), job(entry([customer(1)])));
   assert.equal(r2.retry, false);
   assert.equal(r2.refused['staff_replied'], undefined, 'our reply is ours, not a person\'s');
+  assert.equal(r2.reconciled, 1, 'settled by the check before the re-send');
   assert.equal(h.posted.length, 1, 'the one 5xx attempt, never a second post');
   assert.equal(publicRows(h.s)[0]?.['state'], 'sent');
   assert.equal(publicRows(h.s)[0]?.['provider_message_id'], `${PAGE}_r1`);
@@ -355,4 +358,51 @@ test('D-166 review: a notice STORED but never processed is found by the re-send 
   assert.equal(publicRows(h.s)[0]?.['state'], 'sent');
   assert.equal(publicRows(h.s)[0]?.['provider_message_id'], `${PAGE}_r1`);
   assert.equal(h.s.rows('quality_flags').filter((f) => f['flag'] === 'comment_staff_answered').length, 0);
+});
+
+test('D-166 re-review: a staff PASTE of our line, after our POST failed, never lets the private message go', async () => {
+  const h = harness();
+  const privates: string[] = [];
+  const fxWith = (send: (id: string) => Promise<CommentSendOutcome>) => ({
+    ...h.fx(send),
+    sendPrivateReply: async (a: { commentId: string }) => { privates.push(a.commentId); return { outcome: 'sent' as const, providerMessageId: 'm1' }; },
+  });
+  const both = (raw: unknown) => job(raw, { config: { policy: 'both', maxPostAgeDays: 30, ignoreCommenterIds: [], repliesPerPostPerDay: 5 } });
+  // Our public POST fails with a 5xx and Meta did NOT create it; the private message waits.
+  const r1 = await runCommentJob(fxWith(async () => ({
+    outcome: 'failed', failure: 'transient', retryable: true, code: 2, subcode: null, status: 500, detail: 'graph 500',
+  })), both(entry([customer(1)])));
+  assert.equal(r1.retry, true);
+  assert.equal(privates.length, 0);
+
+  // A person answers from the Page by pasting the very same line, two minutes later.
+  const paste = entry([notice(1, { comment_id: `${PAGE}_staff`, created_time: Math.floor(NOW.getTime() / 1000) + 120 })]);
+  h.s.rows('webhook_events').push({ id: 1, tenant_id: TENANT, received_at: NOW.toISOString(), raw_payload: paste });
+  await runCommentJob(fxWith(async () => { throw new Error('never'); }), both(paste));
+
+  // QStash redelivers the customer's entry.
+  await runCommentJob(fxWith(async () => { throw new Error('must not post twice'); }), both(entry([customer(1)])));
+  assert.equal(privates.length, 0, 'the customer a person answered gets no private message');
+  assert.equal(h.posted.length, 1, 'and no second public post');
+  const priv = h.s.rows('outbound_messages').find((r) => r['kind'] === 'private_reply');
+  assert.equal(priv?.['state'], 'refused');
+});
+
+test('D-166 re-review: an identical Page comment DAYS later still stops the re-send, and the row is refused, not sent', async () => {
+  const h = harness();
+  await runCommentJob(h.fx(async () => ({
+    outcome: 'failed', failure: 'transient', retryable: true, code: 2, subcode: null, status: 500, detail: 'graph 500',
+  })), job(entry([customer(1)])));
+  // Three days later the same line appears under the comment (a person pasted it).
+  const later = Math.floor(NOW.getTime() / 1000) + 3 * 86_400;
+  h.s.rows('webhook_events').push({ id: 1, tenant_id: TENANT, received_at: new Date(later * 1000).toISOString(),
+    raw_payload: entry([notice(1, { comment_id: `${PAGE}_staff`, created_time: later })]) });
+  // Another customer replies inside the thread, which resumes the thread's failed row.
+  const inThread = customer(2, { comment_id: `${PAGE}_c2`, post_id: `${PAGE}_p1`, parent_id: `${PAGE}_c1` });
+  await runCommentJob(h.fx(async () => { throw new Error('must not post'); }), job(entry([inThread])));
+  assert.equal(h.posted.length, 1, 'only the original attempt');
+  const row = publicRows(h.s)[0];
+  assert.equal(row?.['state'], 'refused');
+  assert.match(String(row?.['refused_reason']), /^an identical Page comment already exists/);
+  assert.equal(row?.['provider_message_id'] ?? null, null, 'never someone else\'s id');
 });

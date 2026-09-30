@@ -11511,13 +11511,12 @@ drafts unsent and pages through the existing exhaustion alert.
   daily count and the backfill: it is reconciled, or counted as unconfirmed. A row with a live
   lease is never read or counted.
 - **Retryable failures.** A retryable 5xx can come back after Meta created the comment.
-  - The on-arrival path also moves a `failed` row whose notice matches.
-  - A Page comment that matches one of our unfinished rows now counts as ours in the staff
-    check, not as staff. Before this, the redelivery refused the thread as `staff_replied` and
-    flagged a reply no person wrote.
+  - A Page comment that matches one of our unfinished rows is "probably ours" (see the second
+    addendum). Before this, the redelivery refused the thread as `staff_replied` and flagged a
+    reply no person wrote.
   - When a row that failed before is re-claimed, its notices are read before it is posted
-    again. A match marks it `sent` and posts nothing. An unreadable check posts nothing and
-    returns the row to `failed`.
+    again, and a match posts nothing. An unreadable check posts nothing and returns the row to
+    `failed`.
   - Still open: a redelivery that arrives before Meta's notice cannot know, and re-posts, as it
     did before.
 - **Sweep cost.** The sweep reads notices once per channel, not once per row. It is bounded to
@@ -11527,3 +11526,24 @@ drafts unsent and pages through the existing exhaustion alert.
   store the comment id the reply was POSTed to: there is no `comment_id` column, and no
   migration was added. If Meta ever reports the in-thread comment as `parent_id`, that row stays
   parked and is counted as unconfirmed. All nine measured notices carried the root.
+
+**Second review addendum (2026-09-30).**
+
+- **Text is not authorship.** A Page comment that matches one of our rows only by text and time
+  is kept apart as "probably ours". This covers an unfinished row, and a row the re-send check
+  marked `sent`, which is tagged `matched before a re-send:` in `refused_reason`.
+  - The decision treats it as ours, so no false `staff_replied` is written.
+  - Every staff check before a send, the private message included, treats it as staff and
+    refuses. A person may have pasted our line, and that customer must not get a private
+    message.
+  - The arrival path no longer moves `failed` rows: after an error answer, a matching comment
+    could be a person's.
+- **No upper bound before a re-send.** The check before a `failed` row is re-posted accepts an
+  identical Page comment under the thread however late it is.
+  - Inside the normal window (−60 s to +10 min) the row becomes `sent` with that id and the tag
+    above.
+  - Past the window the row becomes `refused` («an identical Page comment already exists»),
+    with no id.
+  - Nothing is posted in either case.
+- **The backfill SQL** moves only `indeterminate` rows and `sending` rows with an expired lease.
+  It never moves `failed` rows, and it has no re-send check.
