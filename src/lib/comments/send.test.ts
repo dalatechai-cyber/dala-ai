@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { REPLY_EDGE, sendCommentReply, type CommentSendInput } from './send.ts';
+import { COMMENT_REPLY_TIMEOUT_MS, REPLY_EDGE, sendCommentReply, type CommentSendInput } from './send.ts';
+import { DEFAULT_SEND_TIMEOUT_MS } from '../meta/send.ts';
 
 const TOKEN = 'EAAsecretPageTokenThatMustNeverAppear';
 const COMMENT_ID = '100000000000001_c1';
@@ -175,4 +176,31 @@ test('D-145: an Instagram comment is answered at /replies', async () => {
   const r = await sendCommentReply({ commentId: '1789', body: 'Сайн байна уу!', token: 't', graphVersion: 'v21.0', edge: 'replies', fetchImpl });
   assert.equal(r.outcome, 'sent');
   assert.ok(urls[0]?.endsWith('/1789/replies'));
+});
+
+test('D-166: a public reply waits 25 s, not the shared 10 s, before it is indeterminate', async (t) => {
+  // Measured: Meta created the comment at once and answered the POST after more than 10 s,
+  // so a 10 s wait parked 9 of 13 replies that had all posted. The DM send keeps its 10 s.
+  assert.equal(COMMENT_REPLY_TIMEOUT_MS, 25_000);
+  assert.equal(DEFAULT_SEND_TIMEOUT_MS, 10_000, 'the shared DM timeout is unchanged');
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let aborted = false;
+  const fetchImpl = ((_url: unknown, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    init.signal?.addEventListener('abort', () => {
+      aborted = true;
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    });
+  })) as unknown as typeof fetch;
+  const out = sendCommentReply({ ...base, fetchImpl });
+  await Promise.resolve();
+  t.mock.timers.tick(DEFAULT_SEND_TIMEOUT_MS);
+  await Promise.resolve();
+  assert.equal(aborted, false, 'still waiting at 10 s');
+  t.mock.timers.tick(COMMENT_REPLY_TIMEOUT_MS - DEFAULT_SEND_TIMEOUT_MS - 1);
+  await Promise.resolve();
+  assert.equal(aborted, false, 'still waiting at 24.999 s');
+  t.mock.timers.tick(1);
+  const r = await out;
+  assert.equal(aborted, true, 'given up at 25 s');
+  assert.equal(r.outcome, 'indeterminate', 'never failed, so never retried');
 });

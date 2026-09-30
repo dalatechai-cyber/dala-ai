@@ -11455,3 +11455,95 @@ Passing a chat to a person (`pass_thread_control`) stays unbuilt.
   `tenant_booking.booking_url` do. All three must change the day the new Tara domain goes
   live (`docs/tenants/tara-yarmag.md`, rebrand checklist).
 
+
+## D-166 — Public comment replies: wait 25 s, reconcile from Meta's notice, count and page the unconfirmed (2026-09-30, founder)
+
+**Measured.** 9 of 13 public comment replies since 27 September timed out at 10 s and were parked
+`indeterminate`, all on one tenant. Every one had in fact posted exactly once. Meta's `feed`
+notice of the Page's own comment (the same `parent_id`, byte-identical text, `created_time` in the
+draft's second) arrived 16–29 s after the draft. Nothing read it and nothing alerted.
+
+**Decided and built.**
+
+1. **The public reply's POST waits 25 s** (`COMMENT_REPLY_TIMEOUT_MS`). It is its own constant, so
+   the private reply and every DM keep the shared 10 s (`DEFAULT_SEND_TIMEOUT_MS`, unchanged).
+2. **Reconcile, never retry.** A parked (or still `sending`) public reply becomes `sent`, with the
+   notice's comment id as `provider_message_id`, only when a stored notice matches it exactly:
+   same tenant, the channel's Page, `add`, `parent_id = dedup_key`, same text (NFC, trimmed),
+   stamped no more than 60 s before the draft. The move is a single UPDATE conditioned on the
+   state. The sender's `markSent`/`markIndeterminate` already condition on `sending`, so either
+   ordering ends `sent` exactly once and a late timeout cannot overwrite it. There are two readers.
+   The comment worker reads each Page `feed` entry as it arrives; this is fast and catches the
+   notice while the POST is still open. The hourly health run sweeps stored `webhook_events`,
+   which is robust because it matches a notice stored before the row was parked, or one whose
+   job failed. The nine existing rows are fixed by
+   `scripts/provision/comment-reply-reconcile-2026-09-30.sql`. It is idempotent, verified
+   locally, and not applied by the session that wrote it.
+3. **"Never retry" is unchanged.** Nothing in this change posts. `indeterminate` stays outside
+   `CLAIMABLE`.
+4. **The comment job has a time budget.** It has 50 s of the route's 60 s. A lookup or send starts
+   only if its own timeout plus 5 s fits. Otherwise the job stops before the claim and 503s
+   (`worker.comment_deferred`), and the redelivery sends the stored draft through the same claim.
+   Flags are looked up before they are written, so a redelivery does not count a comment twice.
+   The Instagram poll worker never sends (it enqueues entries) and already had its own 40 s
+   budget. Each Instagram comment is its own reception job.
+5. **Unconfirmed replies are not silent.** A public reply is unconfirmed when it is still
+   `indeterminate` with no matching notice ten minutes after its draft. The draft's `created_at`
+   stands in for the attempt time, which is not stored. The daily report prints the count per
+   tenant every day, or UNREADABLE. The hourly health run pages (`comment_reply.unconfirmed`,
+   `warn`, `route: 'now'`) at a tenant's third unconfirmed reply in one Ulaanbaatar day. It uses
+   `repeat: 'daily'` with the day in the key (D-063). This is an event about a day, not an
+   `on_change` episode, because nothing observes a parked reply becoming confirmed, so an episode
+   would have no closer.
+
+**Not covered.** Instagram replies (no notice reaches this platform) are always counted as
+unconfirmed. An entry that needs more than QStash's three deliveries' worth of slow sends leaves
+drafts unsent and pages through the existing exhaustion alert.
+
+**Review addendum (2026-09-30).**
+
+- **Upper time bound.** A notice must carry a `created_time` between 60 s before the draft and
+  10 minutes after it. A missing or unparseable stamp is no match. Staff pasting the same line
+  days later can therefore never reconcile a row. A draft sent more than 10 minutes after it
+  was written is never reconciled and is counted as unconfirmed instead, which is the safe
+  direction. The backfill SQL applies the same bound, with the cast guarded inside a CASE.
+- **Killed runs.** A `sending` row whose lease has expired is treated as parked by the sweep, the
+  daily count and the backfill: it is reconciled, or counted as unconfirmed. A row with a live
+  lease is never read or counted.
+- **Retryable failures.** A retryable 5xx can come back after Meta created the comment.
+  - A Page comment that matches one of our unfinished rows is "probably ours" (see the second
+    addendum). Before this, the redelivery refused the thread as `staff_replied` and flagged a
+    reply no person wrote.
+  - When a row that failed before is re-claimed, its notices are read before it is posted
+    again, and a match posts nothing. An unreadable check posts nothing and returns the row to
+    `failed`.
+  - Still open: a redelivery that arrives before Meta's notice cannot know, and re-posts, as it
+    did before.
+- **Sweep cost.** The sweep reads notices once per channel, not once per row. It is bounded to
+  100 parked rows and 1,000 stored Page comments per channel, and either cap is reported. It
+  cannot starve the reclaim step that runs after it.
+- **In-thread replies.** `parent_id` is compared with the thread root only. The row does not
+  store the comment id the reply was POSTed to: there is no `comment_id` column, and no
+  migration was added. If Meta ever reports the in-thread comment as `parent_id`, that row stays
+  parked and is counted as unconfirmed. All nine measured notices carried the root.
+
+**Second review addendum (2026-09-30).**
+
+- **Text is not authorship.** A Page comment that matches one of our rows only by text and time
+  is kept apart as "probably ours". This covers an unfinished row, and a row the re-send check
+  marked `sent`, which is tagged `matched before a re-send:` in `refused_reason`.
+  - The decision treats it as ours, so no false `staff_replied` is written.
+  - Every staff check before a send, the private message included, treats it as staff and
+    refuses. A person may have pasted our line, and that customer must not get a private
+    message.
+  - The arrival path no longer moves `failed` rows: after an error answer, a matching comment
+    could be a person's.
+- **No upper bound before a re-send.** The check before a `failed` row is re-posted accepts an
+  identical Page comment under the thread however late it is.
+  - Inside the normal window (−60 s to +10 min) the row becomes `sent` with that id and the tag
+    above.
+  - Past the window the row becomes `refused` («an identical Page comment already exists»),
+    with no id.
+  - Nothing is posted in either case.
+- **The backfill SQL** moves only `indeterminate` rows and `sending` rows with an expired lease.
+  It never moves `failed` rows, and it has no re-send check.

@@ -38,6 +38,30 @@
  * corpus shows is what going live would have done. The row stays `draft` and therefore
  * claimable, which is the same disposition `worker/reception.ts` gives a withheld DM.
  *
+ * ## The time budget (D-166)
+ *
+ * The worker route has `maxDuration = 60`, and one `feed` entry may carry several comments.
+ * Each one can cost a Graph lookup (`LOOKUP_TIMEOUT_MS`, 5 s), a private reply (the shared
+ * 10 s) and a public reply (`COMMENT_REPLY_TIMEOUT_MS`, 25 s since D-166). Two slow public
+ * replies alone are 50 s, so without a budget the platform kills the run mid-send — after the
+ * POST left and before the row was marked, which is a `sending` row nobody re-claims until
+ * its lease lapses, and every comment after it starved.
+ *
+ * So the job is given `msLeft` (what remains of `COMMENT_JOB_BUDGET_MS`, measured from the
+ * start of the reception job), and nothing slow STARTS unless it can finish inside the
+ * budget with `BUDGET_MARGIN_MS` to spare: before each lookup, and before each claim. What
+ * does not fit is DEFERRED — the job stops and asks for a 503, so QStash redelivers the
+ * entry. Deferring happens before the claim, so the row is still `draft` (or not yet
+ * written); the redelivery finds the thread answered and `resumePending` sends the stored
+ * row through the same claim CAS. A row already `sent` or parked `indeterminate` is not
+ * claimable, so the redelivery cannot post anything twice, and the flags it would write
+ * again are written once (`recordCommentFlag` looks first). The first send of a run always
+ * fits (50 s > 25 s + 5 s), so every delivery makes progress.
+ *
+ * What it cannot do, stated: QStash delivers a job three times (`RECEPTION_MAX_DELIVERIES`).
+ * An entry that needs more than three runs' worth of slow sends ends with drafts left
+ * unsent, and the exhaustion alert pages the founder, as for any other job.
+ *
  * ## Why the reply text is read here and not in the reception context
  *
  * `loadReceptionContext` compiles a prompt snapshot, gate rules, deterministic replies and
@@ -49,13 +73,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { canDeliverComments } from '../channel/delivery.ts';
 import { extractComments, type InboundComment } from '../meta/comments.ts';
 import { decideAfterLookup, decideCommentReply, type CommentChannelConfig, type CommentRefusal } from '../comments/eligibility.ts';
-import type { CommentLookup } from '../comments/lookup.ts';
+import { LOOKUP_TIMEOUT_MS, type CommentLookup } from '../comments/lookup.ts';
 import { isAutomationText } from '../handover/automation.ts';
 import { pageCommentsIn, staffHandled, type PageComment, type StaffCheck } from '../comments/staff.ts';
 import { classifyComment, ruleAppliesTo, type CommentRule } from '../comments/classify.ts';
 import { advertByText, isRepeatedComment, mayBeRepeat, type AdvertCheck } from '../comments/advert.ts';
 import { cpLength } from '../mn/text.ts';
-import type { CommentSendOutcome } from '../comments/send.ts';
+import { COMMENT_REPLY_TIMEOUT_MS, type CommentSendOutcome } from '../comments/send.ts';
+import { DEFAULT_SEND_TIMEOUT_MS } from '../meta/send.ts';
+import { matchNotice, ownRepliesIn, reconcileFromEntry, reconcileHeldReply, RESEND_MATCH_REASON_PREFIX } from '../comments/reconcile.ts';
 import { claim, draftOnce, markFailed, markIndeterminate, markRefused, markSent } from '../outbound/claim.ts';
 import { MESSENGER_SEND_UNIT_COST } from '../../config/platform.ts';
 
@@ -216,6 +242,11 @@ export type CommentEffects = {
    * failing the job — a retry would re-run every comment in the entry.
    */
   alertComplaint: (args: { tenantId: string; commentId: string; text: string; link: string }) => Promise<void>;
+  /**
+   * Milliseconds left of this run's budget (D-166, the module note). Required, never
+   * defaulted: a default of "plenty" would assert a budget the caller never measured.
+   */
+  msLeft: () => number;
   log: (level: 'info' | 'warn' | 'error', event: string, fields?: Record<string, unknown>) => void;
 };
 
@@ -294,6 +325,13 @@ export type CommentJobResult = {
   >>;
   /** Extractor skips — the `feed` firehose, counted so its volume is visible. */
   skipped: string[];
+  /** Parked public replies this entry's own Page comments proved were posted (D-166). */
+  reconciled: number;
+  /**
+   * Sends and lookups not started because the run's budget could not fit them (D-166). Left
+   * for the redelivery `retry` asks for; nothing was claimed, so nothing is lost or doubled.
+   */
+  deferred: number;
   /** True when something transient failed and the caller must 503. */
   retry: boolean;
 };
@@ -377,6 +415,22 @@ async function recordCommentFlag(
     extra?: Record<string, number | string> | undefined;
   },
 ): Promise<void> {
+  // Once per comment, flag and occasion (D-166). A job that asks for a redelivery — a deferred
+  // send, a transient failure — re-decides every comment in the entry, and a second row for
+  // the same comment would count twice in the daily report. One read, made only when a flag
+  // is about to be written. An unreadable check writes anyway: a duplicate row is the
+  // recoverable error, a missing one is not.
+  const at = input.extra?.['at'];
+  const { data: seen, error: seenErr } = await fx.db
+    .from('quality_flags')
+    .select('id')
+    .eq('tenant_id', input.tenantId)
+    .eq('flag', input.flag)
+    .contains('detail', { comment_id: input.comment.commentId, ...(at === undefined ? {} : { at }) })
+    .limit(1)
+    .maybeSingle();
+  if (seenErr) fx.log('warn', 'comment_flag_dedup_unreadable', { flag: input.flag, detail: seenErr.message });
+  else if (seen !== null) return;
   const { error } = await fx.db.from('quality_flags').insert({
     tenant_id: input.tenantId,
     flag: input.flag,
@@ -573,8 +627,11 @@ async function repliesPerPost(
 async function readStaffActivity(
   db: SupabaseClient,
   input: { tenantId: string; pageId: string; postIds: readonly string[]; automationTexts?: readonly string[] },
-): Promise<{ ok: true; pageComments: PageComment[]; ours: Set<string> } | { ok: false; detail: string }> {
-  if (input.postIds.length === 0) return { ok: true, pageComments: [], ours: new Set() };
+): Promise<
+  | { ok: true; pageComments: PageComment[]; ours: Set<string>; probablyOurs: Set<string> }
+  | { ok: false; detail: string }
+> {
+  if (input.postIds.length === 0) return { ok: true, pageComments: [], ours: new Set(), probablyOurs: new Set() };
   const entries: unknown[] = [];
   for (const postId of input.postIds) {
     const { data, error } = await db
@@ -591,16 +648,50 @@ async function readStaffActivity(
   // 2026-09-26, «chat bicnuu» created in the same second as the comment it answered.
   const pageComments = pageCommentsIn(entries, input.pageId)
     .filter((c) => !isAutomationText(c.text, input.automationTexts ?? []));
-  if (pageComments.length === 0) return { ok: true, pageComments, ours: new Set() };
+  if (pageComments.length === 0) return { ok: true, pageComments, ours: new Set(), probablyOurs: new Set() };
   const { data, error } = await db
     .from('outbound_messages')
-    .select('provider_message_id')
+    .select('provider_message_id, refused_reason')
     .eq('tenant_id', input.tenantId)
     .eq('kind', 'comment_reply')
     .in('provider_message_id', pageComments.map((c) => c.commentId));
   if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
-  const ours = new Set((Array.isArray(data) ? data : []).map((r) => String((r as Record<string, unknown>)['provider_message_id'])));
-  return { ok: true, pageComments, ours };
+  const ours = new Set<string>();
+  const probablyOurs = new Set<string>();
+  for (const raw of Array.isArray(data) ? data : []) {
+    const r = raw as Record<string, unknown>;
+    // A row the re-send check marked `sent` was `failed`: its author is not proven (D-166
+    // re-review), so that comment stays "probably ours" for good.
+    const probable = typeof r['refused_reason'] === 'string' && r['refused_reason'].startsWith(RESEND_MATCH_REASON_PREFIX);
+    (probable ? probablyOurs : ours).add(String(r['provider_message_id']));
+  }
+  // Our own reply whose row does not carry its id yet — the POST timed out, a 5xx came back
+  // after Meta created it, or the run was killed — may be OURS rather than a person's (D-166
+  // review). Read as staff, it refused the thread as `staff_replied` and flagged a reply no
+  // person wrote. But a match by text and time does not prove the author: a person may have
+  // pasted the same line (D-166 re-review). So such a comment is kept apart, as "probably
+  // ours": the DECISION treats it as ours (thread answered, no false staff flag, and the resume
+  // path's re-send check settles the row without posting), while every check BEFORE A SEND
+  // treats it as staff and refuses — being unsure is not "clear".
+  const unclaimed = entries.flatMap((e) => ownRepliesIn(e, input.pageId))
+    .filter((n) => !ours.has(n.commentId) && !probablyOurs.has(n.commentId));
+  if (unclaimed.length > 0) {
+    const { data: pending, error: pErr } = await db
+      .from('outbound_messages')
+      .select('dedup_key, body, created_at, state')
+      .eq('tenant_id', input.tenantId)
+      .eq('kind', 'comment_reply')
+      .in('dedup_key', [...new Set(unclaimed.map((n) => n.parentId))])
+      .in('state', ['failed', 'sending', 'indeterminate']);
+    if (pErr) return { ok: false, detail: `outbound_messages unreadable: ${pErr.message}` };
+    for (const raw of Array.isArray(pending) ? pending : []) {
+      const r = raw as Record<string, unknown>;
+      if (typeof r['dedup_key'] !== 'string' || typeof r['body'] !== 'string') continue;
+      const n = matchNotice({ dedupKey: r['dedup_key'], body: r['body'], createdAt: new Date(String(r['created_at'])) }, unclaimed);
+      if (n !== null) probablyOurs.add(n.commentId);
+    }
+  }
+  return { ok: true, pageComments, ours, probablyOurs };
 }
 
 /**
@@ -675,6 +766,7 @@ function staffGateFor(
         fx.log('error', 'comment_staff_unreadable_before_send', { commentId: comment.commentId, detail: activity.detail });
         return 'unreadable';
       }
+      // Only PROVEN ours here: a probably-ours comment reads as staff before any send (D-166 re-review).
       const staff = staffHandled({ comment, pageComments: activity.pageComments, ours: activity.ours });
       const refusal = staffRefusal(staff);
       if (refusal === null) return 'clear';
@@ -708,6 +800,32 @@ async function holdForStaff(
   return 'retry';
 }
 
+/**
+ * The part of the route's 60 s (`maxDuration`) the comment job may plan to use, measured from
+ * the start of the reception job. The last 10 s are left for the writes after a send, the
+ * event's own bookkeeping and the response, so a send that runs to its full timeout still
+ * ends inside the limit.
+ */
+export const COMMENT_JOB_BUDGET_MS = 50_000;
+
+/** Head-room kept beyond a call's own timeout: the claim, the staff re-read, the mark after. */
+export const BUDGET_MARGIN_MS = 5_000;
+
+/**
+ * Can a call bounded by `timeoutMs` start now and still end inside the budget? If not, the
+ * job defers: counted, logged, and `retry` set so the caller 503s and QStash redelivers.
+ */
+function fitsOrDefer(
+  fx: CommentEffects, result: CommentJobResult, timeoutMs: number, what: 'lookup' | 'public_send' | 'private_send', commentId: string,
+): boolean {
+  const left = fx.msLeft();
+  if (left >= timeoutMs + BUDGET_MARGIN_MS) return true;
+  result.deferred += 1;
+  result.retry = true;
+  fx.log('warn', 'comment_deferred_for_budget', { commentId, what, msLeft: Math.round(left), needs: timeoutMs + BUDGET_MARGIN_MS });
+  return false;
+}
+
 /** The cap's window. A rolling 24 hours: see 0009 for why not a calendar day. */
 export const POST_CAP_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -718,6 +836,7 @@ function count(into: CommentJobResult['refused'], key: keyof CommentJobResult['r
 export async function runCommentJob(fx: CommentEffects, input: CommentJobInput): Promise<CommentJobResult> {
   const result: CommentJobResult = {
     replied: 0, privateSent: 0, drafted: 0, privateDrafted: 0, refused: {}, skipped: [], retry: false,
+    reconciled: 0, deferred: 0,
   };
 
   const provider: CommentProvider = input.provider ?? 'facebook_page';
@@ -725,6 +844,25 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
   const testers = new Set(input.commentMode === 'shadow' ? input.testSenderIds ?? [] : []);
   const { comments, skipped } = extractComments(input.rawPayload, selfId, provider);
   result.skipped = skipped;
+
+  // The Page's own comments, which `extractComments` skips as `comment_self`, are also Meta's
+  // notice that one of OUR public replies was posted (D-166, `comments/reconcile.ts`). Matched
+  // here, before anything is decided and whatever the comment switch says, so a reply parked
+  // `indeterminate` (or still `sending`) becomes `sent` with its real id seconds after the
+  // notice arrives. Nothing is posted. A failure is logged and the job goes on: the hourly
+  // sweep matches the stored notice later, and a 503 would re-run every comment in the entry.
+  if (provider === 'facebook_page') {
+    const rec = await reconcileFromEntry(fx.db, {
+      tenantId: input.tenantId, channelId: input.channelId, pageId: selfId, rawPayload: input.rawPayload, now: fx.now,
+    });
+    if (!rec.ok) {
+      fx.log('error', 'comment_reconcile_failed', { tenantId: input.tenantId, detail: rec.detail });
+    } else {
+      result.reconciled = rec.reconciled;
+      if (rec.reconciled > 0) fx.log('info', 'comment_reply_reconciled', { tenantId: input.tenantId, count: rec.reconciled });
+      if (rec.mismatched > 0) fx.log('warn', 'comment_notice_text_mismatch', { tenantId: input.tenantId, count: rec.mismatched });
+    }
+  }
   if (comments.length === 0) return result;
 
   // The COMMENT switch, not the DM one (D-122). `shadow` generates and withholds, exactly
@@ -891,7 +1029,10 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
       }
       if (isRepeatedComment(comment, earlier.earlier)) advert = { advert: true, signals: ['repeated'] };
     }
-    const staff = staffHandled({ comment, pageComments: staffActivity.pageComments, ours: staffActivity.ours });
+    // The decision counts probably-ours as ours (D-166): the thread is answered, not staff-handled.
+    const staff = staffHandled({
+      comment, pageComments: staffActivity.pageComments, ours: new Set([...staffActivity.ours, ...staffActivity.probablyOurs]),
+    });
     // The rule's own lines (D-144), when the rules that fired agree on one pair, both rows are
     // reviewed, and the policy sends both — a public line saying the details went by chat has
     // no business on a channel that does not send them. Otherwise the general pair, exactly as
@@ -996,6 +1137,8 @@ export async function runCommentJob(fx: CommentEffects, input: CommentJobInput):
     // --- The two facts the webhook does not carry: tags and the post's age (D-122). ---
     //
     // Read only now, for a comment already worth answering, so praise costs no request.
+    // Nothing is drafted yet, so a deferral here leaves nothing behind (D-166).
+    if (!fitsOrDefer(fx, result, LOOKUP_TIMEOUT_MS, 'lookup', comment.commentId)) return result;
     const lookup = await safeLookup(fx, input, comment);
     if (lookup.problems.length > 0) {
       fx.log('warn', 'comment_lookup_incomplete', { commentId: comment.commentId, problems: lookup.problems });
@@ -1145,6 +1288,7 @@ async function resumePending(
   }
   if (pub.id === null && priv.id === null) return 'done';
 
+  if (!fitsOrDefer(fx, result, LOOKUP_TIMEOUT_MS, 'lookup', comment.commentId)) return 'retry';
   const lookup = await safeLookup(fx, input, comment);
   const confirmed = decideAfterLookup({
     tagsPerson: lookup.tagsPerson, postCreatedAt: lookup.postCreatedAt,
@@ -1230,6 +1374,8 @@ async function sendPublic(
   fx: CommentEffects, input: CommentJobInput, commentId: string, rowId: string, result: CommentJobResult,
   gate: () => Promise<StaffGate>,
 ): Promise<'done' | 'retry'> {
+  // Before the claim, so a deferred row stays `draft` and the redelivery resumes it (D-166).
+  if (!fitsOrDefer(fx, result, COMMENT_REPLY_TIMEOUT_MS, 'public_send', commentId)) return 'retry';
   const held = await claim(fx.db, { id: rowId, tenantId: input.tenantId, now: fx.now });
   if (held.outcome === 'unavailable') {
     fx.log('error', 'comment_claim_unavailable', { detail: held.detail });
@@ -1240,6 +1386,35 @@ async function sendPublic(
     // Already sent, or another worker holds a live lease. Neither is an error.
     count(result.refused, 'thread_already_answered');
     return 'done';
+  }
+  // A row that failed before may have been created by Meta anyway: a retryable 5xx can come
+  // back after the comment exists. Any identical Page comment under the thread is checked
+  // before it is posted again, however late (D-166 review): inside the normal window the row is
+  // marked `sent` (probably ours), past it `refused`; either way nothing is posted. Unreadable posts nothing: the row
+  // goes back to `failed` for the next delivery. Instagram sends no notice, so it cannot be
+  // checked there.
+  if (held.attempts > 0 && (input.provider ?? 'facebook_page') === 'facebook_page') {
+    const prior = await reconcileHeldReply(fx.db, {
+      tenantId: input.tenantId, rowId: held.id, pageId: input.selfId ?? input.pageExternalId, now: fx.now,
+    });
+    if (!prior.ok) {
+      fx.log('error', 'comment_resend_check_unreadable', { commentId, detail: prior.detail });
+      await markFailed(fx.db, { id: held.id, tenantId: input.tenantId, attempts: held.attempts, reason: 'notice check unreadable before a re-send' });
+      result.retry = true;
+      return 'retry';
+    }
+    if (prior.outcome === 'sent') {
+      fx.log('info', 'comment_reply_reconciled_before_resend', { commentId });
+      result.reconciled += 1;
+      return 'done';
+    }
+    if (prior.outcome === 'refused') {
+      // An identical Page comment exists but cannot be shown to be ours: never posted again,
+      // never given its id (D-166 re-review).
+      fx.log('warn', 'comment_resend_refused_identical_exists', { commentId });
+      count(result.refused, 'send_failed');
+      return 'done';
+    }
   }
   // Held, and not yet posted: the last moment the staff check can still stop it.
   const hold = await holdForStaff(fx, input, held, result, gate);
@@ -1265,6 +1440,8 @@ async function sendPublic(
   if (sent.outcome === 'indeterminate') {
     // It may already be public. Re-posting would put two identical replies under one
     // customer's comment, so this is parked outside CLAIMABLE for a person to look at.
+    // `markIndeterminate` CASes on `sending`: if Meta's notice already arrived and
+    // `comments/reconcile.ts` moved the row to `sent`, this matches nothing and `sent` stands.
     await markIndeterminate(fx.db, { id: held.id, tenantId: input.tenantId, reason: sent.detail });
     fx.log('warn', 'comment_reply_indeterminate', { commentId, detail: sent.detail });
     count(result.refused, 'indeterminate');
@@ -1286,6 +1463,8 @@ async function sendPrivate(
   fx: CommentEffects, input: CommentJobInput, commentId: string, rowId: string, result: CommentJobResult,
   gate: () => Promise<StaffGate>,
 ): Promise<'done' | 'retry'> {
+  // The private reply is the Messenger send, bounded by the shared 10 s (`meta/send.ts`).
+  if (!fitsOrDefer(fx, result, DEFAULT_SEND_TIMEOUT_MS, 'private_send', commentId)) return 'retry';
   const held = await claim(fx.db, { id: rowId, tenantId: input.tenantId, now: fx.now });
   if (held.outcome === 'unavailable') {
     fx.log('error', 'comment_private_claim_unavailable', { detail: held.detail });

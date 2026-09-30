@@ -54,7 +54,7 @@ import { claim, draftOnce, findReplyFor, markRefused, replyDedupKey } from '../o
 import { markEventState, recordDeliveryAttempt } from '../webhook/events.ts';
 import { usdToNano } from '../money.ts';
 import { isFresh, replyAgeLimitMinutes } from './freshness.ts';
-import { runCommentJob, type CommentEffects, type CommentJobResult } from './comments.ts';
+import { COMMENT_JOB_BUDGET_MS, runCommentJob, type CommentEffects, type CommentJobResult } from './comments.ts';
 import { serveReclaim } from './reclaim.ts';
 import type { ReceptionOutcome } from '../reception/handle.ts';
 import type { Turn } from '../inbound/persist.ts';
@@ -447,6 +447,8 @@ async function runReceptionDelivery(
 
   const { db, now } = fx;
   const clock = stopwatch();
+  // The comment job's time budget is measured from here, the start of this delivery (D-166).
+  const startedMs = Date.now();
 
   // --- The stored entry. One source, parsed once, at the point of use. -------
   const { data: event, error: eventErr } = await db
@@ -969,6 +971,7 @@ async function runReceptionDelivery(
         sendPrivateReply: fx.sendPrivateReply,
         lookupComment: fx.lookupComment,
         alertComplaint: fx.alertComplaint,
+        msLeft: () => COMMENT_JOB_BUDGET_MS - (Date.now() - startedMs),
       },
       {
         tenantId,
@@ -1002,7 +1005,9 @@ async function runReceptionDelivery(
         rawPayload,
       },
     );
-    if (commentResult.retry) return unavailable('worker.comment_retry');
+    // A deferral (D-166) is its own code, so the QStash log tells "ran out of time, resumed on
+    // the redelivery" apart from a failure.
+    if (commentResult.retry) return unavailable(commentResult.deferred > 0 ? 'worker.comment_deferred' : 'worker.comment_retry');
   }
 
   if (messages.length === 0) {

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { UnconfirmedSummary } from '../comments/reconcile.ts';
 import type { MonthlySpendSummary, ShedSummary } from '../spend/monthly.ts';
 import type { CeilingPagesSummary } from '../spend/ceilingAlert.ts';
 import type { CacheSummary } from '../spend/cacheReport.ts';
@@ -30,9 +31,10 @@ const NO_SHED: ShedSummary = { ok: true, byTenant: [], capped: false };
 const NO_SPEND: MonthlySpendSummary = { ok: true, tenants: [] };
 const NO_PAGES: CeilingPagesSummary = { ok: true, pages: [] };
 const NO_CACHE: CacheSummary = { ok: true, tenants: [] };
+const NO_UNCONFIRMED: UnconfirmedSummary = { ok: true, byTenant: [], capped: false };
 const CLEAN = {
   now: NOW, watchdogLastRan: RAN, channelsChecked: 2, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS,
-  shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES, cache: NO_CACHE,
+  shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES, cache: NO_CACHE, unconfirmed: NO_UNCONFIRMED,
 };
 
 test('DONE-TEST: A CLEAN DAY STILL SENDS, AND CARRIES PROOF OF LIFE', () => {
@@ -49,7 +51,7 @@ test('DONE-TEST: and when the watchdog has never run, the clean day SAYS SO', ()
   // `channel_health` is upserted on every run including healthy ones, precisely so that its
   // absence is a statement. A digest reading "nothing open" over a watchdog that has never
   // executed would be the most confident wrong sentence this system could produce.
-  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS, shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES, cache: NO_CACHE });
+  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS, shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES, cache: NO_CACHE, unconfirmed: NO_UNCONFIRMED });
   assert.match(plan.summary, /never recorded an observation/);
   assert.doesNotMatch(plan.summary, /last ran/);
 });
@@ -711,7 +713,9 @@ test('THE SPEND BLOCK is in every report, clean or not, and an alert tenant is m
 test('THE SPEND BLOCK comes after the open conditions and never pushes a critical out', () => {
   const many = Array.from({ length: 40 }, (_, i) => ({
     id: i + 1, tenantId: null, severity: 'critical' as const, kind: 'k', dedupKey: `k${i}`,
-    body: 'x'.repeat(180), at: new Date('2026-09-12T00:00:00Z'), notifiedAt: null,
+    // 185, not 180: the D-166 line moved the header, and at 180 the month block now fits in
+    // what the last critical leaves. The length only has to leave no room for either block.
+    body: 'x'.repeat(185), at: new Date('2026-09-12T00:00:00Z'), notifiedAt: null,
   }));
   const plan = planDigest(many, CLEAN);
   // The body is held to 3,800; two one-line fallbacks may follow. Still under the report's
@@ -734,4 +738,13 @@ test('the cache block never pushes the month out: the month is fitted first', ()
   assert.match(plan.summary, /Model spend this month \(normal limit/);
   assert.match(plan.summary, /Prompt cache: not shown \(message length\)\.$/);
   assert.ok(plan.summary.length <= DAILY_REPORT_LIMIT);
+});
+
+test('D-166: the unconfirmed public replies line is in every report, clean or not, and UNREADABLE is never zero', () => {
+  const clean = planDigest([], CLEAN).summary;
+  assert.match(clean, /Public comment replies unconfirmed \(yesterday\): none\./);
+  const some = planDigest([], { ...CLEAN, unconfirmed: { ok: true, byTenant: [{ tenant: 'Salon One', count: 3 }], capped: false } }).summary;
+  assert.match(some, /Public comment replies unconfirmed \(yesterday\): Salon One 3 — check these threads by hand\./);
+  const unreadable = planDigest([], { ...CLEAN, unconfirmed: { ok: false, detail: 'boom' } }).summary;
+  assert.match(unreadable, /Public comment replies unconfirmed \(yesterday\): UNREADABLE/);
 });
