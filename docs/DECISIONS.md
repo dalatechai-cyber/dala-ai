@@ -11338,3 +11338,11 @@ The founder settled both decisions in `docs/reports/2026-09-30-spend-alerts.md`.
   - the 20,000 ₮ line, which is revisited after the two weeks (founder);
   - the caps;
   - any wording.
+
+## D-162 — "Take the chat back" stays unconnected for now (2026-09-30, founder)
+
+The reclaim sweeper (`src/lib/handover/reclaim.ts`) and the Graph thread-control calls
+(`handover/graph.ts`) stay built and wired to nothing. The owners read their own messages, so
+the bot never passes a chat to a person and never takes one back on a timer; the only silence
+is the 30-minute window after a staff reply or a media hand-off. No `handover_reclaim` row
+exists on either tenant. Revisit when more clients are onboarded. No code change.
