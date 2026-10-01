@@ -11571,6 +11571,8 @@ onboarded).
     never deleted (list in `docs/tenants/tara-yarmag.md`).
   - The two fixed replies that quote services by name (`dye_prices`, `perm_types`), their reply
     cases, and the one FAQ that typed treatment prices follow the list.
+  - Matcher words (`service_aliases`, not customer text): those of a switched-off service move to
+    its successor (CICA, тэжээл, цайруул, сор); the new names get short and Latin forms.
   - No new customer sentence is written. Changed numbers, prices and service names only, the
     owner's TARA Lumi text without its price line, and rows removed.
 - Branch gate: `allow_phones` in `config/branch-groups.json` (`tara-salon`: 76001888). A shared

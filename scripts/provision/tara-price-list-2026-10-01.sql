@@ -65,6 +65,10 @@ begin
     union all select response_kind from out_of_scope_topics where tenant_id = t) r
    where r.response_kind = 'refusal_topic';
   if n <> 0 then raise exception '% other rule(s) still use refusal_topic', n; end if;
+  -- The price-row swap below deletes variants; per-branch prices would cascade with them.
+  if exists (select 1 from branch_variant_prices where tenant_id = t) then
+    raise exception 'branch_variant_prices rows exist for this tenant; the revert could not restore them';
+  end if;
   if exists (select 1 from knowledge_documents where tenant_id = t and title = 'TARA Lumi – үүсгэлттэй будалт') then
     raise exception 'TARA Lumi document already present: this file has been applied';
   end if;
@@ -270,6 +274,35 @@ Hippie & Jerry curl (урт): 550,000₮
 Та аль химийг хийлгэх вэ?'
   from tenants t
  where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id and r.customer_message in ('usnii himi', 'us bish usnii himi');
+
+-- 3d'. Matcher words (service_aliases, read live; not customer text). Words of a switched-off
+--      service move to its successor on the list; the new names get their Latin and short forms.
+update service_aliases a
+   set service_id = s.id
+  from tenants t, services s
+ where t.slug = 'matrix-eco-salon' and a.tenant_id = t.id and s.tenant_id = t.id
+   and ((a.alias in ('CICA нөхөн сэргээх', 'CICA эмчилгээ', 'cica', 'цика') and s.name = 'CICA үсний гүний эмчилгээ')
+     or (a.alias in ('тэжээл', 'tejeel') and s.name = 'Үсний тэжээл')
+     or (a.alias in ('цайруул', 'tsairuul') and s.name = 'Бүтэн цайруулалт')
+     or (a.alias in ('сор', 'sor') and s.name = 'Хэсэгчилсэн сор'));
+
+insert into service_aliases (tenant_id, service_id, alias, provenance)
+select t.id, s.id, v.alias, 'seeded'
+  from tenants t
+  join (values
+         ('TARA Lumi', 'lumi'), ('TARA Lumi', 'луми'),
+         ('TARA BLEND', 'blend'), ('TARA BLEND', 'бленд'),
+         ('Tara perm', 'тара перм'),
+         ('Hippie & Jerry curl', 'hippie'), ('Hippie & Jerry curl', 'jerry curl'),
+         ('Сэттинг хими', 'сеттинг'), ('Сэттинг хими', 'сэттинг'), ('Сэттинг хими', 'setting'),
+         ('Хүүхдийн тайралт', 'хүүхэд'), ('Хүүхдийн тайралт', 'хүүхд'), ('Хүүхдийн тайралт', 'huuhed'), ('Хүүхдийн тайралт', 'huuhd'),
+         ('Өнгөлөгч будаг', 'өнгөлөгч'),
+         ('Үс оношлогоо, зөвлөгөө', 'оношлого'),
+         ('Down perm', 'down perm')
+       ) as v(service, alias) on true
+  join services s on s.tenant_id = t.id and s.name = v.service
+ where t.slug = 'matrix-eco-salon'
+on conflict (tenant_id, alias) do nothing;
 
 -- 3e. The FAQ that typed the old treatment prices: the same answer, with the treatments that are
 --     still on the list under their new names and prices (Тэжээлийн тос and CMC тэжээл are off

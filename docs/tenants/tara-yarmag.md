@@ -44,6 +44,12 @@ Open for the founder, not changed by that file (each changes what Дали says)
 - The signed salon Ш1 block still uses a children's price as its example of a forbidden topic
   (draft: `prompt/drafts/sh1_refusal_topics_children.salon.mn.txt`).
 - KB «Салбарууд» says Tara has one branch and a second «удахгүй нээгдэнэ».
+- The list puts «Тайралт хүүхэд» (44,000₮) under women's services with no age; it is rendered
+  «Хүүхдийн тайралт (эмэгтэй)». If it means girls, «охин» may read better.
+- The FAQ «Үс их хуурай…» now lists only the successors of its old treatments (CICA, Үсний
+  тэжээл); whether to add Нөхөн сэргээх эмчилгээ (66,000₮) is the founder's.
+- The matcher word «хими»/«himi» still points at Эмчилгээний хими, now the men's perm, so a
+  suitability answer about perms lists that row first.
 
 ## History
 

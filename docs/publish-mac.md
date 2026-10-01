@@ -64,7 +64,7 @@ The first time, macOS asks whether `security` may read each item: choose *Always
 4. If it is clean: the publish command. If anything refuses: run
    `scripts/provision/tara-price-list-2026-10-01-revert.sql` in the SQL editor at once (replies
    resume with no publish) and send the dry run's output.
-   One exception is yours to call: if the **only** failure is the children's case, the cause is
-   the signed Ш1 example (`prompt/drafts/sh1_refusal_topics_children.salon.mn.txt`). Publishing
-   anyway ships correct prices and phones while a child's price may still be withheld until that
-   draft is approved; reverting keeps the old list and the children's refusal.
+   If the **only** failure is the children's case, the cause is the signed Ш1 example, and the
+   fix is approving `prompt/drafts/sh1_refusal_topics_children.salon.mn.txt` (then this publish
+   again). Recommended: revert and approve the draft first. Publishing anyway is your call: prices
+   and phones are right, but a child's price may be withheld until the draft is live.

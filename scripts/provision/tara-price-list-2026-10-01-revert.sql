@@ -1,4 +1,5 @@
--- ONLY IF NEEDED. Puts Tara Яармаг's rows back exactly as they were read on 2026-10-01, before
+-- ONLY IF NEEDED. Puts Tara Яармаг's rows back as they were read on 2026-10-01 (same content;
+-- the restored price rows get new ids, which nothing references), before
 -- tara-price-list-2026-10-01.sql (D-167). Run it when that file was applied and the dry run then
 -- refused: until either the publish or this revert, every reply refuses as `canned_stale`.
 -- After this file the canned rows hash to the live snapshot again (3531d677…41bd), so replies
@@ -51,6 +52,17 @@ select t.id, 'refusal_topic', 'mn-MN',
 
 delete from reply_cases r using tenants t
  where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id and r.customer_message = '8 настай хүүгийн үс тайралт хэд вэ?';
+
+-- Matcher words moved to a new service go back first (deleting the new services below would
+-- otherwise take them with it); the words the file added go with their services.
+update service_aliases a
+   set service_id = s.id
+  from tenants t, services s
+ where t.slug = 'matrix-eco-salon' and a.tenant_id = t.id and s.tenant_id = t.id
+   and ((a.alias in ('CICA нөхөн сэргээх', 'CICA эмчилгээ', 'cica', 'цика') and s.name = 'CICA нөхөн сэргээх эмчилгээ')
+     or (a.alias in ('тэжээл', 'tejeel') and s.name = 'CMC тэжээл')
+     or (a.alias in ('цайруул', 'tsairuul') and s.name = 'Цайруулалт')
+     or (a.alias in ('сор', 'sor') and s.name = 'Сор'));
 
 -- The price list: services the file created go; the old ones come back on, with their old rows.
 delete from services s using tenants t
