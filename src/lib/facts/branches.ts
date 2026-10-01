@@ -170,7 +170,9 @@ export function foreignDetails(
 ): BranchFinding[] {
   const mine = detailsOf(own);
   const theirs = detailsOf(sibling);
-  for (const a of allowAddresses) theirs.addresses.delete(flat(a));
+  // Only what this branch SAYS: an address is never held by both branches, so this branch's own
+  // address row equal to the allowed one is still a leak (unlike a shared phone line).
+  const sayable = new Set(allowAddresses.map((a) => flat(a)));
   // With and without Mongolia's 976, as `phonesOf` reads a contact row.
   const shared = new Set(allowPhones.flatMap((p) => phonesOf(p)).flatMap((p) => (p.length === 8 ? [p, `976${p}`] : [p])));
   for (const p of shared) theirs.phones.delete(p);
@@ -192,7 +194,7 @@ export function foreignDetails(
   // Said in a text: only what is the other branch's alone (a detail held by both is found above).
   const phones = [...theirs.phones].filter((p) => !mine.phones.has(p));
   const links = [...theirs.links].filter((l) => !mine.links.has(l));
-  const addresses = [...theirs.addresses].filter((a) => !mine.addresses.has(a));
+  const addresses = [...theirs.addresses].filter((a) => !mine.addresses.has(a) && !sayable.has(a));
   // A name this branch's own staff also answer to says nothing about which branch is meant.
   const names = [...theirs.called].filter(([k]) => !mine.called.has(k) && !allowed.has(k) && [...k].length >= MIN_TEXT_NAME_CHARS);
   const patterns = names.map(([k, name]) => ({ what: `staff member «${name}»${k === name.toLowerCase() ? '' : ` («${k}»)`}`, re: headPattern(k) }));

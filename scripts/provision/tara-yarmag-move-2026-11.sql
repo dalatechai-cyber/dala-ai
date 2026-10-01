@@ -47,6 +47,19 @@ update reply_cases r
   from tenants t
  where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id and r.customer_message = 'Хаяг хаана вэ';
 
+-- Earlier turns in the reply cases' recorded history that quote the old address reply.
+update reply_cases r
+   set history = (
+         select jsonb_agg(case when e ? 'content'
+                               then jsonb_set(e, '{content}', to_jsonb(replace(e->>'content',
+                                      'Хаяг: Яармагийн Номин Хайпермаркетын баруун талд
+Байршлын холбоос: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16',
+                                      'Хаяг: Хан-Уул дүүрэг, 24-р хороо, Наадамчдын зам гудамж, VIP Center 2 давхар')))
+                               else e end order by x.ord)
+           from jsonb_array_elements(r.history) with ordinality as x(e, ord))
+  from tenants t
+ where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id and r.history::text like '%Номин Хайпермаркет%';
+
 do $$
 declare t uuid; n int;
 begin
@@ -56,7 +69,8 @@ begin
     union all select body from deterministic_replies where tenant_id = t
     union all select body from canned_responses where tenant_id = t
     union all select body from knowledge_documents where tenant_id = t
-    union all select answer from faqs where tenant_id = t) y
+    union all select answer from faqs where tenant_id = t
+    union all select history::text || coalesce(expected_body, '') from reply_cases where tenant_id = t) y
    where y.x like '%Номин Хайпермаркет%' or y.x like '%ckEXBLoq4FnxJHq16%';
   if n <> 0 then raise exception '% row(s) still give the old address or map link', n; end if;
 end $$;

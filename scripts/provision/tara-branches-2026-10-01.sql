@@ -49,8 +49,10 @@ select t.id, 'park_od_branch',
 Утас: 76001888
 Фэйсбүүк хуудас: https://www.facebook.com/profile.php?id=100067391025472',
        true, 'covers_message',
-       array['парк', 'park', 'паркод', 'parkod']::text[],
-       array['од', 'od', 'молл', 'moll', 'салбар', 'салбарын', 'салбарт', 'salbar', 'salbariin', 'хаана', 'хаяг', 'хаягаа',
+       -- «од» is the stem, matched as a whole word (below the 4-letter floor): «парк» as a stem
+       -- would also match «паркинг», and a parking question would get Парк Од's address.
+       array['од', 'od', 'паркод', 'parkod']::text[],
+       array['парк', 'park', 'молл', 'moll', 'салбар', 'салбарын', 'салбарт', 'salbar', 'salbariin', 'хаана', 'хаяг', 'хаягаа',
              'байдаг', 'байрладаг', 'бдаг', 'утас', 'утсаа', 'дугаар', 'фэйсбүүк', 'фэйсбүүкийн', 'хуудас', 'хуудсаа',
              'haana', 'hayag', 'hayg', 'baidag', 'bdag', 'bairladag', 'utas', 'utsaa', 'dugaar', 'facebook', 'fb', 'page',
              'танай', 'танайх', 'вэ', 'бэ', 'ве', 'уу', 'үү', 'юу', 'сайн', 'байна', 'бна', 'бну', 'өгөөч', 'өгөөрэй',
@@ -65,6 +67,12 @@ select t.id, v.msg, d.body, 'D-170 (founder 2026-10-01): a question about Пар
   join deterministic_replies d on d.tenant_id = t.id and d.intent = 'park_od_branch',
        (values ('Парк Од салбар хаана байдаг вэ?'), ('park od haana baidag ve')) as v(msg)
  where t.slug = 'matrix-eco-salon';
+
+-- A parking question is not about Парк Од.
+insert into reply_cases (tenant_id, customer_message, must_not_include, note)
+select t.id, 'Паркинг байна уу?', array['Баянзүрх', 'facebook.com']::text[],
+       'D-170: «паркинг» is parking, never Парк Од''s address (model case)'
+  from tenants t where t.slug = 'matrix-eco-salon';
 
 -- The model, from the document: two branches, never «удахгүй нээгдэнэ».
 insert into reply_cases (tenant_id, customer_message, must_include, must_not_include, note)

@@ -111,6 +111,9 @@ test('D-170: an address in allow_addresses may be given by another branch; the b
   // Any other detail of that branch is still a leak.
   const more = { ...says, texts: [...says.texts, { source: 'KB', text: 'Утас 99112233' }] };
   assert.deepEqual(foreignDetails(more, e, ['Нарны'], [], ['Баянзүрх дүүрэг, Нарны хорооллын 3-р байр']).map((f) => f.source), ['KB']);
+  // Saying it is allowed; holding it as this branch's own address is not.
+  const held = { ...west, contacts: [...west.contacts.filter((c) => c.kind !== 'address'), { kind: 'address', value: 'Баянзүрх дүүрэг, Нарны хорооллын 3-р байр' }] };
+  assert.deepEqual(foreignDetails(held, e, ['Нарны'], [], ['Баянзүрх дүүрэг, Нарны хорооллын 3-р байр']).map((f) => f.source), ['contact_points address']);
 });
 
 test('a staff name is a whole word, with or without a case ending, never a piece of another word', () => {

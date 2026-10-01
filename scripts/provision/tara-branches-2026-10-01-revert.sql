@@ -17,6 +17,6 @@ delete from deterministic_replies d using tenants t
 
 delete from reply_cases r using tenants t
  where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id
-   and r.customer_message in ('Парк Од салбар хаана байдаг вэ?', 'park od haana baidag ve', 'Танай хэдэн салбартай вэ?');
+   and r.customer_message in ('Парк Од салбар хаана байдаг вэ?', 'park od haana baidag ve', 'Танай хэдэн салбартай вэ?', 'Паркинг байна уу?');
 
 commit;
