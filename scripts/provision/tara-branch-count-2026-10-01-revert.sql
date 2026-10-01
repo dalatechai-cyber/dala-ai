@@ -4,7 +4,8 @@ begin;
 delete from deterministic_replies d using tenants t
  where t.slug = 'matrix-eco-salon' and d.tenant_id = t.id and d.intent = 'branch_count';
 delete from reply_cases r using tenants t
- where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id and r.customer_message in ('hed salbartai ve', 'Өөр салбар бий юу?');
+ where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id and r.customer_message in ('hed salbartai ve', 'Өөр салбар бий юу?', 'Яармаг салбар хаана байдаг вэ?',
+                                                                         'Парк Од салбарын утас?', 'Танай салбарын утас?');
 update deterministic_replies d
    set cover_words = array(select w from unnest(d.cover_words) w where w not in ('яармаг', 'yarmag', 'салбар', 'салбарын', 'salbar', 'salbariin'))
   from tenants t where t.slug = 'matrix-eco-salon' and d.tenant_id = t.id and d.intent = 'address';
