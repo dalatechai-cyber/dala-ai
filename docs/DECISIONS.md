@@ -11637,3 +11637,26 @@ switched-off services, and the SPECIAL level missing from the deposit rules, are
 content; with `0076` applied, the dry run passes 25/25 reply cases (3 model cases not run),
 facts agree, branch gate clean. Without `0076` pushed the publish refuses ("the LIVE platform
 blocks are not the signed ones"), so the founder pushes it first (`docs/publish-mac.md`).
+
+## D-169 — Tara: SPECIAL's deposit and wording, тонирование, and how migrations reach the project (2026-10-01, founder)
+
+**Decided (founder, 2026-10-01).** «Тонирование» is Өнгөлөгч будаг (toner). SPECIAL takes the
+same deposit as Мастер: «SPECIAL үсчин: 20,000₮», in the existing format. The stylist-level
+reply names all three levels (SPECIAL, Мастер, 1-р зэрэг) and, as before, never recommends a
+higher level; its wording is drafted for approval (`prompt/drafts/tara_stylist_levels.mn.txt`:
+«SPECIAL, » added in front of the approved line, nothing else).
+
+**Built.** `tara-price-list-2026-10-01.sql` (still unapplied) adds the deposit row, a model reply
+case «SPECIAL үсчинд урьдчилгаа хэд вэ?» (must say 20,000) and names тонирование Өнгөлөгч будаг.
+`tara-stylist-levels-2026-10-01.sql` carries the drafted wording, the matcher words for SPECIAL
+and an exact reply case; the founder runs it only after approving. The revert undoes both.
+Replica: both files apply; dry run 26/26 reply cases (4 model cases not run), facts agree, branch
+gate clean; the revert restores every row's content.
+
+**Migrations.** The founder found `supabase migration list` shows `0035` onward as local-only:
+the ledger records `0035`–`0075` under 41 timestamp versions. Read back: the 41 rows are exactly
+`0035`–`0075` by name, one each (`0038` after `0039`). `supabase db push` would re-apply 41
+migrations, so it is never run here. `0076` was applied by the session the same way as
+`0035`–`0075`, as its equivalent (the one changed row; the other 99 compared per row with a
+replica first), and read back byte-identical to the signed file. No customer sees it before
+Tara's publish.

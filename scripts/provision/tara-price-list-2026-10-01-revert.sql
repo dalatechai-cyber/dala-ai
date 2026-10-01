@@ -56,6 +56,28 @@ delete from reply_cases r using tenants t
    and r.customer_message in ('8 настай хүүгийн үс тайралт хэд вэ?', 'Охины үс тайралт хэд вэ?',
                               '15 настай хүүгийн үс тайралт хэд вэ?', '👍 (like)');
 
+-- D-169: SPECIAL's deposit, its reply case, тонирование; and the stylist-level wording if
+-- tara-stylist-levels-2026-10-01.sql was applied (each statement is a no-op otherwise).
+delete from deposit_rules d using tenants t
+ where t.slug = 'matrix-eco-salon' and d.tenant_id = t.id and d.applies_to = 'SPECIAL үсчин';
+delete from reply_cases r using tenants t
+ where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id
+   and r.customer_message in ('SPECIAL үсчинд урьдчилгаа хэд вэ?', 'SPECIAL үсчин');
+update knowledge_documents k
+   set body = replace(replace(k.body, 'Гэхдээ өнгөлөгч будаг болно.', 'Гэхдээ тонирование будаг болно.'),
+                      'Өнгөлөгч будаг нь', 'Тонирование нь'),
+       updated_at = timestamptz '2026-09-07 02:08:31.632145+00'
+  from tenants t where t.slug = 'matrix-eco-salon' and k.tenant_id = t.id and k.title = 'Будалтын хориглох заалт ба боломж';
+update knowledge_documents k
+   set title = 'Мастер ба 1-р зэргийн үсчин',
+       body = replace(k.body, 'SPECIAL, Мастер болон 1-р зэргийн үсчний ялгаа', 'Мастер болон 1-р зэргийн үсчний ялгаа'),
+       updated_at = timestamptz '2026-09-24 20:21:52.824982+00'
+  from tenants t where t.slug = 'matrix-eco-salon' and k.tenant_id = t.id and k.title = 'SPECIAL, Мастер ба 1-р зэргийн үсчин';
+update deterministic_replies d
+   set body = 'Мастер болон 1-р зэргийн үсчний ялгаа нь зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.',
+       stems = array_remove(array_remove(array_remove(d.stems, 'special'), 'спешл'), 'спешиал')
+  from tenants t where t.slug = 'matrix-eco-salon' and d.tenant_id = t.id and d.intent = 'stylist_tier';
+
 -- D-168: the like rows.
 delete from deterministic_replies d using tenants t
  where t.slug = 'matrix-eco-salon' and d.tenant_id = t.id and d.intent = 'like_welcome';
