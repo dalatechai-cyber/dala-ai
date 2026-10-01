@@ -11714,3 +11714,41 @@ get `park_od_branch`, «Танай салбарын утас?» gets the phone r
 failed at first (they reached the model), fixed by matcher words, not wording: `address` covers
 «яармаг», «салбар(ын)»; `salon_phone` covers «танай». Replica: 33/33 reply cases, all seven by
 fixed reply; the revert restores every row; the November move file still applies after it.
+
+## D-171 — DalaTech: Вира 250,000₮ with no fixed counts; Ора's allowance in percent; no extra-user prices (2026-10-01, founder)
+
+**Facts (founder, 2026-10-01).** Вира is 250,000₮ a month (was 350,000₮, D-148). Videos and posts
+are made to the customer's wishes under the monthly content plan, with no fixed numbers (was 3
+short videos and 8 posts). Ора has a monthly usage allowance shown as a percentage, described as «сард ≈1,500 асуулт»
+and counted by real use (Ора Мэргэн and large files use more); every new customer gets +500
+questions in the first month («Шинэ хэрэглэгчид эхний сард +500 асуулт бэлэг»). An extra «+25%»
+pack costs 49,000₮. Each extra user has their own 100% allowance. (A first draft said «≈50 a day»;
+the founder replaced it the same day.) This replaces the 1,500 messages a month
+and the 500-message pack. Extra users have no published price any more: the website says only
+«Нэмэлт хэрэглэгч нэмэх боломжтой — асуугаарай», so Дали says the same and a person gives the price.
+
+**Where it lands** (`scripts/provision/dalatech-prices-2026-10-01.sql`, read off the project
+first): Вира's monthly price row; the Ора pack row relabelled «Нэмэлт ашиглалтын багц» (price
+unchanged, no digits in a label, D-148); the three extra-user price rows deleted (nothing references
+them), so neither the price path nor the facts guard can serve one; a fixed reply
+`extra_user_price` (the website's sentence plus the approved callback sentence, verbatim, no model)
+whose matcher needs «хэрэглэгч» and «нэмэлт/нэмэх/нэмж», tested against `gate/match.ts` on five
+questions that must fire and five that must not; four knowledge documents (Вира and Ора, each in
+both launch states); the nine active reply cases that expected 350,000₮; three EXACT cases for the
+fixed reply and four model cases. FAQs and canned lines carry none of these facts.
+
+**The website chat.** dalatech.online embeds `dalatech-chatbot.vercel.app`, whose `/api/chat-config`
+reported `backend: dala` on 2026-10-01: visitors are answered by tenant #0's web channel, and
+`dalatech-chatbot`'s own prompt and facts only answer when that switch falls back. It still holds a
+copy of the facts that publish checks (`config/external-fact-copies.json`), so it was updated in
+dalatech-chatbot#46 (same facts; its guard now reads «≈1,500 асуулт» and «+500 асуулт» as counts
+and «+25%» as a share, where it had refused them as a price or a phone number). Retiring that fallback, and the cross-check with it, is the founder's call
+(`docs/website-channel.md`): the check must not go while the fallback can still answer.
+
+**Not applied.** The Mongolian lines are drafts until the founder signs them. Every statement was
+dry-run on the project inside aborted transactions (price updates 1+1 rows, delete 3, fixed reply 1,
+case updates 2+7, case insert, both document lines found in all four documents); a run of the whole
+file in one MCP call timed out with no session left on the database and nothing persisted. The whole
+file was run as one transaction on a local replica (every migration, DalaTech's rows seeded with the
+live strings): every check passed, a second run is a no-op, and a replica whose Ora line differs
+by one character refuses («expected 4 edited documents, found 3»).
