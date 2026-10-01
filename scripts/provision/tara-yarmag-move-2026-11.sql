@@ -7,6 +7,11 @@
 -- «Хаяг: …». When a listing exists, add it back as a `maps_url` contact and a
 -- «Байршлын холбоос: …» line.
 --
+-- The branch keeps its name «Яармаг салбар» (founder, 2026-10-01): the display name «Tara Salon —
+-- Яармаг», the KB «Салбарууд» and every other row that names Яармаг stay as they are; only the
+-- address and the map link change. The final check looks for the old address only, never for
+-- the word «Яармаг».
+--
 -- What changes: contact_points address (compiled: reaches the model at the publish), the
 -- maps_url row, the fixed reply `address` (live at COMMIT) and its reply case. No canned row
 -- changes, so no `canned_stale` window: run it, then the dry run and publish at once.

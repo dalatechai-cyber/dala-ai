@@ -49,12 +49,13 @@ D-169 (founder, 2026-10-01): SPECIAL's deposit is Мастер's, «SPECIAL үс
 document naming all three levels wait for the founder's approval of
 `prompt/drafts/tara_stylist_levels.mn.txt` (`scripts/provision/tara-stylist-levels-2026-10-01.sql`).
 
-D-170 (founder, 2026-10-01): Парк Од is open. `tara-branches-2026-10-01.sql` (waits for the
-founder's approval of `prompt/drafts/tara_branches.mn.txt`) makes «Салбарууд» say Tara has two
+D-170 (founder, 2026-10-01): Парк Од is open. `tara-branches-2026-10-01.sql` (wording approved
+2026-10-01, with «Хоёр салбарын үнэ ижил.»; ready to apply) makes «Салбарууд» say Tara has two
 branches with Парк Од's address and the shared line, and adds the fixed reply `park_od_branch`
 (address, 76001888, Парк Од's Facebook Page). `tara-yarmag-move-2026-11.sql` is ready for the day
 Яармаг moves to Хан-Уул дүүрэг, 24-р хороо, Наадамчдын зам гудамж, VIP Center 2 давхар (date to
-come); it changes the address row and the fixed address reply and drops the map link.
+come); it changes the address row and the fixed address reply and drops the map link. The
+branch keeps the name «Яармаг салбар» after the move (founder, 2026-10-01).
 
 Still open: the matcher word
 «хими»/«himi» points at Эмчилгээний хими (now the men's perm).

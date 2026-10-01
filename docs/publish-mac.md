@@ -97,7 +97,7 @@ Tara's publish).
 
 ## Tara's two branches (D-170), and Яармаг's move
 
-**Парк Од in Яармаг's Дали** (only after you approve `prompt/drafts/tara_branches.mn.txt`):
+**Парк Од in Яармаг's Дали** (wording approved 2026-10-01, with «Хоёр салбарын үнэ ижил.»):
 1. After the PR carrying D-170 is merged and deployed: `git pull && npm ci`.
 2. SQL editor → run `scripts/provision/tara-branches-2026-10-01.sql` (no `canned_stale` window).
 3. At once, the dry run `--slug matrix-eco-salon --with-model`. Expect `branches: … no other

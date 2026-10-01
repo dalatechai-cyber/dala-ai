@@ -1,4 +1,5 @@
--- NOT APPLIED. WAITS FOR THE FOUNDER'S APPROVAL OF THE WORDING (D-170).
+-- NOT APPLIED. Wording APPROVED by the founder 2026-10-01, with «Хоёр салбарын үнэ ижил.» added
+-- after the shared phone line (D-170). Ready to apply, then the dry run and publish at once.
 -- Tara Salon — Яармаг: Дали says Tara has two branches and gives Парк Од's address, the shared
 -- line and Парк Од's Facebook Page. Wording: prompt/drafts/tara_branches.mn.txt.
 --
@@ -37,6 +38,7 @@ Tara Salon хоёр салбартай: Яармаг салбар, Парк Од
 Оюунаа Яармаг салбарт ажилладаг.
 Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот.
 Хоёр салбарын нийтлэг утас: 76001888.
+Хоёр салбарын үнэ ижил.
 Парк Од салбар өөрийн Фэйсбүүк хуудастай.',
        source = 'founder 2026-10-01', updated_at = now()
   from tenants t
@@ -79,5 +81,20 @@ insert into reply_cases (tenant_id, customer_message, must_include, must_not_inc
 select t.id, 'Танай хэдэн салбартай вэ?', array['Парк Од']::text[], array['удахгүй']::text[],
        'D-170: Tara has two branches, Яармаг and Парк Од (model case)'
   from tenants t where t.slug = 'matrix-eco-salon';
+
+do $$
+declare t uuid;
+begin
+  select id into strict t from tenants where slug = 'matrix-eco-salon';
+  if not exists (select 1 from knowledge_documents where tenant_id = t and title = 'Салбарууд'
+                 and body like '%Хоёр салбарын нийтлэг утас: 76001888.
+Хоёр салбарын үнэ ижил.
+Парк Од салбар өөрийн Фэйсбүүк хуудастай.') then
+    raise exception '«Салбарууд» is not the approved text';
+  end if;
+  if (select count(*) from deterministic_replies where tenant_id = t and intent = 'park_od_branch' and enabled) <> 1 then
+    raise exception 'park_od_branch is not there exactly once';
+  end if;
+end $$;
 
 commit;
