@@ -11820,3 +11820,27 @@ runs twice cleanly and the revert restores every row.
 Fixed replies are not part of the compiled prompt, so this change leaves `content_hash` and every
 model case's input as the dry run saw them. A plain `--publish` runs every non-model case,
 including these two, so no second paid run is needed for this change.
+
+## D-174 — Word-for-word facts go in fixed replies; a price change touches every stored copy; test runs must cache (2026-10-01, founder)
+
+**Lesson, from D-171 to D-173.** When a fact must reach the customer word for word (a count, a
+price, a name, an offer), serve it from a fixed reply that sends the approved sentence. The model
+does not phrase such facts reliably: it answered «what is Дали» with a line naming no role
+(D-172) and Ора's new-customer gift without «500 асуулт» (D-173), while the same facts sat in the
+prompt. The fixed reply (`branch_count`, `dali_about`, `ora_new_user_bonus`) costs no model call,
+is exact, and is pinned by an EXACT reply case that every build and publish checks.
+
+**Rule for every future price change.** Change the price rows AND every stored copy of the same
+fact before publishing: `deterministic_replies` (`body`, `web_body` and `items`; D-171 missed the
+price overview's `items` and the dry run caught it), knowledge documents, FAQs, canned lines and
+every active reply case that quotes the old figure. Then check that the website and
+dalatech-chatbot (`config/external-fact-copies.json`) say the same before publishing; publish's
+fact check refuses on a disagreement, but only for the copies it can read.
+
+**Open item for the code audit.** Test, bake-off and dry-run scripts must use prompt caching as
+the live reply path does. A test burst on 2026-09-26 sent about 14M uncached input tokens; the
+same runs with the cached prefix would have cost a fraction. Until that is fixed, a paid run is
+one run per change (D-151) and nothing more.
+
+**Live at the end of 2026-10-01:** DalaTech seq 14, Tara Яармаг seq 19; `tara-yarmag-move-2026-11.sql`
+prepared and not applied (docs/STATUS.md).
