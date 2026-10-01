@@ -31,6 +31,10 @@
 -- Customer-visible Mongolian beyond the names: only `dali_about`'s body, which is the new
 -- name plus three sentences already in Дали's approved knowledge document, unchanged.
 -- It waits for the founder's approval like every new line.
+--
+-- APPLY ONLY AFTER APPROVING `dali_about`: fixed replies and price rows are read per request,
+-- so the overview fix and `dali_about` answer customers the moment this file commits, before
+-- any publish. The names in the prompt change at the next publish.
 begin;
 
 create temp table dt on commit drop as select id from tenants where slug = 'dalatech';
@@ -112,6 +116,13 @@ update reply_cases r
 -- reviewed template filled with the pieces whose service is in pre-registration, in the
 -- pieces' order, joined by «, »; appended after a blank line), exactly as the reply code
 -- does (`fillTemplate`, `withAppended`).
+do $$ begin
+  if (select count(*) from deterministic_replies d join tenants t on t.id = d.tenant_id
+       where t.slug = 'dalatech' and d.intent in ('coming_soon_status', 'extra_user_price')) <> 2 then
+    raise exception 'expected exactly one coming_soon_status and one extra_user_price row';
+  end if;
+end $$;
+
 create temp table soon_line on commit drop as
 select replace(d.body, '{{soon}}', (
          select string_agg(e.item ->> 'body', ', ' order by e.ord)
@@ -159,6 +170,12 @@ begin
      or exists (select 1 from reply_cases where tenant_id = tid and active
                  and (coalesce(expected_body, '') || must_include::text) ~ '(AI хүлээн авагч|сануулга, SMS|350,000)') then
     raise exception 'an old name or 350,000 is still in a document, fixed reply or active case';
+  end if;
+  if exists (select 1 from canned_responses where tenant_id = tid and body ~ '(AI хүлээн авагч|сануулга, SMS)')
+     or exists (select 1 from faqs where tenant_id = tid and (question || answer) ~ '(AI хүлээн авагч|сануулга, SMS)')
+     or exists (select 1 from sales_next_steps where tenant_id = tid and (body || coalesce(web_body, '')) ~ '(AI хүлээн авагч|сануулга, SMS)')
+     or exists (select 1 from service_aliases where tenant_id = tid and alias ~* '(хүлээн авагч|сануулга, sms)') then
+    raise exception 'an old name is in a canned line, FAQ, sales line or alias; this file does not rename those';
   end if;
   -- The overview renders the new figures in both states.
   select count(*) into n from deterministic_replies d where d.tenant_id = tid and d.intent = 'price_overview'

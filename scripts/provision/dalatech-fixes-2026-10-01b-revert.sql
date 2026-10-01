@@ -23,7 +23,7 @@ delete from deterministic_replies d using dt where d.tenant_id = dt.id and d.int
 -- Case 154 back to the fixed reply's body alone.
 update reply_cases r
    set expected_body = x.body,
-       note = replace(r.note, ' The question names Ора, so the coming-soon line is appended (D-172).', '')
+       note = nullif(replace(r.note, ' The question names Ора, so the coming-soon line is appended (D-172).', ''), '')
   from dt, deterministic_replies x
  where r.tenant_id = dt.id and r.active and x.tenant_id = dt.id and x.intent = 'extra_user_price'
    and r.customer_message = normalize('Орагийн нэмэлт хэрэглэгч хэд вэ?', NFC)
@@ -31,7 +31,7 @@ update reply_cases r
 
 update reply_cases r
    set must_include = array_replace(r.must_include, normalize('Харилцагчийн менежер', NFC), normalize('хүлээн авагч', NFC)),
-       note = replace(r.note, ' Answered by dali_about from 2026-10-01 (D-172).', '')
+       note = nullif(replace(r.note, ' Answered by dali_about from 2026-10-01 (D-172).', ''), '')
   from dt where r.tenant_id = dt.id and r.note like '% Answered by dali_about from 2026-10-01 (D-172).%';
 
 update reply_cases r
@@ -40,7 +40,7 @@ update reply_cases r
        expected_body = replace(replace(r.expected_body,
          normalize('💬 Дали — Харилцагчийн менежер:', NFC), normalize('💬 Дали — AI хүлээн авагч:', NFC)),
          normalize('💬 Нова — Захиалгын менежер:', NFC), normalize('💬 Нова — сануулга, SMS:', NFC)),
-       note = replace(r.note, ' Renamed 2026-10-01 (D-172).', '')
+       note = nullif(replace(r.note, ' Renamed 2026-10-01 (D-172).', ''), '')
   from dt where r.tenant_id = dt.id and r.note like '% Renamed 2026-10-01 (D-172).%';
 
 update deterministic_replies d
@@ -65,6 +65,13 @@ begin
                  and (intent = 'dali_about' or (body || coalesce(items::text, '')) ~ '(Харилцагчийн менежер|Захиалгын менежер)'))
      or exists (select 1 from reply_cases where tenant_id = tid and active and note like '%D-172%') then
     raise exception 'the revert did not restore every row';
+  end if;
+  if (select count(*) from services where tenant_id = tid
+       and name in (normalize('Дали — AI хүлээн авагч', NFC), normalize('Нова — сануулга, SMS', NFC))) <> 2
+     or (select count(*) from deterministic_replies where tenant_id = tid and intent = 'price_overview'
+          and position(normalize('"Вира сард 350,000₮"', NFC) in items::text) > 0
+          and position(normalize('💬 Дали — AI хүлээн авагч:', NFC) in body) = 1) <> 1 then
+    raise exception 'the revert did not bring back the old names and the overview as they were';
   end if;
 end $$;
 
