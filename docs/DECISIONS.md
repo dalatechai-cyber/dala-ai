@@ -11619,8 +11619,13 @@ switched-off services, and the SPECIAL level missing from the deposit rules, are
   by a fixed reply: no row, or a like right after Дали answered a like, is `dropped` with the
   hold released, never the model. "A long silence" is the platform's own conversation boundary:
   a conversation idle 24 h is closed, so the next message has an empty history. One reply per
-  like is the existing `mid` dedup. `gate/deterministic.ts`: when two replace rows fire, the one
-  that requires an empty history wins (rows come back from the database unordered).
+  like is the existing `mid` dedup. The worker decides before it opens anything: a tenant with no
+  like row treats a like as any other sticker (no contact, conversation, reservation or bubble);
+  a like not owed a reply (before the answer it reacts to, or after an answered like) is stored
+  and not answered, before the spend guard and the «typing…» bubble; at the daily cap a like
+  never draws the hand-off line. `gate/deterministic.ts`: when two `whole_message` replace rows
+  fire, the one that requires an empty history wins (rows come back from the database
+  unordered); no other mode's precedence changes (no live row of either tenant is affected).
 - Tara's rows, in `scripts/provision/tara-price-list-2026-10-01.sql` (still not applied; it now
   carries D-167 and D-168, and its revert both): `like_welcome` (the welcome row's own bytes,
   empty history only), `like` added to `acknowledgement`, the knowledge and FAQ edits, the

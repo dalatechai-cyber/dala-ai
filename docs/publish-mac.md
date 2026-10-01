@@ -59,7 +59,7 @@ database password: Supabase dashboard → Project Settings → Database).
 1. Wait until the PR carrying D-168 is merged and Vercel shows the production deploy as Ready.
    Then `git pull && npm ci`.
 2. **Push migration `0076`** (the approved salon Ш1 text): `supabase db push`. It must list
-   `0076_prompt_blocks_seed.sql` only. Until it is pushed, every publish refuses with «the LIVE
+   `0076_prompt_blocks_seed.sql` only; if it lists anything else, answer `n` and stop. Until it is pushed, every publish refuses with «the LIVE
    platform blocks are not the signed ones». Pushing it changes nothing a customer sees: the
    text reaches Tara at her publish.
 3. At a quiet hour (between this SQL and the publish, Tara's replies refuse): Supabase dashboard
@@ -77,4 +77,6 @@ database password: Supabase dashboard → Project Settings → Database).
    refuses: run `scripts/provision/tara-price-list-2026-10-01-revert.sql` in the SQL editor at
    once (replies resume with no publish; `0076` can stay) and send the dry run's output.
 6. Check on Messenger from your own account: send «Сайн байна уу», a like right after the answer
-   (expect «Өөр асуух зүйл байвал бичээрэй.»), then a second like (expect no reply).
+   (expect «Өөр асуух зүйл байвал бичээрэй.»), then a second like (expect no reply, and no
+   «typing…»). A like as the very first message of a conversation (or after 24 hours of silence)
+   gets the welcome line.

@@ -46,7 +46,9 @@ The founder's decisions of 2026-10-01 (D-168) are in the same file:
 Still open: the SPECIAL level has no deposit row (founder, 2026-10-01: left out until an amount
 is given); the «Мастер ба 1-р зэргийн үсчин» document and `stylist_tier` reply name only Мастер
 and 1-р зэрэг; KB «Салбарууд» says a second branch «удахгүй нээгдэнэ»; the matcher word
-«хими»/«himi» points at Эмчилгээний хими (now the men's perm).
+«хими»/«himi» points at Эмчилгээний хими (now the men's perm); the knowledge still names
+«мелировка», «OTG будаг» and «тонирование» (techniques and products, not list services; whether
+тонирование is Өнгөлөгч будаг is a language question for the founder).
 
 ## History
 

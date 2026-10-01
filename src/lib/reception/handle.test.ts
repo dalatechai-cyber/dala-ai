@@ -636,10 +636,25 @@ test('D-168: a like after our answer to a like gets nothing, and the hold goes b
     historyState: { known: true, empty: false },
     history: [{ role: 'user', content: LIKE_TEXT }, { role: 'assistant', content: GREET.body }],
   });
-  assert.deepEqual(r, { kind: 'dropped', reason: 'like_after_answered_like' });
+  assert.deepEqual(r, { kind: 'dropped', reason: 'like_not_owed_reply' });
   assert.deepEqual(sent(calls), []);
   assert.equal(calls.includes('callModel'), false);
   assert.equal(calls.includes('release'), true);
+});
+
+test('D-168: a like before the answer it reacts to, or after an unanswered like, gets nothing', async () => {
+  for (const history of [
+    [{ role: 'user' as const, content: 'Хими хэд вэ' }],
+    [{ role: 'user' as const, content: LIKE_TEXT }, { role: 'assistant' as const, content: GREET.body }, { role: 'user' as const, content: LIKE_TEXT }],
+  ]) {
+    const { deps: d, calls } = deps();
+    const r = await handleReception(d, {
+      ...base, customerMessage: LIKE_TEXT, deterministic: [LIKE_WELCOME, OK_ROW],
+      historyState: { known: true, empty: false }, history,
+    });
+    assert.deepEqual(r, { kind: 'dropped', reason: 'like_not_owed_reply' });
+    assert.deepEqual(sent(calls), []);
+  }
 });
 
 test('D-168: a like no row answers is never sent to the model', async () => {

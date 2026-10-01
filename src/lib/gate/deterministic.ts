@@ -175,9 +175,10 @@ export function matchDeterministic(
   const suppressed: string[] = [];
   const appends: DeterministicHit[] = [];
   let hit: DeterministicHit | null = null;
-  // A row that answers only an empty history is the more specific one, so it wins over a row
-  // that answers anywhere when both fire (D-168: a like is the welcome reply on a first message
-  // and the «ок» reply after an answer, and the rows come back from the database unordered).
+  // A `whole_message` row that answers only an empty history is the more specific one, so it
+  // wins over a row that answers anywhere when both fire (D-168: a like is the welcome reply on
+  // a first message and the «ок» reply after an answer, and the rows come back from the
+  // database unordered). Whole-message rows only: no other mode's precedence changes.
   let hitOnEmpty: DeterministicHit | null = null;
 
   /**
@@ -250,7 +251,7 @@ export function matchDeterministic(
     if (rule.placement === 'append') {
       const a = answer(rule);
       if (a !== null) appends.push(a);
-    } else if (rule.requiresEmptyHistory) {
+    } else if (rule.requiresEmptyHistory && rule.matchMode === 'whole_message') {
       if (hitOnEmpty === null) hitOnEmpty = answer(rule);
     } else if (hit === null) {
       hit = answer(rule);

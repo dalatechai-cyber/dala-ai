@@ -48,7 +48,7 @@ import { SECTION_LABELS, depositRow } from '../prompt/tenant.ts';
 import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '../services/match.ts';
 import { containsStem, findStem } from '../mn/match.ts';
 import { IMAGE_REPLY_KIND } from '../inbound/imageReply.ts';
-import { isLike } from '../inbound/like.ts';
+import { isLike, likeIsOwedReply } from '../inbound/like.ts';
 import { checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
@@ -687,13 +687,13 @@ async function receive(
   const shortcut = matchDeterministic(input.customerMessage, input.deterministic, input.historyState, matchOpts);
   // A like (D-168) is answered by a fixed reply or not at all: never by the model, and never
   // twice in a row, so a customer tapping like after our answer to their like gets silence.
+  // The worker decides this before the spend guard and the bubble (`likeIsOwedReply`); this is
+  // the same rule again, so no other caller can bring a like to the model.
   if (isLike(input.customerMessage)) {
-    const last = input.history.at(-1);
-    const before = input.history.at(-2);
-    const answeredLike = last?.role === 'assistant' && before?.role === 'user' && isLike(before.content);
-    if (answeredLike || shortcut.hit === null) {
+    const owed = likeIsOwedReply(input.history);
+    if (!owed || shortcut.hit === null || composeQuoted(shortcut.hit, input.serviceNames) === null) {
       await deps.release();
-      return { kind: 'dropped', reason: answeredLike ? 'like_after_answered_like' : 'like_without_fixed_reply' };
+      return { kind: 'dropped', reason: owed ? 'like_without_fixed_reply' : 'like_not_owed_reply' };
     }
   }
   // `append` rows (`0041`): whatever is served from here on, their bodies go at the END.
