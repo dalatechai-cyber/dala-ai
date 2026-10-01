@@ -6,10 +6,12 @@
 --
 --   Вира 250,000₮/сар (was 350,000₮). Videos and posts are made to the customer's wishes
 --   under the monthly content plan; no fixed counts (was 3 short videos and 8 posts).
---   Ора: a monthly usage allowance shown as a percentage. 100% ≈ 50 everyday questions a
---   day; Мэргэн and large files use more. An extra «+25%» pack costs 49,000₮. This replaces
---   the 1,500 messages a month and the 500-message pack (same price, 49,000₮). Each extra
---   user has their own 100% allowance (founder, 2026-10-01, second message).
+--   Ора: a monthly usage allowance shown as a percentage, described as «сард ≈1,500 асуулт»
+--   and counted by real use (Ора Мэргэн and large files use more). Every new customer gets
+--   +500 questions in the first month. An extra «+25%» pack costs 49,000₮. This replaces the
+--   1,500 MESSAGES a month and the 500-message pack (same price, 49,000₮). Each extra user has
+--   their own 100% allowance (founder, 2026-10-01, second and third messages; the third
+--   removed «≈50 a day»).
 --   Extra users have NO published price any more: the website says only «Нэмэлт хэрэглэгч
 --   нэмэх боломжтой — асуугаарай», so Дали says the same and a person gives the price.
 --
@@ -87,8 +89,10 @@ update reply_cases r set expected_body = replace(replace(r.expected_body,
 insert into reply_cases (tenant_id, channel, customer_message, expected_body, must_include, must_not_include, note, active)
 select dt.id, 'facebook_page', normalize(x.q, NFC), null, x.inc, x.nots, x.note, true
   from dt, (values
-    ('Ора сард хэдэн мессеж бичих боломжтой вэ?', array['100%', '50'], array['1,500', '500 мессеж'],
-     'D-171: Ора has a monthly allowance in percent, 100% ≈ 50 everyday questions a day; never the old 1,500 messages.'),
+    ('Ора сард хэдэн асуулт асууж болох вэ?', array['1,500'], array['1,500 мессеж', 'өдөрт', '50 энгийн'],
+     'D-171: Ора is about 1,500 questions a month, counted by real use; never the old 1,500 messages, never «≈50 a day».'),
+    ('Орад шинэ хэрэглэгчийн урамшуулал байгаа юу?', array['500 асуулт', 'эхний сар'], array['500 мессеж'],
+     'D-171: every new customer gets +500 questions in the first month. «500 асуулт» also occurs inside «1,500 асуулт»; the reader checks the gift is named.'),
     ('Орагийн нэмэлт багц хэд вэ?', array['25%', '49,000'], array['500 мессеж'],
      'D-171: the extra pack is +25% for 49,000₮; never the old 500 messages.'),
     ('Вира сард хэдэн пост хийдэг вэ?', array[]::text[], array['8 пост', '3 богино видео', '350,000'],
@@ -118,7 +122,7 @@ insert into doc_edits values
    E'- Пост бодох ажлаас таныг чөлөөлнө: сарын контент төлөвлөгөөний дагуу видео, постыг таны хүссэнээр бэлтгэж, сурталчилгаа (boost)-г удирдана.\n- Видео, постын тоо тогтмол биш: сар бүрийн төлөвлөгөөгөөр тохирно.\n- Багцад мөн 7 хоног тутмын тайлан багтана. Сурталчилгааны төсөв ороогүй.'),
   ('Ора — хувийн туслах (',
    '- Сард 1,500 мессеж багтана. Хэрэглэгч бүр өөрийн 1,500 мессежтэй; нэмэлт хэрэглэгч бүр сар бүр тусдаа төлбөртэй. Нэмэлт 500 мессежийн багц тусдаа төлбөртэй.',
-   E'- Сар бүрийн ашиглалтын эрх хувиар харагдана: 100% нь өдөрт ойролцоогоор 50 энгийн асуулттай тэнцэнэ. Мэргэн болон том файл илүү их хувь зарцуулна.\n- Эрх дуусвал нэмэлт +25% ашиглалтын багц авч болно, тусдаа төлбөртэй.\n- Хэрэглэгч бүр өөрийн 100% эрхтэй. Нэмэлт хэрэглэгч нэмэх боломжтой — асуугаарай.');
+   E'- Сар бүрийн ашиглалтын эрх хувиар харагдана: 100% нь сард ≈1,500 асуулт. Эрхийг бодит хэрэглээгээр тооцно: Ора Мэргэн болон том файл илүү их хувь зарцуулна.\n- Шинэ хэрэглэгчид эхний сард +500 асуулт бэлэг.\n- Эрх дуусвал нэмэлт +25% ашиглалтын багц авч болно, тусдаа төлбөртэй.\n- Хэрэглэгч бүр өөрийн 100% эрхтэй. Нэмэлт хэрэглэгч нэмэх боломжтой — асуугаарай.');
 
 update knowledge_documents k
    set body = replace(k.body, normalize(e.old_line, NFC), normalize(e.new_line, NFC)),
@@ -162,14 +166,20 @@ begin
    where t.slug = 'dalatech' and k.source = 'founder 2026-10-01';
   if n <> 4 then raise exception 'expected 4 edited documents, found %', n; end if;
   if exists (select 1 from knowledge_documents k join tenants t on t.id = k.tenant_id
-              where t.slug = 'dalatech' and (k.body like '%1,500%' or k.body like '%500 мессеж%'
+              where t.slug = 'dalatech' and (k.body like '%1,500 мессеж%' or k.body like '%500 мессеж%' or k.body like '%өдөрт ойролцоогоор 50%'
                                              or k.body like '%8 пост%' or k.body like '%3 богино видео%')) then
     raise exception 'a document still carries an old count';
   end if;
+  select count(*) into n from knowledge_documents k join tenants t on t.id = k.tenant_id
+   where t.slug = 'dalatech' and k.title like 'Ора%'
+     and position(normalize('сард ≈1,500 асуулт', NFC) in k.body) > 0
+     and position(normalize('Шинэ хэрэглэгчид эхний сард +500 асуулт бэлэг.', NFC) in k.body) > 0
+     and position(normalize('+25%', NFC) in k.body) > 0;
+  if n <> 2 then raise exception 'expected both Ора documents to carry ≈1,500, the +500 gift and +25%%, found %', n; end if;
   if exists (select 1 from faqs f join tenants t on t.id = f.tenant_id
-              where t.slug = 'dalatech' and (f.answer like '%1,500%' or f.answer like '%350,000%' or f.answer like '%8 пост%'))
+              where t.slug = 'dalatech' and (f.answer like '%1,500 мессеж%' or f.answer like '%350,000%' or f.answer like '%8 пост%'))
      or exists (select 1 from deterministic_replies d join tenants t on t.id = d.tenant_id
-              where t.slug = 'dalatech' and (d.body like '%1,500%' or d.body like '%350,000%' or d.body like '%8 пост%')) then
+              where t.slug = 'dalatech' and (d.body like '%1,500 мессеж%' or d.body like '%350,000%' or d.body like '%8 пост%')) then
     raise exception 'an FAQ or fixed reply carries an old figure';
   end if;
   if exists (select 1 from reply_cases r join tenants t on t.id = r.tenant_id

@@ -11719,9 +11719,11 @@ fixed reply; the revert restores every row; the November move file still applies
 
 **Facts (founder, 2026-10-01).** Вира is 250,000₮ a month (was 350,000₮, D-148). Videos and posts
 are made to the customer's wishes under the monthly content plan, with no fixed numbers (was 3
-short videos and 8 posts). Ора has a monthly usage allowance shown as a percentage: 100% is about
-50 everyday questions a day, and Мэргэн and large files use more. An extra «+25%» pack costs
-49,000₮. Each extra user has their own 100% allowance. This replaces the 1,500 messages a month
+short videos and 8 posts). Ора has a monthly usage allowance shown as a percentage, described as «сард ≈1,500 асуулт»
+and counted by real use (Ора Мэргэн and large files use more); every new customer gets +500
+questions in the first month («Шинэ хэрэглэгчид эхний сард +500 асуулт бэлэг»). An extra «+25%»
+pack costs 49,000₮. Each extra user has their own 100% allowance. (A first draft said «≈50 a day»;
+the founder replaced it the same day.) This replaces the 1,500 messages a month
 and the 500-message pack. Extra users have no published price any more: the website says only
 «Нэмэлт хэрэглэгч нэмэх боломжтой — асуугаарай», so Дали says the same and a person gives the price.
 
@@ -11739,13 +11741,14 @@ fixed reply and four model cases. FAQs and canned lines carry none of these fact
 reported `backend: dala` on 2026-10-01: visitors are answered by tenant #0's web channel, and
 `dalatech-chatbot`'s own prompt and facts only answer when that switch falls back. It still holds a
 copy of the facts that publish checks (`config/external-fact-copies.json`), so it was updated in
-dalatech-chatbot#46 (same facts; its guard now reads «50 энгийн асуулт» as a count and «+25%» as a
-share). Retiring that fallback, and the cross-check with it, is the founder's call
+dalatech-chatbot#46 (same facts; its guard now reads «≈1,500 асуулт» and «+500 асуулт» as counts
+and «+25%» as a share, where it had refused them as a price or a phone number). Retiring that fallback, and the cross-check with it, is the founder's call
 (`docs/website-channel.md`): the check must not go while the fallback can still answer.
 
 **Not applied.** The Mongolian lines are drafts until the founder signs them. Every statement was
 dry-run on the project inside aborted transactions (price updates 1+1 rows, delete 3, fixed reply 1,
 case updates 2+7, case insert, both document lines found in all four documents); a run of the whole
-file in one call timed out in the MCP transport with no session left on the database and nothing
-persisted, so the whole file has not been run as one transaction anywhere. Its own checks run when
-it is applied.
+file in one MCP call timed out with no session left on the database and nothing persisted. The whole
+file was run as one transaction on a local replica (every migration, DalaTech's rows seeded with the
+live strings): every check passed, a second run is a no-op, and a replica whose Ora line differs
+by one character refuses («expected 4 edited documents, found 3»).
