@@ -8,12 +8,21 @@
 --   under the monthly content plan; no fixed counts (was 3 short videos and 8 posts).
 --   Ора: a monthly usage allowance shown as a percentage. 100% ≈ 50 everyday questions a
 --   day; Мэргэн and large files use more. An extra «+25%» pack costs 49,000₮. This replaces
---   the 1,500 messages a month and the 500-message pack (same price, 49,000₮).
+--   the 1,500 messages a month and the 500-message pack (same price, 49,000₮). Each extra
+--   user has their own 100% allowance (founder, 2026-10-01, second message).
+--   Extra users have NO published price any more: the website says only «Нэмэлт хэрэглэгч
+--   нэмэх боломжтой — асуугаарай», so Дали says the same and a person gives the price.
 --
 -- Where each part lands, and when a customer sees it:
---   1. service_variants: Вира's month, and the pack's label (its price is unchanged). Read
---      per request: live on commit. The label carries no digits (D-075, D-148): «+25%» is
---      in the knowledge document, so the only number on a served row is its price.
+--   1. service_variants: Вира's month, the pack's label (its price is unchanged), and the
+--      three extra-user rows DELETED, so no path can quote them. Read per request: live on
+--      commit. The label carries no digits (D-075, D-148): «+25%» is in the knowledge
+--      document, so the only number on a served row is its price.
+--   1b. deterministic_replies `extra_user_price`: a question naming an extra user gets the
+--      website's sentence and the already-approved callback sentence, verbatim, no model.
+--      Live on commit. Matcher: «хэрэглэгч» AND «нэмэлт/нэмэх/нэмж» (Latin too); tested
+--      against src/lib/gate/match.ts: fires on «Орагийн нэмэлт хэрэглэгч хэд вэ?», not on
+--      «Орагийн нэмэлт багц хэд вэ?», «Нэмэлт SMS хэд вэ», «Дали хэдэн хэрэглэгчтэй ярих вэ».
 --   2. reply_cases: every active case that quotes Вира's 350,000₮, and new model cases for
 --      the new facts (they run only with --with-model).
 --   3. knowledge_documents: Вира's and Ора's documents, both launch states of each. These
@@ -42,6 +51,27 @@ update service_variants v set variant_key = normalize('Нэмэлт ашигла
   from svc where v.service_id = svc.id and svc.name = normalize('Ора — хувийн туслах', NFC)
    and v.variant_key = normalize('Нэмэлт мессежийн багц', NFC) and v.price_min = 49000;
 
+-- The extra-user prices go: no row, so neither the price path nor the model's facts guard
+-- can serve one. Nothing references them (branch_variant_prices: 0 rows, read 2026-10-01).
+delete from service_variants v using svc
+ where v.service_id = svc.id and svc.name = normalize('Ора — хувийн туслах', NFC)
+   and v.variant_key in (normalize('Нэмэлт хэрэглэгч, эхнийх', NFC), normalize('Нэмэлт хэрэглэгч, хоёр дахь', NFC),
+                         normalize('Нэмэлт хэрэглэгч, гурав дахиас эхлэн тус бүр', NFC));
+
+-- ---------------------------------------------------------------- 1b. the extra-user reply
+
+insert into deterministic_replies (tenant_id, intent, body, enabled, match_mode, stems, matcher,
+                                   requires_empty_history, provenance, placement)
+select dt.id, 'extra_user_price',
+       normalize('Нэмэлт хэрэглэгч нэмэх боломжтой — асуугаарай. Нэр, утасны дугаараа энд бичиж үлдээвэл хамт олон маань тантай холбогдоно.', NFC),
+       true, 'matcher', '{}'::text[],
+       '{"mode": "all_of", "matchers": [
+          {"mode": "contains_stem", "stems": ["хэрэглэгч", "хэрэглэгчийн", "hereglegch"]},
+          {"mode": "contains_stem", "stems": ["нэмэлт", "нэмэх", "нэмж", "nemelt", "nemeh", "nemj"]}]}'::jsonb,
+       false, 'tenant_confirmed', 'replace'
+  from dt
+ where not exists (select 1 from deterministic_replies d where d.tenant_id = dt.id and d.intent = 'extra_user_price');
+
 -- ---------------------------------------------------------------- 2. reply cases
 
 update reply_cases r set must_include = array_replace(r.must_include, '350,000', '250,000'),
@@ -62,8 +92,20 @@ select dt.id, 'facebook_page', normalize(x.q, NFC), null, x.inc, x.nots, x.note,
     ('Орагийн нэмэлт багц хэд вэ?', array['25%', '49,000'], array['500 мессеж'],
      'D-171: the extra pack is +25% for 49,000₮; never the old 500 messages.'),
     ('Вира сард хэдэн пост хийдэг вэ?', array[]::text[], array['8 пост', '3 богино видео', '350,000'],
-     'D-171: Вира has no fixed counts; posts and videos follow the monthly content plan.')
+     'D-171: Вира has no fixed counts; posts and videos follow the monthly content plan.'),
+    ('Ора хэдэн хүн хэрэглэж болох вэ?', array[]::text[], array['200,000', '175,000', '150,000'],
+     'D-171: extra users have no published price; never an old figure.')
   ) x(q, inc, nots, note)
+ where not exists (select 1 from reply_cases r where r.tenant_id = dt.id and r.active
+                      and r.customer_message = normalize(x.q, NFC));
+
+-- EXACT cases: the fixed reply answers these with no model, so the gate checks them on
+-- every build and publish.
+insert into reply_cases (tenant_id, channel, customer_message, expected_body, must_include, must_not_include, note, active)
+select dt.id, 'facebook_page', normalize(x.q, NFC), d.body, array[]::text[], array['200,000', '175,000', '150,000'],
+       'D-171: an extra user''s price goes to a person.', true
+  from dt join deterministic_replies d on d.tenant_id = dt.id and d.intent = 'extra_user_price',
+       (values ('Орагийн нэмэлт хэрэглэгч хэд вэ?'), ('nemelt hereglegch hed ve'), ('Нэмэлт хэрэглэгч нэмэх боломжтой юу?')) x(q)
  where not exists (select 1 from reply_cases r where r.tenant_id = dt.id and r.active
                       and r.customer_message = normalize(x.q, NFC));
 
@@ -76,7 +118,7 @@ insert into doc_edits values
    E'- Пост бодох ажлаас таныг чөлөөлнө: сарын контент төлөвлөгөөний дагуу видео, постыг таны хүссэнээр бэлтгэж, сурталчилгаа (boost)-г удирдана.\n- Видео, постын тоо тогтмол биш: сар бүрийн төлөвлөгөөгөөр тохирно.\n- Багцад мөн 7 хоног тутмын тайлан багтана. Сурталчилгааны төсөв ороогүй.'),
   ('Ора — хувийн туслах (',
    '- Сард 1,500 мессеж багтана. Хэрэглэгч бүр өөрийн 1,500 мессежтэй; нэмэлт хэрэглэгч бүр сар бүр тусдаа төлбөртэй. Нэмэлт 500 мессежийн багц тусдаа төлбөртэй.',
-   E'- Сар бүрийн ашиглалтын эрх хувиар харагдана: 100% нь өдөрт ойролцоогоор 50 энгийн асуулттай тэнцэнэ. Мэргэн болон том файл илүү их хувь зарцуулна.\n- Хэрэглэгч бүр өөрийн эрхтэй; нэмэлт хэрэглэгч бүр сар бүр тусдаа төлбөртэй.\n- Эрх дуусвал нэмэлт +25% ашиглалтын багц авч болно, тусдаа төлбөртэй.');
+   E'- Сар бүрийн ашиглалтын эрх хувиар харагдана: 100% нь өдөрт ойролцоогоор 50 энгийн асуулттай тэнцэнэ. Мэргэн болон том файл илүү их хувь зарцуулна.\n- Эрх дуусвал нэмэлт +25% ашиглалтын багц авч болно, тусдаа төлбөртэй.\n- Хэрэглэгч бүр өөрийн 100% эрхтэй. Нэмэлт хэрэглэгч нэмэх боломжтой — асуугаарай.');
 
 update knowledge_documents k
    set body = replace(k.body, normalize(e.old_line, NFC), normalize(e.new_line, NFC)),
@@ -99,7 +141,18 @@ begin
      and v.variant_key = normalize('Нэмэлт ашиглалтын багц', NFC) and v.price_min = 49000;
   if n <> 1 then raise exception 'Ора''s pack row was not relabelled (%)', n; end if;
   select count(*) into n from service_variants v join tenants t on t.id = v.tenant_id where t.slug = 'dalatech';
-  if n <> 18 then raise exception 'expected 18 DalaTech price rows, found %', n; end if;
+  if n <> 15 then raise exception 'expected 15 DalaTech price rows, found %', n; end if;
+  if exists (select 1 from service_variants v join tenants t on t.id = v.tenant_id
+              where t.slug = 'dalatech' and v.variant_key like 'Нэмэлт хэрэглэгч%') then
+    raise exception 'an extra-user price row is still there';
+  end if;
+  if not exists (select 1 from deterministic_replies d join tenants t on t.id = d.tenant_id
+                  where t.slug = 'dalatech' and d.intent = 'extra_user_price' and d.enabled) then
+    raise exception 'extra_user_price was not written';
+  end if;
+  select count(*) into n from reply_cases r join tenants t on t.id = r.tenant_id
+   where t.slug = 'dalatech' and r.active and r.note like 'D-171: an extra user%';
+  if n <> 3 then raise exception 'expected 3 exact extra-user cases, found %', n; end if;
   if exists (select 1 from service_variants v join tenants t on t.id = v.tenant_id
               where t.slug = 'dalatech' and (v.price_min = 350000 or v.variant_key like '%мессеж%')) then
     raise exception 'an old figure or label is still on a DalaTech price row';

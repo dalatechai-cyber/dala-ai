@@ -11715,24 +11715,37 @@ failed at first (they reached the model), fixed by matcher words, not wording: `
 «яармаг», «салбар(ын)»; `salon_phone` covers «танай». Replica: 33/33 reply cases, all seven by
 fixed reply; the revert restores every row; the November move file still applies after it.
 
-## D-171 — DalaTech: Вира 250,000₮ with no fixed counts; Ора's allowance in percent (2026-10-01, founder)
+## D-171 — DalaTech: Вира 250,000₮ with no fixed counts; Ора's allowance in percent; no extra-user prices (2026-10-01, founder)
 
 **Facts (founder, 2026-10-01).** Вира is 250,000₮ a month (was 350,000₮, D-148). Videos and posts
 are made to the customer's wishes under the monthly content plan, with no fixed numbers (was 3
 short videos and 8 posts). Ора has a monthly usage allowance shown as a percentage: 100% is about
 50 everyday questions a day, and Мэргэн and large files use more. An extra «+25%» pack costs
-49,000₮. This replaces the 1,500 messages a month and the 500-message pack.
+49,000₮. Each extra user has their own 100% allowance. This replaces the 1,500 messages a month
+and the 500-message pack. Extra users have no published price any more: the website says only
+«Нэмэлт хэрэглэгч нэмэх боломжтой — асуугаарай», so Дали says the same and a person gives the price.
 
 **Where it lands** (`scripts/provision/dalatech-prices-2026-10-01.sql`, read off the project
 first): Вира's monthly price row; the Ора pack row relabelled «Нэмэлт ашиглалтын багц» (price
-unchanged, no digits in a label, D-148); four knowledge documents (Вира and Ора, each in both
-launch states); the nine active reply cases that expected 350,000₮; three new model cases. FAQs,
-fixed replies and canned lines carry none of these facts, so they are not touched. The price
-overview renders Вира from the row.
+unchanged, no digits in a label, D-148); the three extra-user price rows deleted (nothing references
+them), so neither the price path nor the facts guard can serve one; a fixed reply
+`extra_user_price` (the website's sentence plus the approved callback sentence, verbatim, no model)
+whose matcher needs «хэрэглэгч» and «нэмэлт/нэмэх/нэмж», tested against `gate/match.ts` on five
+questions that must fire and five that must not; four knowledge documents (Вира and Ора, each in
+both launch states); the nine active reply cases that expected 350,000₮; three EXACT cases for the
+fixed reply and four model cases. FAQs and canned lines carry none of these facts.
 
-**Not applied.** The Mongolian lines are drafts until the founder signs them. Dry run on the
-project inside an aborted transaction: every check passed, 12 cases touched or added, nothing
-persisted. Assumed, for the founder to confirm: each extra Ора user still has an allowance of
-their own, as each had 1,500 messages. The external fact copies in `../dalatech-chatbot`
-(`config/external-fact-copies.json`) were not readable from this session; if they still say
-350,000₮ or 1,500 messages, publish refuses until that repository is updated.
+**The website chat.** dalatech.online embeds `dalatech-chatbot.vercel.app`, whose `/api/chat-config`
+reported `backend: dala` on 2026-10-01: visitors are answered by tenant #0's web channel, and
+`dalatech-chatbot`'s own prompt and facts only answer when that switch falls back. It still holds a
+copy of the facts that publish checks (`config/external-fact-copies.json`), so it was updated in
+dalatech-chatbot#46 (same facts; its guard now reads «50 энгийн асуулт» as a count and «+25%» as a
+share). Retiring that fallback, and the cross-check with it, is the founder's call
+(`docs/website-channel.md`): the check must not go while the fallback can still answer.
+
+**Not applied.** The Mongolian lines are drafts until the founder signs them. Every statement was
+dry-run on the project inside aborted transactions (price updates 1+1 rows, delete 3, fixed reply 1,
+case updates 2+7, case insert, both document lines found in all four documents); a run of the whole
+file in one call timed out in the MCP transport with no session left on the database and nothing
+persisted, so the whole file has not been run as one transaction anywhere. Its own checks run when
+it is applied.
