@@ -1,12 +1,13 @@
 # Tara Salon — Парк Од (slug `tara-park-od`, not onboarded)
 
-A branch of Tara Salon and its own tenant (D-157). **Not onboarded yet; nothing here is in the
-database.** These are the facts confirmed so far, for the day she is onboarded from her own
+A branch of Tara Salon and its own tenant (D-157). **Open since 2026-10-01 (founder); not
+onboarded yet: nothing of her own is in the database.** These are the facts confirmed so far, for the day she is onboarded from her own
 filled questionnaire (`docs/standards/dali.md` §7).
 
 | Fact | Value | Source |
 |---|---|---|
 | Facebook Page (where Дали will answer) | https://www.facebook.com/profile.php?id=100067391025472 | Founder, 2026-10-01: «her own confirmed Page» |
+| Address | Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот (no Google Maps listing yet) | Founder, 2026-10-01 |
 | Phone | 76001888, the shared main line of both branches; no line of her own given | Price list of 2026-10-01 |
 | Prices | Identical to Яармаг's (D-157); the 2026-10-01 list is in `scripts/provision/tara-price-list-2026-10-01.sql` | Price list of 2026-10-01 |
 | Children's services | Served, as at Яармаг (no children's refusal) | Founder, 2026-10-01 |
@@ -24,3 +25,8 @@ Onboarding command (the founder's, when her form is filled):
 
     node scripts/onboard/tenant.ts --form <Парк Од form> --slug tara-park-od \
       --facebook-page-id <confirmed Page id> --display-name "Tara Salon — Парк Од"
+
+**Яармаг's Дали names her** (D-170, once the founder approves the wording): her address, the
+shared line and her Page, from `config/branch-groups.json` `allow_names` («Парк Од») and
+`allow_addresses` (the address above). Onboard her address row with exactly that text: a
+different spelling is no longer the allowed address, and Яармаг's publish then refuses.

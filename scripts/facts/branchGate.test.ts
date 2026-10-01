@@ -14,6 +14,8 @@ test('a malformed config or a slug in two groups is refused, never guessed', () 
   assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"]}, "b": {"tenants": ["y", "z"]}}'), /y is in both a and b/u);
   assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "allow_names": "Сарнай"}}'), /allow_names/u);
   assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "allow_phones": "76001888"}}'), /allow_phones/u);
+  assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "allow_addresses": [""]}}'), /allow_addresses/u);
+  assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "allow_addresses": "Баянзүрх"}}'), /allow_addresses/u);
   assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "allow_phones": ["7600"]}}'), /allow_phones/u);
   assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "allow_phones": ["76001888, 91005498"]}}'), /allow_phones/u);
   assert.deepEqual(branchGroups('{"a": {"tenants": ["x", "y"], "allow_phones": ["+976 7600-1888"]}}')[0]?.allowPhones, ['+976 7600-1888']);

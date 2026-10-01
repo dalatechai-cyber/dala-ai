@@ -349,7 +349,10 @@ only its own branch's details. D-125's "branches inside one tenant" (migration
 every branch's rows (a person who really works at both, or a name that is also an ordinary
 word the rows use); only the founder adds one. `allow_phones` lists the brand's shared lines
 (`tara-salon`: 76001888): every branch may hold one in its contact rows and say it in its rows.
-Every other phone stays one branch's own; only the founder adds one.
+Every other phone stays one branch's own; only the founder adds one. `allow_addresses` lists
+another branch's address every branch may give (with its branch name in `allow_names`): since
+D-170 Яармаг's Дали names Парк Од, her address, the shared line and her Page, the one exception
+the founder made to "each Page gives only its own branch's details".
 
 ### The branch gate (GATE)
 

@@ -158,15 +158,21 @@ function detailsOf(side: BranchSide): Details {
 /**
  * Another branch's details in this branch's rows (`leak`). `allowNames`: staff names that may
  * appear in every branch, from the group's configuration (a person who works at both, or a
- * name that is also an ordinary word the rows use). `allowPhones`: the brand's shared lines, from
+ * name that is also an ordinary word the rows use). `allowAddresses`: another branch's address
+ * the founder lets every branch give (D-170: Яармаг's Дали names Парк Од's address), matched
+ * whole as the address row reads. `allowPhones`: the brand's shared lines, from
  * the same configuration, which every branch may hold and say; every other phone stays one
  * branch's own.
  */
 export function foreignDetails(
   own: BranchSide, sibling: BranchSide, allowNames: readonly string[] = [], allowPhones: readonly string[] = [],
+  allowAddresses: readonly string[] = [],
 ): BranchFinding[] {
   const mine = detailsOf(own);
   const theirs = detailsOf(sibling);
+  // Only what this branch SAYS: an address is never held by both branches, so this branch's own
+  // address row equal to the allowed one is still a leak (unlike a shared phone line).
+  const sayable = new Set(allowAddresses.map((a) => flat(a)));
   // With and without Mongolia's 976, as `phonesOf` reads a contact row.
   const shared = new Set(allowPhones.flatMap((p) => phonesOf(p)).flatMap((p) => (p.length === 8 ? [p, `976${p}`] : [p])));
   for (const p of shared) theirs.phones.delete(p);
@@ -188,7 +194,7 @@ export function foreignDetails(
   // Said in a text: only what is the other branch's alone (a detail held by both is found above).
   const phones = [...theirs.phones].filter((p) => !mine.phones.has(p));
   const links = [...theirs.links].filter((l) => !mine.links.has(l));
-  const addresses = [...theirs.addresses].filter((a) => !mine.addresses.has(a));
+  const addresses = [...theirs.addresses].filter((a) => !mine.addresses.has(a) && !sayable.has(a));
   // A name this branch's own staff also answer to says nothing about which branch is meant.
   const names = [...theirs.called].filter(([k]) => !mine.called.has(k) && !allowed.has(k) && [...k].length >= MIN_TEXT_NAME_CHARS);
   const patterns = names.map(([k, name]) => ({ what: `staff member «${name}»${k === name.toLowerCase() ? '' : ` («${k}»)`}`, re: headPattern(k) }));

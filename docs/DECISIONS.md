@@ -11660,3 +11660,33 @@ migrations, so it is never run here. `0076` was applied by the session the same 
 `0035`–`0075`, as its equivalent (the one changed row; the other 99 compared per row with a
 replica first), and read back byte-identical to the signed file. No customer sees it before
 Tara's publish.
+
+## D-170 — Tara has two branches: Яармаг names Парк Од; Яармаг moves in November (2026-10-01, founder)
+
+**Facts (founder, 2026-10-01).** Парк Од is open: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл,
+4 давхар, 405 тоот. Neither branch has a Google Maps listing. Яармаг moves in November 2026 (date
+to come) to Хан-Уул дүүрэг, 24-р хороо, Наадамчдын зам гудамж, VIP Center 2 давхар; until then
+its current address stays. Яармаг's Дали said Tara had one branch and a second «удахгүй
+нээгдэнэ» (KB «Салбарууд»): wrong since today.
+
+**Decided.** Яармаг's Дали says Tara has two branches and gives Парк Од's address, the shared
+line 76001888 and Парк Од's Facebook Page. This is the founder's one exception to D-157's "each
+Page gives only its own branch's details".
+
+**How, within the branch gate.** Not by switching the gate off and not by a carve-out for a
+document: by naming the exact facts the founder allows. `config/branch-groups.json` gains
+`allow_addresses` (Парк Од's address, matched whole as her address row will read) and «Парк Од»
+in `allow_names`; 76001888 was already in `allow_phones`. Every other Парк Од detail (her own
+phone, staff, map link, a differently written address) is still a LEAK in Яармаг's rows, and an
+address row onboarded with another spelling makes Яармаг's publish refuse rather than pass
+silently. The Facebook link goes out only in a fixed reply (`park_od_branch`, sent verbatim): a
+link the model writes is refused unless it is one of Яармаг's own contact links, so the document
+says Парк Од has a Page without the link. Proven on the replica with a provisioned Парк Од
+holding that address and 76001888: 0 leaks with the allowances, 4 without (address and branch
+name, in the document and the fixed reply).
+
+**Built, not applied.** `tara-branches-2026-10-01.sql` (+ revert) waits for the founder's
+approval of `prompt/drafts/tara_branches.mn.txt`. `tara-yarmag-move-2026-11.sql` is ready for
+the move day: the address row, the fixed address reply (address only: no listing, so the map
+link and its line go) and its reply case. Replica: both apply, refuse a second run, dry run
+27/27 reply cases (5 model cases not run), facts agree; the branches revert restores every row.

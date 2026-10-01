@@ -100,6 +100,22 @@ test('a shared line in allow_phones may be held and said by every branch; every 
     ["canned handoff: carries demo-east's phone 99112233"], 'east\'s own line is still a leak');
 });
 
+test('D-170: an address in allow_addresses may be given by another branch; the branch name needs allow_names', () => {
+  const says = { ...west, texts: [{ source: 'fixed reply branch', text: 'Нарны салбарын хаяг: Баянзүрх дүүрэг, Нарны хорооллын 3-р байр. Утас: 7711-2233' }] };
+  const e = { ...east, branchName: 'Нарны' };
+  assert.deepEqual(foreignDetails(says, e).map((f) => f.detail).sort(), [
+    "carries demo-east's address «баянзүрх дүүрэг, нарны хорооллын 3-р байр»",
+    "names demo-east's branch name «Нарны»",
+  ]);
+  assert.deepEqual(foreignDetails(says, e, ['Нарны'], [], ['Баянзүрх дүүрэг, Нарны хорооллын 3-р байр']), []);
+  // Any other detail of that branch is still a leak.
+  const more = { ...says, texts: [...says.texts, { source: 'KB', text: 'Утас 99112233' }] };
+  assert.deepEqual(foreignDetails(more, e, ['Нарны'], [], ['Баянзүрх дүүрэг, Нарны хорооллын 3-р байр']).map((f) => f.source), ['KB']);
+  // Saying it is allowed; holding it as this branch's own address is not.
+  const held = { ...west, contacts: [...west.contacts.filter((c) => c.kind !== 'address'), { kind: 'address', value: 'Баянзүрх дүүрэг, Нарны хорооллын 3-р байр' }] };
+  assert.deepEqual(foreignDetails(held, e, ['Нарны'], [], ['Баянзүрх дүүрэг, Нарны хорооллын 3-р байр']).map((f) => f.source), ['contact_points address']);
+});
+
 test('a staff name is a whole word, with or without a case ending, never a piece of another word', () => {
   assert.equal(staffKey('Г. Мөнхзаяа'), 'Мөнхзаяа');
   const inside = { ...west, texts: [{ source: 'KB', text: 'Сарнайн цэцэг' }] };

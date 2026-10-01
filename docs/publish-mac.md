@@ -94,3 +94,18 @@ Tara's publish).
    (expect «Өөр асуух зүйл байвал бичээрэй.»), then a second like (expect no reply, and no
    «typing…»). A like as the very first message of a conversation (or after 24 hours of silence)
    gets the welcome line.
+
+## Tara's two branches (D-170), and Яармаг's move
+
+**Парк Од in Яармаг's Дали** (only after you approve `prompt/drafts/tara_branches.mn.txt`):
+1. After the PR carrying D-170 is merged and deployed: `git pull && npm ci`.
+2. SQL editor → run `scripts/provision/tara-branches-2026-10-01.sql` (no `canned_stale` window).
+3. At once, the dry run `--slug matrix-eco-salon --with-model`. Expect `branches: … no other
+   branch's details`, every reply case passing (the two Парк Од cases and «Танай хэдэн салбартай
+   вэ?»), `facts: … agree`. Then `--publish`. If anything refuses:
+   `scripts/provision/tara-branches-2026-10-01-revert.sql`, then publish.
+4. Check on Messenger: «Парк Од салбар хаана байдаг вэ?» gets the address, 76001888 and the Page.
+
+**Яармаг's move** (on the day you give; not before): run
+`scripts/provision/tara-yarmag-move-2026-11.sql`, then the dry run and `--publish` at once. Tell the
+session first if the date or the address text changed.
