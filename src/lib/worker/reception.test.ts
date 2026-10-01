@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { LIKE_TEXT } from '../inbound/like.ts';
 import assert from 'node:assert/strict';
 import { RECEPTION_MAX_DELIVERIES, runReceptionJob, SALES_SHADOW_WAIT_MS, TYPING_WAIT_MS, type DeliverArgs, type GenerateArgs, type SalesShadowArgs, type WorkerEffects } from './reception.ts';
 import type { ReceptionOutcome } from '../reception/handle.ts';
@@ -1996,18 +1997,57 @@ test('a photo alone is handed off the same way when the tenant has the notice', 
   assert.equal(delivered[0]?.body, NOTICE);
 });
 
-test('a sticker alone is never answered (D-070)', async () => {
-  const { fx, delivered } = stubEffects({
+test('a sticker alone is never answered (D-070), unless it is the like (D-168)', async () => {
+  const { fx, delivered, generated } = stubEffects({
     alertMediaHandoff: async () => {},
     tables: {
       webhook_events: {
-        data: { raw_payload: payload({ text: '', attachments: [{ type: 'image', payload: { sticker_id: 369239263222822 } }] }) },
+        data: { raw_payload: payload({ text: '', attachments: [{ type: 'image', payload: { sticker_id: 126361874215276 } }] }) },
       },
       canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
     },
   });
   await run(fx);
   assert.equal(delivered.length, 0);
+  assert.equal(generated.length, 0, 'another sticker never reaches the reply path');
+});
+
+const LIKE_EVENT = { data: { raw_payload: payload({ text: '', attachments: [{ type: 'image', payload: { sticker_id: 369239263222822 } }, { type: 'sticker', payload: { sticker_id: 369239263222822 } }] }) } };
+const likeRow = (intent: string, requiresEmpty: boolean) => ({
+  intent, body: `${intent} body`, enabled: true, match_mode: 'whole_message', stems: ['like'], cover_words: [],
+  placement: 'replace', quote_services: [], requires_empty_history: requiresEmpty, provenance: 'tenant_confirmed',
+});
+
+test('D-168: a like alone reaches the reply path as the like text, with no attachment beside it', async () => {
+  const { fx, generated } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: LIKE_EVENT,
+      deterministic_replies: { data: [likeRow('like_welcome', true), likeRow('acknowledgement', false)], error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(generated.length, 1);
+  assert.equal(generated[0]?.customerMessage, LIKE_TEXT);
+  assert.deepEqual(generated[0]?.customerAttachments, []);
+  assert.equal(generated[0]?.customerSentPhoto, false);
+});
+
+test('D-168: at a tenant with no fixed reply for a like, nothing is opened, reserved, shown or sent', async () => {
+  const { fx, generated, typed, delivered, ops, logs } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: { webhook_events: LIKE_EVENT, deterministic_replies: { data: [], error: null } },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(generated.length, 0);
+  assert.equal(typed.length, 0, 'no «typing…» for a reply that never comes');
+  assert.equal(delivered.length, 0);
+  assert.deepEqual(logs.filter((l) => l.event === 'like_not_answered').map((l) => l.fields?.['reason']), ['no_fixed_reply']);
+  // No contact, no stored message, no reservation (the reads of `conversations` above the
+  // loop are the reclaim sweep's, which every job makes).
+  assert.deepEqual(ops.filter((o) => ['contacts', 'messages', 'spend_reservations'].includes(o.table)).map((o) => `${o.table}:${o.op}`), []);
+  assert.ok(reasons(logs).includes('like_not_answered'));
 });
 
 test('a thread a person already holds is left to them: no notice over the staff member', async () => {
@@ -2163,7 +2203,7 @@ test('a retryable send failure on the voice line retries, and tells nobody yet',
 test('a sticker is not a voice message: no alert', async () => {
   const { fx, needsPerson } = stubEffects({
     tables: {
-      webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'image', payload: { sticker_id: 369239263222822 } }] }) } },
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'image', payload: { sticker_id: 126361874215276 } }] }) } },
       canned_responses: { data: null, error: null },
     },
   });

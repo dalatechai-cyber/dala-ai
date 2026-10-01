@@ -33,6 +33,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { canDeliver } from '../channel/delivery.ts';
 import { extractInboundMessages } from '../meta/extract.ts';
 import { INSTAGRAM_MAX_TEXT_BYTES } from '../meta/send.ts';
+import { isLike, likeIsOwedReply, likeRowFor } from '../inbound/like.ts';
 import { ensureContact, ensurePerson, openConversation, readHistory, recordInbound, traceAnswer } from '../inbound/persist.ts';
 import { recordDroppedInbound, skipSummary } from '../inbound/dropped.ts';
 import { draftImageReplies, planImageReplies, readImageLine } from '../inbound/imageReply.ts';
@@ -587,6 +588,9 @@ async function runReceptionDelivery(
       .catch((e: unknown) => ({ ok: false as const, code: 'unavailable' as const, detail: `context load threw: ${e instanceof Error ? e.message : String(e)}` }));
   // Not for a reclaim job: it serves a stored row and never needs the context.
   const contextPromise = messages.length > 0 && provider !== '' && reclaimMid === null ? startContext() : null;
+  /** The context, started once: the promise above, or a load begun on first need. */
+  let contextLoad = contextPromise;
+  const loadContext = () => (contextLoad ??= startContext());
 
   // --- Secondary receiver (§3.7). Never a drop. -----------------------------
   //
@@ -1169,6 +1173,16 @@ async function runReceptionDelivery(
     // reading as 1970 and being dropped as stale for the wrong reason.
     const eventAt = Number.isNaN(message.sentAt.getTime()) ? now : message.sentAt;
 
+    // D-168: a like at a tenant with no fixed reply for it is what every other sticker is
+    // (D-070): no contact, no conversation, no reservation, nothing sent.
+    if (isLike(message.text)) {
+      const early = await loadContext();
+      if (early.ok && !likeRowFor(early.context.deterministic, null)) {
+        fx.log('info', 'like_not_answered', { tenantId, externalId: message.externalId, reason: 'no_fixed_reply' });
+        continue;
+      }
+    }
+
     const contact = await ensureContact(db, { tenantId, channelId, externalId: message.senderId, now });
     if (!contact.ok) {
       fx.log('error', 'contact_failed', { detail: contact.detail });
@@ -1355,7 +1369,7 @@ async function runReceptionDelivery(
     }
 
     if (ready === null) {
-      const loaded = await (contextPromise ?? startContext());
+      const loaded = await loadContext();
       clock.lap('context_load');
       // Null until the context loads, and it stays null on every refusal path — see the note
       // at the log site. `loaded.timings` only exists on the ok branch because the failure
@@ -1486,6 +1500,15 @@ async function runReceptionDelivery(
     clock.lap('history_read');
     const priorTurns = history.value.slice(0, -1);
 
+    // D-168: a like is answered by a fixed reply or not at all, and only when it is owed one
+    // (`likeIsOwedReply`). Decided HERE, before the spend guard and the bubble, so a like left
+    // unanswered costs no reservation, shows no «typing…» and never draws the cap's hand-off.
+    if (isLike(message.text)
+      && !(likeIsOwedReply(priorTurns) && likeRowFor(ctx.deterministic, priorTurns.length === 0))) {
+      fx.log('info', 'like_not_answered', { tenantId, conversationId, externalId: message.externalId, reason: 'not_owed_reply' });
+      continue;
+    }
+
     // The chokepoint. Nothing downstream may re-implement any part of this.
     const guard = await withTenantRole(db, {
       tenantId, role: 'reception', surface: 'reception', channel: provider,
@@ -1515,9 +1538,12 @@ async function runReceptionDelivery(
           ? 'error' : 'info', 'ceiling_alert', { tenantId, eventId, outcome: alerted });
 
         // The customer gets the tenant's own reviewed hand-off line, the sentence the website
-        // already serves here (founder, 2026-09-30, D-160). `serveHandoff` below.
-        const served = await serveHandoff('ceiling');
-        if (typeof served !== 'string') return served;
+        // already serves here (founder, 2026-09-30, D-160). `serveHandoff` below. Never in
+        // answer to a like (D-168): it would spend the day's one hand-off on a thumbs-up.
+        if (!isLike(message.text)) {
+          const served = await serveHandoff('ceiling');
+          if (typeof served !== 'string') return served;
+        }
       }
       return ok({ refused: refusal.code });
     }

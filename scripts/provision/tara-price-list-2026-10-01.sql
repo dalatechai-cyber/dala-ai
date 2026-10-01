@@ -1,5 +1,7 @@
 -- NOT APPLIED. Tara Salon — Яармаг (slug matrix-eco-salon): the price list of 2026-10-01, the
--- children's services, and the new phone number (D-167).
+-- children's services, and the new phone number (D-167); the founder's decisions of the same day
+-- (D-168): old services and prices gone from the knowledge, the FAQ and the reply cases, «охин»
+-- for the girls' haircut, and the Messenger like answered by fixed replies.
 --
 -- Source of truth: the salon's price list received 2026-10-01 (5 pages, transcribed; same prices
 -- for both branches) and the founder's instructions of the same day:
@@ -68,6 +70,21 @@ begin
   -- The price-row swap below deletes variants; per-branch prices would cascade with them.
   if exists (select 1 from branch_variant_prices where tenant_id = t) then
     raise exception 'branch_variant_prices rows exist for this tenant; the revert could not restore them';
+  end if;
+  -- D-168: the documents and the FAQ this file rewrites are the ones read on 2026-10-01.
+  select count(*) into n from knowledge_documents where tenant_id = t
+     and (title in ('Сор, Оффис колор, омбре', 'CICA ба CMC — эмчилгээ, хими биш')
+          or (title = 'Химийн үйлчилгээний төрлүүд' and body like '%Шулуун хими (сеттинг) нь%'));
+  if n <> 3 then raise exception 'expected the 3 knowledge documents read on 2026-10-01, found %', n; end if;
+  if not exists (select 1 from faqs where tenant_id = t and question = 'CICA нэг удаагийн эмчилгээ хэдэн тэжээлийн тостой тэнцэх вэ?') then
+    raise exception 'the CICA / тэжээлийн тос FAQ is not there';
+  end if;
+  if not exists (select 1 from deterministic_replies where tenant_id = t and intent = 'greeting' and enabled
+                 and body = 'Сайн байна уу! Tara Salon-д тавтай морил. Танд юугаар туслах вэ?') then
+    raise exception 'the welcome row (greeting) is not the approved line read on 2026-10-01';
+  end if;
+  if exists (select 1 from deterministic_replies where tenant_id = t and intent = 'like_welcome') then
+    raise exception 'like_welcome already present';
   end if;
   if exists (select 1 from knowledge_documents where tenant_id = t and title = 'TARA Lumi – үүсгэлттэй будалт') then
     raise exception 'TARA Lumi document already present: this file has been applied';
@@ -183,7 +200,7 @@ insert into tara_prices values
   ('Эмэгтэй тайралт', 'SPECIAL', 120000),
   ('Эмэгтэй тайралт', 'Мастер', 99000),
   ('Эмэгтэй тайралт', '1-р зэрэг', 66000),
-  ('Хүүхдийн тайралт', 'эмэгтэй', 44000),
+  ('Хүүхдийн тайралт', 'охин', 44000),  -- «Тайралт хүүхэд» in the women's section: girls (founder, D-168)
   ('Чёлк тайралт', '', 22000),
   ('Хэлбэржүүлэлт', 'өдөр тутмын', 44000),
   ('Хэлбэржүүлэлт', 'гоёлын', 60000),
@@ -332,6 +349,118 @@ select t.id, 'TARA Lumi – үүсгэлттэй будалт',
  where t.slug = 'matrix-eco-salon';
 
 -- ---------------------------------------------------------------------------
+-- 4b. D-168: nothing Дали reads may name an old service or an old price.
+-- ---------------------------------------------------------------------------
+-- Оффис колор and Омбре are off the list: their document goes.
+delete from knowledge_documents k using tenants t
+ where t.slug = 'matrix-eco-salon' and k.tenant_id = t.id and k.title = 'Сор, Оффис колор, омбре';
+
+-- CMC, Тэжээлийн тос and the CICA course are off the list: their sentences go, nothing is added.
+update knowledge_documents k
+   set title = 'CICA — эмчилгээ, хими биш',
+       body = 'CICA эмчилгээний хими гэсэн үйлчилгээ БАЙХГҮЙ. Эмчилгээний хими бол ургамлын гаралтай зөөлөн хими.
+CICA бол тусдаа сэргээх эмчилгээ.
+CICA нь үсний гэмтсэн давхаргад ажиллана.
+Будалт болон мелировканд тэжээллэг найрлага ордоггүй.',
+       updated_at = now()
+  from tenants t
+ where t.slug = 'matrix-eco-salon' and k.tenant_id = t.id and k.title = 'CICA ба CMC — эмчилгээ, хими биш';
+
+-- Шулуун хими and Сэттинг хими are two services on the list, no longer one.
+update knowledge_documents k
+   set body = replace(k.body, 'Шулуун хими (сеттинг) нь', 'Шулуун хими нь'), updated_at = now()
+  from tenants t
+ where t.slug = 'matrix-eco-salon' and k.tenant_id = t.id and k.title = 'Химийн үйлчилгээний төрлүүд';
+
+delete from faqs f using tenants t
+ where t.slug = 'matrix-eco-salon' and f.tenant_id = t.id
+   and f.question = 'CICA нэг удаагийн эмчилгээ хэдэн тэжээлийн тостой тэнцэх вэ?';
+
+-- The reply cases' recorded history carries three earlier turns with old services and prices
+-- (the old FAQ answer, the old dye-price answer, two past «Усны / Усан хими» answers), which the model
+-- reads when a case runs. Each becomes the same turn with today's list: the FAQ's new answer,
+-- dye_prices' new rows, and the same wrong-name answer with Усан хими's new range.
+create temp table tara_history_turns (old text, new text) on commit drop;
+insert into tara_history_turns values
+  ('Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:
+CICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)
+Тэжээлийн тос: 49,500₮
+CMC тэжээл: 132,000₮
+Тэжээл: 44,000–88,000₮
+Үсэнд тань аль нь тохирохыг манай үсчин зөвлөж өгнө.',
+   'Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:
+CICA үсний гүний эмчилгээ: 198,000₮
+Үсний тэжээл: 88,000₮
+Үсэнд тань аль нь тохирохыг манай үсчин зөвлөж өгнө.'),
+  ('Үсний угийн будаг: 135,000₮
+Дунд үсний будаг (мөрнөөс дээш урттай үс): 176,000₮
+Урт үсний будаг (мөр давсан урттай үс): 200,000₮
+
+Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?',
+   'Энгийн будаг (богино): 160,000₮
+Энгийн будаг (дунд): 180,000₮
+Энгийн будаг (урт): 210,000₮
+Үсний угийн будаг: 99,000₮
+
+Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?'),
+  ('Усны хими 132,000₮–154,000₮ байна.', 'Усны хими 120,000₮–200,000₮ байна.'),
+  ('Буруу ойлголоо. Усан хими 132,000₮–154,000₮ байна.', 'Буруу ойлголоо. Усан хими 120,000₮–200,000₮ байна.');
+
+update reply_cases r
+   set history = (
+         select jsonb_agg(case when h.new is null then e else jsonb_set(e, '{content}', to_jsonb(h.new)) end order by x.ord)
+           from jsonb_array_elements(r.history) with ordinality as x(e, ord)
+           left join tara_history_turns h on h.old = x.e->>'content')
+  from tenants t
+ where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id
+   and exists (select 1 from jsonb_array_elements(r.history) e join tara_history_turns h on h.old = e->>'content');
+
+-- ---------------------------------------------------------------------------
+-- 4c. D-168: the Messenger like (src/lib/inbound/like.ts turns it into the text «👍 (like)»).
+-- ---------------------------------------------------------------------------
+-- First message, or the first after a day's silence (a new conversation): the welcome row's
+-- own approved bytes, copied from it rather than typed again.
+insert into deterministic_replies
+  (tenant_id, intent, body, enabled, match_mode, stems, cover_words, requires_empty_history, provenance, placement, quote_services)
+select g.tenant_id, 'like_welcome', g.body, true, 'whole_message', array['like']::text[], '{}'::text[],
+       true, 'tenant_confirmed', 'replace', '{}'
+  from deterministic_replies g join tenants t on t.id = g.tenant_id
+ where t.slug = 'matrix-eco-salon' and g.intent = 'greeting';
+
+-- Right after Дали's answer: the «ок / за» row.
+update deterministic_replies d
+   set stems = array_append(d.stems, 'like')
+  from tenants t
+ where t.slug = 'matrix-eco-salon' and d.tenant_id = t.id and d.intent = 'acknowledgement'
+   and not ('like' = any (d.stems));
+
+insert into reply_cases (tenant_id, customer_message, history, expected_body, note)
+select t.id, '👍 (like)', '[]'::jsonb, g.body,
+       'D-168 (founder 2026-10-01): a like as the first message gets the welcome line, no model'
+  from tenants t join deterministic_replies g on g.tenant_id = t.id and g.intent = 'greeting'
+ where t.slug = 'matrix-eco-salon';
+
+insert into reply_cases (tenant_id, customer_message, history, expected_body, note)
+select t.id, '👍 (like)',
+       jsonb_build_array(jsonb_build_object('role', 'user', 'content', 'Хаяг хаана вэ'),
+                         jsonb_build_object('role', 'assistant', 'content', a.body)),
+       k.body,
+       'D-168 (founder 2026-10-01): a like right after Дали''s answer is «ок / за»: the acknowledgement line'
+  from tenants t
+  join deterministic_replies a on a.tenant_id = t.id and a.intent = 'address'
+  join deterministic_replies k on k.tenant_id = t.id and k.intent = 'acknowledgement'
+ where t.slug = 'matrix-eco-salon';
+
+-- Children's prices, by the model (they run with --with-model only).
+insert into reply_cases (tenant_id, customer_message, must_include, note)
+select t.id, v.msg, array[v.price]::text[], v.note
+  from tenants t,
+       (values ('Охины үс тайралт хэд вэ?', '44,000', 'D-168: a girl''s haircut is «Хүүхдийн тайралт (охин)», 44,000₮'),
+               ('15 настай хүүгийн үс тайралт хэд вэ?', '44,000', 'D-168: a boy of 15 is «Хүүхдийн тайралт (эрэгтэй, 14–18 нас)», 44,000₮')
+       ) as v(msg, price, note)
+ where t.slug = 'matrix-eco-salon';
+
+-- ---------------------------------------------------------------------------
 -- 5. Postconditions.
 -- ---------------------------------------------------------------------------
 do $$
@@ -355,6 +484,19 @@ begin
   if n <> 60 then raise exception 'expected 60 price rows on active services, found %', n; end if;
   select count(*) into n from services where tenant_id = t and active;
   if n <> 31 then raise exception 'expected 31 active services, found %', n; end if;
+  -- Nothing Дали reads names an old service or carries an old price (D-168).
+  select count(*) into n from (
+    select body as x from knowledge_documents where tenant_id = t
+    union all select title from knowledge_documents where tenant_id = t
+    union all select question || ' ' || answer from faqs where tenant_id = t
+    union all select body from deterministic_replies where tenant_id = t and enabled
+    union all select body from canned_responses where tenant_id = t
+    union all select history::text || customer_message || coalesce(expected_body, '') from reply_cases where tenant_id = t and active) y
+   where y.x ~ '(Оффис|Офис|Омбре|CMC|Тэжээлийн тос|Хими арчилт|Угаалт|Сахал засах|Үс хусах|сеттинг|курс|49,500|132,000|154,000₮–|176,000|135,000)';
+  if n <> 0 then raise exception '% row(s) Дали reads still name an old service or price', n; end if;
+  if (select count(*) from reply_cases where tenant_id = t and history::text like '%CICA үсний гүний эмчилгээ: 198,000₮%') <> 4 then
+    raise exception 'expected the 4 reply-case histories to carry the new FAQ answer';
+  end if;
   if exists (select 1 from service_variants v join services s on s.id = v.service_id
               where s.tenant_id = t and s.active and v.confirmed_at is null) then
     raise exception 'an active price row is unconfirmed';
