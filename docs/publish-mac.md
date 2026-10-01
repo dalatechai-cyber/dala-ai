@@ -58,8 +58,9 @@ numbers and `0035` onward under the timestamp versions the sessions' Supabase to
 timestamp rows are exactly `0035`–`0075` by name, one each (`0038` was applied after `0039`). So
 `supabase migration list` shows `0035` onward as local-only, and `supabase db push` would try to
 re-apply all of them. Do not run it. A new migration is applied by a session with read-back
-(the way `0035`–`0076` were), and you check it with `supabase migration list`: the remote column
-gains one timestamp row with the migration's name.
+(the way `0035`–`0076` were). To check it yourself, run in the SQL editor:
+`select version, name from supabase_migrations.schema_migrations order by version desc limit 3;`
+The newest row names the migration (today: `20261001061736 | 0076_prompt_blocks_seed`).
 
 ## Tara's price list and the founder's decisions of 2026-10-01 (D-167, D-168, D-169)
 

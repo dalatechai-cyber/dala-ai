@@ -439,8 +439,8 @@ update knowledge_documents k
 insert into deposit_rules (tenant_id, applies_to, rule_text, ordinal)
 select t.id, 'SPECIAL үсчин', '20,000₮', 3 from tenants t where t.slug = 'matrix-eco-salon';
 
-insert into reply_cases (tenant_id, customer_message, must_include, note)
-select t.id, 'SPECIAL үсчинд урьдчилгаа хэд вэ?', array['20,000']::text[],
+insert into reply_cases (tenant_id, customer_message, must_include, must_not_include, note)
+select t.id, 'SPECIAL үсчинд урьдчилгаа хэд вэ?', array['20,000']::text[], array['байхгүй', '10,000']::text[],
        'D-169: a SPECIAL stylist takes the same deposit as Мастер, 20,000₮ (founder 2026-10-01)'
   from tenants t where t.slug = 'matrix-eco-salon';
 
