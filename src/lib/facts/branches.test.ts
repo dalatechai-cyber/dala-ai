@@ -85,6 +85,21 @@ test('a detail both branches hold is named at the contact row, once', () => {
   assert.deepEqual(foreignDetails(t, east, ['Сарнай']).map((f) => f.source), ['contact_points phone'], 'allow_names exempts a shared person');
 });
 
+test('a shared line in allow_phones may be held and said by every branch; every other phone stays the branch\'s own', () => {
+  // East's second number is the brand's shared line; west holds it too and says it.
+  const t = {
+    ...west,
+    contacts: [...west.contacts.filter((c) => c.kind !== 'phone'), { kind: 'phone', value: '7711-2233, +976 8811 4455' }],
+    texts: [{ source: 'canned handoff', text: handoff('7711-2233 эсвэл 8811-4455') }],
+  };
+  assert.deepEqual(foreignDetails(t, east).map((f) => f.source), ['contact_points phone'], 'without the allowance the shared line is a leak');
+  assert.deepEqual(foreignDetails(t, east, [], ['88114455']), [], 'held and said by both: allowed');
+  assert.deepEqual(foreignDetails(t, east, [], ['8811 4455']), [], 'written with spaces: the same number');
+  const said = { ...west, texts: [{ source: 'canned handoff', text: handoff('7711-2233 эсвэл 88114455 эсвэл 99112233') }] };
+  assert.deepEqual(foreignDetails(said, east, [], ['88114455']).map((f) => `${f.source}: ${f.detail}`),
+    ["canned handoff: carries demo-east's phone 99112233"], 'east\'s own line is still a leak');
+});
+
 test('a staff name is a whole word, with or without a case ending, never a piece of another word', () => {
   assert.equal(staffKey('Г. Мөнхзаяа'), 'Мөнхзаяа');
   const inside = { ...west, texts: [{ source: 'KB', text: 'Сарнайн цэцэг' }] };

@@ -337,15 +337,18 @@ destructive-migration review. Branch protection and required checks on GitHub: *
 **The rule (founder, 2026-09-29, final):** one Дали engine; one tenant per branch, each with
 its own Facebook Page: «Tara Salon — Яармаг» (`matrix-eco-salon`, live) and «Tara Salon —
 Парк Од» (`tara-park-od`, not provisioned). Prices and the booking link are the same for both
-and kept in sync. Phone numbers, map links, addresses and hairdressers are per branch. Each
-Page gives only its own branch's details. D-125's "branches inside one tenant" (migration
+and kept in sync. Phone numbers, map links, addresses and hairdressers are per branch, except
+76001888, the shared main line of both branches (founder, 2026-10-01, D-167). Each Page gives
+only its own branch's details. D-125's "branches inside one tenant" (migration
 0047, applied, zero rows) stays built and **dormant**; it is not used for Tara.
 
 **Which tenants are branches of one brand** is configuration, not code:
 `config/branch-groups.json` lists each group's slugs (`tara-salon`: `matrix-eco-salon`,
 `tara-park-od`). A slug may be in one group only. `allow_names` lists names that may appear in
 every branch's rows (a person who really works at both, or a name that is also an ordinary
-word the rows use); only the founder adds one.
+word the rows use); only the founder adds one. `allow_phones` lists the brand's shared lines
+(`tara-salon`: 76001888): every branch may hold one in its contact rows and say it in its rows.
+Every other phone stays one branch's own; only the founder adds one.
 
 ### The branch gate (GATE)
 
@@ -387,6 +390,10 @@ that name is not searched for.
 
 ### Evidence (live, read-only, 2026-09-29)
 
+Since 2026-10-01 (D-167, once applied and published): 91005498 replaces 80905498, 76001888 is
+shared and allowed in both branches, and `refusal_topic` (the children's line) is gone, so five
+canned lines, `salon_phone` and `holiday_hours_note` carry phones. As read on 2026-09-29:
+
 **Seven** of Яармаг's rows carry its phone numbers (76001888, 80905498): six canned lines,
 `handoff`, `refusal_no_promotion`, `refusal_price_unlisted`, `refusal_staff_schedule`,
 `refusal_suitability`, `refusal_topic`, and the fixed reply `holiday_hours_note` (76001888
@@ -411,8 +418,8 @@ decide for Парк Од (wording is the founder's; nothing here is written):
 | Row | Proposed for Парк Од | Note |
 |---|---|---|
 | canned `refusal_suitability` | Яармаг's approved bytes with only the numbers changed: «Уучлаарай, энэ таны үсэнд тохирох эсэхийг би шийдэж өгөх боломжгүй. Манай мэргэжилтэн үсийг тань харж хэлнэ. Та {Парк Од phones} дугаараар холбогдоно уу.» | |
-| canned `refusal_topic` | The template's generic line (default), or Яармаг's topic line with only the numbers changed: «Уучлаарай, хүүхдийн үйлчилгээний мэдээллийг би өгөх боломжгүй. Та салоны {Парк Од phones} дугаараар холбогдож лавлана уу.» | Founder picks one |
-| fixed `holiday_hours_note` | Яармаг's bytes with only the number changed: «Баярын өдрийн цагийг {one Парк Од phone} дугаараас лавлана уу.» | |
+| canned `refusal_topic` | **Superseded 2026-10-01 (D-167): children are served at both branches; Парк Од needs no children's rule or line.** Was: the template's generic line (default), or Яармаг's topic line with only the numbers changed: «Уучлаарай, хүүхдийн үйлчилгээний мэдээллийг би өгөх боломжгүй. Та салоны {Парк Од phones} дугаараар холбогдож лавлана уу.» | Founder picks one |
+| fixed `holiday_hours_note` | Яармаг's bytes with only the number changed: «Баярын өдрийн цагийг {one Парк Од phone} дугаараас лавлана уу.» | Since D-167 Яармаг's row names 76001888, the shared line, so its bytes fit Парк Од unchanged |
 | KB «Салбарууд» | Not proposed: it describes the Яармаг branch and its staff. Парк Од needs its own, written by the founder | Яармаг's copy says Tara has one branch and a second «удахгүй нээгдэнэ»; it goes stale when Парк Од opens. Changing it changes what Яармаг says, so it is the founder's |
 
 `{Парк Од phones}` is Парк Од's numbers joined with « эсвэл », as the templates do. An
