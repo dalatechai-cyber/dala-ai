@@ -43,12 +43,13 @@ The founder's decisions of 2026-10-01 (D-168) are in the same file:
   and the stem `like` on `acknowledgement`.
 - The salon Ш1 block no longer uses a children's price as its example (migration 0076).
 
-Still open: the SPECIAL level has no deposit row (founder, 2026-10-01: left out until an amount
-is given); the «Мастер ба 1-р зэргийн үсчин» document and `stylist_tier` reply name only Мастер
-and 1-р зэрэг; KB «Салбарууд» says a second branch «удахгүй нээгдэнэ»; the matcher word
-«хими»/«himi» points at Эмчилгээний хими (now the men's perm); the knowledge still names
-«мелировка», «OTG будаг» and «тонирование» (techniques and products, not list services; whether
-тонирование is Өнгөлөгч будаг is a language question for the founder).
+D-169 (founder, 2026-10-01): SPECIAL's deposit is Мастер's, «SPECIAL үсчин: 20,000₮»;
+«тонирование» in the knowledge is Өнгөлөгч будаг and now says so; the stylist-level reply and
+document naming all three levels wait for the founder's approval of
+`prompt/drafts/tara_stylist_levels.mn.txt` (`scripts/provision/tara-stylist-levels-2026-10-01.sql`).
+
+Still open: KB «Салбарууд» says a second branch «удахгүй нээгдэнэ»; the matcher word
+«хими»/«himi» points at Эмчилгээний хими (now the men's perm).
 
 ## History
 

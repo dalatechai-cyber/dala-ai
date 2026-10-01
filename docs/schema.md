@@ -286,8 +286,9 @@ partial, one of four tables.
 new salon Ш1 wording (2026-10-01, D-168): `sh1_refusal_topics.salon` no longer uses a children's
 price as its example of a forbidden topic and no longer forbids asking «Том хүн үү, хүүхэд үү».
 100 blocks; that block is the only text that changed. It reaches a salon tenant at its next
-publish. The publish refuses for every tenant until this migration is pushed (the live blocks
-must match the signed set).
+publish. **Applied 2026-10-01** as its equivalent (ledger `20261001061736`): the one changed row,
+with the file's upsert, after the other 99 rows were compared per row with a replica; read back
+byte-identical to the signed file. Never `supabase db push` here (`docs/publish-mac.md`).
 
 ### `0075_canned_unsigned_guard`
 

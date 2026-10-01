@@ -1,7 +1,10 @@
 -- NOT APPLIED. Tara Salon — Яармаг (slug matrix-eco-salon): the price list of 2026-10-01, the
 -- children's services, and the new phone number (D-167); the founder's decisions of the same day
 -- (D-168): old services and prices gone from the knowledge, the FAQ and the reply cases, «охин»
--- for the girls' haircut, and the Messenger like answered by fixed replies.
+-- for the girls' haircut, and the Messenger like answered by fixed replies; and (D-169) SPECIAL's
+-- deposit and «тонирование» named Өнгөлөгч будаг. The SPECIAL wording of the stylist-level reply
+-- is a separate file, applied only once the founder approves it:
+-- tara-stylist-levels-2026-10-01.sql.
 --
 -- Source of truth: the salon's price list received 2026-10-01 (5 pages, transcribed; same prices
 -- for both branches) and the founder's instructions of the same day:
@@ -82,6 +85,14 @@ begin
   if not exists (select 1 from deterministic_replies where tenant_id = t and intent = 'greeting' and enabled
                  and body = 'Сайн байна уу! Tara Salon-д тавтай морил. Танд юугаар туслах вэ?') then
     raise exception 'the welcome row (greeting) is not the approved line read on 2026-10-01';
+  end if;
+  if not exists (select 1 from knowledge_documents where tenant_id = t and title = 'Будалтын хориглох заалт ба боломж'
+                 and body like '%Гэхдээ тонирование будаг болно.%' and body like '%Тонирование нь%') then
+    raise exception 'the тонирование document is not the one read on 2026-10-01';
+  end if;
+  if (select count(*) from deposit_rules where tenant_id = t) <> 2
+     or exists (select 1 from deposit_rules where tenant_id = t and applies_to = 'SPECIAL үсчин') then
+    raise exception 'deposit rules are not the two read on 2026-10-01';
   end if;
   if exists (select 1 from deterministic_replies where tenant_id = t and intent = 'like_welcome') then
     raise exception 'like_welcome already present';
@@ -415,6 +426,24 @@ update reply_cases r
  where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id
    and exists (select 1 from jsonb_array_elements(r.history) e join tara_history_turns h on h.old = e->>'content');
 
+-- «Тонирование» is Өнгөлөгч будаг, the list's toner (founder, 2026-10-01): the knowledge says so
+-- by the list's name.
+update knowledge_documents k
+   set body = replace(replace(k.body, 'Гэхдээ тонирование будаг болно.', 'Гэхдээ өнгөлөгч будаг болно.'),
+                      'Тонирование нь', 'Өнгөлөгч будаг нь'),
+       updated_at = now()
+  from tenants t
+ where t.slug = 'matrix-eco-salon' and k.tenant_id = t.id and k.title = 'Будалтын хориглох заалт ба боломж';
+
+-- SPECIAL takes Мастер's deposit, in the same format (founder, 2026-10-01: 20,000₮).
+insert into deposit_rules (tenant_id, applies_to, rule_text, ordinal)
+select t.id, 'SPECIAL үсчин', '20,000₮', 3 from tenants t where t.slug = 'matrix-eco-salon';
+
+insert into reply_cases (tenant_id, customer_message, must_include, note)
+select t.id, 'SPECIAL үсчинд урьдчилгаа хэд вэ?', array['20,000']::text[],
+       'D-169: a SPECIAL stylist takes the same deposit as Мастер, 20,000₮ (founder 2026-10-01)'
+  from tenants t where t.slug = 'matrix-eco-salon';
+
 -- ---------------------------------------------------------------------------
 -- 4c. D-168: the Messenger like (src/lib/inbound/like.ts turns it into the text «👍 (like)»).
 -- ---------------------------------------------------------------------------
@@ -492,7 +521,7 @@ begin
     union all select body from deterministic_replies where tenant_id = t and enabled
     union all select body from canned_responses where tenant_id = t
     union all select history::text || customer_message || coalesce(expected_body, '') from reply_cases where tenant_id = t and active) y
-   where y.x ~ '(Оффис|Офис|Омбре|CMC|Тэжээлийн тос|Хими арчилт|Угаалт|Сахал засах|Үс хусах|сеттинг|курс|49,500|132,000|154,000₮–|176,000|135,000)';
+   where y.x ~ '(Оффис|Офис|Омбре|CMC|Тэжээлийн тос|Хими арчилт|Угаалт|Сахал засах|Үс хусах|сеттинг|курс|онирование|49,500|132,000|154,000₮–|176,000|135,000)';
   if n <> 0 then raise exception '% row(s) Дали reads still name an old service or price', n; end if;
   if (select count(*) from reply_cases where tenant_id = t and history::text like '%CICA үсний гүний эмчилгээ: 198,000₮%') <> 4 then
     raise exception 'expected the 4 reply-case histories to carry the new FAQ answer';

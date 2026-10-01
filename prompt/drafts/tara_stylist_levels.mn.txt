@@ -1,0 +1,26 @@
+# DRAFT — not loaded. Tara Яармаг's stylist-level wording with SPECIAL (D-169), for the founder.
+# Applied by scripts/provision/tara-stylist-levels-2026-10-01.sql once approved. The founder's
+# brief (2026-10-01): name all three levels; as before, never recommend a higher level.
+# Only «SPECIAL, » is added; every other word is the approved text.
+
+## Fixed reply `stylist_tier` (sent verbatim, no model)
+
+Now:
+Мастер болон 1-р зэргийн үсчний ялгаа нь зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.
+
+Proposed:
+SPECIAL, Мастер болон 1-р зэргийн үсчний ялгаа нь зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.
+
+## Knowledge document (the model reads it)
+
+Title now: Мастер ба 1-р зэргийн үсчин
+Title proposed: SPECIAL, Мастер ба 1-р зэргийн үсчин
+
+First line now: Мастер болон 1-р зэргийн үсчний ялгаа нь зэрэглэл болон үнэд байдаг.
+First line proposed: SPECIAL, Мастер болон 1-р зэргийн үсчний ялгаа нь зэрэглэл болон үнэд байдаг.
+
+Unchanged: Салон зэрэглэлүүдийг хооронд нь харьцуулж дүгнэдэггүй. / Аль зэрэглэлийн үсчинд
+үйлчлүүлэхээ үйлчлүүлэгч өөрөө сонгоно. / Зэрэглэл тус бүрийн үнэ үнийн жагсаалтад бий.
+
+## Not wording: SPECIAL's deposit «SPECIAL үсчин: 20,000₮» (founder's figure, same format as the
+## other two) is in tara-price-list-2026-10-01.sql.
