@@ -11690,3 +11690,27 @@ approval of `prompt/drafts/tara_branches.mn.txt`. `tara-yarmag-move-2026-11.sql`
 the move day: the address row, the fixed address reply (address only: no listing, so the map
 link and its line go) and its reply case. Replica: both apply, refuse a second run, dry run
 27/27 reply cases (5 model cases not run), facts agree; the branches revert restores every row.
+
+**D-170 addendum (2026-10-01): branch-count questions get a fixed reply (waits for approval).**
+The founder's `--with-model` dry run failed case «Танай хэдэн салбартай вэ?»: the model's reply
+lacked «Парк Од», flag `fact_restated`. The reply text is not stored anywhere the session can
+read, and the session has no model key, so the exact answer was not seen. Reproduced on the
+replica with stubbed model replies: «Парк-Од» (the mall's spelling, from the address line) fails
+the case although the answer is right, and a phone written in the model's own format
+(«7600-1888») makes the facts guard serve the contact row in its place (`fact_restated`). The
+model does not name the branches the same way every time, so `tara-branch-count-2026-10-01.sql`
+(+ revert) adds the fixed reply `branch_count`, the already-approved sentence «Tara Salon хоёр
+салбартай: Яармаг салбар, Парк Од салбар.» byte for byte, for messages made of «салбар…» and
+question words only, and turns the case into an exact case (plus «hed salbartai ve», «Өөр салбар
+бий юу?»). Replica: 30/30 reply cases, the row answers with no model; «Парк Од салбар хаана…»,
+«Салбарын утас», «Яармаг салбар хаана вэ» still go to their own rows or the model; the revert
+restores every row.
+
+**D-170 addendum 2 (2026-10-01): approved, with the founder's condition** that `branch_count`
+never takes a question another row answers better. Reply cases prove it: «Яармаг салбар хаана
+байдаг вэ?» gets the address reply, «Парк Од салбарын утас?» and «Парк Од салбар хаана байдаг вэ?»
+get `park_od_branch`, «Танай салбарын утас?» gets the phone reply, and only «Танай хэдэн салбартай
+вэ?», «Өөр салбар бий юу?» (and «hed salbartai ve») get the branch-count sentence. Two of those
+failed at first (they reached the model), fixed by matcher words, not wording: `address` covers
+«яармаг», «салбар(ын)»; `salon_phone` covers «танай». Replica: 33/33 reply cases, all seven by
+fixed reply; the revert restores every row; the November move file still applies after it.

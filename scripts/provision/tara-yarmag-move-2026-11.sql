@@ -50,7 +50,9 @@ update deterministic_replies d
 update reply_cases r
    set expected_body = 'Хаяг: Хан-Уул дүүрэг, 24-р хороо, Наадамчдын зам гудамж, VIP Center 2 давхар'
   from tenants t
- where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id and r.customer_message = 'Хаяг хаана вэ';
+ where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id
+   and r.expected_body = 'Хаяг: Яармагийн Номин Хайпермаркетын баруун талд
+Байршлын холбоос: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16';  -- «Хаяг хаана вэ», «Яармаг салбар хаана байдаг вэ?»
 
 -- Earlier turns in the reply cases' recorded history that quote the old address reply.
 update reply_cases r
