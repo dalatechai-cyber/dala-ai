@@ -10732,6 +10732,12 @@ applied the same day).
 - **Timing:** every tenant gets the rule at its next publish. Matrix gets it too, since the
   rule is platform-wide by the founder's wording ("model-written answers").
 
+**Addendum (founder, 2026-10-01): superseded on role names.** Every role name has a capital
+after the dash, to match the website, the contract and the forms: «Дали — Харилцагчийн менежер»,
+«Вира — Маркетинг менежер», «Нова — Захиалгын менежер», «Ора — Хувийн туслах», «Эхо — Утасны
+оператор». `dalatech-fixes-2026-10-01b.sql` (D-172) applies it everywhere and refuses to commit if
+any service name has a lower-case letter after the dash. The full-sentence rule above stands.
+
 ## D-151 — Media hand-off, one spelling per fact, a paid pre-publish run, Ulaanbaatar time (2026-09-27)
 
 These are the founder's calls after the live check at DalaTech seq 12 and Tara seq 16.
@@ -11776,15 +11782,22 @@ without the model, by running the real reply code (`gateTenant` over `fixtureDb`
   appended after the fixed reply, as for every message naming a pre-registration service.
 - **23 («daly gj yuve»): a missing row.** No fixed reply answered «what is Дали», so the model did,
   and the dry run served a reviewed line that names no role. `dali_about` (live only, like
-  `nova_about`) answers it from Дали's approved document sentences under the new name.
+  `nova_about`) answers it, in the founder's words (below).
 
 **Rename (founder, 2026-10-01, to match the website, contract and forms).** «Дали — AI хүлээн
 авагч» is «Дали — Харилцагчийн менежер»; «Нова — сануулга, SMS» is «Нова — Захиалгын менежер»:
 services, document titles, the price overview, every active case quoting them, and
-dalatech-chatbot's fallback copy and widget title. The founder's names keep a capital after the
-dash; Вира, Ора and Эхо keep D-150's lower case. That inconsistency is the founder's to settle.
+dalatech-chatbot's fallback copy and widget title. The founder then capitalised all five after
+the dash (D-150 addendum): «Вира — Маркетинг менежер», «Ора — Хувийн туслах», «Эхо — Утасны
+оператор», in the same file.
+
+**`dali_about`, in the founder's words** (the first draft said Дали registers bookings; she sends
+the booking link): «Дали — Харилцагчийн менежер. Messenger, Instagram, вэбсайтад ирсэн зурваст
+24/7 монголоор хариулж, үнэ, үйлчилгээ, цагийн мэдээллийг өгнө. Цаг захиалах холбоосыг илгээж,
+гомдол, хүнтэй ярих хүсэлтийг ажилтанд тань шууд мэдэгдэнэ.» Ора's 80% warning is real but Дали
+does not state it, so it stays out of her data and the guard keeps refusing it.
 
 **Files.** `scripts/provision/dalatech-fixes-2026-10-01b.sql` and its revert. Proven on a local
 replica seeded with the live strings: every check passes, a second run changes nothing, the rows
 it writes pass all 13 seeded cases through the real reply code (case 124 in its live state), and
-the revert restores every row byte for byte. Not applied; `dali_about`'s body waits for approval.
+the revert restores every row byte for byte. Not applied.
