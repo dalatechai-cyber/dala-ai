@@ -20,7 +20,7 @@ import type { OnboardPlan } from '../../src/lib/provision/plan.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
-export type BranchGroup = { name: string; tenants: string[]; allowNames: string[]; allowPhones?: string[] };
+export type BranchGroup = { name: string; tenants: string[]; allowNames: string[]; allowPhones?: string[]; allowAddresses?: string[] };
 
 /** Every group in the config. Throws on a malformed file or a slug in two groups: never a guess. */
 export function branchGroups(text = readFileSync(join(ROOT, 'config/branch-groups.json'), 'utf8')): BranchGroup[] {
@@ -44,6 +44,10 @@ export function branchGroups(text = readFileSync(join(ROOT, 'config/branch-group
     if (!Array.isArray(phones) || !phones.every((s) => typeof s === 'string' && /^(?:\+?976)?[0-9]{8}$/u.test(s.replace(/[\p{Zs}\p{Pd}]/gu, '')))) {
       throw new Error(`config/branch-groups.json: group ${name}: "allow_phones" must be a list of single phone numbers`);
     }
+    const addresses = g['allow_addresses'] ?? [];
+    if (!Array.isArray(addresses) || !addresses.every((s) => typeof s === 'string' && s.trim() !== '')) {
+      throw new Error(`config/branch-groups.json: group ${name}: "allow_addresses" must be a list of addresses`);
+    }
     for (const s of tenants as string[]) {
       const other = seen.get(s);
       if (other !== undefined) throw new Error(`config/branch-groups.json: ${s} is in both ${other} and ${name}`);
@@ -52,6 +56,7 @@ export function branchGroups(text = readFileSync(join(ROOT, 'config/branch-group
     groups.push({
       name, tenants: [...new Set(tenants as string[])], allowNames: (allow as string[]).map((n) => n.normalize('NFC')),
       allowPhones: phones as string[],
+      allowAddresses: (addresses as string[]).map((a) => a.normalize('NFC')),
     });
   }
   return groups;
@@ -145,7 +150,7 @@ export async function branchGate(
     const sib = await loadBranchSide(db, { tenantId: String((data as Record<string, unknown>)['id']), slug: other });
     if (!sib.ok) { unchecked.push(`${slug} branches: ${other}: ${sib.detail}`); continue; }
     if (own === null) continue;
-    findings.push(...foreignDetails(own, sib.side, group.allowNames, group.allowPhones ?? []));
+    findings.push(...foreignDetails(own, sib.side, group.allowNames, group.allowPhones ?? [], group.allowAddresses ?? []));
     const drift = sharedDrift(own, sib.side);
     if ((data as Record<string, unknown>)['live_revision_id'] == null) {
       pending.push(...drift);

@@ -1,0 +1,38 @@
+# DRAFT — not loaded. Tara Яармаг's Дали on Tara's two branches (D-170), for the founder.
+# Applied by scripts/provision/tara-branches-2026-10-01.sql once approved, then a publish.
+# Facts (founder, 2026-10-01): Парк Од is open at Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл,
+# 4 давхар, 405 тоот; 76001888 is both branches' shared line; Парк Од's own Facebook Page is
+# https://www.facebook.com/profile.php?id=100067391025472; neither branch has a Google Maps
+# listing (so no map link is given).
+
+## 1. Knowledge document «Салбарууд» (the model reads it)
+
+Now:
+Matrix Eco Salon одоо Tara Salon нэртэй болсон.
+Tara Salon одоогоор нэг салбартай: Яармаг салбар.
+Хоёр дахь салбар удахгүй нээгдэнэ.
+Энэ хуудас бол Яармаг салбарын хуудас.
+Оюунаа Яармаг салбарт ажилладаг.
+
+Proposed:
+Matrix Eco Salon одоо Tara Salon нэртэй болсон.
+Tara Salon хоёр салбартай: Яармаг салбар, Парк Од салбар.
+Энэ хуудас бол Яармаг салбарын хуудас.
+Оюунаа Яармаг салбарт ажилладаг.
+Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот.
+Хоёр салбарын нийтлэг утас: 76001888.
+Парк Од салбар өөрийн Фэйсбүүк хуудастай.
+
+(The Facebook link is NOT in the document: a link the model writes is refused unless it is one
+of Яармаг's own contact links. The link goes out only in the fixed reply below.)
+
+## 2. New fixed reply `park_od_branch` (sent verbatim, no model)
+
+Answers a message about Парк Од and nothing else («Парк Од салбар хаана байдаг вэ?», «Парк Од
+салбарын утас», «park od haana baidag ve»):
+
+Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот
+Утас: 76001888
+Фэйсбүүк хуудас: https://www.facebook.com/profile.php?id=100067391025472
+
+(Same shape as Яармаг's approved address reply «Хаяг: …\nБайршлын холбоос: …».)
