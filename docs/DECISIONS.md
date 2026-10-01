@@ -11753,3 +11753,38 @@ file in one MCP call timed out with no session left on the database and nothing 
 file was run as one transaction on a local replica (every migration, DalaTech's rows seeded with the
 live strings): every check passed, a second run is a no-op, and a replica whose Ora line differs
 by one character refuses («expected 4 edited documents, found 3»).
+
+## D-172 — DalaTech: the 2026-10-01 dry-run failures fixed at their cause; Дали and Нова renamed (2026-10-01, founder)
+
+**The dry run** after `dalatech-prices-2026-10-01.sql` failed 10 of 96 cases. Each was reproduced
+without the model, by running the real reply code (`gateTenant` over `fixtureDb`) on the live rows:
+
+- **9, 15, 16, 17, 19, 41: the row was wrong, not the cases.** `price_overview.items` still held
+  «Вира сард 350,000₮» (and the live-state piece «… маркетинг менежер: сард 350,000₮»). D-171
+  changed Вира's price row and the cases but not these two pieces of the fixed reply, because its
+  audit read `body` and missed `items`. The cases already expected 250,000₮ and stay as they are.
+  The lesson: a fixed reply's text is `body` + `web_body` + `items`; an audit of a tenant's
+  copies of a fact reads all three.
+- **149, 151 (outbound_percent): the gate, not the guard.** The guard approves exactly the
+  percentages the tenant's own sections state (`tenantPercentages`, founder 2026-09-25). The publish
+  gate judged the NEW prefix with the LIVE snapshot's list (`withCompiled` swapped the prefix and
+  allowed numbers but not `approvedPercentages`), so Ора's 100% and +25%, in the prefix being
+  published, were refused only in the dry run. Fixed in `withCompiled`; no tenant-specific code
+  (a client is rows). A percentage no section states, such as 80%, stays refused: if 80% is an
+  Ора fact, it goes into Ора's document first.
+- **154: the case was wrong.** The question names Ора, so the reviewed coming-soon line is
+  appended after the fixed reply, as for every message naming a pre-registration service.
+- **23 («daly gj yuve»): a missing row.** No fixed reply answered «what is Дали», so the model did,
+  and the dry run served a reviewed line that names no role. `dali_about` (live only, like
+  `nova_about`) answers it from Дали's approved document sentences under the new name.
+
+**Rename (founder, 2026-10-01, to match the website, contract and forms).** «Дали — AI хүлээн
+авагч» is «Дали — Харилцагчийн менежер»; «Нова — сануулга, SMS» is «Нова — Захиалгын менежер»:
+services, document titles, the price overview, every active case quoting them, and
+dalatech-chatbot's fallback copy and widget title. The founder's names keep a capital after the
+dash; Вира, Ора and Эхо keep D-150's lower case. That inconsistency is the founder's to settle.
+
+**Files.** `scripts/provision/dalatech-fixes-2026-10-01b.sql` and its revert. Proven on a local
+replica seeded with the live strings: every check passes, a second run changes nothing, the rows
+it writes pass all 13 seeded cases through the real reply code (case 124 in its live state), and
+the revert restores every row byte for byte. Not applied; `dali_about`'s body waits for approval.
