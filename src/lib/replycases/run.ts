@@ -28,6 +28,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { handleReception, type ReceptionDeps } from '../reception/handle.ts';
 import { linkValues, loadReceptionContext, type ReceptionContext } from '../reception/load.ts';
+import { tenantPercentages } from '../mn/extract.ts';
 import { branchNamesFromPrefix } from '../branches/branches.ts';
 import { loadBranchContext, type BranchContext } from '../branches/load.ts';
 import { renderVolatile } from '../reception/volatile.ts';
@@ -185,6 +186,11 @@ export function withCompiled(
     tenantGuard: {
       ...ctx.tenantGuard,
       allowedNumbers: compiled.allowedNumbers,
+      // Derived from the prefix exactly as `reception/load.ts` derives it from a snapshot.
+      // Left at the live snapshot's value, a publish adding a percentage to the tenant's own
+      // data was judged as if it could not quote it: DalaTech's dry run of 2026-10-01 refused
+      // Ора's «100%» and «+25%» (outbound_percent), which the published snapshot approves.
+      approvedPercentages: tenantPercentages(compiled.promptStable, compiled.promptGate),
       promptCorpus: compiled.promptGate ?? compiled.promptStable,
     },
   };

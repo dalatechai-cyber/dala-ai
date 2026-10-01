@@ -77,6 +77,22 @@ test('a publish is judged against the prefix it is about to publish, not the liv
   assert.equal(next.cannedHash, 'c2');
 });
 
+test('DONE-TEST (DalaTech, 2026-10-01): a percentage the NEW prefix states is approved in the gate, and no other', () => {
+  // The live snapshot approves 10 and 15; the prefix about to be published adds Ора's 100% and
+  // +25%. The gate must judge with what that prefix approves, as the loader will once it is live.
+  const live = { ...CTX, tenantGuard: { ...CTX.tenantGuard, approvedPercentages: ['10', '15'] } };
+  // The prefix carries the gate blocks too, as a compiled prefix does.
+  const gate = 'Ш6: «10% хямдралтай» гэж бүү бич.';
+  const prefix = `${gate}\nХоёр ажилтан 10%. Гурав 15%. Сар бүрийн хэрэглээний эрх: 100% нь сард ≈1,500 асуулт. «Нэмэлт эрх +25%».`;
+  const next = withCompiled(live, { promptStable: prefix, allowedNumbers: [], cannedHash: null, promptGate: gate });
+  // 10 is the gate's own counter-example once and the tenant's once: it stays (multiset).
+  assert.deepEqual([...next.tenantGuard.approvedPercentages].sort(), ['10', '100', '15', '25']);
+  // A figure no section states is not approved, whatever the live snapshot held.
+  assert.ok(!next.tenantGuard.approvedPercentages.includes('80'));
+  const gateOnly = withCompiled(live, { promptStable: gate, allowedNumbers: [], cannedHash: null, promptGate: gate });
+  assert.deepEqual([...gateOnly.tenantGuard.approvedPercentages], []);
+});
+
 test('the summary fails when any case fails, or when a tenant could not be checked', () => {
   assert.equal(renderGate([{ ok: true, slug: 's', results: [] }]).pass, true);
   assert.equal(renderGate([{ ok: true, slug: 's', results: [{ id: 1, pass: false, outcome: 'wrong', reply: null, answeredBy: null, why: ['x'], flags: [] }] }]).pass, false);
