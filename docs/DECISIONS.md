@@ -11728,8 +11728,9 @@ and the 500-message pack. Extra users have no published price any more: the webs
 «Нэмэлт хэрэглэгч нэмэх боломжтой — асуугаарай», so Дали says the same and a person gives the price.
 
 **Where it lands** (`scripts/provision/dalatech-prices-2026-10-01.sql`, read off the project
-first): Вира's monthly price row; the Ора pack row relabelled «Нэмэлт ашиглалтын багц» (price
-unchanged, no digits in a label, D-148); the three extra-user price rows deleted (nothing references
+first): Вира's monthly price row; the Ора pack row relabelled «Нэмэлт эрх +25%» (price
+unchanged; the founder's name for it on the website, contract, form and Ора app, so this label
+carries digits, a departure from D-148; the allowance is «хэрэглээний эрх», never «ашиглалтын эрх»); the three extra-user price rows deleted (nothing references
 them), so neither the price path nor the facts guard can serve one; a fixed reply
 `extra_user_price` (the website's sentence plus the approved callback sentence, verbatim, no model)
 whose matcher needs «хэрэглэгч» and «нэмэлт/нэмэх/нэмж», tested against `gate/match.ts` on five

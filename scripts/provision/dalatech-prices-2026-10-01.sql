@@ -18,8 +18,9 @@
 -- Where each part lands, and when a customer sees it:
 --   1. service_variants: Вира's month, the pack's label (its price is unchanged), and the
 --      three extra-user rows DELETED, so no path can quote them. Read per request: live on
---      commit. The label carries no digits (D-075, D-148): «+25%» is in the knowledge
---      document, so the only number on a served row is its price.
+--      commit. The pack is named «Нэмэлт эрх +25%» (founder, 2026-10-01: the website, contract,
+--      form and the Ора app use that name), so this label carries digits, the one departure
+--      from D-148's «no digits in a label»; the publish dry run is what proves it serves.
 --   1b. deterministic_replies `extra_user_price`: a question naming an extra user gets the
 --      website's sentence and the already-approved callback sentence, verbatim, no model.
 --      Live on commit. Matcher: «хэрэглэгч» AND «нэмэлт/нэмэх/нэмж» (Latin too); tested
@@ -49,7 +50,7 @@ update service_variants v set price_min = 250000, confirmed_at = now()
   from svc where v.service_id = svc.id and svc.name = normalize('Вира — маркетинг менежер', NFC)
    and v.variant_key = normalize('Сарын төлбөр', NFC) and v.price_min = 350000;
 
-update service_variants v set variant_key = normalize('Нэмэлт ашиглалтын багц', NFC), confirmed_at = now()
+update service_variants v set variant_key = normalize('Нэмэлт эрх +25%', NFC), confirmed_at = now()
   from svc where v.service_id = svc.id and svc.name = normalize('Ора — хувийн туслах', NFC)
    and v.variant_key = normalize('Нэмэлт мессежийн багц', NFC) and v.price_min = 49000;
 
@@ -122,7 +123,7 @@ insert into doc_edits values
    E'- Пост бодох ажлаас таныг чөлөөлнө: сарын контент төлөвлөгөөний дагуу видео, постыг таны хүссэнээр бэлтгэж, сурталчилгаа (boost)-г удирдана.\n- Видео, постын тоо тогтмол биш: сар бүрийн төлөвлөгөөгөөр тохирно.\n- Багцад мөн 7 хоног тутмын тайлан багтана. Сурталчилгааны төсөв ороогүй.'),
   ('Ора — хувийн туслах (',
    '- Сард 1,500 мессеж багтана. Хэрэглэгч бүр өөрийн 1,500 мессежтэй; нэмэлт хэрэглэгч бүр сар бүр тусдаа төлбөртэй. Нэмэлт 500 мессежийн багц тусдаа төлбөртэй.',
-   E'- Сар бүрийн ашиглалтын эрх хувиар харагдана: 100% нь сард ≈1,500 асуулт. Эрхийг бодит хэрэглээгээр тооцно: Ора Мэргэн болон том файл илүү их хувь зарцуулна.\n- Шинэ хэрэглэгчид эхний сард +500 асуулт бэлэг.\n- Эрх дуусвал нэмэлт +25% ашиглалтын багц авч болно, тусдаа төлбөртэй.\n- Хэрэглэгч бүр өөрийн 100% эрхтэй. Нэмэлт хэрэглэгч нэмэх боломжтой — асуугаарай.');
+   E'- Сар бүрийн хэрэглээний эрх хувиар харагдана: 100% нь сард ≈1,500 асуулт. Эрхийг бодит хэрэглээгээр тооцно: Ора Мэргэн болон том файл илүү их хувь зарцуулна.\n- Шинэ хэрэглэгчид эхний сард +500 асуулт бэлэг.\n- Эрх дуусвал «Нэмэлт эрх +25%» авч болно, тусдаа төлбөртэй.\n- Хэрэглэгч бүр өөрийн 100% эрхтэй. Нэмэлт хэрэглэгч нэмэх боломжтой — асуугаарай.');
 
 update knowledge_documents k
    set body = replace(k.body, normalize(e.old_line, NFC), normalize(e.new_line, NFC)),
@@ -142,7 +143,7 @@ begin
   if n <> 1 then raise exception 'Вира''s month is not 250,000 on exactly one row (%)', n; end if;
   select count(*) into n from service_variants v join services s on s.id = v.service_id join tenants t on t.id = v.tenant_id
    where t.slug = 'dalatech' and s.name = normalize('Ора — хувийн туслах', NFC)
-     and v.variant_key = normalize('Нэмэлт ашиглалтын багц', NFC) and v.price_min = 49000;
+     and v.variant_key = normalize('Нэмэлт эрх +25%', NFC) and v.price_min = 49000;
   if n <> 1 then raise exception 'Ора''s pack row was not relabelled (%)', n; end if;
   select count(*) into n from service_variants v join tenants t on t.id = v.tenant_id where t.slug = 'dalatech';
   if n <> 15 then raise exception 'expected 15 DalaTech price rows, found %', n; end if;
@@ -169,6 +170,12 @@ begin
               where t.slug = 'dalatech' and (k.body like '%1,500 мессеж%' or k.body like '%500 мессеж%' or k.body like '%өдөрт ойролцоогоор 50%'
                                              or k.body like '%8 пост%' or k.body like '%3 богино видео%')) then
     raise exception 'a document still carries an old count';
+  end if;
+  if exists (select 1 from knowledge_documents k join tenants t on t.id = k.tenant_id
+              where t.slug = 'dalatech' and k.body like '%ашиглалт%')
+     or exists (select 1 from service_variants v join tenants t on t.id = v.tenant_id
+              where t.slug = 'dalatech' and v.variant_key like '%ашиглалт%') then
+    raise exception '«ашиглалт» is still used; the founder''s word is «хэрэглээний эрх»';
   end if;
   select count(*) into n from knowledge_documents k join tenants t on t.id = k.tenant_id
    where t.slug = 'dalatech' and k.title like 'Ора%'
