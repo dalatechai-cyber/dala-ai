@@ -1,5 +1,22 @@
 # STATUS — what is built, what is stubbed, what has never been proven
 
+> **2026-10-01 — live state at the end of the day (D-171 to D-174).**
+> - **DalaTech: seq 14**, revision `b8a77878-d388-4110-89c2-f1c6fccc98ea`, published 20:12 UTC
+>   (read off the project). Applied on the project: `dalatech-prices-2026-10-01.sql`,
+>   `dalatech-fixes-2026-10-01b.sql`, `dalatech-ora-bonus-2026-10-01.sql`. Publish: 74/74
+>   non-model cases passed and every copy agreed with the rows (founder's run); the
+>   `--with-model` dry run before the last fix had passed every model case (97/98, the one
+>   failure made a fixed reply). The website (dalatech-online#56) and the chat fallback
+>   (dalatech-chatbot#46, #47) carry the same facts.
+> - **Tara Яармаг: seq 19**, revision `78d87bfd-224b-4418-ae92-33e45b81e9ed` (read off the
+>   project). Applied: `tara-price-list-2026-10-01.sql`, `tara-stylist-levels-2026-10-01.sql`,
+>   `tara-branches-2026-10-01.sql`, `tara-branch-count-2026-10-01.sql` (Парк Од named,
+>   `branch_count`, `park_od_branch`; founder's report).
+> - **Prepared, NOT applied:** `tara-yarmag-move-2026-11.sql`. It waits for the move date;
+>   Яармаг keeps its name.
+> - **Open for the code audit:** test, bake-off and dry-run scripts must use prompt caching
+>   like the live path (D-174).
+
 > **2026-09-30 — approved lines can no longer stop replies silently (D-163 and its addendum).**
 > Changed, unsigned or missing approved lines each page at once, are found hourly, and get
 > customers the published hand-off line (Messenger, Instagram, website). Migrations 0074 and
