@@ -18,21 +18,24 @@
 --      хараахан ажиллаж эхлээгүй бөгөөд урьдчилан бүртгүүлж болно.» Expected body updated.
 --      Case 23 («daly gj yuve»): no row answered «what is Дали», so the model did, and the
 --      dry run served a reviewed line that names no role. A fixed reply `dali_about` (live
---      only) now answers it from Дали's own approved KB sentences; cases 23 and 34 follow it.
+--      only) now answers it in the founder's words; cases 23 and 34 follow it.
 --
--- Rename (founder, 2026-10-01, to match the website, contract and forms):
---   «Дали — AI хүлээн авагч» → «Дали — Харилцагчийн менежер»
---   «Нова — сануулга, SMS»  → «Нова — Захиалгын менежер»
+-- Rename (founder, 2026-10-01, to match the website, contract and forms), and every role
+-- name capitalised after the dash (D-150 addendum, founder 2026-10-01):
+--   «Дали — AI хүлээн авагч»   → «Дали — Харилцагчийн менежер»
+--   «Нова — сануулга, SMS»     → «Нова — Захиалгын менежер»
+--   «Вира — маркетинг менежер» → «Вира — Маркетинг менежер»
+--   «Ора — хувийн туслах»      → «Ора — Хувийн туслах»
+--   «Эхо — утасны оператор»    → «Эхо — Утасны оператор»
 -- Everywhere these names are on the dalatech tenant: services, knowledge document titles,
 -- the price overview (body and pieces), and every active reply case quoting them. No canned
--- line, FAQ, alias, document body or sales line carries either name (read 2026-10-01), so
+-- line, FAQ, alias, document body or sales line carries any of them (read 2026-10-01), so
 -- none needs re-signing. The launch states in the snapshot pick up the names at the publish.
 --
--- Customer-visible Mongolian beyond the names: only `dali_about`'s body, which is the new
--- name plus three sentences already in Дали's approved knowledge document, unchanged.
--- It waits for the founder's approval like every new line.
+-- Customer-visible Mongolian beyond the names: only `dali_about`'s body, in the founder's
+-- exact words (approved 2026-10-01).
 --
--- APPLY ONLY AFTER APPROVING `dali_about`: fixed replies and price rows are read per request,
+-- Fixed replies and price rows are read per request,
 -- so the overview fix and `dali_about` answer customers the moment this file commits, before
 -- any publish. The names in the prompt change at the next publish.
 begin;
@@ -45,7 +48,10 @@ end $$;
 create temp table ren (old text, new text) on commit drop;
 insert into ren values
   (normalize('Дали — AI хүлээн авагч', NFC), normalize('Дали — Харилцагчийн менежер', NFC)),
-  (normalize('Нова — сануулга, SMS', NFC), normalize('Нова — Захиалгын менежер', NFC));
+  (normalize('Нова — сануулга, SMS', NFC), normalize('Нова — Захиалгын менежер', NFC)),
+  (normalize('Вира — маркетинг менежер', NFC), normalize('Вира — Маркетинг менежер', NFC)),
+  (normalize('Ора — хувийн туслах', NFC), normalize('Ора — Хувийн туслах', NFC)),
+  (normalize('Эхо — утасны оператор', NFC), normalize('Эхо — Утасны оператор', NFC));
 
 -- ---------------------------------------------------------------- 1. names
 
@@ -56,16 +62,25 @@ update knowledge_documents k set title = replace(k.title, r.old, r.new), updated
 
 -- ---------------------------------------------------------------- 2. the price overview
 
--- The body names Дали; the pieces name Нова (live state) and carry Вира's price (both
--- states). Each replacement is an exact substring of the reviewed text; the checks below
--- refuse the file unless every one of them landed.
+-- Вира's price in both states first (the pieces still carry the old name here), then every
+-- renamed «💬 Name — role:» line in the body and the pieces. Each replacement is an exact
+-- substring of the reviewed text; the checks below refuse the file unless every one landed.
 update deterministic_replies d
-   set body = replace(d.body, normalize('💬 Дали — AI хүлээн авагч:', NFC), normalize('💬 Дали — Харилцагчийн менежер:', NFC)),
-       items = replace(replace(replace(d.items::text,
-                 normalize('💬 Нова — сануулга, SMS:', NFC), normalize('💬 Нова — Захиалгын менежер:', NFC)),
+   set items = replace(replace(d.items::text,
                  normalize('маркетинг менежер: сард 350,000₮', NFC), normalize('маркетинг менежер: сард 250,000₮', NFC)),
                  normalize('Вира сард 350,000₮', NFC), normalize('Вира сард 250,000₮', NFC))::jsonb
   from dt where d.tenant_id = dt.id and d.intent = 'price_overview';
+
+do $$
+declare r record;
+begin
+  for r in select old, new from ren loop
+    update deterministic_replies d
+       set body = replace(d.body, '💬 ' || r.old || ':', '💬 ' || r.new || ':'),
+           items = replace(d.items::text, '💬 ' || r.old || ':', '💬 ' || r.new || ':')::jsonb
+      from dt where d.tenant_id = dt.id and d.intent = 'price_overview';
+  end loop;
+end $$;
 
 -- ---------------------------------------------------------------- 3. «what is Дали»
 
@@ -77,7 +92,7 @@ update deterministic_replies d
 insert into deterministic_replies (tenant_id, intent, body, enabled, match_mode, stems, cover_words,
                                    requires_empty_history, provenance, placement, when_service_id, when_launch_state)
 select dt.id, 'dali_about',
-       normalize('Дали — Харилцагчийн менежер. Facebook, Instagram, вэбсайтад ирсэн зурваст шууд хариулж, үнэ, цаг, үйлчилгээний мэдээллийг өгнө. Захиалга, цаг товлолтыг бүртгэнэ. Шөнө ирсэн зурваст ч хариулна.', NFC),
+       normalize('Дали — Харилцагчийн менежер. Messenger, Instagram, вэбсайтад ирсэн зурваст 24/7 монголоор хариулж, үнэ, үйлчилгээ, цагийн мэдээллийг өгнө. Цаг захиалах холбоосыг илгээж, гомдол, хүнтэй ярих хүсэлтийг ажилтанд тань шууд мэдэгдэнэ.', NFC),
        true, 'covers_message',
        array['дали', 'далиг', 'далигийн', 'далийн', 'dali', 'daly', 'dalig', 'daligiin', 'daliin'],
        (select n.cover_words from deterministic_replies n where n.tenant_id = dt.id and n.intent = 'nova_about')
@@ -88,14 +103,19 @@ select dt.id, 'dali_about',
 
 -- ---------------------------------------------------------------- 4. reply cases
 
--- Exact bodies and must-include lists that quote a renamed name.
-update reply_cases r
-   set expected_body = replace(replace(r.expected_body,
-         normalize('💬 Дали — AI хүлээн авагч:', NFC), normalize('💬 Дали — Харилцагчийн менежер:', NFC)),
-         normalize('💬 Нова — сануулга, SMS:', NFC), normalize('💬 Нова — Захиалгын менежер:', NFC)),
-       note = coalesce(r.note, '') || ' Renamed 2026-10-01 (D-172).'
+-- Exact bodies that quote a renamed «💬 Name — role:» line. The note is added once per case.
+update reply_cases r set note = coalesce(r.note, '') || ' Renamed 2026-10-01 (D-172).'
   from dt where r.tenant_id = dt.id and r.active
-   and (r.expected_body like '%Дали — AI хүлээн авагч:%' or r.expected_body like '%Нова — сануулга, SMS:%');
+   and exists (select 1 from ren where position('💬 ' || ren.old || ':' in r.expected_body) > 0);
+
+do $$
+declare x record;
+begin
+  for x in select old, new from ren loop
+    update reply_cases r set expected_body = replace(r.expected_body, '💬 ' || x.old || ':', '💬 ' || x.new || ':')
+      from dt where r.tenant_id = dt.id and r.active and position('💬 ' || x.old || ':' in r.expected_body) > 0;
+  end loop;
+end $$;
 
 update reply_cases r
    set must_include = array_replace(r.must_include, normalize('💬 Дали — AI хүлээн авагч: сард 250,000₮', NFC),
@@ -154,26 +174,28 @@ select dt.id, 'facebook_page', normalize(q, NFC), d.body || E'\n\n' || f.body, a
 do $$
 declare n int; tid uuid := (select id from tenants where slug = 'dalatech');
 begin
-  if exists (select 1 from services where tenant_id = tid and name in (normalize('Дали — AI хүлээн авагч', NFC), normalize('Нова — сануулга, SMS', NFC))) then
+  if exists (select 1 from services s join ren on s.name = ren.old where s.tenant_id = tid) then
     raise exception 'an old service name is still there';
   end if;
-  select count(*) into n from services where tenant_id = tid
-     and name in (normalize('Дали — Харилцагчийн менежер', NFC), normalize('Нова — Захиалгын менежер', NFC));
-  if n <> 2 then raise exception 'expected 2 renamed services, found %', n; end if;
-  select count(*) into n from knowledge_documents where tenant_id = tid
-     and (starts_with(title, normalize('Дали — Харилцагчийн менежер (', NFC)) or starts_with(title, normalize('Нова — Захиалгын менежер (', NFC)));
-  if n <> 3 then raise exception 'expected 3 renamed document titles, found %', n; end if;
+  select count(*) into n from services s join ren on s.name = ren.new where s.tenant_id = tid;
+  if n <> 5 then raise exception 'expected 5 renamed services, found %', n; end if;
+  select count(*) into n from knowledge_documents k join ren on starts_with(k.title, ren.new || ' (') where k.tenant_id = tid;
+  if n <> 9 then raise exception 'expected 9 renamed document titles, found %', n; end if;
+  -- D-172 addendum: every role name has a capital after the dash.
+  if exists (select 1 from services where tenant_id = tid and name ~ ' — [а-яөү]') then
+    raise exception 'a service name has a lower-case letter after the dash';
+  end if;
   -- No active row anywhere on this tenant still says an old name or Вира's old price.
-  if exists (select 1 from knowledge_documents where tenant_id = tid and (title || body) ~ '(AI хүлээн авагч|сануулга, SMS)')
+  if exists (select 1 from knowledge_documents where tenant_id = tid and (title || body) ~ '(AI хүлээн авагч|сануулга, SMS|— маркетинг менежер|— хувийн туслах|— утасны оператор)')
      or exists (select 1 from deterministic_replies where tenant_id = tid
-                 and (body || coalesce(web_body, '') || coalesce(items::text, '')) ~ '(AI хүлээн авагч|сануулга, SMS|350,000)')
+                 and (body || coalesce(web_body, '') || coalesce(items::text, '')) ~ '(AI хүлээн авагч|сануулга, SMS|— маркетинг менежер|— хувийн туслах|— утасны оператор|350,000)')
      or exists (select 1 from reply_cases where tenant_id = tid and active
-                 and (coalesce(expected_body, '') || must_include::text) ~ '(AI хүлээн авагч|сануулга, SMS|350,000)') then
+                 and (coalesce(expected_body, '') || must_include::text) ~ '(AI хүлээн авагч|сануулга, SMS|— маркетинг менежер|— хувийн туслах|— утасны оператор|350,000)') then
     raise exception 'an old name or 350,000 is still in a document, fixed reply or active case';
   end if;
-  if exists (select 1 from canned_responses where tenant_id = tid and body ~ '(AI хүлээн авагч|сануулга, SMS)')
-     or exists (select 1 from faqs where tenant_id = tid and (question || answer) ~ '(AI хүлээн авагч|сануулга, SMS)')
-     or exists (select 1 from sales_next_steps where tenant_id = tid and (body || coalesce(web_body, '')) ~ '(AI хүлээн авагч|сануулга, SMS)')
+  if exists (select 1 from canned_responses where tenant_id = tid and body ~ '(AI хүлээн авагч|сануулга, SMS|— маркетинг менежер|— хувийн туслах|— утасны оператор)')
+     or exists (select 1 from faqs where tenant_id = tid and (question || answer) ~ '(AI хүлээн авагч|сануулга, SMS|— маркетинг менежер|— хувийн туслах|— утасны оператор)')
+     or exists (select 1 from sales_next_steps where tenant_id = tid and (body || coalesce(web_body, '')) ~ '(AI хүлээн авагч|сануулга, SMS|— маркетинг менежер|— хувийн туслах|— утасны оператор)')
      or exists (select 1 from service_aliases where tenant_id = tid and alias ~* '(хүлээн авагч|сануулга, sms)') then
     raise exception 'an old name is in a canned line, FAQ, sales line or alias; this file does not rename those';
   end if;
@@ -181,8 +203,10 @@ begin
   select count(*) into n from deterministic_replies d where d.tenant_id = tid and d.intent = 'price_overview'
      and position(normalize('💬 Дали — Харилцагчийн менежер: сард 250,000₮', NFC) in d.body) = 1
      and position(normalize('"Вира сард 250,000₮"', NFC) in d.items::text) > 0
-     and position(normalize('💬 Вира — маркетинг менежер: сард 250,000₮', NFC) in d.items::text) > 0
-     and position(normalize('💬 Нова — Захиалгын менежер: сард 150,000₮', NFC) in d.items::text) > 0;
+     and position(normalize('💬 Нова — Захиалгын менежер: сард 150,000₮', NFC) in d.items::text) > 0
+     and position(normalize('💬 Вира — Маркетинг менежер: сард 250,000₮', NFC) in d.items::text) > 0
+     and position(normalize('💬 Ора — Хувийн туслах: сард 250,000₮', NFC) in d.items::text) > 0
+     and position(normalize('💬 Эхо — Утасны оператор: үнийг хараахан зарлаагүй', NFC) in d.items::text) > 0;
   if n <> 1 then raise exception 'price_overview was not updated'; end if;
   select count(*) into n from deterministic_replies where tenant_id = tid and intent = 'dali_about' and enabled
      and when_launch_state = 'live' and when_service_id is not null and cardinality(cover_words) > 60;

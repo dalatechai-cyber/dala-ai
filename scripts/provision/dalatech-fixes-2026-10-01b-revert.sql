@@ -14,7 +14,10 @@ end $$;
 create temp table ren (old text, new text) on commit drop;
 insert into ren values
   (normalize('Дали — AI хүлээн авагч', NFC), normalize('Дали — Харилцагчийн менежер', NFC)),
-  (normalize('Нова — сануулга, SMS', NFC), normalize('Нова — Захиалгын менежер', NFC));
+  (normalize('Нова — сануулга, SMS', NFC), normalize('Нова — Захиалгын менежер', NFC)),
+  (normalize('Вира — маркетинг менежер', NFC), normalize('Вира — Маркетинг менежер', NFC)),
+  (normalize('Ора — хувийн туслах', NFC), normalize('Ора — Хувийн туслах', NFC)),
+  (normalize('Эхо — утасны оператор', NFC), normalize('Эхо — Утасны оператор', NFC));
 
 -- Added rows first (the fixed reply's cases name it in their note).
 delete from reply_cases r using dt where r.tenant_id = dt.id and r.note like 'D-172: «what is Дали»%';
@@ -34,19 +37,27 @@ update reply_cases r
        note = nullif(replace(r.note, ' Answered by dali_about from 2026-10-01 (D-172).', ''), '')
   from dt where r.tenant_id = dt.id and r.note like '% Answered by dali_about from 2026-10-01 (D-172).%';
 
+do $$
+declare x record;
+begin
+  for x in select old, new from ren loop
+    update reply_cases r set expected_body = replace(r.expected_body, '💬 ' || x.new || ':', '💬 ' || x.old || ':')
+      from dt where r.tenant_id = dt.id and r.note like '% Renamed 2026-10-01 (D-172).%';
+    update deterministic_replies d
+       set body = replace(d.body, '💬 ' || x.new || ':', '💬 ' || x.old || ':'),
+           items = replace(d.items::text, '💬 ' || x.new || ':', '💬 ' || x.old || ':')::jsonb
+      from dt where d.tenant_id = dt.id and d.intent = 'price_overview';
+  end loop;
+end $$;
+
 update reply_cases r
    set must_include = array_replace(r.must_include, normalize('💬 Дали — Харилцагчийн менежер: сард 250,000₮', NFC),
                                     normalize('💬 Дали — AI хүлээн авагч: сард 250,000₮', NFC)),
-       expected_body = replace(replace(r.expected_body,
-         normalize('💬 Дали — Харилцагчийн менежер:', NFC), normalize('💬 Дали — AI хүлээн авагч:', NFC)),
-         normalize('💬 Нова — Захиалгын менежер:', NFC), normalize('💬 Нова — сануулга, SMS:', NFC)),
        note = nullif(replace(r.note, ' Renamed 2026-10-01 (D-172).', ''), '')
   from dt where r.tenant_id = dt.id and r.note like '% Renamed 2026-10-01 (D-172).%';
 
 update deterministic_replies d
-   set body = replace(d.body, normalize('💬 Дали — Харилцагчийн менежер:', NFC), normalize('💬 Дали — AI хүлээн авагч:', NFC)),
-       items = replace(replace(replace(d.items::text,
-                 normalize('💬 Нова — Захиалгын менежер:', NFC), normalize('💬 Нова — сануулга, SMS:', NFC)),
+   set items = replace(replace(d.items::text,
                  normalize('маркетинг менежер: сард 250,000₮', NFC), normalize('маркетинг менежер: сард 350,000₮', NFC)),
                  normalize('Вира сард 250,000₮', NFC), normalize('Вира сард 350,000₮', NFC))::jsonb
   from dt where d.tenant_id = dt.id and d.intent = 'price_overview';
@@ -59,15 +70,17 @@ update services s set name = r.old from dt, ren r where s.tenant_id = dt.id and 
 do $$
 declare tid uuid := (select id from tenants where slug = 'dalatech');
 begin
-  if exists (select 1 from services where tenant_id = tid and name ~ '(Харилцагчийн менежер|Захиалгын менежер)')
-     or exists (select 1 from knowledge_documents where tenant_id = tid and title ~ '(Харилцагчийн менежер|Захиалгын менежер)')
+  if exists (select 1 from services where tenant_id = tid and name ~ '(Харилцагчийн менежер|Захиалгын менежер|— Маркетинг менежер|— Хувийн туслах|— Утасны оператор)')
+     or exists (select 1 from knowledge_documents where tenant_id = tid and title ~ '(Харилцагчийн менежер|Захиалгын менежер|— Маркетинг менежер|— Хувийн туслах|— Утасны оператор)')
      or exists (select 1 from deterministic_replies where tenant_id = tid
-                 and (intent = 'dali_about' or (body || coalesce(items::text, '')) ~ '(Харилцагчийн менежер|Захиалгын менежер)'))
+                 and (intent = 'dali_about' or (body || coalesce(items::text, '')) ~ '(Харилцагчийн менежер|Захиалгын менежер|— Маркетинг менежер|— Хувийн туслах|— Утасны оператор)'))
      or exists (select 1 from reply_cases where tenant_id = tid and active and note like '%D-172%') then
     raise exception 'the revert did not restore every row';
   end if;
   if (select count(*) from services where tenant_id = tid
-       and name in (normalize('Дали — AI хүлээн авагч', NFC), normalize('Нова — сануулга, SMS', NFC))) <> 2
+       and name in (normalize('Дали — AI хүлээн авагч', NFC), normalize('Нова — сануулга, SMS', NFC),
+                    normalize('Вира — маркетинг менежер', NFC), normalize('Ора — хувийн туслах', NFC),
+                    normalize('Эхо — утасны оператор', NFC))) <> 5
      or (select count(*) from deterministic_replies where tenant_id = tid and intent = 'price_overview'
           and position(normalize('"Вира сард 350,000₮"', NFC) in items::text) > 0
           and position(normalize('💬 Дали — AI хүлээн авагч:', NFC) in body) = 1) <> 1 then
