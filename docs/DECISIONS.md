@@ -11547,3 +11547,48 @@ drafts unsent and pages through the existing exhaustion alert.
   - Nothing is posted in either case.
 - **The backfill SQL** moves only `indeterminate` rows and `sending` rows with an expired lease.
   It never moves `failed` rows, and it has no re-send check.
+
+## D-167 — Tara's price list of 2026-10-01, children's services, 91005498 and a shared line (2026-10-01, founder)
+
+**Decided (founder, 2026-10-01).** Tara's 5-page price list received that day is the source of
+truth for every service and price, identical in both branches (D-157 stands). TARA Lumi is the
+price list's 350,000 / 460,000 / 510,000₮, not the 380,000–460,000₮ in the owner's text; the
+owner's TARA Lumi description goes into the knowledge. Children's services now exist: the
+children's refusal (rule `children_services` and its `refusal_topic` line) is removed. 91005498
+replaces 80905498 everywhere. 76001888 is the shared main line of both branches. Парк Од's own
+Facebook Page is https://www.facebook.com/profile.php?id=100067391025472 (recorded; she is not
+onboarded).
+
+**What was built.**
+- `scripts/provision/tara-price-list-2026-10-01.sql` and its `-revert.sql`: the rows, in one
+  transaction with pre- and post-condition asserts. **Not applied by the session**: canned rows
+  are read live and hashed into the snapshot, so between this SQL and the publish every reply
+  refuses (`canned_stale`, D-163). The founder applies it immediately before the publish
+  (`docs/publish-mac.md`), and reverts at once if the dry run refuses.
+  - Services on the list are created or switched on; their old price rows are replaced. Gender,
+    hair length, stylist level and a child's age are price rows («Хүүхдийн тайралт (эрэгтэй,
+    0–13 нас)»), as «Мастер» / «1-р зэрэг» already were. Services off the list are switched off,
+    never deleted (list in `docs/tenants/tara-yarmag.md`).
+  - The two fixed replies that quote services by name (`dye_prices`, `perm_types`), their reply
+    cases, and the one FAQ that typed treatment prices follow the list.
+  - No new customer sentence is written. Changed numbers, prices and service names only, the
+    owner's TARA Lumi text without its price line, and rows removed.
+- Branch gate: `allow_phones` in `config/branch-groups.json` (`tara-salon`: 76001888). A shared
+  line may be held and said by every branch; every other phone stays one branch's own
+  (`foreignDetails`, tests in `src/lib/facts/branches.test.ts`).
+- `docs/tenants/tara-park-od.md` records Парк Од's Page; `docs/publish-mac.md` is the founder's
+  Mac setup (Keychain) and the command.
+
+**Verified.** On a replica of Tara's live rows (27 tables fingerprinted identical to live, the
+live `content_hash` reproduced): the SQL applies, refuses a second run, and the revert restores
+every row's content. The dry run after it: branch gate clean, facts agree, 23/23 reply cases
+pass, one model case not run (no spend). A replica `--publish` followed by the standalone
+reply-case gate passes. The publish also carries the prompt trim C1 (PR #257), unpublished for
+Tara until now.
+
+**Open for the founder.** The signed salon Ш1 block still uses a children's price as its example
+of a forbidden topic and says never to ask «Том хүн үү, хүүхэд үү»; a draft is in
+`prompt/drafts/sh1_refusal_topics_children.salon.mn.txt`, and the model case «8 настай хүүгийн
+үс тайралт хэд вэ?» measures it in the `--with-model` dry run. Knowledge documents that describe
+switched-off services, and the SPECIAL level missing from the deposit rules, are listed in
+`docs/tenants/tara-yarmag.md`.

@@ -158,11 +158,18 @@ function detailsOf(side: BranchSide): Details {
 /**
  * Another branch's details in this branch's rows (`leak`). `allowNames`: staff names that may
  * appear in every branch, from the group's configuration (a person who works at both, or a
- * name that is also an ordinary word the rows use).
+ * name that is also an ordinary word the rows use). `allowPhones`: the brand's shared lines, from
+ * the same configuration, which every branch may hold and say; every other phone stays one
+ * branch's own.
  */
-export function foreignDetails(own: BranchSide, sibling: BranchSide, allowNames: readonly string[] = []): BranchFinding[] {
+export function foreignDetails(
+  own: BranchSide, sibling: BranchSide, allowNames: readonly string[] = [], allowPhones: readonly string[] = [],
+): BranchFinding[] {
   const mine = detailsOf(own);
   const theirs = detailsOf(sibling);
+  // With and without Mongolia's 976, as `phonesOf` reads a contact row.
+  const shared = new Set(allowPhones.flatMap((p) => phonesOf(p)).flatMap((p) => (p.length === 8 ? [p, `976${p}`] : [p])));
+  for (const p of shared) theirs.phones.delete(p);
   const allowed = new Set(allowNames.map((n) => staffKey(n)?.toLowerCase()).filter((k): k is string => k !== undefined));
   allowNames.forEach((n) => allowed.add(nfc(n).toLowerCase()));
   const out: BranchFinding[] = [];
