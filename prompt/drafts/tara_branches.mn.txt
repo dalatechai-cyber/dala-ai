@@ -1,4 +1,4 @@
-# DRAFT — not loaded. Tara Яармаг's Дали on Tara's two branches (D-170), for the founder.
+# APPROVED by the founder 2026-10-01 (with «Хоёр салбарын үнэ ижил.» added). Not loaded: Tara Яармаг's Дали on Tara's two branches (D-170), for the founder.
 # Applied by scripts/provision/tara-branches-2026-10-01.sql once approved, then a publish.
 # Facts (founder, 2026-10-01): Парк Од is open at Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл,
 # 4 давхар, 405 тоот; 76001888 is both branches' shared line; Парк Од's own Facebook Page is
@@ -21,6 +21,7 @@ Tara Salon хоёр салбартай: Яармаг салбар, Парк Од
 Оюунаа Яармаг салбарт ажилладаг.
 Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот.
 Хоёр салбарын нийтлэг утас: 76001888.
+Хоёр салбарын үнэ ижил.
 Парк Од салбар өөрийн Фэйсбүүк хуудастай.
 
 (The Facebook link is NOT in the document: a link the model writes is refused unless it is one
