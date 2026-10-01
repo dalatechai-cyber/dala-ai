@@ -11,6 +11,7 @@ second copy nothing re-derives. Change these in the same change as the fact.
 
 | Fact | Where it is typed |
 |---|---|
+| Welcome line (greeting) | `deterministic_replies.greeting` and its copy `like_welcome` (D-168): change both together |
 | Booking domain `matrixecosalon.org` | `tenant_booking.booking_url`; `canned_responses.booking_line`; `deterministic_replies.booking` (2026-09-30) |
 | Address and map link | `contact_points` (`address`, `maps_url`); `deterministic_replies.address` (2026-09-30) |
 | Phone numbers 76001888, 91005498 (91005498 replaced 80905498 on 2026-10-01, D-167) | `contact_points` (`phone`); five `canned_responses` (`handoff`, `refusal_no_promotion`, `refusal_price_unlisted`, `refusal_staff_schedule`, `refusal_suitability`); `deterministic_replies.salon_phone` (Яармаг only); `deterministic_replies.holiday_hours_note` (76001888); `reply_cases` «Утас хэд вэ». 76001888 is the shared main line of both Tara branches (`config/branch-groups.json` `allow_phones`) |
@@ -30,26 +31,22 @@ second copy nothing re-derives. Change these in the same change as the fact.
 salon's 2026-10-01 price list, the children's services and 91005498. Not applied when written:
 it is applied by the founder immediately before the publish (`docs/publish-mac.md`).
 
-Open for the founder, not changed by that file (each changes what Дали says):
+The founder's decisions of 2026-10-01 (D-168) are in the same file:
 
-- Services off the new list are switched off, not deleted: Сахал засах, Угаалт, Үс хусах,
-  Тэжээлийн тос, CMC тэжээл, Хими арчилт, Омбре, Оффис колор, Сор, Цайруулалт, Дунд/Урт үсний
-  будаг. Three knowledge documents still describe some of them: «Сор, Оффис колор, омбре», «CICA
-  ба CMC — эмчилгээ, хими биш» (CMC), and «Химийн үйлчилгээний төрлүүд», which says «Шулуун хими
-  (сеттинг)» while the list now has Сэттинг хими and Шулуун хими as two services. The owner's
-  first TARA Lumi price (380,000–460,000₮) was Оффис колор's: if TARA Lumi and TARA BLEND are the
-  new names of Оффис колор and Омбре, those documents need rewording, not removal.
-- The list has a SPECIAL stylist level; the deposit rules and the «Мастер ба 1-р зэргийн
-  үсчин» document and `stylist_tier` reply name only Мастер and 1-р зэрэг.
-- The signed salon Ш1 block still uses a children's price as its example of a forbidden topic
-  (draft: `prompt/drafts/sh1_refusal_topics_children.salon.mn.txt`).
-- KB «Салбарууд» says Tara has one branch and a second «удахгүй нээгдэнэ».
-- The list puts «Тайралт хүүхэд» (44,000₮) under women's services with no age; it is rendered
-  «Хүүхдийн тайралт (эмэгтэй)». If it means girls, «охин» may read better.
-- The FAQ «Үс их хуурай…» now lists only the successors of its old treatments (CICA, Үсний
-  тэжээл); whether to add Нөхөн сэргээх эмчилгээ (66,000₮) is the founder's.
-- The matcher word «хими»/«himi» still points at Эмчилгээний хими, now the men's perm, so a
-  suitability answer about perms lists that row first.
+- Old services and prices are gone from what Дали reads. The «Сор, Оффис колор, омбре» document
+  is deleted; «CICA ба CMC» becomes «CICA — эмчилгээ, хими биш» without its CMC, тэжээлийн тос
+  and course sentences; «Шулуун хими (сеттинг)» becomes «Шулуун хими» (Сэттинг хими is its own
+  service); the CICA / тэжээлийн тос FAQ is deleted; four earlier turns in the reply cases'
+  recorded history carry today's list. Services off the list stay switched off, not deleted.
+- «Хүүхдийн тайралт (охин)»: the women's-section children's haircut is the girls' haircut.
+- The Messenger like: the row `like_welcome` (the welcome row's own bytes, empty history only)
+  and the stem `like` on `acknowledgement`.
+- The salon Ш1 block no longer uses a children's price as its example (migration 0076).
+
+Still open: the SPECIAL level has no deposit row (founder, 2026-10-01: left out until an amount
+is given); the «Мастер ба 1-р зэргийн үсчин» document and `stylist_tier` reply name only Мастер
+and 1-р зэрэг; KB «Салбарууд» says a second branch «удахгүй нээгдэнэ»; the matcher word
+«хими»/«himi» points at Эмчилгээний хими (now the men's perm).
 
 ## History
 

@@ -48,6 +48,7 @@ import { SECTION_LABELS, depositRow } from '../prompt/tenant.ts';
 import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '../services/match.ts';
 import { containsStem, findStem } from '../mn/match.ts';
 import { IMAGE_REPLY_KIND } from '../inbound/imageReply.ts';
+import { isLike } from '../inbound/like.ts';
 import { checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
@@ -684,6 +685,17 @@ async function receive(
   //    model was involved in choosing it.
   const matchOpts = { hasAttachment: input.customerAttachments.length > 0, attachments: input.customerAttachments, topics: matched.matchedTopics, respelled };
   const shortcut = matchDeterministic(input.customerMessage, input.deterministic, input.historyState, matchOpts);
+  // A like (D-168) is answered by a fixed reply or not at all: never by the model, and never
+  // twice in a row, so a customer tapping like after our answer to their like gets silence.
+  if (isLike(input.customerMessage)) {
+    const last = input.history.at(-1);
+    const before = input.history.at(-2);
+    const answeredLike = last?.role === 'assistant' && before?.role === 'user' && isLike(before.content);
+    if (answeredLike || shortcut.hit === null) {
+      await deps.release();
+      return { kind: 'dropped', reason: answeredLike ? 'like_after_answered_like' : 'like_without_fixed_reply' };
+    }
+  }
   // `append` rows (`0041`): whatever is served from here on, their bodies go at the END.
   // Founder, 2026-09-24: *"The Tara line must never replace an answer. Only a question about
   // the name gets the line on its own."* Every draft below goes through `d`, handoff

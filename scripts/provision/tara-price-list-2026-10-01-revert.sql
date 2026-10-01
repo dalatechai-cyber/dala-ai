@@ -1,4 +1,5 @@
 -- ONLY IF NEEDED. Puts Tara Яармаг's rows back as they were read on 2026-10-01 (same content;
+-- covers D-167 and D-168;
 -- the restored price rows get new ids, which nothing references), before
 -- tara-price-list-2026-10-01.sql (D-167). Run it when that file was applied and the dry run then
 -- refused: until either the publish or this revert, every reply refuses as `canned_stale`.
@@ -51,7 +52,80 @@ select t.id, 'refusal_topic', 'mn-MN',
   from tenants t where t.slug = 'matrix-eco-salon';
 
 delete from reply_cases r using tenants t
- where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id and r.customer_message = '8 настай хүүгийн үс тайралт хэд вэ?';
+ where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id
+   and r.customer_message in ('8 настай хүүгийн үс тайралт хэд вэ?', 'Охины үс тайралт хэд вэ?',
+                              '15 настай хүүгийн үс тайралт хэд вэ?', '👍 (like)');
+
+-- D-168: the like rows.
+delete from deterministic_replies d using tenants t
+ where t.slug = 'matrix-eco-salon' and d.tenant_id = t.id and d.intent = 'like_welcome';
+update deterministic_replies d set stems = array_remove(d.stems, 'like')
+  from tenants t where t.slug = 'matrix-eco-salon' and d.tenant_id = t.id and d.intent = 'acknowledgement';
+
+-- D-168: the knowledge, the FAQ and the reply-case histories as they were.
+insert into knowledge_documents (id, tenant_id, title, body, source, updated_at)
+select 'e49ba693-c740-4eb4-a1e7-e321b83692a3', t.id, 'Сор, Оффис колор, омбре',
+'Энгийн сор бол малгайгаар татаж авах арга. Дараа нь өнгө оруулахгүй.
+Оффис колор бол арга барил: 30 хувийн цайруулалт, малгай, дараа нь үндсийг сүүдэрлэж, үзүүрийг цайвар будгаар гэрэлтүүлнэ.
+Оффис колорын будгийг фольго дээрх үсийг харж сонгоно.
+Омбре бол 70 хувийн цайруулалт.',
+       'Matrix Eco Salon, 2026-09-07, эзний хариулт', timestamptz '2026-09-07 02:08:31.632145+00'
+  from tenants t where t.slug = 'matrix-eco-salon';
+
+update knowledge_documents k
+   set title = 'CICA ба CMC — эмчилгээ, хими биш',
+       body = 'CICA эмчилгээний хими гэсэн үйлчилгээ БАЙХГҮЙ. Эмчилгээний хими бол ургамлын гаралтай зөөлөн хими.
+CICA бол тусдаа сэргээх эмчилгээ. Нэг удаагийн CICA нь ойролцоогоор 30-40 удаагийн тэжээлийн тостой тэнцэнэ.
+CICA нь үсний гэмтсэн давхаргад ажиллана. Нэг курс нь 3 удаа, хооронд нь 3-5 хоногийн зайтай.
+CMC бол тэжээллэг тос. Меланиныг идэвхжүүлж, гялбаа нэмнэ. Будалт, химийн өмнө хийхэд сайн.
+Будалт болон мелировканд тэжээллэг найрлага ордоггүй.',
+       updated_at = timestamptz '2026-09-07 02:08:31.632145+00'
+  from tenants t where t.slug = 'matrix-eco-salon' and k.tenant_id = t.id and k.title = 'CICA — эмчилгээ, хими биш';
+
+update knowledge_documents k
+   set body = replace(k.body, 'Шулуун хими нь', 'Шулуун хими (сеттинг) нь'),
+       updated_at = timestamptz '2026-09-07 02:08:31.632145+00'
+  from tenants t where t.slug = 'matrix-eco-salon' and k.tenant_id = t.id and k.title = 'Химийн үйлчилгээний төрлүүд';
+
+insert into faqs (id, tenant_id, question, answer, ordinal, provenance)
+select '8a3c35c8-1627-4a25-af37-d7f36fef51d1', t.id, 'CICA нэг удаагийн эмчилгээ хэдэн тэжээлийн тостой тэнцэх вэ?',
+       'Нэг удаагийн CICA нь ойролцоогоор 30-40 удаагийн тэжээлийн тостой тэнцэнэ.', 12, 'tenant_confirmed'
+  from tenants t where t.slug = 'matrix-eco-salon';
+
+create temp table tara_history_turns (new text, old text) on commit drop;
+insert into tara_history_turns values
+  ('Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:
+CICA үсний гүний эмчилгээ: 198,000₮
+Үсний тэжээл: 88,000₮
+Үсэнд тань аль нь тохирохыг манай үсчин зөвлөж өгнө.',
+   'Хуурай, хугарсан үсэнд манайд дараах эмчилгээнүүд байна:
+CICA нөхөн сэргээх эмчилгээ: 198,000₮ (курсээр 154,000₮)
+Тэжээлийн тос: 49,500₮
+CMC тэжээл: 132,000₮
+Тэжээл: 44,000–88,000₮
+Үсэнд тань аль нь тохирохыг манай үсчин зөвлөж өгнө.'),
+  ('Энгийн будаг (богино): 160,000₮
+Энгийн будаг (дунд): 180,000₮
+Энгийн будаг (урт): 210,000₮
+Үсний угийн будаг: 99,000₮
+
+Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?',
+   'Үсний угийн будаг: 135,000₮
+Дунд үсний будаг (мөрнөөс дээш урттай үс): 176,000₮
+Урт үсний будаг (мөр давсан урттай үс): 200,000₮
+
+Та бүтэн будуулах уу, эсвэл үсний угийн будаг хийлгэх үү?'),
+  ('Усны хими 120,000₮–200,000₮ байна.', 'Усны хими 132,000₮–154,000₮ байна.'),
+  ('Буруу ойлголоо. Усан хими 120,000₮–200,000₮ байна.', 'Буруу ойлголоо. Усан хими 132,000₮–154,000₮ байна.');
+
+update reply_cases r
+   set history = (
+         select jsonb_agg(case when h.old is null then e else jsonb_set(e, '{content}', to_jsonb(h.old)) end order by x.ord)
+           from jsonb_array_elements(r.history) with ordinality as x(e, ord)
+           left join tara_history_turns h on h.new = x.e->>'content')
+  from tenants t
+ where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id
+   and exists (select 1 from jsonb_array_elements(r.history) e join tara_history_turns h on h.new = e->>'content');
 
 -- Matcher words moved to a new service go back first (deleting the new services below would
 -- otherwise take them with it); the words the file added go with their services.

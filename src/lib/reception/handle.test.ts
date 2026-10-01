@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { LIKE_TEXT } from '../inbound/like.ts';
 import assert from 'node:assert/strict';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
 import { cannedHashOf } from '../prompt/sections.ts';
@@ -597,6 +598,61 @@ test('IT RUNS AFTER THE REVIEW GATE — an unreviewed line does not ship just be
   });
   assert.equal(r.kind, 'retry');
   assert.equal(calls.includes('draft:canned'), false);
+});
+
+// D-168: the like. The tenant answers it with two rows: its welcome bytes on an empty
+// history, its «ок» row anywhere. Both list the stem `like`; the empty-history row wins when
+// both fire, whatever order the database returns them in.
+const LIKE_WELCOME = { ...GREET, intent: 'like_welcome', stems: ['like'] };
+const OK_ROW = { ...GREET, intent: 'acknowledgement', body: 'Өөр асуух зүйл байвал бичээрэй.', stems: ['ok', 'за', 'like'], requiresEmptyHistory: false };
+const sent = (calls: string[]) => calls.filter((c) => c.startsWith('draft:'));
+
+test('D-168: a like on an empty history is the welcome row, from either row order, with no model', async () => {
+  for (const rows of [[LIKE_WELCOME, OK_ROW], [OK_ROW, LIKE_WELCOME]]) {
+    const { deps: d, calls, drafts } = deps();
+    const r = await handleReception(d, { ...base, customerMessage: LIKE_TEXT, deterministic: rows });
+    assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+    assert.equal(drafts.at(-1)?.body, GREET.body);
+    assert.equal(calls.includes('callModel'), false);
+  }
+});
+
+test('D-168: a like right after our answer is the «ок» row', async () => {
+  const { deps: d, calls, drafts } = deps();
+  const r = await handleReception(d, {
+    ...base, customerMessage: LIKE_TEXT, deterministic: [LIKE_WELCOME, OK_ROW],
+    historyState: { known: true, empty: false },
+    history: [{ role: 'user', content: 'Хаяг хаана вэ' }, { role: 'assistant', content: 'Хаяг: …' }],
+  });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.equal(drafts.at(-1)?.body, OK_ROW.body);
+  assert.equal(calls.includes('callModel'), false);
+});
+
+test('D-168: a like after our answer to a like gets nothing, and the hold goes back', async () => {
+  const { deps: d, calls } = deps();
+  const r = await handleReception(d, {
+    ...base, customerMessage: LIKE_TEXT, deterministic: [LIKE_WELCOME, OK_ROW],
+    historyState: { known: true, empty: false },
+    history: [{ role: 'user', content: LIKE_TEXT }, { role: 'assistant', content: GREET.body }],
+  });
+  assert.deepEqual(r, { kind: 'dropped', reason: 'like_after_answered_like' });
+  assert.deepEqual(sent(calls), []);
+  assert.equal(calls.includes('callModel'), false);
+  assert.equal(calls.includes('release'), true);
+});
+
+test('D-168: a like no row answers is never sent to the model', async () => {
+  for (const rows of [[], [GREET], [LIKE_WELCOME]]) {
+    const { deps: d, calls } = deps();
+    const r = await handleReception(d, {
+      ...base, customerMessage: LIKE_TEXT, deterministic: rows,
+      historyState: { known: true, empty: false },
+      history: [{ role: 'user', content: 'Үнэ' }, { role: 'assistant', content: 'Та ямар үйлчилгээ…' }],
+    });
+    assert.deepEqual(r, { kind: 'dropped', reason: 'like_without_fixed_reply' });
+    assert.equal(calls.includes('callModel'), false);
+  }
 });
 
 test('a greeting mid-conversation falls through to the model', async () => {

@@ -50,21 +50,31 @@ Read it. It must end with every reply case passing, `facts: … every copy agree
 
 The first time, macOS asks whether `security` may read each item: choose *Always Allow*.
 
-## Tara's price list of 2026-10-01 (D-167)
+## Tara's price list and the founder's decisions of 2026-10-01 (D-167, D-168)
 
-1. Wait until the PR carrying D-167 is merged and Vercel shows the production deploy as Ready.
-2. At a quiet hour (between the SQL and the publish, Tara's replies refuse): Supabase dashboard
+One-time for this change: the Supabase CLI, to push migrations (`brew install supabase/tap/supabase`),
+then in `~/dalatech/dala-ai`: `supabase link --project-ref tlggenaatnopnxzbkbuf` (it asks for the
+database password: Supabase dashboard → Project Settings → Database).
+
+1. Wait until the PR carrying D-168 is merged and Vercel shows the production deploy as Ready.
+   Then `git pull && npm ci`.
+2. **Push migration `0076`** (the approved salon Ш1 text): `supabase db push`. It must list
+   `0076_prompt_blocks_seed.sql` only. Until it is pushed, every publish refuses with «the LIVE
+   platform blocks are not the signed ones». Pushing it changes nothing a customer sees: the
+   text reaches Tara at her publish.
+3. At a quiet hour (between this SQL and the publish, Tara's replies refuse): Supabase dashboard
    → SQL editor → paste all of `scripts/provision/tara-price-list-2026-10-01.sql` → Run. It ends
    with `COMMIT`, or raises and writes nothing.
-3. At once, the dry run above with `--slug matrix-eco-salon`. Expect: `allowed_numbers` adds the
-   new prices and `91005498` and removes `80905498`; `branches: … no other branch's details`;
-   every reply case passes, including «8 настай хүүгийн үс тайралт хэд вэ?» (must say 33,000);
-   `facts: … every copy agrees`. The diff also carries the prompt trim (C1, PR #257): the nine
-   suitability topics folded into one line.
-4. If it is clean: the publish command. If anything refuses: run
-   `scripts/provision/tara-price-list-2026-10-01-revert.sql` in the SQL editor at once (replies
-   resume with no publish) and send the dry run's output.
-   If the **only** failure is the children's case, the cause is the signed Ш1 example, and the
-   fix is approving `prompt/drafts/sh1_refusal_topics_children.salon.mn.txt` (then this publish
-   again). Recommended: revert and approve the draft first. Publishing anyway is your call: prices
-   and phones are right, but a child's price may be withheld until the draft is live.
+4. At once, the dry run with `--slug matrix-eco-salon --with-model` (the command above). Expect:
+   - `platform blocks: 100 live, matching the signed set.`
+   - `allowed_numbers` adds the new prices and `91005498` and removes `80905498`;
+   - `branches: … no other branch's details, and the shared facts agree.`;
+   - every reply case passes (28): the two like cases, and the model cases «8 настай хүүгийн…»
+     (33,000), «Охины үс тайралт…» (44,000) and «15 настай хүүгийн…» (44,000);
+   - `facts: … every copy agrees with the rows.`;
+   - the diff shows the new prices, the Ш1 text, the knowledge edits and the prompt trim (C1).
+5. If it is clean: the same command with `--publish` in place of `--with-model`. If anything
+   refuses: run `scripts/provision/tara-price-list-2026-10-01-revert.sql` in the SQL editor at
+   once (replies resume with no publish; `0076` can stay) and send the dry run's output.
+6. Check on Messenger from your own account: send «Сайн байна уу», a like right after the answer
+   (expect «Өөр асуух зүйл байвал бичээрэй.»), then a second like (expect no reply).

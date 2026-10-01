@@ -31,6 +31,7 @@
  * idempotent across QStash retries), Meta's `mid`, and **what kind of thing it was**.
  * `inbound/dropped.ts` turns that into a row.
  */
+import { isLikeSticker, LIKE_TEXT } from '../inbound/like.ts';
 import { nfc } from '../mn/text.ts';
 
 export type InboundMessage = {
@@ -321,7 +322,11 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
     // An attachment with no text carries no question. V1 answers text — but a thumbs-up
     // and a photograph of the colour someone wants both land here, and only one of them is
     // filler, so the KINDS go with the skip rather than the fact of it.
-    if (text.trim() === '') { skip('no_text', carried); continue; }
+    //
+    // One exception (D-168): a like and nothing else becomes the text `LIKE_TEXT`, so the
+    // tenant's fixed replies can answer it. Every other sticker is still skipped.
+    const like = text.trim() === '' && isLikeSticker(kinds, stickerIds);
+    if (text.trim() === '' && !like) { skip('no_text', carried); continue; }
 
     // Meta's timestamps are milliseconds. A missing one is treated as "now" by the
     // caller rather than as 1970, which would make every such event look stale and be
@@ -331,7 +336,10 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
 
     // `kinds` and `stickerIds` were computed above for `carried` and then dropped here for
     // every message that had text. That silent discard is D-083; see `InboundMessage`.
-    messages.push({ senderId, externalId, text, sentAt, attachments: kinds, stickerIds });
+    // A like's sticker is its text now, not an attachment beside it.
+    messages.push(like
+      ? { senderId, externalId, text: LIKE_TEXT, sentAt, attachments: [], stickerIds }
+      : { senderId, externalId, text, sentAt, attachments: kinds, stickerIds });
   }
 
   return { messages, skipped, standby };

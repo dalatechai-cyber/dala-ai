@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { LIKE_TEXT } from '../inbound/like.ts';
 import assert from 'node:assert/strict';
 import { extractInboundMessages } from './extract.ts';
 
@@ -149,16 +150,41 @@ const thumbsUp = {
   },
 };
 
+/** The same shape with a sticker that is not the like: still skipped (D-070, D-168). */
+const otherSticker = {
+  ...thumbsUp,
+  message: { mid: 'm_sticker', attachments: thumbsUp.message.attachments.map((a) => ({ ...a, payload: { ...a.payload, sticker_id: 126361874215276 } })) },
+};
+
 test('DONE-TEST: ONE STICKER IS ONE STICKER, NOT AN IMAGE AND A STICKER', () => {
   // Meta sends a thumbs-up as TWO attachments with the SAME sticker_id, the first declared
   // as an image. Counting the array says the customer sent two things; reading only `type`
   // says one of them was a photograph. Both are wrong, and the second is the one that
   // cost — on 2026-09-14 all three of Matrix's dropped attachments read as `image` from
   // the type alone, and every one was this sticker.
-  const r = extractInboundMessages(entry([thumbsUp]));
+  // Since D-168 the like itself is answered (below), so the record is read off another
+  // sticker in the same shape.
+  const r = extractInboundMessages(entry([otherSticker]));
   assert.deepEqual(reasons(r), ['no_text']);
   assert.deepEqual(r.skipped[0]?.attachments, ['sticker']);
-  assert.deepEqual(r.skipped[0]?.stickerIds, ['369239263222822']);
+  assert.deepEqual(r.skipped[0]?.stickerIds, ['126361874215276']);
+});
+
+test('D-168: a like and nothing else becomes the like text, with its own mid; other stickers stay skipped', () => {
+  const r = extractInboundMessages(entry([thumbsUp]));
+  assert.deepEqual(reasons(r), []);
+  assert.equal(r.messages.length, 1);
+  assert.equal(r.messages[0]?.text, LIKE_TEXT);
+  assert.equal(r.messages[0]?.externalId, 'm_thumb');
+  assert.deepEqual(r.messages[0]?.attachments, [], 'the like is the text, not an attachment beside it');
+  assert.deepEqual(r.messages[0]?.stickerIds, ['369239263222822']);
+  for (const id of [369239343222814, 369239383222810]) {
+    const big = { ...thumbsUp, message: { mid: `m_${id}`, attachments: [{ type: 'image', payload: { sticker_id: id } }] } };
+    assert.equal(extractInboundMessages(entry([big])).messages[0]?.text, LIKE_TEXT, String(id));
+  }
+  // A like beside a photograph is not a like alone.
+  const mixed = { ...thumbsUp, message: { mid: 'm_mixed', attachments: [...thumbsUp.message.attachments, { type: 'image', payload: { url: 'https://scontent.xx.fbcdn.net/p' } }] } };
+  assert.deepEqual(reasons(extractInboundMessages(entry([mixed]))), ['no_text']);
 });
 
 test('DONE-TEST: A REAL PHOTOGRAPH IS NOT A STICKER, AND THE RECORD SAYS SO', () => {
@@ -170,7 +196,7 @@ test('DONE-TEST: A REAL PHOTOGRAPH IS NOT A STICKER, AND THE RECORD SAYS SO', ()
   assert.deepEqual(r.skipped[0]?.attachments, ['image']);
   assert.deepEqual(r.skipped[0]?.stickerIds, []);
   assert.notDeepEqual(
-    extractInboundMessages(entry([thumbsUp])).skipped[0]?.attachments,
+    extractInboundMessages(entry([otherSticker])).skipped[0]?.attachments,
     r.skipped[0]?.attachments,
   );
 });
@@ -178,15 +204,15 @@ test('DONE-TEST: A REAL PHOTOGRAPH IS NOT A STICKER, AND THE RECORD SAYS SO', ()
 test('a skip carries the event index and Meta’s mid, so a retry can recognise it', () => {
   // `(event_id, idx)` is the identity `inbound/dropped.ts` dedupes on. The mid is absent on
   // a malformed event, which is exactly why the index is the key rather than the mid.
-  const r = extractInboundMessages(entry(['not an object', thumbsUp]));
+  const r = extractInboundMessages(entry(['not an object', otherSticker]));
   assert.equal(r.skipped[0]?.idx, 0);
   assert.equal(r.skipped[0]?.externalId, null);
   assert.equal(r.skipped[1]?.idx, 1);
-  assert.equal(r.skipped[1]?.externalId, 'm_thumb');
+  assert.equal(r.skipped[1]?.externalId, 'm_sticker');
 });
 
 test('a skip carries the sender, so a dropped event can be tied to its conversation', () => {
-  const r = extractInboundMessages(entry([thumbsUp]));
+  const r = extractInboundMessages(entry([otherSticker]));
   assert.equal(r.skipped[0]?.senderId, 'psid-1');
 });
 

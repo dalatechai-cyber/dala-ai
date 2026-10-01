@@ -205,9 +205,13 @@ test('DONE-TEST: the live verticals keep their signed text; every other vertical
     return out.ok ? out.rendered.promptStable : '';
   };
   const salon = await render('salon');
-  // Salon and software carry the same frozen bytes (today's text for both live tenants).
-  assert.equal(await render('software'), salon);
-  assert.ok(salon.includes('Чёлк тайралт'), 'the salon keeps its own worked example');
+  // Salon and software carried the same frozen bytes until D-168, when the founder replaced
+  // the salon's Ш1 example (a children's price) once children's services were on Tara's list.
+  const software = await render('software');
+  assert.ok(software.includes('Хүүхдийн чёлк тайралт'), 'software keeps its signed Ш1 example');
+  assert.ok(!salon.includes('Хүүхдийн чёлк тайралт'), 'the salon Ш1 no longer forbids a children\'s price (D-168)');
+  assert.ok(!salon.includes('Том хүн үү, хүүхэд үү'), 'nor asking whether the haircut is for a child (D-168)');
+  assert.ok(salon.includes('Хөмсөг засалт'), 'the salon keeps its own Ш2 worked example');
   const generic = await render(null);
   for (const word of ['салон', 'тайралт', 'будалт', 'Маникюр', 'Хөмсөг', 'үсчин']) {
     assert.ok(!generic.includes(word), `«${word}» in the generic gate`);
@@ -228,8 +232,9 @@ test('DONE-TEST: compiling the gate does NOT allow-list the fabricated prices it
 
     assert.deepEqual(out.rendered.allowedNumbers, [], `a gate-only prompt licenses no numeral at all (${vertical})`);
     // And the counter-examples are still IN the prompt, where the model must read them:
-    // Ш1's is «33,000₮» in the salon's example and «30,000₮» in the generic one.
-    assert.ok(out.rendered.promptStable.includes(vertical === null ? '30,000' : '33,000'), `Ш1 example (${vertical})`);
+    // Ш1's is «33,000₮» in software's example and «30,000₮» in the generic and (since D-168)
+    // the salon one.
+    assert.ok(out.rendered.promptStable.includes(vertical === 'software' ? '33,000' : '30,000'), `Ш1 example (${vertical})`);
     assert.ok(out.rendered.promptStable.includes('20,000'), `Ш2 example (${vertical})`);
   }
 });

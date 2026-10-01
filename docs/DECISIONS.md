@@ -11594,3 +11594,41 @@ of a forbidden topic and says never to ask «Том хүн үү, хүүхэд ү
 үс тайралт хэд вэ?» measures it in the `--with-model` dry run. Knowledge documents that describe
 switched-off services, and the SPECIAL level missing from the deposit rules, are listed in
 `docs/tenants/tara-yarmag.md`.
+
+## D-168 — Tara: no old prices anywhere, children in Ш1, girls' haircut, and the Messenger like (2026-10-01, founder)
+
+**Decided (founder, 2026-10-01).**
+1. Ш1 (salon) no longer uses a children's price as its example of a forbidden question, and no
+   longer forbids asking «Том хүн үү, хүүхэд үү»: children's services and prices are on the
+   official list. Approved text: `prompt/platform/sh1_refusal_topics.salon.mn.txt`, signed
+   2026-10-01, seeded by migration `0076_prompt_blocks_seed`.
+2. Old services and prices are gone from everything Дали reads (knowledge, FAQ, reply cases,
+   examples); Оффис колор, Омбре, CMC and every service not on the new list are no longer
+   something a customer can be told; Шулуун хими and Сэттинг хими are two services.
+3. SPECIAL keeps the current deposit format, but has **no deposit row for now**: the founder
+   gives the amount later.
+4. «Тайралт хүүхэд» in the women's section is the girls' haircut: «Хүүхдийн тайралт (охин)».
+5. A Messenger like as the first message, or the first after a long silence, gets the tenant's
+   welcome fixed reply; a like right after Дали's own answer gets the «ок / за» fixed reply;
+   the same like is never answered twice; no model.
+
+**Built.**
+- Like (platform, no tenant in code): `src/lib/inbound/like.ts`. A like and nothing else (one of
+  three `sticker_id`s, never keyed on `type`) becomes the text «👍 (like)» in `meta/extract.ts`;
+  every other sticker is still skipped (D-070). In `reception/handle.ts` a like is answered only
+  by a fixed reply: no row, or a like right after Дали answered a like, is `dropped` with the
+  hold released, never the model. "A long silence" is the platform's own conversation boundary:
+  a conversation idle 24 h is closed, so the next message has an empty history. One reply per
+  like is the existing `mid` dedup. `gate/deterministic.ts`: when two replace rows fire, the one
+  that requires an empty history wins (rows come back from the database unordered).
+- Tara's rows, in `scripts/provision/tara-price-list-2026-10-01.sql` (still not applied; it now
+  carries D-167 and D-168, and its revert both): `like_welcome` (the welcome row's own bytes,
+  empty history only), `like` added to `acknowledgement`, the knowledge and FAQ edits, the
+  reply-case histories, «охин», and reply cases for the like (2, no model) and children's prices
+  (3, model). Its postconditions refuse if any row Дали reads still names an old service or
+  price.
+
+**Verified** on the replica of Tara's live rows: forward applies, revert restores every row's
+content; with `0076` applied, the dry run passes 25/25 reply cases (3 model cases not run),
+facts agree, branch gate clean. Without `0076` pushed the publish refuses ("the LIVE platform
+blocks are not the signed ones"), so the founder pushes it first (`docs/publish-mac.md`).

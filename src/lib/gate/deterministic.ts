@@ -175,6 +175,10 @@ export function matchDeterministic(
   const suppressed: string[] = [];
   const appends: DeterministicHit[] = [];
   let hit: DeterministicHit | null = null;
+  // A row that answers only an empty history is the more specific one, so it wins over a row
+  // that answers anywhere when both fire (D-168: a like is the welcome reply on a first message
+  // and the «ок» reply after an answer, and the rows come back from the database unordered).
+  let hitOnEmpty: DeterministicHit | null = null;
 
   /**
    * A match, resolved against the row's provenance.
@@ -246,12 +250,14 @@ export function matchDeterministic(
     if (rule.placement === 'append') {
       const a = answer(rule);
       if (a !== null) appends.push(a);
+    } else if (rule.requiresEmptyHistory) {
+      if (hitOnEmpty === null) hitOnEmpty = answer(rule);
     } else if (hit === null) {
       hit = answer(rule);
     }
   }
 
-  return { hit, appends, skipped, suppressed };
+  return { hit: hitOnEmpty ?? hit, appends, skipped, suppressed };
 }
 
 /**
