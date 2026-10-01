@@ -105,6 +105,10 @@ Tara's publish).
    вэ?»), `facts: … agree`. Then `--publish`. If anything refuses:
    `scripts/provision/tara-branches-2026-10-01-revert.sql`, then publish.
 4. Check on Messenger: «Парк Од салбар хаана байдаг вэ?» gets the address, 76001888 and the Page.
+5. **Only if you approve the fixed reply for branch-count questions** (D-170 addendum): run
+   `scripts/provision/tara-branch-count-2026-10-01.sql`, then the dry run (the case «Танай хэдэн
+   салбартай вэ?» is then exact, no model) and `--publish`. To see a model case's exact answer in a
+   dry run, add `REPLY_GATE_PRINT=1` in front of the command.
 
 **Яармаг's move** (on the day you give; not before): run
 `scripts/provision/tara-yarmag-move-2026-11.sql`, then the dry run and `--publish` at once. Tell the
