@@ -11705,3 +11705,12 @@ question words only, and turns the case into an exact case (plus «hed salbartai
 бий юу?»). Replica: 30/30 reply cases, the row answers with no model; «Парк Од салбар хаана…»,
 «Салбарын утас», «Яармаг салбар хаана вэ» still go to their own rows or the model; the revert
 restores every row.
+
+**D-170 addendum 2 (2026-10-01): approved, with the founder's condition** that `branch_count`
+never takes a question another row answers better. Reply cases prove it: «Яармаг салбар хаана
+байдаг вэ?» gets the address reply, «Парк Од салбарын утас?» and «Парк Од салбар хаана байдаг вэ?»
+get `park_od_branch`, «Танай салбарын утас?» gets the phone reply, and only «Танай хэдэн салбартай
+вэ?», «Өөр салбар бий юу?» (and «hed salbartai ve») get the branch-count sentence. Two of those
+failed at first (they reached the model), fixed by matcher words, not wording: `address` covers
+«яармаг», «салбар(ын)»; `salon_phone` covers «танай». Replica: 33/33 reply cases, all seven by
+fixed reply; the revert restores every row; the November move file still applies after it.

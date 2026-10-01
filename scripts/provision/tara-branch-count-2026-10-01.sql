@@ -1,4 +1,5 @@
--- NOT APPLIED. WAITS FOR THE FOUNDER'S APPROVAL (D-170 addendum).
+-- NOT APPLIED. APPROVED by the founder 2026-10-01 on condition that it never takes a question
+-- another row answers better; the reply cases below prove it (D-170 addenda). Ready to apply.
 -- A question about how many branches Tara has, or which, is answered by a fixed reply: the
 -- already-approved sentence from «Салбарууд», byte for byte, with no model. The --with-model dry
 -- run of 2026-10-01 showed the model does not name the branches the same way every time
@@ -34,6 +35,20 @@ select t.id, 'branch_count', 'Tara Salon хоёр салбартай: Яарма
        false, 'tenant_confirmed', 'replace', '{}'
   from tenants t where t.slug = 'matrix-eco-salon';
 
+-- Matcher words (not customer text) so the founder's cases reach their rows: «Яармаг салбар хаана
+-- байдаг вэ?» the address row, «Танай салбарын утас?» the phone row. Neither row then covers a
+-- message naming Парк Од (its words are in no cover list but park_od_branch's).
+update deterministic_replies d
+   set cover_words = d.cover_words || array(select w from unnest(array['яармаг', 'yarmag', 'салбар', 'салбарын', 'salbar', 'salbariin']) w
+                                            where not (w = any (d.cover_words)))
+  from tenants t
+ where t.slug = 'matrix-eco-salon' and d.tenant_id = t.id and d.intent = 'address';
+
+update deterministic_replies d
+   set cover_words = d.cover_words || array(select w from unnest(array['танай', 'tanai']) w where not (w = any (d.cover_words)))
+  from tenants t
+ where t.slug = 'matrix-eco-salon' and d.tenant_id = t.id and d.intent = 'salon_phone';
+
 -- The failing model case becomes an exact case: the row answers it, no model.
 update reply_cases r
    set expected_body = 'Tara Salon хоёр салбартай: Яармаг салбар, Парк Од салбар.', must_include = '{}', must_not_include = '{}',
@@ -45,5 +60,18 @@ insert into reply_cases (tenant_id, customer_message, expected_body, note)
 select t.id, v.msg, 'Tara Salon хоёр салбартай: Яармаг салбар, Парк Од салбар.', 'D-170: branch_count (founder 2026-10-01)'
   from tenants t, (values ('hed salbartai ve'), ('Өөр салбар бий юу?')) as v(msg)
  where t.slug = 'matrix-eco-salon';
+
+-- The founder's condition (2026-10-01): branch_count never takes a question another row answers
+-- better. Each case expects that row's own body, read from the row.
+insert into reply_cases (tenant_id, customer_message, expected_body, note)
+select t.id, v.msg, d.body, 'D-170: «' || v.intent || '» answers this, never branch_count (founder 2026-10-01)'
+  from tenants t
+  join (values ('Яармаг салбар хаана байдаг вэ?', 'address'),
+               ('Парк Од салбарын утас?', 'park_od_branch'),
+               ('Парк Од салбар хаана байдаг вэ?', 'park_od_branch'),
+               ('Танай салбарын утас?', 'salon_phone')) as v(msg, intent) on true
+  join deterministic_replies d on d.tenant_id = t.id and d.intent = v.intent
+ where t.slug = 'matrix-eco-salon'
+   and not exists (select 1 from reply_cases r where r.tenant_id = t.id and r.customer_message = v.msg);
 
 commit;
