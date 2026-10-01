@@ -11801,3 +11801,22 @@ does not state it, so it stays out of her data and the guard keeps refusing it.
 replica seeded with the live strings: every check passes, a second run changes nothing, the rows
 it writes pass all 13 seeded cases through the real reply code (case 124 in its live state), and
 the revert restores every row byte for byte. Not applied.
+
+## D-173 — Ора's new-customer gift is a fixed reply (2026-10-01, founder)
+
+The `--with-model` dry run after D-172 passed 97 of 98 cases. Case 150 («Орад шинэ хэрэглэгчийн
+урамшуулал байгаа юу?») was answered by the model without «500 асуулт». Like `branch_count`, the
+answer is now a fixed reply, `ora_new_user_bonus`, which sends the approved sentence from Ора's
+document verbatim: «Шинэ хэрэглэгчид эхний сард +500 асуулт бэлэг.» It fires only when the message
+names Ора and carries a gift or offer stem. Tested through the real reply code on five questions
+that must fire and fifteen that must not.
+
+«Орад» was not one of Ора's item words, so the coming-soon line would not have followed; it is
+added to Ора's piece in both coming-soon rows. Case 150 is exact, and a second exact case covers
+«Орагийн урамшуулал юу байгаа вэ?». Both expected bodies are built from the rows in the SQL.
+`scripts/provision/dalatech-ora-bonus-2026-10-01.sql` and its revert. On a local replica the file
+runs twice cleanly and the revert restores every row.
+
+Fixed replies are not part of the compiled prompt, so this change leaves `content_hash` and every
+model case's input as the dry run saw them. A plain `--publish` runs every non-model case,
+including these two, so no second paid run is needed for this change.
