@@ -8,12 +8,16 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
 - [x] Investigate (website report summarised in the design doc; live asks counted)
 - [x] Design `docs/proposals/tara-inchat-booking.md`
 - [x] Migration `0082_booking.sql` (all 5 SQL suites pass locally; schema.md row)
-- [ ] Build (flag off), fake QPay, fake calendar, tests, reply cases
+- [x] Build (flag off), fake QPay, fake calendar, tests, reply cases
   - [x] src/lib/booking/{config,slots,calendar,wording,store,links,engine,turn}.ts (typecheck ok)
   - [x] send.ts quick replies + linkButtonTitle; extract.ts quickReplyPayload; billing qpay mccCode
   - [x] prompt/drafts/booking/*.mn.txt (31 drafts + README)
-  - [ ] pay page + /book route, /api/booking/qpay, /api/workers/booking, worker hook, clients, env, preflight
-  - [ ] testkit fakes, unit tests, scripts/verify/booking-e2e.ts (+ CI step), reply cases
+  - [x] pay page + /book route, /api/booking/qpay, /api/workers/booking, worker hook, clients, env, preflight
+  - [x] testkit fakes, unit tests (23), worker hook tests (4), booking-e2e.ts 88 checks (+ CI step), transcript
+  - [x] scripts/booking/from-website.ts (config from website checkout), scripts/booking/check.ts (branches)
+  - [x] docs/proposals/matrix-website-booking-holds.md (change request)
+- [x] Draft PR https://github.com/dalatechai-cyber/dala-ai/pull/280 (subscribed)
+- [ ] Opus reviewer running (background); fix findings; CI green; preview link; report
 - [ ] Review (Opus reviewer), CI green, draft PR, preview link
 - [ ] Final report (<15 lines)
 
@@ -37,6 +41,12 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
    `booking:<hold>:<event>`), so every existing "was it answered" reader sees them. Quick replies
    only on the first send (body text stands alone on a resend). No outbound schema change.
 10. One service per booking (v1). Website allows several.
+11. Entry = list of gate matchers per tenant (`entry_matchers`); Tara's proposal catches 33/33 real asks, 1 FP.
+12. Service buttons: optional short `label` (CICA…); stylist button drops the level when > 20 chars.
+13. Local PostgREST (all versions 11.2–14.1) 400s claim()'s PATCH+or; hosted 200s (edge log). e2e gateway
+    drops the lease `or` only (state CAS stays). Documented in booking-e2e.ts `claimShim`.
+14. Yaarmag stylists proposed = dala-ai active staff (Оюунаа, Бадмаа, Батзаяа, Уянга, Отгонжаргал); website
+    also has Уранчимэг + Ананд (male) -> founder question; men cannot book in chat with that list.
 
 ## Findings
 - dala-ai already has a Quick QR client (`src/lib/billing/qpay.ts`) for DalaTech's own merchant

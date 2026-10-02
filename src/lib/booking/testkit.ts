@@ -304,7 +304,10 @@ export function testConfig(overrides: Record<string, unknown> = {}): Record<stri
     days_ahead: 7,
     gender_rule: true,
     agreement_text: 'Урьдчилгаа төлбөр нь цагаа цуцалсан эсвэл ирээгүй тохиолдолд буцаан олгогдохгүй гэдгийг ойлгож, зөвшөөрч байна.',
-    entry_matcher: { mode: 'stem_sequence', stems: ['цаг', 'ав'], windowCp: 20 },
+    entry_matchers: [
+      { mode: 'stem_sequence', stems: ['цаг', 'ав'], windowCp: 20 },
+      { mode: 'stem_sequence', stems: ['tsag', 'av'], windowCp: 20 },
+    ],
     levels: [
       { key: 'master', label: 'Мастер', deposit_mnt: 20000 },
       { key: 'first', label: '1-р зэрэг', deposit_mnt: 10000 },
@@ -316,7 +319,7 @@ export function testConfig(overrides: Record<string, unknown> = {}): Record<stri
       { name: 'Ананд', label: 'Ананд', level: 'master', gender: 'male', calendar_id: TEST_CALENDARS.male1 },
     ],
     service_groups: [
-      { label: 'Засалт', services: [{ name: 'Энгийн засалт', minutes: 60 }, { name: 'Гоёл / Засалт', minutes: 90 }] },
+      { label: 'Засалт', services: [{ name: 'Энгийн засалт', minutes: 60 }, { name: 'Гоёлын засалт, хуримын засалт', label: 'Гоёл / Засалт', minutes: 90 }] },
       { label: 'Будаг', services: [{ name: 'Будаг', minutes: 120 }, { name: 'Оффис колор', minutes: 240 }] },
     ],
     qpay: {

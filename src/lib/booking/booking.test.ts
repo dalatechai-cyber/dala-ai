@@ -62,9 +62,15 @@ test('a config missing anything that touches money or a calendar is refused, nev
     { name: 'A', level: 'master', gender: 'female', calendar_id: 'c' },
     { name: 'B', level: 'master', gender: 'female', calendar_id: 'c' },
   ] }, /calendar_id is used twice/);
-  refuse({ entry_matcher: { mode: 'contains_stem', stems: ['ц'] } }, /entry_matcher/);
+  refuse({ entry_matchers: [{ mode: 'contains_stem', stems: ['ц'] }] }, /entry_matchers\[0\]/);
+  refuse({ entry_matchers: [] }, /entry_matchers/);
   refuse({ service_groups: [{ label: 'Засалт', services: [{ name: 'Маш урт нэртэй үйлчилгээний нэр', minutes: 60 }] }] }, /longer than 20/);
-  refuse({ stylists: [{ name: 'A', label: 'Хэтэрхий урт шошго', level: 'master', gender: 'female', calendar_id: 'c' }] }, /longer than 20/);
+  const labelled = parseBookingConfig(testConfig({ service_groups: [{ label: 'Арчилгаа', services: [{ name: 'CICA нөхөн сэргээх эмчилгээ', label: 'CICA эмчилгээ', minutes: 90 }] }] }));
+  assert.ok(labelled.ok && labelled.config.serviceGroups[0]?.services[0]?.label === 'CICA эмчилгээ', 'a long name with a short button label is fine');
+  refuse({ stylists: [{ name: 'A', label: 'Хэтэрхий урт нэртэй үсчин хүн', level: 'master', gender: 'female', calendar_id: 'c' }] }, /longer than 20/);
+  const long = parseBookingConfig(testConfig({ stylists: [{ name: 'Отгонжаргал', level: 'first', gender: 'female', calendar_id: 'c' }] }));
+  assert.ok(long.ok && stylistButton(long.config.stylists[0] as never, long.config.levels[1] as never) === 'Отгонжаргал',
+    'a name too long to carry its level shows the name alone');
   refuse({ qr_minutes: 20, hold_minutes: 10 }, /qr_minutes/);
 });
 
@@ -360,4 +366,18 @@ test('a tapped quick reply carries its payload into the inbound message', () => 
     sender: { id: 'psid-1' }, recipient: { id: '1' }, timestamp: 1788480000000, message: { mid: 'mid.8', text: 'Сайн уу' },
   }] });
   assert.equal('quickReplyPayload' in (plain.messages[0] ?? {}), false);
+});
+
+test('branches: same services, deposits, agreement and merchant; never one calendar in two', async () => {
+  const { compareBranches } = await import('./branches.ts');
+  const base = parseBookingConfig(testConfig());
+  assert.ok(base.ok);
+  const park = parseBookingConfig(testConfig({ stylists: [{ name: 'Парк', level: 'master', gender: 'female', calendar_id: 'park@group.calendar.google.com' }] }));
+  assert.ok(park.ok);
+  assert.deepEqual(compareBranches([{ slug: 'a', config: base.config }, { slug: 'b', config: park.config }]), []);
+  const cheaper = parseBookingConfig(testConfig({ levels: [{ key: 'master', label: 'Мастер', deposit_mnt: 15000 }, { key: 'first', label: '1-р зэрэг', deposit_mnt: 10000 }] }));
+  assert.ok(cheaper.ok);
+  const f = compareBranches([{ slug: 'a', config: base.config }, { slug: 'b', config: cheaper.config }]);
+  assert.ok(f.some((x) => x.kind === 'drift' && /deposits/u.test(x.detail)));
+  assert.ok(f.some((x) => x.kind === 'shared_calendar'));
 });

@@ -14,7 +14,7 @@
  * does not validate is OFF, with the reason, never partly on: a booking flow with a missing
  * deposit or a stylist without a calendar would take money for a time nobody can see.
  */
-import { parseMatcher, type MatcherSpec } from '../gate/match.ts';
+import { matcherFires, parseMatcher, type MatcherSpec, type MatchSubject } from '../gate/match.ts';
 
 export type BookingMode = 'off' | 'test' | 'live';
 
@@ -28,7 +28,8 @@ export type Gender = 'female' | 'male';
 
 export type Level = { key: string; label: string; depositMnt: number };
 export type Stylist = { name: string; label: string; level: string; gender: Gender; calendarId: string };
-export type Service = { name: string; minutes: number };
+/** `name` goes into the calendar and the messages; `label` (≤ 20 characters) is the button. */
+export type Service = { name: string; label: string; minutes: number };
 export type ServiceGroup = { label: string; services: Service[] };
 export type QpayMerchant = {
   merchantId: string;
@@ -47,8 +48,8 @@ export type BookingConfig = {
   genderRule: boolean;
   /** The tenant's deposit agreement, verbatim. Recorded on the hold with the time it was accepted. */
   agreementText: string;
-  /** What starts the flow: a gate matcher spec (`gate/match.ts`), the tenant's own stems. */
-  entryMatcher: MatcherSpec;
+  /** What starts the flow: gate matcher specs (`gate/match.ts`), the tenant's own stems; any one fires. */
+  entryMatchers: MatcherSpec[];
   levels: Level[];
   stylists: Stylist[];
   serviceGroups: ServiceGroup[];
@@ -104,8 +105,14 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
   const agreementText = str(raw['agreement_text']);
   if (agreementText === null) return fail('agreement_text is required: the deposit is taken only on the tenant\'s own agreement');
 
-  const matcher = parseMatcher(raw['entry_matcher']);
-  if (!matcher.ok) return fail(`entry_matcher: ${matcher.detail}`);
+  const matchersRaw = raw['entry_matchers'];
+  if (!Array.isArray(matchersRaw) || matchersRaw.length === 0) return fail('entry_matchers must list at least one matcher');
+  const entryMatchers: MatcherSpec[] = [];
+  for (const [i, m] of matchersRaw.entries()) {
+    const parsed = parseMatcher(m);
+    if (!parsed.ok) return fail(`entry_matchers[${i}]: ${parsed.detail}`);
+    entryMatchers.push(parsed.spec);
+  }
 
   const levelsRaw = raw['levels'];
   if (!Array.isArray(levelsRaw) || levelsRaw.length === 0) return fail('levels must list at least one level');
@@ -156,12 +163,14 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
     for (const [j, s] of services.entries()) {
       if (!isObj(s)) return fail(`service_groups[${i}].services[${j}] is not an object`);
       const name = str(s['name']);
+      const label = s['label'] === undefined ? name : str(s['label']);
       const minutes = int(s['minutes'], 5, 720);
-      if (name === null || minutes === null) return fail(`service_groups[${i}].services[${j}] needs name and minutes (5–720)`);
-      if (cp(name) > QUICK_REPLY_TITLE_MAX) return fail(`service ${name} is longer than ${QUICK_REPLY_TITLE_MAX} characters`);
-      if (seen.has(name)) return fail(`service ${name} is listed twice`);
+      if (name === null || label === null || minutes === null) return fail(`service_groups[${i}].services[${j}] needs name and minutes (5–720)`);
+      if (cp(label) > QUICK_REPLY_TITLE_MAX) return fail(`service ${name}: its button is longer than ${QUICK_REPLY_TITLE_MAX} characters; give it a label`);
+      if (seen.has(name) || seen.has(`label:${label}`)) return fail(`service ${name} (or its label) is listed twice`);
       seen.add(name);
-      list.push({ name, minutes });
+      seen.add(`label:${label}`);
+      list.push({ name, label, minutes });
     }
     serviceGroups.push({ label, services: list });
   }
@@ -183,12 +192,14 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
     bankAccounts.push({ bankCode, accountNumber, accountName });
   }
 
-  // Every stylist label with its level must fit a button.
+  // Every stylist's button must fit, and no two buttons may read the same.
+  const buttons = new Set<string>();
   for (const s of stylists) {
     const level = levels.find((l) => l.key === s.level) as Level;
-    if (cp(stylistButton(s, level)) > QUICK_REPLY_TITLE_MAX) {
-      return fail(`stylist button «${stylistButton(s, level)}» is longer than ${QUICK_REPLY_TITLE_MAX} characters; set a shorter label`);
-    }
+    const b = stylistButton(s, level);
+    if (cp(b) > QUICK_REPLY_TITLE_MAX) return fail(`stylist button «${b}» is longer than ${QUICK_REPLY_TITLE_MAX} characters; set a shorter label`);
+    if (buttons.has(b)) return fail(`two stylists would show the same button «${b}»`);
+    buttons.add(b);
   }
 
   return {
@@ -202,7 +213,7 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
       minLeadMinutes: minLeadMinutes as number,
       genderRule,
       agreementText,
-      entryMatcher: matcher.spec,
+      entryMatchers,
       levels,
       stylists,
       serviceGroups,
@@ -212,9 +223,14 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
   };
 }
 
-/** «Оюунаа · Мастер»: the stylist's own label and level, as one button. */
+/**
+ * «Оюунаа · Мастер»: the stylist's own label and level, as one button. When the two do not
+ * fit Meta's 20 characters, the label alone (the level is still said in the pay message and
+ * decides the deposit); a label that does not fit alone is refused by the parser.
+ */
 export function stylistButton(s: Stylist, level: Level): string {
-  return `${s.label} · ${level.label}`;
+  const both = `${s.label} · ${level.label}`;
+  return cp(both) <= QUICK_REPLY_TITLE_MAX ? both : s.label;
 }
 
 /** Every service, flattened, in the order the tenant listed them. */
@@ -239,4 +255,9 @@ export function customerMode(
 export function depositFor(c: BookingConfig, levelKey: string, isTest: boolean): number | null {
   if (isTest) return c.testDepositMnt;
   return c.levels.find((l) => l.key === levelKey)?.depositMnt ?? null;
+}
+
+/** Does this message start a booking? Any one of the tenant's entry matchers. */
+export function entryFires(c: BookingConfig, subject: MatchSubject): boolean {
+  return c.entryMatchers.some((m) => matcherFires(subject, m));
 }

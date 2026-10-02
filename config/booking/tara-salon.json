@@ -1,0 +1,39 @@
+{
+  "_comment": "Tara Salon's in-chat booking: the parts the website does not hold. DRAFT for the founder: the group labels and the short service labels are customer-visible Mongolian. scripts/booking/from-website.ts merges this with the website's own stylists, calendars, deposits, agreement, durations and QPay merchant (read from a matrix_website checkout, never copied here) and prints the booking_config row. The same file serves both branches (D-157: one price list, one booking rule set); each branch gets its own stylists and calendars from its own --stylists list.",
+  "hold_minutes": 10,
+  "qr_minutes": 5,
+  "slot_step_minutes": 60,
+  "days_ahead": 7,
+  "min_lead_minutes": 0,
+  "gender_rule": true,
+  "test_deposit_mnt": 100,
+  "level_labels": { "Мастер үсчин": "Мастер", "1-р зэргийн үсчин": "1-р зэрэг" },
+  "entry_matchers": [
+    { "mode": "stem_sequence", "stems": ["цаг", "ав"], "windowCp": 20 },
+    { "mode": "stem_sequence", "stems": ["цаг", "зах"], "windowCp": 20 },
+    { "mode": "stem_sequence", "stems": ["цаг", "бай"], "windowCp": 14 },
+    { "mode": "stem_sequence", "stems": ["цаг", "бн"], "windowCp": 14 },
+    { "mode": "stem_sequence", "stems": ["tsag", "av"], "windowCp": 20 },
+    { "mode": "stem_sequence", "stems": ["tsag", "zah"], "windowCp": 20 },
+    { "mode": "stem_sequence", "stems": ["tsag", "zax"], "windowCp": 20 },
+    { "mode": "stem_sequence", "stems": ["tsag", "bai"], "windowCp": 14 },
+    { "mode": "stem_sequence", "stems": ["tsag", "bn"], "windowCp": 14 },
+    { "mode": "stem_sequence", "stems": ["tsag", "bg"], "windowCp": 14 }
+  ],
+  "service_groups": [
+    { "label": "Засалт", "services": [
+      { "name": "Энгийн засалт" }, { "name": "Хэлбэрт" }, { "name": "Чолк тайралт" }, { "name": "Гоёл / Засалт" },
+      { "name": "Хурим" }, { "name": "Хусалт" }, { "name": "Сахал" }, { "name": "Угаалт" }
+    ] },
+    { "label": "Будаг", "services": [
+      { "name": "Үндэс" }, { "name": "Будаг" }, { "name": "Оффис колор" }, { "name": "Омбре / Колор" }, { "name": "Сор" }, { "name": "Цайруулалт" }
+    ] },
+    { "label": "Хими", "services": [
+      { "name": "Эмчилгээний хими" }, { "name": "Эмэгтэй хими" }, { "name": "Эрэгтэй хими" }, { "name": "Афро хими" }, { "name": "Шулуун хими" }
+    ] },
+    { "label": "Арчилгаа", "services": [
+      { "name": "Хуйхны цэвэрлэгээ" }, { "name": "Толгойн тос" }, { "name": "Тэжээл" }, { "name": "Хими арчилгаа" },
+      { "name": "CICA нөхөн сэргээх эмчилгээ", "label": "CICA эмчилгээ" }, { "name": "CMC тэжээл" }
+    ] }
+  ]
+}

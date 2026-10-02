@@ -10,7 +10,6 @@
  * level → day → time → name → phone → the deposit agreement → hold, invoice, «Төлбөр төлөх».
  * What happens after that is `engine.ts`.
  */
-import { matcherFires } from '../gate/match.ts';
 import { replyDedupKey } from '../outbound/claim.ts';
 import { formatMnt } from '../billing/templates.ts';
 import { fold } from '../mn/text.ts';
@@ -19,7 +18,7 @@ import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
 import { eventIdForHold } from './calendar.ts';
 import {
-  allServices, bookingEnvMode, customerMode, depositFor, stylistButton,
+  allServices, bookingEnvMode, customerMode, depositFor, entryFires, stylistButton,
   type BookingConfig, type Gender, type Stylist,
 } from './config.ts';
 import { bookingEvent, currentInvoice, dayLabel, expireHold, marked, settleHold, stylistLabel, timeLabel, type BookingPorts } from './engine.ts';
@@ -211,7 +210,7 @@ function firstQuestion(c: Ctx): Reply {
   const groups = c.config.serviceGroups;
   if (groups.length === 1) {
     const g = groups[0] as BookingConfig['serviceGroups'][number];
-    return ask('service', say(w, 'booking_ask_service'), g.services.map((s) => ({ t: s.name, v: s.name })), { group: 0 });
+    return ask('service', say(w, 'booking_ask_service'), g.services.map((s) => ({ t: s.label, v: s.name })), { group: 0 });
   }
   return ask('group', say(w, 'booking_ask_service_group'), groups.map((g, i) => ({ t: g.label, v: String(i) })), {});
 }
@@ -382,7 +381,7 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
     case 'group': {
       const g = c.config.serviceGroups[Number(choice.v)];
       if (g === undefined) return 'not_mine';
-      return ask('service', say(w, 'booking_ask_service'), g.services.map((s) => ({ t: s.name, v: s.name })), { ...data, group: Number(choice.v) });
+      return ask('service', say(w, 'booking_ask_service'), g.services.map((s) => ({ t: s.label, v: s.name })), { ...data, group: Number(choice.v) });
     }
     case 'service': {
       const s = allServices(c.config).find((x) => x.name === choice.v);
@@ -496,7 +495,7 @@ export async function bookingTurn(ports: BookingPorts, input: TurnInput): Promis
 
     if (session === null) {
       const subject = { text: input.text, attachments: [], respelled: input.respelled };
-      if (input.quickReplyPayload?.startsWith('bk:') !== true && !matcherFires(subject, cfg.config.entryMatcher)) {
+      if (input.quickReplyPayload?.startsWith('bk:') !== true && !entryFires(cfg.config, subject)) {
         return { handled: false, reason: 'not_a_booking_message' };
       }
       if (input.quickReplyPayload?.startsWith('bk:') === true) return { handled: false, reason: 'button_of_a_closed_booking' };

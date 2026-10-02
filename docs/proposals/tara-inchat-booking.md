@@ -23,6 +23,11 @@ Today a Tara customer who asks for a time gets the deposit rows and the website 
   hours, a «би мэдэхгүй» line with the phone numbers, or a clarifying question. **Nothing could
   answer "is there a free time"**, because Дали cannot see the calendar (dali.md E2).
 - Only 11 of the 26 conversations have another customer message after the booking ask.
+- The entry stems proposed for Tara (`config/booking/tara-salon.json`, «цаг … ав/зах/бай/бн» and
+  the Latin «tsag … av/zah/bai/bn/bg») match all 29, plus **four more real asks** the count above
+  missed («4deh udur hamgiin ert tsag hed deer bna oyuka deer», «өнөөдрийн цаг байнуу», «10-1ний
+  цаг бн гэж бх уу», «…master stilist drn tsag baiga bolov uu»): **33 booking asks in 30 days**.
+  One false hit: the vendor pitch. (SQL approximation of the matcher over the same 558 messages.)
 
 The people who ask are asking exactly the question a calendar answers.
 
@@ -121,6 +126,17 @@ One `booking_config` row per branch tenant: its own stylists and calendars, its 
 (from its `contact_points`), the same services, minutes, deposits and QPay merchant.
 `scripts/booking/check.ts --group tara-salon` refuses when the branches' services, minutes,
 deposits, agreement or merchant differ, or when a calendar id appears in two branches.
+
+## Setting it up for a branch
+
+`node scripts/booking/from-website.ts --website ../matrix_website --rules config/booking/tara-salon.json
+--slug <branch> --stylists "Оюунсүрэн=Оюунаа,…" --out <file.sql>` builds the `booking_config` row
+from the website's own `config/stylists.js` (calendars, levels, deposits, genders),
+`data/serviceDurations.json`, `services/bookingRules.js` (the agreement) and
+`api/qpay/create-payment.js` (merchant, mcc, bank account). The merchant, account and calendar ids
+are never copied into this repository. The row is written with mode `off`. It refuses a stylist the
+website does not know, a website service missing from the groups, or anything the platform's parser
+would refuse.
 
 ## What is not built
 
