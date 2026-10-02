@@ -99,6 +99,9 @@ create table booking_holds (
   late             boolean not null default false,
   -- When QPay was last asked about this hold: the pay page's poll asks at most every few seconds.
   last_checked_at  timestamptz,
+  -- Set once the customer (and, for paid_unbooked, the founder) has been told the outcome.
+  -- A booked or paid_unbooked hold without it is swept until it is told.
+  notified_at      timestamptz,
   version          integer not null default 0,
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now(),
@@ -113,6 +116,7 @@ create unique index booking_holds_active_start on booking_holds (calendar_id, st
 create index booking_holds_calendar_window on booking_holds (calendar_id, starts_at, ends_at)
   where state in ('held', 'paid', 'booked');
 create index booking_holds_due on booking_holds (expires_at) where state in ('held', 'paid');
+create index booking_holds_untold on booking_holds (updated_at) where state in ('booked', 'paid_unbooked') and notified_at is null;
 create unique index booking_holds_tenant_id on booking_holds (tenant_id, id);
 
 -- ---------------------------------------------------------------------------

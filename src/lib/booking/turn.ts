@@ -272,7 +272,7 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
   const minutes = Number(data['minutes']);
   const end = new Date(start.getTime() + minutes * 60_000);
   // The tenant's gender rule asked; without the rule nothing is recorded, never a guess.
-  const gender = !config.genderRule ? null : data['gender'] === 'male' ? 'male' as const : 'female' as const;
+  const gender = !config.genderRule ? null : data['gender'] === 'male' ? 'male' as const : data['gender'] === 'female' ? 'female' as const : null;
 
   /**
    * Put a database hold into the stylist's calendar (unless it is there already: a redelivered
@@ -464,7 +464,9 @@ async function duringPay(c: Ctx, session: Session): Promise<TurnResult> {
   if (hold === null) return over('no_hold');
   if (hold.state !== 'held' && hold.state !== 'paid') {
     // Booked, ended or paid-unbooked earlier: make sure the customer was told, then step aside.
-    if (hold.state === 'booked') await settleHold(c.ports, hold.id);
+    // settleHold repeats the confirmation or the paid-unbooked alert and push (each keyed, so
+    // never twice) in case the call that got here died before telling anyone.
+    if (hold.state === 'booked' || hold.state === 'paid_unbooked') await settleHold(c.ports, hold.id);
     return over(`hold_${hold.state}`);
   }
   const cancel = picked(session, c.input, say(c.ports.wording, 'booking_cancel')) === 'cancel';
@@ -473,7 +475,10 @@ async function duringPay(c: Ctx, session: Session): Promise<TurnResult> {
     if (r === 'released') {
       return draft(c, session, { step: 'pay', body: say(c.ports.wording, 'booking_cancelled'), offers: [], data: session.data, close: 'cancelled' });
     }
-    return { handled: true, outboundId: null, quickReplies: [], detail: `cancel after payment: ${r}` };
+    // Paid meanwhile: the confirmation went out and answers it. QPay unreadable: the hold is
+    // kept (money first) and Дали answers, rather than silence.
+    return r === 'paid' ? { handled: true, outboundId: null, quickReplies: [], detail: 'cancel after payment' }
+      : { handled: false, reason: `cancel not done (${r})` };
   }
   const r = await settleHold(c.ports, hold.id);
   if (r === 'booked') return { handled: true, outboundId: null, quickReplies: [], detail: 'settled: booked' };

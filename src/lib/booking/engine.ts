@@ -31,7 +31,7 @@ import type { BookingConfig, QpayMerchant } from './config.ts';
 import { callbackUrl, payUrl } from './links.ts';
 import {
   endHold, finishInvoice, claimInvoice, holdInvoices, markBooked, markUnbooked, readConfig, readHold, readTenantFacts,
-  recordPayment, setCalendarState, holdsToSweep, holdsWithOpenInvoices, markChecked, closeSessionRow, logEvent, type Hold, type Invoice, type TenantFacts,
+  recordPayment, setCalendarState, holdsToSweep, holdsWithOpenInvoices, markChecked, markNotified, closeSessionRow, logEvent, type Hold, type Invoice, type TenantFacts,
 } from './store.ts';
 import { say, type BookingWording } from './wording.ts';
 
@@ -313,7 +313,11 @@ async function collectPayments(ports: BookingPorts, hold: Hold, config: BookingC
       if (!r.duplicate) fresh.push({ key: p.key, disposition: r.disposition, amount: p.amountMnt });
       // An invoice that paid the hold is no longer "open": the sweep stops asking about it (a
       // second payment on it still arrives by QPay's callback, which asks about every invoice).
-      if (!r.duplicate && r.disposition !== 'short' && inv.state === 'open') await finishInvoice(ports.db, inv.id, { state: 'paid' });
+      if (r.disposition !== 'short' && inv.state === 'open') {
+        const f = await finishInvoice(ports.db, inv.id, { state: 'paid' });
+        if (!f.ok) ports.log('warn', 'booking_invoice_paid_mark_failed', { holdId: hold.id, detail: f.detail });
+        else inv.state = 'paid';
+      }
     }
   }
   return { ok: true, fresh };
@@ -368,8 +372,20 @@ async function tellPaidUnbooked(ports: BookingPorts, hold: Hold, facts: TenantFa
     body: alertBody(hold, facts, '⚠️ A customer PAID the deposit in Messenger and has NO appointment.',
       `${why}\nCall the customer: book another time by hand, or refund the deposit in QPay.`),
   });
-  await notify(ports, hold, 'paid_unbooked', marked(ports.wording, hold.isTest, say(ports.wording, 'booking_paid_unbooked')));
+  const told = await notify(ports, hold, 'paid_unbooked', marked(ports.wording, hold.isTest, say(ports.wording, 'booking_paid_unbooked')));
   await closeSession(ports, hold, 'paid_unbooked');
+  await toldIf(ports, hold, told);
+}
+
+/**
+ * Mark the hold told once its message went out (or was out already, or the channel does not
+ * deliver: nobody can be told then, and the founder's page carries it). A failed send leaves it
+ * untold, so the sweep tries again.
+ */
+async function toldIf(ports: BookingPorts, hold: Hold, told: Notified): Promise<void> {
+  if (told === 'failed' || hold.notifiedAt !== null) return;
+  const m = await markNotified(ports.db, hold.id, ports.now());
+  if (!m.ok) ports.log('warn', 'booking_mark_notified_failed', { holdId: hold.id, detail: m.detail });
 }
 
 /**
@@ -501,8 +517,9 @@ async function confirmBooked(ports: BookingPorts, hold: Hold, facts: TenantFacts
     branch: config.branchLabel ?? facts.branch,
     address: facts.address ?? facts.displayName,
   });
-  await notify(ports, hold, 'booked', marked(w, hold.isTest, text));
+  const told = await notify(ports, hold, 'booked', marked(w, hold.isTest, text));
   await closeSession(ports, hold, 'booked');
+  await toldIf(ports, hold, told);
 }
 
 /**
@@ -513,7 +530,11 @@ async function confirmBooked(ports: BookingPorts, hold: Hold, facts: TenantFacts
 async function cancelInvoices(ports: BookingPorts, hold: Hold, config: BookingConfig): Promise<void> {
   const inv = await holdInvoices(ports.db, hold.id);
   if (!inv.ok) return;
-  const open = inv.invoices.filter((i) => i.state === 'open' && i.qpayInvoiceId !== null);
+  // An invoice that carries a recorded payment is paid, whatever its row says: never "cancel" it.
+  const { data: paidRows, error: paidErr } = await ports.db.from('booking_payments').select('invoice_id').eq('hold_id', hold.id);
+  if (paidErr) return;
+  const paidIds = new Set((paidRows ?? []).map((r) => String((r as Record<string, unknown>)['invoice_id'])));
+  const open = inv.invoices.filter((i) => i.state === 'open' && i.qpayInvoiceId !== null && !paidIds.has(i.id));
   if (open.length === 0) return;
   const qpay = ports.qpayFor(config.qpay);
   const token = qpay === null ? null : await qpay.token();

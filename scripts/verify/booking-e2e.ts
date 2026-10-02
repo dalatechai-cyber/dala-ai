@@ -30,6 +30,7 @@ import { googleCalendar, eventIdForHold } from '../../src/lib/booking/calendar.t
 import type { BookingAlert, BookingPorts, BookingDeliverArgs } from '../../src/lib/booking/engine.ts';
 import { runPayPage, runQpayCallback, runSweep } from '../../src/lib/booking/jobs.ts';
 import { signHold } from '../../src/lib/booking/links.ts';
+import { dayLabel } from '../../src/lib/booking/engine.ts';
 import { bookingTurn, type TurnResult } from '../../src/lib/booking/turn.ts';
 import { draftWording, FakeGoogle, FakeQpay, TEST_CALENDARS, testConfig } from '../../src/lib/booking/testkit.ts';
 import { say } from '../../src/lib/booking/wording.ts';
@@ -216,13 +217,13 @@ const AGREE = say(wording, 'booking_agree');
 const CANCEL = say(wording, 'booking_cancel');
 
 /** Walk a chat to the agreement for one stylist and time tomorrow. */
-async function toAgreement(chat: Chat, opts: { service?: string; group?: string; stylist: string; time: string; name?: string; phone?: string; gender?: string }) {
+async function toAgreement(chat: Chat, opts: { service?: string; group?: string; stylist: string; time: string; name?: string; phone?: string; gender?: string; day?: string }) {
   await says(chat, 'Цаг авъя');
   await taps(chat, opts.group ?? 'Будаг');
   await taps(chat, opts.service ?? 'Будаг');
   await taps(chat, opts.gender ?? say(wording, 'booking_gender_female'));
   await taps(chat, opts.stylist);
-  await taps(chat, T_MAR);
+  await taps(chat, opts.day ?? T_MAR);
   await taps(chat, opts.time);
   await says(chat, opts.name ?? 'Болд');
   await says(chat, opts.phone ?? '9911 2233');
@@ -685,6 +686,62 @@ const holdK10 = holdOf(k10);
 const checksBefore = qpayFake.calls.filter((x) => x.endsWith('/payment/check')).length;
 for (let i = 0; i < 5; i += 1) await runPayPage(ports, { token: signHold(SECRET, 'pay', holdK10), method: 'GET', stateOnly: true });
 check(qpayFake.calls.filter((x) => x.endsWith('/payment/check')).length - checksBefore === 1, 'five polls in a row: one QPay check');
+
+// (h) Late, the time taken, and the settle died before telling anyone: the sweep tells.
+// Tomorrow is full by now: these three use the day after.
+const day2 = tenantClock(new Date(Date.now() + 48 * 3600_000), TZ).date;
+const D2 = dayLabel(wording, day2, new Date(), TZ);
+const k12 = newChat();
+await toAgreement(k12, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '19:00', name: 'Мартагдсан', phone: '97000012', day: D2 });
+await taps(k12, AGREE);
+const holdK12 = holdOf(k12);
+const invK12 = invoicesOf(holdK12)[0] as string;
+psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdK12}'`);
+qpayFake.failCancel = true;
+await runSweep(ports);
+qpayFake.failCancel = false;
+check(holdState(holdK12) === 'expired', 'set-up: expired (its QR not cancelled)');
+google.websiteBooks(TEST_CALENDARS.master2, ubAt(day2, 19), 60);
+const payK12 = qpayFake.pay(invK12);
+const invRowK12 = psql(`select id from booking_invoices where qpay_invoice_id = '${invK12}'`);
+// What a settle that died right after recording would have left: the payment, the invoice paid, nobody told.
+const recK12 = await db.rpc('booking_record_payment', { p_hold: holdK12, p_invoice: invRowK12, p_payment_key: `qpay:${payK12}`, p_amount: 20000, p_paid_at: new Date().toISOString(), p_qpay_invoice_id: invK12 });
+psql(`update booking_invoices set state = 'paid' where id = '${invRowK12}'`);
+// …and the settle saw the website's booking and marked it unbooked, then died before telling.
+await db.rpc('booking_mark_unbooked', { p_hold: holdK12, p_reason: 'the time was taken' });
+check(!recK12.error && holdState(holdK12) === 'paid_unbooked', 'set-up: the late payment is recorded, the time is gone, nobody told');
+const beforeK12 = sent.length;
+await runSweep(ports);
+await runSweep(ports);
+check(alerts.some((x) => x.kind === 'booking.paid_unbooked' && x.body.includes('97000012')), 'the sweep pages the founder');
+check(pushedTo(k12, beforeK12).filter((m) => m.body === say(wording, 'booking_paid_unbooked')).length === 1, 'and tells the customer, once');
+check(psql(`select notified_at is not null from booking_holds where id = '${holdK12}'`) === 't', 'and marks it told, so it stops');
+
+// (i) Booked, confirmation never sent, the customer never writes again: the sweep confirms.
+const k13 = newChat();
+await toAgreement(k13, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Уянга · 1-р зэрэг', time: '15:00', name: 'Чимээгүй', phone: '97000013', day: D2 });
+await taps(k13, AGREE);
+const holdK13 = holdOf(k13);
+const invK13 = invoicesOf(holdK13)[0] as string;
+const payK13 = qpayFake.pay(invK13);
+const invRowK13 = psql(`select id from booking_invoices where qpay_invoice_id = '${invK13}'`);
+await db.rpc('booking_record_payment', { p_hold: holdK13, p_invoice: invRowK13, p_payment_key: `qpay:${payK13}`, p_amount: 10000, p_paid_at: new Date().toISOString(), p_qpay_invoice_id: invK13 });
+await db.rpc('booking_mark_booked', { p_hold: holdK13, p_event_id: eventIdForHold(holdK13) });
+psql(`update booking_invoices set state = 'paid' where id = '${invRowK13}'`);
+const beforeK13 = sent.length;
+await runSweep(ports);
+await runSweep(ports);
+check(pushedTo(k13, beforeK13).filter((m) => m.body.includes('баталгаажлаа')).length === 1, 'the sweep sends the missing confirmation, once');
+
+// (j) «Цуцлах» while QPay cannot be read: the time is kept, and Дали answers (no silence).
+const k14 = newChat();
+await toAgreement(k14, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Уянга · 1-р зэрэг', time: '17:00', name: 'Тасалдал', phone: '97000014', day: D2 });
+await taps(k14, AGREE);
+const holdK14 = holdOf(k14);
+qpayFake.failChecks = 5;
+const k14r = await taps(k14, CANCEL);
+qpayFake.failChecks = 0;
+check(!k14r.handled && holdState(holdK14) === 'held', 'the hold is kept while QPay is down, and the message goes to Дали');
 
 // =====================================================================================
 section('13. Every customer message got at most one reply; nothing was confirmed unpaid');

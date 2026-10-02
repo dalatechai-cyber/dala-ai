@@ -25,7 +25,8 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       releases on unavailable; poll throttled 15 s/hold (last_checked_at); sweep per-hold try/catch + 80 s budget;
       branch_label config; gender null when no rule; stricter bank-link schemes. e2e now 105 checks.
       Not changed (report): #11 alerts carry name+phone to shared Telegram; #12 preflight cannot see 0082 applied.
-- [ ] CI green on fix push; final report
+- [x] Re-review of d7fdc32: fixed its 4 findings (paid_unbooked re-tell, notified_at + sweep of untold holds, cancel while QPay down -> Дали answers, invoice marked paid even on duplicate + never cancel a paid invoice). e2e 112.
+- [ ] CI green on last push; final report
 - [ ] Review (Opus reviewer), CI green, draft PR, preview link
 - [ ] Final report (<15 lines)
 

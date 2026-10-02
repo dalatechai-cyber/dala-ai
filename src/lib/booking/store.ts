@@ -126,7 +126,7 @@ export type Hold = {
   calendarId: string; staffName: string; level: string; service: string; minutes: number; startsAt: Date; endsAt: Date;
   depositMnt: number; customerName: string; customerPhone: string; gender: 'female' | 'male' | null; agreedAt: Date; agreementText: string;
   state: HoldState; expiresAt: Date; calendarEventId: string | null; calendarState: 'none' | 'held' | 'booked' | 'deleted';
-  paidAt: Date | null; late: boolean; lastCheckedAt: Date | null;
+  paidAt: Date | null; late: boolean; lastCheckedAt: Date | null; notifiedAt: Date | null;
 };
 
 export function toHold(v: unknown): Hold {
@@ -145,6 +145,7 @@ export function toHold(v: unknown): Hold {
     calendarState: String(r['calendar_state'] ?? 'none') as Hold['calendarState'],
     paidAt: typeof r['paid_at'] === 'string' ? new Date(r['paid_at']) : null, late: r['late'] === true,
     lastCheckedAt: typeof r['last_checked_at'] === 'string' ? new Date(r['last_checked_at']) : null,
+    notifiedAt: typeof r['notified_at'] === 'string' ? new Date(r['notified_at']) : null,
   };
 }
 
@@ -307,7 +308,13 @@ export async function holdsToSweep(db: SupabaseClient, now: Date, limit = 50): P
   ]);
   if (due.error) return { ok: false, detail: `booking_holds unreadable: ${due.error.message}` };
   if (paid.error) return { ok: false, detail: `booking_holds unreadable: ${paid.error.message}` };
-  return { ok: true, holds: [...(due.data ?? []), ...(paid.data ?? [])].map(toHold) };
+  // Booked or paid-unbooked and never told: the call that got there died before telling the
+  // customer (and, for paid-unbooked, the founder). Told is `notified_at`, set after both.
+  const u = await db.from('booking_holds').select('*').in('state', ['booked', 'paid_unbooked']).is('notified_at', null)
+    .order('updated_at').limit(limit);
+  if (u.error) return { ok: false, detail: `booking_holds unreadable: ${u.error.message}` };
+  const untold = u.data ?? [];
+  return { ok: true, holds: [...(due.data ?? []), ...(paid.data ?? []), ...untold].map(toHold) };
 }
 
 /**
@@ -325,6 +332,12 @@ export async function holdsWithOpenInvoices(db: SupabaseClient, now: Date, limit
     .in('state', ['expired', 'released', 'booked', 'paid_unbooked']).order('updated_at').limit(limit);
   if (error) return { ok: false, detail: `booking_holds unreadable: ${error.message}` };
   return { ok: true, holds: (data ?? []).map(toHold) };
+}
+
+/** The outcome has been told (customer and, where owed, founder). Bookkeeping; a failure only logs. */
+export async function markNotified(db: SupabaseClient, holdId: string, at: Date): Promise<Ok<object> | Fail> {
+  const { error } = await db.from('booking_holds').update({ notified_at: at.toISOString() }).eq('id', holdId).is('notified_at', null);
+  return error ? { ok: false, detail: `booking_holds update: ${error.message}` } : { ok: true };
 }
 
 /** QPay was asked about this hold now. Bookkeeping for the poll's throttle; a failure only logs. */
