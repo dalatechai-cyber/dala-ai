@@ -223,7 +223,12 @@ async function main(): Promise<void> {
   // --- the 1st, live, wording unsigned: held, the founder told once ------------------------
   let e0 = emails.length; let t0 = telegrams.length;
   r = await tick(at('2026-10-01', 1), 'live', UNSIGNED);
-  check(r.issued === 1 && since(emails, e0).length === 0, 'a live invoice with unsigned wording is issued but NOT sent');
+  // Only the LIVE client's mail is the question. The page above is opened on the wall clock
+  // (QPay's fake counts real time), and opening it plans that day's messages for the TEST
+  // invoice: from 2026-10-03 (Ulaanbaatar) its real date fell in the reminder window, so a
+  // test reminder went out here and this check, counting every e-mail, was red on main too.
+  check(r.issued === 1 && since(emails, e0).filter((m) => m.to === 'owner@salon.mn').length === 0,
+    'a live invoice with unsigned wording is issued but NOT sent');
   check(since(telegrams, t0).some((m) => /was NOT sent: billing_invoice_subject is not signed/u.test(m.text)), 'the founder is told why');
   t0 = telegrams.length;
   await tick(at('2026-10-01', 2), 'live', UNSIGNED);
@@ -248,7 +253,11 @@ async function main(): Promise<void> {
   e0 = emails.length;
   await tick(at('2026-10-03'), 'live');
   const rem = since(emails, e0);
-  check(rem.length === 2 && rem.every((m) => m.subject.startsWith('Сануулга:')), 'on the 3rd both clients get the reminder');
+  // Each client has exactly one reminder by the 3rd. The test client's may have gone out
+  // already, planned by the wall-clock page visit above (see the unsigned-wording check).
+  const reminders = (to: string): number => count(`select count(*) from billing_deliveries where kind = 'reminder_before' and status = 'sent' and recipient = '${to}'`);
+  check(rem.every((m) => m.subject.startsWith('Сануулга:')) && rem.some((m) => m.to === 'owner@salon.mn')
+    && reminders('owner@salon.mn') === 1 && reminders('founder@example.com') === 1, 'on the 3rd both clients get the reminder');
 
   // --- the test client pays; QPay calls back ------------------------------------------------
   const testId = psql('select id from billing_invoices where is_test');
