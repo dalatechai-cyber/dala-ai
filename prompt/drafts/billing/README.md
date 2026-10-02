@@ -59,3 +59,24 @@ changed to DalaTech's contract:
 Until they are signed, a real client's e-mail leaves them out: the raw link is shown under
 the button with no label, and the footer reads «DalaTech | dalatech.online |
 hello@dalatech.online» with no sentence. Nothing else depends on them.
+
+## 2026-10-02: the pause notice, unsigned
+
+Sent once, by e-mail, after the founder pauses a client for an unpaid invoice (Telegram
+«Pause» button). Planned by the next hourly run, cancelled unsent if the invoice is paid
+first or the founder resumes by hand. Branded like the reminders (pay button, bank box, PDF).
+
+**Resume is automatic (founder, 2026-10-02):** once the invoice the pause was for is paid in
+full (QPay, or a bank transfer the founder records), the engine resumes the client and tells
+the founder «resumed after payment» (`engine.ts`, `autoResume`); the Resume button stays for
+exceptions. The founder approved the lines on 2026-10-02 with «Төлбөр баталгаажмагц үйлчилгээ
+сэргэнэ» (true for a recorded bank transfer too, not only QPay).
+
+| Block | Draft |
+|---|---|
+| `billing_pause_subject` | Үйлчилгээ түр зогслоо ({invoice_no}) |
+| `billing_mail_pause_title` | Үйлчилгээ түр зогслоо |
+| `billing_mail_pause_intro` | Сайн байна уу, {client}. / Таны DalaTech-ийн үйлчилгээ төлбөр төлөгдөөгүй тул түр зогслоо. Төлбөр баталгаажмагц үйлчилгээ сэргэнэ. Асуулт байвал hello@dalatech.online хаягаар холбогдоно уу. |
+| `billing_pause_body` | The plain-text fallback: the same sentences, the pay link, invoice number, amount, lines, «Хүндэтгэсэн, DalaTech». No due date: it has passed. |
+
+Approved by the founder on 2026-10-02 (subject, heading, greeting, text, plain-text lines).

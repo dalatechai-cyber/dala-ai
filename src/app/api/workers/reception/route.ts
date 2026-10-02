@@ -12,7 +12,7 @@
  * The rule that keeps it honest: **nothing in this file may branch.** A condition here is
  * a condition no test can reach, so it belongs one module down.
  */
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { verifyQStashSignature } from '@/lib/queue/qstash';
 import { supabaseWorker } from '@/lib/supabase/clients';
 import { required } from '@/lib/env';
@@ -26,6 +26,7 @@ import { lookupComment, lookupInstagramComment } from '@/lib/comments/lookup';
 import { raiseCommentComplaint } from '@/lib/comments/complaint';
 import { raiseMediaHandoff } from '@/lib/handover/media';
 import { raiseNeedsPerson } from '@/lib/handover/needsPerson';
+import { labelFromRow, labelNeedsPerson } from '@/lib/handover/pageLabel';
 import { alertCannedStale } from '@/lib/prompt/cannedDrift';
 import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
@@ -218,9 +219,31 @@ function effects(now: Date): WorkerEffects {
       // Never rejects: an alert that cannot be raised is logged, and the customer's reply
       // is already decided.
       try {
-        const outcome = await raiseNeedsPerson(db, { ...input, now });
+        const { thread, ...alert } = input;
+        const outcome = await raiseNeedsPerson(db, { ...alert, now });
         if (outcome.outcome === 'failed' || outcome.outcome === 'recorded_undelivered') {
           console.error('[worker] needs_person_alert_undelivered', { conversationId: input.conversationId, reason: input.reason, ...outcome });
+        }
+        // The chat also gets the tenant's Page inbox label, once per page (0079). Off unless the
+        // tenant has a label set. Run AFTER the response (`after`): QStash already has its
+        // answer, so a slow tenants read, token load or Graph call can never make this job time
+        // out, be redelivered, or hold the next message in the batch. Bounded and never throws.
+        if (outcome.outcome !== 'suppressed_duplicate') {
+          after(async () => {
+            const labelled = await labelNeedsPerson({
+              readLabel: async (tenantId) => {
+                const { data, error } = await db.from('tenants').select('needs_person_page_label').eq('id', tenantId).maybeSingle();
+                return error ? 'unreadable' : labelFromRow(data);
+              },
+              loadToken: async (tenantId, channelId) => {
+                const secret = await loadTenantSecret(db, { tenantId, channelId, kind: 'page_token' });
+                return secret.ok ? { ok: true, token: secret.secret } : { ok: false, detail: secret.code };
+              },
+              graphVersion: () => required('META_GRAPH_VERSION'),
+            }, { tenantId: input.tenantId, provider: input.provider, ...(thread === undefined ? {} : { thread }) });
+            if (labelled.outcome === 'failed') console.error('[worker] needs_person_label_failed', { conversationId: input.conversationId, ...labelled });
+            else console.info('[worker] needs_person_label', { conversationId: input.conversationId, ...labelled });
+          });
         }
         return outcome.outcome !== 'suppressed_duplicate';
       } catch (e) {

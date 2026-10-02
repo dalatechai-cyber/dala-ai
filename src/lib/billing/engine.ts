@@ -231,10 +231,13 @@ async function loadAccounts(deps: BillingDeps, ids: string[]): Promise<Map<strin
   return out;
 }
 
-async function openPauses(deps: BillingDeps): Promise<Map<string, string>> {
-  const { data, error } = await deps.db.from('billing_pauses').select('id, account_id').is('resumed_at', null);
+/** Open pauses by account: the pause and the invoice it was for (null: a pause by hand). */
+async function openPauses(deps: BillingDeps): Promise<Map<string, { id: string; invoiceId: string | null }>> {
+  const { data, error } = await deps.db.from('billing_pauses').select('id, account_id, invoice_id').is('resumed_at', null);
   if (error) throw new Unavailable(`billing_pauses unreadable: ${error.message}`);
-  return new Map(rows(data).map((r) => [str(r['account_id']), str(r['id'])]));
+  return new Map(rows(data).map((r) => [str(r['account_id']), {
+    id: str(r['id']), invoiceId: r['invoice_id'] === null || r['invoice_id'] === undefined ? null : str(r['invoice_id']),
+  }]));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -285,6 +288,50 @@ async function enqueue(deps: BillingDeps, p: Planned, report: TickReport): Promi
     return;
   }
   report.planned += 1;
+}
+
+/**
+ * Resume a client paused for this invoice, now paid in full (founder, 2026-10-02).
+ * `billing_resume` locks the pause, so of two runs at once only one resumes; the other gets
+ * `not_paused`. It restores each channel to its mode before the pause, only where still `off`.
+ */
+async function autoResume(
+  deps: BillingDeps, report: TickReport, inv: Invoice, account: Account, pauseId: string,
+): Promise<'resumed' | 'not_paused' | 'failed'> {
+  const { data, error } = await deps.db.rpc('billing_resume', { p_account: account.id, p_by: `auto: ${inv.invoiceNo} paid` });
+  if (error) {
+    await problem(deps, `auto_resume_failed:${pauseId}`,
+      `${account.displayName} paid ${inv.invoiceNo} but could NOT be resumed automatically: ${error.message}. Use the Resume button.`, inv.isTest, report);
+    return 'failed';
+  }
+  return (data as Record<string, unknown> | null)?.['resumed'] === true ? 'resumed' : 'not_paused';
+}
+
+/**
+ * The founder's «resumed after payment», planned from the DATABASE on every run that sees the
+ * paid invoice: an automatic resume of a pause for this invoice is told once (dedup key per
+ * pause), even when the run that resumed it failed to queue the message, or another run did
+ * the resume. True when such a resume exists.
+ */
+async function tellAutoResumed(deps: BillingDeps, report: TickReport, inv: Invoice, account: Account): Promise<boolean> {
+  const { data, error } = await deps.db.from('billing_pauses').select('id, resumed_by, resume_report')
+    .eq('invoice_id', inv.id).not('resumed_at', 'is', null);
+  if (error) { report.problems.push(`billing_pauses unreadable for ${inv.invoiceNo}: ${error.message}`); return false; }
+  let any = false;
+  for (const r of rows(data)) {
+    if (!str(r['resumed_by']).startsWith('auto:')) continue;
+    any = true;
+    const rep = (r['resume_report'] ?? {}) as Record<string, unknown>;
+    const restored = Array.isArray(rep['restored']) ? rep['restored'].length : 0;
+    const skipped = Array.isArray(rep['skipped']) ? rep['skipped'].length : 0;
+    await enqueue(deps, {
+      dedupKey: `founder_resumed:${str(r['id'])}`, kind: 'founder_paid', channel: 'telegram', recipient: 'founder',
+      isTest: inv.isTest, accountId: account.id, invoiceId: inv.id,
+      body: `▶️ ${account.displayName} resumed after payment (${inv.invoiceNo}): ${restored} channel(s) restored`
+        + (skipped > 0 ? `, ${skipped} left off (changed while paused or no longer allowed live — check them).` : '.'),
+    }, report);
+  }
+  return any;
 }
 
 /** A problem the founder must hear about, once per key. */
@@ -346,14 +393,18 @@ type Branded = { text: string; html: string; pdf: { name: string; base64: string
  */
 async function brandedMail(
   deps: BillingDeps, report: TickReport, inv: Invoice, account: Account,
-  kind: 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt', w: Wording, values: Record<string, string>,
+  kind: 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt' | 'pause', w: Wording, values: Record<string, string>,
 ): Promise<Branded | null> {
   const issuer = deps.issuer ?? { ok: false as const, missing: ['(no issuer settings were read)'] };
-  const ready = mailReady(w, issuer);
+  const ready = mailReady(w, issuer, kind);
   if (!ready.ok || !issuer.ok) {
     const why = ready.ok ? 'the issuer settings are incomplete' : ready.why;
-    await problem(deps, `branded_unready:${deps.mode}:${why.startsWith('these settings') ? 'settings' : 'wording'}`,
-      `invoices still go out as the plain e-mail, not the branded one with the PDF: ${why}.`, inv.isTest, report);
+    // The pause notice has lines of its own: its alarm must not use up, or speak for, the
+    // invoices' one (a key is raised once, ever).
+    const pause = kind === 'pause' && issuer.ok && mailReady(w, issuer).ok;
+    await problem(deps, `branded_unready:${deps.mode}:${why.startsWith('these settings') ? 'settings' : 'wording'}${pause ? ':pause' : ''}`,
+      pause ? `pause notices go out as the plain e-mail, not the branded one: ${why}.`
+        : `invoices still go out as the plain e-mail, not the branded one with the PDF: ${why}.`, inv.isTest, report);
     return null;
   }
   const payUrl = deps.links.pay(inv.id, inv.invoiceNo);
@@ -386,7 +437,7 @@ async function brandedMail(
  */
 async function planClientMessage(
   deps: BillingDeps, report: TickReport, inv: Invoice, account: Account,
-  kind: 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt',
+  kind: 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt' | 'pause',
   keys: { subject: BillingBlockKey; body: BillingBlockKey },
   onlyWhileUnpaid: boolean,
   extra: Record<string, string> = {},
@@ -399,13 +450,22 @@ async function planClientMessage(
   const w = wordingFor(deps, account);
   const values = { ...clientValues(deps, w, inv, account), ...extra };
   const subject = render(w, keys.subject, values);
+  // An unsigned subject holds the message before the branded e-mail is even tried, so a
+  // message nobody may send yet (the pause notice before signing) never raises the branded
+  // e-mail's own alarm about blocks the invoices do not use.
+  if (!subject.ok) {
+    await problem(deps, `wording:${kind}:${inv.id}`,
+      `the ${kind.replace('_', ' ')} for ${account.displayName} (${inv.invoiceNo}) was NOT sent: ${subject.why}. `
+      + 'It goes out on the first run after the wording is signed.', inv.isTest, report);
+    return null;
+  }
   // 0070: the branded e-mail (HTML, plain text, the PDF) once it can be sent; until then
   // the plain e-mail below, exactly as before. A client without an e-mail is the founder's
   // to forward by hand, so the plain text is what they need.
   const branded = account.email === null ? null : await brandedMail(deps, report, inv, account, kind, w, values);
   const body = branded === null ? render(w, keys.body, values) : { ok: true as const, text: branded.text };
-  if (!subject.ok || !body.ok) {
-    const why = !subject.ok ? subject.why : body.ok ? '' : body.why;
+  if (!body.ok) {
+    const why = body.why;
     await problem(deps, `wording:${kind}:${inv.id}`,
       `the ${kind.replace('_', ' ')} for ${account.displayName} (${inv.invoiceNo}) was NOT sent: ${why}. `
       + 'It goes out on the first run after the wording is signed.', inv.isTest, report);
@@ -833,6 +893,26 @@ async function plan(deps: BillingDeps, today: string, report: TickReport, only?:
         await planClientMessage(deps, report, inv, account, 'reminder_after',
           { subject: 'billing_reminder_after_subject', body: 'billing_reminder_after_body' }, true);
       }
+      // The client is told once that the founder paused them for THIS invoice (2026-10-02).
+      // Planned while the invoice is unpaid and cancelled unsent once it is paid, like a
+      // reminder. A pause made by hand (no invoice) is the founder's to explain.
+      if (paused.get(account.id)?.invoiceId === inv.id) {
+        await planClientMessage(deps, report, inv, account, 'pause',
+          { subject: 'billing_pause_subject', body: 'billing_pause_body' }, true);
+      } else if (stageFor(inv, today).daysLate > 0) {
+        // Resumed by hand while still unpaid (a grace period): a pause notice not yet sent must
+        // not tell the client they are paused. Only an unsent row is touched; one being sent
+        // is `sending` and is left to finish. The pause is read AGAIN here, not taken from the
+        // start of the run: a pause made since then keeps its notice.
+        const { data: now, error: nErr } = await deps.db.from('billing_pauses').select('id')
+          .eq('account_id', account.id).eq('invoice_id', inv.id).is('resumed_at', null).limit(1);
+        if (nErr) report.problems.push(`billing_pauses unreadable for ${inv.invoiceNo}: ${nErr.message}`);
+        else if (rows(now).length === 0) {
+          const { error: wErr } = await deps.db.from('billing_deliveries').update({ status: 'cancelled' })
+            .eq('dedup_key', `pause:${inv.id}`).in('status', ['pending', 'failed']);
+          if (wErr) report.problems.push(`could not withdraw the pause notice for ${inv.invoiceNo}: ${wErr.message}`);
+        }
+      }
       if (stage.pauseAsk && !paused.has(account.id)) {
         const who = account.tenantId === null ? ' (test account: no AI staff to stop; the pause is recorded only)' : '';
         await enqueue(deps, {
@@ -881,17 +961,27 @@ async function plan(deps: BillingDeps, today: string, report: TickReport, only?:
       const receipt = await planClientMessage(deps, report, inv, account, 'receipt',
         { subject: 'billing_receipt_subject', body: 'billing_receipt_body' }, false,
         { amount: formatMnt(inv.paidSumMnt > 0 ? inv.paidSumMnt : inv.amountMnt) });
-      const pauseId = paused.get(account.id);
+      const pause = paused.get(account.id);
+      // Paused for THIS invoice and now paid in full (QPay, or a bank transfer the founder
+      // recorded): resume at once, and tell the founder (founder, 2026-10-02). The database
+      // function locks the pause, so two runs resume once; the second finds it closed. A pause
+      // made by hand, or for another invoice, stays the founder's: the Resume button below.
+      const auto = pause !== undefined && pause.invoiceId === inv.id ? await autoResume(deps, report, inv, account, pause.id) : 'not_ours';
+      // `not_paused` is another run resuming it first: not paused, and that run's resume is
+      // told below like this one's.
+      const stillPaused = pause !== undefined && (auto === 'failed' || auto === 'not_ours');
+      const autoResumed = await tellAutoResumed(deps, report, inv, account);
       await enqueue(deps, {
         dedupKey: `founder_paid:${inv.id}`, kind: 'founder_paid', channel: 'telegram', recipient: 'founder',
         isTest: inv.isTest, accountId: account.id, invoiceId: inv.id,
         body: `✅ ${account.displayName} paid ${inv.invoiceNo}: ${formatMnt(inv.paidSumMnt > 0 ? inv.paidSumMnt : inv.amountMnt)}`
           + `${inv.paidAt === null ? '' : ` (${ubStamp(inv.paidAt)})`}.`
           + (receipt === null ? ' The receipt was NOT sent (see the wording problem).' : ' Receipt sent.')
-          + (pauseId === undefined ? '' : '\nTheir AI staff are PAUSED. The contract restores them within 1 working day of full payment.'),
-        ...(pauseId === undefined ? {} : {
+          + (autoResumed ? '\nTheir AI staff were resumed automatically (separate message).' : '')
+          + (stillPaused ? '\nTheir AI staff are still PAUSED. The contract restores them within 1 working day of full payment.' : ''),
+        ...(stillPaused ? {
           button: { label: `Resume ${account.displayName}`, url: deps.links.action('resume', account.id, inv.id, deps.now) },
-        }),
+        } : {}),
       }, report);
     }
   }

@@ -32,9 +32,10 @@ const NO_SPEND: MonthlySpendSummary = { ok: true, tenants: [] };
 const NO_PAGES: CeilingPagesSummary = { ok: true, pages: [] };
 const NO_CACHE: CacheSummary = { ok: true, tenants: [] };
 const NO_UNCONFIRMED: UnconfirmedSummary = { ok: true, byTenant: [], capped: false };
+const NO_NEEDS_PERSON = { ok: true as const, byTenant: [], capped: false };
 const CLEAN = {
   now: NOW, watchdogLastRan: RAN, channelsChecked: 2, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS,
-  shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES, cache: NO_CACHE, unconfirmed: NO_UNCONFIRMED,
+  shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES, cache: NO_CACHE, unconfirmed: NO_UNCONFIRMED, needsPerson: NO_NEEDS_PERSON,
 };
 
 test('DONE-TEST: A CLEAN DAY STILL SENDS, AND CARRIES PROOF OF LIFE', () => {
@@ -51,7 +52,7 @@ test('DONE-TEST: and when the watchdog has never run, the clean day SAYS SO', ()
   // `channel_health` is upserted on every run including healthy ones, precisely so that its
   // absence is a statement. A digest reading "nothing open" over a watchdog that has never
   // executed would be the most confident wrong sentence this system could produce.
-  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS, shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES, cache: NO_CACHE, unconfirmed: NO_UNCONFIRMED });
+  const plan = planDigest([], { now: NOW, watchdogLastRan: null, channelsChecked: 0, dropped: NO_DROPS, capped: NO_CAPS, lostDrafts: NO_LOST, adverts: NO_ADVERTS, shed: NO_SHED, monthlySpend: NO_SPEND, ceilingPages: NO_PAGES, cache: NO_CACHE, unconfirmed: NO_UNCONFIRMED, needsPerson: NO_NEEDS_PERSON });
   assert.match(plan.summary, /never recorded an observation/);
   assert.doesNotMatch(plan.summary, /last ran/);
 });
@@ -747,4 +748,14 @@ test('D-166: the unconfirmed public replies line is in every report, clean or no
   assert.match(some, /Public comment replies unconfirmed \(yesterday\): Salon One 3 — check these threads by hand\./);
   const unreadable = planDigest([], { ...CLEAN, unconfirmed: { ok: false, detail: 'boom' } }).summary;
   assert.match(unreadable, /Public comment replies unconfirmed \(yesterday\): UNREADABLE/);
+});
+
+test('2026-10-02: chats that needed a person, and how many staff answered, in every report; UNREADABLE is never zero', () => {
+  const clean = planDigest([], CLEAN).summary;
+  assert.match(clean, /Chats that needed a person \(yesterday\): none\./);
+  const some = planDigest([], { ...CLEAN, needsPerson: { ok: true, byTenant: [{ tenant: 'Salon One', chats: 5, answered: 1 }], capped: false } }).summary;
+  assert.match(some, /Chats that needed a person \(yesterday\): Salon One 5, staff replied to 1 by report time\./);
+  const unreadable = planDigest([], { ...CLEAN, needsPerson: { ok: false, detail: 'boom' } }).summary;
+  assert.match(unreadable, /Chats that needed a person \(yesterday\): UNREADABLE — boom/);
+  assert.doesNotMatch(unreadable, /needed a person \(yesterday\): none/);
 });

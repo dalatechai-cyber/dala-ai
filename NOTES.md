@@ -40,3 +40,17 @@ Part 2 billing e-mail redesign to Ора's design. Nothing goes live; Mongolian 
 Open for the founder: no client "pause" e-mail exists (pause is a founder Telegram ask only);
 pick an option in the hand-off proposal; sign the three drafts; confirm hello@dalatech.online
 forwards (send.ts says it has no inbox) or the footer should show BILLING_FOUNDER_EMAIL.
+
+## Round 2 (founder reply, 2026-10-02 evening)
+
+- [x] Three lines signed (seed 0077), send.ts note fixed, #274 merged (ff9976f), 0077 applied and
+      read back sha256-identical. billing-e2e real-date bug found (red on main too) and fixed.
+- [x] Pause notice: kind `pause` (0078), four DRAFT lines. Resume is NOT automatic (founder presses
+      Resume; contract: 1 working day) so the wording says that. Option: build auto-resume.
+- [x] Tara label + daily count built, OFF (0079 column NULL). Not applied, not merged: founder go.
+- [ ] Review (Opus), CI, draft PR, report <6 lines. Ask founder: go to test a label on DalaTech's Page.
+- [x] Founder (2026-10-02): resume automatic on full payment of the paused invoice + Telegram
+      «resumed after payment»; founder's sentence used. Proven in billing-e2e (102 checks).
+- [x] Review findings fixed: pause alarm key, label via after(), provider allowlist
+      `facebook_page`, report live-only "by report time", lazy graph version, withdraw unsent
+      pause notice after a manual resume.

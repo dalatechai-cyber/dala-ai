@@ -30,6 +30,7 @@
  * redelivery loop. Every early return below is one of those three on purpose.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { NeedsPersonThread } from '../handover/pageLabel.ts';
 import { canDeliver } from '../channel/delivery.ts';
 import { extractInboundMessages } from '../meta/extract.ts';
 import { INSTAGRAM_MAX_TEXT_BYTES } from '../meta/send.ts';
@@ -222,7 +223,13 @@ export type WorkerEffects = {
    * reject and is bounded (`prompt/cannedDrift.ts`).
    */
   alertCannedStale: (args: { tenantId: string; channel: string }) => Promise<string>;
-  alertNeedsPerson: (args: { tenantId: string; conversationId: string; reason: NeedsPersonReason; provider: string; sent: ReplySent }) => Promise<boolean>;
+  /**
+   * `thread`: the chat, so the route can also label it in the tenant's Page inbox when the
+   * tenant has a label set (0079, `handover/pageLabel.ts`). Absent: page only.
+   */
+  alertNeedsPerson: (args: {
+    tenantId: string; conversationId: string; reason: NeedsPersonReason; provider: string; sent: ReplySent; thread?: NeedsPersonThread;
+  }) => Promise<boolean>;
 };
 
 export type SalesShadowArgs = {
@@ -925,7 +932,10 @@ async function runReceptionDelivery(
         }
         // Flagged once, by the attempt that raised the alert: a redelivery of the same entry
         // re-runs this block and must not count the same voice message twice.
-        const told = await fx.alertNeedsPerson({ tenantId, conversationId, reason: 'voice', provider, sent: sentLine });
+        const told = await fx.alertNeedsPerson({
+          tenantId, conversationId, reason: 'voice', provider, sent: sentLine,
+          thread: { channelId, pageId, psid: plan.senderId, ...viaToken },
+        });
         if (told) {
           await fx.flagQuality({
             tenantId, conversationId, code: 'voice_received',
@@ -1472,7 +1482,10 @@ async function runReceptionDelivery(
       if (sentLine !== 'yes') fx.log('error', `${reason}_handoff_not_sent`, { tenantId, conversationId, outcome: delivered.outcome });
       // The line promises a colleague: a person is told, on every outcome, as the ordinary
       // hand-off path does (D-158); `once` a day, so the retry cannot page twice.
-      await fx.alertNeedsPerson({ tenantId, conversationId, reason: 'handoff', provider, sent: sentLine });
+      await fx.alertNeedsPerson({
+        tenantId, conversationId, reason: 'handoff', provider, sent: sentLine,
+        thread: { channelId, pageId, psid: message.senderId, ...viaToken },
+      });
       await fx.flagQuality({
         tenantId, conversationId, code: `${reason}_handoff`,
         detail: `${reason === 'ceiling' ? 'daily cap refused the model' : 'approved lines changed, unsigned or missing'}; `
@@ -1799,6 +1812,7 @@ async function runReceptionDelivery(
     if (needs !== null) {
       await fx.alertNeedsPerson({
         tenantId, conversationId, reason: needs, provider,
+        thread: { channelId, pageId, psid: message.senderId, ...viaToken },
         sent: delivered.outcome === 'sent' ? 'yes' : delivered.outcome === 'failed' && !delivered.retryable ? 'no' : 'unknown',
       });
     }

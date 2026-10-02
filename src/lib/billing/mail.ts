@@ -29,7 +29,7 @@ import { telHref } from './issuer.ts';
 import { EMAIL_SENDER } from './send.ts';
 import { formatMnt, render, type BillingBlockKey, type Wording } from './templates.ts';
 
-export type MailKind = 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt';
+export type MailKind = 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt' | 'pause';
 
 /** The brand, from dalatech.online's own stylesheet. */
 export const BRAND = {
@@ -50,12 +50,14 @@ const TITLE: Record<MailKind, BillingBlockKey> = {
   reminder_before: 'billing_mail_reminder_before_title',
   reminder_after: 'billing_mail_reminder_after_title',
   receipt: 'billing_mail_receipt_title',
+  pause: 'billing_mail_pause_title',
 };
 const INTRO: Record<MailKind, BillingBlockKey> = {
   invoice: 'billing_mail_invoice_intro',
   reminder_before: 'billing_mail_reminder_before_intro',
   reminder_after: 'billing_mail_reminder_after_intro',
   receipt: 'billing_mail_receipt_intro',
+  pause: 'billing_mail_pause_intro',
 };
 
 /** The blocks shared by the e-mail and the PDF, whatever the kind. */
@@ -67,9 +69,14 @@ export const DOC_KEYS = [
   'billing_doc_title', 'billing_doc_signature', 'billing_doc_vat',
 ] as const satisfies readonly BillingBlockKey[];
 
-/** Every block the branded e-mails need. */
+/**
+ * Every block the branded invoice, reminders and receipt need. The pause notice's own title
+ * and intro are NOT here: they were added later, and an unsigned pause line must never hold
+ * back the invoice. `mailReady(…, 'pause')` asks for them too.
+ */
+const CORE_KINDS = ['invoice', 'reminder_before', 'reminder_after', 'receipt'] as const satisfies readonly MailKind[];
 export const MAIL_KEYS: readonly BillingBlockKey[] = [
-  ...DOC_KEYS, ...Object.values(TITLE), ...Object.values(INTRO),
+  ...DOC_KEYS, ...CORE_KINDS.map((k) => TITLE[k]), ...CORE_KINDS.map((k) => INTRO[k]),
   'billing_mail_closing', 'billing_mail_receipt_closing', 'billing_mail_signoff',
   'billing_label_paid_amount', 'billing_label_paid_on',
 ];
@@ -85,8 +92,9 @@ export const MAIL_SENDER = { name: EMAIL_SENDER.name, site: 'dalatech.online', s
 /** The wordmark above the card: `public/brand/dalatech-wordmark.png`, 420×120, shown at 140×40. */
 export const WORDMARK_PATH = '/brand/dalatech-wordmark.png';
 
-export function mailReady(wording: Wording, issuer: { ok: true } | { ok: false; missing: string[] }): { ok: true } | { ok: false; why: string } {
-  const unsigned = MAIL_KEYS.filter((k) => !wording.blocks.has(k));
+export function mailReady(wording: Wording, issuer: { ok: true } | { ok: false; missing: string[] }, kind?: MailKind): { ok: true } | { ok: false; why: string } {
+  const needed = kind === 'pause' ? [...MAIL_KEYS, TITLE.pause, INTRO.pause] : MAIL_KEYS;
+  const unsigned = needed.filter((k) => !wording.blocks.has(k));
   if (unsigned.length > 0) return { ok: false, why: `${unsigned.length} block(s) of the branded e-mail are not signed (${unsigned.slice(0, 3).join(', ')}${unsigned.length > 3 ? ', …' : ''})` };
   if (!issuer.ok) return { ok: false, why: `these settings are missing or malformed: ${issuer.missing.join(', ')}` };
   return { ok: true };
