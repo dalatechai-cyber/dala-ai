@@ -851,6 +851,13 @@ async function main(): Promise<void> {
     && count(`select count(*) from billing_deliveries where kind = 'ora_pack_paid' and invoice_id in ('${packId(2)}', '${packId(3)}')`) === 0
     && received.length === rcv && !credited.has(order(2)) && !credited.has(order(3)),
     'a short payment (mismatch, the founder told) and an abandoned or cancelled payment send Ора nothing');
+    const resolved = await db.rpc('billing_resolve', { p_invoice: packId(2), p_outcome: 'paid', p_by: 'Bilguun', p_note: 'e2e: short pack accepted' });
+    const tgR = telegrams.length;
+    await runBillingTick(oraDeps());
+    check(resolved.error === null && psql(`select status from billing_invoices where id = '${packId(2)}'`) === 'paid'
+      && count(`select count(*) from billing_deliveries where kind = 'ora_pack_paid' and invoice_id = '${packId(2)}'`) === 0 && !credited.has(order(2))
+      && since(telegrams, tgR).some((m) => /is an Ора pack marked paid with 50₮ of 100₮: Ора was NOT told/u.test(m.text)),
+      '…and settled by the founder as paid with 50₮, still no pack: the founder is told to refund or settle it in Ора');
 
   // Ора down: retried with the same id, a fresh signature, until it answers.
   await packRequest({ order: order(4) });

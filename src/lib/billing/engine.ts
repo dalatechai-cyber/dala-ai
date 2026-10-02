@@ -967,9 +967,18 @@ async function plan(deps: BillingDeps, today: string, report: TickReport, only?:
       }, report);
     }
 
-    if (inv.status === 'paid' && oraOrder !== null) {
+    if (inv.status === 'paid' && oraOrder !== null && inv.paidSumMnt !== inv.amountMnt) {
+      // Settled by the founder as paid with another sum (`settle.ts resolve`): a wrong amount
+      // never adds a pack by itself. The founder decides: refund, or a pack by hand in Ора.
+      await problem(deps, `ora_pack_not_exact:${inv.id}`,
+        `${inv.invoiceNo} is an Ора pack marked paid with ${formatMnt(inv.paidSumMnt)} of ${formatMnt(inv.amountMnt)}: Ора was NOT told, no pack was added. Refund it, or settle it in Ора by hand.`,
+        inv.isTest, report);
+    }
+
+    if (inv.status === 'paid' && oraOrder !== null && inv.paidSumMnt === inv.amountMnt) {
       // Ора credits the pack on this one signed event, once per payment: one row per invoice
-      // (the dedup key), and Ора counts its `id` once however often it arrives (0081).
+      // (the dedup key), and Ора counts its `id` once however often it arrives (0081). Only
+      // a payment of exactly the pack's amount.
       await enqueue(deps, {
         dedupKey: `ora_pack_paid:${inv.id}`, kind: 'ora_pack_paid', channel: 'webhook', recipient: 'ora',
         isTest: inv.isTest, accountId: account.id, invoiceId: inv.id,

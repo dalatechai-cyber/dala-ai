@@ -30,6 +30,7 @@ import { readFileSync } from 'node:fs';
 import { decodeKeyMaterial, parseKekVersion } from '../src/lib/crypto/kek.ts';
 import { requiredJsonMap } from '../src/lib/env.ts';
 import { issuerFromEnv } from '../src/lib/billing/issuer.ts';
+import { bypassAllowed } from '../src/lib/billing/ora.ts';
 
 type Verdict = { ok: true; note: string } | { ok: false; why: string };
 
@@ -364,7 +365,7 @@ if (present(billingMode)) {
         // Ора's preview is behind Vercel Authentication: without the bypass every event is a 401.
         const oraUrl = process.env['ORA_WEBHOOK_URL'] ?? '';
         const bypass = process.env['ORA_PREVIEW_BYPASS_SECRET'];
-        if (/^https:\/\/[^/?#]+\.vercel\.app\//u.test(oraUrl)) {
+        if (bypassAllowed(oraUrl)) {
           if (!present(bypass)) {
             failures += 1;
             rows.push('  MISSING  ORA_PREVIEW_BYPASS_SECRET\n           ORA_WEBHOOK_URL is a Vercel preview (behind Vercel Authentication): Ора\'s «Protection Bypass for Automation» secret');
