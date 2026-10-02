@@ -281,7 +281,7 @@ test('DONE-TEST: every billing block exists on disk, is NFC, and renders with it
     assert.ok(r.ok, `${key}: ${r.ok ? '' : r.why}`);
     assert.doesNotMatch(r.ok ? r.text : '', /\{[^{}\s]+\}/u, `${key} left a placeholder`);
   }
-  assert.equal(Object.keys(BILLING_BLOCKS).length, 64);
+  assert.equal(Object.keys(BILLING_BLOCKS).length, 68);
 });
 
 // --- amounts --------------------------------------------------------------------------
@@ -627,6 +627,24 @@ test('Ора\'s layout: the unsigned footer and fallback lines are left out, nev
   assert.ok(receipt.ok && !receipt.html.includes(PAY_URL) && !receipt.html.includes(esc(all.get('billing_mail_fallback_link') as string)), 'a receipt has no button and no fallback line');
   assert.ok(receipt.ok && receipt.html.includes('5000123456') && receipt.text.includes('5000123456') && receipt.text.includes('Б. Билгүүн'), 'a receipt still names the account the money went to');
   assert.ok(full.html.includes('<!--[if mso]><table role="presentation" width="560"'), 'Outlook gets a fixed width');
+});
+
+test('the pause notice: branded like a reminder; its own unsigned lines never hold back the invoice', () => {
+  const all = wordingOnDisk();
+  const args = { invoice: invoice({}), account: { displayName: 'Матрикс ХХК', contractRef: null }, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: 'https://dala.example.com/brand/dalatech-wordmark.png' };
+  const r = renderMail({ ...args, kind: 'pause', wording: { source: 'signed', blocks: all } });
+  assert.ok(r.ok, r.ok ? '' : r.why);
+  assert.ok(r.html.includes(esc(all.get('billing_mail_pause_title') as string)) && r.html.includes('>Төлбөр төлөх</a>') && r.html.includes('5000123456'),
+    'title, the pay button and the bank box');
+  assert.ok(r.text.includes('Матрикс ХХК') && r.text.includes(PAY_URL) && r.text.includes('250,000₮'));
+  // Not automatic: the line must not promise it (the founder resumes; the contract says 1 working day).
+  assert.doesNotMatch(`${all.get('billing_mail_pause_intro')}\n${all.get('billing_pause_body')}`, /автоматаар/u);
+  const withoutPause = new Map(all);
+  withoutPause.delete('billing_mail_pause_title');
+  withoutPause.delete('billing_mail_pause_intro');
+  assert.deepEqual(mailReady({ source: 'signed', blocks: withoutPause }, { ok: true }), { ok: true }, 'the invoice is unaffected');
+  const p = mailReady({ source: 'signed', blocks: withoutPause }, { ok: true }, 'pause');
+  assert.ok(!p.ok && p.why.includes('billing_mail_pause'), 'the pause notice itself waits for its lines');
 });
 
 test('the PDF invoice: one A4 page in the brand fonts, with the short address as a link; too many lines refuse', async () => {

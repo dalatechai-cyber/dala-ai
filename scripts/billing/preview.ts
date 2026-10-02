@@ -1,5 +1,5 @@
 /**
- * The four client e-mails (invoice, two reminders, receipt) rendered with FAKE data, to look
+ * The client e-mails (invoice, two reminders, receipt, pause notice) rendered with FAKE data, to look
  * at the design without a database, a QPay call or a send.
  *
  *     node scripts/billing/preview.ts --out <dir> [--logo https://…/dalatech-wordmark.png] [--signed-only]
@@ -55,12 +55,13 @@ const SUBJECT: Record<MailKind, BillingBlockKey> = {
   reminder_before: 'billing_reminder_before_subject',
   reminder_after: 'billing_reminder_after_subject',
   receipt: 'billing_receipt_subject',
+  pause: 'billing_pause_subject',
 };
 
 const period = render(wording, 'billing_period_month', { year: '2026', month: '10' });
 mkdirSync(out, { recursive: true });
 let failed = false;
-for (const kind of ['invoice', 'reminder_before', 'reminder_after', 'receipt'] as const) {
+for (const kind of ['invoice', 'reminder_before', 'reminder_after', 'receipt', 'pause'] as const) {
   const inv = kind === 'receipt' ? paid : invoice;
   const values = { client: FAKE_ACCOUNT.displayName, invoice_no: inv.invoiceNo, ...(period.ok ? { period: period.text } : {}) };
   const subject = render(wording, SUBJECT[kind], values);

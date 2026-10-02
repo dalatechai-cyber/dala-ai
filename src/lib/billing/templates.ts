@@ -100,6 +100,12 @@ export const BILLING_BLOCKS = {
   billing_mail_fallback_link: { required: [], optional: [] },
   billing_mail_footer_why: { required: [], optional: [] },
   billing_mail_footer_contact_label: { required: [], optional: [] },
+  // The pause notice (2026-10-02): sent once, after the founder pauses a client for an unpaid
+  // invoice. Its own subject and body, and its own title and intro in the branded e-mail.
+  billing_pause_subject: SUBJECT,
+  billing_pause_body: MESSAGE,
+  billing_mail_pause_title: { required: [], optional: ['invoice_no'] },
+  billing_mail_pause_intro: { required: ['client'], optional: ['period', 'due_date'] },
 } as const satisfies Record<string, Spec>;
 
 export type BillingBlockKey = keyof typeof BILLING_BLOCKS;

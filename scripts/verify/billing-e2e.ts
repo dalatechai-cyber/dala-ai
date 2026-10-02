@@ -301,6 +301,16 @@ async function main(): Promise<void> {
   const badKind = await runActionJob({ db: () => db, now: at('2026-10-13'), method: 'POST', token, kind: 'resume', notify: async () => undefined });
   check(badKind.status === 404, 'a pause link cannot resume');
 
+  // --- the pause notice (2026-10-02): the client is told once, with the pay link ---------------
+  e0 = emails.length;
+  await tick(at('2026-10-13', 12), 'live');
+  const notice = since(emails, e0).filter((m) => m.to === 'owner@salon.mn' && m.subject.startsWith('Үйлчилгээ түр зогслоо'));
+  check(notice.length === 1 && notice[0]!.text.includes(`${ORIGIN}/pay/`) && notice[0]!.text.includes('360,000₮'),
+    'the paused client is e-mailed once, with the amount and the pay link');
+  e0 = emails.length;
+  await tick(at('2026-10-13', 13), 'live');
+  check(since(emails, e0).every((m) => !m.subject.startsWith('Үйлчилгээ түр зогслоо')), '…and only once');
+
   // --- a wrong amount: mismatch, never a receipt --------------------------------------------
   const liveId = psql('select id from billing_invoices where not is_test');
   await openPage(liveId);

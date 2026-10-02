@@ -59,3 +59,26 @@ changed to DalaTech's contract:
 Until they are signed, a real client's e-mail leaves them out: the raw link is shown under
 the button with no label, and the footer reads «DalaTech | dalatech.online |
 hello@dalatech.online» with no sentence. Nothing else depends on them.
+
+## 2026-10-02: the pause notice, unsigned
+
+Sent once, by e-mail, after the founder pauses a client for an unpaid invoice (Telegram
+«Pause» button). Planned by the next hourly run and cancelled unsent if the invoice is paid
+first. Branded like the reminders (pay button, bank box, PDF attached).
+
+**The founder's draft said the service resumes automatically after payment. It does not:**
+payment sends the founder a «Resume» button (`engine.ts`, `founder_paid`), and the contract
+restores service within 1 working day of full payment. The sentence below says that. If the
+founder prefers the automatic version, resume must be built first (a code change, not wording).
+
+| Block | Draft |
+|---|---|
+| `billing_pause_subject` | Үйлчилгээ түр зогслоо ({invoice_no}) |
+| `billing_mail_pause_title` | Үйлчилгээ түр зогслоо |
+| `billing_mail_pause_intro` | Сайн байна уу, {client}. / Таны DalaTech-ийн үйлчилгээ төлбөр төлөгдөөгүй тул түр зогслоо. Төлбөр төлөгдсөнөөс хойш 1 ажлын өдрийн дотор үйлчилгээ сэргэнэ. Асуулт байвал hello@dalatech.online хаягаар холбогдоно уу. |
+| `billing_pause_body` | The plain-text fallback: the same two sentences, the pay link, invoice number, amount, due date, lines, the contact sentence, «Хүндэтгэсэн, DalaTech» (the reminders' layout) |
+
+Changed from the founder's draft: «Төлбөрөө төлмөгц үйлчилгээ автоматаар сэргэнэ» became
+«Төлбөр төлөгдсөнөөс хойш 1 ажлын өдрийн дотор үйлчилгээ сэргэнэ», and the greeting
+«Сайн байна уу, {client}.» was added as in every other billing e-mail. Until signed, no pause
+e-mail is sent to a real client; the founder is told once that it is held.

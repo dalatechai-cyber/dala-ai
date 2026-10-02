@@ -2126,6 +2126,10 @@ test('a voice message with a REVIEWED line gets that line, and a person is still
   assert.equal(delivered.length, 1);
   assert.equal(delivered[0]?.body, VOICE_LINE);
   assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent]), [['voice', 'yes']]);
+  // The chat itself travels with the page, so the route can label it in the Page inbox (0079).
+  assert.ok((needsPerson[0]?.thread?.psid ?? '') !== '' && (needsPerson[0]?.thread?.pageId ?? '') !== '');
+  assert.equal(needsPerson[0]?.thread?.psid, delivered[0]?.recipientId);
+  assert.equal(needsPerson[0]?.thread?.pageId, delivered[0]?.pageId);
   assert.ok(!ops.some((o) => o.table === 'conversations' && o.op === 'update' && o.patch?.['thread_control'] === 'human'),
     'the thread is not handed over: the bot must answer what the customer types next');
 });

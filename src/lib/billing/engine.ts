@@ -231,10 +231,13 @@ async function loadAccounts(deps: BillingDeps, ids: string[]): Promise<Map<strin
   return out;
 }
 
-async function openPauses(deps: BillingDeps): Promise<Map<string, string>> {
-  const { data, error } = await deps.db.from('billing_pauses').select('id, account_id').is('resumed_at', null);
+/** Open pauses by account: the pause and the invoice it was for (null: a pause by hand). */
+async function openPauses(deps: BillingDeps): Promise<Map<string, { id: string; invoiceId: string | null }>> {
+  const { data, error } = await deps.db.from('billing_pauses').select('id, account_id, invoice_id').is('resumed_at', null);
   if (error) throw new Unavailable(`billing_pauses unreadable: ${error.message}`);
-  return new Map(rows(data).map((r) => [str(r['account_id']), str(r['id'])]));
+  return new Map(rows(data).map((r) => [str(r['account_id']), {
+    id: str(r['id']), invoiceId: r['invoice_id'] === null || r['invoice_id'] === undefined ? null : str(r['invoice_id']),
+  }]));
 }
 
 // ---------------------------------------------------------------------------------------
@@ -346,10 +349,10 @@ type Branded = { text: string; html: string; pdf: { name: string; base64: string
  */
 async function brandedMail(
   deps: BillingDeps, report: TickReport, inv: Invoice, account: Account,
-  kind: 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt', w: Wording, values: Record<string, string>,
+  kind: 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt' | 'pause', w: Wording, values: Record<string, string>,
 ): Promise<Branded | null> {
   const issuer = deps.issuer ?? { ok: false as const, missing: ['(no issuer settings were read)'] };
-  const ready = mailReady(w, issuer);
+  const ready = mailReady(w, issuer, kind);
   if (!ready.ok || !issuer.ok) {
     const why = ready.ok ? 'the issuer settings are incomplete' : ready.why;
     await problem(deps, `branded_unready:${deps.mode}:${why.startsWith('these settings') ? 'settings' : 'wording'}`,
@@ -386,7 +389,7 @@ async function brandedMail(
  */
 async function planClientMessage(
   deps: BillingDeps, report: TickReport, inv: Invoice, account: Account,
-  kind: 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt',
+  kind: 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt' | 'pause',
   keys: { subject: BillingBlockKey; body: BillingBlockKey },
   onlyWhileUnpaid: boolean,
   extra: Record<string, string> = {},
@@ -832,6 +835,13 @@ async function plan(deps: BillingDeps, today: string, report: TickReport, only?:
       if (stage.reminderAfter) {
         await planClientMessage(deps, report, inv, account, 'reminder_after',
           { subject: 'billing_reminder_after_subject', body: 'billing_reminder_after_body' }, true);
+      }
+      // The client is told once that the founder paused them for THIS invoice (2026-10-02).
+      // Planned while the invoice is unpaid and cancelled unsent once it is paid, like a
+      // reminder. A pause made by hand (no invoice) is the founder's to explain.
+      if (paused.get(account.id)?.invoiceId === inv.id) {
+        await planClientMessage(deps, report, inv, account, 'pause',
+          { subject: 'billing_pause_subject', body: 'billing_pause_body' }, true);
       }
       if (stage.pauseAsk && !paused.has(account.id)) {
         const who = account.tenantId === null ? ' (test account: no AI staff to stop; the pause is recorded only)' : '';
