@@ -42,7 +42,9 @@ reads as one phrase.
 Dates and amounts are never followed by a case suffix in these drafts («2026.10.05-ны»),
 because the right suffix depends on the number's last word and the platform cannot choose it.
 
-## 2026-10-02: three lines for the e-mail redesign (Ора's layout), unsigned
+## 2026-10-02: three lines for the e-mail redesign (Ора's layout) — SIGNED 2026-10-02
+
+Approved by the founder in chat on 2026-10-02 and signed (`prompt/platform/`, seed `0077`).
 
 The billing e-mails now share Ора's approved e-mail layout. Three new lines, copied from
 Ора's e-mails (`ora` repo, `docs/WORDING_REVIEW.md` M29, M31, M32) with only Ора's name
