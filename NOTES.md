@@ -71,3 +71,16 @@ forwards (send.ts says it has no inbox) or the footer should show BILLING_FOUNDE
 - Founder decision: pass-to-inbox NOT built (silences Дали, does not point staff to the chat).
   Founder talks to the Tara owner (staff routine; manager gets the hand-off alert by Telegram,
   later SMS via Нова?). Nothing built until the founder says. Meta bug report ready to send.
+
+## Ора packs — 2026-10-02 (PR #278, merged)
+
+- dala-ai's half of Ора's payments is live in TEST only: `POST /api/ora/pack-invoice` (100₮ test
+  pack, test accounts marked `ora_account`), one signed `pack.paid` event per paid pack. 0081
+  applied. The founder's one real 100₮ test passed: one event, sent once, Ора `credited`.
+- Clean-up done: `ORA_WEBHOOK_URL` = `https://ora.dalatech.online/api/billing/webhook`, bypass
+  secret deleted; the redeploy's preflight shows `ok` for `ORA_PLATFORM_SECRET`,
+  `ORA_WEBHOOK_URL` and `ORA_BILLING_WEBHOOK_SECRET_TEST`.
+- **Decision (founder): Ора launches with packs OFF** («contact DalaTech» in the app).
+  `BILLING_MODE=live` is not tied to Ора's launch: Tara's go-live waits on her signed contract.
+  Live 49,000₮ packs come later with client billing go-live (`docs/billing.md`, Ора section).
+- Not built: `account.paused`/`account.resumed`/`plan.paid` events and `/api/ora/account-deleted`.
