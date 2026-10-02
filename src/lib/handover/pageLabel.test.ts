@@ -64,7 +64,10 @@ test('a Graph refusal names the step and the code; nothing is retried', async ()
     { status: 403, json: { error: { code: 200, message: 'Permissions error' } } },
   ]);
   const r = await labelThread({ ...BASE, fetchImpl: g.fetchImpl });
-  assert.deepEqual(r, { outcome: 'failed', step: 'create', status: 403, code: 200, detail: 'HTTP 403: Permissions error' });
+  assert.deepEqual(r, {
+    outcome: 'failed', step: 'create', status: 403, code: 200, detail: 'HTTP 403: Permissions error',
+    meta: { code: 200, subcode: null, type: null, fbtraceId: null, message: 'Permissions error', userTitle: null, userMessage: null, isTransient: null },
+  });
   assert.equal(g.calls.length, 2);
 });
 
@@ -133,4 +136,32 @@ test('the token is opened for the channel that sends (an Instagram channel sends
   const r = await labelNeedsPerson(d, { tenantId: 't', provider: 'facebook_page', thread: { ...THREAD, tokenChannelId: 'page-ch' } });
   assert.equal(r.outcome, 'labelled');
   assert.deepEqual(seen, ['page-ch']);
+});
+
+test("Meta's whole error is kept for the log: subcode, type, trace id, user message, transient flag", async () => {
+  const g = fakeGraph([{ status: 400, json: { error: {
+    message: 'Service temporarily unavailable', type: 'OAuthException', code: 2, error_subcode: 1349193,
+    is_transient: true, error_user_title: 'Title', error_user_msg: 'Accept the terms at https://example.com/terms', fbtrace_id: 'AbC123',
+  } } }]);
+  const r = await labelThread({ ...BASE, fetchImpl: g.fetchImpl });
+  assert.deepEqual(r, {
+    outcome: 'failed', step: 'find', status: 400, code: 2, detail: 'HTTP 400: Service temporarily unavailable',
+    meta: {
+      code: 2, subcode: 1349193, type: 'OAuthException', fbtraceId: 'AbC123', message: 'Service temporarily unavailable',
+      userTitle: 'Title', userMessage: 'Accept the terms at https://example.com/terms', isTransient: true,
+    },
+  });
+  assert.doesNotMatch(JSON.stringify(r), /tok/u, 'the token never reaches the log');
+});
+
+test('an access token Meta echoes in an error never reaches the log; a long trace header is cut', async () => {
+  const secret = 'EAAGsecretPageToken123';
+  const fetchImpl = (async () => new Response(JSON.stringify({ error: {
+    message: `Malformed access token ${secret}`, error_user_msg: `token ${secret} is invalid`, code: 190,
+  } }), { status: 400, headers: { 'x-fb-trace-id': 'T'.repeat(5000) } })) as unknown as typeof fetch;
+  const r = await labelThread({ ...BASE, token: secret, fetchImpl });
+  const logged = JSON.stringify(r);
+  assert.doesNotMatch(logged, new RegExp(secret, 'u'));
+  assert.match(logged, /Malformed access token \[token\]/u);
+  assert.ok(r.outcome === 'failed' && (r.meta?.fbtraceId ?? '').length === 100);
 });

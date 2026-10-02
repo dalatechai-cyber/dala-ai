@@ -44,7 +44,17 @@ export type LabelStep = 'find' | 'create' | 'attach';
 export type LabelOutcome =
   | { outcome: 'labelled'; labelId: string; created: boolean }
   | { outcome: 'skipped'; reason: 'no_label_set' | 'not_messenger' | 'no_thread' | 'label_unreadable' | 'no_credential'; detail?: string }
-  | { outcome: 'failed'; step: LabelStep; status: number | null; code: number | null; detail: string };
+  | { outcome: 'failed'; step: LabelStep; status: number | null; code: number | null; detail: string; meta?: MetaError };
+
+/**
+ * Meta's whole error object, for the log only (founder, 2026-10-02): what Meta support asks
+ * for (`fbtrace_id`) and what tells a permission or terms refusal from a passing fault
+ * (`error_subcode`, `type`, the user-facing title and message, which may carry a link).
+ */
+export type MetaError = {
+  code: number | null; subcode: number | null; type: string | null; fbtraceId: string | null;
+  message: string | null; userTitle: string | null; userMessage: string | null; isTransient: boolean | null;
+};
 
 export type PageLabelInput = {
   /** The channel's `external_id`. `me` is refused, as everywhere a Page is addressed. */
@@ -59,7 +69,7 @@ export type PageLabelInput = {
   now?: () => number;
 };
 
-type GraphAnswer = { ok: true; json: unknown } | { ok: false; status: number | null; code: number | null; detail: string };
+type GraphAnswer = { ok: true; json: unknown } | { ok: false; status: number | null; code: number | null; detail: string; meta?: MetaError };
 
 async function graph(
   input: PageLabelInput, deadline: number, method: 'GET' | 'POST', path: string,
@@ -85,10 +95,24 @@ async function graph(
     let json: unknown = null;
     try { json = JSON.parse(text); } catch { /* not JSON: classified by status below */ }
     if (res.ok) return { ok: true, json };
-    const err = (json as { error?: { code?: unknown; message?: unknown } } | null)?.error;
+    const err = (json as { error?: Record<string, unknown> } | null)?.error;
+    // Graph has been seen to repeat the access token inside an error message (a malformed-token
+    // 190), so every string from Meta is redacted before it can reach a log.
+    const clean = (v: string): string => (input.token === '' ? v : v.split(input.token).join('[token]'));
+    const txt = (v: unknown, n = 500): string | null => (typeof v === 'string' ? clean(v).slice(0, n) : null);
+    const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
     return {
-      ok: false, status: res.status, code: typeof err?.code === 'number' ? err.code : null,
-      detail: `HTTP ${res.status}${typeof err?.message === 'string' ? `: ${err.message.slice(0, 200)}` : ''}`,
+      ok: false, status: res.status, code: num(err?.['code']),
+      detail: `HTTP ${res.status}${typeof err?.['message'] === 'string' ? `: ${clean(err['message']).slice(0, 200)}` : ''}`,
+      ...(err === undefined || err === null ? {} : {
+        meta: {
+          code: num(err['code']), subcode: num(err['error_subcode']), type: txt(err['type'], 100),
+          // The trace id from the body, else Meta's response header.
+          fbtraceId: txt(err['fbtrace_id'], 100) ?? txt(res.headers?.get('x-fb-trace-id'), 100),
+          message: txt(err['message']), userTitle: txt(err['error_user_title']), userMessage: txt(err['error_user_msg']),
+          isTransient: typeof err['is_transient'] === 'boolean' ? err['is_transient'] : null,
+        },
+      }),
     };
   } catch (e) {
     return { ok: false, status: null, code: null, detail: e instanceof Error ? e.name === 'AbortError' ? 'timed out' : e.message : String(e) };
@@ -98,7 +122,7 @@ async function graph(
 }
 
 function failed(step: LabelStep, a: Extract<GraphAnswer, { ok: false }>): LabelOutcome {
-  return { outcome: 'failed', step, status: a.status, code: a.code, detail: a.detail };
+  return { outcome: 'failed', step, status: a.status, code: a.code, detail: a.detail, ...(a.meta === undefined ? {} : { meta: a.meta }) };
 }
 
 /** Find the Page's label with exactly this name (NFC, trimmed), or null. */
