@@ -230,6 +230,18 @@
       "reviewed_at": "2026-09-28"
     },
     {
+      "block_id": "billing_mail_pause_intro",
+      "sha256": "2d2d27523b403da49ef8f5739e9f1dfffd3f34e9c56c74c73d8c7cff0a577c75",
+      "reviewed_by": "Bilguun (approved in chat 2026-10-02)",
+      "reviewed_at": "2026-10-03"
+    },
+    {
+      "block_id": "billing_mail_pause_title",
+      "sha256": "d91827a1860fd036188a3c6a4d0d6a058a643103623d40ceee4181c390e86d9f",
+      "reviewed_by": "Bilguun (approved in chat 2026-10-02)",
+      "reviewed_at": "2026-10-03"
+    },
+    {
       "block_id": "billing_mail_receipt_closing",
       "sha256": "7738ca10b0d3334f2520c1e6f9bd67005f3c63d154d8788697068b94b172464a",
       "reviewed_by": "Bilguun",
@@ -360,6 +372,18 @@
       "sha256": "2c8afa27f2ac667fae582901d4637060091aaef4285e2c145488b61464f1db97",
       "reviewed_by": "Bilguun",
       "reviewed_at": "2026-09-28"
+    },
+    {
+      "block_id": "billing_pause_body",
+      "sha256": "06aa5cbb9b54338fffc0e3cf1fa91d7714c50c43379ae9c16796e2a227179819",
+      "reviewed_by": "Bilguun (approved in chat 2026-10-02)",
+      "reviewed_at": "2026-10-03"
+    },
+    {
+      "block_id": "billing_pause_subject",
+      "sha256": "59d6dc3bdbdcb3a566c598add58783b5c5ff4b47bfbf9135e5ccf5e7a8e4a4b3",
+      "reviewed_by": "Bilguun (approved in chat 2026-10-02)",
+      "reviewed_at": "2026-10-03"
     },
     {
       "block_id": "billing_pay_button",

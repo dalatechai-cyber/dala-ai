@@ -15,11 +15,11 @@ function fakeGraph(answers: Array<{ status: number; json: unknown }>): { fetchIm
   return { fetchImpl, calls };
 }
 
-const BASE = { pageId: '1520409424715591', psid: 'psid_1', labelName: 'Хүн хариулах', token: 'tok', graphVersion: 'v21.0' };
+const BASE = { pageId: '1520409424715591', psid: 'psid_1', labelName: 'Ажилтан хариулах', token: 'tok', graphVersion: 'v21.0' };
 
 test('an existing label is found by name and put on the customer: two calls, the token in a header only', async () => {
   const g = fakeGraph([
-    { status: 200, json: { data: [{ id: 'L1', page_label_name: 'Өөр' }, { id: 'L2', page_label_name: 'Хүн хариулах' }] } },
+    { status: 200, json: { data: [{ id: 'L1', page_label_name: 'Өөр' }, { id: 'L2', page_label_name: 'Ажилтан хариулах' }] } },
     { status: 200, json: { success: true } },
   ]);
   const r = await labelThread({ ...BASE, fetchImpl: g.fetchImpl });
@@ -43,11 +43,11 @@ test('a missing label is created once, then attached', async () => {
   ]);
   const r = await labelThread({ ...BASE, fetchImpl: g.fetchImpl });
   assert.deepEqual(r, { outcome: 'labelled', labelId: 'NEW', created: true });
-  assert.deepEqual(g.calls[1]!.body, { page_label_name: 'Хүн хариулах' });
+  assert.deepEqual(g.calls[1]!.body, { page_label_name: 'Ажилтан хариулах' });
 });
 
 test('the label list is paged by cursor, and the name compared in NFC', async () => {
-  const decomposed = 'Хүн хариулах'.normalize('NFD');
+  const decomposed = 'Ажилтан хариулах'.normalize('NFD');
   const g = fakeGraph([
     { status: 200, json: { data: [{ id: 'L1', page_label_name: 'A' }], paging: { cursors: { after: 'C1' }, next: 'https://graph.facebook.com/next' } } },
     { status: 200, json: { data: [{ id: 'L9', page_label_name: decomposed }] } },
@@ -90,7 +90,7 @@ test('the whole label stays inside its budget: a hanging Graph is cut off, never
 const DEPS = (over: Partial<LabelDeps> = {}): LabelDeps & { tokens: number } => {
   const d = {
     tokens: 0,
-    readLabel: async () => 'Хүн хариулах' as string | null | 'unreadable',
+    readLabel: async () => 'Ажилтан хариулах' as string | null | 'unreadable',
     loadToken: async () => { d.tokens += 1; return { ok: true as const, token: 'tok' }; },
     graphVersion: () => 'v21.0',
     ...over,
@@ -128,7 +128,7 @@ test('an unreadable setting, a missing token or no thread is skipped and said, n
 
 test('the token is opened for the channel that sends (an Instagram channel sends through its Page, D-141)', async () => {
   const seen: string[] = [];
-  const g = fakeGraph([{ status: 200, json: { data: [{ id: 'L', page_label_name: 'Хүн хариулах' }] } }, { status: 200, json: { success: true } }]);
+  const g = fakeGraph([{ status: 200, json: { data: [{ id: 'L', page_label_name: 'Ажилтан хариулах' }] } }, { status: 200, json: { success: true } }]);
   const d = DEPS({ loadToken: async (_t, ch) => { seen.push(ch); return { ok: true, token: 'tok' }; }, fetchImpl: g.fetchImpl });
   const r = await labelNeedsPerson(d, { tenantId: 't', provider: 'facebook_page', thread: { ...THREAD, tokenChannelId: 'page-ch' } });
   assert.equal(r.outcome, 'labelled');

@@ -69,15 +69,14 @@ first or the founder resumes by hand. Branded like the reminders (pay button, ba
 **Resume is automatic (founder, 2026-10-02):** once the invoice the pause was for is paid in
 full (QPay, or a bank transfer the founder records), the engine resumes the client and tells
 the founder «resumed after payment» (`engine.ts`, `autoResume`); the Resume button stays for
-exceptions. So the founder's own sentence is true and is used as written.
+exceptions. The founder approved the lines on 2026-10-02 with «Төлбөр баталгаажмагц үйлчилгээ
+сэргэнэ» (true for a recorded bank transfer too, not only QPay).
 
 | Block | Draft |
 |---|---|
 | `billing_pause_subject` | Үйлчилгээ түр зогслоо ({invoice_no}) |
 | `billing_mail_pause_title` | Үйлчилгээ түр зогслоо |
-| `billing_mail_pause_intro` | Сайн байна уу, {client}. / Таны DalaTech-ийн үйлчилгээ төлбөр төлөгдөөгүй тул түр зогслоо. Төлбөрөө төлмөгц үйлчилгээ автоматаар сэргэнэ. Асуулт байвал hello@dalatech.online хаягаар холбогдоно уу. |
+| `billing_mail_pause_intro` | Сайн байна уу, {client}. / Таны DalaTech-ийн үйлчилгээ төлбөр төлөгдөөгүй тул түр зогслоо. Төлбөр баталгаажмагц үйлчилгээ сэргэнэ. Асуулт байвал hello@dalatech.online хаягаар холбогдоно уу. |
 | `billing_pause_body` | The plain-text fallback: the same sentences, the pay link, invoice number, amount, lines, «Хүндэтгэсэн, DalaTech». No due date: it has passed. |
 
-Added to the founder's sentence: the greeting «Сайн байна уу, {client}.», as in every other
-billing e-mail. Until signed, no pause e-mail is sent to a real client; the founder is told once
-that it is held.
+Approved by the founder on 2026-10-02 (subject, heading, greeting, text, plain-text lines).

@@ -637,9 +637,10 @@ test('the pause notice: branded like a reminder; its own unsigned lines never ho
   assert.ok(r.html.includes(esc(all.get('billing_mail_pause_title') as string)) && r.html.includes('>Төлбөр төлөх</a>') && r.html.includes('5000123456'),
     'title, the pay button and the bank box');
   assert.ok(r.text.includes('Матрикс ХХК') && r.text.includes(PAY_URL) && r.text.includes('250,000₮'));
-  // The promise «автоматаар сэргэнэ» is true only because payment resumes the client
-  // (engine.ts autoResume, proven in billing-e2e). No past due date is repeated as a deadline.
-  assert.match(`${all.get('billing_mail_pause_intro')}`, /автоматаар сэргэнэ/u);
+  // «Төлбөр баталгаажмагц үйлчилгээ сэргэнэ» (founder, 2026-10-02) is true because a confirmed
+  // payment resumes the client (engine.ts autoResume, proven in billing-e2e), QPay or a recorded
+  // bank transfer. No past due date is repeated as a deadline.
+  assert.match(`${all.get('billing_mail_pause_intro')}`, /Төлбөр баталгаажмагц үйлчилгээ сэргэнэ/u);
   assert.doesNotMatch(`${all.get('billing_pause_body')}`, /\{due_date\}/u);
   const withoutPause = new Map(all);
   withoutPause.delete('billing_mail_pause_title');

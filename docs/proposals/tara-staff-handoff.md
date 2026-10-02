@@ -35,7 +35,7 @@ customer instead. The founder knows; the database does not.
 
 ### A. Mark the chat in the Page inbox with a label (recommended first step)
 
-The platform adds a Page label (for example «Хүн хариулах») to the customer when a page
+The platform adds a Page label (for example «Ажилтан хариулах») to the customer when a page
 fires. Staff see it on the chat in Meta Business Suite and can filter the inbox by it.
 
 - Customer sees: nothing changes.
