@@ -8,7 +8,7 @@ import { BILLING_BLOCKS, BILLING_BLOCK_KEYS, formatMnt, render, renderLines, typ
 import { parseStaff, propose, teamDiscountPercent, type Phrases } from './amounts.ts';
 import { sendBrevoEmail, sendFounderTelegram, sendResendEmail, textToHtml } from './send.ts';
 import { issuerFromEnv, telHref } from './issuer.ts';
-import { mailReady, MAIL_KEYS, renderMail } from './mail.ts';
+import { esc, mailReady, MAIL_KEYS, MAIL_OPTIONAL_KEYS, renderMail } from './mail.ts';
 import { renderInvoicePdf } from './pdf.ts';
 import { ledgerCsv, retryAt, summaryText, type Account, type Invoice } from './engine.ts';
 import { renderPayPage } from './page.ts';
@@ -281,7 +281,7 @@ test('DONE-TEST: every billing block exists on disk, is NFC, and renders with it
     assert.ok(r.ok, `${key}: ${r.ok ? '' : r.why}`);
     assert.doesNotMatch(r.ok ? r.text : '', /\{[^{}\s]+\}/u, `${key} left a placeholder`);
   }
-  assert.equal(Object.keys(BILLING_BLOCKS).length, 61);
+  assert.equal(Object.keys(BILLING_BLOCKS).length, 64);
 });
 
 // --- amounts --------------------------------------------------------------------------
@@ -572,10 +572,15 @@ test('the branded e-mail is sent only once every block is signed and the issuer 
 test('the branded invoice: button to the short address, the table, the bank transfer, a footer — and no unsubscribe', () => {
   const blocks: Wording = { source: 'signed', blocks: wordingOnDisk() };
   const evil = { displayName: '<script>alert(1)</script> ХХК', contractRef: 'DT-2026/014' };
-  const r = renderMail({ kind: 'invoice', wording: blocks, invoice: invoice({}), account: evil, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: 'https://dala.example.com/brand/dalatech-mark.png' });
+  const r = renderMail({ kind: 'invoice', wording: blocks, invoice: invoice({}), account: evil, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: 'https://dala.example.com/brand/dalatech-wordmark.png' });
   assert.ok(r.ok);
   assert.match(r.html, /<a href="https:\/\/pay\.dalatech\.online\/DT-202610-0001-K7QM2X"[^>]*>Төлбөр төлөх<\/a>/u);
-  assert.ok(r.html.includes('pay.dalatech.online/DT-202610-0001-K7QM2X') && !r.html.includes('https://pay.dalatech.online/DT-202610-0001-K7QM2X</'), 'the address is shown without its scheme');
+  assert.equal((r.html.match(/>Төлбөр төлөх<\/a>/gu) ?? []).length, 1, 'exactly one pay button');
+  assert.ok(r.html.includes(`>${PAY_URL}</a>`), 'the raw address is shown once, as the small fallback line under the button');
+  assert.ok(r.html.includes('src="https://dala.example.com/brand/dalatech-wordmark.png"') && r.html.includes('alt="DalaTech"'), 'the wordmark heads the e-mail');
+  assert.match(r.html, /<div style="display:none;[^"]*">Нэхэмжлэх[^<]*250,000₮/u, 'a hidden preheader is the inbox line');
+  assert.ok(r.html.includes('dalatech.online') && r.html.includes('mailto:hello@dalatech.online'), 'the footer says who sent it');
+  assert.ok(r.text.includes('DalaTech · dalatech.online') && r.text.includes('hello@dalatech.online'));
   assert.ok(r.html.includes('5000123456') && r.html.includes('DT-2026/014') && r.html.includes('250,000₮') && r.html.includes('2026.10.05'));
   assert.ok(!r.html.includes('<script>alert') && r.html.includes('&lt;script&gt;'), 'the client name is escaped');
   assert.doesNotMatch(`${r.html}\n${r.text}`, /unsubscribe|эрүүл|<img[^>]+(?:track|pixel)/iu);
@@ -590,6 +595,38 @@ test('the branded invoice: button to the short address, the table, the bank tran
   broken.set('billing_mail_closing', 'Асуух зүйл: {nope}');
   const refused = renderMail({ kind: 'invoice', wording: { source: 'signed', blocks: broken }, invoice: invoice({}), account: evil, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: '' });
   assert.ok(!refused.ok && refused.why.includes('{nope}'));
+});
+
+test('Ора\'s layout: the unsigned footer and fallback lines are left out, never refused; signed, they show', () => {
+  const all = wordingOnDisk();
+  const without = new Map(all);
+  for (const k of MAIL_OPTIONAL_KEYS) without.delete(k);
+  const args = { kind: 'invoice' as const, invoice: invoice({}), account: { displayName: 'Матрикс ХХК', contractRef: null }, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: 'https://dala.example.com/brand/dalatech-wordmark.png' };
+  const bare = renderMail({ ...args, wording: { source: 'signed', blocks: without } });
+  assert.ok(bare.ok, bare.ok ? '' : bare.why);
+  for (const k of MAIL_OPTIONAL_KEYS) {
+    const line = all.get(k) as string;
+    assert.ok(!bare.html.includes(esc(line)) && !bare.text.includes(line), `${k} is left out while unsigned`);
+  }
+  assert.ok(bare.html.includes(`>${PAY_URL}</a>`) && bare.text.includes('DalaTech · dalatech.online · hello@dalatech.online'), 'the raw link and the sender still show');
+  assert.deepEqual(mailReady({ source: 'signed', blocks: without }, { ok: true }), { ok: true }, 'the optional lines never hold the branded e-mail back');
+  const full = renderMail({ ...args, wording: { source: 'signed', blocks: all } });
+  assert.ok(full.ok);
+  for (const k of MAIL_OPTIONAL_KEYS) assert.ok(full.html.includes(esc(all.get(k) as string)), `${k} shows once signed`);
+  const broken = new Map(all);
+  broken.set('billing_mail_footer_why', 'DalaTech {nope}');
+  const refused = renderMail({ ...args, wording: { source: 'signed', blocks: broken } });
+  assert.ok(!refused.ok && refused.why.includes('{nope}'), 'a signed optional line that breaks its placeholders refuses like any block');
+  // Built like Ора's: one layout table, inline styles, a dark-mode stylesheet, no remote font or script.
+  assert.ok(full.html.includes('prefers-color-scheme: dark') && full.html.includes('max-width:560px'));
+  assert.doesNotMatch(full.html, /fonts\.googleapis|<script|<link /u);
+  // Without an https mark the name is written instead of a broken image.
+  const noLogo = renderMail({ ...args, logoUrl: '', wording: { source: 'signed', blocks: all } });
+  assert.ok(noLogo.ok && !noLogo.html.includes('<img') && noLogo.html.includes('>DalaTech</span>'));
+  const receipt = renderMail({ ...args, kind: 'receipt', invoice: invoice({ status: 'paid', paidSumMnt: 250000, paidAt: new Date('2026-10-03T04:00:00Z') }), wording: { source: 'signed', blocks: all } });
+  assert.ok(receipt.ok && !receipt.html.includes(PAY_URL) && !receipt.html.includes(esc(all.get('billing_mail_fallback_link') as string)), 'a receipt has no button and no fallback line');
+  assert.ok(receipt.ok && receipt.html.includes('5000123456') && receipt.text.includes('5000123456') && receipt.text.includes('Б. Билгүүн'), 'a receipt still names the account the money went to');
+  assert.ok(full.html.includes('<!--[if mso]><table role="presentation" width="560"'), 'Outlook gets a fixed width');
 });
 
 test('the PDF invoice: one A4 page in the brand fonts, with the short address as a link; too many lines refuse', async () => {

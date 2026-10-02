@@ -95,6 +95,11 @@ export const BILLING_BLOCKS = {
   billing_line_months: { required: ['label', 'months'], optional: [] },
   billing_line_team_discount: { required: ['count', 'percent'], optional: [] },
   billing_line_annual_free: { required: ['months'], optional: [] },
+  // 2026-10-02: Ора's e-mail layout (`mail.ts`). Optional parts of the e-mail: while one is
+  // not signed, a client's e-mail leaves it out rather than refusing (MAIL_OPTIONAL_KEYS).
+  billing_mail_fallback_link: { required: [], optional: [] },
+  billing_mail_footer_why: { required: [], optional: [] },
+  billing_mail_footer_contact_label: { required: [], optional: [] },
 } as const satisfies Record<string, Spec>;
 
 export type BillingBlockKey = keyof typeof BILLING_BLOCKS;

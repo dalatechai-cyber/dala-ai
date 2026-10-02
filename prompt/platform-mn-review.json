@@ -200,6 +200,24 @@
       "reviewed_at": "2026-09-28"
     },
     {
+      "block_id": "billing_mail_fallback_link",
+      "sha256": "1175b21210adf0e95336f98281f837d77adc379206168716a5b8bba9817ae5cd",
+      "reviewed_by": "Bilguun (approved in chat 2026-10-02)",
+      "reviewed_at": "2026-10-03"
+    },
+    {
+      "block_id": "billing_mail_footer_contact_label",
+      "sha256": "2b4ba03eb5c865d6cb00ff69b358e682f811d4d3a3ca0bd8277c4ad802aa1684",
+      "reviewed_by": "Bilguun (approved in chat 2026-10-02)",
+      "reviewed_at": "2026-10-03"
+    },
+    {
+      "block_id": "billing_mail_footer_why",
+      "sha256": "dd0ddb0b2719b1274f7e16f2659f4acd6dd8751b916d84297c697a88b0c1ac5b",
+      "reviewed_by": "Bilguun (approved in chat 2026-10-02)",
+      "reviewed_at": "2026-10-03"
+    },
+    {
       "block_id": "billing_mail_invoice_intro",
       "sha256": "ac7b62c62afed75bf003a01e29925e1cc57b14220492b3d8724485be9e3a917c",
       "reviewed_by": "Bilguun",

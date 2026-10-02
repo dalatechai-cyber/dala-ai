@@ -104,6 +104,17 @@ Until all four are done, invoices keep going out as the plain e-mail and Telegra
 
 Contract numbers are printed when the account has one: `billing_accounts.contract_ref`.
 
+**One e-mail design for DalaTech (2026-10-02).** The four client e-mails use Ора's approved
+layout (`ora` repo, `src/lib/server/mail-templates.ts`): the DalaTech wordmark
+(`public/brand/dalatech-wordmark.png`, served from this deployment) above a white card, a navy
+heading and «Төлбөр төлөх» button, the raw address only as a small fallback line, a hidden
+inbox preview line, a plain-text twin, a dark-mode stylesheet, and the footer «DalaTech |
+dalatech.online | hello@dalatech.online». Amounts, invoice numbers, the bank box and the PDF
+are unchanged. Three new lines are unsigned drafts (`prompt/drafts/billing/README.md`); a real
+client's e-mail leaves them out until they are signed. See them with fake data, no database:
+`node scripts/billing/preview.ts --out /tmp/mail` (add `--signed-only` for what a client gets
+today).
+
 ## Going live — your approval of the first real run
 
 For each client: `node scripts/billing/account.ts propose --tenant <slug> --name "<legal name>" --email <…> --staff "<staff>=<monthly>" … --start <first month>`,

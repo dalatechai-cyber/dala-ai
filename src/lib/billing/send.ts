@@ -16,8 +16,10 @@
  *
  * `hello@dalatech.online` is on the DKIM/SPF-authenticated apex domain, the sender Core
  * Language uses (its CLAUDE.md: Brevo accepts a send from an unauthenticated domain with a
- * 2xx and drops it). That address has no inbox, so every billing e-mail carries
- * `Reply-To: BILLING_FOUNDER_EMAIL` — a client who answers an invoice reaches the founder.
+ * 2xx and drops it). Since 2026-10-01 it receives mail: ImprovMX forwards it to the founder's
+ * DalaTech inbox (founder, 2026-10-02), which is why the e-mail footer may name it. Every
+ * billing e-mail still carries `Reply-To: BILLING_FOUNDER_EMAIL`, so a client who answers an
+ * invoice reaches the founder directly.
  *
  * ## Brevo or Resend (0070)
  *

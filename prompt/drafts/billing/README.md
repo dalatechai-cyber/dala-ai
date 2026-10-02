@@ -41,3 +41,21 @@ reads as one phrase.
 
 Dates and amounts are never followed by a case suffix in these drafts («2026.10.05-ны»),
 because the right suffix depends on the number's last word and the platform cannot choose it.
+
+## 2026-10-02: three lines for the e-mail redesign (Ора's layout) — SIGNED 2026-10-02
+
+Approved by the founder in chat on 2026-10-02 and signed (`prompt/platform/`, seed `0077`).
+
+The billing e-mails now share Ора's approved e-mail layout. Three new lines, copied from
+Ора's e-mails (`ora` repo, `docs/WORDING_REVIEW.md` M29, M31, M32) with only Ора's name
+changed to DalaTech's contract:
+
+| Block | Draft | Where it shows |
+|---|---|---|
+| `billing_mail_fallback_link` | Товч ажиллахгүй бол энэ холбоосыг хуулж, хөтөчдөө нээнэ үү: | Small grey line under the pay button, above the raw link (Ора M29) |
+| `billing_mail_footer_why` | Та DalaTech-ийн үйлчилгээний гэрээтэй тул энэ имэйлийг DalaTech илгээв. | Footer under the card: who sent it and why (Ора M31 says «Та Ора-гийн бүртгэлтэй тул…») |
+| `billing_mail_footer_contact_label` | Асуулт байвал: | Footer: «DalaTech \| dalatech.online \| Асуулт байвал: hello@dalatech.online» (Ора M32) |
+
+Until they are signed, a real client's e-mail leaves them out: the raw link is shown under
+the button with no label, and the footer reads «DalaTech | dalatech.online |
+hello@dalatech.online» with no sentence. Nothing else depends on them.
