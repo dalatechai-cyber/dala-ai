@@ -153,3 +153,15 @@ test("Meta's whole error is kept for the log: subcode, type, trace id, user mess
   });
   assert.doesNotMatch(JSON.stringify(r), /tok/u, 'the token never reaches the log');
 });
+
+test('an access token Meta echoes in an error never reaches the log; a long trace header is cut', async () => {
+  const secret = 'EAAGsecretPageToken123';
+  const fetchImpl = (async () => new Response(JSON.stringify({ error: {
+    message: `Malformed access token ${secret}`, error_user_msg: `token ${secret} is invalid`, code: 190,
+  } }), { status: 400, headers: { 'x-fb-trace-id': 'T'.repeat(5000) } })) as unknown as typeof fetch;
+  const r = await labelThread({ ...BASE, token: secret, fetchImpl });
+  const logged = JSON.stringify(r);
+  assert.doesNotMatch(logged, new RegExp(secret, 'u'));
+  assert.match(logged, /Malformed access token \[token\]/u);
+  assert.ok(r.outcome === 'failed' && (r.meta?.fbtraceId ?? '').length === 100);
+});

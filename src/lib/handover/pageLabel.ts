@@ -96,16 +96,19 @@ async function graph(
     try { json = JSON.parse(text); } catch { /* not JSON: classified by status below */ }
     if (res.ok) return { ok: true, json };
     const err = (json as { error?: Record<string, unknown> } | null)?.error;
-    const txt = (v: unknown, n = 500): string | null => (typeof v === 'string' ? v.slice(0, n) : null);
+    // Graph has been seen to repeat the access token inside an error message (a malformed-token
+    // 190), so every string from Meta is redacted before it can reach a log.
+    const clean = (v: string): string => (input.token === '' ? v : v.split(input.token).join('[token]'));
+    const txt = (v: unknown, n = 500): string | null => (typeof v === 'string' ? clean(v).slice(0, n) : null);
     const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
     return {
       ok: false, status: res.status, code: num(err?.['code']),
-      detail: `HTTP ${res.status}${typeof err?.['message'] === 'string' ? `: ${err['message'].slice(0, 200)}` : ''}`,
+      detail: `HTTP ${res.status}${typeof err?.['message'] === 'string' ? `: ${clean(err['message']).slice(0, 200)}` : ''}`,
       ...(err === undefined || err === null ? {} : {
         meta: {
           code: num(err['code']), subcode: num(err['error_subcode']), type: txt(err['type'], 100),
           // The trace id from the body, else Meta's response header.
-          fbtraceId: txt(err['fbtrace_id'], 100) ?? res.headers.get('x-fb-trace-id'),
+          fbtraceId: txt(err['fbtrace_id'], 100) ?? txt(res.headers?.get('x-fb-trace-id'), 100),
           message: txt(err['message']), userTitle: txt(err['error_user_title']), userMessage: txt(err['error_user_msg']),
           isTransient: typeof err['is_transient'] === 'boolean' ? err['is_transient'] : null,
         },
