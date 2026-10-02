@@ -25,9 +25,16 @@ Part 2 billing e-mail redesign to Ора's design. Nothing goes live; Mongolian 
 
 ## Plan / status
 
-- [ ] P1 verify tests (voice, needs-person, ceiling, emoji)
-- [ ] P1 proposal `docs/proposals/tara-staff-handoff.md`
-- [ ] P2 mail.ts to Ора layout; wordmark PNG in `public/brand/`; new lines as drafts
-      (`prompt/drafts/billing/`), rendered only in draft mode until signed
-- [ ] P2 preview artifact + test sends to bilguunbilly0214+billingtest@gmail.com (fake data)
-- [ ] Review (reviewer agent), CI, draft PR, morning report
+- [x] P1 verify: 314 tests pass (voice, needs-person, cap refusal line + page, emoji)
+- [x] P1 proposal `docs/proposals/tara-staff-handoff.md` (evidence: 0/8 paged chats got a staff
+      reply in 24 h; Tara staff replied 22 times in 14 days otherwise)
+- [x] P2 mail.ts in Ора layout; `public/brand/dalatech-wordmark.png`; three drafts in
+      `prompt/drafts/billing/` (left out while unsigned); `scripts/billing/preview.ts`
+- [x] Commit + push; draft PR https://github.com/dalatechai-cyber/dala-ai/pull/274 (subscribed)
+- [ ] Opus reviewer on the billing change (running) -> fix findings
+- [ ] Test sends (fake data) via Gmail MCP to bilguunbilly0214+billingtest@gmail.com, after review
+      fixes; logo from raw.githubusercontent.com on this branch (public repo)
+- [ ] Preview artifact page with screenshots; CI green; morning report (<10 lines)
+
+Open for the founder: no client "pause" e-mail exists (pause is a founder Telegram ask only);
+pick an option in the hand-off proposal; sign the three drafts.
