@@ -148,6 +148,21 @@ only (preflight refuses a preview address without it). Ора's side sets `ORA_P
 this deployment's public origin (`https://api.dalatech.online`). Mark the test account:
 `update billing_accounts set ora_account = true where id = '<test account id>' and is_test;`
 
+**Test done, 2026-10-02.** One real 100₮ payment (`TEST-202610-0006`, the test account
+«Туршилтын харилцагч 2»): one payment recorded, one `ora_pack_paid` event, sent once on the first
+attempt about 4 s after payment, Ора answered `credited`; receipt and ✅ once each. Afterwards
+`ORA_WEBHOOK_URL` points at `https://ora.dalatech.online/api/billing/webhook` and
+`ORA_PREVIEW_BYPASS_SECRET` is gone (Ора revoked it). The three Ора variables stay.
+
+**Decision (founder, 2026-10-02): Ора launches with packs OFF; `BILLING_MODE=live` is NOT tied to
+Ора's launch.** Tara's billing go-live waits on her signed contract, and `BILLING_MODE` is one
+switch for every client. Until then Ора shows «contact DalaTech» instead of the pack button, and
+this platform keeps refusing live pack requests (`live_not_enabled`). Live 49,000₮ packs come
+later, together with client billing go-live: a code change (the live amount and its line, which
+the founder signs; `ORA_BILLING_WEBHOOK_SECRET_LIVE`; preflight asking for the live secret instead
+of the test one), the live Ора billing accounts marked (each needs a tenant row), then
+`BILLING_MODE=live` for everyone at once.
+
 ## Going live — your approval of the first real run
 
 For each client: `node scripts/billing/account.ts propose --tenant <slug> --name "<legal name>" --email <…> --staff "<staff>=<monthly>" … --start <first month>`,
