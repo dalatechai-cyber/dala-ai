@@ -19,6 +19,7 @@ import {
   payPageState, runBillingTick, runInvoiceCallback, toInvoice, type Account, type BillingDeps, type TickReport,
 } from './engine.ts';
 import { issuerFromEnv, type Issuer } from './issuer.ts';
+import { WORDMARK_PATH } from './mail.ts';
 import { linksFor, parsePayRef, payRefMatches, verifyLink } from './links.ts';
 import { actionConfirmPage, actionDonePage, notFoundPage, PAY_CODE_KEYS, renderPayPage, type PageOutcome } from './page.ts';
 import { quickQr } from './qpay.ts';
@@ -50,7 +51,8 @@ export async function deployedDeps(db: SupabaseClient, now: Date, mode: 'test' |
     sendTelegram: (m) => sendFounderTelegram(m),
     founderEmail: founderEmail(),
     issuer: issuerFromEnv(),
-    logoUrl: `${billingOrigin().replace(/\/+$/u, '')}/brand/dalatech-mark.png`,
+    // The e-mail's wordmark (Ора's layout, 2026-10-02); the pay page keeps the square mark.
+    logoUrl: `${billingOrigin().replace(/\/+$/u, '')}${WORDMARK_PATH}`,
     log,
   };
 }

@@ -652,7 +652,7 @@ async function main(): Promise<void> {
   // --- 0070: the branded e-mail, the PDF, the short address; a test account is never live --
   const issuer = { name: 'Б. Билгүүн', phone: '9911 2233', email: 'founder@example.com', bankAccount: '5000123456', bankHolder: 'Б. Билгүүн' };
   const brandedDeps = (now: Date, mode: 'test' | 'live'): BillingDeps => ({
-    ...deps(now, mode), issuer: { ok: true, issuer }, logoUrl: `${ORIGIN}/brand/dalatech-mark.png`,
+    ...deps(now, mode), issuer: { ok: true, issuer }, logoUrl: `${ORIGIN}/brand/dalatech-wordmark.png`,
   });
   const branded = await db.rpc('billing_issue_one_off', {
     p_account: live.accountId, p_key: 'branded-2026-11', p_lines: [{ label: 'Дали — AI хүлээн авагч', amount_mnt: 250000 }], p_amount: 250000,
