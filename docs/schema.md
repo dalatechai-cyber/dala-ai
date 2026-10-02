@@ -280,6 +280,23 @@ partial, one of four tables.
 - **Billing of tenants' own customers** — `0065` invoices DalaTech's clients for DalaTech's
   fee. Nothing here bills a tenant's customers.
 
+### `0082_booking`
+
+**Additive; NOT applied.** In-chat booking and QPay deposit (design
+`docs/proposals/tara-inchat-booking.md`). Six new tables: `booking_config` (one row per tenant,
+`mode` `off`/`test`/`live`, default `off`; no row = off), `booking_sessions` (what a customer has
+chosen; one open per conversation), `booking_holds` (a held, paid or booked time; one active per
+`(calendar_id, starts_at)` by a partial unique index, overlaps refused under a per-calendar
+advisory lock), `booking_invoices` (QPay invoices per hold, claimed before QPay is asked),
+`booking_payments` (append-only, unique on QPay's payment id, with what the money did:
+`applied`, `excess`, `short`, `late_booked`, `late_unbooked`) and `booking_events` (append-only
+audit). Seven functions: `booking_open_session`, `booking_apply_turn` (the session moves and the
+reply is drafted in one transaction; writes `outbound_messages` `kind = 'reply'`),
+`booking_acquire_hold`, `booking_end_hold`, `booking_record_payment`, `booking_mark_booked`,
+`booking_mark_unbooked`. Server-owned, RLS forced, nothing granted to `anon`/`authenticated`. No
+existing row or table changes. A hold row is written by `booking_acquire_hold` only; writing one
+by hand skips the overlap check.
+
 ### `0081_ora_billing`
 
 **Additive; widens two CHECKs.** `billing_accounts.ora_account boolean not null default false`:
