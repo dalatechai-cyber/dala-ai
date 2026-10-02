@@ -54,3 +54,17 @@ forwards (send.ts says it has no inbox) or the footer should show BILLING_FOUNDE
 - [x] Review findings fixed: pause alarm key, label via after(), provider allowlist
       `facebook_page`, report live-only "by report time", lazy graph version, withdraw unsent
       pause notice after a manual resume.
+
+## Round 3 (2026-10-02 night): label stopped, pass-to-inbox proposed
+
+- Label test 19:35 UTC (voice message): Graph refused at `find`, code 2 / subcode 2018344
+  «Privacy ToS not accepted», trace A0K3GdmK-j1yb_g7imf8NCX. Meta's acceptance link is broken
+  (founder: blank inbox, «Cannot convert page_contact_tos to a BigInt»).
+- Founder: stop the label. DalaTech's `needs_person_page_label` set back to NULL and read back;
+  NULL on every tenant.
+- Proposal `docs/proposals/tara-pass-to-inbox.md` (nothing built). Bug report draft for Meta
+  `docs/proposals/meta-support-page-contact-tos.md` (founder sends; one URL placeholder).
+- Tara Page facts: 1,893 deliveries since 2026-09-14, 0 standby, 0 handover events; echo app ids
+  seen 263902037430900 (inbox), 1380702870025418, 1562862634970492. Routing config unknown:
+  founder to read it in Page settings.
+- Model reply confirmed after the Anthropic top-up (19:32 UTC, Sonnet 5, ~$0.035).
