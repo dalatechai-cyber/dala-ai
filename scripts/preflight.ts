@@ -361,6 +361,17 @@ if (present(billingMode)) {
             rows.push(`  ${bad} ${name}\n           Ора's packs need ${ORA_NEEDS.join(', ')} together${name === 'ORA_WEBHOOK_URL' ? ' (an https address)' : ' (≥32 characters)'}`);
           } else rows.push(`  ok       ${name}  (${name === 'ORA_WEBHOOK_URL' ? v : `${v!.length} characters`})`);
         }
+        // Ора's preview is behind Vercel Authentication: without the bypass every event is a 401.
+        const oraUrl = process.env['ORA_WEBHOOK_URL'] ?? '';
+        const bypass = process.env['ORA_PREVIEW_BYPASS_SECRET'];
+        if (/^https:\/\/[^/?#]+\.vercel\.app\//u.test(oraUrl)) {
+          if (!present(bypass)) {
+            failures += 1;
+            rows.push('  MISSING  ORA_PREVIEW_BYPASS_SECRET\n           ORA_WEBHOOK_URL is a Vercel preview (behind Vercel Authentication): Ора\'s «Protection Bypass for Automation» secret');
+          } else rows.push(`  ok       ORA_PREVIEW_BYPASS_SECRET  (${bypass.length} characters; sent to the preview only)`);
+        } else if (present(bypass)) {
+          rows.push('  unused   ORA_PREVIEW_BYPASS_SECRET\n           ORA_WEBHOOK_URL is not a *.vercel.app preview, so it is never sent; remove it');
+        }
       }
     }
   }

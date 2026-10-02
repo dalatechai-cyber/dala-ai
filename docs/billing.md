@@ -141,7 +141,11 @@ the pack once per event id. Code: `src/lib/billing/ora.ts`.
 Environment (Production), all three or none (preflight refuses half):
 `ORA_PLATFORM_SECRET` (the same value as Ора's), `ORA_WEBHOOK_URL` (Ора's
 `/api/billing/webhook`, the preview's while testing), `ORA_BILLING_WEBHOOK_SECRET_TEST` (the
-value of Ора's Vault secret `ora_billing_webhook_test`). Mark the test account:
+value of Ора's Vault secret `ora_billing_webhook_test`). While `ORA_WEBHOOK_URL` is Ора's
+`*.vercel.app` preview (behind Vercel Authentication), also `ORA_PREVIEW_BYPASS_SECRET`: Ора's
+«Protection Bypass for Automation» secret, sent as `x-vercel-protection-bypass` to that address
+only (preflight refuses a preview address without it). Ора's side sets `ORA_PLATFORM_URL` to
+this deployment's public origin (`https://api.dalatech.online`). Mark the test account:
 `update billing_accounts set ora_account = true where id = '<test account id>' and is_test;`
 
 ## Going live — your approval of the first real run

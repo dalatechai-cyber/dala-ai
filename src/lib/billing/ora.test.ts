@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  deliverOraEvent, eventForDelivery, ORA_TEST_PACK, oraPackOrder, oraSignatureValid, packPaidEvent, runOraPackInvoiceJob, signOra,
+  bypassAllowed, deliverOraEvent, eventForDelivery, ORA_TEST_PACK, oraPackOrder, oraSignatureValid, packPaidEvent, runOraPackInvoiceJob, signOra,
 } from './ora.ts';
 
 const SECRET = 'ora-platform-secret-for-unit-tests-0000';
@@ -170,4 +170,21 @@ test('delivering: signed body; 200 sent with Ора\'s outcome; 401/422 terminal
   for (const s of [500, 503, 429, 408]) assert.equal((await deliverOraEvent(endpoint, { body: stored, isTest: true }, at, answer(s, {}))).outcome, 'retry', String(s));
   const dead = (async () => { throw new TypeError('fetch failed'); }) as typeof fetch;
   assert.equal((await deliverOraEvent(endpoint, { body: stored, isTest: true }, at, dead)).outcome, 'retry');
+});
+
+test('the Vercel bypass header goes to an https *.vercel.app preview only, never to Ора\'s own domain', async () => {
+  const stored = packPaidEvent({ invoiceId: 'inv-1', invoiceNo: 'TEST-202610-0007', accountId: ACCOUNT, order: ORDER, amountMnt: 100, isTest: true });
+  const headers: Array<string | null> = [];
+  const fetchImpl = (async (_u: unknown, init?: RequestInit) => {
+    headers.push(new Headers(init?.headers).get('x-vercel-protection-bypass'));
+    return new Response('{"ok":true,"outcome":"credited"}', { status: 200 });
+  }) as typeof fetch;
+  const preview = 'https://ora-git-x-bilguuns-projects.vercel.app/api/billing/webhook';
+  await deliverOraEvent({ url: preview, secret: 'w'.repeat(40), bypass: 'BYPASS' }, { body: stored, isTest: true }, new Date(), fetchImpl);
+  await deliverOraEvent({ url: 'https://ora.dalatech.online/api/billing/webhook', secret: 'w'.repeat(40), bypass: 'BYPASS' }, { body: stored, isTest: true }, new Date(), fetchImpl);
+  await deliverOraEvent({ url: 'https://vercel.app.evil.example/api/billing/webhook', secret: 'w'.repeat(40), bypass: 'BYPASS' }, { body: stored, isTest: true }, new Date(), fetchImpl);
+  await deliverOraEvent({ url: preview, secret: 'w'.repeat(40) }, { body: stored, isTest: true }, new Date(), fetchImpl);
+  assert.deepEqual(headers, ['BYPASS', null, null, null]);
+  assert.equal(bypassAllowed('http://x.vercel.app/a'), false);
+  assert.equal(bypassAllowed('https://x.vercel.app.evil.com/a'), false);
 });

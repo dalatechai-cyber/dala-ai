@@ -277,6 +277,14 @@ test('BILLING_MODE: unset is off and needs nothing; test/live need every billing
   const oraShort = preflight({ ...COMPLETE, BILLING_MODE: 'test', ...billing, ...ora, ORA_BILLING_WEBHOOK_SECRET_TEST: 'short' });
   assert.equal(oraShort.status, 1, oraShort.out);
   assert.match(oraShort.out, /BAD\s+ORA_BILLING_WEBHOOK_SECRET_TEST/);
+  const preview = { ...ora, ORA_WEBHOOK_URL: 'https://ora-git-x-team.vercel.app/api/billing/webhook' };
+  const previewNoBypass = preflight({ ...COMPLETE, BILLING_MODE: 'test', ...billing, ...preview });
+  assert.equal(previewNoBypass.status, 1, previewNoBypass.out);
+  assert.match(previewNoBypass.out, /MISSING\s+ORA_PREVIEW_BYPASS_SECRET/);
+  const previewBypass = preflight({ ...COMPLETE, BILLING_MODE: 'test', ...billing, ...preview, ORA_PREVIEW_BYPASS_SECRET: 'CANARYbypassBBBBBBBBBBBBBBBBBBBB' });
+  assert.equal(previewBypass.status, 0, previewBypass.out);
+  assert.match(previewBypass.out, /ok\s+ORA_PREVIEW_BYPASS_SECRET/);
+  assert.doesNotMatch(previewBypass.out, /CANARYbypass/);
 
   const full = preflight({
     ...COMPLETE, BILLING_MODE: 'live', ...billing, ...issuer, BILLING_EMAIL_VIA: 'resend', RESEND_API_KEY: 're_CANARYresend',

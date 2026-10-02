@@ -173,7 +173,22 @@ export function eventForDelivery(stored: string, at: Date): string {
 }
 
 export type OraEvent = { body: string; isTest: boolean };
-export type OraEndpoint = { url: string; secret: string };
+/**
+ * `bypass`: Vercel's automation-bypass secret for Ора's PREVIEW (`ORA_PREVIEW_BYPASS_SECRET`).
+ * The preview is behind Vercel Authentication, which answers 401 before Ора sees the event.
+ * Sent only to a `*.vercel.app` address, never to Ора's public domain.
+ */
+export type OraEndpoint = { url: string; secret: string; bypass?: string | undefined };
+
+/** Whether the bypass header may go to this address: an https `*.vercel.app` preview only. */
+export function bypassAllowed(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.hostname.endsWith('.vercel.app');
+  } catch {
+    return false;
+  }
+}
 
 const SEND_TIMEOUT_MS = 15_000;
 
@@ -196,7 +211,11 @@ export async function deliverOraEvent(endpoint: OraEndpoint, event: OraEvent, at
   try {
     res = await fetchImpl(endpoint.url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-ora-signature': signOra(endpoint.secret, body) },
+      headers: {
+        'content-type': 'application/json', 'x-ora-signature': signOra(endpoint.secret, body),
+        ...(endpoint.bypass !== undefined && endpoint.bypass !== '' && bypassAllowed(endpoint.url)
+          ? { 'x-vercel-protection-bypass': endpoint.bypass } : {}),
+      },
       body,
       redirect: 'manual',
       cache: 'no-store',
@@ -235,6 +254,6 @@ export function oraEventSender(): (event: OraEvent) => Promise<SendOutcome> {
     if (url === undefined || !url.startsWith('https://') || secret === null) {
       return { outcome: 'retry', detail: `Ора events are not configured (ORA_WEBHOOK_URL and ORA_BILLING_WEBHOOK_SECRET_${event.isTest ? 'TEST' : 'LIVE'})` };
     }
-    return deliverOraEvent({ url, secret }, event, new Date());
+    return deliverOraEvent({ url, secret, bypass: process.env['ORA_PREVIEW_BYPASS_SECRET'] }, event, new Date());
   };
 }
