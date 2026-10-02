@@ -1,6 +1,10 @@
 # How Tara's staff learn that a chat needs a person — options for the founder
 
-Status: **A + D chosen by the founder (2026-10-02); built, switched OFF, not live.** Written
+Status: **A stopped (founder, 2026-10-02 evening): Meta refuses the label API until the Page
+accepts the Page Contact Terms, and Meta's acceptance link is broken. Label NULL on every tenant.
+D is live in the daily report. Fallback [`tara-pass-to-inbox.md`](tara-pass-to-inbox.md) declined; next is a staff routine
+and possibly the manager getting the founder's hand-off alert, founder's call.**
+Earlier: A + D chosen by the founder (2026-10-02); built, switched OFF. Written
 2026-10-02 from the code and the live database (read-only).
 
 **What was built:** `tenants.needs_person_page_label` (`0079`, NULL on every tenant), the label
