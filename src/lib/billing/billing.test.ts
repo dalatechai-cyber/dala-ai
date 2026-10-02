@@ -625,6 +625,8 @@ test('Ора\'s layout: the unsigned footer and fallback lines are left out, nev
   assert.ok(noLogo.ok && !noLogo.html.includes('<img') && noLogo.html.includes('>DalaTech</span>'));
   const receipt = renderMail({ ...args, kind: 'receipt', invoice: invoice({ status: 'paid', paidSumMnt: 250000, paidAt: new Date('2026-10-03T04:00:00Z') }), wording: { source: 'signed', blocks: all } });
   assert.ok(receipt.ok && !receipt.html.includes(PAY_URL) && !receipt.html.includes(esc(all.get('billing_mail_fallback_link') as string)), 'a receipt has no button and no fallback line');
+  assert.ok(receipt.ok && receipt.html.includes('5000123456') && receipt.text.includes('5000123456') && receipt.text.includes('Б. Билгүүн'), 'a receipt still names the account the money went to');
+  assert.ok(full.html.includes('<!--[if mso]><table role="presentation" width="560"'), 'Outlook gets a fixed width');
 });
 
 test('the PDF invoice: one A4 page in the brand fonts, with the short address as a link; too many lines refuse', async () => {

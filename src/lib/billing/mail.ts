@@ -26,6 +26,7 @@ import { billingToday, dottedDay } from './calendar.ts';
 import type { Account, Invoice } from './engine.ts';
 import type { Issuer } from './issuer.ts';
 import { telHref } from './issuer.ts';
+import { EMAIL_SENDER } from './send.ts';
 import { formatMnt, render, type BillingBlockKey, type Wording } from './templates.ts';
 
 export type MailKind = 'invoice' | 'reminder_before' | 'reminder_after' | 'receipt';
@@ -79,7 +80,7 @@ export const MAIL_OPTIONAL_KEYS = [
 ] as const satisfies readonly BillingBlockKey[];
 
 /** Who sends every DalaTech e-mail, as Ора's footer names it. */
-export const MAIL_SENDER = { name: 'DalaTech', site: 'dalatech.online', siteUrl: 'https://dalatech.online', contact: 'hello@dalatech.online' } as const;
+export const MAIL_SENDER = { name: EMAIL_SENDER.name, site: 'dalatech.online', siteUrl: 'https://dalatech.online', contact: EMAIL_SENDER.email } as const;
 
 /** The wordmark above the card: `public/brand/dalatech-wordmark.png`, 420×120, shown at 140×40. */
 export const WORDMARK_PATH = '/brand/dalatech-wordmark.png';
@@ -192,7 +193,12 @@ export function renderMail(input: MailInput): RenderedMail {
       [t('billing_label_payer'), account.displayName],
       [t('billing_label_issued_on'), dottedDay(inv.issuedOn)],
       ...(receipt
-        ? [[t('billing_label_paid_on'), inv.paidAt === null ? '' : dottedDay(billingToday(inv.paidAt))] as [string, string]]
+        ? [
+          [t('billing_label_paid_on'), inv.paidAt === null ? '' : dottedDay(billingToday(inv.paidAt))] as [string, string],
+          // The account the money went to, as the pre-2026-10-02 footer showed it on receipts.
+          [t('billing_label_account'), issuer.bankAccount] as [string, string],
+          [t('billing_label_holder'), issuer.bankHolder] as [string, string],
+        ]
         : [[t('billing_page_due'), dottedDay(inv.dueOn)] as [string, string]]),
     ];
     const totalLabel = receipt ? t('billing_label_paid_amount') : t('billing_label_total');
@@ -289,6 +295,7 @@ export function renderMail(input: MailInput): RenderedMail {
 ${preheader}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="page" style="background:${C.page};">
   <tr><td class="outer" align="center" style="padding:32px 16px;">
+    <!--[if mso]><table role="presentation" width="560" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
       <tr><td style="padding:0 4px 18px 4px;">${logo}</td></tr>
       <tr><td class="card" style="background:#FFFFFF;border:1px solid ${C.line};border-radius:16px;padding:36px 36px 28px 36px;">
@@ -316,6 +323,7 @@ ${preheader}
         </p>
       </td></tr>
     </table>
+    <!--[if mso]></td></tr></table><![endif]-->
   </td></tr>
 </table>
 </body>
