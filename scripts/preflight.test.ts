@@ -258,6 +258,25 @@ test('BILLING_MODE: unset is off and needs nothing; test/live need every billing
   const badOrigin = preflight({ ...COMPLETE, BILLING_MODE: 'test', ...billing, BILLING_PAY_ORIGIN: 'https://pay.example.com/x' });
   assert.equal(badOrigin.status, 1, badOrigin.out);
   assert.match(badOrigin.out, /BAD\s+BILLING_PAY_ORIGIN/);
+  // 0081: Ора's three together or none; the secrets are never printed.
+  const ora = {
+    ORA_PLATFORM_SECRET: 'CANARYoraplatformPPPPPPPPPPPPPPPPPPPPPP', ORA_WEBHOOK_URL: 'https://ora.example.com/api/billing/webhook',
+    ORA_BILLING_WEBHOOK_SECRET_TEST: 'CANARYorawebhookWWWWWWWWWWWWWWWWWWWWWWW',
+  };
+  const oraFull = preflight({ ...COMPLETE, BILLING_MODE: 'test', ...billing, ...ora });
+  assert.equal(oraFull.status, 0, oraFull.out);
+  assert.match(oraFull.out, /ok\s+ORA_BILLING_WEBHOOK_SECRET_TEST/);
+  assert.doesNotMatch(oraFull.out, /CANARYora/);
+  const oraHalf = preflight({ ...COMPLETE, BILLING_MODE: 'test', ...billing, ORA_PLATFORM_SECRET: ora.ORA_PLATFORM_SECRET });
+  assert.equal(oraHalf.status, 1, oraHalf.out);
+  assert.match(oraHalf.out, /MISSING\s+ORA_WEBHOOK_URL/);
+  assert.match(oraHalf.out, /MISSING\s+ORA_BILLING_WEBHOOK_SECRET_TEST/);
+  const oraHttp = preflight({ ...COMPLETE, BILLING_MODE: 'test', ...billing, ...ora, ORA_WEBHOOK_URL: 'http://ora.example.com/api/billing/webhook' });
+  assert.equal(oraHttp.status, 1, oraHttp.out);
+  assert.match(oraHttp.out, /BAD\s+ORA_WEBHOOK_URL/);
+  const oraShort = preflight({ ...COMPLETE, BILLING_MODE: 'test', ...billing, ...ora, ORA_BILLING_WEBHOOK_SECRET_TEST: 'short' });
+  assert.equal(oraShort.status, 1, oraShort.out);
+  assert.match(oraShort.out, /BAD\s+ORA_BILLING_WEBHOOK_SECRET_TEST/);
 
   const full = preflight({
     ...COMPLETE, BILLING_MODE: 'live', ...billing, ...issuer, BILLING_EMAIL_VIA: 'resend', RESEND_API_KEY: 're_CANARYresend',

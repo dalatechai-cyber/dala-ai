@@ -46,6 +46,7 @@ import type { IssuerOutcome } from './issuer.ts';
 import type { Links } from './links.ts';
 import { mailReady, renderMail } from './mail.ts';
 import { renderInvoicePdf } from './pdf.ts';
+import { oraPackOrder, packPaidEvent, type OraEvent } from './ora.ts';
 import type { QpayPort } from './qpay.ts';
 import type { EmailMessage, SendOutcome, TelegramMessage } from './send.ts';
 import {
@@ -66,6 +67,11 @@ export type BillingDeps = {
   draftsForTest?: Wording;
   sendEmail: (m: EmailMessage) => Promise<SendOutcome>;
   sendTelegram: (m: TelegramMessage) => Promise<SendOutcome>;
+  /**
+   * Ора's signed events (0081, `ora.ts`). Absent: an event waits in the outbox, retried, and
+   * the founder is told if it never goes.
+   */
+  sendOraEvent?: (m: OraEvent) => Promise<SendOutcome>;
   /** Where the monthly ledger CSV is e-mailed. Null: Telegram only. */
   founderEmail: string | null;
   /**
@@ -247,7 +253,7 @@ async function openPauses(deps: BillingDeps): Promise<Map<string, { id: string; 
 type Planned = {
   dedupKey: string;
   kind: string;
-  channel: 'email' | 'telegram';
+  channel: 'email' | 'telegram' | 'webhook';
   recipient: string;
   subject?: string;
   body: string;
@@ -869,7 +875,11 @@ async function plan(deps: BillingDeps, today: string, report: TickReport, only?:
     const account = accounts.get(inv.accountId);
     if (account === undefined) { report.problems.push(`invoice ${inv.invoiceNo} has no readable account`); continue; }
 
-    if (inv.status === 'open') {
+    // An Ора pack (0081): the owner is on the pay page already and Ора cancels an order not
+    // paid within a day, so an unpaid pack is never e-mailed, reminded or paused over.
+    const oraOrder = oraPackOrder(inv.periodKey);
+
+    if (inv.status === 'open' && oraOrder === null) {
       const text = await planClientMessage(deps, report, inv, account, 'invoice',
         { subject: 'billing_invoice_subject', body: 'billing_invoice_body' }, true);
       // With no e-mail on file the founder already received the text to forward; a copy of
@@ -957,6 +967,18 @@ async function plan(deps: BillingDeps, today: string, report: TickReport, only?:
       }, report);
     }
 
+    if (inv.status === 'paid' && oraOrder !== null) {
+      // Ора credits the pack on this one signed event, once per payment: one row per invoice
+      // (the dedup key), and Ора counts its `id` once however often it arrives (0081).
+      await enqueue(deps, {
+        dedupKey: `ora_pack_paid:${inv.id}`, kind: 'ora_pack_paid', channel: 'webhook', recipient: 'ora',
+        isTest: inv.isTest, accountId: account.id, invoiceId: inv.id,
+        body: packPaidEvent({
+          invoiceId: inv.id, invoiceNo: inv.invoiceNo, accountId: account.id, order: oraOrder, amountMnt: inv.amountMnt, isTest: inv.isTest,
+        }),
+      }, report);
+    }
+
     if (inv.status === 'paid') {
       const receipt = await planClientMessage(deps, report, inv, account, 'receipt',
         { subject: 'billing_receipt_subject', body: 'billing_receipt_body' }, false,
@@ -1002,7 +1024,8 @@ export function summaryText(input: {
   const name = (i: Invoice) => input.accounts.get(i.accountId)?.displayName ?? i.accountId;
   const inMonth = input.invoices.filter((i) => monthOf(i.issuedOn) === input.month || i.status === 'open' || i.status === 'mismatch');
   const paid = inMonth.filter((i) => i.status === 'paid' && monthOf(i.issuedOn) === input.month);
-  const open = inMonth.filter((i) => i.status === 'open');
+  // An unpaid Ора pack is an order the owner did not complete, not money owed (0081).
+  const open = inMonth.filter((i) => i.status === 'open' && oraPackOrder(i.periodKey) === null);
   const mismatch = inMonth.filter((i) => i.status === 'mismatch');
   const outstanding = [...open, ...mismatch].reduce((s, i) => s + Math.max(0, i.amountMnt - i.paidSumMnt), 0);
   const late = (i: Invoice) => {
@@ -1133,6 +1156,8 @@ async function sweep(deps: BillingDeps, report: TickReport): Promise<void> {
   }
 }
 
+const notConfigured = async (): Promise<SendOutcome> => ({ outcome: 'retry', detail: 'Ора events are not configured on this deployment' });
+
 export function retryAt(now: Date, attempts: number): Date | null {
   const delay = RETRY_DELAYS_MIN[attempts - 1];
   return delay === undefined ? null : new Date(now.getTime() + delay * 60_000);
@@ -1150,7 +1175,10 @@ async function sendDue(deps: BillingDeps, report: TickReport): Promise<void> {
     for (const d of claimed) {
       const id = str(d['id']);
       const kind = str(d['kind']);
-      const sent = str(d['channel']) === 'email'
+      const channel = str(d['channel']);
+      const sent = channel === 'webhook'
+        ? await (deps.sendOraEvent ?? notConfigured)({ body: str(d['body']), isTest: d['is_test'] === true })
+        : channel === 'email'
         ? await deps.sendEmail({
           to: str(d['recipient']), subject: str(d['subject']), text: str(d['body']),
           ...(typeof d['html_body'] === 'string' && d['html_body'] !== '' ? { html: d['html_body'] } : {}),
@@ -1182,7 +1210,17 @@ async function sendDue(deps: BillingDeps, report: TickReport): Promise<void> {
         report.problems.push(`could not record the result of ${kind} ${id}: ${finErr.message}`);
         continue;
       }
-      if (sent.outcome === 'sent') { report.sent += 1; continue; }
+      if (sent.outcome === 'sent') {
+        report.sent += 1;
+        // Paid, and Ора did not credit it (a fifth pack this month, or an order already paid):
+        // the money is the founder's to refund (ora docs/PAYMENTS.md, the runbook).
+        if (kind === 'ora_pack_paid' && (sent.providerMessageId === 'ora:over_limit' || sent.providerMessageId === 'ora:already_paid')) {
+          await problem(deps, `ora_not_credited:${id}`,
+            `Ора received a paid pack but did NOT credit it (${sent.providerMessageId.slice(4)}). Refund it from the QPay merchant app; event ${id}.`,
+            d['is_test'] === true, report);
+        }
+        continue;
+      }
       if (next !== null) { report.retrying += 1; continue; }
       report.failed += 1;
       deps.log('error', 'billing.send_failed', { id, kind, detail: sent.detail });

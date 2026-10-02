@@ -348,6 +348,20 @@ if (present(billingMode)) {
           rows.push('  BAD      BILLING_PAY_ORIGIN\n           must be an https origin with no path, e.g. https://pay.dalatech.online');
         } else rows.push(`  ok       BILLING_PAY_ORIGIN  (${payOrigin})`);
       }
+      // Ора's packs (0081): all three or none. Half set, Ора's invoice requests or the paid
+      // events would fail every time with nothing at deploy to say why.
+      const ORA_NEEDS = ['ORA_PLATFORM_SECRET', 'ORA_WEBHOOK_URL', 'ORA_BILLING_WEBHOOK_SECRET_TEST'];
+      const oraSet = ORA_NEEDS.filter((n) => present(process.env[n]));
+      if (oraSet.length > 0) {
+        for (const name of ORA_NEEDS) {
+          const v = process.env[name];
+          const bad = !present(v) ? 'MISSING ' : name === 'ORA_WEBHOOK_URL' ? (/^https:\/\/[^/?#]+\/[^?#]*$/u.test(v) ? '' : 'BAD     ') : v.length < 32 ? 'BAD     ' : '';
+          if (bad !== '') {
+            failures += 1;
+            rows.push(`  ${bad} ${name}\n           Ора's packs need ${ORA_NEEDS.join(', ')} together${name === 'ORA_WEBHOOK_URL' ? ' (an https address)' : ' (≥32 characters)'}`);
+          } else rows.push(`  ok       ${name}  (${name === 'ORA_WEBHOOK_URL' ? v : `${v!.length} characters`})`);
+        }
+      }
     }
   }
 }
