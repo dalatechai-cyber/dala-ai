@@ -25,7 +25,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { NEEDS_PERSON_ALERT_KIND } from './needsPerson.ts';
 
 export type NeedsPersonSummary =
-  | { ok: true; byTenant: Array<{ tenant: string; chats: number; answered: number }>; capped: boolean }
+  | { ok: true; byTenant: Array<{ tenant: string; chats: number; answered: number; notCounted?: number }>; capped: boolean }
   | { ok: false; detail: string };
 
 /** More pages than this in one day is not a day to count precisely: the line says ≥. */
@@ -89,21 +89,30 @@ export async function readNeedsPersonLoop(
         if (c['delivery_mode'] === 'live') live.add(String(c['id']));
       }
     }
-    for (const id of ids) if (!live.has(channelOf.get(id) ?? '')) first.delete(id);
-    const tenantIds = [...new Set([...first.values()].map((v) => v.tenantId))];
+    // Left out, but never silently: a chat whose channel is not live NOW (or whose row is gone)
+    // is named as not counted, so «none» means no page at all.
+    const notCounted = new Map<string, number>();
+    for (const id of ids) {
+      if (live.has(channelOf.get(id) ?? '')) continue;
+      const t = first.get(id)?.tenantId ?? '';
+      notCounted.set(t, (notCounted.get(t) ?? 0) + 1);
+      first.delete(id);
+    }
+    const tenantIds = [...new Set([...[...first.values()].map((v) => v.tenantId), ...notCounted.keys()])];
     const names = new Map<string, string>();
     if (tenantIds.length > 0) {
       const { data: ts, error: tErr } = await db.from('tenants').select('id, display_name').in('id', tenantIds);
       // A name that cannot be read is printed as the id, never dropped.
       if (!tErr) for (const t of Array.isArray(ts) ? ts as Array<Record<string, unknown>> : []) names.set(String(t['id']), String(t['display_name'] ?? t['id']));
     }
-    const per = new Map<string, { chats: number; answered: number }>();
+    const per = new Map<string, { chats: number; answered: number; notCounted?: number }>();
     for (const [id, v] of first) {
       const cur = per.get(v.tenantId) ?? { chats: 0, answered: 0 };
       cur.chats += 1;
       if (answered.has(id)) cur.answered += 1;
       per.set(v.tenantId, cur);
     }
+    for (const [t, n] of notCounted) per.set(t, { ...(per.get(t) ?? { chats: 0, answered: 0 }), notCounted: n });
     return {
       ok: true, capped: rows.length >= MAX_ALERTS,
       byTenant: [...per].map(([id, v]) => ({ tenant: names.get(id) ?? id, ...v })),
@@ -120,5 +129,6 @@ export function needsPersonLine(s: NeedsPersonSummary): string {
   const at = s.capped ? '≥' : '';
   // By count, then by name in code-point order (D-026): never locale collation.
   const ordered = [...s.byTenant].sort((x, y) => y.chats - x.chats || (x.tenant < y.tenant ? -1 : x.tenant > y.tenant ? 1 : 0));
-  return `Chats that needed a person (yesterday): ${ordered.map((r) => `${r.tenant} ${at}${r.chats}, staff replied to ${r.answered} by report time`).join('; ')}`;
+  return `Chats that needed a person (yesterday): ${ordered.map((r) => `${r.tenant} ${at}${r.chats}, staff replied to ${r.answered} by report time`
+    + ((r.notCounted ?? 0) > 0 ? `, ${r.notCounted} not counted (channel not live)` : '')).join('; ')}`;
 }

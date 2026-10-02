@@ -66,10 +66,11 @@ test('a tenant name that cannot be read is printed as its id, never dropped', as
   assert.match(needsPersonLine(s), new RegExp(`${T} 1, staff replied to 0 by report time`, 'u'));
 });
 
-test('a chat on a channel that is not live is left out: a staff reply could not be seen there', async () => {
+test('a chat on a channel that is not live is not counted, and the line says so', async () => {
   const s = await readNeedsPersonLoop(fakeDb({
     alerts: [alert('c1', 'handoff', '2026-10-01T02:00:00Z')], conversations: [{ id: 'c1', channel_id: 'sh' }],
     tenant_channels: [{ id: 'sh', delivery_mode: 'shadow' }],
   }), { since: 'a', until: 'b' });
-  assert.equal(needsPersonLine(s), 'Chats that needed a person (yesterday): none');
+  assert.equal(needsPersonLine(s), 'Chats that needed a person (yesterday): 00000000-0000-0000-0000-00000000000a 0, staff replied to 0 by report time, 1 not counted (channel not live)',
+    'left out, but never silently: «none» is kept for a day with no page at all');
 });
