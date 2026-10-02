@@ -271,6 +271,46 @@ if (present(sectionUrl)) {
   }
 }
 
+// ---- In-chat booking (docs/proposals/tara-inchat-booking.md): optional, complete or refused --
+//
+// Unset BOOKING_MODE is `off`: nothing runs for any tenant. `test` or `live` needs every
+// variable the booking ports read (`src/lib/booking/live.ts`), so a half-configured deploy
+// fails here rather than leaving a customer at a pay button that cannot be paid.
+const bookingMode = process.env['BOOKING_MODE'];
+if (present(bookingMode)) {
+  if (bookingMode !== 'off' && bookingMode !== 'test' && bookingMode !== 'live') {
+    failures += 1;
+    rows.push('  BAD      BOOKING_MODE\n           must be exactly off, test or live');
+  } else {
+    rows.push(`  ok       BOOKING_MODE  (${bookingMode}${bookingMode === 'live' ? ' — tenants whose booking_config is live book in chat' : ''})`);
+    if (bookingMode !== 'off') {
+      const BOOKING_NEEDS: Record<string, string> = {
+        DALA_PUBLIC_URL: 'the origin of every deposit page and QPay callback',
+        BOOKING_LINK_SECRET: 'signs deposit page and callback links',
+        SUPABASE_SECRET_BOOKING: 'the booking surfaces\' own database key',
+        GOOGLE_SERVICE_ACCOUNT_EMAIL: 'the stylists\' calendars',
+        GOOGLE_PRIVATE_KEY: 'the stylists\' calendars',
+        QPAY_USERNAME: 'QPay', QPAY_PASSWORD: 'QPay', QPAY_TERMINAL_ID: 'QPay',
+      };
+      for (const [name, why] of Object.entries(BOOKING_NEEDS)) {
+        const v = process.env[name];
+        if (!present(v)) {
+          failures += 1;
+          rows.push(`  MISSING  ${name}\n           required because BOOKING_MODE=${bookingMode}: ${why}`);
+        } else if (name === 'BOOKING_LINK_SECRET' && v.length < 32) {
+          failures += 1;
+          rows.push(`  BAD      BOOKING_LINK_SECRET\n           ${v.length} characters; at least 32 random ones`);
+        } else if (name === 'SUPABASE_SECRET_BOOKING' && !v.startsWith('sb_secret_')) {
+          failures += 1;
+          rows.push('  BAD      SUPABASE_SECRET_BOOKING\n           expected an sb_secret_… key');
+        } else {
+          rows.push(`  ok       ${name}  (set; required because BOOKING_MODE=${bookingMode})`);
+        }
+      }
+    }
+  }
+}
+
 // ---- Client billing (D-156): optional, and complete or refused -------------------------
 //
 // Unset BILLING_MODE is `off`: the billing surfaces answer "disabled" and nothing else is

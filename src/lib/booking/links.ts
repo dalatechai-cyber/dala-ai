@@ -12,8 +12,8 @@ export type LinkPurpose = 'pay' | 'callback';
 const MIN_SECRET = 32;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 
-export function linkSecret(env: Readonly<Record<string, string | undefined>> = process.env): string | null {
-  const s = env['BOOKING_LINK_SECRET'] ?? '';
+export function linkSecret(raw: string | undefined = process.env['BOOKING_LINK_SECRET']): string | null {
+  const s = raw ?? '';
   return s.length >= MIN_SECRET ? s : null;
 }
 
@@ -36,8 +36,8 @@ export function verifyHold(secret: string, purpose: LinkPurpose, token: string):
 }
 
 /** `https://api.dalatech.online` and the like: the deployment's public origin, no path. */
-export function publicOrigin(env: Readonly<Record<string, string | undefined>> = process.env): string | null {
-  const raw = (env['DALA_PUBLIC_URL'] ?? '').trim();
+export function publicOrigin(value: string | undefined = process.env['DALA_PUBLIC_URL']): string | null {
+  const raw = (value ?? '').trim();
   try {
     const u = new URL(raw);
     return u.protocol === 'https:' ? u.origin : null;

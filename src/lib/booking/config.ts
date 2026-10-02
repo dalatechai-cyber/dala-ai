@@ -19,8 +19,8 @@ import { parseMatcher, type MatcherSpec } from '../gate/match.ts';
 export type BookingMode = 'off' | 'test' | 'live';
 
 /** The platform switch. Unset or anything else: off, for every tenant. */
-export function bookingEnvMode(env: Readonly<Record<string, string | undefined>> = process.env): BookingMode {
-  const v = (env['BOOKING_MODE'] ?? '').trim();
+export function bookingEnvMode(raw: string | undefined = process.env['BOOKING_MODE']): BookingMode {
+  const v = (raw ?? '').trim();
   return v === 'test' || v === 'live' ? v : 'off';
 }
 

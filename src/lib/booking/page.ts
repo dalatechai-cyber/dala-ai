@@ -1,0 +1,130 @@
+/**
+ * The deposit page a customer opens from «Төлбөр төлөх» in Messenger: the QPay QR, one button
+ * per bank app (on a phone, one tap opens the app with the payment filled in), and the
+ * five-minute countdown with «Шинэ QR код авах», exactly as Tara's website shows them.
+ *
+ * Under the tenant's own name, not DalaTech's: the customer is paying the salon. No web font,
+ * no third-party request but QPay's own bank logos. Every word is a signed block; a page whose
+ * words are not all signed is not shown (the flow cannot have started without them).
+ */
+import { esc } from '../billing/page.ts';
+import { formatMnt } from '../billing/templates.ts';
+import { say, WordingError, type BookingWording } from './wording.ts';
+
+export type PageOutcome = { status: number; html: string; contentType?: 'json'; redirect?: true };
+
+export type PageSummary = { tenantName: string; service: string; stylist: string; when: string; amountMnt: number; isTest: boolean };
+
+export type PageView =
+  | { kind: 'code'; summary: PageSummary; qrImage: string; urls: { name: string; logo: string; link: string }[]; secondsLeft: number }
+  | { kind: 'renew'; summary: PageSummary }
+  | { kind: 'wait'; summary: PageSummary }
+  | { kind: 'paid'; summary: PageSummary }
+  | { kind: 'ended'; summary: PageSummary };
+
+const STYLE = `*{box-sizing:border-box}
+body{margin:0;background:#F6F7F9;color:#111827;font-family:Inter,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+header{background:#111827;padding:14px 16px}
+.brand{max-width:520px;margin:0 auto;color:#fff;font-weight:800;font-size:18px}
+main{max-width:520px;margin:0 auto;padding:16px 16px 40px}
+.card{background:#fff;border:1px solid #E5E7EB;border-radius:16px;padding:20px;margin-bottom:12px}
+.eyebrow{margin:0;color:#6B7280;font-size:13px;font-weight:500}
+.line{margin:6px 0 0;font-size:16px;line-height:1.4}
+.label{margin:14px 0 0;color:#6B7280;font-size:13px}
+.amount{margin:2px 0 0;font-size:34px;font-weight:800;font-variant-numeric:tabular-nums}
+h2{margin:0 0 6px;font-size:17px;font-weight:800;text-align:center}
+.muted{color:#6B7280;font-size:14px;line-height:1.5;margin:10px 0 6px}
+.qr{display:block;width:240px;max-width:80%;margin:14px auto 6px;image-rendering:pixelated;border-radius:8px}
+.countdown{text-align:center;font-weight:600;font-size:15px;margin:6px 0 16px;font-variant-numeric:tabular-nums;color:#1D4ED8}
+.note{text-align:center;margin:12px 0 14px;font-size:15px;line-height:1.5}
+.renew{display:block;width:100%;font:inherit;font-size:17px;font-weight:700;padding:15px;border-radius:12px;border:0;background:#1D4ED8;color:#fff;cursor:pointer}
+.banks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}
+.banks a{display:flex;align-items:center;gap:8px;padding:10px;border:1px solid #E5E7EB;border-radius:10px;text-decoration:none;color:#111827;font-size:14px;min-height:48px}
+.banks img{width:28px;height:28px;border-radius:6px;flex:none}
+.test{background:#FFF4D6;color:#7A5200;padding:10px 12px;border-radius:10px;font-size:14px;margin-bottom:12px;font-weight:600}`;
+
+function doc(title: string, brand: string, body: string): string {
+  return `<!DOCTYPE html><html lang="mn"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`
+    + `<meta name="robots" content="noindex"><meta name="color-scheme" content="light"><title>${esc(title)}</title><style>${STYLE}</style></head>`
+    + `<body><header><div class="brand">${esc(brand)}</div></header><main>${body}</main></body></html>`;
+}
+
+/** A deep link QPay could mean: anything but script, data and file schemes. */
+function safeLink(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return !['javascript:', 'data:', 'vbscript:', 'file:'].includes(u.protocol);
+  } catch {
+    return false;
+  }
+}
+
+function jsString(s: string): string {
+  return JSON.stringify(s).replace(/</gu, '\\u003c');
+}
+
+/** `4:59` from seconds. */
+export function clock(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/**
+ * The countdown, and every 4 s the state (`?state=1`, which asks QPay): once the hold is no
+ * longer waiting for payment the page reloads and shows what happened.
+ */
+function script(template: string | null, secondsLeft: number): string {
+  const tick = template === null ? '' : `var t=${jsString(template)},end=Date.now()+${Math.max(0, Math.floor(secondsLeft))}*1000;`
+    + `var c=document.getElementById('qr-countdown'),live=document.getElementById('qr-live'),gone=document.getElementById('qr-expired');`
+    + `function f(s){return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}`
+    + `function tick(){var s=Math.max(0,Math.floor((end-Date.now())/1000));if(c)c.textContent=t.replace('{time}',f(s));`
+    + `if(s<=0){clearInterval(i);if(live)live.style.display='none';if(gone)gone.style.display='block';}}`
+    + `var i=setInterval(tick,1000);tick();`;
+  return `<script>(function(){${tick}`
+    + `function poll(){if(document.hidden)return;fetch(location.pathname+'?state=1',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})`
+    + `.then(function(d){if(d&&d.state&&d.state!=='held')location.replace(location.pathname);}).catch(function(){});}`
+    + `setInterval(poll,4000);})();</script>`;
+}
+
+export function renderBookingPage(view: PageView, w: BookingWording): PageOutcome {
+  try {
+    const s = view.summary;
+    const title = say(w, 'booking_page_title');
+    const head = `${s.isTest ? `<div class="test">${esc(say(w, 'booking_test_prefix'))}</div>` : ''}`
+      + `<div class="card"><p class="eyebrow">${esc(title)}</p>`
+      + `<p class="line">${esc(`${s.service}, ${s.stylist}`)}</p><p class="line">${esc(s.when)}</p>`
+      + `<p class="label">${esc(say(w, 'billing_page_amount'))}</p><div class="amount">${esc(formatMnt(s.amountMnt))}</div></div>`;
+    const renew = `<form method="post"><button class="renew" type="submit">${esc(say(w, 'billing_page_qr_renew'))}</button></form>`;
+    let pay = '';
+    let js = '';
+    if (view.kind === 'code' && view.secondsLeft > 0 && /^[A-Za-z0-9+/=]+$/u.test(view.qrImage)) { // ascii-safe: base64 alphabet
+      const banks = view.urls.filter((u) => safeLink(u.link));
+      const valid = say(w, 'billing_page_qr_valid', { time: clock(view.secondsLeft) });
+      pay = `<div id="qr-live"><h2>${esc(say(w, 'billing_page_scan'))}</h2>`
+        + `<img class="qr" alt="QPay QR" src="data:image/png;base64,${view.qrImage}">`
+        + `<p class="countdown" id="qr-countdown">${esc(valid)}</p>`
+        + (banks.length > 0 ? `<p class="muted">${esc(say(w, 'billing_page_banks'))}</p><div class="banks">${banks.map((u) =>
+          `<a href="${esc(u.link)}">${u.logo.startsWith('https://') ? `<img alt="" src="${esc(u.logo)}">` : ''}<span>${esc(u.name)}</span></a>`).join('')}</div>` : '')
+        + `</div><div id="qr-expired" style="display:none"><p class="note">${esc(say(w, 'billing_page_qr_expired'))}</p>${renew}</div>`;
+      js = script(say(w, 'billing_page_qr_valid', { time: '{time}' }), view.secondsLeft);
+    } else if (view.kind === 'code' || view.kind === 'renew') {
+      pay = `<div id="qr-expired"><p class="note">${esc(say(w, 'billing_page_qr_expired'))}</p>${renew}</div>`;
+      js = script(null, 0);
+    } else if (view.kind === 'wait') {
+      pay = `<div><p class="note">${esc(say(w, 'billing_page_qr_wait'))}</p>${renew}</div>`;
+      js = script(null, 0);
+    } else if (view.kind === 'paid') {
+      pay = `<p class="note">${esc(say(w, 'booking_page_paid'))}</p>`;
+    } else {
+      pay = `<p class="note">${esc(say(w, 'booking_page_ended'))}</p>`;
+    }
+    return { status: 200, html: doc(title, s.tenantName, `${head}<div class="card">${pay}</div>${js}`) };
+  } catch (e) {
+    if (e instanceof WordingError) return { status: 503, html: doc('—', '—', '<div class="card"><p>Service temporarily unavailable.</p></div>') };
+    throw e;
+  }
+}
+
+export function notFoundPage(): PageOutcome {
+  return { status: 404, html: doc('404', '—', '<div class="card"><p>Not found.</p></div>') };
+}

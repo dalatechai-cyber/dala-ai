@@ -43,6 +43,7 @@ let webhookClient: SupabaseClient | undefined;
 let workerClient: SupabaseClient | undefined;
 let privacyClient: SupabaseClient | undefined;
 let billingClient: SupabaseClient | undefined;
+let bookingClient: SupabaseClient | undefined;
 
 /** For the Meta webhook surface: resolution and idempotency only. */
 export function supabaseWebhook(): SupabaseClient {
@@ -83,6 +84,17 @@ export function supabaseBilling(): SupabaseClient {
 }
 
 /**
+ * For in-chat booking's public surfaces: the deposit pay page, QPay's callback and the minute
+ * sweep (`booking/*`). Its own key for billing's reason: two of them are reachable from the
+ * internet by design and they record money, so a leak must be revocable without touching
+ * Messenger. The reception worker's own step of the flow uses the worker's key.
+ */
+export function supabaseBooking(): SupabaseClient {
+  bookingClient ??= serviceClient(required('SUPABASE_SECRET_BOOKING'));
+  return bookingClient;
+}
+
+/**
  * For `scripts/publish/tenant.ts`, the operator command that compiles and publishes a
  * tenant's configuration.
  *
@@ -110,4 +122,5 @@ export function __resetClientsForTests(): void {
   workerClient = undefined;
   privacyClient = undefined;
   billingClient = undefined;
+  bookingClient = undefined;
 }
