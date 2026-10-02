@@ -270,6 +270,12 @@ export class FakeGoogle {
       this.afterInsert?.(calId, ev);
       return json(200, wire(ev));
     }
+    if (eventId !== null && method === 'GET') {
+      // One event, as Google answers it (a cancelled one too, with its status); the website reads these.
+      const ev = cal.get(eventId);
+      if (ev === undefined) return json(404, { error: 'notFound' });
+      return json(200, { ...wire(ev), description: ev.description, extendedProperties: { private: ev.privateProps } });
+    }
     if (eventId !== null && method === 'PATCH') {
       const ev = cal.get(eventId);
       if (ev === undefined) return json(404, { error: 'notFound' });

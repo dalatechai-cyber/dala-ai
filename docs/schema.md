@@ -285,7 +285,7 @@ partial, one of four tables.
 **Additive; NOT applied.** In-chat booking and QPay deposit (design
 `docs/proposals/tara-inchat-booking.md`). Six new tables: `booking_config` (one row per tenant,
 `mode` `off`/`test`/`live`, default `off`; no row = off), `booking_sessions` (what a customer has
-chosen; one open per conversation), `booking_holds` (a held, paid or booked time; one active per
+chosen; one open per conversation; `followed_up_at` marks the one «Цаг захиалах уу?»), `booking_holds` (a held, paid or booked time; one active per
 `(calendar_id, starts_at)` by a partial unique index, overlaps refused under a per-calendar
 advisory lock), `booking_invoices` (QPay invoices per hold, claimed before QPay is asked),
 `booking_payments` (append-only, unique on QPay's payment id, with what the money did:

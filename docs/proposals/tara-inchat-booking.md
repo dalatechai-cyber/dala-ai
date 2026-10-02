@@ -41,12 +41,21 @@ The people who ask are asking exactly the question a calendar answers.
    stylist, a man a man).
 4. **Stylist**: each stylist of that gender with their level («Оюунаа · Мастер»), plus «any
    Мастер» and «any 1-р зэрэг». The level sets the deposit.
-5. **Day**: the next open days that have at least one free start for that service (closed
-   days and closures skipped).
-6. **Time**: the free starts that day, read from the stylists' real Google Calendars, a start
-   only if the whole service fits before closing (the website's rule).
-7. **Name and phone** (typed; the phone must be 8 digits), then **the deposit agreement**,
-   Tara's own sentence from the website, with «Зөвшөөрч байна».
+5. **When**: Дали asks «{service} — хэзээ, хэдэн цагт ирэх вэ?», with the days that still have
+   a free start as buttons. The customer can tap a day or type it in words: «маргааш 2 цагт»,
+   «10 сарын 15-нд 14:00», «баасан гарагт оройн 6», Latin «margaash 14 tsagt»
+   (`src/lib/booking/when.ts`; «2» means 14:00 only when the salon is shut at 2 and open at 14).
+   A day and time already in the first message («маргааш 14 цагт цаг авъя») is used without
+   asking again.
+6. **Дали checks and offers**: the stylists' real Google Calendars and every hold are read at
+   that moment. The asked time is free: «…, 14:00 сул байна» with the six times around it. It is
+   taken: «Уучлаарай, …, 14:00 цаг захиалгатай байна» with the six nearest free times. The day
+   has nothing: «… сул цаг алга» and the next day that has time. A start is offered only if the
+   whole service fits before closing (the website's rule). Typing another hour or day at this
+   point checks again.
+7. **Name and phone** (typed; the phone must be 8 digits), then **the summary**: service,
+   stylist, day, time, the deposit, and Tara's own deposit sentence from the website, with one
+   button, «Зөвшөөрч, захиалах». Nothing is held and no QR exists before this tap.
 8. Дали holds the time and sends **one message with a «Төлбөр төлөх» button**: the summary and
    the deposit (Мастер 20,000₮, 1-р зэрэг 10,000₮: Tara's rule, see "Rules reused"). The
    button opens a page with the QPay QR and one button per bank app; on a phone one tap opens
@@ -57,6 +66,11 @@ The people who ask are asking exactly the question a calendar answers.
    address.
 10. Not paid in time: the hold is released, the QPay invoice cancelled, and Дали says so once,
     politely, offering to start again.
+11. **Quiet on the offered times**: ten minutes after the times were offered with no answer,
+    Дали asks once «Цаг захиалах уу?» with the times read fresh from the calendar (a time the
+    website took meanwhile is gone). Never twice, and never once the chat has idled out (30
+    minutes). A button from before the follow-up still means the time it showed: buttons carry
+    the time itself, not their position in the list.
 
 Any typed message that is not an answer to the current question leaves the flow before the
 hold (the normal Дали answers it); after the hold the payment still completes on its own.
@@ -111,6 +125,15 @@ taken" note and alerts on Telegram (its existing PR #77 behaviour). **No double 
 way**; the loser is a refund. The change request that would make the website hold too is
 `docs/proposals/matrix-website-booking-holds.md` (not done here: that repo is read-only for
 this work).
+
+**Proven against the website's own code** (`scripts/verify/booking-e2e.ts` section 16, run with
+`MATRIX_WEBSITE=<checkout>`; CI has no checkout and prints SKIPPED). The website's real
+`/available-slots` route and its real paid-booking writer, pointed at the same calendar the chat
+uses: a chat hold at 12:00 removes 12:00 from the website at once; a website customer who pays
+for that 12:00 anyway is refused by the website (no second booking) and the salon is alerted
+with their phone; a time the website books is never offered in the chat; and for a whole day
+the chat and the website offer exactly the same times. Run 2026-10-02 against matrix_website
+`e1f1f4e`: all pass.
 
 ## Switches (all off)
 

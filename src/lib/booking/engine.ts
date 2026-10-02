@@ -169,30 +169,40 @@ export async function notify(ports: BookingPorts, hold: Hold, event: string, bod
     return 'failed';
   }
   if (drafted.row.state === 'sent') return 'already';
-  const channel = await channelFor(ports, hold.tenantId, hold.channelId, hold.psid);
+  return deliverDrafted(ports, { tenantId: hold.tenantId, channelId: hold.channelId, psid: hold.psid }, drafted.row.id, { holdId: hold.id, event }, extras);
+}
+
+/**
+ * Send one drafted booking message to its customer: the channel must deliver to them (live, or a
+ * tester in shadow), the row is claimed so it goes out once, then the worker's own send.
+ */
+export async function deliverDrafted(ports: BookingPorts, to: { tenantId: string; channelId: string; psid: string }, outboundId: string,
+  logFields: Record<string, unknown>, extras: { quickReplies?: readonly QuickReply[]; linkButtonTitle?: string } = {}): Promise<Notified> {
+  const { db } = ports;
+  const channel = await channelFor(ports, to.tenantId, to.channelId, to.psid);
   if (channel === null) {
-    ports.log('error', 'booking_notify_channel_unreadable', { holdId: hold.id, event });
+    ports.log('error', 'booking_notify_channel_unreadable', logFields);
     return 'failed';
   }
   if (!channel.deliverable) {
-    ports.log('info', 'booking_notify_not_delivering', { holdId: hold.id, event });
+    ports.log('info', 'booking_notify_not_delivering', logFields);
     return 'not_delivering';
   }
-  const held = await claim(db, { id: drafted.row.id, tenantId: hold.tenantId, now: ports.now() });
+  const held = await claim(db, { id: outboundId, tenantId: to.tenantId, now: ports.now() });
   if (held.outcome === 'already_sent') return 'already';
   if (held.outcome !== 'claimed') {
-    ports.log(held.outcome === 'unavailable' ? 'error' : 'info', 'booking_notify_not_claimed', { holdId: hold.id, event, outcome: held.outcome });
+    ports.log(held.outcome === 'unavailable' ? 'error' : 'info', 'booking_notify_not_claimed', { ...logFields, outcome: held.outcome });
     return held.outcome === 'unavailable' ? 'failed' : 'already';
   }
   const sent = await ports.deliver({
-    tenantId: hold.tenantId, channelId: hold.channelId, pageId: channel.pageId, recipientId: hold.psid,
+    tenantId: to.tenantId, channelId: to.channelId, pageId: channel.pageId, recipientId: to.psid,
     outboundId: held.id, body: held.body, attempts: held.attempts, graphVersion: channel.graphVersion,
     ...(channel.tokenChannelId === undefined ? {} : { tokenChannelId: channel.tokenChannelId }),
     ...(extras.quickReplies === undefined ? {} : { quickReplies: extras.quickReplies }),
     ...(extras.linkButtonTitle === undefined ? {} : { linkButtonTitle: extras.linkButtonTitle }),
   });
   if (sent.outcome === 'sent') return 'sent';
-  ports.log('error', 'booking_notify_not_sent', { holdId: hold.id, event, outcome: sent.outcome });
+  ports.log('error', 'booking_notify_not_sent', { ...logFields, outcome: sent.outcome });
   return 'failed';
 }
 

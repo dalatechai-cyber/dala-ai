@@ -4,6 +4,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseBookingConfig, type BookingConfig, type BookingMode } from './config.ts';
+import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import type { Interval } from './slots.ts';
 
 export type Fail = { ok: false; detail: string };
@@ -344,6 +345,50 @@ export async function markNotified(db: SupabaseClient, holdId: string, at: Date)
 export async function markChecked(db: SupabaseClient, holdId: string, at: Date): Promise<Ok<object> | Fail> {
   const { error } = await db.from('booking_holds').update({ last_checked_at: at.toISOString() }).eq('id', holdId);
   return error ? { ok: false, detail: `booking_holds update: ${error.message}` } : { ok: true };
+}
+
+/**
+ * Booking chats waiting on the offered times: silent for at least `afterMinutes`, not yet idle
+ * (`idleMinutes`), never followed up. The customer's own answer moves the step on, so a chat
+ * that answered is not here.
+ */
+export async function sessionsToFollowUp(db: SupabaseClient, now: Date, afterMinutes: number, idleMinutes: number, limit = 20):
+  Promise<Ok<{ sessions: Session[] }> | Fail> {
+  const { data, error } = await db.from('booking_sessions').select('*')
+    .eq('step', 'time').is('closed_at', null).is('followed_up_at', null)
+    .lte('updated_at', new Date(now.getTime() - afterMinutes * 60_000).toISOString())
+    .gt('updated_at', new Date(now.getTime() - idleMinutes * 60_000).toISOString())
+    .order('updated_at').limit(limit);
+  if (error) return { ok: false, detail: `booking_sessions unreadable: ${error.message}` };
+  return { ok: true, sessions: (data ?? []).map(toSession) };
+}
+
+/** The follow-up went out (or was drafted); never again for this chat. A failure only logs: the reply's dedup key still holds. */
+export async function markFollowedUp(db: SupabaseClient, sessionId: string, at: Date): Promise<Ok<object> | Fail> {
+  const { error } = await db.from('booking_sessions').update({ followed_up_at: at.toISOString() }).eq('id', sessionId).is('followed_up_at', null);
+  return error ? { ok: false, detail: `booking_sessions update: ${error.message}` } : { ok: true };
+}
+
+/** The tenant's opening hours and the closures still ahead, read as the reception worker reads them (`reception/load.ts`). */
+export async function readHoursAndClosures(db: SupabaseClient, tenantId: string, localDate: string):
+  Promise<Ok<{ hours: BusinessHours[]; closures: Closure[] }> | Fail> {
+  const [h, c] = await Promise.all([
+    db.from('business_hours').select('weekday, opens, closes, closed').eq('tenant_id', tenantId),
+    db.from('tenant_closures').select('starts_on, ends_on, title, message').eq('tenant_id', tenantId).gte('ends_on', localDate),
+  ]);
+  if (h.error) return { ok: false, detail: `business_hours unreadable: ${h.error.message}` };
+  if (c.error) return { ok: false, detail: `tenant_closures unreadable: ${c.error.message}` };
+  return {
+    ok: true,
+    hours: (h.data ?? []).map((raw) => {
+      const r = rec(raw);
+      return { weekday: Number(r['weekday']), opens: r['opens'] === null ? null : String(r['opens']), closes: r['closes'] === null ? null : String(r['closes']), closed: r['closed'] === true };
+    }),
+    closures: (c.data ?? []).map((raw) => {
+      const r = rec(raw);
+      return { startsOn: String(r['starts_on']), endsOn: String(r['ends_on']), title: String(r['title'] ?? ''), message: String(r['message'] ?? '') };
+    }),
+  };
 }
 
 /** Close a booking session (best-effort by the callers; a session left open closes by idleness). */

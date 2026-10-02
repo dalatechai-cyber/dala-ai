@@ -53,6 +53,8 @@ create table booking_sessions (
   updated_at       timestamptz not null default now(),
   closed_at        timestamptz,
   close_reason     text,
+  -- The one «Цаг захиалах уу?» after the customer went quiet on the offered times.
+  followed_up_at   timestamptz,
   foreign key (tenant_id, conversation_id) references conversations (tenant_id, id) on delete cascade,
   foreign key (tenant_id, channel_id) references tenant_channels (tenant_id, id) on delete cascade,
   constraint booking_session_closed_has_reason check ((closed_at is null) = (close_reason is null))

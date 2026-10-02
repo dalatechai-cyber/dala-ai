@@ -27,8 +27,11 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       Not changed (report): #11 alerts carry name+phone to shared Telegram; #12 preflight cannot see 0082 applied.
 - [x] Re-review of d7fdc32: fixed its 4 findings (paid_unbooked re-tell, notified_at + sweep of untold holds, cancel while QPay down -> Дали answers, invoice marked paid even on duplicate + never cancel a paid invoice). e2e 112.
 - [x] CI green on 14ee5fe (e2e 112 in CI log). Final report delivered.
-- [ ] Review (Opus reviewer), CI green, draft PR, preview link
-- [ ] Final report (<15 lines)
+- [x] Founder follow-up (2026-10-02, later): ask WHEN in words, check, offer nearest times, «okay» -> QR,
+      one follow-up if quiet, Messenger and website never cross. Built: when.ts parser, offerTimes, confirm summary,
+      followUps in the minute sweep, value-carrying button payloads, followed_up_at column (0082, unapplied),
+      e2e section 15 (+22) and 16 (website's OWN code, +8 when MATRIX_WEBSITE set). e2e 142 local.
+- [ ] Opus review of the follow-up diff, CI, push
 
 ## Decisions (with reason)
 1. Deterministic flow, no model: C1/E2 stay true of the model; every line is a signed platform block.
@@ -54,6 +57,19 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
 12. Service buttons: optional short `label` (CICA…); stylist button drops the level when > 20 chars.
 13. Local PostgREST (all versions 11.2–14.1) 400s claim()'s PATCH+or; hosted 200s (edge log). e2e gateway
     drops the lease `or` only (state CAS stays). Documented in booking-e2e.ts `claimShim`.
+15. «When» is asked AFTER the stylist: the free times depend on the service length and the stylist, so the
+    check can answer the moment the customer names a time. A time in the first message is kept and used then.
+16. Offers around an asked time: the 6 nearest free starts, shown in time order; none asked: the first 12.
+17. Name and phone stay between the time and the «okay»: the hold record and the founder's alerts need them;
+    the «okay» is the summary's «Зөвшөөрч, захиалах», and the QR is made on that tap.
+18. Follow-up after 10 min quiet on the offered times, once, re-reading the calendar; only on the times step
+    (the founder asked about the offered times). Chat idles out at 30 min as before.
+19. Button payloads carry the offer's value (`bk:time:<iso>`), not its index: the follow-up re-reads the list.
+20. Weekday names are not read from the FIRST message (a name like «Баасан» is as likely); they are at the
+    when/times steps. A number followed by words («маргааш 2 хүн») is not a time.
+21. The website side is unchanged (brief: no website edits). Its gap stays the change request: it holds
+    nothing while its own QR is open, so a chat customer can take that time first; the website then refuses
+    its paid booking and alerts (proven with its own code, e2e section 16). Never a double booking.
 14. Yaarmag stylists proposed = dala-ai active staff (Оюунаа, Бадмаа, Батзаяа, Уянга, Отгонжаргал); website
     also has Уранчимэг + Ананд (male) -> founder question; men cannot book in chat with that list.
 

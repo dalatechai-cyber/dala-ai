@@ -5,6 +5,7 @@
 import { tenantClock } from '../time/clock.ts';
 import { currentInvoice, dayLabel, settleHold, stylistLabel, sweep, timeLabel, type BookingPorts } from './engine.ts';
 import { verifyHold } from './links.ts';
+import { followUps } from './turn.ts';
 import { notFoundPage, renderBookingPage, type PageOutcome, type PageSummary } from './page.ts';
 import { holdInvoices, readConfig, readHold, readTenantFacts, type Hold } from './store.ts';
 
@@ -76,7 +77,8 @@ export async function runQpayCallback(ports: BookingPorts, token: string): Promi
 
 export async function runSweep(ports: BookingPorts): Promise<{ status: number; body: Record<string, unknown> }> {
   const out = await sweep(ports);
-  return { status: 200, body: out };
+  const asked = await followUps(ports);
+  return { status: 200, body: { ...out, followUps: asked } };
 }
 
 // ---------------------------------------------------------------------------

@@ -7,8 +7,12 @@
  * aside and the ordinary Дали answers it: a customer who changed the subject is never trapped.
  *
  * The steps: service group → service → who it is for (the gender rule) → stylist or «any» of a
- * level → day → time → name → phone → the deposit agreement → hold, invoice, «Төлбөр төлөх».
- * What happens after that is `engine.ts`.
+ * level → WHEN (Дали asks the day and time; the customer types «маргааш 2 цагт» or taps a day)
+ * → the free times nearest to what they asked, read from the real calendar → name → phone →
+ * the summary with the deposit and Tara's terms, «Зөвшөөрч, захиалах» → hold, invoice,
+ * «Төлбөр төлөх». A day and time already named in the first message («маргааш 14 цагт цаг
+ * авъя») is used without asking again. A customer silent on the offered times is asked once
+ * more (`followUps`). What happens after the pay button is `engine.ts`.
  */
 import { replyDedupKey } from '../outbound/claim.ts';
 import { formatMnt } from '../billing/templates.ts';
@@ -21,13 +25,14 @@ import {
   allServices, bookingEnvMode, customerMode, depositFor, entryFires, stylistButton,
   type BookingConfig, type Gender, type Stylist,
 } from './config.ts';
-import { bookingEvent, currentInvoice, dayLabel, expireHold, marked, settleHold, stylistLabel, timeLabel, type BookingPorts } from './engine.ts';
+import { bookingEvent, currentInvoice, dayLabel, deliverDrafted, expireHold, marked, settleHold, stylistLabel, timeLabel, type BookingPorts } from './engine.ts';
 import { payUrl } from './links.ts';
 import { freeStarts, isFree, openDays, type Interval, type OpenDay } from './slots.ts';
 import {
-  acquireHold, activeHolds, applyTurn, closeSessionRow, endHold, openSession, readConfig, readHold, readOpenSession, readTenantFacts,
-  sessionHold, setCalendarState, type Hold, type Session, type TenantFacts,
+  acquireHold, activeHolds, applyTurn, closeSessionRow, endHold, markFollowedUp, openSession, readConfig, readHold, readHoursAndClosures,
+  readOpenSession, readTenantFacts, sessionHold, sessionsToFollowUp, setCalendarState, type Hold, type Session, type TenantFacts,
 } from './store.ts';
+import { hourOn, parseWhen, type Want } from './when.ts';
 import { missingBlocks, say } from './wording.ts';
 
 export type TurnInput = {
@@ -52,8 +57,11 @@ export type TurnResult =
 /** A session idle this long is over (except while a payment is pending). */
 export const SESSION_IDLE_MINUTES = 30;
 
+/** A customer silent this long on the offered times is asked once more (`followUps`). */
+export const FOLLOW_UP_MINUTES = 10;
+
 type Offer = { t: string; v: string };
-type Step = 'group' | 'service' | 'gender' | 'stylist' | 'day' | 'time' | 'name' | 'phone' | 'agree' | 'pay';
+type Step = 'group' | 'service' | 'gender' | 'stylist' | 'when' | 'time' | 'name' | 'phone' | 'agree' | 'pay';
 type Reply = { step: Step; body: string; offers: Offer[]; data: Record<string, unknown>; close: string | null; linkButtonTitle?: string };
 
 const CANCEL = 'bk:cancel';
@@ -97,8 +105,13 @@ export function typedName(text: string): string | null {
   return len >= 1 && len <= 60 && /\p{L}/u.test(t) ? t : null;
 }
 
+/**
+ * A button carries its VALUE, not its place in the list: the offers can change under a button
+ * already on the customer's screen (the follow-up re-reads the calendar), and a tap must still
+ * mean the time it showed, never whatever moved into its position.
+ */
 function quickReplies(step: Step, offers: readonly Offer[], cancelTitle: string): QuickReply[] {
-  return [...offers.map((o, i) => ({ title: o.t, payload: `bk:${step}:${i}` })), { title: cancelTitle, payload: CANCEL }];
+  return [...offers.map((o) => ({ title: o.t, payload: `bk:${step}:${o.v}` })), { title: cancelTitle, payload: CANCEL }];
 }
 
 /** Which offer, if any, this message picks. */
@@ -108,8 +121,9 @@ function picked(session: Session, input: TurnInput, cancelTitle: string): Offer 
   // «Цуцлах», tapped or typed, at every step: typing it is never taken as a name or a phone.
   if (p === CANCEL || sameChoice(input.text, cancelTitle)) return 'cancel';
   if (p !== undefined && p.startsWith(`bk:${session.step}:`)) {
-    const i = Number(p.slice(`bk:${session.step}:`.length));
-    if (Number.isInteger(i) && i >= 0 && i < offers.length) return offers[i] as Offer;
+    const v = p.slice(`bk:${session.step}:`.length);
+    const hit = offers.find((o) => o.v === v);
+    if (hit !== undefined) return hit;
   }
   const typed = offers.find((o) => sameChoice(o.t, input.text));
   if (typed !== undefined) return typed;
@@ -167,37 +181,40 @@ async function busyOn(ports: BookingPorts, calendars: readonly string[], from: D
 
 type Ctx = { ports: BookingPorts; config: BookingConfig; facts: TenantFacts; input: TurnInput; now: Date };
 
-/** Days that still have a start for this service on any of the chosen stylists. Null: calendar unreadable. */
-async function dayOffers(c: Ctx, data: Record<string, unknown>): Promise<Offer[] | null> {
+type DayStarts = { day: OpenDay; starts: Date[] };
+
+/**
+ * Every open day ahead with its free starts for this service on any of the chosen stylists, from
+ * one read of the calendars and the holds. Null: the calendar cannot be read.
+ */
+async function freeByDay(c: Ctx, data: Record<string, unknown>): Promise<DayStarts[] | null> {
   const minutes = Number(data['minutes']);
   const who = candidates(c.config, data);
   const days = openDays({ now: c.now, timezone: c.facts.timezone, daysAhead: c.config.daysAhead, hours: c.input.hours, closures: c.input.closures });
   if (who.length === 0 || days.length === 0) return [];
   const busy = await busyOn(c.ports, who.map((s) => s.calendarId), c.now, (days[days.length - 1] as OpenDay).closesAt);
   if (busy === null) return null;
-  return days.filter((d) => who.some((s) => freeStarts({
-    day: d, minutes, stepMinutes: c.config.slotStepMinutes, now: c.now, minLeadMinutes: c.config.minLeadMinutes, busy: busy.get(s.calendarId) ?? [],
-  }).length > 0)).map((d) => ({ t: dayLabel(c.ports.wording, d.date, c.now, c.facts.timezone), v: d.date }));
+  return days.map((day) => {
+    const starts = new Set<number>();
+    for (const s of who) {
+      for (const t of freeStarts({ day, minutes, stepMinutes: c.config.slotStepMinutes, now: c.now, minLeadMinutes: c.config.minLeadMinutes, busy: busy.get(s.calendarId) ?? [] })) {
+        starts.add(t.getTime());
+      }
+    }
+    return { day, starts: [...starts].sort((a, b) => a - b).map((ms) => new Date(ms)) };
+  });
 }
 
-/** Starts on one day, fresh from the calendar. Null: calendar unreadable. */
-async function timeOffers(c: Ctx, data: Record<string, unknown>): Promise<Offer[] | null> {
-  const minutes = Number(data['minutes']);
-  const who = candidates(c.config, data);
-  const day = openDays({ now: c.now, timezone: c.facts.timezone, daysAhead: c.config.daysAhead, hours: c.input.hours, closures: c.input.closures })
-    .find((d) => d.date === data['date']);
-  if (day === undefined || who.length === 0) return [];
-  const busy = await busyOn(c.ports, who.map((s) => s.calendarId), day.opensAt, day.closesAt);
-  if (busy === null) return null;
-  const starts = new Set<number>();
-  for (const s of who) {
-    for (const t of freeStarts({ day, minutes, stepMinutes: c.config.slotStepMinutes, now: c.now, minLeadMinutes: c.config.minLeadMinutes, busy: busy.get(s.calendarId) ?? [] })) {
-      starts.add(t.getTime());
-    }
-  }
-  return [...starts].sort((a, b) => a - b).slice(0, 12)
-    .map((ms) => ({ t: timeLabel(new Date(ms), c.facts.timezone), v: new Date(ms).toISOString() }));
+/** Minutes after the tenant's local midnight. */
+function minuteOfDay(at: Date, timezone: string): number {
+  const [h, m] = tenantClock(at, timezone).time.split(':').map(Number) as [number, number];
+  return h * 60 + m;
 }
+
+const hhmm = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
+
+/** How many times are offered around the one the customer asked for. */
+const NEAREST = 6;
 
 // ---------------------------------------------------------------------------
 // The steps
@@ -215,14 +232,22 @@ function unavailableReply(c: Ctx, data: Record<string, unknown>): Reply {
   };
 }
 
+/**
+ * The first answer. A day or time the first message already named («маргааш 14 цагт цаг
+ * авъя») is kept and checked once the stylist is known. Weekday names are not read here: in a
+ * first message «Баасан» is as likely the customer's name.
+ */
 function firstQuestion(c: Ctx): Reply {
   const w = c.ports.wording;
+  const local = tenantClock(c.now, c.facts.timezone);
+  const want = parseWhen(c.input.respelled ?? c.input.text, { date: local.date, weekday: local.weekday }, { weekdays: false });
+  const base: Record<string, unknown> = want === null ? {} : { want };
   const groups = c.config.serviceGroups;
   if (groups.length === 1) {
     const g = groups[0] as BookingConfig['serviceGroups'][number];
-    return ask('service', say(w, 'booking_ask_service'), g.services.map((s) => ({ t: s.label, v: s.name })), { group: 0 });
+    return ask('service', say(w, 'booking_ask_service'), g.services.map((s) => ({ t: s.label, v: s.name })), { ...base, group: 0 });
   }
-  return ask('group', say(w, 'booking_ask_service_group'), groups.map((g, i) => ({ t: g.label, v: String(i) })), {});
+  return ask('group', say(w, 'booking_ask_service_group'), groups.map((g, i) => ({ t: g.label, v: String(i) })), base);
 }
 
 function afterService(c: Ctx, data: Record<string, unknown>): Reply {
@@ -236,29 +261,104 @@ function afterService(c: Ctx, data: Record<string, unknown>): Reply {
   return ask('stylist', say(w, 'booking_ask_stylist'), stylistOffers(c.ports, c.config, null), data);
 }
 
-async function afterStylist(c: Ctx, data: Record<string, unknown>): Promise<Reply> {
-  const w = c.ports.wording;
-  const days = await dayOffers(c, data);
-  if (days === null) return unavailableReply(c, data);
-  if (days.length === 0) {
-    const gender = (data['gender'] === 'male' || data['gender'] === 'female') ? data['gender'] as Gender : null;
-    return ask('stylist', say(w, 'booking_no_times'), stylistOffers(c.ports, c.config, gender), data);
-  }
-  return ask('day', say(w, 'booking_ask_day', { service: String(data['service']) }), days, data);
+function noTimes(c: Ctx, data: Record<string, unknown>): Reply {
+  const gender = (data['gender'] === 'male' || data['gender'] === 'female') ? data['gender'] as Gender : null;
+  return ask('stylist', say(c.ports.wording, 'booking_no_times'), stylistOffers(c.ports, c.config, gender), data);
 }
 
-async function afterDay(c: Ctx, data: Record<string, unknown>, lead?: string): Promise<Reply> {
+/**
+ * The stylist is chosen: ask when, with the days that still have a free time as buttons, unless
+ * the customer already named a day or a time (then check it at once).
+ */
+async function afterStylist(c: Ctx, data: Record<string, unknown>): Promise<Reply> {
   const w = c.ports.wording;
-  const times = await timeOffers(c, data);
-  if (times === null) return unavailableReply(c, data);
-  if (times.length === 0) {
-    // The day filled up since it was offered: offer the days again.
-    const back = await afterStylist(c, data);
-    return { ...back, body: say(w, 'booking_slot_taken') };
+  const want = data['want'] as Want | undefined;
+  if (want !== undefined && want !== null) return offerTimes(c, data, want);
+  const all = await freeByDay(c, data);
+  if (all === null) return unavailableReply(c, data);
+  const days = all.filter((d) => d.starts.length > 0) // ascii-safe: counts days, not characters
+    .map((d) => ({ t: dayLabel(w, d.day.date, c.now, c.facts.timezone), v: d.day.date })).slice(0, 12);
+  if (days.length === 0) return noTimes(c, data);
+  return ask('when', say(w, 'booking_ask_when', { service: String(data['service']) }), days, data);
+}
+
+/**
+ * The customer said when. Read the calendar and answer with the free times: the asked time
+ * if it is free, else the nearest ones; the asked day if it has any, else the next day that
+ * does. `lead` (a time just taken) replaces the free / not-free sentence.
+ */
+async function offerTimes(c: Ctx, data: Record<string, unknown>, want: Want, lead?: string): Promise<Reply> {
+  const w = c.ports.wording;
+  const tz = c.facts.timezone;
+  const all = await freeByDay(c, data);
+  if (all === null) return unavailableReply(c, data);
+  const open = all.filter((d) => d.starts.length > 0);
+  if (open.length === 0) return noTimes(c, data);
+
+  const minutesOf = (d: OpenDay): [number, number] => {
+    const midnight = d.opensAt.getTime() - minuteOfDay(d.opensAt, tz) * 60_000;
+    return [(d.opensAt.getTime() - midnight) / 60_000, (d.closesAt.getTime() - midnight) / 60_000];
+  };
+  const target = (d: DayStarts): number | null => hourOn(want, ...minutesOf(d.day));
+  const has = (d: DayStarts, minute: number | null) => minute !== null && d.starts.some((s) => minuteOfDay(s, tz) === minute);
+
+  let pick: DayStarts;
+  let dayFull: string | null = null;
+  if (want.date !== null) {
+    const named = all.find((d) => d.day.date === want.date);
+    if (named !== undefined && named.starts.length > 0) pick = named;
+    else {
+      dayFull = say(w, 'booking_day_full', { date: dayLabel(w, want.date, c.now, tz) });
+      pick = open.find((d) => d.day.date > (want.date as string)) ?? open[0] as DayStarts;
+    }
+  } else if (want.hour !== null) {
+    pick = open.find((d) => has(d, target(d))) ?? open[0] as DayStarts;
+  } else {
+    pick = open[0] as DayStarts;
   }
-  const date = dayLabel(w, String(data['date']), c.now, c.facts.timezone);
-  const body = say(w, 'booking_ask_time', { date });
-  return ask('time', lead === undefined ? body : `${lead}\n${body}`, times, data);
+
+  const date = dayLabel(w, pick.day.date, c.now, tz);
+  const t = target(pick);
+  let starts = pick.starts.slice(0, 12);
+  if (t !== null) {
+    starts = [...pick.starts]
+      .sort((a, b) => Math.abs(minuteOfDay(a, tz) - t) - Math.abs(minuteOfDay(b, tz) - t) || a.getTime() - b.getTime())
+      .slice(0, NEAREST).sort((a, b) => a.getTime() - b.getTime());
+  }
+  let body: string;
+  if (lead !== undefined || dayFull !== null || t === null) {
+    body = [lead, dayFull, say(w, 'booking_ask_time', { date })].filter((x): x is string => x !== undefined && x !== null).join('\n');
+  } else if (has(pick, t)) {
+    body = say(w, 'booking_time_free', { date, time: hhmm(t) });
+  } else {
+    body = say(w, 'booking_time_not_free', { date, time: hhmm(t) });
+  }
+  return ask('time', body, starts.map((ms) => ({ t: timeLabel(ms, tz), v: ms.toISOString() })),
+    { ...data, date: pick.day.date, want: { ...want, date: pick.day.date } });
+}
+
+/** Where a taken time sends the customer back to: that day, nearest to the time they had. */
+function wantAround(data: Record<string, unknown>, tz: string): Want {
+  const start = new Date(String(data['start']));
+  const [h, m] = tenantClock(start, tz).time.split(':').map(Number) as [number, number];
+  return { date: String(data['date']), hour: h, minute: m, afternoon: false };
+}
+
+/** The summary before the hold: what, who, when, how much, Tara's terms, «Зөвшөөрч, захиалах». */
+function confirmQuestion(c: Ctx, session: Session, data: Record<string, unknown>): Reply | null {
+  const w = c.ports.wording;
+  const who = candidates(c.config, data);
+  const first = who[0];
+  const level = first === undefined ? undefined : c.config.levels.find((l) => l.key === first.level);
+  const deposit = first === undefined ? null : depositFor(c.config, first.level, session.isTest);
+  if (first === undefined || level === undefined || deposit === null) return null;
+  const stylist = String(data['stylist']).startsWith('s:') ? stylistLabel(first.label, level.label) : say(w, 'booking_any_of_level', { level: level.label });
+  const start = new Date(String(data['start']));
+  return ask('agree', say(w, 'booking_ask_agreement', {
+    service: String(data['service']), stylist,
+    date: dayLabel(w, tenantClock(start, c.facts.timezone).date, c.now, c.facts.timezone), time: timeLabel(start, c.facts.timezone),
+    amount: formatMnt(deposit), agreement: c.config.agreementText,
+  }), [{ t: say(w, 'booking_agree'), v: 'yes' }], data);
 }
 
 /**
@@ -318,7 +418,7 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
 
   // A time that has started (or is inside the lead time) since it was offered is not taken.
   if (hold === null && start.getTime() < c.now.getTime() + config.minLeadMinutes * 60_000) {
-    return afterDay(c, data, say(w, 'booking_slot_taken'));
+    return offerTimes(c, data, wantAround(data, facts.timezone), say(w, 'booking_slot_taken'));
   }
 
   if (hold === null) {
@@ -357,8 +457,8 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
   }
 
   if (hold === null) {
-    // Every stylist that could have taken it is taken: say so, offer the times left.
-    return afterDay(c, data, say(w, 'booking_slot_taken'));
+    // Every stylist that could have taken it is taken: say so, offer the times left nearest it.
+    return offerTimes(c, data, wantAround(data, facts.timezone), say(w, 'booking_slot_taken'));
   }
 
   const inv = await currentInvoice(ports, hold, config);
@@ -404,17 +504,27 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
   }
   if (step === 'phone') {
     const phone = typedPhone(c.input.text);
-    if (phone !== null) {
-      return ask('agree', say(w, 'booking_ask_agreement', { agreement: c.config.agreementText }), [{ t: say(w, 'booking_agree'), v: 'yes' }], { ...data, phone });
-    }
+    if (phone !== null) return confirmQuestion(c, session, { ...data, phone }) ?? unavailableReply(c, data);
     if (data['missed'] === true) return 'not_mine';
     return { step, body: say(w, 'booking_phone_invalid'), offers: [], data: { ...data, missed: true }, close: null };
+  }
+
+  // When, and the offered times: a typed day or time («маргааш 2 цагт», «16 цаг», «нөгөөдөр»)
+  // is checked against the calendar. At the times, a day left out means the day on offer.
+  if (choice === null && (step === 'when' || step === 'time')) {
+    const local = tenantClock(c.now, c.facts.timezone);
+    const typed = parseWhen(c.input.respelled ?? c.input.text, { date: local.date, weekday: local.weekday })
+      ?? (c.input.respelled === null ? null : parseWhen(c.input.text, { date: local.date, weekday: local.weekday }));
+    if (typed !== null) {
+      return offerTimes(c, data, step === 'time' && typed.date === null ? { ...typed, date: String(data['date']) } : typed);
+    }
   }
 
   if (choice === null) {
     if (data['missed'] === true) return 'not_mine';
     const offers = Array.isArray(data['offers']) ? (data['offers'] as Offer[]) : [];
-    return { step, body: say(w, 'booking_pick_from_list'), offers, data: { ...data, missed: true }, close: null };
+    const again = step === 'when' ? say(w, 'booking_when_again') : say(w, 'booking_pick_from_list');
+    return { step, body: again, offers, data: { ...data, missed: true }, close: null };
   }
 
   switch (step) {
@@ -434,8 +544,8 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
     }
     case 'stylist':
       return afterStylist(c, { ...data, stylist: choice.v });
-    case 'day':
-      return afterDay(c, { ...data, date: choice.v });
+    case 'when':
+      return offerTimes(c, data, { date: choice.v, hour: null, minute: 0, afternoon: false });
     case 'time':
       return ask('name', say(w, 'booking_ask_name'), [], { ...data, start: choice.v });
     case 'agree':
@@ -592,4 +702,75 @@ export async function bookingTurn(ports: BookingPorts, input: TurnInput): Promis
     return r;
   }
   return { handled: false, reason: 'stale' };
+}
+
+/**
+ * The minute sweep's follow-up: a customer who was offered times and has said nothing for
+ * `FOLLOW_UP_MINUTES` is asked once «Цаг захиалах уу?» with the times read fresh from the
+ * calendar (some may have gone meanwhile). Once per booking chat, never after the chat idled out,
+ * never for a customer the flow is not on for. Written through the same versioned turn as a
+ * reply, so a customer answering at the same moment wins and the follow-up is dropped.
+ */
+export async function followUps(ports: BookingPorts): Promise<{ sent: number; skipped: number; failed: number }> {
+  const out = { sent: 0, skipped: 0, failed: 0 };
+  if (bookingEnvMode() === 'off' || missingBlocks(ports.wording).length > 0) return out;
+  const now = ports.now();
+  const due = await sessionsToFollowUp(ports.db, now, FOLLOW_UP_MINUTES, SESSION_IDLE_MINUTES);
+  if (!due.ok) {
+    ports.log('error', 'booking_follow_up_unreadable', { detail: due.detail });
+    out.failed += 1;
+    return out;
+  }
+  for (const session of due.sessions) {
+    try {
+      const r = await followUp(ports, session, now);
+      out[r] += 1;
+    } catch (e) {
+      out.failed += 1;
+      ports.log('error', 'booking_follow_up_threw', { sessionId: session.id, error: e instanceof Error ? e.message : 'error' });
+    }
+  }
+  return out;
+}
+
+async function followUp(ports: BookingPorts, session: Session, now: Date): Promise<'sent' | 'skipped' | 'failed'> {
+  const cfg = await readConfig(ports.db, session.tenantId);
+  if (!cfg.ok) return 'failed';
+  if (!cfg.present || !cfg.valid) return 'skipped';
+  const who = customerMode(bookingEnvMode(), cfg.mode, cfg.config, session.psid);
+  if (!who.on || who.isTest !== session.isTest) return 'skipped';
+  const facts = await readTenantFacts(ports.db, session.tenantId);
+  if (!facts.ok) return 'failed';
+  const local = tenantClock(now, facts.facts.timezone);
+  const hc = await readHoursAndClosures(ports.db, session.tenantId, local.date);
+  if (!hc.ok) return 'failed';
+  const c: Ctx = {
+    ports, config: cfg.config, facts: facts.facts, now,
+    input: {
+      tenantId: session.tenantId, channelId: session.channelId, conversationId: session.conversationId, psid: session.psid,
+      mid: '', text: '', respelled: null, hours: hc.hours, closures: hc.closures,
+    },
+  };
+  const data = { ...session.data };
+  const stored = data['want'] as Want | undefined;
+  const want: Want = { date: String(data['date']), hour: stored?.hour ?? null, minute: stored?.minute ?? 0, afternoon: stored?.afternoon ?? false };
+  const offer = await offerTimes(c, data, want);
+  // No time left to offer, or the calendar cannot be read: say nothing; the chat idles out.
+  if (offer.step !== 'time' || offer.close !== null || offer.offers.length === 0) return 'skipped';
+  const body = marked(ports.wording, session.isTest, `${say(ports.wording, 'booking_follow_up')}\n${offer.body}`);
+  const applied = await applyTurn(ports.db, {
+    tenantId: session.tenantId, session, dedupKey: `booking-followup:${session.id}`, step: 'time',
+    data: { ...offer.data, offerStep: 'time' }, closeReason: null, body,
+  });
+  if (!applied.ok) {
+    ports.log('error', 'booking_follow_up_failed', { sessionId: session.id, detail: applied.detail });
+    return 'failed';
+  }
+  if (applied.turn.outcome === 'stale') return 'skipped';
+  const marked2 = await markFollowedUp(ports.db, session.id, now);
+  if (!marked2.ok) ports.log('error', 'booking_follow_up_mark_failed', { sessionId: session.id, detail: marked2.detail });
+  if (applied.turn.outboundId === null) return 'skipped';
+  const sent = await deliverDrafted(ports, { tenantId: session.tenantId, channelId: session.channelId, psid: session.psid }, applied.turn.outboundId,
+    { sessionId: session.id, event: 'follow_up' }, { quickReplies: quickReplies('time', offer.offers, say(ports.wording, 'booking_cancel')) });
+  return sent === 'sent' ? 'sent' : sent === 'failed' ? 'failed' : 'skipped';
 }
