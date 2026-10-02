@@ -16,7 +16,7 @@ import { callbackUrl, linkSecret, payUrl, publicOrigin, signHold, verifyHold } f
 import { clock, renderBookingPage } from './page.ts';
 import { freeStarts, isFree, openDays } from './slots.ts';
 import { draftWording, FakeGoogle, FakeQpay, TEST_CALENDARS, testConfig } from './testkit.ts';
-import { sameChoice, typedName, typedPhone, typedTime } from './turn.ts';
+import { looksLikeName, sameChoice, typedName, typedPhone, typedTime } from './turn.ts';
 import { BOOKING_BLOCK_KEYS, missingBlocks, say, WordingError } from './wording.ts';
 import { dayLabel } from './engine.ts';
 
@@ -159,6 +159,8 @@ test('a typed time matches a button; a name needs a letter', () => {
   assert.equal(typedName('  Болд  '), 'Болд');
   assert.equal(typedName('12345'), null);
   assert.equal(typedName('Б'.repeat(61)), null);
+  assert.ok(looksLikeName('Болд') && looksLikeName('Б. Сараа'));
+  assert.ok(!looksLikeName('Урьдчилгаа хэд вэ?') && !looksLikeName('би маргааш орой ирж болох уу'));
   assert.ok(sameChoice('маргааш', 'Маргааш'));
   assert.ok(sameChoice('Будаг.', 'Будаг'));
   assert.ok(!sameChoice('Будаг авъя', 'Будаг'));

@@ -10,6 +10,8 @@ import { holdInvoices, readConfig, readHold, readTenantFacts, type Hold } from '
 
 /** New QR codes per hold. The website has no cap; this one stops a page reloaded in a loop from making invoices. */
 export const CODES_PER_HOLD = 6;
+/** How often the pay page's poll may ask QPay about one hold. */
+export const POLL_CHECK_INTERVAL_MS = 15_000;
 
 function summaryOf(ports: BookingPorts, hold: Hold, tenantName: string, timezone: string): PageSummary {
   const date = tenantClock(hold.startsAt, timezone).date;
@@ -24,8 +26,9 @@ export async function runPayPage(ports: BookingPorts, input: { token: string; me
   const holdId = verifyHold(ports.secret, 'pay', input.token);
   if (holdId === null) return notFoundPage();
   if (input.stateOnly) {
-    // The poll: ask QPay now, so a customer who has just paid sees it within seconds.
-    const settled = await settleHold(ports, holdId);
+    // The poll: ask QPay (at most every 15 s per hold, however many pages poll), so a customer
+    // who has just paid sees it within seconds without the shared QPay login being hammered.
+    const settled = await settleHold(ports, holdId, { minCheckIntervalMs: POLL_CHECK_INTERVAL_MS });
     const read = await readHold(ports.db, holdId);
     const state = read.ok && read.hold !== null ? read.hold.state : 'unknown';
     return { status: 200, contentType: 'json', html: JSON.stringify({ state, settled }) };

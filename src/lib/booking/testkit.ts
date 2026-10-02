@@ -63,6 +63,8 @@ export class FakeQpay {
   readonly calls: string[] = [];
   /** Answer the next N `/payment/check` calls with HTTP 500 (QPay down). */
   failChecks = 0;
+  /** Refuse every `DELETE /invoice` (QPay would not cancel). */
+  failCancel = false;
   /** Answer `/payment/check` for these invoice ids with a body the client cannot read. */
   unreadable = new Set<string>();
   private seq = 0;
@@ -118,6 +120,7 @@ export class FakeQpay {
     if (del !== null && method === 'DELETE') {
       const inv = this.invoices.get(decodeURIComponent(del[1] as string));
       if (inv === undefined) return json(404, { error: 'INVOICE_NOTFOUND' });
+      if (this.failCancel) return json(500, { error: 'down' });
       if (inv.status === 'PAID') return json(422, { error: 'INVOICE_PAID' });
       inv.status = 'CANCELLED';
       return json(200, { success: true });

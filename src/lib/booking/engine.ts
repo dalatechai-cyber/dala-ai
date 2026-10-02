@@ -31,7 +31,7 @@ import type { BookingConfig, QpayMerchant } from './config.ts';
 import { callbackUrl, payUrl } from './links.ts';
 import {
   endHold, finishInvoice, claimInvoice, holdInvoices, markBooked, markUnbooked, readConfig, readHold, readTenantFacts,
-  recordPayment, setCalendarState, holdsToSweep, recentlyEnded, logEvent, type Hold, type Invoice, type TenantFacts,
+  recordPayment, setCalendarState, holdsToSweep, holdsWithOpenInvoices, markChecked, closeSessionRow, logEvent, type Hold, type Invoice, type TenantFacts,
 } from './store.ts';
 import { say, type BookingWording } from './wording.ts';
 
@@ -101,7 +101,7 @@ export function bookingEvent(hold: Hold, facts: TenantFacts, kind: 'hold' | 'boo
     `Phone: ${hold.customerPhone}`,
     `Price: ${hold.depositMnt} MNT (${hold.level})`,
     `Duration: ${hold.minutes} min`,
-    `Customer: ${hold.gender === 'female' ? 'Эмэгтэй (female)' : 'Эрэгтэй (male)'}`,
+    `Customer: ${hold.gender === 'female' ? 'Эмэгтэй (female)' : hold.gender === 'male' ? 'Эрэгтэй (male)' : 'not recorded'}`,
     `Deposit terms accepted: ${ub(hold.agreedAt)} (${facts.timezone})`,
     `Agreed: «${hold.agreementText}»`,
     ...(invoiceIds.length > 0 ? [`QPay invoice: ${invoiceIds.join(', ')}`] : []),
@@ -275,10 +275,8 @@ export type SettleOutcome =
 
 /** Close the hold's booking session, best-effort: a session left open is closed by idleness. */
 async function closeSession(ports: BookingPorts, hold: Hold, reason: string): Promise<void> {
-  const { error } = await ports.db.from('booking_sessions')
-    .update({ closed_at: ports.now().toISOString(), close_reason: reason, updated_at: ports.now().toISOString() })
-    .eq('id', hold.sessionId).is('closed_at', null);
-  if (error) ports.log('error', 'booking_session_close_failed', { holdId: hold.id, detail: error.message });
+  const r = await closeSessionRow(ports.db, hold.sessionId, reason, ports.now());
+  if (!r.ok) ports.log('error', 'booking_session_close_failed', { holdId: hold.id, detail: r.detail });
 }
 
 /**
@@ -313,6 +311,9 @@ async function collectPayments(ports: BookingPorts, hold: Hold, config: BookingC
       });
       if (!r.ok) return r;
       if (!r.duplicate) fresh.push({ key: p.key, disposition: r.disposition, amount: p.amountMnt });
+      // An invoice that paid the hold is no longer "open": the sweep stops asking about it (a
+      // second payment on it still arrives by QPay's callback, which asks about every invoice).
+      if (!r.duplicate && r.disposition !== 'short' && inv.state === 'open') await finishInvoice(ports.db, inv.id, { state: 'paid' });
     }
   }
   return { ok: true, fresh };
@@ -375,7 +376,7 @@ async function tellPaidUnbooked(ports: BookingPorts, hold: Hold, facts: TenantFa
  * The one way a hold moves after it is made. Idempotent; safe to call from anywhere, any
  * number of times, concurrently.
  */
-export async function settleHold(ports: BookingPorts, holdId: string): Promise<SettleOutcome> {
+export async function settleHold(ports: BookingPorts, holdId: string, opts: { minCheckIntervalMs?: number } = {}): Promise<SettleOutcome> {
   const read = await readHold(ports.db, holdId);
   if (!read.ok || read.hold === null) {
     ports.log('error', 'booking_hold_unreadable', { holdId, detail: read.ok ? 'no such hold' : read.detail });
@@ -397,10 +398,17 @@ export async function settleHold(ports: BookingPorts, holdId: string): Promise<S
   }
   const config = cfg.config;
 
-  const paid = await collectPayments(ports, hold, config, facts);
+  // The pay page polls every few seconds; QPay is asked at most once per interval per hold.
+  const recently = opts.minCheckIntervalMs !== undefined && hold.lastCheckedAt !== null
+    && ports.now().getTime() - hold.lastCheckedAt.getTime() < opts.minCheckIntervalMs;
+  const paid = recently ? { ok: true as const, fresh: [] } : await collectPayments(ports, hold, config, facts);
   if (!paid.ok) {
     ports.log('warn', 'booking_payments_undetermined', { holdId, detail: paid.detail });
     return 'undetermined';
+  }
+  if (!recently) {
+    const m = await markChecked(ports.db, hold.id, ports.now());
+    if (!m.ok) ports.log('warn', 'booking_mark_checked_failed', { holdId, detail: m.detail });
   }
   for (const f of paid.fresh) {
     ports.log('info', 'booking_payment_recorded', { holdId, disposition: f.disposition, amount: f.amount });
@@ -425,7 +433,12 @@ export async function settleHold(ports: BookingPorts, holdId: string): Promise<S
   if (!again.ok || again.hold === null) return 'unavailable';
   hold = again.hold;
 
-  if (hold.state === 'booked') return 'already_booked';
+  if (hold.state === 'booked') {
+    // Booked by an earlier call that may have died before telling anyone: the confirmation
+    // (keyed, so never twice) and the session's close are repeated until they have happened.
+    if (facts !== null) await confirmBooked(ports, hold, facts, config);
+    return 'already_booked';
+  }
   if (hold.state === 'expired' || hold.state === 'released') return 'ended';
   if (hold.state === 'held') return 'unpaid';
   if (hold.state === 'paid_unbooked') {
@@ -470,6 +483,14 @@ export async function settleHold(ports: BookingPorts, holdId: string): Promise<S
       body: alertBody(hold, facts, 'ℹ️ A deposit arrived after its hold ended; the time was still free and is now booked.', 'Nothing to do.'),
     });
   }
+  await confirmBooked(ports, hold, facts, config);
+  // The other QR codes of this hold can no longer be paid for nothing.
+  await cancelInvoices(ports, hold, config);
+  return 'booked';
+}
+
+/** The confirmation, once (keyed), and the booking chat closed. Safe to repeat. */
+async function confirmBooked(ports: BookingPorts, hold: Hold, facts: TenantFacts, config: BookingConfig): Promise<void> {
   const w = ports.wording;
   const date = tenantClock(hold.startsAt, facts.timezone).date;
   const text = say(w, 'booking_confirmed', {
@@ -477,28 +498,39 @@ export async function settleHold(ports: BookingPorts, holdId: string): Promise<S
     stylist: stylistLabel(hold.staffName, hold.level),
     date: dayLabel(w, date, ports.now(), facts.timezone),
     time: timeLabel(hold.startsAt, facts.timezone),
-    branch: facts.branch,
+    branch: config.branchLabel ?? facts.branch,
     address: facts.address ?? facts.displayName,
   });
   await notify(ports, hold, 'booked', marked(w, hold.isTest, text));
   await closeSession(ports, hold, 'booked');
-  return 'booked';
 }
 
-/** Cancel every QPay invoice of a hold that ended unpaid. Best-effort, logged. */
+/**
+ * Cancel every still-open QPay invoice of a hold (it ended unpaid, or another of its codes paid
+ * it). An invoice QPay would not cancel stays `open`, so the sweep keeps asking about it for a
+ * day, and a person is told once.
+ */
 async function cancelInvoices(ports: BookingPorts, hold: Hold, config: BookingConfig): Promise<void> {
   const inv = await holdInvoices(ports.db, hold.id);
   if (!inv.ok) return;
   const open = inv.invoices.filter((i) => i.state === 'open' && i.qpayInvoiceId !== null);
   if (open.length === 0) return;
   const qpay = ports.qpayFor(config.qpay);
-  if (qpay === null) return;
-  const token = await qpay.token();
-  if (!token.ok) return;
+  const token = qpay === null ? null : await qpay.token();
   for (const i of open) {
-    const r = await qpay.cancelInvoice(token.token, i.qpayInvoiceId as string);
-    if (r.ok) await finishInvoice(ports.db, i.id, { state: 'cancelled' });
-    else ports.log('warn', 'booking_invoice_not_cancelled', { holdId: hold.id, detail: r.detail });
+    const r = qpay === null || token === null || !token.ok
+      ? { ok: false as const, detail: token !== null && !token.ok ? token.detail : 'QPay is not configured' }
+      : await qpay.cancelInvoice(token.token, i.qpayInvoiceId as string);
+    if (r.ok) {
+      await finishInvoice(ports.db, i.id, { state: 'cancelled' });
+      continue;
+    }
+    ports.log('warn', 'booking_invoice_not_cancelled', { holdId: hold.id, detail: r.detail });
+    await ports.alert({
+      tenantId: hold.tenantId, kind: 'booking.invoice_not_cancelled', dedupKey: `booking.invoice_not_cancelled:${i.id}`,
+      body: alertBody(hold, null, `⚠️ A deposit QR code could not be cancelled in QPay (invoice ${i.qpayInvoiceId}).`,
+        'It can still be paid. The platform keeps reading it for a day; a payment on it is recorded and paged.'),
+    });
   }
 }
 
@@ -510,7 +542,8 @@ export async function expireHold(ports: BookingPorts, holdId: string, kind: 'exp
   Promise<'expired' | 'released' | 'paid' | 'not_due' | 'unavailable'> {
   const settled = await settleHold(ports, holdId);
   if (settled === 'booked' || settled === 'already_booked' || settled === 'paid_unbooked' || settled === 'calendar_pending') return 'paid';
-  if (settled === 'undetermined' && kind === 'expired') return 'unavailable';
+  // Nothing is released while QPay (or the tenant's settings) cannot say whether it was paid.
+  if (settled === 'undetermined' || settled === 'unavailable') return 'unavailable';
   const ended = await endHold(ports.db, holdId, kind, reason);
   if (!ended.ok) return 'unavailable';
   if (ended.outcome === 'not_due') return 'not_due';
@@ -540,16 +573,30 @@ export async function expireHold(ports: BookingPorts, holdId: string, kind: 'exp
   return kind;
 }
 
+/** No hold is started after this much of the sweep's run (route maxDuration 120 s). */
+export const SWEEP_BUDGET_MS = 80_000;
+
 /** The minute sweep: unpaid holds past their time, paid holds not yet in the calendar, late payments. */
 export async function sweep(ports: BookingPorts): Promise<{ expired: number; booked: number; pending: number; failed: number }> {
   const out = { expired: 0, booked: 0, pending: 0, failed: 0 };
+  const started = Date.now();
   const due = await holdsToSweep(ports.db, ports.now());
   if (!due.ok) {
     ports.log('error', 'booking_sweep_unreadable', { detail: due.detail });
     out.failed += 1;
     return out;
   }
-  for (const h of due.holds) {
+  // One hold that throws or hangs never stops the others; the rest wait for the next minute.
+  const each = async (h: Hold, run: (h: Hold) => Promise<void>) => {
+    if (Date.now() - started > SWEEP_BUDGET_MS) return;
+    try {
+      await run(h);
+    } catch (e) {
+      out.failed += 1;
+      ports.log('error', 'booking_sweep_hold_threw', { holdId: h.id, error: e instanceof Error ? e.message : 'error' });
+    }
+  };
+  for (const h0 of due.holds) await each(h0, async (h) => {
     if (h.state === 'held') {
       const r = await expireHold(ports, h.id);
       if (r === 'expired') out.expired += 1;
@@ -572,13 +619,14 @@ export async function sweep(ports: BookingPorts): Promise<{ expired: number; boo
       else if (r === 'calendar_pending') out.pending += 1;
       else if (r === 'unavailable' || r === 'undetermined') out.failed += 1;
     }
-  }
-  const ended = await recentlyEnded(ports.db, ports.now());
-  if (ended.ok) {
-    for (const h of ended.holds) {
+  });
+  const ended = await holdsWithOpenInvoices(ports.db, ports.now());
+  if (!ended.ok) ports.log('error', 'booking_sweep_unreadable', { detail: ended.detail });
+  else {
+    for (const h0 of ended.holds) await each(h0, async (h) => {
       const r = await settleHold(ports, h.id);
       if (r === 'booked') out.booked += 1;
-    }
+    });
   }
   return out;
 }

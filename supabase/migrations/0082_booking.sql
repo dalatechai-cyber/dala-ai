@@ -81,7 +81,8 @@ create table booking_holds (
   deposit_mnt      integer not null check (deposit_mnt > 0),
   customer_name    text not null check (customer_name is normalized and length(btrim(customer_name)) > 0),
   customer_phone   text not null check (customer_phone ~ '^[0-9]{8}$'),
-  gender           text not null check (gender in ('female', 'male')),
+  -- Null when the tenant has no gender rule: never recorded as a guess.
+  gender           text check (gender in ('female', 'male')),
   agreed_at        timestamptz not null,
   agreement_text   text not null check (agreement_text is normalized and length(btrim(agreement_text)) > 0),
   state            text not null default 'held'
@@ -96,6 +97,8 @@ create table booking_holds (
   ended_reason     text,
   -- A late payment that re-took the slot. Shown in the confirmation's alert trail only.
   late             boolean not null default false,
+  -- When QPay was last asked about this hold: the pay page's poll asks at most every few seconds.
+  last_checked_at  timestamptz,
   version          integer not null default 0,
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now(),
@@ -121,7 +124,7 @@ create table booking_invoices (
   tenant_id        uuid not null references tenants(id) on delete cascade,
   hold_id          uuid not null,
   amount_mnt       integer not null check (amount_mnt > 0),
-  state            text not null default 'creating' check (state in ('creating', 'open', 'unknown', 'refused', 'cancelled')),
+  state            text not null default 'creating' check (state in ('creating', 'open', 'unknown', 'refused', 'cancelled', 'paid')),
   qpay_invoice_id  text unique,
   qr_text          text,
   qr_image         text,
@@ -130,7 +133,7 @@ create table booking_invoices (
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now(),
   foreign key (tenant_id, hold_id) references booking_holds (tenant_id, id) on delete cascade,
-  constraint booking_invoice_open_has_id check (state not in ('open', 'cancelled') or qpay_invoice_id is not null)
+  constraint booking_invoice_open_has_id check (state not in ('open', 'cancelled', 'paid') or qpay_invoice_id is not null)
 );
 create index booking_invoices_hold on booking_invoices (hold_id, created_at);
 create unique index booking_invoices_tenant_id on booking_invoices (tenant_id, id);
@@ -338,7 +341,8 @@ $$;
 
 -- End a hold that was never paid. `expired` only once its time is up; `released` at any time
 -- (the chat lost a race to the website, or the hold could not be completed). Refuses a hold
--- that has a payment: money is never released by a timer.
+-- that a payment paid: money is never released by a timer. A SHORT payment did not pay it (it
+-- was paged for a refund when recorded), so it does not keep the time held for ever.
 create or replace function public.booking_end_hold(p_hold uuid, p_reason text, p_kind text)
 returns jsonb
 language plpgsql
@@ -352,7 +356,8 @@ begin
   if h.state <> 'held' then
     return jsonb_build_object('outcome', 'not_held', 'state', h.state);
   end if;
-  if exists (select 1 from booking_payments where hold_id = p_hold) then
+  if exists (select 1 from booking_payments where hold_id = p_hold
+               and disposition in ('applied', 'late_booked', 'late_unbooked')) then
     return jsonb_build_object('outcome', 'has_payment', 'state', h.state);
   end if;
   if p_kind = 'expired' and now() < h.expires_at then
@@ -419,7 +424,8 @@ begin
      where calendar_id = h.calendar_id and id <> h.id and state in ('held', 'paid', 'booked')
        and tstzrange(starts_at, ends_at, '[)') && tstzrange(h.starts_at, h.ends_at, '[)')
      limit 1;
-    if clash is null and h.ends_at > now() then
+    -- Only a time that has not started yet can be taken back.
+    if clash is null and h.starts_at > now() then
       disp := 'late_booked';
       next := 'paid';
     else

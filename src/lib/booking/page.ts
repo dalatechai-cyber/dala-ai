@@ -53,7 +53,8 @@ function doc(title: string, brand: string, body: string): string {
 function safeLink(url: string): boolean {
   try {
     const u = new URL(url);
-    return !['javascript:', 'data:', 'vbscript:', 'file:'].includes(u.protocol);
+    // QPay's bank links are app schemes (khanbank://…) or https; nothing that runs or reads locally.
+    return !['javascript:', 'data:', 'vbscript:', 'file:', 'blob:', 'about:', 'http:'].includes(u.protocol);
   } catch {
     return false;
   }

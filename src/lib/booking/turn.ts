@@ -25,7 +25,7 @@ import { bookingEvent, currentInvoice, dayLabel, expireHold, marked, settleHold,
 import { payUrl } from './links.ts';
 import { freeStarts, isFree, openDays, type Interval, type OpenDay } from './slots.ts';
 import {
-  acquireHold, activeHolds, applyTurn, endHold, openSession, readConfig, readHold, readOpenSession, readTenantFacts,
+  acquireHold, activeHolds, applyTurn, closeSessionRow, endHold, openSession, readConfig, readHold, readOpenSession, readTenantFacts,
   sessionHold, setCalendarState, type Hold, type Session, type TenantFacts,
 } from './store.ts';
 import { missingBlocks, say } from './wording.ts';
@@ -81,6 +81,15 @@ export function typedPhone(text: string): string | null {
   return /^\d{8}$/u.test(digits) ? digits : null;
 }
 
+/**
+ * Is this a name rather than a question or a sentence? No question mark, at most four words.
+ * («Урьдчилгаа хэд вэ?» is a question; «Болд» and «Б. Сараа» are names.)
+ */
+export function looksLikeName(text: string): boolean {
+  const t = text.normalize('NFC').trim();
+  return !t.includes('?') && t.split(/\s+/u).filter((x) => x !== '').length <= 4;
+}
+
 /** A name: one to sixty characters with at least one letter. */
 export function typedName(text: string): string | null {
   const t = text.normalize('NFC').trim().replace(/\s+/gu, ' ');
@@ -93,10 +102,11 @@ function quickReplies(step: Step, offers: readonly Offer[], cancelTitle: string)
 }
 
 /** Which offer, if any, this message picks. */
-function picked(session: Session, input: TurnInput): Offer | 'cancel' | null {
+function picked(session: Session, input: TurnInput, cancelTitle: string): Offer | 'cancel' | null {
   const offers = Array.isArray(session.data['offers']) ? (session.data['offers'] as Offer[]) : [];
   const p = input.quickReplyPayload;
-  if (p === CANCEL) return 'cancel';
+  // «Цуцлах», tapped or typed, at every step: typing it is never taken as a name or a phone.
+  if (p === CANCEL || sameChoice(input.text, cancelTitle)) return 'cancel';
   if (p !== undefined && p.startsWith(`bk:${session.step}:`)) {
     const i = Number(p.slice(`bk:${session.step}:`.length));
     if (Number.isInteger(i) && i >= 0 && i < offers.length) return offers[i] as Offer;
@@ -261,13 +271,55 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
   const start = new Date(String(data['start']));
   const minutes = Number(data['minutes']);
   const end = new Date(start.getTime() + minutes * 60_000);
-  const gender = data['gender'] === 'male' ? 'male' as const : 'female' as const;
+  // The tenant's gender rule asked; without the rule nothing is recorded, never a guess.
+  const gender = !config.genderRule ? null : data['gender'] === 'male' ? 'male' as const : 'female' as const;
+
+  /**
+   * Put a database hold into the stylist's calendar (unless it is there already: a redelivered
+   * message reuses its hold), then look again. `clash`: the website or a person wrote into the
+   * time first, so the hold is given back. `fail`: the calendar cannot be used now.
+   */
+  const place = async (h: Hold): Promise<'ok' | 'clash' | 'fail'> => {
+    const id = eventIdForHold(h.id);
+    if (h.calendarState !== 'held') {
+      const put = await ports.calendar.insert(h.calendarId, { id, ...bookingEvent(h, facts, 'hold', []) });
+      if (!put.ok && put.outcome !== 'exists') {
+        await endHold(ports.db, h.id, 'released', `calendar refused the hold: ${put.detail}`);
+        return 'fail';
+      }
+      const marked2 = await setCalendarState(ports.db, h.id, id, 'held');
+      if (!marked2.ok) ports.log('error', 'booking_calendar_state_failed', { holdId: h.id, detail: marked2.detail });
+      h.calendarState = 'held';
+      h.calendarEventId = id;
+    }
+    const ev = await ports.calendar.events(h.calendarId, h.startsAt, h.endsAt, facts.timezone);
+    if (!ev.ok) {
+      await expireHold(ports, h.id, 'released', 'calendar unreadable after the hold');
+      return 'fail';
+    }
+    const clash = ev.events.some((e) => e.blocks && e.id !== id && e.start.getTime() < h.endsAt.getTime() && h.startsAt.getTime() < e.end.getTime());
+    if (clash) {
+      await expireHold(ports, h.id, 'released', 'the calendar had another booking in this time');
+      return 'clash';
+    }
+    return 'ok';
+  };
 
   let hold: Hold | null = null;
-  // A redelivery of this very message: the session already holds a time. Pick it up.
+  // A redelivery of this very message: the session already holds a time. Pick it up, and make
+  // sure the calendar shows it (the first attempt may have died before writing it there).
   const prior = await sessionHold(ports.db, session.id);
   if (!prior.ok) return unavailableReply(c, data);
-  if (prior.hold !== null && prior.hold.state === 'held') hold = prior.hold;
+  if (prior.hold !== null && prior.hold.state === 'held') {
+    const placed = await place(prior.hold);
+    if (placed === 'fail') return unavailableReply(c, data);
+    if (placed === 'ok') hold = prior.hold;
+  }
+
+  // A time that has started (or is inside the lead time) since it was offered is not taken.
+  if (hold === null && start.getTime() < c.now.getTime() + config.minLeadMinutes * 60_000) {
+    return afterDay(c, data, say(w, 'booking_slot_taken'));
+  }
 
   if (hold === null) {
     for (const s of candidates(config, data)) {
@@ -287,35 +339,18 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
       });
       if (!got.ok) return unavailableReply(c, data);
       if (got.acquired.outcome === 'taken') continue;
+      if (got.acquired.outcome === 'no_session') return unavailableReply(c, data);
+      let candidate: Hold;
       if (got.acquired.outcome === 'session_has_hold') {
         const h = await readHold(ports.db, got.acquired.holdId);
         if (!h.ok || h.hold === null) return unavailableReply(c, data);
-        hold = h.hold;
-        break;
+        candidate = h.hold;
+      } else {
+        candidate = got.acquired.hold;
       }
-      if (got.acquired.outcome === 'no_session') return unavailableReply(c, data);
-      // Held in the database. Now in the calendar, where the website sees it.
-      const candidate = got.acquired.hold;
-      const id = eventIdForHold(candidate.id);
-      const put = await ports.calendar.insert(candidate.calendarId, { id, ...bookingEvent(candidate, facts, 'hold', []) });
-      if (!put.ok && put.outcome !== 'exists') {
-        await endHold(ports.db, candidate.id, 'released', `calendar refused the hold: ${put.detail}`);
-        return unavailableReply(c, data);
-      }
-      await setCalendarState(ports.db, candidate.id, id, 'held');
-      candidate.calendarState = 'held';
-      candidate.calendarEventId = id;
-      // The second look: did the website (or a person) write into this time meanwhile?
-      const ev = await ports.calendar.events(candidate.calendarId, start, end, facts.timezone);
-      if (!ev.ok) {
-        await expireHold(ports, candidate.id, 'released', 'calendar unreadable after the hold');
-        return unavailableReply(c, data);
-      }
-      const clash = ev.events.some((e) => e.blocks && e.id !== id && e.start.getTime() < end.getTime() && start.getTime() < e.end.getTime());
-      if (clash) {
-        await expireHold(ports, candidate.id, 'released', 'the calendar had another booking in this time');
-        continue;
-      }
+      const placed = await place(candidate);
+      if (placed === 'fail') return unavailableReply(c, data);
+      if (placed === 'clash') continue;
       hold = candidate;
       break;
     }
@@ -353,22 +388,27 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
   const w = c.ports.wording;
   const data = { ...session.data };
   const step = session.step as Step;
-  const choice = picked(session, c.input);
+  const choice = picked(session, c.input, say(w, 'booking_cancel'));
 
   if (choice === 'cancel') {
     return { step, body: say(w, 'booking_cancelled'), offers: [], data, close: 'cancelled' };
   }
 
-  // Free-text steps.
+  // Free-text steps. Anything that is not a name or a phone is asked again ONCE, then the flow
+  // steps aside so Дали answers it: a question is never stored as a name, never trapped.
   if (step === 'name') {
-    const name = typedName(c.input.text);
-    if (name === null) return ask('name', say(w, 'booking_ask_name'), [], data);
-    return ask('phone', say(w, 'booking_ask_phone'), [], { ...data, name });
+    const name = looksLikeName(c.input.text) ? typedName(c.input.text) : null;
+    if (name !== null) return ask('phone', say(w, 'booking_ask_phone'), [], { ...data, name });
+    if (data['missed'] === true) return 'not_mine';
+    return { step, body: say(w, 'booking_ask_name'), offers: [], data: { ...data, missed: true }, close: null };
   }
   if (step === 'phone') {
     const phone = typedPhone(c.input.text);
-    if (phone === null) return ask('phone', say(w, 'booking_phone_invalid'), [], data);
-    return ask('agree', say(w, 'booking_ask_agreement', { agreement: c.config.agreementText }), [{ t: say(w, 'booking_agree'), v: 'yes' }], { ...data, phone });
+    if (phone !== null) {
+      return ask('agree', say(w, 'booking_ask_agreement', { agreement: c.config.agreementText }), [{ t: say(w, 'booking_agree'), v: 'yes' }], { ...data, phone });
+    }
+    if (data['missed'] === true) return 'not_mine';
+    return { step, body: say(w, 'booking_phone_invalid'), offers: [], data: { ...data, missed: true }, close: null };
   }
 
   if (choice === null) {
@@ -406,12 +446,28 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
 }
 
 /** A message while a payment is pending: settle, and let Дали answer anything else. */
+/**
+ * A message while a payment is pending. Settle first (it may be the message the payment raced).
+ * Only a payment settled BY this message, or a hold this message let expire, is answered by the
+ * push that went out; everything else goes to the ordinary Дали, and a session whose hold is
+ * over is closed so the next message never comes here again.
+ */
 async function duringPay(c: Ctx, session: Session): Promise<TurnResult> {
   const held = await sessionHold(c.ports.db, session.id);
   if (!held.ok) return { handled: false, reason: 'hold_unreadable' };
   const hold = held.hold;
-  const cancel = picked(session, c.input) === 'cancel';
-  if (hold === null) return { handled: false, reason: 'no_hold' };
+  const over = async (reason: string): Promise<TurnResult> => {
+    const r = await closeSessionRow(c.ports.db, session.id, reason, c.now);
+    if (!r.ok) c.ports.log('error', 'booking_session_close_failed', { sessionId: session.id, detail: r.detail });
+    return { handled: false, reason: `booking over (${reason})` };
+  };
+  if (hold === null) return over('no_hold');
+  if (hold.state !== 'held' && hold.state !== 'paid') {
+    // Booked, ended or paid-unbooked earlier: make sure the customer was told, then step aside.
+    if (hold.state === 'booked') await settleHold(c.ports, hold.id);
+    return over(`hold_${hold.state}`);
+  }
+  const cancel = picked(session, c.input, say(c.ports.wording, 'booking_cancel')) === 'cancel';
   if (cancel && hold.state === 'held') {
     const r = await expireHold(c.ports, hold.id, 'released', 'the customer cancelled');
     if (r === 'released') {
@@ -420,12 +476,11 @@ async function duringPay(c: Ctx, session: Session): Promise<TurnResult> {
     return { handled: true, outboundId: null, quickReplies: [], detail: `cancel after payment: ${r}` };
   }
   const r = await settleHold(c.ports, hold.id);
-  if (r === 'booked' || r === 'already_booked' || r === 'paid_unbooked') {
-    return { handled: true, outboundId: null, quickReplies: [], detail: `settled: ${r}` };
-  }
+  if (r === 'booked') return { handled: true, outboundId: null, quickReplies: [], detail: 'settled: booked' };
+  if (r === 'already_booked' || r === 'paid_unbooked' || r === 'ended') return over(`settled_${r}`);
   if (r === 'unpaid' && c.now.getTime() >= hold.expiresAt.getTime()) {
     const e = await expireHold(c.ports, hold.id);
-    return { handled: true, outboundId: null, quickReplies: [], detail: `expired on message: ${e}` };
+    if (e === 'expired') return { handled: true, outboundId: null, quickReplies: [], detail: 'expired on message' };
   }
   return { handled: false, reason: `payment pending (${r})` };
 }

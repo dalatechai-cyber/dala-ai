@@ -18,7 +18,14 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
   - [x] docs/proposals/matrix-website-booking-holds.md (change request)
 - [x] Draft PR https://github.com/dalatechai-cyber/dala-ai/pull/280 (subscribed)
 - [x] Preview artifact https://claude.ai/artifact/93ZE7ihKniDXXhm6gA4ocH (regenerate: scratchpad python from transcript + page renders); Vercel preview dala-ai-git-claude-happy-past-6bccc0-bilguuns-projects-a8563d8e.vercel.app
-- [ ] Opus reviewer re-launched after container restart (first run lost); fix findings; CI green; report
+- [x] Opus review done (2nd run; 1st lost to container restart). Fixed 1-10: confirmation re-sent + session closed on
+      already-booked; name/phone miss-once-then-let-go + typed «Цуцлах»; short payment no longer pins hold (end_hold
+      refuses only applied/late_*); reused hold placed in calendar before invoice; start-in-past refused (+SQL starts_at>now);
+      invoices marked paid, leftovers cancelled after booking, uncancellable QR paged + swept 24 h; expireHold never
+      releases on unavailable; poll throttled 15 s/hold (last_checked_at); sweep per-hold try/catch + 80 s budget;
+      branch_label config; gender null when no rule; stricter bank-link schemes. e2e now 105 checks.
+      Not changed (report): #11 alerts carry name+phone to shared Telegram; #12 preflight cannot see 0082 applied.
+- [ ] CI green on fix push; final report
 - [ ] Review (Opus reviewer), CI green, draft PR, preview link
 - [ ] Final report (<15 lines)
 

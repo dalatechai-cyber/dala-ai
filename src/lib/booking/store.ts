@@ -124,9 +124,9 @@ export type HoldState = 'held' | 'paid' | 'booked' | 'expired' | 'released' | 'p
 export type Hold = {
   id: string; tenantId: string; sessionId: string; conversationId: string | null; channelId: string; psid: string; isTest: boolean;
   calendarId: string; staffName: string; level: string; service: string; minutes: number; startsAt: Date; endsAt: Date;
-  depositMnt: number; customerName: string; customerPhone: string; gender: 'female' | 'male'; agreedAt: Date; agreementText: string;
+  depositMnt: number; customerName: string; customerPhone: string; gender: 'female' | 'male' | null; agreedAt: Date; agreementText: string;
   state: HoldState; expiresAt: Date; calendarEventId: string | null; calendarState: 'none' | 'held' | 'booked' | 'deleted';
-  paidAt: Date | null; late: boolean;
+  paidAt: Date | null; late: boolean; lastCheckedAt: Date | null;
 };
 
 export function toHold(v: unknown): Hold {
@@ -139,11 +139,12 @@ export function toHold(v: unknown): Hold {
     calendarId: String(r['calendar_id']), staffName: String(r['staff_name']), level: String(r['level']),
     service: String(r['service']), minutes: Number(r['minutes']), startsAt: d('starts_at'), endsAt: d('ends_at'),
     depositMnt: Number(r['deposit_mnt']), customerName: String(r['customer_name']), customerPhone: String(r['customer_phone']),
-    gender: r['gender'] === 'male' ? 'male' : 'female', agreedAt: d('agreed_at'), agreementText: String(r['agreement_text']),
+    gender: r['gender'] === 'male' || r['gender'] === 'female' ? r['gender'] : null, agreedAt: d('agreed_at'), agreementText: String(r['agreement_text']),
     state: String(r['state']) as HoldState, expiresAt: d('expires_at'),
     calendarEventId: typeof r['calendar_event_id'] === 'string' ? r['calendar_event_id'] : null,
     calendarState: String(r['calendar_state'] ?? 'none') as Hold['calendarState'],
     paidAt: typeof r['paid_at'] === 'string' ? new Date(r['paid_at']) : null, late: r['late'] === true,
+    lastCheckedAt: typeof r['last_checked_at'] === 'string' ? new Date(r['last_checked_at']) : null,
   };
 }
 
@@ -177,7 +178,7 @@ export async function activeHolds(db: SupabaseClient, calendarIds: readonly stri
 
 export type HoldInput = {
   calendarId: string; staffName: string; level: string; service: string; minutes: number; startsAt: Date; endsAt: Date;
-  depositMnt: number; customerName: string; customerPhone: string; gender: 'female' | 'male'; agreedAt: Date; agreementText: string;
+  depositMnt: number; customerName: string; customerPhone: string; gender: 'female' | 'male' | null; agreedAt: Date; agreementText: string;
 };
 
 export type AcquireOutcome =
@@ -250,7 +251,7 @@ export async function setCalendarState(db: SupabaseClient, holdId: string, event
 }
 
 export type Invoice = {
-  id: string; holdId: string; amountMnt: number; state: 'creating' | 'open' | 'unknown' | 'refused' | 'cancelled';
+  id: string; holdId: string; amountMnt: number; state: 'creating' | 'open' | 'unknown' | 'refused' | 'cancelled' | 'paid';
   qpayInvoiceId: string | null; qrImage: string | null; qrText: string | null;
   urls: { name: string; description: string; logo: string; link: string }[]; qrExpiresAt: Date | null; createdAt: Date;
 };
@@ -309,13 +310,35 @@ export async function holdsToSweep(db: SupabaseClient, now: Date, limit = 50): P
   return { ok: true, holds: [...(due.data ?? []), ...(paid.data ?? [])].map(toHold) };
 }
 
-/** Recently ended holds whose QPay invoices may still be paid late: asked again for an hour. */
-export async function recentlyEnded(db: SupabaseClient, now: Date, limit = 50): Promise<Ok<{ holds: Hold[] }> | Fail> {
-  const since = new Date(now.getTime() - 60 * 60_000).toISOString();
-  const { data, error } = await db.from('booking_holds').select('*').in('state', ['expired', 'released'])
-    .gte('ended_at', since).order('ended_at').limit(limit);
+/**
+ * Holds that are no longer waiting but still have a QPay invoice `open` (a cancel QPay refused
+ * or never received): a payment can still land on it, so QPay is asked again until the invoice
+ * is a day old. A hold whose invoices are all cancelled or paid is never asked again.
+ */
+export async function holdsWithOpenInvoices(db: SupabaseClient, now: Date, limit = 50): Promise<Ok<{ holds: Hold[] }> | Fail> {
+  const since = new Date(now.getTime() - 24 * 3600_000).toISOString();
+  const inv = await db.from('booking_invoices').select('hold_id').eq('state', 'open').gte('created_at', since).limit(500);
+  if (inv.error) return { ok: false, detail: `booking_invoices unreadable: ${inv.error.message}` };
+  const ids = [...new Set((inv.data ?? []).map((r) => String(rec(r)['hold_id'])))];
+  if (ids.length === 0) return { ok: true, holds: [] };
+  const { data, error } = await db.from('booking_holds').select('*').in('id', ids)
+    .in('state', ['expired', 'released', 'booked', 'paid_unbooked']).order('updated_at').limit(limit);
   if (error) return { ok: false, detail: `booking_holds unreadable: ${error.message}` };
   return { ok: true, holds: (data ?? []).map(toHold) };
+}
+
+/** QPay was asked about this hold now. Bookkeeping for the poll's throttle; a failure only logs. */
+export async function markChecked(db: SupabaseClient, holdId: string, at: Date): Promise<Ok<object> | Fail> {
+  const { error } = await db.from('booking_holds').update({ last_checked_at: at.toISOString() }).eq('id', holdId);
+  return error ? { ok: false, detail: `booking_holds update: ${error.message}` } : { ok: true };
+}
+
+/** Close a booking session (best-effort by the callers; a session left open closes by idleness). */
+export async function closeSessionRow(db: SupabaseClient, sessionId: string, reason: string, at: Date): Promise<Ok<object> | Fail> {
+  const { error } = await db.from('booking_sessions')
+    .update({ closed_at: at.toISOString(), close_reason: reason, updated_at: at.toISOString() })
+    .eq('id', sessionId).is('closed_at', null);
+  return error ? { ok: false, detail: `booking_sessions update: ${error.message}` } : { ok: true };
 }
 
 export async function logEvent(db: SupabaseClient, input: { tenantId: string; holdId?: string; sessionId?: string; kind: string; detail?: Record<string, unknown> }): Promise<void> {

@@ -56,6 +56,8 @@ export type BookingConfig = {
   qpay: QpayMerchant;
   /** The deposit in test mode. The tenant's website uses 100₮. */
   testDepositMnt: number;
+  /** What the confirmation calls the branch («Яармаг»). Absent: the display name's «— Branch» label. */
+  branchLabel: string | null;
 };
 
 export type ConfigOutcome = { ok: true; config: BookingConfig } | { ok: false; detail: string };
@@ -102,6 +104,8 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
   const genderRule = raw['gender_rule'] === undefined ? true : raw['gender_rule'];
   if (typeof genderRule !== 'boolean') return fail('gender_rule must be true or false');
 
+  const branchLabel = raw['branch_label'] === undefined ? null : str(raw['branch_label']);
+  if (raw['branch_label'] !== undefined && branchLabel === null) return fail('branch_label, when given, must be text');
   const agreementText = str(raw['agreement_text']);
   if (agreementText === null) return fail('agreement_text is required: the deposit is taken only on the tenant\'s own agreement');
 
@@ -219,6 +223,7 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
       serviceGroups,
       qpay: { merchantId, mccCode, bankAccounts },
       testDepositMnt: testDepositMnt as number,
+      branchLabel,
     },
   };
 }

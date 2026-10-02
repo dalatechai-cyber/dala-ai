@@ -566,6 +566,127 @@ check(!(await bookingTurn({ ...ports, wording: { source: 'signed', blocks: new M
 })).handled, 'any line unsigned: nothing');
 
 // =====================================================================================
+section('14. The review\'s cases: nothing stuck, nobody trapped');
+// =====================================================================================
+// (a) A settle died right after booking: no confirmation was sent. The customer writes again.
+const k1 = newChat();
+await toAgreement(k1, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '10:00', name: 'Тасарсан', phone: '97000001' });
+await taps(k1, AGREE);
+const holdK1 = holdOf(k1);
+const invK1 = invoicesOf(holdK1)[0] as string;
+const payK1 = qpayFake.pay(invK1);
+const invRowK1 = psql(`select id from booking_invoices where qpay_invoice_id = '${invK1}'`);
+await db.rpc('booking_record_payment', { p_hold: holdK1, p_invoice: invRowK1, p_payment_key: `qpay:${payK1}`, p_amount: 20000, p_paid_at: new Date().toISOString(), p_qpay_invoice_id: invK1 });
+await db.rpc('booking_mark_booked', { p_hold: holdK1, p_event_id: eventIdForHold(holdK1) });
+check(holdState(holdK1) === 'booked' && pushedTo(k1, 0).every((m) => !m.body.includes('баталгаажлаа')), 'set-up: booked in the database, never confirmed (the crash)');
+const beforeK1 = sent.length;
+const k1r = await says(k1, 'Хаяг хаана вэ?');
+check(pushedTo(k1, beforeK1).filter((m) => m.body.includes('баталгаажлаа')).length === 1, 'the next message brings the missing confirmation, once');
+check(!k1r.handled && psql(`select count(*) from booking_sessions where conversation_id = '${k1.conversationId}' and closed_at is null`) === '0',
+  'and the message itself goes to the ordinary Дали; the booking chat is closed');
+check(!(await says(k1, 'Баярлалаа')).handled && pushedTo(k1, beforeK1).filter((m) => m.body.includes('баталгаажлаа')).length === 1, 'every later message too, with no second confirmation');
+
+// (b) A question at the name step is asked once, then let go; «Цуцлах» typed cancels.
+const k2 = newChat();
+await says(k2, 'Цаг авъя');
+await taps(k2, 'Засалт');
+await taps(k2, 'Энгийн засалт');
+await taps(k2, say(wording, 'booking_gender_female'));
+await taps(k2, 'Уянга · 1-р зэрэг');
+await taps(k2, T_MAR);
+await taps(k2, '12:00');
+await says(k2, 'Урьдчилгаа хэд вэ?');
+check(k2.lastBody === say(wording, 'booking_ask_name') && psql(`select data->>'name' from booking_sessions where conversation_id = '${k2.conversationId}'`) === '',
+  'a question is not taken as a name; the name is asked once more');
+const k2r = await says(k2, 'Урьдчилгаа хэд вэ? хариулаач');
+check(!k2r.handled, 'asked again: the flow steps aside and Дали answers');
+const k4 = newChat();
+await says(k4, 'Цаг авъя');
+await taps(k4, 'Засалт');
+await taps(k4, 'Энгийн засалт');
+await taps(k4, say(wording, 'booking_gender_female'));
+await taps(k4, 'Уянга · 1-р зэрэг');
+await taps(k4, T_MAR);
+await taps(k4, '12:00');
+await says(k4, 'Нараа');
+await says(k4, 'дугаар өгөхгүй');
+check(k4.lastBody === say(wording, 'booking_phone_invalid'), 'a wrong phone is asked again once');
+check(!(await says(k4, 'яагаад утас хэрэгтэй вэ')).handled, 'and then let go, never asked for ever');
+const k5 = newChat();
+await says(k5, 'Цаг авъя');
+await taps(k5, 'Засалт');
+await taps(k5, 'Энгийн засалт');
+await taps(k5, say(wording, 'booking_gender_female'));
+await taps(k5, 'Уянга · 1-р зэрэг');
+await taps(k5, T_MAR);
+await taps(k5, '12:00');
+await says(k5, CANCEL);
+check(k5.lastBody === say(wording, 'booking_cancelled'), '«Цуцлах» typed at the name step cancels (it is not a name)');
+
+// (c) A short payment never keeps the time held for ever.
+const k6 = newChat();
+await toAgreement(k6, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Уянга · 1-р зэрэг', time: '19:00', name: 'Дутуу', phone: '97000006' });
+await taps(k6, AGREE);
+const holdK6 = holdOf(k6);
+qpayFake.pay(invoicesOf(holdK6)[0] as string, { amount: 50 });
+await runQpayCallback(ports, signHold(SECRET, 'callback', holdK6));
+check(holdState(holdK6) === 'held' && alerts.some((x) => x.kind === 'booking.short_payment' && x.body.includes('97000006')), 'a short payment is paged and books nothing');
+psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdK6}'`);
+await runSweep(ports);
+check(holdState(holdK6) === 'expired' && google.live(TEST_CALENDARS.first1).every((e) => e.id !== eventIdForHold(holdK6)), 'and the hold is still released when its time is up');
+
+// (d) A time that has started since it was offered is not held.
+const k7 = newChat();
+await toAgreement(k7, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '11:00', name: 'Хоцорсон', phone: '97000007' });
+clockShift = ubAt(tomorrow(), 11).getTime() - Date.now() + 5 * 60_000;
+// The customer was typing just before: their session is not idle at the shifted clock.
+psql(`update booking_sessions set updated_at = '${new Date(Date.now() + clockShift - 60_000).toISOString()}' where conversation_id = '${k7.conversationId}' and closed_at is null`);
+await taps(k7, AGREE);
+clockShift = 0;
+check(k7.lastBody?.startsWith(say(wording, 'booking_slot_taken')) === true
+  && psql(`select count(*) from booking_holds h join booking_sessions s on s.id = h.session_id where s.conversation_id = '${k7.conversationId}'`) === '0',
+  'agreeing after the start time holds nothing and says the time is gone');
+
+// (e) The first attempt died between the database hold and the calendar: the retry writes it.
+const k8 = newChat();
+await toAgreement(k8, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '14:00', name: 'Дахин', phone: '97000008' });
+const sessK8 = psql(`select id from booking_sessions where conversation_id = '${k8.conversationId}' and closed_at is null`);
+const s14 = ubAt(tomorrow(), 14);
+await db.rpc('booking_acquire_hold', { p_tenant: T, p_session: sessK8, p_expires_at: new Date(Date.now() + 600_000).toISOString(), p_hold: {
+  calendar_id: TEST_CALENDARS.master2, staff_name: 'Бадмаа', level: 'Мастер', service: 'Энгийн засалт', minutes: 60,
+  starts_at: s14.toISOString(), ends_at: new Date(s14.getTime() + 3_600_000).toISOString(), deposit_mnt: 20000,
+  customer_name: 'Дахин', customer_phone: '97000008', gender: 'female', agreed_at: new Date().toISOString(), agreement_text: 'x' } });
+const holdK8 = holdOf(k8);
+check(psql(`select calendar_state from booking_holds where id = '${holdK8}'`) === 'none', 'set-up: held in the database, not in the calendar');
+await taps(k8, AGREE);
+check(google.live(TEST_CALENDARS.master2).some((e) => e.id === eventIdForHold(holdK8) && e.transparency === 'opaque')
+  && k8.last?.handled === true && k8.last.linkButtonTitle !== undefined, 'the retry puts the hold in the calendar before asking for money');
+
+// (f) QPay would not cancel an expired hold's invoice: paged, and a payment on it still lands.
+const k9 = newChat();
+await toAgreement(k9, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '18:00', name: 'Цуцлагдаагүй', phone: '97000009' });
+await taps(k9, AGREE);
+const holdK9 = holdOf(k9);
+psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdK9}'`);
+qpayFake.failCancel = true;
+await runSweep(ports);
+qpayFake.failCancel = false;
+check(holdState(holdK9) === 'expired' && alerts.some((x) => x.kind === 'booking.invoice_not_cancelled' && x.body.includes('97000009')), 'expired, and the uncancelled QR is paged');
+psql(`update booking_holds set ended_at = now() - interval '3 hours' where id = '${holdK9}'`);
+qpayFake.pay(invoicesOf(holdK9)[0] as string);
+await runSweep(ports);
+check(holdState(holdK9) === 'booked', 'a payment hours later on that QR is found by the sweep (no callback needed) and booked');
+
+// (g) The pay page's poll asks QPay at most every 15 s per hold.
+const k10 = newChat();
+await toAgreement(k10, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '11:00', name: 'Хүлээж', phone: '97000010' });
+await taps(k10, AGREE);
+const holdK10 = holdOf(k10);
+const checksBefore = qpayFake.calls.filter((x) => x.endsWith('/payment/check')).length;
+for (let i = 0; i < 5; i += 1) await runPayPage(ports, { token: signHold(SECRET, 'pay', holdK10), method: 'GET', stateOnly: true });
+check(qpayFake.calls.filter((x) => x.endsWith('/payment/check')).length - checksBefore === 1, 'five polls in a row: one QPay check');
+
+// =====================================================================================
 section('13. Every customer message got at most one reply; nothing was confirmed unpaid');
 // =====================================================================================
 check(psql(`select count(*) from (select dedup_key from outbound_messages where tenant_id = '${T}' group by dedup_key having count(*) > 1) d`) === '0', 'no reply key twice');
