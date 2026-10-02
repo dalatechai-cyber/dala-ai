@@ -31,10 +31,12 @@ Part 2 billing e-mail redesign to Ора's design. Nothing goes live; Mongolian 
 - [x] P2 mail.ts in Ора layout; `public/brand/dalatech-wordmark.png`; three drafts in
       `prompt/drafts/billing/` (left out while unsigned); `scripts/billing/preview.ts`
 - [x] Commit + push; draft PR https://github.com/dalatechai-cyber/dala-ai/pull/274 (subscribed)
-- [ ] Opus reviewer on the billing change (running) -> fix findings
-- [ ] Test sends (fake data) via Gmail MCP to bilguunbilly0214+billingtest@gmail.com, after review
-      fixes; logo from raw.githubusercontent.com on this branch (public repo)
-- [ ] Preview artifact page with screenshots; CI green; morning report (<10 lines)
+- [x] Opus review: safe; fixed receipt account/holder, Outlook width, one sender constant (b86a026)
+- [x] Test sends via Gmail MCP (invoice + receipt, fake data, no PDF) to
+      bilguunbilly0214+billingtest@gmail.com; logo from raw.githubusercontent.com on this branch
+- [x] Preview page: https://claude.ai/artifact/9XFM1M5RC43mnsjGxp8NYo (before/after, 4 e-mails, phone dark)
+- [ ] CI green on b86a026 -> morning report (<10 lines). Do NOT merge: founder approves first.
 
 Open for the founder: no client "pause" e-mail exists (pause is a founder Telegram ask only);
-pick an option in the hand-off proposal; sign the three drafts.
+pick an option in the hand-off proposal; sign the three drafts; confirm hello@dalatech.online
+forwards (send.ts says it has no inbox) or the footer should show BILLING_FOUNDER_EMAIL.
