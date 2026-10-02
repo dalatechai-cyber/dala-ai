@@ -144,3 +144,48 @@ would refuse.
 - Moving or cancelling a booking in chat; refunds (always by a person).
 - Instagram and the website chat (Messenger only).
 - The website's own hold (change request).
+
+## Switching it on for Tara Яармаг (the founder's steps, in order)
+
+Nothing below has been done. Each step is yours: wording, credentials, a migration, a live switch.
+
+1. **Sign the wording.** Read `docs/proposals/tara-inchat-booking-transcript.md` (every draft in
+   context), then `node scripts/prompt/sign-drafts.ts --dir prompt/drafts/booking`, then sign with
+   `--set <id> --by Bilguun`, and push. Until it is signed, the flow refuses to start.
+2. **Apply `0082_booking`.** Then merge the PR (D-058: code that reads a table only after the push).
+3. **Vercel → dala-ai → Environment Variables (Production).**
+   - `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_PRIVATE_KEY`: copy them from the matrix_website
+     Vercel project, same names. This is the service account the stylists' calendars are shared
+     with.
+   - `BOOKING_LINK_SECRET`: `openssl rand -base64 36`.
+   - `SUPABASE_SECRET_BOOKING`: a new secret key (Supabase → Settings → API keys).
+   - **Confirm** that the platform's `QPAY_USERNAME` / `QPAY_PASSWORD` / `QPAY_TERMINAL_ID` are the
+     same Quick QR login the website uses. The website sends terminal `DALATECH_AI` with its own
+     `QPAY_USERNAME`/`QPAY_PASSWORD`. If they are different logins, copy the website's values and
+     tell Claude: the code then needs a per-tenant QPay login, which is not built.
+   - `BOOKING_MODE=test`. Preflight refuses the deploy if anything above is missing.
+4. **QStash.** Add one schedule: every minute, POST `https://api.dalatech.online/api/workers/booking`,
+   empty body. It releases unpaid holds and books late payments. With `BOOKING_MODE` unset it
+   answers "disabled".
+5. **The row.** Run `node scripts/booking/from-website.ts --website <matrix_website checkout>
+   --rules config/booking/tara-salon.json --slug matrix-eco-salon --stylists "Оюунсүрэн=Оюунаа,Бадамцэцэг=Бадмаа,Батзаяа,Уянга,Отгонжаргал"
+   --tester <your PSID on Tara's Page> --out booking.sql`. Read the summary and run `booking.sql`
+   in the Supabase SQL editor. It writes mode `off`. Then run:
+   `update booking_config set mode = 'test' where tenant_id = (select id from tenants where slug = 'matrix-eco-salon');`
+6. **One real 100₮ test.**
+   - From your own Messenger, write «Цаг авъя» to Tara's Page.
+   - Book a time at least a day ahead and pay **100₮** from your bank app.
+   - Check four things: the confirmation in Messenger (marked ТЕСТ); one «ТЕСТ – <phone> - <service>»
+     event in that stylist's Google Calendar; one row in `booking_payments`; the 100₮ in Tara's
+     QPay merchant app.
+   - Then delete the calendar event, and refund the 100₮ if you want it back.
+   - Also try «Цуцлах» once, and once let 10 minutes pass: the time must come free again.
+7. **Live.** Set `update booking_config set mode = 'live' …` for the tenant, and `BOOKING_MODE=live`
+   in Vercel, then redeploy. Every customer on Tara Яармаг's live Page can then book in chat;
+   every other tenant stays off (no row). To stop: set the row's `mode = 'off'`. That takes effect
+   on the next message, with no deploy. Holds already open are still settled or released.
+
+**Парк Од:** once she is onboarded (her own tenant and Page) and her stylists' calendars are shared
+with the same service account, run the same `from-website.ts` with her own `--slug` and
+`--stylists`. Then run `node scripts/booking/check.ts --group tara-salon`. It refuses when the two
+branches' services, minutes, deposits, agreement or merchant differ, or when a calendar is in both.
