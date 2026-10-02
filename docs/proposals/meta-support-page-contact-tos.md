@@ -2,7 +2,7 @@
 
 Where: Meta for Developers ▸ Support ▸ Report a bug (developers.facebook.com/support/bugs),
 product **Messenger Platform**, logged in as the admin of app DALA_AI and Page DalaTech.
-Fill the one placeholder in [brackets] before sending.
+Ready to send as written.
 
 ---
 
@@ -22,7 +22,7 @@ Fill the one placeholder in [brackets] before sending.
    2026-10-02 18:51 UTC returned the same code 2.
 2. Opening `https://www.facebook.com/863503883522801/inbox/page_contact_tos/` as the Page's admin
    redirects to the Meta Business Suite inbox:
-   `[paste the exact URL the browser ends on]`
+   `https://business.facebook.com/latest/inbox/all?asset_id=863503883522801&business_id=808383595610540&ir_qe_exposed=1&nav_ref=manage_page_ap_plus_default&selected_item_id=page_contact_tos`
    The inbox shows a blank pane with the error **"Cannot convert page_contact_tos to a BigInt"**.
 3. Same result when opened while acting as the Page and while on my personal profile.
 

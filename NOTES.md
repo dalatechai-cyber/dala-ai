@@ -68,3 +68,6 @@ forwards (send.ts says it has no inbox) or the footer should show BILLING_FOUNDE
   seen 263902037430900 (inbox), 1380702870025418, 1562862634970492. Routing config unknown:
   founder to read it in Page settings.
 - Model reply confirmed after the Anthropic top-up (19:32 UTC, Sonnet 5, ~$0.035).
+- Founder decision: pass-to-inbox NOT built (silences Дали, does not point staff to the chat).
+  Founder talks to the Tara owner (staff routine; manager gets the hand-off alert by Telegram,
+  later SMS via Нова?). Nothing built until the founder says. Meta bug report ready to send.

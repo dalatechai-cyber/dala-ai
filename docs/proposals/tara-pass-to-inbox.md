@@ -1,6 +1,11 @@
 # Fallback for Tara's hand-off: pass the chat to the Page inbox, plus the daily count
 
-Status: **PROPOSAL, nothing built, nothing live** (founder, 2026-10-02 evening). Replaces
+Status: **DECLINED by the founder (2026-10-02 night): not built.** The pass silences Дали
+without pointing staff to the chat. Kept as the record of why. The founder takes a staff
+routine to the Tara owner and asks whether her manager wants the same hand-off alert
+(Telegram now, SMS later); nothing is built for that until the founder says.
+
+Original proposal (founder, 2026-10-02 evening): Replaces
 option A of [`tara-staff-handoff.md`](tara-staff-handoff.md) (the Page inbox label), which is
 stopped: Meta refuses the label API until the Page accepts the Page Contact Terms, and Meta's
 own acceptance link is broken (see [`meta-support-page-contact-tos.md`](meta-support-page-contact-tos.md)).

@@ -2,7 +2,8 @@
 
 Status: **A stopped (founder, 2026-10-02 evening): Meta refuses the label API until the Page
 accepts the Page Contact Terms, and Meta's acceptance link is broken. Label NULL on every tenant.
-D is live in the daily report. Fallback proposed: [`tara-pass-to-inbox.md`](tara-pass-to-inbox.md).**
+D is live in the daily report. Fallback [`tara-pass-to-inbox.md`](tara-pass-to-inbox.md) declined; next is a staff routine
+and possibly the manager getting the founder's hand-off alert, founder's call.**
 Earlier: A + D chosen by the founder (2026-10-02); built, switched OFF. Written
 2026-10-02 from the code and the live database (read-only).
 
