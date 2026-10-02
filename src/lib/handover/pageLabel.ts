@@ -167,7 +167,8 @@ export type LabelDeps = {
   readLabel: (tenantId: string) => Promise<string | null | 'unreadable'>;
   /** The Page token, loaded per call (never cached: `secrets/tenantSecret.ts`). */
   loadToken: (tenantId: string, channelId: string) => Promise<{ ok: true; token: string } | { ok: false; detail: string }>;
-  graphVersion: string;
+  /** Read only once a label is set, so a tenant without one never needs it. */
+  graphVersion: () => string;
   fetchImpl?: typeof fetch;
 };
 
@@ -180,7 +181,9 @@ export async function labelNeedsPerson(
   input: { tenantId: string; provider: string; thread?: NeedsPersonThread },
 ): Promise<LabelOutcome> {
   try {
-    if (input.provider === 'instagram' || input.provider === 'web') return { outcome: 'skipped', reason: 'not_messenger' };
+    // An allowlist: custom labels are Messenger's. Instagram, the website, SMS and any channel
+    // added later are never labelled and never open a Page token.
+    if (input.provider !== 'facebook_page') return { outcome: 'skipped', reason: 'not_messenger' };
     if (input.thread === undefined) return { outcome: 'skipped', reason: 'no_thread' };
     const label = await deps.readLabel(input.tenantId);
     if (label === 'unreadable') return { outcome: 'skipped', reason: 'label_unreadable' };
@@ -189,7 +192,7 @@ export async function labelNeedsPerson(
     if (!t.ok) return { outcome: 'skipped', reason: 'no_credential', detail: t.detail };
     return await labelThread({
       pageId: input.thread.pageId, psid: input.thread.psid, labelName: label, token: t.token,
-      graphVersion: deps.graphVersion, ...(deps.fetchImpl === undefined ? {} : { fetchImpl: deps.fetchImpl }),
+      graphVersion: deps.graphVersion(), ...(deps.fetchImpl === undefined ? {} : { fetchImpl: deps.fetchImpl }),
     });
   } catch (e) {
     return { outcome: 'failed', step: 'find', status: null, code: null, detail: e instanceof Error ? e.message : String(e) };

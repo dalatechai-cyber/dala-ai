@@ -63,22 +63,21 @@ hello@dalatech.online» with no sentence. Nothing else depends on them.
 ## 2026-10-02: the pause notice, unsigned
 
 Sent once, by e-mail, after the founder pauses a client for an unpaid invoice (Telegram
-«Pause» button). Planned by the next hourly run and cancelled unsent if the invoice is paid
-first. Branded like the reminders (pay button, bank box, PDF attached).
+«Pause» button). Planned by the next hourly run, cancelled unsent if the invoice is paid
+first or the founder resumes by hand. Branded like the reminders (pay button, bank box, PDF).
 
-**The founder's draft said the service resumes automatically after payment. It does not:**
-payment sends the founder a «Resume» button (`engine.ts`, `founder_paid`), and the contract
-restores service within 1 working day of full payment. The sentence below says that. If the
-founder prefers the automatic version, resume must be built first (a code change, not wording).
+**Resume is automatic (founder, 2026-10-02):** once the invoice the pause was for is paid in
+full (QPay, or a bank transfer the founder records), the engine resumes the client and tells
+the founder «resumed after payment» (`engine.ts`, `autoResume`); the Resume button stays for
+exceptions. So the founder's own sentence is true and is used as written.
 
 | Block | Draft |
 |---|---|
 | `billing_pause_subject` | Үйлчилгээ түр зогслоо ({invoice_no}) |
 | `billing_mail_pause_title` | Үйлчилгээ түр зогслоо |
-| `billing_mail_pause_intro` | Сайн байна уу, {client}. / Таны DalaTech-ийн үйлчилгээ төлбөр төлөгдөөгүй тул түр зогслоо. Төлбөр төлөгдсөнөөс хойш 1 ажлын өдрийн дотор үйлчилгээ сэргэнэ. Асуулт байвал hello@dalatech.online хаягаар холбогдоно уу. |
-| `billing_pause_body` | The plain-text fallback: the same two sentences, the pay link, invoice number, amount, due date, lines, the contact sentence, «Хүндэтгэсэн, DalaTech» (the reminders' layout) |
+| `billing_mail_pause_intro` | Сайн байна уу, {client}. / Таны DalaTech-ийн үйлчилгээ төлбөр төлөгдөөгүй тул түр зогслоо. Төлбөрөө төлмөгц үйлчилгээ автоматаар сэргэнэ. Асуулт байвал hello@dalatech.online хаягаар холбогдоно уу. |
+| `billing_pause_body` | The plain-text fallback: the same sentences, the pay link, invoice number, amount, lines, «Хүндэтгэсэн, DalaTech». No due date: it has passed. |
 
-Changed from the founder's draft: «Төлбөрөө төлмөгц үйлчилгээ автоматаар сэргэнэ» became
-«Төлбөр төлөгдсөнөөс хойш 1 ажлын өдрийн дотор үйлчилгээ сэргэнэ», and the greeting
-«Сайн байна уу, {client}.» was added as in every other billing e-mail. Until signed, no pause
-e-mail is sent to a real client; the founder is told once that it is held.
+Added to the founder's sentence: the greeting «Сайн байна уу, {client}.», as in every other
+billing e-mail. Until signed, no pause e-mail is sent to a real client; the founder is told once
+that it is held.

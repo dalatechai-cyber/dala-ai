@@ -10,8 +10,8 @@
  * wording is unsigned, then sent once it is), two runs at once (nothing doubles), the 3rd
  * (reminder), the test client pays (callback: receipt, once), the 6th (reminder after, the
  * founder's summary), the 13th (the pause question; the founder pauses from the page), a
- * WRONG amount (mismatch, no receipt), the rest arrives (paid, receipt, resume offered; the
- * founder resumes), a failed e-mail retried, a send that never finished reported and not
+ * WRONG amount (mismatch, no receipt), the rest arrives (paid, receipt, resumed automatically,
+ * the founder told once), a failed e-mail retried, a send that never finished reported and not
  * resent, an unreadable QPay answer that records nothing, and the ledger on the 1st of the
  * next month. Spends nothing and reaches no network but localhost.
  */
@@ -322,7 +322,8 @@ async function main(): Promise<void> {
   check(since(emails, e0).length === 0, 'no receipt for a wrong amount');
   check(since(telegrams, t0).some((m) => /payments total 300,000₮ against 360,000₮ \(short by 60,000₮\)/u.test(m.text)), 'the founder is told the exact difference');
 
-  // --- the rest arrives: paid, receipt, resume offered ---------------------------------------
+  // --- the rest arrives: paid, receipt, resumed automatically -------------------------------
+  const links0 = linksFor(ORIGIN, LINK_SECRET);
   // A part-paid invoice is with the founder (the page offers no new code), so the rest comes
   // as a bank transfer the founder records (contract 4.5).
   const rest = await db.rpc('billing_record_payment', {
@@ -334,11 +335,27 @@ async function main(): Promise<void> {
   await tick(at('2026-10-15'), 'live');
   check(psql(`select status from billing_invoices where id = '${liveId}'`) === 'paid', 'the rest arrives: the payments sum to exactly 360,000₮, paid');
   check(since(emails, e0).some((m) => m.to === 'owner@salon.mn' && m.subject.startsWith('Төлбөр хүлээн авлаа')), 'the receipt goes');
+  // Paid in full while paused for this invoice: resumed AUTOMATICALLY, once (founder, 2026-10-02).
+  check(psql(`select delivery_mode || '/' || comment_delivery_mode from tenant_channels where id = '${CH}'`) === 'shadow/shadow',
+    'payment of the overdue invoice resumes the client automatically, to the exact prior modes');
+  check(psql(`select resumed_by from billing_pauses where account_id = (select account_id from billing_invoices where id = '${liveId}')`).startsWith('auto:'),
+    '…recorded as an automatic resume');
+  const resumedMsgs = since(telegrams, t0).filter((m) => /Салон ХХК resumed after payment/u.test(m.text));
+  check(resumedMsgs.length === 1 && /1 channel\(s\) restored\./u.test(resumedMsgs[0]!.text), 'the founder is told «resumed after payment», once');
   const paidMsg = since(telegrams, t0).find((m) => m.text.startsWith('✅ Салон ХХК paid'));
-  check(paidMsg?.button?.label === 'Resume Салон ХХК', 'the founder is offered a resume button, because the client is paused');
-  const resumeToken = new URL(paidMsg?.button?.url ?? 'https://x').searchParams.get('t') ?? '';
-  const resumed = await runActionJob({ db: () => db, now: at('2026-10-15'), method: 'POST', token: resumeToken, kind: 'resume', notify: async (t) => { notices.push(t); } });
-  check(resumed.status === 200 && psql(`select delivery_mode || '/' || comment_delivery_mode from tenant_channels where id = '${CH}'`) === 'shadow/shadow', 'resume restores the exact prior modes');
+  check(paidMsg !== undefined && paidMsg.button === undefined && /resumed automatically/u.test(paidMsg.text),
+    'the paid message offers no Resume button: there is nothing left to resume');
+  t0 = telegrams.length;
+  await tick(at('2026-10-15', 11), 'live');
+  await runInvoiceCallback(deps(at('2026-10-15', 11), modeOf(liveId)), liveId);
+  check(since(telegrams, t0).every((m) => !/resumed after payment/u.test(m.text))
+    && count(`select count(*) from billing_events where kind = 'client.resumed' and account_id = (select account_id from billing_invoices where id = '${liveId}')`) === 1,
+    '…exactly once: a later run or a late QPay callback resumes nothing and says nothing');
+  // The founder's own Resume stays for exceptions; here there is nothing to resume.
+  const manualToken = new URL(links0.action('resume', psql(`select account_id from billing_invoices where id = '${liveId}'`), liveId, at('2026-10-15'))).searchParams.get('t') ?? '';
+  const resumed = await runActionJob({ db: () => db, now: at('2026-10-15'), method: 'POST', token: manualToken, kind: 'resume', notify: async (t) => { notices.push(t); } });
+  check(resumed.status === 200 && resumed.html.includes('not paused') && psql(`select delivery_mode from tenant_channels where id = '${CH}'`) === 'shadow',
+    'the manual Resume still works and, with nothing paused, changes nothing');
   const oldPause = await runActionJob({ db: () => db, now: at('2026-10-16'), method: 'GET', token, kind: 'pause', notify: async () => undefined });
   check(oldPause.html.includes('is PAID now'), 'the old pause link, opened after payment, says the invoice is paid');
   const oldPost = await runActionJob({ db: () => db, now: at('2026-10-16'), method: 'POST', token, kind: 'pause', notify: async () => undefined });

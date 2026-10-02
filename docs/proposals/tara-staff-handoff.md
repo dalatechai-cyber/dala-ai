@@ -5,7 +5,7 @@ Status: **A + D chosen by the founder (2026-10-02); built, switched OFF, not liv
 
 **What was built:** `tenants.needs_person_page_label` (`0079`, NULL on every tenant), the label
 call (`src/lib/handover/pageLabel.ts`, Messenger only, one 5-second budget after the reply, never
-throws), and the daily report line «Chats that needed a person (yesterday): … staff replied to …»
+throws), and the daily report line «Chats that needed a person (yesterday): … staff replied to … by report time»
 (`src/lib/handover/needsPersonReport.ts`). **To switch on (founder's go):** apply `0079`, merge,
 prove one label on DalaTech's own Page, then set Tara's label text.
 

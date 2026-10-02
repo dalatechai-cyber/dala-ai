@@ -103,7 +103,8 @@ export const BILLING_BLOCKS = {
   // The pause notice (2026-10-02): sent once, after the founder pauses a client for an unpaid
   // invoice. Its own subject and body, and its own title and intro in the branded e-mail.
   billing_pause_subject: SUBJECT,
-  billing_pause_body: MESSAGE,
+  // No {due_date}: by the time of a pause it has passed, and repeating it reads as a new deadline.
+  billing_pause_body: { required: ['client', 'invoice_no', 'amount', 'lines', 'pay_link'], optional: ['period'] },
   billing_mail_pause_title: { required: [], optional: ['invoice_no'] },
   billing_mail_pause_intro: { required: ['client'], optional: ['period', 'due_date'] },
 } as const satisfies Record<string, Spec>;

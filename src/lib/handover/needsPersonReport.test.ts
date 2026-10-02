@@ -36,15 +36,16 @@ test('chats are counted once each; a staff reply AFTER the first page answers it
       alert('c4', 'reclaim_sent', '2026-10-01T06:00:00Z'), // the bot taking a chat back: not a waiting customer
     ],
     conversations: [
-      { id: 'c1', thread_control: 'human', thread_control_source: 'echo', thread_control_at: '2026-10-01T02:30:00Z' }, // answered
-      { id: 'c2', thread_control: 'human', thread_control_source: 'echo', thread_control_at: '2026-10-01T01:00:00Z' }, // before the page
-      { id: 'c3', thread_control: 'human', thread_control_source: 'handover', thread_control_at: '2026-10-01T05:01:00Z' }, // Meta, not staff
+      { id: 'c1', channel_id: 'ch', thread_control: 'human', thread_control_source: 'echo', thread_control_at: '2026-10-01T02:30:00Z' }, // answered
+      { id: 'c2', channel_id: 'ch', thread_control: 'human', thread_control_source: 'echo', thread_control_at: '2026-10-01T01:00:00Z' }, // before the page
+      { id: 'c3', channel_id: 'ch', thread_control: 'human', thread_control_source: 'handover', thread_control_at: '2026-10-01T05:01:00Z' }, // Meta, not staff
     ],
+    tenant_channels: [{ id: 'ch', delivery_mode: 'live' }],
     tenants: [{ id: T, display_name: 'Tara Salon — Яармаг' }],
   });
   const s = await readNeedsPersonLoop(db, { since: '2026-09-30T16:00:00Z', until: '2026-10-01T16:00:00Z' });
   assert.deepEqual(s, { ok: true, capped: false, byTenant: [{ tenant: 'Tara Salon — Яармаг', chats: 3, answered: 1 }] });
-  assert.equal(needsPersonLine(s), 'Chats that needed a person (yesterday): Tara Salon — Яармаг 3, staff replied to 1');
+  assert.equal(needsPersonLine(s), 'Chats that needed a person (yesterday): Tara Salon — Яармаг 3, staff replied to 1 by report time');
 });
 
 test('an unreadable table is UNREADABLE, never zero; a clean day says none', async () => {
@@ -58,6 +59,17 @@ test('an unreadable table is UNREADABLE, never zero; a clean day says none', asy
 });
 
 test('a tenant name that cannot be read is printed as its id, never dropped', async () => {
-  const s = await readNeedsPersonLoop(fakeDb({ alerts: [alert('c1', 'voice', '2026-10-01T02:00:00Z')], conversations: [], tenants: { error: 'x' } }), { since: 'a', until: 'b' });
-  assert.match(needsPersonLine(s), new RegExp(`${T} 1, staff replied to 0`, 'u'));
+  const s = await readNeedsPersonLoop(fakeDb({
+    alerts: [alert('c1', 'voice', '2026-10-01T02:00:00Z')], conversations: [{ id: 'c1', channel_id: 'ch' }],
+    tenant_channels: [{ id: 'ch', delivery_mode: 'live' }], tenants: { error: 'x' },
+  }), { since: 'a', until: 'b' });
+  assert.match(needsPersonLine(s), new RegExp(`${T} 1, staff replied to 0 by report time`, 'u'));
+});
+
+test('a chat on a channel that is not live is left out: a staff reply could not be seen there', async () => {
+  const s = await readNeedsPersonLoop(fakeDb({
+    alerts: [alert('c1', 'handoff', '2026-10-01T02:00:00Z')], conversations: [{ id: 'c1', channel_id: 'sh' }],
+    tenant_channels: [{ id: 'sh', delivery_mode: 'shadow' }],
+  }), { since: 'a', until: 'b' });
+  assert.equal(needsPersonLine(s), 'Chats that needed a person (yesterday): none');
 });

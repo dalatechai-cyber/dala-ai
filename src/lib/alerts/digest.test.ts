@@ -754,7 +754,7 @@ test('2026-10-02: chats that needed a person, and how many staff answered, in ev
   const clean = planDigest([], CLEAN).summary;
   assert.match(clean, /Chats that needed a person \(yesterday\): none\./);
   const some = planDigest([], { ...CLEAN, needsPerson: { ok: true, byTenant: [{ tenant: 'Salon One', chats: 5, answered: 1 }], capped: false } }).summary;
-  assert.match(some, /Chats that needed a person \(yesterday\): Salon One 5, staff replied to 1\./);
+  assert.match(some, /Chats that needed a person \(yesterday\): Salon One 5, staff replied to 1 by report time\./);
   const unreadable = planDigest([], { ...CLEAN, needsPerson: { ok: false, detail: 'boom' } }).summary;
   assert.match(unreadable, /Chats that needed a person \(yesterday\): UNREADABLE — boom/);
   assert.doesNotMatch(unreadable, /needed a person \(yesterday\): none/);

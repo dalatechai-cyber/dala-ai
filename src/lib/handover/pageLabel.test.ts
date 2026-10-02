@@ -92,7 +92,7 @@ const DEPS = (over: Partial<LabelDeps> = {}): LabelDeps & { tokens: number } => 
     tokens: 0,
     readLabel: async () => 'Хүн хариулах' as string | null | 'unreadable',
     loadToken: async () => { d.tokens += 1; return { ok: true as const, token: 'tok' }; },
-    graphVersion: 'v21.0',
+    graphVersion: () => 'v21.0',
     ...over,
   };
   return d;
@@ -102,13 +102,13 @@ const THREAD = { channelId: 'ch', pageId: '1520409424715591', psid: 'psid_1' };
 test('OFF by default: a tenant with no label set gets no Graph call and no token is opened', async () => {
   const g = fakeGraph([]);
   const d = DEPS({ readLabel: async () => null, fetchImpl: g.fetchImpl });
-  assert.deepEqual(await labelNeedsPerson(d, { tenantId: 't', provider: 'facebook', thread: THREAD }), { outcome: 'skipped', reason: 'no_label_set' });
+  assert.deepEqual(await labelNeedsPerson(d, { tenantId: 't', provider: 'facebook_page', thread: THREAD }), { outcome: 'skipped', reason: 'no_label_set' });
   assert.equal(g.calls.length, 0);
   assert.equal(d.tokens, 0);
 });
 
-test('Messenger only: Instagram and the website are never labelled', async () => {
-  for (const provider of ['instagram', 'web']) {
+test('Messenger only (an allowlist): Instagram, the website, SMS or an unknown provider are never labelled', async () => {
+  for (const provider of ['instagram', 'web', 'sms', 'facebook']) {
     const g = fakeGraph([]);
     const r = await labelNeedsPerson(DEPS({ fetchImpl: g.fetchImpl }), { tenantId: 't', provider, thread: THREAD });
     assert.deepEqual(r, { outcome: 'skipped', reason: 'not_messenger' });
@@ -117,12 +117,12 @@ test('Messenger only: Instagram and the website are never labelled', async () =>
 });
 
 test('an unreadable setting, a missing token or no thread is skipped and said, never thrown', async () => {
-  assert.deepEqual(await labelNeedsPerson(DEPS({ readLabel: async () => 'unreadable' }), { tenantId: 't', provider: 'facebook', thread: THREAD }),
+  assert.deepEqual(await labelNeedsPerson(DEPS({ readLabel: async () => 'unreadable' }), { tenantId: 't', provider: 'facebook_page', thread: THREAD }),
     { outcome: 'skipped', reason: 'label_unreadable' });
-  assert.deepEqual(await labelNeedsPerson(DEPS({ loadToken: async () => ({ ok: false, detail: 'revoked' }) }), { tenantId: 't', provider: 'facebook', thread: THREAD }),
+  assert.deepEqual(await labelNeedsPerson(DEPS({ loadToken: async () => ({ ok: false, detail: 'revoked' }) }), { tenantId: 't', provider: 'facebook_page', thread: THREAD }),
     { outcome: 'skipped', reason: 'no_credential', detail: 'revoked' });
-  assert.deepEqual(await labelNeedsPerson(DEPS(), { tenantId: 't', provider: 'facebook' }), { outcome: 'skipped', reason: 'no_thread' });
-  const r = await labelNeedsPerson(DEPS({ readLabel: async () => { throw new Error('boom'); } }), { tenantId: 't', provider: 'facebook', thread: THREAD });
+  assert.deepEqual(await labelNeedsPerson(DEPS(), { tenantId: 't', provider: 'facebook_page' }), { outcome: 'skipped', reason: 'no_thread' });
+  const r = await labelNeedsPerson(DEPS({ readLabel: async () => { throw new Error('boom'); } }), { tenantId: 't', provider: 'facebook_page', thread: THREAD });
   assert.equal(r.outcome, 'failed');
 });
 
@@ -130,7 +130,7 @@ test('the token is opened for the channel that sends (an Instagram channel sends
   const seen: string[] = [];
   const g = fakeGraph([{ status: 200, json: { data: [{ id: 'L', page_label_name: 'Хүн хариулах' }] } }, { status: 200, json: { success: true } }]);
   const d = DEPS({ loadToken: async (_t, ch) => { seen.push(ch); return { ok: true, token: 'tok' }; }, fetchImpl: g.fetchImpl });
-  const r = await labelNeedsPerson(d, { tenantId: 't', provider: 'facebook', thread: { ...THREAD, tokenChannelId: 'page-ch' } });
+  const r = await labelNeedsPerson(d, { tenantId: 't', provider: 'facebook_page', thread: { ...THREAD, tokenChannelId: 'page-ch' } });
   assert.equal(r.outcome, 'labelled');
   assert.deepEqual(seen, ['page-ch']);
 });

@@ -16,7 +16,10 @@
  * - a phone call to the customer is not seen at all.
  *
  * `reclaim_sent` pages are not counted: they are the bot taking a chat back, not a customer
- * waiting. Read-only; never throws; an unreadable read prints UNREADABLE, never zero.
+ * waiting. Only chats on LIVE channels are counted (a staff reply is seen only there). The
+ * reply is read when the report runs (00:05), so a chat paged at 23:50 has had 15 minutes:
+ * the line says «by report time». Read-only; never throws; an unreadable read prints
+ * UNREADABLE, never zero.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { NEEDS_PERSON_ALERT_KIND } from './needsPerson.ts';
@@ -59,20 +62,34 @@ export async function readNeedsPersonLoop(
       first.set(k.conversationId, { tenantId: String(r['tenant_id'] ?? ''), at });
     }
     const answered = new Set<string>();
+    const channelOf = new Map<string, string>();
     const ids = [...first.keys()];
     for (let i = 0; i < ids.length; i += 100) {
       const { data: convs, error: cErr } = await db.from('conversations')
-        .select('id, thread_control, thread_control_source, thread_control_at')
+        .select('id, channel_id, thread_control, thread_control_source, thread_control_at')
         .in('id', ids.slice(i, i + 100));
       if (cErr) return { ok: false, detail: `conversations unreadable: ${cErr.message}` };
       for (const c of Array.isArray(convs) ? convs as Array<Record<string, unknown>> : []) {
         const id = String(c['id']);
+        channelOf.set(id, String(c['channel_id'] ?? ''));
         const at = new Date(String(c['thread_control_at'] ?? '')).getTime();
         const page = first.get(id);
         if (page !== undefined && c['thread_control'] === 'human' && c['thread_control_source'] === 'echo'
           && !Number.isNaN(at) && at >= page.at) answered.add(id);
       }
     }
+    // A staff reply moves the thread only on a LIVE channel (D-080), so elsewhere «0 answered»
+    // would be a blind spot dressed as a measurement. Those chats are left out of the line.
+    const channels = [...new Set(channelOf.values())].filter((c) => c !== '');
+    const live = new Set<string>();
+    if (channels.length > 0) {
+      const { data: chs, error: chErr } = await db.from('tenant_channels').select('id, delivery_mode').in('id', channels);
+      if (chErr) return { ok: false, detail: `tenant_channels unreadable: ${chErr.message}` };
+      for (const c of Array.isArray(chs) ? chs as Array<Record<string, unknown>> : []) {
+        if (c['delivery_mode'] === 'live') live.add(String(c['id']));
+      }
+    }
+    for (const id of ids) if (!live.has(channelOf.get(id) ?? '')) first.delete(id);
     const tenantIds = [...new Set([...first.values()].map((v) => v.tenantId))];
     const names = new Map<string, string>();
     if (tenantIds.length > 0) {
@@ -103,5 +120,5 @@ export function needsPersonLine(s: NeedsPersonSummary): string {
   const at = s.capped ? '≥' : '';
   // By count, then by name in code-point order (D-026): never locale collation.
   const ordered = [...s.byTenant].sort((x, y) => y.chats - x.chats || (x.tenant < y.tenant ? -1 : x.tenant > y.tenant ? 1 : 0));
-  return `Chats that needed a person (yesterday): ${ordered.map((r) => `${r.tenant} ${at}${r.chats}, staff replied to ${r.answered}`).join('; ')}`;
+  return `Chats that needed a person (yesterday): ${ordered.map((r) => `${r.tenant} ${at}${r.chats}, staff replied to ${r.answered} by report time`).join('; ')}`;
 }

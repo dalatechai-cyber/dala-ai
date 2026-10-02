@@ -49,3 +49,8 @@ forwards (send.ts says it has no inbox) or the footer should show BILLING_FOUNDE
       Resume; contract: 1 working day) so the wording says that. Option: build auto-resume.
 - [x] Tara label + daily count built, OFF (0079 column NULL). Not applied, not merged: founder go.
 - [ ] Review (Opus), CI, draft PR, report <6 lines. Ask founder: go to test a label on DalaTech's Page.
+- [x] Founder (2026-10-02): resume automatic on full payment of the paused invoice + Telegram
+      «resumed after payment»; founder's sentence used. Proven in billing-e2e (102 checks).
+- [x] Review findings fixed: pause alarm key, label via after(), provider allowlist
+      `facebook_page`, report live-only "by report time", lazy graph version, withdraw unsent
+      pause notice after a manual resume.
