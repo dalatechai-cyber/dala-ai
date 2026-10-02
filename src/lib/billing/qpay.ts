@@ -47,6 +47,11 @@ export type QpayConfig = {
   bankCode: string;
   bankAccount: string;
   accountName: string;
+  /**
+   * The merchant's category code. Absent: Core Language's `QPAY_MCC_CODE`, as every billing
+   * invoice has always carried. In-chat booking passes the tenant's own (Tara: 7230).
+   */
+  mccCode?: string;
 };
 
 export type QpayFailure = { ok: false; outcome: 'refused' | 'unknown'; detail: string };
@@ -280,7 +285,7 @@ export function quickQr(cfg: QpayConfig, fetchImpl: typeof fetch = fetch): QpayP
           amount: input.amountMnt,
           currency: 'MNT',
           description: input.description,
-          mcc_code: QPAY_MCC_CODE,
+          mcc_code: cfg.mccCode ?? QPAY_MCC_CODE,
           callback_url: input.callbackUrl,
           bank_accounts: [{
             account_bank_code: cfg.bankCode,

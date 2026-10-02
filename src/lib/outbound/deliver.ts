@@ -31,7 +31,7 @@
  * `markSent` runs first and its failure is reported without undoing the send, which is the
  * same posture `handle.ts` takes when the ledger write fails after a paid model call.
  */
-import type { SendFailure, SendInput, SendOutcome } from '../meta/send.ts';
+import type { QuickReply, SendFailure, SendInput, SendOutcome } from '../meta/send.ts';
 import type { SecretOutcome } from '../secrets/tenantSecret.ts';
 import type { RepeatPolicy } from '../alerts/alert.ts';
 
@@ -83,6 +83,14 @@ export type DeliverInput = {
    * longer body goes out in parts. Absent: one message, as on Messenger.
    */
   maxTextBytes?: number;
+  /**
+   * In-chat booking only (`booking/send.ts`): Messenger quick replies under the message, and
+   * the title of the link button in place of the address's host. Absent on every other send,
+   * which is then byte-identical to before. Never stored: a resend of the same row goes out
+   * without them, and the body says everything on its own.
+   */
+  quickReplies?: readonly QuickReply[];
+  linkButtonTitle?: string;
 };
 
 export type DeliverDeps = {
@@ -191,6 +199,8 @@ export async function deliverOutbound(deps: DeliverDeps, input: DeliverInput): P
     token: secret.secret,
     graphVersion: input.graphVersion,
     ...(input.maxTextBytes === undefined ? {} : { maxBytes: input.maxTextBytes }),
+    ...(input.quickReplies === undefined || input.quickReplies.length === 0 ? {} : { quickReplies: input.quickReplies }),
+    ...(input.linkButtonTitle === undefined ? {} : { linkButtonTitle: input.linkButtonTitle }),
   });
 
   // 3. What it cost.

@@ -9,6 +9,11 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
 - [x] Design `docs/proposals/tara-inchat-booking.md`
 - [x] Migration `0082_booking.sql` (all 5 SQL suites pass locally; schema.md row)
 - [ ] Build (flag off), fake QPay, fake calendar, tests, reply cases
+  - [x] src/lib/booking/{config,slots,calendar,wording,store,links,engine,turn}.ts (typecheck ok)
+  - [x] send.ts quick replies + linkButtonTitle; extract.ts quickReplyPayload; billing qpay mccCode
+  - [x] prompt/drafts/booking/*.mn.txt (31 drafts + README)
+  - [ ] pay page + /book route, /api/booking/qpay, /api/workers/booking, worker hook, clients, env, preflight
+  - [ ] testkit fakes, unit tests, scripts/verify/booking-e2e.ts (+ CI step), reply cases
 - [ ] Review (Opus reviewer), CI green, draft PR, preview link
 - [ ] Final report (<15 lines)
 

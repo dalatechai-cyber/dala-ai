@@ -1,0 +1,5 @@
+{service}, {stylist}
+{date}, {time}
+Урьдчилгаа төлбөр: {amount}
+
+Цагийг тань {minutes} минут барьж байна. Доорх товчоор QPay-ээр төлнө үү. {pay_link}

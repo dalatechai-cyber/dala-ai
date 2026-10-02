@@ -56,6 +56,12 @@ export type InboundMessage = {
   attachments: string[];
   /** Sticker asset ids, when the attachments were stickers. Not PII. @see attachmentKinds */
   stickerIds: string[];
+  /**
+   * The payload of a tapped quick reply (in-chat booking), when the message is one. The
+   * text is the button's title as usual; the payload says which offer it answered. Absent on
+   * every other message.
+   */
+  quickReplyPayload?: string;
 };
 
 export type SkipReason = 'echo' | 'no_text' | 'status_event' | 'postback' | 'malformed';
@@ -337,9 +343,11 @@ export function extractInboundMessages(entry: unknown): ExtractResult {
     // `kinds` and `stickerIds` were computed above for `carried` and then dropped here for
     // every message that had text. That silent discard is D-083; see `InboundMessage`.
     // A like's sticker is its text now, not an attachment beside it.
+    const qr = asRecord(message['quick_reply']);
+    const qrPayload = qr !== null && typeof qr['payload'] === 'string' && qr['payload'] !== '' ? qr['payload'] : null;
     messages.push(like
       ? { senderId, externalId, text: LIKE_TEXT, sentAt, attachments: [], stickerIds }
-      : { senderId, externalId, text, sentAt, attachments: kinds, stickerIds });
+      : { senderId, externalId, text, sentAt, attachments: kinds, stickerIds, ...(qrPayload === null ? {} : { quickReplyPayload: qrPayload }) });
   }
 
   return { messages, skipped, standby };
