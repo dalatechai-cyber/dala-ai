@@ -11,13 +11,14 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
 - [x] Build (flag off), fake QPay, fake calendar, tests, reply cases
   - [x] src/lib/booking/{config,slots,calendar,wording,store,links,engine,turn}.ts (typecheck ok)
   - [x] send.ts quick replies + linkButtonTitle; extract.ts quickReplyPayload; billing qpay mccCode
-  - [x] prompt/drafts/booking/*.mn.txt (31 drafts + README)
+  - [x] prompt/drafts/booking/*.mn.txt (32 drafts + README)
   - [x] pay page + /book route, /api/booking/qpay, /api/workers/booking, worker hook, clients, env, preflight
   - [x] testkit fakes, unit tests (23), worker hook tests (4), booking-e2e.ts 88 checks (+ CI step), transcript
   - [x] scripts/booking/from-website.ts (config from website checkout), scripts/booking/check.ts (branches)
   - [x] docs/proposals/matrix-website-booking-holds.md (change request)
 - [x] Draft PR https://github.com/dalatechai-cyber/dala-ai/pull/280 (subscribed)
-- [ ] Opus reviewer running (background); fix findings; CI green; preview link; report
+- [x] Preview artifact https://claude.ai/artifact/93ZE7ihKniDXXhm6gA4ocH (regenerate: scratchpad python from transcript + page renders); Vercel preview dala-ai-git-claude-happy-past-6bccc0-bilguuns-projects-a8563d8e.vercel.app
+- [ ] Opus reviewer re-launched after container restart (first run lost); fix findings; CI green; report
 - [ ] Review (Opus reviewer), CI green, draft PR, preview link
 - [ ] Final report (<15 lines)
 
