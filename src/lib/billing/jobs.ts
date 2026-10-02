@@ -22,6 +22,7 @@ import { issuerFromEnv, type Issuer } from './issuer.ts';
 import { WORDMARK_PATH } from './mail.ts';
 import { linksFor, parsePayRef, payRefMatches, verifyLink } from './links.ts';
 import { actionConfirmPage, actionDonePage, notFoundPage, PAY_CODE_KEYS, renderPayPage, type PageOutcome } from './page.ts';
+import { oraEventSender } from './ora.ts';
 import { quickQr } from './qpay.ts';
 import { sendBrevoEmail, sendFounderTelegram, sendResendEmail } from './send.ts';
 import { loadSignedWording } from './templates.ts';
@@ -49,6 +50,7 @@ export async function deployedDeps(db: SupabaseClient, now: Date, mode: 'test' |
     signed: wording.wording,
     sendEmail: (m) => (via === 'resend' ? sendResendEmail(m) : sendBrevoEmail(m)),
     sendTelegram: (m) => sendFounderTelegram(m),
+    sendOraEvent: oraEventSender(),
     founderEmail: founderEmail(),
     issuer: issuerFromEnv(),
     // The e-mail's wordmark (Ора's layout, 2026-10-02); the pay page keeps the square mark.

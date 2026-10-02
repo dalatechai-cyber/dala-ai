@@ -30,6 +30,7 @@ import { readFileSync } from 'node:fs';
 import { decodeKeyMaterial, parseKekVersion } from '../src/lib/crypto/kek.ts';
 import { requiredJsonMap } from '../src/lib/env.ts';
 import { issuerFromEnv } from '../src/lib/billing/issuer.ts';
+import { bypassAllowed } from '../src/lib/billing/ora.ts';
 
 type Verdict = { ok: true; note: string } | { ok: false; why: string };
 
@@ -347,6 +348,31 @@ if (present(billingMode)) {
           failures += 1;
           rows.push('  BAD      BILLING_PAY_ORIGIN\n           must be an https origin with no path, e.g. https://pay.dalatech.online');
         } else rows.push(`  ok       BILLING_PAY_ORIGIN  (${payOrigin})`);
+      }
+      // Ора's packs (0081): all three or none. Half set, Ора's invoice requests or the paid
+      // events would fail every time with nothing at deploy to say why.
+      const ORA_NEEDS = ['ORA_PLATFORM_SECRET', 'ORA_WEBHOOK_URL', 'ORA_BILLING_WEBHOOK_SECRET_TEST'];
+      const oraSet = ORA_NEEDS.filter((n) => present(process.env[n]));
+      if (oraSet.length > 0) {
+        for (const name of ORA_NEEDS) {
+          const v = process.env[name];
+          const bad = !present(v) ? 'MISSING ' : name === 'ORA_WEBHOOK_URL' ? (/^https:\/\/[^/?#]+\/[^?#]*$/u.test(v) ? '' : 'BAD     ') : v.length < 32 ? 'BAD     ' : '';
+          if (bad !== '') {
+            failures += 1;
+            rows.push(`  ${bad} ${name}\n           Ора's packs need ${ORA_NEEDS.join(', ')} together${name === 'ORA_WEBHOOK_URL' ? ' (an https address)' : ' (≥32 characters)'}`);
+          } else rows.push(`  ok       ${name}  (${name === 'ORA_WEBHOOK_URL' ? v : `${v!.length} characters`})`);
+        }
+        // Ора's preview is behind Vercel Authentication: without the bypass every event is a 401.
+        const oraUrl = process.env['ORA_WEBHOOK_URL'] ?? '';
+        const bypass = process.env['ORA_PREVIEW_BYPASS_SECRET'];
+        if (bypassAllowed(oraUrl)) {
+          if (!present(bypass)) {
+            failures += 1;
+            rows.push('  MISSING  ORA_PREVIEW_BYPASS_SECRET\n           ORA_WEBHOOK_URL is a Vercel preview (behind Vercel Authentication): Ора\'s «Protection Bypass for Automation» secret');
+          } else rows.push(`  ok       ORA_PREVIEW_BYPASS_SECRET  (${bypass.length} characters; sent to the preview only)`);
+        } else if (present(bypass)) {
+          rows.push('  unused   ORA_PREVIEW_BYPASS_SECRET\n           ORA_WEBHOOK_URL is not a *.vercel.app preview, so it is never sent; remove it');
+        }
       }
     }
   }

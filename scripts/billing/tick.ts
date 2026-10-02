@@ -18,6 +18,7 @@ import { PLATFORM_TIMEZONE } from '../../src/config/platform.ts';
 import { localDayStart } from '../../src/lib/time/clock.ts';
 import { billingLinkSecret, billingOrigin, founderEmail, qpayConfigFromEnv } from '../../src/lib/billing/config.ts';
 import { runBillingTick, type BillingDeps } from '../../src/lib/billing/engine.ts';
+import { oraEventSender } from '../../src/lib/billing/ora.ts';
 import { linksFor } from '../../src/lib/billing/links.ts';
 import { quickQr } from '../../src/lib/billing/qpay.ts';
 import { sendBrevoEmail, sendFounderTelegram } from '../../src/lib/billing/send.ts';
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
     ...(has('drafts') ? { draftsForTest: draftWording() } : {}),
     sendEmail: (m) => sendBrevoEmail(m),
     sendTelegram: (m) => sendFounderTelegram(m),
+    sendOraEvent: oraEventSender(),
     founderEmail: founderEmail(),
     log: (level, event, detail) => { if (level !== 'info') process.stderr.write(`${level} ${event} ${JSON.stringify(detail)}\n`); },
   };

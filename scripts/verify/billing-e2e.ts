@@ -26,6 +26,7 @@ import { propose } from '../../src/lib/billing/amounts.ts';
 import { CODES_PER_HOUR, payPageState, runBillingTick, runInvoiceCallback, type BillingDeps } from '../../src/lib/billing/engine.ts';
 import { runActionJob, runPayPageJob } from '../../src/lib/billing/jobs.ts';
 import { linksFor, signLink } from '../../src/lib/billing/links.ts';
+import { deliverOraEvent, oraSignatureValid, runOraPackInvoiceJob, signOra } from '../../src/lib/billing/ora.ts';
 import type { QpayCheck, QpayPort } from '../../src/lib/billing/qpay.ts';
 import type { EmailMessage, SendOutcome, TelegramMessage } from '../../src/lib/billing/send.ts';
 import { phrasesFrom, planSchedules, writeBillingRecord } from '../../src/lib/billing/setup.ts';
@@ -732,6 +733,167 @@ async function main(): Promise<void> {
   await runBillingTick(brandedDeps(at('2026-11-02', 3), 'test'));
   check(count(`select count(*) from billing_deliveries where invoice_id = '${testOneId}' and kind = 'invoice' and status = 'sent'`) === 1,
     '…and a test run sends it, branded, as before');
+
+  // --- 0081: Ора's packs — pay, one signed event, credited once ---------------------------
+  {
+  // Ора's receiver is a fake that applies the rules of Ора's own `ora.billing_apply` (ora
+  // repo, db/migrations/0009): the signature over the raw body, `ts` within 15 minutes, an
+  // event `id` counted once, an order credited once at its own amount.
+  const ORA_SECRET = 'e2e-ora-platform-secret-long-enough-0000';
+  const ORA_EVENTS_SECRET = 'e2e-ora-events-secret-long-enough-00000';
+  const oraEnvBefore = { ...process.env };
+  Object.assign(process.env, {
+    BILLING_MODE: 'test', ORA_PLATFORM_SECRET: ORA_SECRET, DALA_PUBLIC_URL: ORIGIN, BILLING_LINK_SECRET: LINK_SECRET,
+  });
+  delete process.env['BILLING_PAY_ORIGIN'];
+  const oraAcc = psql(`insert into billing_accounts (display_name, email, is_test, ora_account) values ('Ора туршилт', 'owner@ora.test', true, true) returning id`);
+  const seenIds = new Set<string>();
+  const credited = new Map<string, number>();
+  const received: Array<{ body: string; sig: string }> = [];
+  let oraAnswer: 'ok' | 503 | 422 = 'ok';
+  const oraServer = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c: Buffer) => { raw += c.toString('utf8'); });
+    req.on('end', () => {
+      const sig = String(req.headers['x-ora-signature'] ?? '');
+      const reply = (status: number, body: Record<string, unknown>) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+      if (oraAnswer !== 'ok') return reply(oraAnswer, { error: oraAnswer === 422 ? 'rejected' : 'server_error' });
+      received.push({ body: raw, sig });
+      if (!oraSignatureValid(ORA_EVENTS_SECRET, raw, sig)) return reply(401, { error: 'bad_signature' });
+      const e = JSON.parse(raw) as Record<string, unknown>;
+      if (Math.abs(Date.now() - Date.parse(String(e['ts']))) > 15 * 60_000 || e['test'] !== true) return reply(401, { error: 'bad_signature' });
+      if (seenIds.has(String(e['id']))) return reply(200, { ok: true, duplicate: true });
+      if (e['type'] !== 'pack.paid' || e['amount_mnt'] !== 100 || e['account'] !== oraAcc) return reply(422, { error: 'rejected' });
+      seenIds.add(String(e['id']));
+      const order = String(e['order']);
+      const already = credited.has(order);
+      credited.set(order, (credited.get(order) ?? 0) + (already ? 0 : 1));
+      return reply(200, { ok: true, outcome: already ? 'already_paid' : 'credited' });
+    });
+  });
+  await new Promise<void>((resolve) => oraServer.listen(0, '127.0.0.1', resolve));
+  const oraAddr = oraServer.address();
+  const oraUrl = `http://127.0.0.1:${typeof oraAddr === 'object' && oraAddr !== null ? oraAddr.port : 0}/api/billing/webhook`;
+  const oraDeps = (): BillingDeps => ({
+    ...deps(new Date(), 'test'),
+    sendOraEvent: (ev) => deliverOraEvent({ url: oraUrl, secret: ORA_EVENTS_SECRET }, ev, new Date()),
+  });
+  const packRequest = async (over: Record<string, unknown> = {}, secret = ORA_SECRET, at = new Date()) => {
+    const body = JSON.stringify({ v: 1, ts: at.toISOString(), account: oraAcc, order: `ord_${'0'.repeat(31)}1`, amount_mnt: 100, label: 'Ора — туршилтын багц (100₮)', test: true, ...over });
+    return runOraPackInvoiceJob({ db: () => db, now: new Date(), rawBody: body, signature: signOra(secret, body) });
+  };
+  const order = (n: number) => `ord_${String(n).padStart(32, '0')}`;
+  const packId = (n: number) => psql(`select id from billing_invoices where period_key = 'one_off:ora-pack-${String(n).padStart(32, '0')}'`);
+  const events = (invoiceId: string, status = 'sent') => count(`select count(*) from billing_deliveries where invoice_id = '${invoiceId}' and kind = 'ora_pack_paid' and status = '${status}'`);
+  const pay = async (n: number, amount: number, id: string) => {
+    const page = await payPageState(oraDeps(), packId(n), false);
+    if (page.kind !== 'code') throw new Error(`no code for pack ${n}: ${page.kind}`);
+    qpayInvoices.get(codeOf(packId(n)))?.payments.push({ id, amount, at: new Date() });
+  };
+
+  const invoices0 = count('select count(*) from billing_invoices');
+  const p1 = await packRequest({ order: order(1) });
+  const p1again = await packRequest({ order: order(1) });
+  check(p1.status === 200 && /^TEST-\d{6}-\d{4}$/u.test(String(p1.body['invoice_no'])) && String(p1.body['pay_url']).startsWith(`${ORIGIN}/pay/${String(p1.body['invoice_no'])}-`)
+    && p1again.status === 200 && p1again.body['invoice_no'] === p1.body['invoice_no'] && count('select count(*) from billing_invoices') === invoices0 + 1,
+    'Ора asks for a pack invoice: one 100₮ TEST invoice and its pay address; asking again for the same order answers the same invoice');
+  check(psql(`select amount_mnt || '|' || (lines->0->>'label') || '|' || due_on::text from billing_invoices where id = '${packId(1)}'`) === `100|Ора — туршилтын багц (100₮)|${psql(`select issued_on::text from billing_invoices where id = '${packId(1)}'`)}`,
+    '…at the amount and with the line fixed here, due the day it is asked');
+  const forged = await packRequest({ order: order(9) }, 'x'.repeat(40));
+  const stale = await packRequest({ order: order(9) }, ORA_SECRET, new Date(Date.now() - 6 * 60_000));
+  const big = await packRequest({ order: order(9), amount_mnt: 49000 });
+  const notOra = await packRequest({ order: order(9), account: test.accountId });
+  const liveAsk = await packRequest({ order: order(9), test: false, amount_mnt: 49000 });
+  check(forged.status === 401 && stale.status === 401 && big.status === 422 && big.body['reason'] === 'wrong_amount'
+    && notOra.body['reason'] === 'not_an_ora_account' && liveAsk.body['reason'] === 'wrong_mode'
+    && count('select count(*) from billing_invoices') === invoices0 + 1,
+    'a forged or stale request, 49,000₮ on a test account, an account not marked as Ора\'s and a live request are all refused; no invoice');
+
+  await runBillingTick(oraDeps());
+  check(count(`select count(*) from billing_deliveries where invoice_id = '${packId(1)}'`) === 0,
+    'an unpaid pack is not e-mailed, copied to the founder, reminded or paused over');
+
+  // QPay notifies twice, at once: the payment is recorded once and Ора receives one event.
+  await pay(1, 100, 'ORA-PAY-1');
+  const tg0 = telegrams.length; const em0 = emails.length;
+  await Promise.all([runInvoiceCallback(oraDeps(), packId(1)), runInvoiceCallback(oraDeps(), packId(1))]);
+  check(psql(`select status from billing_invoices where id = '${packId(1)}'`) === 'paid' && events(packId(1)) === 1
+    && received.length === 1 && credited.get(order(1)) === 1,
+    'paid, with QPay calling back twice at once: one signed pack.paid reaches Ора and the pack is credited once');
+  const ev = JSON.parse(received[0]!.body) as Record<string, unknown>;
+  check(ev['type'] === 'pack.paid' && ev['order'] === order(1) && ev['amount_mnt'] === 100 && ev['test'] === true && ev['account'] === oraAcc
+    && ev['invoice'] === p1.body['invoice_no'] && ev['id'] === `pack.paid:${packId(1)}`
+    && psql(`select provider_message_id from billing_deliveries where invoice_id = '${packId(1)}' and kind = 'ora_pack_paid'`) === 'ora:credited',
+    '…naming the order, 100₮, test, the account and the invoice; Ора\'s answer (credited) is kept');
+  check(since(emails, em0).filter((m) => m.to === 'owner@ora.test' && m.subject.length > 0).length === 1
+    && since(telegrams, tg0).filter((m) => m.text.startsWith('✅ Ора туршилт paid')).length === 1,
+    '…the owner gets the receipt and the founder the ✅, once each');
+  await runBillingTick(oraDeps());
+  await runInvoiceCallback({ ...oraDeps(), now: new Date(Date.now() + 60_000) }, packId(1));
+  check(received.length === 1 && events(packId(1)) === 1, 'later runs and callbacks send nothing more');
+  // The same event delivered again, and a forged one, at Ора's door.
+  const replay = await fetch(oraUrl, { method: 'POST', headers: { 'x-ora-signature': received[0]!.sig }, body: received[0]!.body });
+  const forgedBody = received[0]!.body.replace(order(1), order(2));
+  const forgedEv = await fetch(oraUrl, { method: 'POST', headers: { 'x-ora-signature': received[0]!.sig }, body: forgedBody });
+  check(replay.status === 200 && (await replay.json() as Record<string, unknown>)['duplicate'] === true && forgedEv.status === 401
+    && credited.get(order(1)) === 1 && !credited.has(order(2)),
+    'the same event again is a duplicate and a forged one is refused: still one pack');
+    const rcv = received.length; // the two above were posted by this test, not the engine
+
+  // A wrong amount, or no payment at all, never sends anything.
+  await packRequest({ order: order(2) });
+  await pay(2, 50, 'ORA-PAY-SHORT');
+  await runInvoiceCallback(oraDeps(), packId(2));
+  await packRequest({ order: order(3) });
+  await payPageState(oraDeps(), packId(3), false);
+  await runBillingTick(oraDeps());
+  check(psql(`select status from billing_invoices where id = '${packId(2)}'`) === 'mismatch'
+    && count(`select count(*) from billing_deliveries where kind = 'ora_pack_paid' and invoice_id in ('${packId(2)}', '${packId(3)}')`) === 0
+    && received.length === rcv && !credited.has(order(2)) && !credited.has(order(3)),
+    'a short payment (mismatch, the founder told) and an abandoned or cancelled payment send Ора nothing');
+    const resolved = await db.rpc('billing_resolve', { p_invoice: packId(2), p_outcome: 'paid', p_by: 'Bilguun', p_note: 'e2e: short pack accepted' });
+    const tgR = telegrams.length;
+    await runBillingTick(oraDeps());
+    check(resolved.error === null && psql(`select status from billing_invoices where id = '${packId(2)}'`) === 'paid'
+      && count(`select count(*) from billing_deliveries where kind = 'ora_pack_paid' and invoice_id = '${packId(2)}'`) === 0 && !credited.has(order(2))
+      && since(telegrams, tgR).some((m) => /is an Ора pack marked paid with 50₮ of 100₮: Ора was NOT told/u.test(m.text)),
+      '…and settled by the founder as paid with 50₮, still no pack: the founder is told to refund or settle it in Ора');
+
+  // Ора down: retried with the same id, a fresh signature, until it answers.
+  await packRequest({ order: order(4) });
+  await pay(4, 100, 'ORA-PAY-4');
+  oraAnswer = 503;
+  await runInvoiceCallback(oraDeps(), packId(4));
+  check(events(packId(4), 'failed') === 1 && credited.get(order(4)) === undefined, 'Ора answering 503: the event waits to be retried');
+  oraAnswer = 'ok';
+  psql(`update billing_deliveries set next_attempt_at = now() where invoice_id = '${packId(4)}' and kind = 'ora_pack_paid'`);
+  await runBillingTick(oraDeps());
+  check(events(packId(4)) === 1 && credited.get(order(4)) === 1, '…and the hourly run delivers it: credited once');
+
+  // A payment QPay never called back about (late, or the callback lost): the hourly run finds it.
+  await packRequest({ order: order(5) });
+  await pay(5, 100, 'ORA-PAY-5');
+  await runBillingTick(oraDeps());
+  check(events(packId(5)) === 1 && credited.get(order(5)) === 1, 'a payment found by the hourly run, with no callback, is credited once');
+
+  // Ора refusing (422): stopped, the founder told why; never resent by itself.
+  await packRequest({ order: order(6) });
+  await pay(6, 100, 'ORA-PAY-6');
+  oraAnswer = 422;
+  const tg1 = telegrams.length;
+  await runInvoiceCallback(oraDeps(), packId(6));
+  await runBillingTick(oraDeps());
+  oraAnswer = 'ok';
+  check(events(packId(6), 'failed') === 1 && psql(`select next_attempt_at = 'infinity' from billing_deliveries where invoice_id = '${packId(6)}' and kind = 'ora_pack_paid'`) === 't'
+    && since(telegrams, tg1).some((m) => /ora_pack_paid to ora failed for good \(Ора answered HTTP 422 \(rejected\)\)/u.test(m.text)),
+    'Ора refusing an event (422) stops it and the founder is told why');
+  check(count(`select count(*) from billing_deliveries where kind = 'ora_pack_paid' and not is_test`) === 0
+    && count(`select count(*) from billing_invoices where period_key like 'one_off:ora-pack-%' and not is_test`) === 0,
+    'nothing about Ора touched a live account');
+  oraServer.close();
+  for (const k of Object.keys(process.env)) if (!(k in oraEnvBefore)) delete process.env[k];
+  Object.assign(process.env, oraEnvBefore);
+  }
 
   process.stdout.write(`\nbilling e2e: ${checks} checks passed\n`);
   proxy.close();

@@ -115,6 +115,39 @@ client's e-mail leaves them out until they are signed. See them with fake data, 
 `node scripts/billing/preview.ts --out /tmp/mail` (add `--signed-only` for what a client gets
 today).
 
+## Ора's packs (0081) — test only, the 100₮ test pack
+
+Ора (a separate DalaTech product, repo `ora`) sells «+25% нэмэлт эрх» through this billing; Ора
+never talks to QPay. The owner presses «Нэмэлт эрх авах» in Ора; Ора sends a signed request to
+`POST /api/ora/pack-invoice`; this platform makes a one-off invoice keyed by Ора's order
+(`one_off:ora-pack-<32 hex>`, the same order always the same invoice) and answers its number
+and pay address; the owner pays on the usual pay page. Once QPay's payment is recorded, the
+engine queues one signed `pack.paid` event in the outbox (`ora_pack_paid`, once per invoice)
+and sends it to `ORA_WEBHOOK_URL` at once (callback) or on the next hourly run. Ора credits
+the pack once per event id. Code: `src/lib/billing/ora.ts`.
+
+- **Test only.** Only a test account marked `ora_account`, only while `BILLING_MODE=test`, and
+  only the 100₮ test pack. A 49,000₮ request, a live request, any other amount, or an account
+  not marked as Ора's is refused (422) and nothing is invoiced. The real pack is a separate
+  change, after your go.
+- **Nothing changes for other clients.** `ora_account` is false on every existing account; an
+  unpaid pack is never e-mailed, reminded or paused over, and is left out of the summary's
+  «Not paid». The receipt e-mail and your ✅ stay.
+- **Ора's answers:** 200 sent (Ора's outcome kept in `provider_message_id`; `over_limit` or
+  `already_paid` means paid but not credited, and you are told to refund); 401/422 stopped
+  and you are told why; 5xx or no answer retried with the usual backoff. A wrong amount
+  (`mismatch`), a withdrawn invoice or a payment that never happened sends nothing.
+
+Environment (Production), all three or none (preflight refuses half):
+`ORA_PLATFORM_SECRET` (the same value as Ора's), `ORA_WEBHOOK_URL` (Ора's
+`/api/billing/webhook`, the preview's while testing), `ORA_BILLING_WEBHOOK_SECRET_TEST` (the
+value of Ора's Vault secret `ora_billing_webhook_test`). While `ORA_WEBHOOK_URL` is Ора's
+`*.vercel.app` preview (behind Vercel Authentication), also `ORA_PREVIEW_BYPASS_SECRET`: Ора's
+«Protection Bypass for Automation» secret, sent as `x-vercel-protection-bypass` to that address
+only (preflight refuses a preview address without it). Ора's side sets `ORA_PLATFORM_URL` to
+this deployment's public origin (`https://api.dalatech.online`). Mark the test account:
+`update billing_accounts set ora_account = true where id = '<test account id>' and is_test;`
+
 ## Going live — your approval of the first real run
 
 For each client: `node scripts/billing/account.ts propose --tenant <slug> --name "<legal name>" --email <…> --staff "<staff>=<monthly>" … --start <first month>`,
