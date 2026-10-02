@@ -26,7 +26,7 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       branch_label config; gender null when no rule; stricter bank-link schemes. e2e now 105 checks.
       Not changed (report): #11 alerts carry name+phone to shared Telegram; #12 preflight cannot see 0082 applied.
 - [x] Re-review of d7fdc32: fixed its 4 findings (paid_unbooked re-tell, notified_at + sweep of untold holds, cancel while QPay down -> Дали answers, invoice marked paid even on duplicate + never cancel a paid invoice). e2e 112.
-- [ ] CI green on last push; final report
+- [x] CI green on 14ee5fe (e2e 112 in CI log). Final report delivered.
 - [ ] Review (Opus reviewer), CI green, draft PR, preview link
 - [ ] Final report (<15 lines)
 
