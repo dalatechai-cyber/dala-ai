@@ -288,7 +288,9 @@ signed request (`POST /api/ora/pack-invoice`, `src/lib/billing/ora.ts`). False o
 existing row. `billing_deliveries.channel` admits `webhook` and `kind` admits `ora_pack_paid`:
 the signed `pack.paid` event to Ора, queued once per paid pack invoice (key
 `one_off:ora-pack-<32 hex>`) and sent through the outbox. No existing row is touched.
-**Not applied yet.**
+**Applied 2026-10-02** (ledger `20261002205147`); read back with `pg_get_constraintdef` and
+`pg_attribute`: the column exists, no grant to `anon`/`authenticated`. The founder's test account
+`Туршилтын харилцагч 2` (`is_test`) is the only one marked.
 
 ### `0080_prompt_blocks_seed`
 
