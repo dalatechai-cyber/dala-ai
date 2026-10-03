@@ -13,6 +13,12 @@
  * would rather not use QPay, and the founder's phone for a question. Once paid it says so,
  * with the date, and shows no QR and no bank details.
  *
+ * An Ора pack (`ora.ts`), once paid, also sends the owner back to Ора: as soon as Ора has
+ * confirmed the pack is credited, the page goes to Ора by itself, with a button for anyone
+ * whose browser does not follow. Until Ора confirms, it asks every 3 s for up to two minutes
+ * (the database only), then stops and leaves the button. Opened later (from the receipt),
+ * the paid page stays put and shows only the button.
+ *
  * Every word on it is a signed billing block (`templates.ts`). A LIVE invoice whose core
  * blocks are not all signed gets a 503, never a page with some words missing; the 0070
  * sections (bank transfer, phone) are shown to a live client only once theirs are signed
@@ -55,7 +61,10 @@ const EXTRA_KEYS = [
 export const PAY_CODE_KEYS: readonly string[] = ['billing_page_qr_valid', 'billing_page_qr_expired', 'billing_page_qr_renew', 'billing_page_qr_wait'];
 const CODE_KEYS: ReadonlySet<string> = new Set(PAY_CODE_KEYS);
 
-type PageKey = (typeof PAGE_KEYS)[number] | (typeof EXTRA_KEYS)[number];
+/** An Ора pack's way back (`ora.ts`). Optional for a live page: absent until signed. */
+const RETURN_KEYS = ['billing_page_return_ora', 'billing_page_return_ora_button'] as const satisfies readonly BillingBlockKey[];
+
+type PageKey = (typeof PAGE_KEYS)[number] | (typeof EXTRA_KEYS)[number] | (typeof RETURN_KEYS)[number];
 
 const ENGLISH: Record<PageKey, string> = {
   billing_page_title: 'DalaTech invoice {invoice_no}',
@@ -80,6 +89,8 @@ const ENGLISH: Record<PageKey, string> = {
   billing_label_reference: 'Reference',
   billing_label_amount: 'Amount',
   billing_page_questions: 'Questions? Call {phone}.',
+  billing_page_return_ora: 'Taking you back to Ора…',
+  billing_page_return_ora_button: 'Back to Ора',
 };
 
 type PageExtras = {
@@ -87,6 +98,12 @@ type PageExtras = {
   issuer?: Issuer | null;
   /** The mark, absolute URL, or null. */
   logoUrl?: string | null;
+  /**
+   * A paid Ора pack: where to send the owner back (`oraReturnUrl`, never from a request), and
+   * whether Ора has already confirmed the pack (`oraPackCredited`). `auto` false (long after
+   * the payment, e.g. opened from the receipt): the button only, the page stays put.
+   */
+  oraReturn?: { url: string; credited: boolean; auto: boolean } | null;
 };
 
 /**
@@ -130,6 +147,7 @@ h2{margin:0 0 6px;font-family:Manrope,Inter,sans-serif;font-size:17px;font-weigh
 .ref{font-weight:700;color:${BRAND.ink}}
 .help{text-align:center;color:${BRAND.muted};font-size:14px;margin:18px 0 0;line-height:1.6}
 .help a{color:${BRAND.blue};font-weight:600;text-decoration:none}
+.back{display:block;text-align:center;text-decoration:none;font-size:17px;font-weight:700;padding:15px;border-radius:12px;background:${BRAND.blue};color:#fff}
 .banner{background:#FFE3E3;color:#8A1111;padding:10px 12px;border-radius:10px;font-size:14px;margin-bottom:12px}
 footer{text-align:center;color:${BRAND.muted};font-size:12px;padding:0 16px 28px}`;
 
@@ -181,6 +199,24 @@ function script(template: string, secondsLeft: number): string {
     + `setInterval(poll,5000);})();</script>`;
 }
 
+const RETURN_POLL_MS = 3000;
+const RETURN_POLLS = 40;
+
+/**
+ * A paid Ора pack: go back to Ора once Ора has the pack. Already confirmed: after a moment, so
+ * the owner sees «paid» first. Not yet: ask `?state=1` every 3 s, at most 40 times, and go when
+ * it says `ora_credited`; then stop and hide the line, leaving the button. The address is the
+ * one rendered here, never one read from an answer.
+ */
+function returnScript(url: string, credited: boolean): string {
+  return `<script>(function(){var u=${jsString(url)};function go(){location.replace(u);}`
+    + (credited ? 'setTimeout(go,2500);' : `var n=0,i=setInterval(function(){if(++n>${RETURN_POLLS}){clearInterval(i);`
+      + `var l=document.getElementById('ora-return-line');if(l)l.style.display='none';return;}`
+      + `fetch(location.pathname+'?state=1',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})`
+      + `.then(function(d){if(d&&d.ora_credited===true){clearInterval(i);go();}}).catch(function(){});},${RETURN_POLL_MS});`)
+    + '})();</script>';
+}
+
 export function renderPayPage(view: PayView, wording: Wording): PageOutcome {
   const { invoice: inv, account } = view;
   // A paid (or reviewed) invoice shows no code: the code lines are not needed to show it.
@@ -197,8 +233,12 @@ export function renderPayPage(view: PayView, wording: Wording): PageOutcome {
   const extrasSigned = EXTRA_KEYS.every((k) => wording.blocks.has(k));
   const extrasWanted = issuer !== null && inv.status === 'open' && view.kind !== 'settled';
   const showExtras = extrasWanted && (extrasSigned || inv.isTest);
-  const english = missing.size > 0 || (showExtras && !extrasSigned);
-  const all: readonly PageKey[] = [...PAGE_KEYS, ...EXTRA_KEYS];
+  // An Ора pack's way back: on a paid page, for a live client only once its lines are signed.
+  const back = inv.status === 'paid' && view.kind === 'settled' ? view.oraReturn ?? null : null;
+  const returnSigned = RETURN_KEYS.every((k) => wording.blocks.has(k));
+  const showReturn = back !== null && /^https:\/\//u.test(back.url) && (returnSigned || inv.isTest);
+  const english = missing.size > 0 || (showExtras && !extrasSigned) || (showReturn && !returnSigned);
+  const all: readonly PageKey[] = [...PAGE_KEYS, ...EXTRA_KEYS, ...RETURN_KEYS];
   const w: Wording = !english ? wording : {
     source: 'draft',
     blocks: new Map(all.map((k) => [k, wording.blocks.get(k) ?? ENGLISH[k]])),
@@ -247,6 +287,10 @@ export function renderPayPage(view: PayView, wording: Wording): PageOutcome {
         + `<div class="row"><span>${esc(t('billing_label_amount'))}</span><span class="ref">${esc(formatMnt(inv.amountMnt))}</span></div></div>`;
     }
   }
+  if (showReturn && back !== null) {
+    pay += `<div class="card">${back.auto ? `<p class="muted" id="ora-return-line" style="text-align:center">${esc(t('billing_page_return_ora'))}</p>` : ''}`
+      + `<a class="back" href="${esc(back.url)}">${esc(t('billing_page_return_ora_button'))}</a></div>${back.auto ? returnScript(back.url, back.credited) : ''}`;
+  }
   const help = showExtras && issuer !== null
     ? `<p class="help">${esc(t('billing_page_questions')).replace(esc(issuer.phone), `<a href="${esc(telHref(issuer.phone))}">${esc(issuer.phone)}</a>`)}</p>`
     : '';
@@ -285,4 +329,4 @@ export function actionDonePage(title: string, text: string, status = 200): PageO
 }
 
 /** Every key the pay page needs, for the signing checklist. */
-export const PAY_PAGE_KEYS: readonly string[] = [...PAGE_KEYS, ...EXTRA_KEYS];
+export const PAY_PAGE_KEYS: readonly string[] = [...PAGE_KEYS, ...EXTRA_KEYS, ...RETURN_KEYS];

@@ -257,3 +257,55 @@ export function oraEventSender(): (event: OraEvent) => Promise<SendOutcome> {
     return deliverOraEvent({ url, secret, bypass: process.env['ORA_PREVIEW_BYPASS_SECRET'] }, event, new Date());
   };
 }
+
+// ---------------------------------------------------------------------------------------
+// Back to Ора once the pack is in
+// ---------------------------------------------------------------------------------------
+
+/**
+ * Where the pay page of a paid pack sends the owner back: the Ора deployment that receives
+ * the `pack.paid` event (the origin of `ORA_WEBHOOK_URL`), at `/?pack=<order>`. Never from a
+ * request or the invoice: no one can make this page send a browser anywhere else. The
+ * return goes where the pack was credited, so the preview's event returns to the preview.
+ * Ора reads `pack` only as a cue to look up its own order; it proves nothing.
+ *
+ * null for an invoice that is not a pack, or while the address is not an https URL.
+ */
+export function oraReturnUrl(periodKey: string, webhookUrl: string | undefined = process.env['ORA_WEBHOOK_URL']): string | null {
+  const order = oraPackOrder(periodKey);
+  if (order === null || webhookUrl === undefined) return null;
+  try {
+    const u = new URL(webhookUrl);
+    return u.protocol === 'https:' && u.username === '' && u.password === '' ? `${u.origin}/?pack=${order}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ора's answers that mean the pack is in: `credited`, or `duplicate` (a repeat of an event Ора
+ * already counted). Anything else, including `over_limit`, `already_paid` (the founder is told
+ * to refund) and an answer with no outcome word, is not: no return on it.
+ */
+const CREDITED = new Set(['ora:credited', 'ora:duplicate']);
+
+/** A pay page goes back to Ора by itself only this soon after the payment; later, a button. */
+export const ORA_RETURN_WINDOW_MS = 15 * 60_000;
+
+/**
+ * Whether Ора has the pack: its `pack.paid` event was delivered and Ора answered `credited`
+ * or `duplicate`. Only then does the pay page send the owner back, so Ора
+ * shows the pack as added on arrival rather than «waiting». Unreadable is `false`: the page
+ * stays where it is, with its button, which is today's behaviour.
+ */
+export async function oraPackCredited(db: SupabaseClient, invoiceId: string): Promise<boolean> {
+  try {
+    const { data, error } = await db.from('billing_deliveries').select('status, provider_message_id')
+      .eq('dedup_key', `ora_pack_paid:${invoiceId}`).maybeSingle();
+    if (error || data === null) return false;
+    const r = data as Record<string, unknown>;
+    return r['status'] === 'sent' && typeof r['provider_message_id'] === 'string' && CREDITED.has(r['provider_message_id']);
+  } catch {
+    return false;
+  }
+}
