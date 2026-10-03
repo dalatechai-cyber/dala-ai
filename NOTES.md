@@ -40,7 +40,7 @@ no model spend.
 - [x] Provision draft + revert, drafts file, dali.md v1.5 (A4, D12)
 - [x] Draft PR #283; independent review (Opus reviewer session): 2 medium + 2 low findings, all fixed
 - [x] `npm run check` after the review fixes: guards 10/10, typecheck clean, 2642 tests (2641 pass, 1 pre-existing skip: ancestor repo not checked out); re-review lows fixed (more Latin price spellings, «хэд» about a time or days excluded, dedup limit noted)
-- [ ] CI on the PR head (see PR #283)
+- [x] CI `verify` green on every head (e8f04c1, 29bc4d5, 33f0d45), all 16 steps success; re-review by the same reviewer session: earlier findings fixed, its low items fixed in 33f0d45. Not merged.
 
 ## Open items for the founder
 
