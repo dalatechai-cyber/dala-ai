@@ -161,19 +161,20 @@
     { "name": "Эрэгтэй засалт — Тайралт хүүхэд /0–13 нас/", "label": "Эрэгтэй 0–13 нас", "minutes": 30, "gender": "male" },
     { "name": "Эрэгтэй засалт — Тайралт хүүхэд /14–18 нас/", "label": "Эрэгтэй 14–18 нас", "minutes": 45, "gender": "male" }
   ],
-  "_branches": "One block per branch tenant (config/branch-groups.json). `stylists`: the founder's confirmed list of 2026-10-03, short Latin names exactly as written; `website` is the key in matrix_website config/stylists.js whose calendar the branch books into (the same calendar as the website). A stylist the website has no calendar for is written \"not-connected\", and the whole branch stays off until every one is connected. `qpay`: \"website\" reads the branch's merchant and payout account from the website's create-payment handler and config/branches.js (Яармаг, unchanged); \"operator\" takes them from the operator's environment under the website's own names (PARKOD_QPAY_MERCHANT_ID, PARKOD_QPAY_BANK_CODE, PARKOD_QPAY_ACCOUNT_NUMBER, PARKOD_QPAY_ACCOUNT_NAME) and writes \"not-connected\" until all four exist. Отгонжаргал (Otgonjargal) is not in the founder's list and is not here (flagged for the founder).",
+  "_branches": "One block per branch tenant (config/branch-groups.json). `stylists`: the founder's confirmed list of 2026-10-03, short Latin names exactly as written; `website` is the key in matrix_website config/stylists.js whose calendar the branch books into (the same calendar as the website). A stylist the website has no calendar for is written \"not-connected\", and the whole branch stays off until every one is connected. `qpay`: \"website\" reads the branch's merchant and payout account from the website's create-payment handler and config/branches.js (Яармаг, unchanged); \"operator\" takes them from the operator's environment under the website's own names (PARKOD_QPAY_MERCHANT_ID, PARKOD_QPAY_BANK_CODE, PARKOD_QPAY_ACCOUNT_NUMBER, PARKOD_QPAY_ACCOUNT_NAME) and writes \"not-connected\" until all four exist. Otgonjargal (Отгонжаргал) is back (founder, 2026-10-04): Яармаг, 1-р зэрэг, female, the website's own calendar for her. `aliases`: the Cyrillic spellings a customer may TYPE at the stylist question (never shown): Яармаг's from the approved «Үсчдийн нэр» list (tara_stylist_names, 2026-10-04) plus «Отгонжаргал», and every former name the website still accepts for her (its `formerly`, e.g. «Batzaya»; from-website.ts refuses if one is missing); the lead's guess «Отгоо» and Парк Од's Cyrillic spellings (guesses, unchecked) are NOT here until the founder confirms them.",
   "branches": {
     "matrix-eco-salon": {
       "branch_label": "Яармаг",
       "website_branch": "yaarmag",
       "qpay": "website",
       "stylists": [
-        { "name": "Oyunaa", "level": "special", "gender": "female", "website": "Oyunaa" },
-        { "name": "Badamaa", "level": "master", "gender": "female", "website": "Badamaa" },
-        { "name": "Uyanga", "level": "first", "gender": "female", "website": "Uyanga" },
-        { "name": "Zaya", "level": "first", "gender": "female", "website": "Zaya" },
-        { "name": "Chimgee", "level": "first", "gender": "female", "website": "Chimgee" },
-        { "name": "Anand", "level": "master", "gender": "male", "website": "Anand" }
+        { "name": "Oyunaa", "level": "special", "gender": "female", "website": "Oyunaa", "aliases": ["Оюунсүрэн", "Оюунаа", "Oyunsuren"] },
+        { "name": "Badamaa", "level": "master", "gender": "female", "website": "Badamaa", "aliases": ["Бадамцэцэг", "Бадмаа", "Badamtsetseg"] },
+        { "name": "Uyanga", "level": "first", "gender": "female", "website": "Uyanga", "aliases": ["Уянга"] },
+        { "name": "Zaya", "level": "first", "gender": "female", "website": "Zaya", "aliases": ["Батзаяа", "Заяа", "Batzaya"] },
+        { "name": "Chimgee", "level": "first", "gender": "female", "website": "Chimgee", "aliases": ["Уранчимэг", "Чимгээ", "Uranchimeg"] },
+        { "name": "Otgonjargal", "level": "first", "gender": "female", "website": "Otgonjargal", "aliases": ["Отгонжаргал", "Otgonzargal"] },
+        { "name": "Anand", "level": "master", "gender": "male", "website": "Anand", "aliases": ["Ананд"] }
       ]
     },
     "tara-park-od": {

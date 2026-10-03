@@ -2,10 +2,18 @@
 
 _The short version of the first report and the follow-ups (2026-10-03). The full design is `tara-inchat-booking.md`; what customers read is `tara-inchat-booking-transcript.md`._
 
+## Round 2026-10-04: your answers
+
+- **Otgonjargal is bookable again**: Яармаг, 1-р зэрэг, female, 10,000₮, on the same Google Calendar the website uses for her. Her button is «Otgonjargal» alone (with «· 1-р зэрэг» it is over Messenger's 20 characters); the summary still says «Otgonjargal (1-р зэрэг)». She gets the 1-р зэрэг haircut and every unlevelled service a woman books; never the SPECIAL or МАСТЕР haircut.
+- **Typed names**: at the stylist question a customer may type the Latin name alone («Uyanga») or a Cyrillic spelling from the approved «Үсчдийн нэр» list («Отгонжаргал», «Бадмаа», «Чимгээ» …) or a former name the website still accepts («Batzaya»); it picks that stylist, only if she may serve that service. Cyrillic is never shown. «Отгоо» and Парк Од's Cyrillic spellings are NOT recognised until you confirm them.
+- **Deposit deducted** (your answer): the summary before «Зөвшөөрч, захиалах» now adds your approved sentence «Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.» (a draft of the block; never «non-refundable»).
+- **Levels** written out are «1-р зэргийн үсчин», never «1-р зэрэг үсчин» (the booking writes none today; a test keeps it so). Level-named haircuts go only to that level; «Аль ч {level}» is still never a recommendation.
+- **Парк Од switch-on**: you register her QPay merchant yourself under your login (no e-mail to QPay); proof is a real 100₮ test landing in HER account. Her booking account tarasalon.parkod@gmail.com exists. The website's domain will be tarasalon.org (links stay on matrixecosalon.org until the switch).
+
 ## Round 2026-10-03: two branches
 
 - **Services**: the current price list of 2026-10-01 (62 services, the same in both branches; Дали's own price rows and the website's `data/services.json` carry the same prices), with the 62 confirmed minutes. The website's old menu (Оффис колор, Омбре, CMC…) is gone from the booking. A line sold by length or level is one button, then «Богино / Дунд / Урт» or «SPECIAL / МАСТЕР / 1-р зэрэг».
-- **Stylists** by their short Latin names. Яармаг: Oyunaa (SPECIAL), Badamaa (Мастер), Uyanga, Zaya, Chimgee (1-р зэрэг), Anand (Мастер, the only man). Парк Од: Boloroo (SPECIAL), Saraa, Tomoo, Bulgaa, Enhuush, Chimegee, Tuchku (Мастер; Tuchku the only man). Отгонжаргал is not bookable (not in your list).
+- **Stylists** by their short Latin names. Яармаг: Oyunaa (SPECIAL), Badamaa (Мастер), Uyanga, Zaya, Chimgee (1-р зэрэг), Anand (Мастер, the only man). Парк Од: Boloroo (SPECIAL), Saraa, Tomoo, Bulgaa, Enhuush, Chimegee, Tuchku (Мастер; Tuchku the only man). (Отгонжаргал was left out in this round; she is back since 2026-10-04, above.)
 - **Deposits**: SPECIAL 20,000₮, Мастер 20,000₮, 1-р зэрэг 10,000₮ (Яармаг only; every Парк Од deposit is 20,000₮). Children: girls with a woman, boys with the branch's man, the stylist's level's deposit. «Аль ч {level}» never recommends a level and is never «Аль ч 1-р зэрэг» at Парк Од.
 - **No deposit terms in chat**: the summary no longer quotes the website's non-refundable sentence (your rule). The hold records the summary the customer accepted.
 - **Each branch is paid into its own QPay merchant and account**, no fallback between them; Парк Од stays off («not connected») until her calendars and merchant exist.
@@ -26,7 +34,7 @@ A deterministic flow (no model, every line a signed block): who it is for, servi
 
 ## Built and proven
 
-Draft PR https://github.com/dalatechai-cyber/dala-ai/pull/280, off for every tenant; the two-branch round is a draft PR stacked on it. End-to-end 251 checks (2026-10-03) over real PostgreSQL and PostgREST with faithful QPay and Google fakes, 11 of them running Tara's own website code (including its own hold) against the same calendar; 240 in CI, which has no website checkout. Seven independent review rounds, every finding fixed. Migration `0082_booking` is **not applied** (checked on the project 2026-10-03: latest is `0081_ora_billing`, no booking tables or functions; main has no other 0082).
+Draft PR https://github.com/dalatechai-cyber/dala-ai/pull/280, off for every tenant; the two-branch round is a draft PR stacked on it. End-to-end 263 checks (2026-10-04) over real PostgreSQL and PostgREST with faithful QPay and Google fakes, 11 of them running Tara's own website code (including its own hold) against the same calendar, 244 in CI, which has no website checkout. Seven independent review rounds, every finding fixed. Migration `0082_booking` is **not applied** (checked on the project 2026-10-03: latest is `0081_ora_billing`, no booking tables or functions; main has no other 0082).
 
 ## Still missing
 

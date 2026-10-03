@@ -16,7 +16,7 @@ import { branchLabel } from './store.ts';
 import { callbackUrl, linkSecret, payUrl, publicOrigin, signHold, verifyHold } from './links.ts';
 import { clock, renderBookingPage } from './page.ts';
 import { freeStarts, isFree, openDays } from './slots.ts';
-import { draftWording, FakeGoogle, FakeQpay, ruleBranches, taraConfig, TEST_CALENDARS, testConfig } from './testkit.ts';
+import { draftWording, FakeGoogle, FakeQpay, ruleBranches, taraConfig, taraRules, TEST_CALENDARS, testConfig } from './testkit.ts';
 
 /** The rules file's two branches by place (first: Яармаг, second: Парк Од), never by a slug literal. */
 const [YA, PO] = ruleBranches() as [string, string];
@@ -72,10 +72,15 @@ test('Tara\'s rules: the current price list with the 62 confirmed minutes, nothi
     assert.ok(!all.some((s) => s.name === old || s.label === old), `${old} is not bookable`);
   }
   assert.deepEqual(ya.config.childServices.map((s) => [s.label, s.gender, s.minutes]), [['Охин', 'female', 45], ['Эрэгтэй 0–13 нас', 'male', 30], ['Эрэгтэй 14–18 нас', 'male', 45]]);
-  // Names: the founder's short Latin names, by branch; Отгонжаргал in neither.
-  assert.deepEqual(ya.config.stylists.map((s) => `${s.label}:${s.level}:${s.gender}`), ['Oyunaa:special:female', 'Badamaa:master:female', 'Uyanga:first:female', 'Zaya:first:female', 'Chimgee:first:female', 'Anand:master:male']);
+  // Names: the founder's short Latin names, by branch; Otgonjargal back at Яармаг, 1-р зэрэг (2026-10-04).
+  assert.deepEqual(ya.config.stylists.map((s) => `${s.label}:${s.level}:${s.gender}`), ['Oyunaa:special:female', 'Badamaa:master:female', 'Uyanga:first:female', 'Zaya:first:female', 'Chimgee:first:female', 'Otgonjargal:first:female', 'Anand:master:male']);
   assert.deepEqual(po.config.stylists.map((s) => `${s.label}:${s.level}:${s.gender}`), ['Boloroo:special:female', 'Saraa:master:female', 'Tomoo:master:female', 'Bulgaa:master:female', 'Enhuush:master:female', 'Chimegee:master:female', 'Tuchku:master:male']);
-  assert.ok(![...ya.config.stylists, ...po.config.stylists].some((s) => /Отгон|Otgon/u.test(s.name)));
+  // Every name a customer sees is Latin; Cyrillic only as a typed alias, never shown.
+  for (const s of [...ya.config.stylists, ...po.config.stylists]) assert.match(`${s.name} ${s.label}`, /^[A-Za-z ]+$/u); // ascii-safe: proves the shown names are Latin only (Cyrillic must NOT match)
+  assert.deepEqual(ya.config.stylists.find((s) => s.label === 'Otgonjargal')?.aliases, ['Отгонжаргал', 'Otgonzargal']);
+  // Level words: «1-р зэргийн үсчин», never «1-р зэрэг үсчин», anywhere in the rules or the drafts.
+  assert.ok(!/зэрэг үсчин/u.test(JSON.stringify(taraRules())));
+  for (const [k, v] of draftWording().blocks) assert.ok(!/зэрэг үсчин/u.test(v), k);
   assert.equal(po.config.branchLabel, 'Парк Од');
   // Two branches: one rule set, their own calendars and merchants.
   assert.deepEqual(compareBranches([{ slug: YA, config: ya.config }, { slug: PO, config: po.config }]), []);
@@ -98,6 +103,13 @@ test('a config missing anything that touches money or a calendar is refused, nev
   refuse({ stylists: [{ name: 'A', level: 'master', gender: 'x', calendar_id: 'c' }] }, /gender/);
   refuse({ stylists: [{ name: 'A', level: 'nope', gender: 'female', calendar_id: 'c' }] }, /not a listed level/);
   refuse({ stylists: [{ name: 'A', level: 'master', gender: 'female' }] }, /calendar_id/);
+  // A typed name must pick one stylist: an alias that is another stylist's name or alias is refused.
+  refuse({ stylists: [{ name: 'Zaya', level: 'master', gender: 'female', calendar_id: 'c1', aliases: ['Заяа'] }, { name: 'Zayaa', level: 'master', gender: 'female', calendar_id: 'c2', aliases: ['заяа'] }] }, /would name both/);
+  refuse({ stylists: [{ name: 'Zaya', level: 'master', gender: 'female', calendar_id: 'c1', aliases: ['Uyanga'] }, { name: 'Uyanga', level: 'master', gender: 'female', calendar_id: 'c2' }] }, /would name both/);
+  refuse({ stylists: [{ name: 'Zaya', level: 'master', gender: 'female', calendar_id: 'c1', aliases: [''] }] }, /aliases/);
+  // Compared as the flow compares typed text: quotes and end punctuation do not make a new name.
+  refuse({ stylists: [{ name: 'Zaya', level: 'master', gender: 'female', calendar_id: 'c1', aliases: ['Заяа'] }, { name: 'Uyanga', level: 'master', gender: 'female', calendar_id: 'c2', aliases: ['«Заяа»'] }] }, /would name both/);
+  refuse({ stylists: [{ name: 'Zaya', level: 'master', gender: 'female', calendar_id: 'c1', aliases: ['«»'] }] }, /only punctuation/);
   refuse({ stylists: [
     { name: 'A', level: 'master', gender: 'female', calendar_id: 'c' },
     { name: 'B', level: 'master', gender: 'female', calendar_id: 'c' },
@@ -339,7 +351,10 @@ test('stylist buttons: by level, no level recommended, «Аль ч {level}» onl
   const po = parseBookingConfig(taraConfig(PO));
   assert.ok(ya.ok && po.ok);
   const t = (c: typeof ya, g: 'female' | 'male', level: string | null = null) => stylistOffers(w, (c as { ok: true; config: never }).config, g, level).map((o) => o.t);
-  assert.deepEqual(t(ya, 'female'), ['Oyunaa · SPECIAL', 'Badamaa · Мастер', 'Аль ч 1-р зэрэг', 'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг']);
+  // «Otgonjargal · 1-р зэрэг» is longer than Meta's 20: her button is her name alone.
+  assert.deepEqual(t(ya, 'female'), ['Oyunaa · SPECIAL', 'Badamaa · Мастер', 'Аль ч 1-р зэрэг', 'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг', 'Otgonjargal']);
+  assert.deepEqual(t(ya, 'female', 'first'), ['Аль ч 1-р зэрэг', 'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг', 'Otgonjargal'], 'the 1-р зэрэг haircut: 1-р зэрэг only, Otgonjargal included');
+  assert.deepEqual(t(ya, 'female', 'master'), ['Badamaa · Мастер'], 'the МАСТЕР haircut: never a 1-р зэрэг stylist');
   assert.deepEqual(t(ya, 'male'), ['Anand · Мастер'], 'a man: the branch\'s man only');
   assert.deepEqual(t(po, 'female'), ['Boloroo · SPECIAL', 'Аль ч Мастер', 'Saraa · Мастер', 'Tomoo · Мастер', 'Bulgaa · Мастер', 'Enhuush · Мастер', 'Chimegee · Мастер']);
   assert.deepEqual(t(po, 'male'), ['Tuchku · Мастер']);

@@ -31,6 +31,14 @@ for a price-list line sold by hair length or by level («Tara perm» → Бог�
 `config/booking/tara-salon.json` (the price list's own words where they fit 20 characters) are
 drafts too. No other line changed; none says the deposit is non-refundable.
 
+**Round 2026-10-04, awaiting approval:** `booking_ask_agreement` CHANGED again: after
+«Урьдчилгаа төлбөр: {amount}» it adds the founder's approved sentence «Урьдчилгаа төлбөр
+үйлчилгээний үнээс хасагдаж тооцогдоно.» (tara_quality item 1, Option A), because the deposit IS
+deducted from the service price and this summary is where the customer agrees to pay it. The
+sentence is approved; the block as a whole is still a draft. Nothing says the deposit is
+non-refundable. Stylist `aliases` in `config/booking/tara-salon.json` are typed-only (never
+shown): «Отгонжаргал» and the approved Яармаг «Үсчдийн нэр» spellings.
+
 **Button (founder, 2026-10-03):** `booking_any_of_level` is «Аль ч {level}» («Аль ч Мастер», «Аль ч
 1-р зэрэг»), which fits Messenger's 20 characters; it replaces «{level} — аль ч үсчин». Should a
 level label ever make it too long, only that «any» button is left out, never cut. Tara's

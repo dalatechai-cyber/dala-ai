@@ -25,7 +25,7 @@ import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
 import { eventIdForHold, otherBlocking } from './calendar.ts';
 import {
-  bookingEnvMode, customerMode, depositFor, entryFires, QUICK_REPLY_TITLE_MAX, stylistButton,
+  bookingEnvMode, choiceKey, customerMode, depositFor, entryFires, QUICK_REPLY_TITLE_MAX, stylistButton,
   type BookingConfig, type Gender, type Service, type Stylist,
 } from './config.ts';
 import {
@@ -76,8 +76,8 @@ const CANCEL = 'bk:cancel';
 
 /** Typed text compared with a button's title: folded, spaces collapsed, end punctuation dropped. */
 export function sameChoice(a: string, b: string): boolean {
-  const n = (s: string) => fold(s).replace(/\s+/gu, ' ').replace(/^[\s«"'(]+|[\s.,!?»"')]+$/gu, '');
-  return n(a) !== '' && n(a) === n(b);
+  const k = choiceKey(a);
+  return k !== '' && k === choiceKey(b);
 }
 
 /** `14`, `14:00`, `14.00`, `14 цаг` → `14:00`; anything else null. */
@@ -128,7 +128,7 @@ function quickReplies(step: Step, offers: readonly Offer[], cancelTitle: string)
  * on offer is `stale`, and is never matched by its title instead: «12:00» on an old button means
  * 12:00 on the day it was offered for, not 12:00 on whatever day is on offer now.
  */
-function picked(session: Session, input: TurnInput, cancelTitle: string): Offer | 'cancel' | { stale: string } | null {
+function picked(session: Session, input: TurnInput, cancelTitle: string, config: BookingConfig): Offer | 'cancel' | { stale: string } | null {
   const offers = Array.isArray(session.data['offers']) ? (session.data['offers'] as Offer[]) : [];
   const p = input.quickReplyPayload;
   // «Цуцлах», tapped or typed, at every step: typing it is never taken as a name or a phone.
@@ -140,6 +140,13 @@ function picked(session: Session, input: TurnInput, cancelTitle: string): Offer 
   }
   const typed = offers.find((o) => sameChoice(o.t, input.text));
   if (typed !== undefined) return typed;
+  // At the stylist question, her name alone («Uyanga») or a spelling the CURRENT config lists for
+  // her («Отгонжаргал») picks her button, if she is on offer for this booking (never otherwise).
+  if (session.step === 'stylist') {
+    const named = config.stylists.find((s) => s.calendarId !== null && [s.label, ...s.aliases].some((n) => sameChoice(n, input.text)));
+    const hit = named === undefined ? undefined : offers.find((o) => o.v === `s:${named.calendarId}`);
+    if (hit !== undefined) return hit;
+  }
   if (session.step === 'time') {
     const t = typedTime(input.text);
     const hit = t === null ? undefined : offers.find((o) => o.t === t);
@@ -172,7 +179,9 @@ const levelOf = (data: Record<string, unknown>): string | null => (typeof data['
 /** The stylists a choice stands for: one, or every stylist of a level, in the tenant's order. */
 function candidates(config: BookingConfig, data: Record<string, unknown>): Bookable[] {
   const choice = String(data['stylist'] ?? '');
-  if (choice.startsWith('s:')) return stylistsFor(config, null, null).filter((s) => s.calendarId === choice.slice(2));
+  // One stylist: still only if she may serve THIS booking (the customer's gender, the line's level),
+  // whatever offers the session saved; a mismatch is nobody, so no hold and no QR.
+  if (choice.startsWith('s:')) return stylistsFor(config, genderOf(data), levelOf(data)).filter((s) => s.calendarId === choice.slice(2));
   if (choice.startsWith('any:')) return stylistsFor(config, genderOf(data), levelOf(data)).filter((s) => s.level === choice.slice(4));
   return [];
 }
@@ -617,7 +626,7 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
   const w = c.ports.wording;
   const data = { ...session.data };
   const step = session.step as Step;
-  const choice = picked(session, c.input, say(w, 'booking_cancel'));
+  const choice = picked(session, c.input, say(w, 'booking_cancel'), c.config);
 
   if (choice === 'cancel') {
     return { step, body: say(w, 'booking_cancelled'), offers: [], data, close: 'cancelled' };
@@ -934,7 +943,7 @@ async function duringPay(c: Ctx, session: Session): Promise<TurnResult> {
     if (hold.state === 'booked' || hold.state === 'paid_unbooked') await settleHold(c.ports, hold.id);
     return over(`hold_${hold.state}`);
   }
-  const cancel = picked(session, c.input, say(c.ports.wording, 'booking_cancel')) === 'cancel';
+  const cancel = picked(session, c.input, say(c.ports.wording, 'booking_cancel'), c.config) === 'cancel';
   if (cancel && hold.state === 'held') {
     const r = await expireHold(c.ports, hold.id, 'released', 'the customer cancelled');
     if (r === 'released') {

@@ -389,6 +389,7 @@ export const TEST_CALENDARS = {
   uyanga: 'uyanga@group.calendar.google.com',
   zaya: 'zaya@group.calendar.google.com',
   chimgee: 'chimgee@group.calendar.google.com',
+  otgonjargal: 'otgonjargal@group.calendar.google.com',
   anand: 'anand@group.calendar.google.com',
   boloroo: 'boloroo@group.calendar.google.com',
   saraa: 'saraa@group.calendar.google.com',

@@ -50,7 +50,10 @@ The people who ask are asking exactly the question a calendar answers.
 4. **Stylist**: each stylist who may serve it, by the short Latin name the salon chose
    («Oyunaa · SPECIAL», «Badamaa · Мастер», «Uyanga · 1-р зэрэг»), level by level in a fixed
    order, plus «Аль ч {level}» where two or more of a level may serve. No level is ever
-   recommended. The level sets the deposit: SPECIAL 20,000₮, Мастер 20,000₮, 1-р зэрэг 10,000₮
+   recommended. A name whose button would pass Messenger's 20 characters with its level is
+   shown alone («Otgonjargal»). Typed instead of tapped, the Latin name alone («Uyanga») or a
+   Cyrillic spelling the rules list for her (`aliases`: «Отгонжаргал», «Бадмаа», from the
+   approved «Үсчдийн нэр» list) picks the same stylist; Cyrillic is never shown. The level sets the deposit: SPECIAL 20,000₮, Мастер 20,000₮, 1-р зэрэг 10,000₮
    (only Яармаг has 1-р зэрэг, so every Парк Од deposit is 20,000₮).
 5. **When**: Дали asks «{service} — хэзээ, хэдэн цагт ирэх вэ?», with the days that still have
    a free start as buttons. The customer can tap a day or type it in words: «маргааш 2 цагт»,
@@ -68,7 +71,9 @@ The people who ask are asking exactly the question a calendar answers.
 7. **Name and phone** (typed; the phone must be 8 digits), then **the summary**: service,
    stylist, day, time and the deposit, with one button, «Зөвшөөрч, захиалах». **No deposit
    terms**: the founder's rule is that Дали never says in chat that the deposit is non-refundable
-   (the website's own tick box carries that). The hold records the summary the customer accepted,
+   (the website's own tick box carries that). It says only the founder's approved line that the
+   deposit is deducted from the service price («Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж
+   тооцогдоно.», 2026-10-04; the block itself is a draft). The hold records the summary the customer accepted,
    word for word, with the time, and writes it on the calendar event («Summary accepted: «…»»).
    Nothing is held and no QR exists before this tap.
 8. Дали holds the time and sends **one message with a «Төлбөр төлөх» button**: the summary and
@@ -190,7 +195,7 @@ every `dh` id base32hex). Run 2026-10-03 against matrix_website `claude/cool-alb
 Each branch is its own tenant (D-157) with its own `booking_config` row, built from ONE rules file,
 `config/booking/tara-salon.json`: the same services, minutes, levels, deposits, entry words and
 children's rule; each branch's own stylists (Яармаг: Oyunaa SPECIAL, Badamaa Мастер, Uyanga /
-Zaya / Chimgee 1-р зэрэг, Anand Мастер, the only man; Парк Од: Boloroo SPECIAL, Saraa, Tomoo,
+Zaya / Chimgee / Otgonjargal 1-р зэрэг, Anand Мастер, the only man; Парк Од: Boloroo SPECIAL, Saraa, Tomoo,
 Bulgaa, Enhuush, Chimegee, Tuchku, all Мастер, Tuchku the only man), its own calendars, its own
 address and hours (its rows), and **its own QPay merchant and payout account**.
 
@@ -302,15 +307,26 @@ Nothing below has been done. Each step is yours: wording, credentials, a migrati
 **Парк Од** (after Яармаг works), in order:
 1. Her tenant `tara-park-od` onboarded (another round), with her hours (Mon–Sat 10–20, Sun 11–19),
    address and Page.
-2. Her booking account and stylists' calendars: each stylist shares her calendar with
-   tarasalon.parkod@gmail.com and with the website's service account («make changes to events»);
-   the calendar ids go into the website's `PARKOD_CALENDAR_<NAME>` variables.
-3. Her QPay merchant registered under the partner login (or her own login), with her own payout
-   account; the values into the website's `PARKOD_QPAY_*` (and, if her own login,
-   `BOOKING_QPAY_PARKOD_USERNAME/_PASSWORD/_TERMINAL_ID` in dala-ai's Vercel project).
+2. Her booking account and stylists' calendars: the booking account tarasalon.parkod@gmail.com
+   exists (2026-10-04). Each stylist shares her calendar with it and with the website's service
+   account («make changes to events»); the calendar ids go into the website's
+   `PARKOD_CALENDAR_<NAME>` variables.
+3. Her QPay merchant: **you register it yourself** under your partner login (no e-mail to QPay),
+   with her own payout account, using the website's `scripts/qpay-merchant.js` (`register
+   <form.json>` is a dry run; `--send` creates it and prints the merchant id). The values go into
+   the website's `PARKOD_QPAY_*`. Only if QPay ever gives her a login of her own:
+   `BOOKING_QPAY_PARKOD_USERNAME/_PASSWORD/_TERMINAL_ID` in dala-ai's Vercel project and
+   `--qpay-login PARKOD` below. **The proof is step 5**: a real 100₮ landing in HER account.
 4. `PARKOD_QPAY_MERCHANT_ID=… PARKOD_QPAY_BANK_CODE=… PARKOD_QPAY_ACCOUNT_NUMBER=… PARKOD_QPAY_ACCOUNT_NAME=…
    PARKOD_CALENDAR_…=… node scripts/booking/from-website.ts --website <checkout> --rules
    config/booking/tara-salon.json --slug tara-park-od [--qpay-login PARKOD] --tester <PSID> --out park.sql`;
    the summary must say «connected». Run it, then `node scripts/booking/check.ts --group tara-salon`
    (it must print «the branches book alike»).
-5. One 100₮ test on her Page, as step 6 above, and check the 100₮ arrived in HER account.
+5. One 100₮ test on her Page, as step 6 above, and check the 100₮ arrived in HER bank account
+   (not Яармаг's). Until that 100₮ is seen there, her row stays `off`: this is the only proof that
+   her merchant pays her.
+
+**Domain.** Tara's website moves to **tarasalon.org** (bought at Namecheap; the website's
+`docs/DOMAIN_MOVE.md`), not tarasalon.mn. Nothing in the in-chat booking names the website's
+domain: the pay page is dala-ai's own link, and `from-website.ts` reads a checkout, not a URL.
+Until the switch, live links stay on matrixecosalon.org; DNS is not touched here.

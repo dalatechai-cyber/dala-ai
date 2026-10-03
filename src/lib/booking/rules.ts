@@ -20,7 +20,7 @@ export type BranchRules = {
   branch_label: string;
   website_branch: string;
   qpay: 'website' | 'operator';
-  stylists: { name: string; website: string; level: string; gender: 'female' | 'male' }[];
+  stylists: { name: string; website: string; level: string; gender: 'female' | 'male'; aliases?: string[] }[];
 };
 
 export type BranchSource = {
@@ -48,6 +48,9 @@ export function branchRules(rules: unknown, slug: string): { ok: true; branch: B
       || (s['gender'] !== 'female' && s['gender'] !== 'male')) {
       return { ok: false, detail: `branch ${slug} stylists[${i}] needs name, website, level and gender` };
     }
+    if (s['aliases'] !== undefined && (!Array.isArray(s['aliases']) || s['aliases'].some((a) => typeof a !== 'string' || a.trim() === ''))) {
+      return { ok: false, detail: `branch ${slug} stylists[${i}].aliases, when given, is a list of names` };
+    }
   }
   return { ok: true, branch: b as unknown as BranchRules };
 }
@@ -65,6 +68,7 @@ export function branchConfig(rules: unknown, slug: string, src: BranchSource): {
       branch_label: b.branch.branch_label,
       stylists: b.branch.stylists.map((s) => ({
         name: s.name, label: s.name, level: s.level, gender: s.gender, calendar_id: src.calendarFor(s.website) ?? NOT_CONNECTED,
+        ...(s.aliases === undefined ? {} : { aliases: [...s.aliases] }),
       })),
       qpay: src.qpay,
     },

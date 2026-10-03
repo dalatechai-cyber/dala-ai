@@ -30,7 +30,7 @@
 import { createRequire } from 'node:module';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { allServices, NOT_CONNECTED, parseBookingConfig, QPAY_LOGIN_NAME } from '../../src/lib/booking/config.ts';
+import { allServices, choiceKey, NOT_CONNECTED, parseBookingConfig, QPAY_LOGIN_NAME } from '../../src/lib/booking/config.ts';
 import { branchConfig, branchRules, type RawQpay } from '../../src/lib/booking/rules.ts';
 
 function die(m: string): never { process.stderr.write(`from-website: ${m}\n`); process.exit(2); }
@@ -51,7 +51,7 @@ if (!branch.ok) die(branch.detail);
 const b = branch.branch;
 
 const require = createRequire(import.meta.url);
-type WebStylist = { calendarId: string | null; price: number; levelKey?: string; gender?: string; branch?: string; retired?: boolean; alias?: boolean };
+type WebStylist = { person?: string; calendarId: string | null; price: number; levelKey?: string; gender?: string; branch?: string; retired?: boolean; alias?: boolean };
 const { STYLIST_CONFIG } = require(path.join(website, 'config/stylists.js')) as { STYLIST_CONFIG: Record<string, WebStylist> };
 const { qpayAccountFor } = require(path.join(website, 'config/branches.js')) as {
   qpayAccountFor: (branch: string) => { merchantId: string | null; bankAccounts: { account_bank_code: string; account_number: string; account_name: string }[] | null } | null;
@@ -77,7 +77,19 @@ for (const s of b.stylists) {
   const deposit = levels.find((l) => l.key === s.level)?.deposit_mnt;
   if (deposit !== w.price) die(`DISAGREEMENT: the ${s.level} deposit is ${String(deposit)}₮ in the rules, ${w.price}₮ on the website (never picked)`);
   calendars.set(s.website, typeof w.calendarId === 'string' && w.calendarId.trim() !== '' ? w.calendarId.trim() : null);
+  // Every former name the website still accepts for her is one a customer may type in chat too.
+  const typed = new Set([s.name, ...(s.aliases ?? [])].map(choiceKey));
+  const formerly = Object.entries(STYLIST_CONFIG).filter(([, x]) => x.alias === true && x.person === w.person).map(([k]) => k);
+  const untyped = formerly.filter((k) => !typed.has(choiceKey(k)));
+  if (untyped.length > 0) die(`the website accepts ${untyped.join(', ')} for ${s.name}; add them to her aliases in the rules`);
 }
+// Every hairdresser the website books at this branch is in the rules: none bookable on the website
+// and missing in chat (Otgonjargal was, 2026-10-03), none silently added either.
+const inRules = new Set(b.stylists.map((s) => STYLIST_CONFIG[s.website]?.person));
+const missingPeople = [...new Set(Object.values(STYLIST_CONFIG)
+  .filter((x) => x.branch === b.website_branch && x.retired !== true && x.alias !== true && typeof x.person === 'string')
+  .map((x) => x.person as string))].filter((p) => !inRules.has(p));
+if (missingPeople.length > 0) die(`the website books ${missingPeople.join(', ')} at ${b.website_branch}, the rules do not: add or ask the founder (never picked)`);
 
 // --- QPay: this branch's own merchant and payout account ----------------------------------
 const mcc = [...new Set([...createPayment.matchAll(/mcc_code:\s*["'](\d{4})["']/gu)].map((m) => m[1] as string))];

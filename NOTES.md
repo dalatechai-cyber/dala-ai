@@ -1,3 +1,51 @@
+# NOTES — Round 2 (2026-10-04): founder's answers on the in-chat booking
+
+Same branch/worktree/PR (#285). Binding: scratchpad round-facts.md + round2-facts.md. Nothing live.
+
+## Status
+- [x] Otgonjargal back: Яармаг, 1-р зэрэг, female, 10,000₮, `website: "Otgonjargal"` (the lead's new
+      website id; her old calendar). from-website.ts against the lead's 63a33c0 builds Яармаг with her.
+- [x] Typed names: stylist `aliases` (rules → row → parser → offer `a`); the Latin name alone or an alias
+      picks the stylist at the stylist question. Parser refuses an alias that names two stylists.
+- [x] Level words: no «зэрэг үсчин» anywhere (unit test over the rules file and every booking draft).
+- [x] Level-named haircuts: Otgonjargal gets the 1-р зэрэг haircut only; e2e: typed «Отгонжаргал» for the
+      МАСТЕР haircut is not taken; «Аль ч» still never a recommendation (unit test unchanged, extended).
+- [x] e2e: the website's own `requiredLevelFor` and the chat's `level` agree on all 62 services.
+- [x] `booking_ask_agreement` + the approved «Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.»
+- [x] Docs: tarasalon.org, tarasalon.parkod@gmail.com exists, founder registers Парк Од's merchant himself
+      (website scripts/qpay-merchant.js), proof = a real 100₮ in HER account. Transcript regenerated.
+- [x] check green (2666 tests, guards); e2e 263 local with the website (19 run its code or check it), 244 CI-shaped.
+- [x] Independent review (code-review skill, high, acting as reviewer.md): 10 findings; fixed 9:
+      (1) the alias collision check now uses the flow's own normaliser (`choiceKey`, quotes/punctuation);
+      (2) from-website.ts refuses when the website books someone at the branch the rules lack (the
+      Otgonjargal gap) and (6) when a website `formerly` name is missing from her aliases (Latin former
+      names added: Oyunsuren, Badamtsetseg, Batzaya, Uranchimeg, Otgonzargal); (3) a single-stylist choice
+      is re-checked against the booking's gender and level (no hold/QR on a mismatch, whatever the
+      session saved); (4) typed names resolve against the CURRENT config, nothing copied into sessions;
+      (7) one alias validation (blank refused in rules.ts too); (8) e2e reads the stylists from the rules;
+      (9) unit test reads the rules via taraRules(); (10) the «typed for the wrong level» check asserts
+      the exact reply and that nobody was picked.
+      NOT changed (5): a typed name of a stylist who cannot serve this line gets the generic
+      «pick from list» and counts as the one miss; a precise reply needs new Mongolian wording (open item).
+
+## Decisions (with reason)
+R2-1. Her button is «Otgonjargal» alone: «Otgonjargal · 1-р зэрэг» is 23 characters, Meta cuts at 20;
+      the existing rule (stylistButton) shows the name alone and the summary still says «(1-р зэрэг)».
+      Not renamed or abbreviated: the founder fixed her name.
+R2-2. Aliases are typed-only and per stylist in the rules file. Included: «Отгонжаргал» (founder) and
+      Яармаг's approved «Үсчдийн нэр» spellings (Оюунсүрэн/Оюунаа, Бадамцэцэг/Бадмаа, Уянга, Батзаяа/Заяа,
+      Уранчимэг/Чимгээ, Ананд). Left out: «Отгоо» (the lead's guess) and Парк Од's Cyrillic spellings
+      (guesses) — a wrong alias would book the wrong person, so only confirmed ones.
+R2-3. The Latin name alone also picks (typing «Uyanga» used to match nothing): same risk class, helps.
+R2-4. The deducted sentence goes ONLY in the summary before «Зөвшөөрч, захиалах» (where the customer
+      agrees to pay), not in the pay message or the confirmation (no repetition). The approved wording
+      «…хасагдаж тооцогдоно.» is used byte for byte; the website uses its own shorter «…хасагдана.» —
+      reported, not picked.
+R2-5. Summary keeps «Name (1-р зэрэг)» (a level label, not «… үсчин»), so the «1-р зэргийн үсчин» rule
+      has no line to change; a test keeps «зэрэг үсчин» out.
+R2-6. Added the website/chat level agreement check to the website section of the e2e (the lead's
+      requiredLevelFor), so the two level rules cannot drift.
+
 # NOTES — Round 2026-10-03: two-branch in-chat booking
 
 Branch `claude/tara-inchat-booking-two-branch` (worktree `/home/user/dala-wt/booking`), stacked on

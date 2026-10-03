@@ -33,7 +33,8 @@ import { runPayPage, runQpayCallback, runSweep } from '../../src/lib/booking/job
 import { signHold } from '../../src/lib/booking/links.ts';
 import { dayLabel } from '../../src/lib/booking/engine.ts';
 import { bookingTurn, type TurnResult } from '../../src/lib/booking/turn.ts';
-import { draftWording, FakeGoogle, FakeQpay, ruleBranches, taraConfig, TEST_CALENDARS, testConfig, testMerchant } from '../../src/lib/booking/testkit.ts';
+import { allServices, parseBookingConfig } from '../../src/lib/booking/config.ts';
+import { draftWording, FakeGoogle, FakeQpay, ruleBranches, taraConfig, taraRules, TEST_CALENDARS, testConfig, testMerchant } from '../../src/lib/booking/testkit.ts';
 import { qpayPortFor } from '../../src/lib/booking/live.ts';
 import { say } from '../../src/lib/booking/wording.ts';
 import type { QuickReply } from '../../src/lib/meta/send.ts';
@@ -271,7 +272,7 @@ await taps(a, 'Үйлчилгээ');
 check(JSON.stringify(titles(a)) === JSON.stringify(['Хуйх цэвэрлэгээ', 'Үс оношлогоо', 'Нөхөн сэргээх', 'Үсний тэжээл', 'Үсний спа', 'CICA эмчилгээ', 'Эмчилгээний будаг', CANCEL]), 'the group\'s services');
 await taps(a, 'Эмчилгээний будаг');
 check(a.lastBody === say(wording, 'booking_ask_stylist') && JSON.stringify(titles(a)) === JSON.stringify(['Oyunaa · SPECIAL', 'Badamaa · Мастер', say(wording, 'booking_any_of_level', { level: '1-р зэрэг' }),
-  'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг', CANCEL]),
+  'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг', 'Otgonjargal', CANCEL]),
   'a woman is offered only the women stylists, by their short Latin names, level by level (none recommended), the man not at all');
 await taps(a, 'Oyunaa · SPECIAL');
 check(a.lastBody === say(wording, 'booking_ask_when', { service: SVC_120 }) && titles(a).includes(T_MAR),
@@ -1092,9 +1093,23 @@ if (WEBSITE === null) {
   // The website's own calendar ids are read-only getters now: its real Яармаг ids are made
   // aliases of the test calendars inside the fake, so both sides write to the same calendar.
   const { STYLIST_CONFIG } = req('./config/stylists.js') as { STYLIST_CONFIG: Record<string, { calendarId: string | null }> };
-  for (const name of ['Oyunaa', 'Badamaa', 'Uyanga', 'Zaya', 'Chimgee', 'Anand'] as const) {
+  // Яармаг's stylists as the rules file lists them (by their website id), never a copy here.
+  const yaRules = (taraRules()['branches'] as Record<string, { stylists: { website: string }[] }>)[BRANCH_1];
+  for (const name of (yaRules?.stylists ?? []).map((x) => x.website)) {
     const real = STYLIST_CONFIG[name]?.calendarId;
-    if (typeof real === 'string' && real !== '') google.aliases.set(real, TEST_CALENDARS[name.toLowerCase() as keyof typeof TEST_CALENDARS]);
+    const test = (TEST_CALENDARS as Record<string, string>)[name.toLowerCase()];
+    check(test !== undefined, `the e2e has a test calendar for ${name}`);
+    if (typeof real === 'string' && real !== '' && test !== undefined) google.aliases.set(real, test);
+  }
+  // Level-named haircuts (founder, 2026-10-04): the website's own rule and the chat's must name the
+  // same level for every service, so a line the chat offers only to 1-р зэрэг the website invoices only for 1-р зэрэг.
+  const { requiredLevelFor } = req('./services/bookingRules.js') as { requiredLevelFor?: (services: string[]) => string | null };
+  if (typeof requiredLevelFor === 'function') {
+    const parsed = parseBookingConfig(taraConfig(BRANCH_1));
+    const differ = parsed.ok ? allServices(parsed.config).filter((sv) => (requiredLevelFor([sv.name]) ?? null) !== sv.level).map((sv) => sv.name) : ['(rules unreadable)'];
+    check(differ.length === 0, `the website's level rule and the chat's agree on every service's level (${differ.join(', ') || 'all 62'})`);
+  } else {
+    check(false, 'the website has no requiredLevelFor (services/bookingRules.js): level-named haircuts unchecked there');
   }
   const express = req('express') as () => { use: (p: string, r: unknown) => void; listen: (port: number, host: string, cb: () => void) => http.Server };
   const { ensurePaidBooking } = req('./services/bookingWriter.js') as {
@@ -1515,7 +1530,7 @@ await taps(girl, CHILD);
 check(girl.lastBody === say(wording, 'booking_ask_service') && JSON.stringify(titles(girl)) === JSON.stringify(['Охин', 'Эрэгтэй 0–13 нас', 'Эрэгтэй 14–18 нас', CANCEL]),
   '«Хүүхэд»: the children\'s services, straight away (no service groups)');
 await taps(girl, 'Охин');
-check(JSON.stringify(titles(girl)) === JSON.stringify(['Oyunaa · SPECIAL', 'Badamaa · Мастер', say(wording, 'booking_any_of_level', { level: '1-р зэрэг' }), 'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг', CANCEL]),
+check(JSON.stringify(titles(girl)) === JSON.stringify(['Oyunaa · SPECIAL', 'Badamaa · Мастер', say(wording, 'booking_any_of_level', { level: '1-р зэрэг' }), 'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг', 'Otgonjargal', CANCEL]),
   'a girl\'s haircut: the women stylists only');
 const boy = newChat();
 await says(boy, 'Цаг авъя');
@@ -1545,8 +1560,27 @@ await taps(cut1, FEMALE);
 await taps(cut1, 'Эмэгтэй засалт');
 await taps(cut1, 'Тайралт том хүн');
 await taps(cut1, '1-р зэрэг');
-check(JSON.stringify(titles(cut1)) === JSON.stringify([say(wording, 'booking_any_of_level', { level: '1-р зэрэг' }), 'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг', CANCEL]),
-  'the 1-р зэрэг haircut: only 1-р зэрэг stylists');
+check(JSON.stringify(titles(cut1)) === JSON.stringify([say(wording, 'booking_any_of_level', { level: '1-р зэрэг' }), 'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг', 'Otgonjargal', CANCEL]),
+  'the 1-р зэрэг haircut: only 1-р зэрэг stylists, Otgonjargal among them (her name alone: with her level it is over 20)');
+// Typed, not tapped: her Cyrillic name picks her (an alias in the rules, never shown).
+await says(cut1, 'Отгонжаргал');
+check(cut1.lastBody === say(wording, 'booking_ask_when', { service: 'Эмэгтэй засалт — Тайралт том хүн /1-р зэрэг/' })
+  && psql(`select data->>'stylist' from booking_sessions where conversation_id = '${cut1.conversationId}' and closed_at is null`) === `s:${TEST_CALENDARS.otgonjargal}`,
+  'typed «Отгонжаргал» at the stylist question picks Otgonjargal (1-р зэрэг) and goes on to when');
+// A level-named haircut never goes to another level, typed either: «Отгонжаргал» typed for the МАСТЕР line is not taken.
+const cutS = newChat();
+await says(cutS, 'Цаг авъя');
+await taps(cutS, FEMALE);
+await taps(cutS, 'Эмэгтэй засалт');
+await taps(cutS, 'Тайралт том хүн');
+await taps(cutS, 'МАСТЕР');
+check(JSON.stringify(titles(cutS)) === JSON.stringify(['Badamaa · Мастер', CANCEL]), 'the МАСТЕР haircut: Badamaa only (no 1-р зэрэг, no «Аль ч»)');
+await says(cutS, 'Отгонжаргал');
+check(cutS.lastBody === say(wording, 'booking_pick_from_list')
+  && psql(`select step || '/' || coalesce(data->>'stylist', 'none') from booking_sessions where conversation_id = '${cutS.conversationId}' and closed_at is null`) === 'stylist/none',
+  'typed «Отгонжаргал» for the МАСТЕР haircut is not taken: she is 1-р зэрэг');
+await says(cutS, 'Бадмаа');
+check(cutS.lastBody === say(wording, 'booking_ask_when', { service: 'Эмэгтэй засалт — Тайралт том хүн /МАСТЕР/' }), 'typed «Бадмаа» (an approved spelling) picks Badamaa');
 const adultAfterChild = newChat();
 await says(adultAfterChild, 'Цаг авъя');
 await taps(adultAfterChild, CHILD);

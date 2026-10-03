@@ -24,6 +24,7 @@
  * never filled from another branch: there is no fallback anywhere.
  */
 import { matcherFires, parseMatcher, type MatcherSpec, type MatchSubject } from '../gate/match.ts';
+import { fold } from '../mn/text.ts';
 
 export type BookingMode = 'off' | 'test' | 'live';
 
@@ -36,8 +37,12 @@ export function bookingEnvMode(raw: string | undefined = process.env['BOOKING_MO
 export type Gender = 'female' | 'male';
 
 export type Level = { key: string; label: string; depositMnt: number };
-/** `calendarId` null: not connected yet (the row says `not-connected`); the flow is then off. */
-export type Stylist = { name: string; label: string; level: string; gender: Gender; calendarId: string | null };
+/**
+ * `calendarId` null: not connected yet (the row says `not-connected`); the flow is then off.
+ * `aliases`: other spellings a customer may TYPE for this stylist at the stylist question
+ * («Отгонжаргал» for Otgonjargal); never shown. Her label alone is always recognised too.
+ */
+export type Stylist = { name: string; label: string; level: string; gender: Gender; calendarId: string | null; aliases: string[] };
 /**
  * `name` goes into the calendar and the messages; `label` (≤ 20 characters) is the button.
  * `level`: only stylists of this level serve it (a price-list line priced per level, «/SPECIAL/»).
@@ -113,6 +118,13 @@ export const QPAY_LOGIN_NAME = /^[A-Z][A-Z0-9]{1,30}$/u;
 
 /** Code points, never UTF-16 units (rule 6). */
 const cp = (s: string): number => [...s].length;
+
+/**
+ * Typed text as the flow compares it with a button or a name: folded, spaces collapsed, end
+ * punctuation and quotes dropped. One function for the flow (`turn.ts` sameChoice) and for the
+ * parser's check that no typed name picks two stylists, so the two can never disagree.
+ */
+export const choiceKey = (s: string): string => fold(s).replace(/\s+/gu, ' ').replace(/^[\s«"'(]+|[\s.,!?»"')]+$/gu, '');
 
 /**
  * Validate a `booking_config.config`. Pure; every refusal names the field. Defaults exist only
@@ -191,7 +203,10 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
     if (!levels.some((l) => l.key === level)) return fail(`stylists[${i}].level ${level} is not a listed level`);
     if (calendarId !== null && stylists.some((x) => x.calendarId === calendarId)) return fail(`stylists[${i}]: calendar_id is used twice`);
     if (stylists.some((x) => x.label === label)) return fail(`stylists[${i}]: label ${label} repeats`);
-    stylists.push({ name, label, level, gender, calendarId });
+    const aliasesRaw = s['aliases'] === undefined ? [] : s['aliases'];
+    if (!Array.isArray(aliasesRaw) || aliasesRaw.some((a) => str(a) === null)) return fail(`stylists[${i}].aliases, when given, is a list of names`);
+    const aliases = aliasesRaw.map((a) => str(a) as string);
+    stylists.push({ name, label, level, gender, calendarId, aliases });
   }
 
   const groupsRaw = raw['service_groups'];
@@ -292,6 +307,17 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
     ...stylists.filter((s) => s.calendarId === null).map((s) => `${s.label}'s calendar`),
     ...(qpay === null ? ['the QPay merchant'] : []),
   ];
+
+  // A typed name must pick exactly one stylist: no name or alias may be another stylist's.
+  const typedAs = new Map<string, string>();
+  for (const st of stylists) {
+    for (const n of new Set([st.label, ...st.aliases].map(choiceKey))) {
+      if (n === '') return fail(`stylists: ${st.label} has an alias that is only punctuation`);
+      const other = typedAs.get(n);
+      if (other !== undefined && other !== st.label) return fail(`stylists: «${n}» would name both ${other} and ${st.label}`);
+      typedAs.set(n, st.label);
+    }
+  }
 
   // Every stylist's button must fit, and no two buttons may read the same.
   const buttons = new Set<string>();
