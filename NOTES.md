@@ -16,7 +16,8 @@ round's facts and limits: nothing live, no production writes (SELECT-only reads)
 - [x] Docs: `docs/tenants/tara-park-od.md` (facts, go-live steps), `docs/tenants/tara-yarmag.md`.
 - [x] Review (findings fixed, decision 12); `npm run check` green: 2,635 tests, 2,634 pass, 1 skipped
       (needs the Matrix-Chatbot checkout), guards and typecheck clean.
-- [ ] Commit, push, draft PR, CI.
+- [x] Commit 034ef3c, pushed, draft PR https://github.com/dalatechai-cyber/dala-ai/pull/284 (not merged).
+- [ ] CI on the PR: read once.
 
 ## Decisions (and why)
 
