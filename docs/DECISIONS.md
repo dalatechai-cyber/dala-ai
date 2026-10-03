@@ -11863,20 +11863,35 @@ tenant's approved hand-off line instead, so no customer is left with silence.
   `serveHandoff` as D-160 (cap) and D-163 (`canned_stale`): no model, nothing reserved or spent,
   at most once per conversation per Ulaanbaatar day, a person told (`conversation.needs_person`),
   flagged `too_late_handoff`.
-- Not sent when the customer is no longer waiting on that message: a newer message of theirs is
-  in the conversation (that one is answered, or gets the line itself), one of our replies was
-  sent after it, or a person replied since. An unreadable check sends (a repeat is better than
-  silence; the once-a-day rule bounds it).
+- Not sent when the customer is no longer waiting on that message: a later message of theirs (in
+  the same entry, or newer in the conversation) is the one to serve, one of our replies was sent,
+  being sent or parked indeterminate after it, or a person replied since. «After it» is the
+  earlier of Meta's time for the message and when we stored it: a message stored late (a backlog,
+  a stranded event) is otherwise «newer» than the reply that already answered the customer. An
+  unreadable check sends (a repeat is better than silence; the once-a-day rule bounds it). The
+  once-a-day rule counts an indeterminate send too (it may have arrived).
+- When no line can be sent (no reviewed, published `handoff` row, or the context unloadable), a
+  person is told (`conversation.needs_person`, sent `no`): silence is never the only signal.
 - A stored reply whose send failed and whose redelivery came too late is refused for good
   (`reply_too_late`) and the line goes under its own key (`<reply key>:handoff`), never the stale
-  reply.
-- The hourly stranded sweep re-publishes an event past the limit when its channel is `live` and
-  it is under 24 hours old, instead of expiring it, so the worker can send the line. Older, or on
-  a channel that is not live: expired and paged, as before.
+  reply. A line under that key whose own send failed is re-sent on the next redelivery, however
+  late (inside 24 h).
+- The hourly stranded sweep re-publishes an event past the limit when its channel is `live`, it
+  is under 24 hours old and it is plain customer text (no echo, photo, voice, sticker, like,
+  standby or comment: those paths have no still-waiting check), instead of expiring it, so the
+  worker can send the line. The founder is still paged at once (`route: 'now'`), saying the
+  customer was not answered in time. Older, not live, or not plain text: expired and paged, as
+  before. A re-published event the worker cannot finish is re-published by later sweeps until
+  24 h (one page, keyed on the event).
 - Shadow channels are unchanged: nothing is sent, the Page answers.
 
 **Verified.** Unit tests (`reception.test.ts`, `stranded.test.ts`): the line on an hour-old
 message with no model, no reservation and no bubble; none on shadow, past 24 h, after a newer
-message, after a person's reply, or a second time the same day; a stale stored reply refused and
-replaced by the line under its own key; the sweep re-publishing a live event inside 24 h and
-expiring the rest. `npm run check` green. Not verified live: needs the founder's go.
+message, after a person's reply, after a reply sent to a message stored late (the «since» is
+Meta's time), or a second time the same day; one line for two messages in one entry, answering
+the later; a person told when there is no line; a stale stored reply refused and replaced by the
+line under its own key, and that line re-sent after a second failure; the sweep re-publishing a
+live text event inside 24 h with an immediate page, and expiring the rest (past 24 h, shadow, off,
+a photo, an echo, no payload). The two new reads ran against a real local PostgREST (200). `npm
+run check` green. Reviewed independently (one blocker and two mediums found and fixed). Not
+verified live: needs the founder's go.

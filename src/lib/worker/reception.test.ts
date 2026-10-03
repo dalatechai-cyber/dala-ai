@@ -454,6 +454,47 @@ test('too late: NO line when the customer wrote again, or a person already repli
   assert.ok(person.logs.some((l) => l.event === 'too_late_no_handoff' && (l as { fields?: Record<string, unknown> }).fields?.['reason'] === 'person_replied'));
 });
 
+test('too late: a reply sent AFTER the customer wrote counts, even when the message was stored later (backlog, stranded)', async () => {
+  // `messages.at` is when we stored it; the stranded sweep can store it an hour late, after the
+  // customer's next message was answered. «Since» is Meta's time for the message, the earlier one.
+  const sentAt = NOW.getTime() - 60 * 60_000;
+  const { fx, delivered, logs, ops } = stubEffects({ tables: lateTables({
+    webhook_events: { data: { raw_payload: payload({ ts: sentAt }) } },
+    messages: [{ data: { id: 'msg-1' }, error: null }, { data: { at: NOW.toISOString() }, error: null }, { data: [], error: null }],
+    outbound_messages: [{ data: [{ id: 'om-answer-to-m2' }], error: null }, { data: { id: 'om-late', body: LATE_LINE, attempts: 0, state: 'draft' }, error: null }],
+  }) });
+  await run(fx);
+  assert.equal(delivered.length, 0, 'the customer was answered after writing: no hand-off line');
+  assert.ok(logs.some((l) => l.event === 'too_late_no_handoff' && (l as { fields?: Record<string, unknown> }).fields?.['reason'] === 'answered'));
+  const read = ops.find((o) => o.table === 'outbound_messages' && (o.filters ?? []).some(([m, k]) => m === 'gt' && k === 'created_at'));
+  assert.deepEqual((read?.filters ?? []).find(([m, k]) => m === 'gt' && k === 'created_at'), ['gt', 'created_at', new Date(sentAt).toISOString()]);
+  assert.deepEqual((read?.filters ?? []).find(([m]) => m === 'in'), ['in', 'state', ['sending', 'sent', 'indeterminate']]);
+});
+
+test('too late: two messages in one entry get ONE line, for the later message', async () => {
+  const entry = payload({ ts: NOW.getTime() - 61 * 60_000 });
+  const second = JSON.parse(JSON.stringify(entry.messaging[0])) as { timestamp: number; message: { mid: string; text: string } };
+  second.timestamp = NOW.getTime() - 60 * 60_000;
+  second.message.mid = 'm_second';
+  second.message.text = 'Хариулаач';
+  const { fx, delivered, logs, ops } = stubEffects({ tables: lateTables({
+    webhook_events: { data: { raw_payload: { ...entry, messaging: [entry.messaging[0], second] } } },
+  }) });
+  await run(fx);
+  assert.equal(delivered.length, 1);
+  assert.ok(logs.some((l) => l.event === 'too_late_no_handoff' && (l as { fields?: Record<string, unknown> }).fields?.['reason'] === 'newer_message'), 'the first steps aside');
+  const draft = ops.find((o) => o.table === 'outbound_messages' && (o.op === 'insert' || o.op === 'upsert'));
+  assert.equal(draft?.patch?.['dedup_key'], replyDedupKey('m_second'), 'the line answers the later message');
+});
+
+test('too late with NO reviewed hand-off row: nothing is sent, and a person is told', async () => {
+  const OTHER = { kind: 'refusal_off_topic', body: 'Өөр мөр.', reviewed_at: '2026-09-01' };
+  const { fx, delivered, needsPerson } = stubEffects({ tables: lateTables({ canned_responses: { data: [OTHER], error: null } }) });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent]), [['handoff', 'no']]);
+});
+
 test('too late: the line is said once per conversation per day', async () => {
   const { fx, delivered, logs } = stubEffects({ tables: lateTables({
     messages: [{ data: { id: 'msg-1' }, error: null }, { data: { at: '2026-09-04T11:00:00.000Z' }, error: null }, { data: [], error: null }],
@@ -1009,7 +1050,7 @@ test('D-160: the line is said ONCE per conversation per day, not to every capped
   assert.ok(said, 'the once-a-day read ran');
   assert.deepEqual((said?.filters ?? []).find(([m, k]) => m === 'gte' && k === 'created_at'),
     ['gte', 'created_at', localDayStart(tenantClock(NOW, 'Asia/Ulaanbaatar').date, 'Asia/Ulaanbaatar').toISOString()]);
-  assert.deepEqual((said?.filters ?? []).find(([m]) => m === 'in'), ['in', 'state', ['sending', 'sent']]);
+  assert.deepEqual((said?.filters ?? []).find(([m]) => m === 'in'), ['in', 'state', ['sending', 'sent', 'indeterminate']], 'an indeterminate send may have arrived: it counts');
   assert.ok(said?.eq?.some(([k, v]) => k === 'conversation_id' && v === 'conv-1'));
   assert.ok(said?.eq?.some(([k, v]) => k === 'body' && v === CAP_HANDOFF));
 });
@@ -1829,6 +1870,26 @@ test('a stored reply past the reply age limit is refused for good, and the hand-
   const draft = ops.find((o) => o.table === 'outbound_messages' && (o.op === 'insert' || o.op === 'upsert'));
   assert.equal(draft?.patch?.['dedup_key'], `${replyDedupKey(MID)}:handoff`, 'its own key: the reply\'s key is the refused row');
   assert.ok(flags.some((f) => f.code === 'reply_too_late'));
+});
+
+test('a too-late hand-off line whose send failed is re-sent on the next redelivery, however late (not silence)', async () => {
+  const { fx, delivered, generated } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ ts: NOW.getTime() - 3 * 60 * 60_000 }) } },
+      messages: [...DUPLICATE_INBOUND, { data: { at: MSG_AT }, error: null }, { data: [], error: null }],
+      outbound_messages: [
+        { data: { id: 'om-7', state: 'refused' }, error: null },                     // the reply: refused as too late
+        { data: { id: 'om-line', state: 'failed' }, error: null },                   // its :handoff line: failed
+        { data: { created_at: ROW_AT }, error: null },                               // the line's created_at
+        { data: [], error: null },                                                   // a reply sent after it: none
+        { data: { id: 'om-line', body: LATE_LINE, attempts: 1 }, error: null },      // claim
+      ],
+    },
+  });
+  await run(fx);
+  assert.equal(generated.length, 0);
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0]?.body, LATE_LINE);
 });
 
 test('a stored reply is not re-sent over a person who replied since, and is refused for good', async () => {
