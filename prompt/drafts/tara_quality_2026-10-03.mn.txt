@@ -39,34 +39,31 @@
    post, a link to a post, photo, story or pin, and a photo beside a video still go to staff:
 Уучлаарай, би бичлэг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
 
-## AWAITING the founder's approval (new, 2026-10-04, D-177)
+## D-177 (2026-10-04). Rows: scripts/provision/tara-yarmag-colour-and-treatment-perm-2026-10-04.sql
+## (NOT applied). Парк Од gets the same rows the same day.
 
-Rows: scripts/provision/tara-yarmag-colour-and-treatment-perm-2026-10-04.sql (NOT applied; the rows
-go in disabled and switch on only after your approval). Парк Од gets the same rows the same day.
-
-8. A woman asks for «Эмчилгээний хими» (fixed reply `treatment_perm_women`; it needs the word
-   «эмэгтэй/emegtei»; men's «Эмчилгээний хими», 189,000₮, is unchanged).
-   You asked for the approved «service unavailable» line. Tara's line is about NAILS: «Манай салон
-   одоогоор хумсны үйлчилгээ үзүүлэхгүй байна.» Sent here, it would tell a customer asking about a
-   perm that we do not do nails. So this is the same sentence with the service changed — new
-   wording, please approve or correct:
+8. A woman asks for «Эмчилгээний хими» (fixed reply `treatment_perm_women`; needs «эмэгтэй/emegtei»;
+   men's «Эмчилгээний хими», 189,000₮, is unchanged). APPROVED by the founder 2026-10-04 as written
+   (Tara's «service unavailable» line names nails, so this sentence replaces it here):
 Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.
 
-9. «Өнгө гаргалт» (fixed reply `colour_lift`). Never «we don't offer it». The reply is the
-   salon's related colour rows, read from the price list when it is sent (no price is typed
-   anywhere), then Яармаг's approved phone line byte for byte (Парк Од: her own, «Та 76001888
-   дугаараар холбогдоно уу.»). No new sentence; please approve the composition. Roughly as a customer
-   would see it today (the exact layout and row order come from the price list when sent):
-Хэсэгчилсэн сор (эрэгтэй): 195,000₮
+9. «Өнгө гаргалт». Never «we don't offer it». AWAITING approval of the final wording. The founder
+   decided (2026-10-04): women's colour services to women; men's only when the customer is a man;
+   «Бүтэн цайруулалт» never to women (its only price is the men's). The rows are the price list's
+   own rows, byte for byte; the last line is Яармаг's approved phone line (Парк Од: her own).
+   Fires on «өнгө гаргал», «өнгө гаргуул», «ungu gargal» …
+
+   9a. Anyone who does not say «эрэгтэй/eregtei» (fixed reply `colour_lift`):
 Хэсэгчилсэн сор (эмэгтэй): 150,000₮
 Бүтэн сор: 210,000₮
-Бүтэн цайруулалт (эрэгтэй): 450,000₮
 
 Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.
 
-   Questions: (a) «Бүтэн цайруулалт» is on the list for men only (450,000₮). Keep it, or drop it so
-   a woman is not shown a men's price? (b) Add «Өнгөлөгч будаг» (toner, 160,000–210,000₮ by length)?
-   It is a colour service but not a lightening one, so it is left out.
+   9b. A man: the message also has «эрэгтэй/eregtei» (fixed reply `colour_lift_men`):
+Хэсэгчилсэн сор (эрэгтэй): 195,000₮
+Бүтэн цайруулалт (эрэгтэй): 450,000₮
+
+Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.
 
 ## FAQ questions (the model reads them; never sent as written). Not customer wording, listed for completeness.
 

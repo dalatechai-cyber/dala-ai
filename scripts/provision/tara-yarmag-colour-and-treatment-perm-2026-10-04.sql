@@ -1,30 +1,31 @@
--- NOT APPLIED. DRAFT ROWS, AWAITING the founder's approval of their wording
--- (prompt/drafts/tara_quality_2026-10-03.mn.txt, items 8 and 9). Tara Яармаг (matrix-eco-salon).
+-- NOT APPLIED. Tara Яармаг (matrix-eco-salon). Founder's decisions, 2026-10-04 (D-177): women's
+-- «Эмчилгээний хими» and «өнгө гаргалт» are not services Tara offers; the price-page rows, the
+-- «Үнийн хуудас» contact and any website change for them are dropped.
 --
--- Founder's decision, 2026-10-04 (D-177): women's «Эмчилгээний хими» and «өнгө гаргалт» are not
--- services Tara offers. The price-page rows (`price_page_treatment_perm`, `price_page_color`), the
--- «Үнийн хуудас» contact and the website change for them are dropped. Instead:
+--   treatment_perm_women  APPROVED 2026-10-04 as written: a woman asking for «Эмчилгээний хими»
+--                         is told it is not offered. (Tara's `refusal_service_unavailable` line
+--                         names nails, so the founder approved this sentence instead.) Needs
+--                         «эмэгтэй/emegtei»; men's «Эмчилгээний хими» (189,000₮) is unchanged.
+--                         Lands ENABLED.
+--   colour_lift           «Өнгө гаргалт», a woman or anyone who does not say «эрэгтэй»: the
+--                         women's colour rows (Хэсэгчилсэн сор (эмэгтэй), Бүтэн сор), then the
+--                         tenant's own approved `salon_phone` line. Never «not offered».
+--   colour_lift_men       «Өнгө гаргалт» with «эрэгтэй/eregtei»: the men's rows (Хэсэгчилсэн сор
+--                         (эрэгтэй), Бүтэн цайруулалт (эрэгтэй)), then the same line. «Бүтэн
+--                         цайруулалт» is shown to men only: its only price is the men's (founder).
+--                         Both colour rows AWAIT the founder's approval of their final wording
+--                         (dala-ai#284 docs/approvals/tara-2026-10-04/08-colour-and-treatment-perm.mn.txt)
+--                         and land DISABLED and `seeded` (a `seeded` row never answers, D-020).
 --
---   treatment_perm_women  A woman asking for «Эмчилгээний хими» is told it is not offered. The
---                         founder asked for the approved «service unavailable» line
---                         (`refusal_service_unavailable`), but Tara's line names nails («Манай
---                         салон одоогоор хумсны үйлчилгээ үзүүлэхгүй байна.»), so it cannot be
---                         sent here as it is. The body below is that line with the service
---                         changed: NEW WORDING, awaiting approval. Men's «Эмчилгээний хими»
---                         (189,000₮, the price list) is unchanged: this row needs «эмэгтэй».
---   colour_lift           «Өнгө гаргалт» (6+ chats a week) is NEVER told it is not offered. The
---                         reply is the salon's related colour rows, read from the price list at
---                         send time (`quote_services`, so this file holds no price), then the
---                         tenant's own approved `salon_phone` line, byte for byte. No new
---                         sentence; the composition is new, so it awaits approval too.
+-- The colour rows are the price list's own rows, byte for byte («Name (variant): price₮», the
+-- compiled list's format). `quote_services` cannot pick one gender's variant of «Хэсэгчилсэн
+-- сор», so the rows are typed; the fact-consistency gate (scripts/facts/gate.ts) checks every
+-- stored copy against the price rows at each publish, so a price change cannot leave them stale.
 --
 -- Same rows as Парк Од's (`tara-park-od-after-onboarding.sql`, branch claude/tara-park-od-tenant),
--- except `colour_lift`'s body, which is each tenant's own `salon_phone` line (Яармаг: «Та 76001888
--- эсвэл 80905498 …»; Парк Од: «Та 76001888 …»).
---
--- Both rows go in DISABLED and `seeded` (a `seeded` row never answers, D-020), with their reply
--- cases inactive. Step 2 (below) switches them on after the founder approves the wording. Rows
--- are read at request time: no publish is needed.
+-- except the colour rows' last line, which is each tenant's own `salon_phone` line (Яармаг: «Та
+-- 76001888 эсвэл 80905498 …»; Парк Од: «Та 76001888 …»). Rows are read at request time: no
+-- publish is needed.
 --
 -- Undo: the -revert.sql beside it.
 begin;
@@ -33,60 +34,59 @@ do $$
 declare t uuid;
 begin
   select id into strict t from tenants where slug = 'matrix-eco-salon';
-  if exists (select 1 from deterministic_replies where tenant_id = t and intent in ('treatment_perm_women', 'colour_lift')) then
+  if exists (select 1 from deterministic_replies where tenant_id = t and intent in ('treatment_perm_women', 'colour_lift', 'colour_lift_men')) then
     raise exception 'this file is already applied';
   end if;
-  -- `colour_lift` quotes these by name; a missing one would make it never answer.
-  if (select count(distinct s.name) from services s
-       where s.tenant_id = t and s.name in ('Хэсэгчилсэн сор', 'Бүтэн сор', 'Бүтэн цайруулалт')) <> 3 then
-    raise exception 'the price list lacks a colour service colour_lift quotes (apply tara-price-list-2026-10-01.sql first)';
+  -- The colour rows type these prices; stop if the price list says otherwise.
+  if (select count(*) from services s join service_variants v on v.service_id = s.id
+       where s.tenant_id = t and (s.name, v.variant_key, v.price_min) in
+             (('Хэсэгчилсэн сор', 'эмэгтэй', 150000), ('Бүтэн сор', '', 210000),
+              ('Хэсэгчилсэн сор', 'эрэгтэй', 195000), ('Бүтэн цайруулалт', 'эрэгтэй', 450000))) <> 4 then
+    raise exception 'the price list does not hold the four colour prices these rows type (apply tara-price-list-2026-10-01.sql first)';
   end if;
 end $$;
 
--- 1. The two rows, disabled.
+-- 1. The three rows: the approved one on, the two colour rows off.
 insert into deterministic_replies (tenant_id, intent, body, enabled, provenance, match_mode, placement, stems, cover_words, quote_services, matcher, requires_empty_history)
 select t.id, v.* from tenants t, (values
- ('treatment_perm_women', 'Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.', false, 'seeded', 'matcher', 'replace', '{}'::text[], '{}'::text[], '{}'::text[], '{"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["эмчилгээний", "emchilgeenii", "emchilgeeni", "emchilgenii"]}, {"mode": "contains_stem", "stems": ["хими", "himi"]}, {"mode": "contains_stem", "stems": ["эмэгтэй", "emegtei", "emegtey"]}]}'::jsonb, false),
- ('colour_lift', 'Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.', false, 'seeded', 'contains_stem', 'replace', '{"өнгө гаргал","өнгө гаргуул","өнгөө гаргуул","ungu gargal","ungu gargul","ongo gargal","ongo gargul","vngv gargal"}'::text[], '{}'::text[], array['Хэсэгчилсэн сор', 'Бүтэн сор', 'Бүтэн цайруулалт']::text[], NULL::jsonb, false)
+ ('treatment_perm_women', E'Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.', true, 'tenant_confirmed', 'matcher', 'replace', '{}'::text[], '{}'::text[], '{}'::text[], '{"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["эмчилгээний", "emchilgeenii", "emchilgeeni", "emchilgenii"]}, {"mode": "contains_stem", "stems": ["хими", "himi"]}, {"mode": "contains_stem", "stems": ["эмэгтэй", "emegtei", "emegtey"]}]}'::jsonb, false),
+ ('colour_lift', E'Хэсэгчилсэн сор (эмэгтэй): 150,000₮\nБүтэн сор: 210,000₮\n\nТа 76001888 эсвэл 80905498 дугаараар холбогдоно уу.', false, 'seeded', 'matcher', 'replace', '{}'::text[], '{}'::text[], '{}'::text[], '{"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["өнгө гаргал", "өнгө гаргуул", "өнгөө гаргуул", "ungu gargal", "ungu gargul", "ongo gargal", "ongo gargul", "vngv gargal"]}, {"mode": "not", "matcher": {"mode": "contains_stem", "stems": ["эрэгтэй", "eregtei", "eregtey"]}}]}'::jsonb, false),
+ ('colour_lift_men', E'Хэсэгчилсэн сор (эрэгтэй): 195,000₮\nБүтэн цайруулалт (эрэгтэй): 450,000₮\n\nТа 76001888 эсвэл 80905498 дугаараар холбогдоно уу.', false, 'seeded', 'matcher', 'replace', '{}'::text[], '{}'::text[], '{}'::text[], '{"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["өнгө гаргал", "өнгө гаргуул", "өнгөө гаргуул", "ungu gargal", "ungu gargul", "ongo gargal", "ongo gargul", "vngv gargal"]}, {"mode": "contains_stem", "stems": ["эрэгтэй", "eregtei", "eregtey"]}]}'::jsonb, false)
 ) as v(intent, body, enabled, provenance, match_mode, placement, stems, cover_words, quote_services, matcher, requires_empty_history)
  where t.slug = 'matrix-eco-salon';
 
--- Reply cases, INACTIVE until step 2.
+-- Reply cases: the treatment-perm two ACTIVE (their row is approved and on); the rest INACTIVE
+-- until step 2.
 insert into reply_cases (tenant_id, customer_message, expected_body, must_include, must_not_include, note, active)
-select t.id, v.msg, null, v.inc, v.exc, v.note, false
+select t.id, v.msg, v.exp, v.inc, v.exc, v.note, v.active
   from tenants t, (values
-  ('ungu gargalt hed ve',
-   array['Хэсэгчилсэн сор', 'Бүтэн сор', 'Бүтэн цайруулалт', '150,000₮', '210,000₮', '76001888']::text[],
-   array['хийдэггүй', 'үзүүлэхгүй', 'боломжгүй', 'хийхгүй']::text[],
-   'D-177: «өнгө гаргалт» gets the related colour rows and the phone line, never «not offered» (founder 2026-10-04)'),
-  ('Өнгө гаргуулмаар байна, үнэ хэд вэ',
-   array['Хэсэгчилсэн сор', 'Бүтэн сор', '76001888']::text[],
-   array['хийдэггүй', 'үзүүлэхгүй', 'боломжгүй', 'хийхгүй']::text[],
-   'D-177: «өнгө гаргалт», Cyrillic'),
-  ('emegtei emchilgeenii himi hed ve',
-   array['Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.']::text[],
-   array['189,000₮', 'хумс']::text[],
-   'D-177: women''s «Эмчилгээний хими» is not offered (founder 2026-10-04); never the men''s price, never the nail line'),
-  ('Эмэгтэй эмчилгээний хими хийдэг үү',
-   array['Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.']::text[],
-   array['189,000₮', 'хумс']::text[],
-   'D-177: women''s «Эмчилгээний хими», Cyrillic'),
-  ('eregtei emchilgeenii himi hed ve',
-   array['189,000₮']::text[],
-   array['үзүүлэхгүй']::text[],
-   'D-177: men''s «Эмчилгээний хими» stays as it is (189,000₮)')
-  ) as v(msg, inc, exc, note)
+  ('emegtei emchilgeenii himi hed ve', 'Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.', '{}'::text[], '{}'::text[],
+   'D-177: women''s «Эмчилгээний хими» is not offered (founder 2026-10-04, approved line)', true),
+  ('Эмэгтэй эмчилгээний хими хийдэг үү', 'Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.', '{}'::text[], '{}'::text[],
+   'D-177: women''s «Эмчилгээний хими», Cyrillic', true),
+  ('ungu gargalt hed ve', E'Хэсэгчилсэн сор (эмэгтэй): 150,000₮\nБүтэн сор: 210,000₮\n\nТа 76001888 эсвэл 80905498 дугаараар холбогдоно уу.', '{}'::text[], array['эрэгтэй', 'Бүтэн цайруулалт', 'хийдэггүй', 'үзүүлэхгүй', 'боломжгүй', 'хийхгүй']::text[],
+   'D-177: «өнгө гаргалт», no gender given: the women''s colour rows and the phone line, never «not offered»', false),
+  ('Өнгө гаргуулмаар байна, үнэ хэд вэ', E'Хэсэгчилсэн сор (эмэгтэй): 150,000₮\nБүтэн сор: 210,000₮\n\nТа 76001888 эсвэл 80905498 дугаараар холбогдоно уу.', '{}'::text[], array['эрэгтэй', 'Бүтэн цайруулалт', 'хийдэггүй', 'үзүүлэхгүй', 'боломжгүй', 'хийхгүй']::text[],
+   'D-177: «өнгө гаргалт», Cyrillic, women''s rows', false),
+  ('eregtei hun ungu gargalt hed ve', E'Хэсэгчилсэн сор (эрэгтэй): 195,000₮\nБүтэн цайруулалт (эрэгтэй): 450,000₮\n\nТа 76001888 эсвэл 80905498 дугаараар холбогдоно уу.', '{}'::text[], array['эмэгтэй', 'Бүтэн сор', 'хийдэггүй', 'үзүүлэхгүй', 'боломжгүй', 'хийхгүй']::text[],
+   'D-177: «өнгө гаргалт» from a man: the men''s rows only (founder 2026-10-04)', false),
+  ('Эрэгтэй хүн өнгө гаргуулж болох уу', E'Хэсэгчилсэн сор (эрэгтэй): 195,000₮\nБүтэн цайруулалт (эрэгтэй): 450,000₮\n\nТа 76001888 эсвэл 80905498 дугаараар холбогдоно уу.', '{}'::text[], array['эмэгтэй', 'Бүтэн сор', 'хийдэггүй', 'үзүүлэхгүй', 'боломжгүй', 'хийхгүй']::text[],
+   'D-177: «өнгө гаргалт» from a man, Cyrillic', false),
+  ('eregtei emchilgeenii himi hed ve', null, array['189,000₮']::text[], array['үзүүлэхгүй']::text[],
+   'D-177: men''s «Эмчилгээний хими» stays as it is (189,000₮)', false)
+  ) as v(msg, exp, inc, exc, note, active)
  where t.slug = 'matrix-eco-salon';
 
 commit;
 
--- 2. AFTER the founder approves items 8 and 9 (the same day for Парк Од):
+-- 2. AFTER the founder approves the colour rows' final wording (approvals file 08), the same day
+--    for Парк Од:
 -- begin;
 -- update deterministic_replies d set enabled = true, provenance = 'tenant_confirmed'
 --   from tenants t
---  where t.slug = 'matrix-eco-salon' and d.tenant_id = t.id and d.intent in ('treatment_perm_women', 'colour_lift');
+--  where t.slug = 'matrix-eco-salon' and d.tenant_id = t.id and d.intent in ('colour_lift', 'colour_lift_men');
 -- update reply_cases r set active = true
 --   from tenants t
 --  where t.slug = 'matrix-eco-salon' and r.tenant_id = t.id and r.note like 'D-177:%';
 -- commit;
--- Then run the tenant's reply cases (scripts/replycases) and read the two answers once in a test chat.
+-- Then run the tenant's reply cases (scripts/replycases) and read the answers once in a test chat.

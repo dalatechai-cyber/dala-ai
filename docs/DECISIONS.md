@@ -11992,15 +11992,17 @@ the `price_page` contact kind (drafted in `0083`) and any website change for the
 both tenants. Supersedes D-176's price-page part.
 
 - Women's «Эмчилгээний хими»: told it is not offered (`treatment_perm_women`, a `matcher` row that
-  needs «эмэгтэй»). Men's «Эмчилгээний хими» is unchanged. The founder asked for the approved
-  `refusal_service_unavailable` line; Tara's names nails, so the row carries the same sentence with
-  the service changed, awaiting approval.
-- «Өнгө гаргалт» (6+ chats a week): never told it is not offered. `colour_lift` quotes the related
-  colour rows from the price list (Хэсэгчилсэн сор, Бүтэн сор, Бүтэн цайруулалт) and then the
-  tenant's own `salon_phone` line. No new facts, no typed price. Awaiting approval of the
-  composition.
+  needs «эмэгтэй»), in a sentence the founder approved (Tara's `refusal_service_unavailable` line
+  names nails). Men's «Эмчилгээний хими» is unchanged.
+- «Өнгө гаргалт» (6+ chats a week): never told it is not offered. Women's colour rows to a woman or
+  anyone who does not say «эрэгтэй» (`colour_lift`: Хэсэгчилсэн сор (эмэгтэй), Бүтэн сор); the men's
+  rows only to a man (`colour_lift_men`: Хэсэгчилсэн сор (эрэгтэй), Бүтэн цайруулалт (эрэгтэй));
+  then the tenant's own `salon_phone` line. The rows are typed byte for byte as the price list
+  renders them, because `quote_services` cannot pick one gender's variant; the fact gate checks
+  them at every publish.
 
-Both rows are provisioned disabled and `seeded`
+`treatment_perm_women` is provisioned enabled (approved); the two colour rows disabled and
+`seeded` until the founder approves their final wording
 (`scripts/provision/tara-yarmag-colour-and-treatment-perm-2026-10-04.sql`; Парк Од's in
-`tara-park-od-after-onboarding.sql`), with inactive reply cases, until the founder approves.
+`tara-park-od-after-onboarding.sql`).
 

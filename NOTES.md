@@ -6,8 +6,8 @@ Same branch and PR #283. Founder, 2026-10-04: every item of
 - **Item 4** (the `image_received` line as the one question after a photo): approved; draft headers updated.
 - **Items 5, 6** (price-page sentence, «Үнийн хуудас»): DROPPED 2026-10-04 (D-177): the two prices are
   not services Tara offers. Rows, contact, `price_page` kind and provision files removed; `0083` renamed
-  `0083_photo_reel_question.sql`. New items 8 (`treatment_perm_women`) and 9 (`colour_lift`) await
-  approval, rows disabled (`tara-yarmag-colour-and-treatment-perm-2026-10-04.sql`).
+  `0083_photo_reel_question.sql`. Item 8 (`treatment_perm_women`) APPROVED (row on); item 9 split by gender
+  (`colour_lift` women's rows, `colour_lift_men` men's rows; «Бүтэн цайруулалт» to men only) awaits approval, rows disabled (`tara-yarmag-colour-and-treatment-perm-2026-10-04.sql`).
 - **Item 7** (the reel line): approved and WIRED like the photo line (D-176 addendum). Its own row
   `reel_price_question` (kind added to the unapplied 0083, `MODEL_INVISIBLE_KINDS`, the guard, the D-163
   trigger list); `handover/media.ts` `unseenMediaOf` decides photo / video / mixed (`video`, `reel`,
