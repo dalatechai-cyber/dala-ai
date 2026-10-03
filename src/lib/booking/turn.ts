@@ -31,7 +31,7 @@ import { payUrl } from './links.ts';
 import { freeStarts, isFree, openDays, type Interval, type OpenDay } from './slots.ts';
 import {
   acquireHold, activeHolds, applyTurn, closeSessionRow, conversationMovedOn, endHold, markFollowedUp, openSession, readConfig, readHold, readHoursAndClosures,
-  readOpenSession, readTenantFacts, sessionHold, sessionsToFollowUp, setCalendarState, type Hold, type Session, type TenantFacts,
+  outboundCreatedAt, readOpenSession, readTenantFacts, sessionHold, sessionsToFollowUp, setCalendarState, type Hold, type Session, type TenantFacts,
 } from './store.ts';
 import { hourOn, parseWhen, type Want } from './when.ts';
 import { missingBlocks, say } from './wording.ts';
@@ -320,7 +320,9 @@ async function offerTimes(c: Ctx, data: Record<string, unknown>, want: Want, lea
       // Open that day and every start taken: full. Not among the open days at all (closed, a
       // closure, past, or beyond how far ahead the tenant books), or today with nothing left
       // that could still start: not bookable, never «full».
-      const over = named !== undefined && named.day.closesAt.getTime() <= c.now.getTime() + c.config.minLeadMinutes * 60_000;
+      const over = named !== undefined && freeStarts({
+        day: named.day, minutes: Number(data['minutes']), stepMinutes: c.config.slotStepMinutes, now: c.now, minLeadMinutes: c.config.minLeadMinutes, busy: [],
+      }).length === 0; // ascii-safe: counts starts
       dayFull = say(w, named !== undefined && !over ? 'booking_day_full' : 'booking_day_closed', { date: dayLabel(w, want.date, c.now, tz) });
       pick = open.find((d) => d.day.date > (want.date as string)) ?? open[0] as DayStarts;
     }
@@ -853,7 +855,11 @@ async function followUp(ports: BookingPorts, session: Session, now: Date): Promi
   // Drafted by an earlier run that stopped before marking: never sent now (its text named the
   // times of then, and the buttons would be today's).
   if (applied.turn.outcome === 'exists') {
-    // Refused, so it is never sent and never read back as a turn the customer received.
+    // Drafted by a run that stopped before marking: refused, so it is never sent and never read
+    // back as a turn the customer received. A draft younger than two minutes may be another run
+    // that is sending it right now (runs can overlap): left to that run.
+    const created = await outboundCreatedAt(ports.db, session.tenantId, applied.turn.outboundId);
+    if (created === null || now.getTime() - created.getTime() < 2 * 60_000) return 'skipped';
     const r = await markRefused(ports.db, { id: applied.turn.outboundId, tenantId: session.tenantId, reason: 'booking_follow_up: drafted by an earlier run', from: ['draft', 'failed'] });
     if (!r.ok) ports.log('error', 'booking_follow_up_refuse_failed', { sessionId: session.id, detail: r.detail });
     return skip('already drafted once');

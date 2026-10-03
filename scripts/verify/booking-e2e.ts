@@ -955,12 +955,19 @@ await toWhen(h3, 'Бадмаа · Мастер');
 await says(h3, `${typedDay3} 10 цагт`);
 quietFor(h3, 11);
 psql(`insert into messages (tenant_id, conversation_id, direction, external_id, body) values ('${T}', '${h3.conversationId}', 'inbound', 'mid.text.${randomUUID()}', 'Хаяг хаана вэ')`);
+const h4 = newChat();
+await toWhen(h4, 'Бадмаа · Мастер');
+await says(h4, `${typedDay3} 15 цагт`);
+quietFor(h4, 11);
+// A sticker gets neither a message row nor a reply: only the dropped-message flag, as inbound/dropped.ts writes it.
+psql(`insert into quality_flags (tenant_id, conversation_id, flag, detail) values ('${T}', '${h4.conversationId}', 'inbound_dropped', '{"reason":"sticker"}')`);
 const beforeH = sent.length;
 await runSweep(ports);
 check(pushedTo(h1, beforeH).length === 0 && psql(`select followed_up_at is not null from booking_sessions where conversation_id = '${h1.conversationId}' and closed_at is null`) === 't',
   'staff took the thread (an echo set it to human): no follow-up, and the chat is not looked at again');
 check(pushedTo(h2, beforeH).length === 0, 'the customer sent a photo and got the image line: no follow-up');
 check(pushedTo(h3, beforeH).length === 0, 'the customer wrote something the flow did not take: no follow-up');
+check(pushedTo(h4, beforeH).length === 0, 'the customer sent a sticker (no message, no reply, only the dropped flag): no follow-up');
 const p7 = newChat();
 await toWhen(p7, 'Бадмаа · Мастер');
 await says(p7, `${typedDay3} 18 цагт`);

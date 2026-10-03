@@ -46,6 +46,10 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       refused (never sent late, never read back as a turn); shadow keeps its draft; budget stops before a
       follow-up that could overrun; today after closing says «боломжгүй»; «цагийн үед»/«цагаар» read as a time.
       e2e 152 locally.
+- [x] CI green on 405e502 (144 in CI). Third review: fixed its gaps: a sticker / file / unanswered photo
+      (only the dropped-message flag) also stops the follow-up; «today» with nothing that can still start says
+      «боломжгүй»; «цагийн өмнө/дотор/турш» are lengths, not times; an `exists` follow-up draft younger than
+      2 min is left to the run that may be sending it (runs can overlap). e2e 153 locally.
 - [ ] CI on this push
 
 ## Decisions (with reason)

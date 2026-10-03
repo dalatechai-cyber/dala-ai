@@ -130,13 +130,13 @@ export function parseWhen(text: string, today: { date: string; weekday: number }
 
   // The time: «14:00», «14.30», «14 цагт», «2 цаг», «2 цаг хагаст», «2 цаг 30 минутад», «14ц».
   // «цаг» is a whole word with the endings of a time («цагт», «цагаас», «цагаар», «цагийн үед»),
-  // and «2 цагийн дараа» (in two hours) is not two o'clock.
+  // and «2 цагийн дараа / өмнө / дотор / турш» (a length of time) is not two o'clock.
   const withoutDate = md !== null ? t.replace(md[0], ' ') : dom !== null ? t.replace(dom[0], ' ') : t;
   let hour: number | null = null;
   let minute = 0;
   const hm = new RegExp(`${NOT_DIGIT_BEFORE}(\\d{1,2})\\s*[:.]\\s*(\\d{2})(?!\\p{N})`, 'u').exec(withoutDate);
   const h = hm === null
-    ? new RegExp(`${NOT_DIGIT_BEFORE}(\\d{1,2})\\s*(?:цаг(?:т|аас|аар|ийн(?!\\s*дараа))?|tsag(?:t|aas|aar|iin(?!\\s*daraa))?|ц)(?![\\p{L}\\p{N}])(?:\\s*(хагас\\p{L}*|hagas\\p{L}*)|\\s*(\\d{1,2})\\s*(?:мин|min)\\p{L}*)?`, 'u').exec(withoutDate)
+    ? new RegExp(`${NOT_DIGIT_BEFORE}(\\d{1,2})\\s*(?:цаг(?:т|аас|аар|ийн(?!\\s*(?:дараа|өмнө|дотор|турш)))?|tsag(?:t|aas|aar|iin(?!\\s*(?:daraa|umnu|omno|dotor|tursh)))?|ц)(?![\\p{L}\\p{N}])(?:\\s*(хагас\\p{L}*|hagas\\p{L}*)|\\s*(\\d{1,2})\\s*(?:мин|min)\\p{L}*)?`, 'u').exec(withoutDate)
     : null;
   if (hm !== null) {
     hour = Number(hm[1]);

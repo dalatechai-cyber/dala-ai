@@ -4,6 +4,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseBookingConfig, type BookingConfig, type BookingMode } from './config.ts';
+import { DROPPED_FLAG } from '../inbound/dropped.ts';
 import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import type { Interval } from './slots.ts';
 
@@ -380,13 +381,25 @@ export async function conversationMovedOn(db: SupabaseClient, tenantId: string, 
   // Postgres keeps microseconds and a Date only milliseconds: the reply written with the offer
   // (same transaction, same `now()`) reads as newer than its own truncated time. Rounded up.
   const at = new Date(since.getTime() + 1).toISOString();
-  const [m, o] = await Promise.all([
+  const [m, o, d] = await Promise.all([
     db.from('messages').select('id').eq('tenant_id', tenantId).eq('conversation_id', conversationId).gt('at', at).limit(1),
     db.from('outbound_messages').select('id').eq('tenant_id', tenantId).eq('conversation_id', conversationId).gt('created_at', at).limit(1),
+    // A sticker, audio, a file, a photo with no reviewed image line: no message and no reply,
+    // only the dropped-message flag (`inbound/dropped.ts`). The customer still acted.
+    db.from('quality_flags').select('id').eq('tenant_id', tenantId).eq('conversation_id', conversationId).eq('flag', DROPPED_FLAG).gt('at', at).limit(1),
   ]);
   if (m.error) return { ok: false, detail: `messages unreadable: ${m.error.message}` };
   if (o.error) return { ok: false, detail: `outbound_messages unreadable: ${o.error.message}` };
-  return { ok: true, moved: (m.data ?? []).length > 0 || (o.data ?? []).length > 0 }; // ascii-safe: counts rows
+  if (d.error) return { ok: false, detail: `quality_flags unreadable: ${d.error.message}` };
+  const any = (rows: unknown[] | null) => (rows ?? []).length > 0; // ascii-safe: counts rows
+  return { ok: true, moved: any(m.data) || any(o.data) || any(d.data) };
+}
+
+/** When an outbound row was drafted, or null when it cannot be read. */
+export async function outboundCreatedAt(db: SupabaseClient, tenantId: string, id: string): Promise<Date | null> {
+  const { data, error } = await db.from('outbound_messages').select('created_at').eq('tenant_id', tenantId).eq('id', id).maybeSingle();
+  if (error || data === null) return null;
+  return new Date(String(rec(data)['created_at']));
 }
 
 /** The follow-up went out (or was drafted); never again for this chat. A failure only logs: the reply's dedup key still holds. */
