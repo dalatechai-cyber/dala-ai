@@ -120,12 +120,11 @@ compare FAQs or fixed replies across branches, so "the same bytes" is by convent
   тооцогдоно.», `loan_apps` «Одоогоор зээлийн аппаар төлбөр авдаггүй.», `dye_brand` (the hand-off
   sentence); FAQ questions «Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдах уу?», «Зээлийн аппаар
   төлбөр төлж болох уу?», «Ямар брэндийн будаг хэрэглэдэг вэ?»; the same seven reply cases.
-- fixed replies `price_page_color` and `price_page_treatment_perm`, placement `append`, landing
-  disabled, body «Үнийн мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/services.html
-  хуудаснаас үзнэ үү.», with the link declared by a `price_page` contact (0083) in the go-live
-  step. Switch on only when that
-  page shows the new price list with both prices (today matrixecosalon.org is still the old
-  Matrix site, and the new site's list has no «өнгө гаргалт» and no women's «Эмчилгээний хими»).
+- fixed replies `treatment_perm_women` (women's «Эмчилгээний хими» is not offered) and
+  `colour_lift` («өнгө гаргалт»: the colour rows from the price list, then her phone line), landing
+  disabled and `seeded` until the founder approves their wording (D-177, #283's
+  `tara-yarmag-colour-and-treatment-perm-2026-10-04.sql`). The earlier price-page rows and the
+  `price_page` contact are dropped: neither service is offered (founder, 2026-10-04).
 
 ## History
 

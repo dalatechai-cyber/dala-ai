@@ -143,23 +143,15 @@ A: Энэ талаар манай ажилтан танд хариулна. Та
 
 «Anything Дали doesn't know» is her `handoff` line (section 1), now the same sentence.
 
-[after] fixed replies price_page_color and price_page_treatment_perm — APPROVED 2026-10-04 (new sentence); they stay DISABLED until the website shows both prices
-Үнийн мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/services.html хуудаснаас үзнэ үү.
-  The two services the price list has no price for: «өнгө гаргалт» (stems «өнгө гаргал»,
-  «өнгө гаргуул», «ungu gargal», «ongo gargal» …) and women's «Эмчилгээний хими» (the words
-  «эмчилгээний», «хими» and «эмэгтэй», Cyrillic or Latin, all present). Shaped on Яармаг's
-  approved products FAQ («Бүтээгдэхүүний мэдээллийг манай вэбсайтын … хуудаснаас үзнэ үү.»).
-  Why a fixed reply and not an FAQ: the model's URL guard lets a reply carry only the booking
-  link and the contact links, by exact match; a fixed reply is sent verbatim. The link is also
-  declared, as in #283, by a `price_page` contact row (migration 0083, label «Үнийн хуудас»)
-  written in the go-live step, so a model reply repeating it is not refused. It is APPENDED
-  (placed after whatever else the reply says, never instead of it), so «өнгө гаргалт хийдэг үү,
-  хэдэн цаг болох вэ?» still gets its other answer.
-  Both land DISABLED: matrixecosalon.org still serves the old Matrix site, whose /services.html
-  shows the old prices, and the NEW site's price list (matrix_website data/services.json, read
-  2026-10-04) has neither price yet: no «өнгө гаргалт», and «Эмчилгээний хими» only for men.
-  Switch them on only once the live page shows both prices (the salon gives them, the website
-  adds them); on the move to tarasalon.org the link changes with the booking link.
+[after] fixed replies treatment_perm_women and colour_lift — AWAITING approval (D-177, 2026-10-04); they land DISABLED
+  The price-page rows (price_page_color, price_page_treatment_perm) are DROPPED: the founder
+  decided on 2026-10-04 that women's «Эмчилгээний хими» and «өнгө гаргалт» are not services Tara
+  offers. Same rows as Яармаг's (#283), wording in docs/approvals/tara-2026-10-04/08-…:
+treatment_perm_women (needs «эмэгтэй/emegtei»; men's «Эмчилгээний хими» unchanged):
+Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.
+colour_lift: Хэсэгчилсэн сор, Бүтэн сор, Бүтэн цайруулалт from the price list, then her own
+salon_phone line:
+Та 76001888 дугаараар холбогдоно уу.
 
 ## Byte-identical to Яармаг's approved rows (no new approval needed; listed for completeness)
 

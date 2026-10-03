@@ -90,9 +90,9 @@ nothing live, no production writes (SELECT-only reads), drafts only.
 24. **Matched to #283 (a5bf883)** at the lead's request: her `handoff` is the founder's sentence
     (via `--wording`, so onboarding writes it); `deposit_deducted`, `loan_apps`, `dye_brand` fixed
     replies with #283's matchers; the FAQ question for the deposit is #283's wording; #283's seven
-    answer cases and two price-page cases, inactive until her publish; the price-page go-live step
-    declares the `price_page` contact as #283's step 2 does. Price-page rows were already the same
-    bytes. No migration in #284: the go-live step needs #283's 0083 (#285 has 0082).
+    answer cases, inactive until her publish. (The price-page rows and cases were replaced on
+    2026-10-04 by D-177's `treatment_perm_women` and `colour_lift`, disabled, with five inactive
+    cases; no `price_page` contact.) No migration in #284.
 25. **Re-review** (same reviewer, on the fixes): six findings, all fixed — the recorded wording key
     is compared (`--wording-changed` for a meant change); a signed `null` line refuses before
     anything is written; a configured alias missing from its branch's rows is named (whole word,
@@ -106,8 +106,8 @@ nothing live, no production writes (SELECT-only reads), drafts only.
   «Салбарууд», `yarmag_branch` (Яармаг's Page link 100067872726164 confirmed), «Үсчдийн нэр»
   (every spelling), three FAQ questions, price-page sentence.
 - Confirm: Парк Од Page id; men's SPECIAL cut at Парк Од;
-  how Boloroo hears of a hand-off; the salon's prices for «өнгө гаргалт» and women's
-  «Эмчилгээний хими» on the website's price page (then switch on the price-page rows).
+  how Boloroo hears of a hand-off; approve the D-177 wording (approvals file 08):
+  women's «Эмчилгээний хими» not offered, «өнгө гаргалт» answered with the colour rows.
 - Nail refusal line still mentions nails (both branches).
 
 # Round 2026-10-03: Парк Од tenant and new names

@@ -34,7 +34,7 @@ project waits for the steps at the end.
 | `intake/tara-park-od.answers.json` | Her questionnaire's answers, from the facts above, with Яармаг's approved wording where the form asks for words (FAQs, the level text), the three approved quality answers as FAQs, and 2.3 = Boloroo |
 | `intake/tara-park-od.wording.json` | Her own wording for templated sentences, passed with `--wording` on EVERY onboarding run (recorded on the tenant; a run without it, or with another file, is refused unless `--wording-changed`): the founder's `handoff` sentence and Яармаг's approved `assistant_identity` and `booking_line`, and no `refusal_topic` |
 | `intake/tara-park-od.docx` | The real client form (`dali-form-v2-blank.docx`) filled from it by `scripts/onboard/fixtures/fill.ts` |
-| `scripts/provision/tara-park-od-after-onboarding.sql` | What the form cannot carry: settings, hairdressers' groups, 7 canned lines, 25 fixed replies (the answers `deposit_deducted`, `loan_apps`, `dye_brand` as #283's; the 2 price-page rows disabled), 9 reply cases (inactive until her publish), 11 out-of-scope topics, the dye question, 8 knowledge documents, and the commented price-page go-live step (the `price_page` contact, as #283's). Refuses to run unless onboarding used `--wording`, her rows carry no 1-р зэрэг price, and Яармаг's address is still the one it types. NOT applied |
+| `scripts/provision/tara-park-od-after-onboarding.sql` | What the form cannot carry: settings, hairdressers' groups, 7 canned lines, 25 fixed replies (the answers `deposit_deducted`, `loan_apps`, `dye_brand` as #283's; the 2 the two D-177 rows disabled), 12 reply cases (inactive until her publish), 11 out-of-scope topics, the dye question, 8 knowledge documents, and the commented step that switches the D-177 rows on after approval. Refuses to run unless onboarding used `--wording`, her rows carry no 1-р зэрэг price, and Яармаг's address is still the one it types. NOT applied |
 | `prompt/drafts/tara_park_od_wording.mn.txt` | Every line of hers that differs from Яармаг's approved bytes, exactly |
 
 **Proven on a local PostgreSQL 16 + PostgREST 12.2.3 replica** (never the project), 2026-10-04,
@@ -56,9 +56,9 @@ stylist-names draft applied:
 - The real matcher over her rows: «Яармаг салбар хаана байдаг вэ?», «Яармаг салбарын утас?»,
   «yarmag salbar haana bdag ve» → `yarmag_branch`; «Танайх хэдэн салбартай вэ?» → `branch_count`;
   «Хаяг хаана вэ», «Парк Од салбар хаана байдаг вэ?» → her own `address`; «Өнгө гаргалт хэд вэ?»,
-  «ungu gargalt hed ve» → `price_page_color` appended; «Эмэгтэй хүнд эмчилгээний хими хийдэг үү?»,
-  «emegtei emchilgeenii himi hed ve» → `price_page_treatment_perm` appended; «Эмчилгээний хими хэд
-  вэ», «ямар өнгө гарах вэ», «Усан хими хэд вэ» → neither.
+  «ungu gargalt hed ve» → `colour_lift` (the colour rows, then her phone line); «Эмэгтэй хүнд
+  эмчилгээний хими хийдэг үү?», «emegtei emchilgeenii himi hed ve» → `treatment_perm_women` (not
+  offered; D-177); «Эмчилгээний хими хэд вэ», «ямар өнгө гарах вэ», «Усан хими хэд вэ» → neither.
 - A later `--apply` WITHOUT `--wording`, or with another wording file, is refused; a
   `refusal_topic` written by an earlier run is removed by the next run with the file. Before the
   follow-up file writes her «Үсчдийн нэр», the gate names each `staff_aliases` entry as «in none
@@ -103,8 +103,9 @@ real id.
    one line out of her form (same mechanism as 1-р зэрэг).
 4. Is another bot or a Meta away message running on her Page (form 11.3)? Яармаг's Page has one.
 5. How Boloroo is told about a hand-off (today the alert reaches the founder's Telegram only).
-6. The prices of «өнгө гаргалт» and women's «Эмчилгээний хими» for the website's price page: the
-   founder's answer points customers there, but the new site's list has neither yet.
+6. Approve the D-177 wording (docs/approvals/tara-2026-10-04/08-colour-and-treatment-perm.mn.txt):
+   women's «Эмчилгээний хими» is not offered, «өнгө гаргалт» gets the colour rows. (The price page
+   is dropped: the founder decided 2026-10-04 that neither is a Tara service.)
 
 ## Go-live steps, in order (nothing is live until the last)
 
@@ -135,13 +136,10 @@ real id.
    (the one paid pre-publish run, D-151, with the founder's go-ahead).
 10. **Publish:** `node scripts/publish/tenant.ts --slug tara-park-od --publish`, then switch on the
     seven answer cases: `update reply_cases set active = true where tenant_id = <hers> and note like 'answers 2026-10-04%'`.
-    The two price-page fixed replies stay disabled until https://www.matrixecosalon.org/services.html
-    (or, after the switch, the tarasalon.org page) shows the new price list WITH a price for
-    «өнгө гаргалт» and for women's «Эмчилгээний хими» (the new site's list has neither on
-    2026-10-04: the salon must give them and the website add them), and migration 0083 is
-    applied: run the commented step 9 of `tara-park-od-after-onboarding.sql` (rows on, the
-    `price_page` contact «Үнийн хуудас» declared, the two cases on) the same day as Яармаг's
-    (#283's `tara-yarmag-price-page-2026-10-04.sql` step 2), then publish both.
+    The two D-177 fixed replies (`treatment_perm_women`, `colour_lift`) stay disabled and
+    `seeded` until the founder approves their wording; then run the commented step 9 of
+    `tara-park-od-after-onboarding.sql` (rows on, the five D-177 cases on) the same day as
+    Яармаг's (#283's `tara-yarmag-colour-and-treatment-perm-2026-10-04.sql` step 2).
 11. **Switch on:** the Reception entitlement and budget (money: founder), read the shadow
     replies, then move the channel to `live`.
 
