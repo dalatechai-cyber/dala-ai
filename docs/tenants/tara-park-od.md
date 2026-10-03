@@ -109,10 +109,13 @@ real id.
 ## Go-live steps, in order (nothing is live until the last)
 
 1. **Facts:** confirm the Page id; answer the open questions above.
-2. **Calendars:** tarasalon.parkod@gmail.com exists; each hairdresser's Gmail shares her calendar
-   with it («Make changes to events»). Website booking is the lead's (`PARKOD_CALENDAR_*`).
-3. **QPay:** her own merchant under the same Quick QR partner login, with her own bank account
-   (`POST /v2/merchant/company`, the lead's design). Яармаг's merchant is unchanged.
+2. **Calendars:** DONE 2026-10-04. Seven calendars inside tarasalon.parkod@gmail.com, shared with
+   the website's service account («Make changes to events»), Ulaanbaatar time; the ids are the
+   website's `PARKOD_CALENDAR_*` (proven on the website preview: each hairdresser's free times
+   show and a test event lands in her own calendar).
+3. **QPay:** nothing to register (founder, 2026-10-04): she uses the founder's merchant and login
+   exactly as Яармаг; only her Khan Bank account differs (`PARKOD_QPAY_BANK_CODE`,
+   `PARKOD_QPAY_ACCOUNT_NUMBER`, `PARKOD_QPAY_ACCOUNT_NAME`). Proof: a real 100₮ in her account.
 4. **Page access:** a Page admin grants DalaTech access to her Page (form 11.5); the Page is
    subscribed to the app; her Page token is sealed by hand (`scripts/kek/seal.ts`).
 5. **Onboard** (operator's machine, `SUPABASE_SECRET_PUBLISH`), dry run first, then `--apply`:
