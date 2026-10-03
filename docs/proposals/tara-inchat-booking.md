@@ -319,7 +319,7 @@ Nothing below has been done but step 1. Each other step is yours: credentials, m
    `PARKOD_CALENDAR_<NAME>` variables.
 3. Her QPay: nothing to register. She uses your existing merchant and login, exactly as Яармаг
    does; only her bank account is hers. Put her Khan Bank account into the website's
-   `PARKOD_QPAY_BANK_CODE` (Khan Bank: 040000), `PARKOD_QPAY_ACCOUNT_NUMBER` and
+   `PARKOD_QPAY_BANK_CODE` (Khan Bank: 050000; 040000 is TDB), `PARKOD_QPAY_ACCOUNT_NUMBER` and
    `PARKOD_QPAY_ACCOUNT_NAME` (the holder's name as the bank has it). **The proof is step 5**: a
    real 100₮ landing in HER account.
 4. `PARKOD_QPAY_BANK_CODE=… PARKOD_QPAY_ACCOUNT_NUMBER=… PARKOD_QPAY_ACCOUNT_NAME=…

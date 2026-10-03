@@ -1243,7 +1243,7 @@ if (WEBSITE === null) {
     const json = /\$cfg\$(.*)\$cfg\$/su.exec(sql)?.[1] ?? '{}';
     return { code: 0, qpay: (JSON.parse(json) as Record<string, unknown>)['qpay'] };
   };
-  const herBank = { PARKOD_QPAY_BANK_CODE: '040000', PARKOD_QPAY_ACCOUNT_NUMBER: '5555000005', PARKOD_QPAY_ACCOUNT_NAME: 'Test holder' };
+  const herBank = { PARKOD_QPAY_BANK_CODE: '050000', PARKOD_QPAY_ACCOUNT_NUMBER: '5555000005', PARKOD_QPAY_ACCOUNT_NAME: 'Test holder' };
   const yaRow = build(BRANCH_1);
   const poNone = build(BRANCH_2);
   const poRow = build(BRANCH_2, herBank);
@@ -1253,7 +1253,7 @@ if (WEBSITE === null) {
   check(yaRow.code === 0 && yq !== null && /^[0-9a-f-]{36}$/u.test(String(yq['merchant_id'])) && yq['mcc_code'] === '7230' && !('login' in yq)
     && poNone.code === 0 && poNone.qpay === 'not-connected'
     && poRow.code === 0 && pq !== null && JSON.stringify(noBank(pq)) === JSON.stringify(noBank(yq))
-    && JSON.stringify(pq['bank_accounts']) === JSON.stringify([{ bank_code: '040000', account_number: '5555000005', account_name: 'Test holder' }]),
+    && JSON.stringify(pq['bank_accounts']) === JSON.stringify([{ bank_code: '050000', account_number: '5555000005', account_name: 'Test holder' }]),
     'from-website.ts: Парк Од\'s qpay is Яармаг\'s (the website\'s one merchant, mcc 7230, the platform\'s login) but for her own bank account; «not connected» until all three are given');
   const yaAccount = String(((yq?.['bank_accounts'] ?? []) as Record<string, unknown>[])[0]?.['account_number'] ?? '');
   const poCopy = build(BRANCH_2, { ...herBank, PARKOD_QPAY_ACCOUNT_NUMBER: yaAccount });
