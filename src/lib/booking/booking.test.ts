@@ -220,10 +220,8 @@ test('every button a customer taps fits Meta\'s 20 characters', () => {
   for (const k of ['booking_gender_female', 'booking_gender_male', 'booking_gender_child', 'booking_day_today', 'booking_day_tomorrow', 'booking_agree', 'booking_cancel'] as const) {
     assert.ok(cp(say(w, k)) <= QUICK_REPLY_TITLE_MAX, k);
   }
-  // «{level} — аль ч үсчин» fits for «Мастер» (20) and not for «1-р зэрэг» (23): that «any» button
-  // is left out (stylistOffers), never cut. A shorter line is the founder's call.
-  assert.equal(cp(say(w, 'booking_any_of_level', { level: 'Мастер' })), 20);
-  assert.ok(cp(say(w, 'booking_any_of_level', { level: '1-р зэрэг' })) > QUICK_REPLY_TITLE_MAX);
+  // «Аль ч Мастер», «Аль ч 1-р зэрэг» (founder, 2026-10-03): both fit.
+  for (const l of c.levels) assert.ok(cp(say(w, 'booking_any_of_level', { level: l.label })) <= QUICK_REPLY_TITLE_MAX, l.label);
   // The longest date label: a two-digit month and day and the longest weekday.
   assert.ok(cp(say(w, 'booking_date', { month: '12', day: '28', weekday: 'Мягмар' })) <= QUICK_REPLY_TITLE_MAX);
   for (const s of c.stylists) {
@@ -239,9 +237,15 @@ test('«any stylist of a level» is offered only when its approved words fit a b
     { name: 'Батзаяа', label: 'Батзаяа', level: 'first', gender: 'female', calendar_id: 'c-first-2' }] }));
   assert.ok(two.ok);
   const offers = stylistOffers({ wording: draftWording() } as never, two.config, 'female');
-  assert.ok(offers.some((o) => o.v === 'any:master'), '«Мастер — аль ч үсчин» fits (20)');
-  assert.ok(!offers.some((o) => o.v === 'any:first'), '«1-р зэрэг — аль ч үсчин» (23) is left out');
-  assert.ok(offers.some((o) => o.t === 'Батзаяа · 1-р зэрэг') && offers.every((o) => [...o.t].length <= QUICK_REPLY_TITLE_MAX));
+  assert.ok(offers.some((o) => o.v === 'any:master' && o.t === 'Аль ч Мастер'));
+  assert.ok(offers.some((o) => o.v === 'any:first' && o.t === 'Аль ч 1-р зэрэг'));
+  assert.ok(offers.every((o) => [...o.t].length <= QUICK_REPLY_TITLE_MAX));
+  // A level label too long for «Аль ч …» loses only that button; its stylists stay.
+  const long = parseBookingConfig(testConfig({ levels: [{ key: 'master', label: 'Мастер', deposit_mnt: 20000 }, { key: 'first', label: 'Нэгдүгээр зэргийн', deposit_mnt: 10000 }],
+    stylists: [...(base['stylists'] as unknown[]), { name: 'Батзаяа', label: 'Батзаяа', level: 'first', gender: 'female', calendar_id: 'c-first-2' }] }));
+  assert.ok(long.ok);
+  const lo = stylistOffers({ wording: draftWording() } as never, long.config, 'female');
+  assert.ok(!lo.some((o) => o.v === 'any:first') && lo.some((o) => o.v === `s:c-first-2`));
 });
 
 test('day labels: today, tomorrow, then «10 сарын 5, Даваа»', () => {

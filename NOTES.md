@@ -161,9 +161,13 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
     session at step service is asked it); the adult list never resolves a children's service; branches
     compare who serves each children's service; from-website.ts no longer counts a children's service on
     the website as ungrouped. For the founder: a child's deposit follows the stylist's level like any
-    booking (Мастер 20,000₮ on a 33,000₮ haircut), money, so the founder's call.
-32. «{level} — аль ч үсчин» does not fit a button for «1-р зэрэг» (23 > 20): that one «any» button is left
-    out, never cut; founder asked for a shorter button.
+    booking (Мастер 20,000₮ on a 33,000₮ haircut): confirmed by the founder (35).
+32. «{level} — аль ч үсчин» did not fit a button for «1-р зэрэг» (23 > 20). Founder, 2026-10-03: the line is
+    «Аль ч {level}» («Аль ч Мастер», «Аль ч 1-р зэрэг»). The guard stays: a label too long loses only
+    that «any» button, never cut.
+35. Founder, 2026-10-03: confirmed girls are served by women stylists, boys by Ананд; a child's deposit
+    follows the stylist's level, as an adult's. Durations for every service, the SPECIAL stylists and
+    the new service list come in the Tara round; booking stays off until then.
 33. (founder) Yaarmag's stylist list adds Ананд (the only man; men book only with him) and Уранчимэг
     (woman, 1-р зэрэг), both from the website's own data. Booking stays off; the Tara round applies it.
 34. Deposits: the website's levels (Мастер 20,000₮, 1-р зэрэг 10,000₮) match Tara's live deposit rows;
