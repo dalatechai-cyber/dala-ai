@@ -15,6 +15,10 @@
 -- link would answer questions that are not about a time. The live «Tsag awch ochih uu» is covered
 -- by the second code fix instead (the model wrote the booking line; it is now served).
 --
+-- Round 2 (2026-10-04): the cases that must not get the hand-off line name both its old bytes
+-- («хариулж чадахгүй») and the new ones (tara-yarmag-answers-2026-10-04.sql, «манай ажилтан
+-- танд хариулна»), so they hold whichever file is applied first.
+--
 -- Undo: tara-dali-quality-2026-10-03-revert.sql.
 begin;
 
@@ -34,11 +38,11 @@ select t.id, v.msg, null, v.inc::text[], v.exc::text[], v.note
                 'quality 2026-10-03 (model): live 2026-10-01 a dye price question got the colour question and no price; the set rows are served'),
                ('ene budalt hed ve', array['160,000₮'], array[]::text[],
                 'quality 2026-10-03 (model): live 2026-10-03 the same; the set rows are served'),
-               ('Tsag awch ochih uu', array['https://www.matrixecosalon.org/', 'Урьдчилгаа төлбөр — '], array['хариулж чадахгүй'],
+               ('Tsag awch ochih uu', array['https://www.matrixecosalon.org/', 'Урьдчилгаа төлбөр — '], array['хариулж чадахгүй', 'манай ажилтан танд хариулна'],
                 'quality 2026-10-03 (model): live 2026-10-01 the booking line at 0.992 was replaced by the hand-off line'),
-               ('unuudur hiilgeh tsag bga yu', array['https://www.matrixecosalon.org/'], array['хариулж чадахгүй'],
+               ('unuudur hiilgeh tsag bga yu', array['https://www.matrixecosalon.org/'], array['хариулж чадахгүй', 'манай ажилтан танд хариулна'],
                 'quality 2026-10-03 (model): live 2026-10-03 the booking line at 0.984 was replaced by the hand-off line'),
-               ('Manikur hiilgewel', array['хумсны үйлчилгээ үзүүлэхгүй'], array['хариулж чадахгүй'],
+               ('Manikur hiilgewel', array['хумсны үйлчилгээ үзүүлэхгүй'], array['хариулж чадахгүй', 'манай ажилтан танд хариулна'],
                 'quality 2026-10-03 (model): live 2026-09-30 the no-nails line at 0.982 was replaced by the hand-off line'))
          as v(msg, inc, exc, note)
  where t.slug = 'matrix-eco-salon'

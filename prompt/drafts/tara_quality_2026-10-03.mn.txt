@@ -1,38 +1,53 @@
-# DRAFT — not loaded. Tara Яармаг, quality round of 2026-10-03 (docs/reports/2026-10-03-tara-dali-quality.md).
-# Customers asked these in the last seven days and Дали had nothing in its data to answer with,
-# so it served the hand-off line (correct, by rule A8). Each needs a FACT from the salon first;
-# nothing here may be applied until the founder picks the true option or writes the fact in.
-# Once approved, each becomes an FAQ row (question + answer) for matrix-eco-salon only, and the
-# same row for Парк Од if the fact is the same there. Style: short, polite «та», no emoji.
+# DRAFT — not loaded. Tara Яармаг, quality round of 2026-10-03 (docs/reports/2026-10-03-tara-dali-quality.md),
+# updated 2026-10-04 with the founder's answers. Nothing here is live. The rows that carry these
+# lines are in scripts/provision/ (NOT applied); applying a file is the founder's go for its rows.
+# Style: short, polite «та», at most one emoji, no level recommended, never "non-refundable".
 
-## 1. Is the deposit taken off the price? (asked twice, 2026-10-02, after the booking line)
+## APPROVED by the founder 2026-10-04 (both branches). Rows written; not applied, not published.
 
-Option A (if the deposit is counted toward the service price):
+1. Is the deposit taken off the price? (fixed reply `deposit_deducted` + FAQ;
+   scripts/provision/tara-yarmag-answers-2026-10-04.sql)
 Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.
 
-Option B (if it is not):
-Урьдчилгаа төлбөр үйлчилгээний үнэд орж тооцогдохгүй.
-
-Never: anything saying the deposit is not returned (founder rule: Дали does not say it in chat).
-
-## 2. Can I pay with a loan / instalment app? (asked in three chats, 2026-10-01)
-
-Option A (if the salon takes none):
+2. Can I pay with a loan / instalment app? (fixed reply `loan_apps` + FAQ; same file)
 Одоогоор зээлийн аппаар төлбөр авдаггүй.
 
-Option B (if it takes some; the founder names them):
-Та {аппын нэрс} аппаар төлөх боломжтой.
+3. Which dye brand, and anything Дали doesn't know (no brand line). Fixed reply `dye_brand` + FAQ,
+   AND the tenant's hand-off line (`handoff`, replacing «Уучлаарай, би энэ асуултад хариулж чадахгүй
+   байна. Манай ажилтан Танд туслахад бэлэн байна. Та 76001888 эсвэл 91005498 дугаараар холбогдоно
+   уу.»), because `handoff` is the line Дали sends whenever the answer is not in its data (same file):
+Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно уу.
 
-## 3. Which brand of dye do you use? (asked once, 2026-10-03)
+4. Photo + price (founder's decision 2026-10-04, D-176). The question a photo is answered with is
+   Tara's ALREADY APPROVED `image_received` line, byte for byte, as a new row `photo_price_question`
+   (scripts/provision/tara-yarmag-photo-question-2026-10-04.sql). No new sentence; the founder's OK
+   is for the new use: Дали asks this once, answers the price from the rows when the customer names
+   the service, and hands off (the approved «Баярлалаа! Таны илгээсэн зураг…» notice) after one
+   question that brought nothing the rows know:
+Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
 
-Proposed (the founder names the brand):
-Манай салон {брэндийн нэр} будаг хэрэглэдэг.
+## AWAITING the founder's approval (new wording)
 
-## Questions that are not wording (the founder answers; then a row or alias follows)
+5. Women's «Эмчилгээний хими» and «өнгө гаргалт» (answer 4: point to the website's price page).
+   Fixed replies `price_page_treatment_perm` / `price_page_color`, appended, DISABLED until the new
+   site is live at this address (scripts/provision/tara-yarmag-price-page-2026-10-04.sql). The same
+   bytes as Парк Од's draft (branch claude/tara-park-od-tenant), which wrote them first:
+Үнийн мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/services.html хуудаснаас үзнэ үү.
+   Note for the founder: the new website's price page has neither price either (men's «Эмчилгээний
+   хими» only; no «өнгө гаргалт»). Either add both prices to the website and to both branches' price
+   rows, or accept that the page shows the nearest services. At the domain move the link becomes
+   https://tarasalon.org/services.html in both tenants' rows.
 
-- «Эмчилгээний хими» is on the list for men only (189,000₮). Does the salon do it for women, and
-  at what price? A customer asked twice (2026-10-02 and 2026-10-03) and was told the men's price
-  and «no price for women, call».
-- «Өнгө гаргалт» (asked in at least six chats in seven days): which listed service is it — Хэсэгчилсэн
-  сор, Бүтэн сор, Бүтэн цайруулалт, or the dye rows? The answer becomes a matcher alias, not a
-  sentence.
+6. The heading the price page carries in Дали's contact data (`price_page`, migration 0083; the
+   model reads it, a customer may see it quoted):
+Үнийн хуудас
+
+7. OPTIONAL, not wired: if the founder wants a shared reel or video with «how much?» handled like a
+   photo (today it still goes to staff, D-152), a line that does not say «зураг»:
+Уучлаарай, би бичлэг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
+
+## FAQ questions (the model reads them; never sent as written). Not customer wording, listed for completeness.
+
+Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдах уу?
+Зээлийн аппаар төлбөр төлж болох уу?
+Ямар брэндийн будаг хэрэглэдэг вэ?

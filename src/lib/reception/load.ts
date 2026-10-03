@@ -254,7 +254,7 @@ export function toDeterministic(rows: unknown): DeterministicRule[] {
  * to something no extracted URL matches — but it is filtered out anyway so the allow-list
  * contains only things that are actually links.
  */
-export const URL_CONTACT_KINDS: ReadonlySet<string> = new Set(['maps_url', 'website', 'facebook', 'instagram', 'demo_url']);
+export const URL_CONTACT_KINDS: ReadonlySet<string> = new Set(['maps_url', 'website', 'facebook', 'instagram', 'demo_url', 'price_page']);
 
 export function linkValues(contacts: readonly { kind: string; value: string }[]): string[] {
   return contacts

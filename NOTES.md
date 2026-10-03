@@ -1,3 +1,76 @@
+# Round 2026-10-04: Tara Яармаг Дали quality, round 2 (founder's answers)
+
+Same branch and PR #283. Binding: the founder's answers and approvals of 2026-10-04. Nothing applied,
+published or merged; no model spend; production read with SELECT only (Tara's canned lines, fixed
+replies, FAQs, contacts, services, gate topics; a few anonymous phrasings to test matchers).
+
+## Decisions (and why)
+
+1. **Photo + price = D-176**, photos only, switched on by a ROW (`photo_price_question`, model-
+   invisible, migration 0083), so a tenant without it keeps D-152 and no code path names Tara.
+   Why photos only: the founder's decision names photos and the question line says «зураг»; reels
+   stay with staff (an optional reel line is drafted, not wired).
+2. **The question is Tara's approved `image_received` bytes**, not new wording: it already asks
+   «Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл…». New use flagged for the founder's OK.
+3. **"After one question"**: hand-off when the customer's answer names nothing the rows know (no
+   service, no fixed reply, no gate topic), or when a second photo comes after the 10-minute burst.
+4. **Crossing**: a photo and «хэд вэ?» arrive as two messages, the photo answered first. A text
+   whose Meta time is before the question's row + 30 s is read as the caption; a crossed price ask
+   gets nothing more (outcome `dropped`, flag `photo_question_pending`, no «typing…» bubble) — otherwise the hand-off
+   would fire on the very message that asked the price and the 30-minute hold would swallow the
+   customer's real answer (the failure D-176 fixes). Cost: a customer who replies «хэд вэ?» to the
+   question inside 30 s gets no reply to that one message.
+5. **«Anything Дали doesn't know» = the `handoff` row.** It is the line served whenever the answer
+   is not in the data (A8/F3), so one row covers every case; it is model-visible, so the file is a
+   D-163 edit (`set local dala.canned_edit = 'republish'`, signed in the same statement, publish at
+   once). It drops 91005498 (the founder's sentence names only 76001888) and the apology. The
+   other refusal rows (unlisted price, schedule, promotions, suitability) keep their own words.
+6. **Approved facts as fixed replies + FAQs** (D-174: word-for-word facts in fixed replies), matchers
+   tested against this week's phrasings and the live rows (deposit AMOUNT, «хуваарь» excluded).
+7. **Price page mirrors Парк Од byte for byte** (#284's uncommitted `tara-park-od-after-onboarding.sql`:
+   two appended, DISABLED rows with the matrixecosalon.org/services.html link). Added: the link is
+   DECLARED as a new `price_page` contact kind (0083), inserted with the go-live switch, because the
+   model is shown an appended line and a reply repeating an undeclared link is refused (B1). For
+   #284 to align: add the same contact row to Парк Од's go-live step. The page lacks both prices
+   (data/services.json): asked of the founder, not hidden.
+8. **Migration number 0083**: 0082 is taken by the booking branch (#285). Renumber whichever merges
+   second. D-176 likewise may collide with a sibling's next D-number.
+9. **Names**: nothing in this round's rows or cases names a stylist; the round-1 report and notes
+   now use Latin names (Otgonjargal stays bookable, answer 5).
+
+## Status
+
+- [x] Code: `reception/photoPrice.ts` (pure step), `inbound/photoQuestion.ts` (crossing read),
+      `handle.ts` (step before the media block; ASKS_PRICE moved), `worker/reception.ts` (photo-alone
+      question, crossing, resumed notice by bytes), `handover/media.ts` (`photoOnly`, `pq:` key),
+      `gate/match.ts` + guard + `load.ts` + `prompt/tenant.ts` (kinds), migration 0083 + schema.md.
+- [x] Tests: `npm run check` green, 2,683 tests (2,682 pass, 1 pre-existing skip; 41 new), guards 10/10,
+      typecheck clean. Mutation-checked: the words-only shortcut and the photo-alone block.
+- [x] SQL: `tara-yarmag-answers-2026-10-04.sql`, `tara-yarmag-price-page-2026-10-04.sql`,
+      `tara-yarmag-photo-question-2026-10-04.sql` (+ reverts); round-1 cases also refuse the new
+      hand-off bytes. Scratch PG16 (all migrations + every verify suite PASSED): each file applies,
+      refuses a second apply, the go-live step works, reverts restore byte-identical content (md5).
+- [x] Drafts `prompt/drafts/tara_quality_2026-10-03.mn.txt` (approved vs awaiting), report, dali.md v1.6, D-176.
+- [x] Independent review (code-review skill acting as `.claude/agents/reviewer.md`; no subagent
+      tool in this session): 10 findings, all fixed — a fixed reply with an answer is served on a
+      photo/crossed caption (only whole-message rows count as small talk); no «typing…» bubble for a
+      crossed message; a redelivery finds its own question by dedup key; the question counts for an
+      hour only (old image-line bytes no longer hand off a new photo); a price-less caption naming a
+      service goes to staff; dye_brand with the hand-off bytes now tells a person (handedOff on the
+      bytes, any path); the question is drafted as exact bytes; append rows re-matched with the
+      same words-only options; one `sendLineAlone` helper for the photo question and the notice;
+      the notice read once per job on resumes. Mutation-checked the redelivery fix.
+- [x] Commit; push; PR body. CI: see the PR.
+
+## Go-live order (founder)
+
+1. Merge #283 after its deploy; apply 0083 (after the deploy, never before).
+2. `tara-yarmag-answers-2026-10-04.sql`, publish at once (dry run, then --publish); one --with-model run.
+3. `tara-yarmag-photo-question-2026-10-04.sql` (no republish needed).
+4. `tara-yarmag-price-page-2026-10-04.sql` any time (rows land disabled); its step 2 only when the
+   new site is live at matrixecosalon.org (both branches the same day, publish both); the domain
+   move changes the link to https://tarasalon.org/services.html in both tenants' rows.
+
 # Round 2026-10-03: Tara Яармаг Дали quality
 
 Branch `claude/tara-dali-quality-oct3` (worktree `/home/user/dala-wt/quality`). Brief: read Tara
@@ -28,7 +101,7 @@ no model spend.
 - **No new customer sentence is live-bound.** The only Mongolian written is
   `prompt/drafts/tara_quality_2026-10-03.mn.txt` (FAQ options for three data gaps); facts unknown,
   so each has options for the founder to pick.
-- **Staff names, levels, manicurist, Отгонжаргал:** not touched; the rename worker's
+- **Staff names, levels, manicurist, Otgonjargal:** not touched; the rename worker's
   `tara-yarmag-stylist-names-2026-10-03.sql` (branch `claude/tara-park-od-tenant`) covers all four.
 - Pending provision files read live: price list, branches, branch count, stylist levels are all
   applied; the November move is not (by design).

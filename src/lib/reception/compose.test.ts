@@ -691,3 +691,129 @@ test('price asks typed with w for в, and «үнийг», are price asks; «хэ
     assert.equal(t.flags.includes('set_question_unpriced'), false, message);
   }
 });
+
+// ---- D-176 (founder, 2026-10-04): a photo and «how much?» is asked, then priced, not handed off ----
+
+const PHOTO_Q = 'Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.';
+const WITH_PHOTO_Q = [...WITH_NOTICE, { kind: 'photo_price_question', body: PHOTO_Q, reviewedAt: R }];
+const photo = { customerAttachments: ['image'], customerSentPhoto: true } as const;
+const AFTER_Q = [{ role: 'user' as const, content: 'Сайн байна уу' }, { role: 'assistant' as const, content: PHOTO_Q }];
+
+test('DONE-TEST (D-176): A PHOTO WITH «ENE HED VE» GETS THE QUESTION, NO MODEL, NO HAND-OFF', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'ene hed ve', ...photo });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined);
+  assert.deepEqual(t.drafts.map((x) => x.body), [PHOTO_Q]);
+  assert.equal(t.requests.length, 0);
+  assert.ok(t.flags.includes('photo_price_question'));
+});
+
+test('DONE-TEST (D-176): A PHOTO WITH «БУДАГ ХЭД ВЭ» GETS THE DYE ROWS FROM DATA, NOT THE NOTICE', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'Будаг хэд вэ', ...photo });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined);
+  assert.equal(t.drafts[0]?.body, `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${QUESTION}`);
+});
+
+test('D-176: a photo asking «can it be done like this?» still goes to staff', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'iim bolgoj bolhu', ...photo });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true);
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+});
+
+test('D-176: a reel with «hed ve» still goes to staff (photos only)', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, {
+    ...base, canned: WITH_PHOTO_Q, customerMessage: 'hed ve', customerAttachments: ['reel'], customerSentPhoto: false,
+  });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true);
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+});
+
+test('DONE-TEST (D-176): THE ANSWER TO THE QUESTION GETS ITS PRICE FROM THE ROWS', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'Будаг хэд вэ', history: AFTER_Q });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.equal(t.drafts[0]?.body, `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${QUESTION}`);
+});
+
+test('D-176: an answer naming a service the model must price reaches the model, not staff', async () => {
+  const t = run(ROWS.bleach);
+  const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'tsairuulalt urt', history: AFTER_Q,
+    serviceAliases: [...ALIASES, { name: 'Цайруулалт', alias: 'tsairuul' }] });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined);
+  assert.equal(t.requests.length, 1);
+});
+
+test('DONE-TEST (D-176): AN ANSWER THAT NAMES NOTHING THE ROWS KNOW GOES TO STAFF, AFTER ONE QUESTION', async () => {
+  for (const message of ['энэ шиг', 'hed ve']) {
+    const t = run('never called');
+    const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: message, history: AFTER_Q });
+    assert.equal(r.kind === 'drafted' && r.mediaHandoff, true, message);
+    assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE], message);
+    assert.equal(t.requests.length, 0, message);
+    assert.ok(t.flags.includes('photo_price_handoff'), message);
+  }
+});
+
+test('DONE-TEST (D-176): «HED VE» TYPED WITH THE PHOTO, CROSSING THE QUESTION, GETS NOTHING MORE', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, {
+    ...base, canned: WITH_PHOTO_Q, customerMessage: 'hed ve', history: AFTER_Q, photoQuestionState: 'crossed',
+  });
+  assert.deepEqual(r, { kind: 'dropped', reason: 'photo_question_pending' });
+  assert.equal(t.drafts.length, 0);
+  assert.equal(t.requests.length, 0);
+});
+
+test('D-176: without the question row a photo price ask is handed off exactly as before', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_NOTICE, customerMessage: 'ene hed ve', ...photo });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true, JSON.stringify(r));
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+});
+
+test('D-176: an UNREVIEWED question row refuses every reply, as any unreviewed line does: insert it signed or not at all', async () => {
+  const unreviewed = [...WITH_NOTICE, { kind: 'photo_price_question', body: PHOTO_Q, reviewedAt: null }];
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: unreviewed, customerMessage: 'Сайн байна уу' });
+  assert.deepEqual(r, { kind: 'retry', detail: 'canned_response_unreviewed: photo_price_question' });
+});
+
+test('review (D-176): a photo asking whether a named colour can be done stays the stylist\'s', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'Ийм будаг хийж болох уу?', ...photo });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true);
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+  assert.equal(t.requests.length, 0, 'the model, which cannot see the photo, is never asked');
+});
+
+test('review (D-176): the question is sent as its exact bytes, with no append row after it', async () => {
+  const t = run('never called');
+  await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'tara hed ve', ...photo });
+  assert.deepEqual(t.drafts.map((x) => x.body), [PHOTO_Q]);
+});
+
+test('review (D-176): a question from more than an hour ago is not being answered: the message goes on as usual', async () => {
+  const t = run('Сайн байна уу.');
+  const r = await handleReception(t.deps, {
+    ...base, canned: WITH_PHOTO_Q, customerMessage: 'энэ шиг', history: AFTER_Q, photoQuestionState: 'stale',
+  });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined);
+  assert.equal(t.requests.length, 1);
+});
+
+test('review (D-176): a fixed reply carrying the hand-off line\'s bytes is a hand-off, so a person is told', async () => {
+  const handoff = CANNED[0]?.body ?? '';
+  const BRAND: DeterministicRule = {
+    ...confirmed, intent: 'dye_brand', body: handoff, matchMode: 'matcher', stems: [], coverWords: [],
+    matcher: { mode: 'contains_stem', stems: ['брэнд'] }, placement: 'replace', quoteServices: [],
+  };
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, deterministic: [...base.deterministic, BRAND], customerMessage: 'ямар брэнд' });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.equal(r.kind === 'drafted' && r.handedOff, true);
+});

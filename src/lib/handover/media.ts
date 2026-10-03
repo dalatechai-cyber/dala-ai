@@ -159,7 +159,11 @@ export async function raiseMediaHandoff(
   });
 }
 
-export type PlannedMediaAlone = { idx: number; senderId: string; externalId: string | null };
+export type PlannedMediaAlone = {
+  idx: number; senderId: string; externalId: string | null;
+  /** A photo and nothing the bot treats as a video, reel or shared post (D-176's photo question). */
+  photoOnly: boolean;
+};
 
 /**
  * The skipped messages that are a photo, a video or a shared reel or post with no words. At
@@ -175,9 +179,14 @@ export function planMediaAlone(skipped: readonly SkippedEvent[]): PlannedMediaAl
     if (s.stickerIds.length > 0) continue;
     if (s.senderId === null || s.senderId === '' || seen.has(s.senderId)) continue;
     seen.add(s.senderId);
-    out.push({ idx: s.idx, senderId: s.senderId, externalId: s.externalId });
+    out.push({ idx: s.idx, senderId: s.senderId, externalId: s.externalId, photoOnly: s.attachments.includes('image') && !hasMediaAttachment(s.attachments) });
   }
   return out;
+}
+
+/** `pq:{event}:{idx}`: the photo question's key (D-176), stable across a redelivery like the notice's. */
+export function photoQuestionDedupKey(eventId: number | string, idx: number): string {
+  return `pq:${eventId}:${idx}`;
 }
 
 /** `media:{event}:{idx}`: stable across a redelivery, so a retry re-sends, never re-answers. */

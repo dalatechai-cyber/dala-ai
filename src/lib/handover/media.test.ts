@@ -60,6 +60,22 @@ test('a photo or a video with no words is planned once per sender; a sticker nev
   assert.deepEqual(plans.map((p) => p.idx), [0]);
 });
 
+test('D-176: a plan says whether it is a photo only; a photo beside a video or a reel is not', async () => {
+  const { planMediaAlone, photoQuestionDedupKey, mediaAloneDedupKey } = await import('./media.ts');
+  const skip = (o: Record<string, unknown>) => ({
+    reason: 'no_text', idx: 0, externalId: 'm1', senderId: 'p1', recipientId: null, appId: null,
+    attachments: [], stickerIds: [], ...o,
+  });
+  const plans = planMediaAlone([
+    skip({ idx: 0, senderId: 'a', attachments: ['image'] }),
+    skip({ idx: 1, senderId: 'b', attachments: ['image', 'video'] }),
+    skip({ idx: 2, senderId: 'c', attachments: ['reel'] }),
+  ] as never);
+  assert.deepEqual(plans.map((p) => [p.senderId, p.photoOnly]), [['a', true], ['b', false], ['c', false]]);
+  assert.equal(photoQuestionDedupKey(7, 1), 'pq:7:1');
+  assert.notEqual(photoQuestionDedupKey(7, 1), mediaAloneDedupKey(7, 1), 'the question and the notice never share a key');
+});
+
 /** Serves the tenants row; records every table touched. `alerts` answers an error, so no Telegram is attempted. */
 function alertDb(tenant: Record<string, unknown> | null) {
   const touched: string[] = [];

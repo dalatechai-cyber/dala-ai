@@ -11895,3 +11895,55 @@ live text event inside 24 h with an immediate page, and expiring the rest (past 
 a photo, an echo, no payload). The two new reads ran against a real local PostgREST (200). `npm
 run check` green. Reviewed independently (one blocker and two mediums found and fixed). Not
 verified live: needs the founder's go.
+
+## D-176 — A photo and «how much?» is answered by Дали, not handed to staff (2026-10-04, founder)
+
+**Decision (founder, 2026-10-04).** Photo + price questions: Дали answers them itself. It asks which
+service and the hair length, then gives the price from the rows, and hands off only when it truly
+cannot (a photo with no text and no recognisable service after one question). This reverses
+D-152's «the person who can see the photo answers the price» for this case. Why: on Tara Яармаг,
+2026-09-26 to 2026-10-03, the photo hand-off left 34 chats and 50 customer texts unanswered, 26
+of them never answered by a person (`docs/reports/2026-10-03-tara-dali-quality.md` §1).
+
+**Built** (`src/lib/reception/photoPrice.ts`, `src/lib/inbound/photoQuestion.ts`, `handle.ts`,
+`worker/reception.ts`, migration `0083`):
+- **A row is the switch.** Everything needs the tenant's reviewed `photo_price_question` row
+  (model-invisible kind). Without it, D-152 holds exactly. For Tara the row's bytes are her
+  approved `image_received` line («…Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар
+  хариулна.»), so no new sentence reaches a customer.
+- **Photos only.** A video, a shared reel or post, or a link to one still goes to staff (the
+  decision names photos and the line says «зураг»). Widening it is one condition plus an approved
+  line that fits a video (drafted, not wired).
+- **A photo with no words** (worker): the question, sent, and the thread stays the bot's. A second
+  photo inside the image burst window (10 min) gets nothing more; a photo 10 to 60 minutes after a
+  question that never got words goes to the notice and the hand-off as before; after an hour (or a
+  redelivery of the same event, which finds its own question by dedup key) it is asked again.
+- **A photo with words:** a fixed reply with an answer (the dye rows for «будаг хэд вэ», the
+  address) ⇒ served (a photo's words are read as words); a price ask naming a listed service ⇒
+  priced from the rows; a price ask naming none, no words, or only a greeting (a whole-message row)
+  ⇒ the question, once; other words («ийм будаг хийж болох уу?», even naming a service) ⇒ staff:
+  the model cannot see the photo.
+- **The answer to the question** (sent within the last hour, `PHOTO_QUESTION_ANSWER_WINDOW_MS`):
+  a service, any fixed reply or a gate topic ⇒ answered as usual; nothing the rows know ⇒ the
+  notice and the hand-off («after one question»). The question is sent as its exact bytes (nothing
+  appended), because it is recognised by an exact comparison.
+- **Crossing.** A photo and «хэд вэ?» typed together arrive as two messages and the photo is
+  answered first. A text whose Meta time is before the question's row + 30 s
+  (`PHOTO_QUESTION_CROSSING_MS`) is read as the photo's caption; a crossed price ask gets nothing
+  more (`photo_question_pending`, outcome `dropped`, and no «typing…» bubble is shown for it): the
+  question just sent already asks what it needs. Read only when the history ends on the question.
+- **The hand-off line's bytes are a hand-off whoever serves them**: a fixed reply or FAQ that
+  carries the tenant's `handoff` sentence (Tara's dye brand) marks the reply handed off, so a person
+  is told (F5), as when the platform serves the row.
+- A resumed notice hands off whenever its bytes are the notice (it is now also served to a text).
+
+**Not built / open.** Instagram and the website: the website receives no photos; Instagram shares
+the worker path, unproven on real traffic. An unreviewed `photo_price_question` row refuses every
+reply (as any unreviewed line does), so the row is inserted signed or not at all. Order: deploy,
+`0083`, then the row. Not verified live.
+
+**Also 2026-10-04, data for Tara Яармаг (drafts, not applied):** the hand-off line becomes the
+founder's sentence for «anything Дали doesn't know» («Энэ талаар манай ажилтан танд хариулна. Та
+76001888 дугаараар холбогдоно уу.»); fixed replies and FAQs for the deposit (deducted), loan apps
+(none) and the dye brand (that sentence); the price page for women's «Эмчилгээний хими» and
+«өнгө гаргалт», disabled until the new site is live, declared as a `price_page` contact (`0083`).

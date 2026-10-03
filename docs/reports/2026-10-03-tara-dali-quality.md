@@ -4,6 +4,30 @@ Read-only review of every Messenger DM of the last seven days (tenant `matrix-ec
 project, SELECT only; Ulaanbaatar time). Customer messages are paraphrased or quoted only where
 they carry nothing that identifies a person. Judged against `docs/standards/dali.md` §4.
 
+## Round 2 (2026-10-04): what changed since round 1
+
+The founder answered the round-1 questions on 2026-10-04. Nothing below is applied, published or merged.
+
+- **Photo + «how much?» (§1) is now answered by Дали** (founder's decision, D-176, reversing D-152
+  for this case). A photo with no words or with a price ask gets the approved `image_received`
+  sentence as a question (which service, the hair length); the answer gets its price from the
+  rows; only an answer naming nothing the rows know (or a second photo after the question) goes to
+  staff. A «how much?» typed with the photo, crossing the question, gets nothing more. Photos only:
+  reels and videos still go to staff. Inert until Tara's `photo_price_question` row exists
+  (`src/lib/reception/photoPrice.ts`, `src/lib/inbound/photoQuestion.ts`, migration `0083`,
+  `scripts/provision/tara-yarmag-photo-question-2026-10-04.sql`).
+- **#8, #9, #10 answered** with the founder's approved sentences as fixed replies and FAQs; the
+  hand-off line becomes «Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно
+  уу.» (answer 3, «anything Дали doesn't know») — `tara-yarmag-answers-2026-10-04.sql`.
+- **#7 and #11** point to the website's price page (answer 4), byte for byte as Парк Од's rows,
+  disabled until the new site is live at matrixecosalon.org; the link is declared as a
+  `price_page` contact (new kind, `0083`). The page itself lacks both prices: a question for the
+  founder.
+- **#5, #6:** names are Latin everywhere (the rename worker's PR #284); Otgonjargal stays a
+  bookable 1-р зэрэг hairdresser (answer 5).
+- Reply cases: 8 deterministic (every build and publish checks them), 2 more inactive until the
+  price page goes live, and 2 model cases; the round-1 cases also refuse the new hand-off bytes.
+
 ## The picture
 
 | | Count |
@@ -47,13 +71,13 @@ is not happening. **Fix:** the founder's choice (below, "What the founder decide
 | 2 | «can I book a time and come» in Latin (2026-10-01); «is there a time today» (2026-10-03) | «Уучлаарай, би энэ асуултад хариулж чадахгүй байна…» (hand-off line) | Deposits, then the booking line | Should have answered; wrong refusal | The model wrote the booking line with one word changed (0.992, 0.984) inside a longer reply; the drift check treats any adaptation found inside a reply as unsure and serves the hand-off line (D-126 addendum) | **Code fixed**: an adaptation holding 0.9 or more of the row as one unbroken run (`EMBEDDED_CERTAIN_SHARE`) gets its row. New booking stems «авч/awch» were drafted and dropped after review: they also mean «bring» and «buy» |
 | 3 | «manicure?» in Latin (2026-09-30) | Hand-off line | «Манай салон одоогоор хумсны үйлчилгээ үзүүлэхгүй байна.» | Wrong refusal | Same as #2, at 0.982 of the no-nails line | **Code fixed** (#2) |
 | 4 | Price list examples (2026-10-01): model listed «маникюр» as a service; another reply asked «…or a manicure question?» (2) | Mentions manicure | No manicure at all (founder rule) | Stale old service | The manicurist's staff row (Маникюр баг) is still active | Fixed by the rename worker's `tara-yarmag-stylist-names-2026-10-03.sql` (branch `claude/tara-park-od-tenant`): switches her off. Not written here |
-| 5 | «is stylist O. working / with O. today?» (2026-09-28, 10-01) (2) | «…Оюунсүрэн (Оюунаа) … мастер үсчин» | Oyunaa, SPECIAL; no schedule (Ш4) plus the booking line | Wrong fact (level), old name | Staff row tier «Мастер үсчин», Cyrillic names | Rename worker's file (Oyunaa, SPECIAL). Not written here |
-| 6 | «I'll come» typed as «ochinoo» (2026-09-30) | «'Очиноо' is not in our team; our female stylists: … Отгонжаргал …» | Booking line or a short «welcome» | Misunderstood; lists a stylist not in the founder's list | Model read a verb as a name; Отгонжаргал's row is active | Rename worker's file switches Отгонжаргал off. The misreading itself: model, no fix |
-| 7 | A treatment perm price, twice (2026-10-02, 10-03) | «Эмчилгээний хими (эрэгтэй): 189,000₮» + «if you meant women's, no price, call» | Depends on a fact | Possibly wrong service | The list has Эмчилгээний хими for men only; the KB calls it a gentle perm | **Question for the founder** (`prompt/drafts/tara_quality_2026-10-03.mn.txt`) |
-| 8 | «Is the deposit taken off the price?» (2026-10-02) (2) | «I cannot answer, call» | The salon's answer | No answer (data gap) | Not in Tara's data | **Draft FAQ**, two options, founder picks |
-| 9 | «Do you take a loan / instalment app?» (2026-10-01, three chats) (3) | Price refusal once, hand-off twice | The salon's answer | No answer (data gap) | Not in data | **Draft FAQ**, two options |
-| 10 | «Which dye brand do you use?» (2026-10-03) | Hand-off line | The salon's answer | No answer (data gap) | Not in data | **Draft FAQ** |
-| 11 | «colour lift» («өнгө гаргалт») price, Latin or Cyrillic (2 sent wrong: out-of-scope refusal, price refusal; more answered with dye rows) | Refusal | The matching service's rows | Wrong service match | No row or alias names «өнгө гаргалт» | **Question for the founder** (which service), then an alias |
+| 5 | «is stylist O. working / with O. today?» (2026-09-28, 10-01) (2) | Her old full name in Cyrillic, with the level «мастер үсчин» | Oyunaa, SPECIAL; no schedule (Ш4) plus the booking line | Wrong fact (level), old name | Staff row tier «Мастер үсчин», Cyrillic names | Rename worker's file (Oyunaa, SPECIAL). Not written here |
+| 6 | «I'll come» typed as «ochinoo» (2026-09-30) | «'Очиноо' is not in our team», then a list of the female stylists by their old Cyrillic names | Booking line or a short «welcome» | Misunderstood; lists a stylist not in the founder's list | Model read a verb as a name; Отгонжаргал's row is active | Rename worker's file (Latin names; Otgonjargal stays bookable, founder 2026-10-04). The misreading itself: model, no fix |
+| 7 | A treatment perm price, twice (2026-10-02, 10-03) | «Эмчилгээний хими (эрэгтэй): 189,000₮» + «if you meant women's, no price, call» | Depends on a fact | Possibly wrong service | The list has Эмчилгээний хими for men only; the KB calls it a gentle perm | **Round 2:** the founder's answer is the website's price page; rows drafted, disabled until the new site is live (`tara-yarmag-price-page-2026-10-04.sql`) |
+| 8 | «Is the deposit taken off the price?» (2026-10-02) (2) | «I cannot answer, call» | The salon's answer | No answer (data gap) | Not in Tara's data | **Round 2:** answered (fixed reply `deposit_deducted` + FAQ, approved sentence) |
+| 9 | «Do you take a loan / instalment app?» (2026-10-01, three chats) (3) | Price refusal once, hand-off twice | The salon's answer | No answer (data gap) | Not in data | **Round 2:** answered (fixed reply `loan_apps` + FAQ, approved sentence) |
+| 10 | «Which dye brand do you use?» (2026-10-03) | Hand-off line | The salon's answer | No answer (data gap) | Not in data | **Round 2:** the approved staff-and-phone sentence (fixed reply `dye_brand` + FAQ; also the new hand-off line) |
+| 11 | «colour lift» («өнгө гаргалт») price, Latin or Cyrillic (2 sent wrong: out-of-scope refusal, price refusal; more answered with dye rows) | Refusal | The matching service's rows | Wrong service match | No row or alias names «өнгө гаргалт» | **Round 2:** the price page, as #7 |
 | 12 | «shoulder length» after «full dye» (2026-10-01) | Six lines: Энгийн будаг and Өнгөлөгч будаг, all lengths | «Энгийн будаг (дунд): 180,000₮» | Over-long | The two services have identical prices, so the price guard cannot tell which the model meant and serves both | Open (data: two services, one price list) |
 | 13 | «address and price», «perm price and address», «address, and do you do colour analysis» (3) | One part only | Every part (E10) | Incomplete | Model; E10 is prompt-only | No fix this round |
 | 14 | «black dyed hair with grey: can a highlight be done?» and «lots of grey, can I do full dye» (2) | Hand-off line (the guard caught invented prices) | The relevant rows + «Үсэнд тань аль нь тохирохыг манай үсчин зөвлөж өгнө.» | Should have used the suitability rule | The suitability gate words («орох», «тохирох») did not match «ордог», «болох» | Open: matcher words, next round with the model run |
@@ -85,7 +109,7 @@ link» (2).
 | `tara-branches-2026-10-01.sql`, `tara-branch-count-2026-10-01.sql` | Yes | `park_od_branch`, `branch_count` rows; «Салбарууд» document |
 | `tara-stylist-levels-2026-10-01.sql` | Yes | `stylist_tier` starts «SPECIAL, Мастер…» |
 | `tara-yarmag-move-2026-11.sql` | No, by design | For the November move |
-| Rename worker's `tara-yarmag-stylist-names-2026-10-03.sql` | No (in progress on its branch) | Staff rows still Cyrillic; manicurist and Отгонжаргал active; Oyunaa «Мастер» |
+| Rename worker's `tara-yarmag-stylist-names-2026-10-03.sql` | No (in progress on its branch) | Staff rows still Cyrillic; manicurist and Otgonjargal active; Oyunaa «Мастер» |
 
 So no weak reply of this week is "a ready fix not yet applied" from this repo's own files; #4–#6
 wait on the rename worker's file.
