@@ -53,6 +53,10 @@
  * the original collapses to one message, and past QStash's dedup window the worker still
  * refuses to answer an event that already has a reply.
  *
+ * **Older than the limit, on a live channel, inside Meta's 24 hours → re-publish** (founder,
+ * 2026-10-03): the worker sends the tenant's hand-off line rather than leave the customer
+ * with silence. Everything below applies to the rest.
+ *
  * **Older than the limit → expire.** `tenants.max_reply_age_minutes` is the same knob
  * `worker/freshness.ts` refuses on: past it no reply would be sent anyway, so re-publishing
  * would only spend a model call to produce a `reply_too_late`. The row is marked
@@ -78,6 +82,22 @@ import { quietRoute, raiseAlert } from '../alerts/alert.ts';
 import { markEventState, QUEUED_STATES, UNQUEUED_STATES } from '../webhook/events.ts';
 import type { EnqueueResult } from '../queue/qstash.ts';
 import { DEFAULT_REPLY_AGE_LIMIT_MINUTES, replyAgeLimitMinutes } from '../worker/freshness.ts';
+import { CATCH_UP_WINDOW_MINUTES } from '../channel/catchup.ts';
+import { extractInboundMessages } from '../meta/extract.ts';
+import { isLike } from '../inbound/like.ts';
+
+/**
+ * An event that is customer text and nothing else: no echo, photo, voice, sticker, like,
+ * standby or comment. Only such an event is re-published past the reply limit (D-175).
+ */
+export function plainCustomerText(rawPayload: unknown): boolean {
+  if (rawPayload === null || typeof rawPayload !== 'object') return false;
+  const changes = (rawPayload as Record<string, unknown>)['changes'];
+  if (Array.isArray(changes) && changes.length > 0) return false;
+  const ex = extractInboundMessages(rawPayload);
+  return ex.standby === 0 && ex.skipped.length === 0 && ex.messages.length > 0 // ascii-safe: counts list items, not text
+    && ex.messages.every((m) => m.text.trim() !== '' && m.attachments.length === 0 && m.stickerIds.length === 0 && !isLike(m.text)); // ascii-safe: counts list items, not text
+}
 import { DRAFT_LOST_KIND, draftLostDedupKey, routeUnansweredAlert, turnsOf } from './answered.ts';
 
 /**
@@ -322,7 +342,20 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
     // ── Still answerable: re-publish ────────────────────────────────────────────────
     // A routed event without a channel cannot be turned back into a job, so it waits for
     // the expiry arm rather than being dropped here.
-    if (ageMinutes < limitMinutes && channelId !== null) {
+    //
+    // Past the reply-age limit but inside Meta's 24-hour window, on a LIVE channel, it is
+    // re-published too (founder, 2026-10-03: too late is never a reason for silence): the
+    // worker stores it, finds it too late for an answer and sends the tenant's reviewed
+    // hand-off line instead — no model, nothing spent, never twice a day, and not at all if
+    // the customer wrote again or anyone already replied (`worker/reception.ts`).
+    //
+    // Only an event of plain customer text: the hand-off line is the one path that checks
+    // whether the customer is still waiting. Photos, voice, echoes and comments have no such
+    // check, so a late one is expired as before rather than handled hours late.
+    const live = channelId !== null && channels.get(channelId)?.mode === 'live';
+    const late = ageMinutes >= limitMinutes;
+    const owedLine = live && late && ageMinutes < CATCH_UP_WINDOW_MINUTES && plainCustomerText(raw['raw_payload']);
+    if ((!late || owedLine) && channelId !== null) {
       const again = await input.enqueue({ provider, dedupKey, eventId, tenantId, channelId });
       // Three outcomes, not two. A deduplicated publish returns `ok` and queues NOTHING —
       // QStash still holds the original message under the same id — so reading it as a
@@ -352,16 +385,20 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
       //
       // A rescue that WORKED asks nothing of anybody, so under DAILY_REPORT_V2 it goes to
       // the daily report (inventory B2). Both REFUSED outcomes stay `now`: there the
-      // customer is still waiting and somebody has to look.
+      // customer is still waiting and somebody has to look. So does a LATE event (D-175):
+      // the customer was not answered in time, which paged at once before it was re-published,
+      // and still does; the line it now gets is no reason to page later.
       await raiseAlert(db, {
         tenantId,
         severity: 'warn',
         kind: 'webhook.requeued',
         dedupKey: `requeued_event:${eventId}`,
-        route: rescued ? quietRoute() : 'now',
+        route: rescued && !owedLine ? quietRoute() : 'now',
         body: `Inbound event ${eventId} (${provider} ${dedupKey}) ${fault}; `
           + `re-published ${outcome}. `
-          + `State was ${state}, ${Math.floor(ageMinutes)} min old.`,
+          + `State was ${state}, ${Math.floor(ageMinutes)} min old.`
+          + (owedLine ? ` Past the ${limitMinutes}-minute reply limit: the customer was NOT answered in time; `
+            + 'the worker sends the hand-off line instead unless they wrote again or someone replied (D-175).' : ''),
       });
       continue;
     }

@@ -1080,14 +1080,20 @@ async function runReceptionDelivery(
   const resumeStoredReply = async (r: {
     outboundId: string; conversationId: string; messageId: string; eventAt: Date; deliverThis: boolean;
     message: { senderId: string; externalId: string; text: string; attachments: readonly string[]; stickerIds: readonly string[] };
-  }): Promise<'sent' | 'skipped' | 'superseded' | 'failed' | 'retry' | 'unavailable'> => {
+    /** A too-late hand-off line (D-175): it is owed however late, inside Meta's 24 hours. */
+    allowStale?: boolean;
+  }): Promise<'sent' | 'skipped' | 'superseded' | 'failed' | 'retry' | 'unavailable' | 'stale'> => {
     if (!r.deliverThis) return 'skipped';
-    if (!isFresh(r.eventAt, now, replyAgeLimit)) {
-      await fx.flagQuality({
-        tenantId, conversationId: r.conversationId, code: 'reply_too_late',
-        detail: 'a stored reply was not re-sent: the message is past the reply age limit',
-      });
-      return 'skipped';
+    if (r.allowStale !== true && !isFresh(r.eventAt, now, replyAgeLimit)) {
+      // Too late for the stored reply: it is refused for good (terminal, so no later
+      // redelivery tries it), and the caller serves the hand-off line instead, so the
+      // customer is not left with silence (founder, 2026-10-03).
+      const stale = await claim(db, { id: r.outboundId, tenantId, now });
+      if (stale.outcome === 'unavailable') return 'unavailable';
+      if (stale.outcome !== 'claimed') return 'skipped';
+      const refused = await markRefused(db, { id: stale.id, tenantId, reason: 'reply_too_late' });
+      if (!refused.ok) fx.log('error', 'resume_refuse_failed', { outboundId: stale.id, detail: refused.detail });
+      return 'stale';
     }
 
     // Times from OUR rows, never Meta's timestamp: this reply row's `created_at` and this
@@ -1172,6 +1178,46 @@ async function runReceptionDelivery(
     fx.log('error', 'resend_not_sent', { outboundId: held.id, outcome: delivered.outcome });
     return 'failed';
   };
+  /**
+   * Is the customer still waiting on this message? Not when a newer message of theirs is in
+   * the conversation (that one is answered, or gets the line itself), nor when one of our
+   * replies was sent after it, nor when a person replied since. Unreadable reads `true`.
+   */
+  const stillWaiting = async (messageId: string, conversationId: string, eventAt: Date, psid: string, entryMids: readonly string[]):
+    Promise<true | 'newer_message' | 'answered' | 'person_replied'> => {
+    const own = await db.from('messages').select('at').eq('tenant_id', tenantId).eq('id', messageId).maybeSingle();
+    const storedAt = typeof (own.data as Record<string, unknown> | null)?.['at'] === 'string' ? new Date(String((own.data as Record<string, unknown>)['at'])) : null;
+    // Without the message's own time the two «since» reads cannot be asked; the person check can.
+    if (own.error || storedAt === null || Number.isNaN(storedAt.getTime())) {
+      fx.log('error', 'too_late_check_unreadable', { tenantId, detail: own.error?.message ?? 'message time missing' });
+    }
+    // `messages.at` is when WE stored it, which for a late message (a backlog, a stranded event
+    // re-published by the sweep) is after everything that followed it. «Since» is therefore the
+    // earlier of that and Meta's own time for the message, and this entry's messages are left
+    // out of «newer» (the loop resolves those: only the latest of them is served).
+    const since = storedAt === null || Number.isNaN(storedAt.getTime()) ? null
+      : new Date(Math.min(storedAt.getTime(), eventAt.getTime())).toISOString();
+    const none = Promise.resolve({ data: [] as unknown[], error: null });
+    const [newer, laterSent, spoke] = await Promise.all([
+      since === null ? none : db.from('messages').select('id').eq('tenant_id', tenantId).eq('conversation_id', conversationId)
+        .eq('direction', 'inbound').neq('id', messageId).not('external_id', 'in', `(${entryMids.map((m) => JSON.stringify(m)).join(',')})`)
+        .gt('at', since).limit(1),
+      // A reply that may have reached the customer: sent, being sent, or parked as indeterminate.
+      since === null ? none : db.from('outbound_messages').select('id').eq('tenant_id', tenantId).eq('conversation_id', conversationId)
+        .eq('kind', 'reply').in('state', ['sending', 'sent', 'indeterminate']).gt('created_at', since).limit(1),
+      personRepliedSince(db, {
+        tenantId, channelId, conversationId, psid, eventId, since: eventAt, ourAppId: metaAppId, automationTexts,
+      }).catch((e: unknown) => ({ replied: 'unreadable' as const, detail: e instanceof Error ? e.message : String(e) })),
+    ]);
+    if (newer.error || laterSent.error || spoke.replied === 'unreadable') {
+      fx.log('error', 'too_late_check_unreadable', { tenantId, detail: (newer.error ?? laterSent.error)?.message ?? ('detail' in spoke ? spoke.detail : '') });
+    }
+    if (!newer.error && Array.isArray(newer.data) && newer.data.length > 0) return 'newer_message';
+    if (!laterSent.error && Array.isArray(laterSent.data) && laterSent.data.length > 0) return 'answered';
+    if (spoke.replied === true) return 'person_replied';
+    return true;
+  };
+
   const stale: string[] = [];
   /** Stored and deliberately not answered: the channel cannot send and is not mirroring. */
   const notGenerated: string[] = [];
@@ -1179,6 +1225,11 @@ async function runReceptionDelivery(
   for (const message of messages) {
     // Delivered for real: a `live` channel, or a listed tester on a `shadow` one (D-141).
     const deliverThis = delivery.deliver || testSenders.has(message.senderId);
+    // Too late to answer, but owed the hand-off line (founder, 2026-10-03): set below, served
+    // once the context is loaded. `afterStaleResume`: an earlier attempt's stored reply was
+    // refused as too late, so the line goes under its own key (the reply's key is that row).
+    let tooLate = false;
+    let afterStaleResume = false;
     // A missing Meta timestamp arrives as an invalid date; treating it as `now` stops it
     // reading as 1970 and being dropped as stale for the wrong reason.
     const eventAt = Number.isNaN(message.sentAt.getTime()) ? now : message.sentAt;
@@ -1288,16 +1339,39 @@ async function runReceptionDelivery(
         if (resumed === 'unavailable') return unavailable('worker.resume_unavailable');
         if (resumed === 'sent') sent.push(answered.outboundId);
         fx.log('info', 'redelivery_resumed', { eventId, outboundId: answered.outboundId, from: answered.state, outcome: resumed });
-        continue;
+        // Refused as too late: on to the freshness check below, which serves the hand-off.
+        if (resumed !== 'stale') continue;
+        afterStaleResume = true;
+      }
+      // The reply was refused as too late and its hand-off line (own key, D-175) was stored but
+      // not delivered: re-send the line's stored bytes, however late, inside Meta's 24 hours.
+      if (answered.outcome === 'answered' && answered.state === 'refused' && catchUpMid === null
+          && isFresh(eventAt, now, CATCH_UP_WINDOW_MINUTES)) {
+        const line = await findReplyFor(db, { tenantId, kind: 'reply', dedupKey: `${replyDedupKey(message.externalId)}:handoff` });
+        if (line.outcome === 'unavailable') {
+          fx.log('error', 'reply_lookup_failed', { eventId, detail: line.detail });
+          return unavailable('worker.reply_lookup_failed');
+        }
+        if (line.outcome === 'answered' && (line.state === 'draft' || line.state === 'failed')) {
+          const resumed = await resumeStoredReply({
+            outboundId: line.outboundId, conversationId, messageId: stored.value.messageId, eventAt, message,
+            deliverThis: delivery.generate && deliverThis, allowStale: true,
+          });
+          if (resumed === 'retry') return unavailable('worker.resume_send_retryable');
+          if (resumed === 'unavailable') return unavailable('worker.resume_unavailable');
+          if (resumed === 'sent') sent.push(line.outboundId);
+          fx.log('info', 'redelivery_resumed', { eventId, outboundId: line.outboundId, from: line.state, outcome: resumed, handoff: true });
+          continue;
+        }
       }
       // A catch-up may claim a reply that FAILED on the credential: it is the latest message
       // in its conversation (the sweep checked), so its stored body answers exactly it.
-      if (answered.outcome === 'answered' && !(catchUpMid !== null && answered.state === 'failed')) {
+      if (answered.outcome === 'answered' && !afterStaleResume && !(catchUpMid !== null && answered.state === 'failed')) {
         fx.log('info', 'already_answered', { eventId, outboundId: answered.outboundId, state: answered.state });
         continue;
       }
       // absent: whatever ran before never got as far as drafting. Answer it.
-      fx.log('info', 'redelivery_unanswered', { eventId, externalId: message.externalId });
+      if (!afterStaleResume) fx.log('info', 'redelivery_unanswered', { eventId, externalId: message.externalId });
     }
 
     // --- The captioned attachment, counted (D-083). ------------------------------------
@@ -1317,7 +1391,7 @@ async function runReceptionDelivery(
     // Before `delivery.generate`, so a captioned photograph arriving at a channel that is
     // `off` or in `shadow` is still counted — the mirror phase is precisely when this
     // number is wanted.
-    if (message.attachments.length > 0 && message.stickerIds.length === 0) {
+    if (message.attachments.length > 0 && message.stickerIds.length === 0 && !afterStaleResume) {
       fx.log('info', 'inbound_captioned_attachment', {
         tenantId, externalId: message.externalId, attachments: message.attachments,
       });
@@ -1374,8 +1448,30 @@ async function runReceptionDelivery(
         code: 'reply_too_late',
         detail: `${ageMinutes} minutes old; the limit is ${ageLimit}`,
       });
-      stale.push(message.externalId);
-      continue;
+      // Too late for an answer is never a reason for silence (founder, 2026-10-03): the
+      // tenant's reviewed hand-off line goes instead, below, with no model and no spend. Only
+      // on a delivering channel, never to a like, and only inside Meta's 24-hour window, past
+      // which a reply cannot be sent at all. A catch-up message is past that window already.
+      const mayHandOff = catchUpMid === null && deliverThis && !isLike(message.text)
+        && isFresh(eventAt, now, CATCH_UP_WINDOW_MINUTES);
+      if (!mayHandOff) {
+        stale.push(message.externalId);
+        continue;
+      }
+      // The line needs the published rows. Unloadable: logged, and the message stays the
+      // stale one it was; a 503 here would only redeliver a message that is staler still.
+      const probe = await loadContext();
+      if (!probe.ok) {
+        fx.log('error', 'too_late_handoff_skipped', { tenantId, conversationId, detail: `context: ${probe.code}` });
+        // Nothing went to the customer: a person is told, so silence is never the only signal.
+        await fx.alertNeedsPerson({
+          tenantId, conversationId, reason: 'handoff', provider, sent: 'no',
+          thread: { channelId, pageId, psid: message.senderId, ...viaToken },
+        });
+        stale.push(message.externalId);
+        continue;
+      }
+      tooLate = true;
     }
 
     if (ready === null) {
@@ -1423,7 +1519,7 @@ async function runReceptionDelivery(
      * Returns `sent` (drafted and handed to Meta: the message is answered), `skipped` (nothing
      * sent, for the reason logged), or a job result to return (a 503 that QStash retries).
      */
-    const serveHandoff = async (reason: 'ceiling' | 'canned_stale'): Promise<'sent' | 'skipped' | JobResult> => {
+    const serveHandoff = async (reason: 'ceiling' | 'canned_stale' | 'too_late', dedupKey = replyDedupKey(message.externalId)): Promise<'sent' | 'skipped' | JobResult> => {
       // The published bytes whenever the snapshot carries the canned section: a row edited
       // since the last publish keeps its old `reviewed_at`, so the stamp alone would send
       // unpublished words (D-163 review). A snapshot older than D-058 has no section to check,
@@ -1440,6 +1536,13 @@ async function runReceptionDelivery(
       }
       if (handoff === undefined) {
         fx.log('warn', `${reason}_no_reply`, { tenantId, eventId, detail: 'no reviewed, published handoff row' });
+        // Too late with no line to send (D-175): the customer got nothing, so a person is told.
+        if (reason === 'too_late') {
+          await fx.alertNeedsPerson({
+            tenantId, conversationId, reason: 'handoff', provider, sent: 'no',
+            thread: { channelId, pageId, psid: message.senderId, ...viaToken },
+          });
+        }
         return 'skipped';
       }
       if (said === 'yes') {
@@ -1449,7 +1552,7 @@ async function runReceptionDelivery(
         return 'skipped';
       }
       const line = await draftOnce(db, {
-        tenantId, kind: 'reply', dedupKey: replyDedupKey(message.externalId), body: handoff.body, channelId, conversationId,
+        tenantId, kind: 'reply', dedupKey, body: handoff.body, channelId, conversationId,
       });
       if (!line.ok) {
         // A 503: the message is stored and unanswered, and the redelivery tries again.
@@ -1488,7 +1591,7 @@ async function runReceptionDelivery(
       });
       await fx.flagQuality({
         tenantId, conversationId, code: `${reason}_handoff`,
-        detail: `${reason === 'ceiling' ? 'daily cap refused the model' : 'approved lines changed, unsigned or missing'}; `
+        detail: `${reason === 'ceiling' ? 'daily cap refused the model' : reason === 'too_late' ? 'the message was past the reply age limit' : 'approved lines changed, unsigned or missing'}; `
           + `hand-off line ${sentLine === 'yes' ? 'sent' : `not confirmed sent (${delivered.outcome})`}`,
       });
       if (delivered.outcome === 'failed' && delivered.retryable) {
@@ -1500,6 +1603,26 @@ async function runReceptionDelivery(
       if (delivered.outcome === 'sent') sent.push(held.id);
       return 'sent';
     };
+
+    // Too late to answer (above): the hand-off line, unless the customer is no longer
+    // waiting on THIS message — a newer one of theirs is the one to answer, or we or a person
+    // already replied after it. An unreadable check sends: a repeat is better than silence,
+    // and `serveHandoff` says the line at most once per conversation per day.
+    if (tooLate) {
+      // A later message of this same entry is the one to serve (it is answered, or gets the line).
+      const laterInEntry = messages.some((m) => m !== message && !isLike(m.text)
+        && !Number.isNaN(m.sentAt.getTime()) && m.sentAt.getTime() > eventAt.getTime());
+      const waiting = laterInEntry ? 'newer_message' as const
+        : await stillWaiting(stored.value.messageId, conversationId, eventAt, message.senderId, messages.map((m) => m.externalId));
+      if (waiting === true) {
+        const served = await serveHandoff('too_late', afterStaleResume ? `${replyDedupKey(message.externalId)}:handoff` : replyDedupKey(message.externalId));
+        if (typeof served !== 'string') return served;
+      } else {
+        fx.log('info', 'too_late_no_handoff', { tenantId, conversationId, reason: waiting });
+      }
+      stale.push(message.externalId);
+      continue;
+    }
 
     // History is read AFTER storing, so the turn just received is not also passed as
     // history — the model would otherwise see the question twice.
@@ -1921,7 +2044,7 @@ async function handoffSaidToday(
     .eq('conversation_id', input.conversationId)
     .eq('kind', 'reply')
     .eq('body', input.body)
-    .in('state', ['sending', 'sent'])
+    .in('state', ['sending', 'sent', 'indeterminate'])
     .gte('created_at', input.since.toISOString())
     .limit(1);
   if (error) return 'unreadable';
