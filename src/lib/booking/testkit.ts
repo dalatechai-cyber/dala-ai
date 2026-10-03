@@ -143,7 +143,8 @@ export class FakeQpay {
       const b = JSON.parse(await bodyOf(init)) as { invoice_id: string };
       if (this.failChecks > 0) { this.failChecks -= 1; return json(500, { error: 'down' }); }
       const inv = this.invoices.get(b.invoice_id);
-      if (inv === undefined) return json(404, { error: 'INVOICE_NOTFOUND' });
+      // Another login's invoice is not this login's to read: as unknown as one that never existed.
+      if (inv === undefined || inv.login !== login) return json(404, { error: 'INVOICE_NOTFOUND' });
       if (this.unreadable.has(inv.id)) {
         return json(200, { id: inv.id, invoice_status: 'PAID', payments: [{ id: 'x', amount: inv.amount, currency: 'MNT', payment_status: 'WEIRD' }] });
       }
@@ -155,7 +156,7 @@ export class FakeQpay {
     const del = /^\/invoice\/([^/]+)$/u.exec(p);
     if (del !== null && method === 'DELETE') {
       const inv = this.invoices.get(decodeURIComponent(del[1] as string));
-      if (inv === undefined) return json(404, { error: 'INVOICE_NOTFOUND' });
+      if (inv === undefined || inv.login !== login) return json(404, { error: 'INVOICE_NOTFOUND' });
       if (this.failCancel) return json(500, { error: 'down' });
       if (inv.status === 'PAID') return json(422, { error: 'INVOICE_PAID' });
       inv.status = 'CANCELLED';
@@ -398,17 +399,11 @@ export const TEST_CALENDARS = {
   tuchku: 'tuchku@group.calendar.google.com',
 } as const;
 
-/** Each branch's own test merchant and payout account (test values; never a real one). */
-export const TEST_MERCHANTS = {
-  'matrix-eco-salon': {
-    merchant_id: '00000000-0000-4000-8000-00000000c0de', mcc_code: '7230',
-    bank_accounts: [{ bank_code: '040000', account_number: '1111000001', account_name: 'Yaarmag test holder' }],
-  },
-  'tara-park-od': {
-    merchant_id: '00000000-0000-4000-8000-0000000000d0', mcc_code: '7230',
-    bank_accounts: [{ bank_code: '050000', account_number: '2222000002', account_name: 'Park Od test holder' }],
-  },
-} as const satisfies Record<string, RawQpay>;
+/** Each branch's own test merchant and payout account, by its place in the rules file (test values; never a real one). */
+const TEST_MERCHANT_VALUES: readonly RawQpay[] = [
+  { merchant_id: '00000000-0000-4000-8000-00000000c0de', mcc_code: '7230', bank_accounts: [{ bank_code: '040000', account_number: '1111000001', account_name: 'First branch test holder' }] },
+  { merchant_id: '00000000-0000-4000-8000-0000000000d0', mcc_code: '7230', bank_accounts: [{ bank_code: '050000', account_number: '2222000002', account_name: 'Second branch test holder' }] },
+];
 
 /** The brand rules every branch's config is built from (repo root = cwd). */
 export function taraRules(root = process.cwd()): Record<string, unknown> {
@@ -416,22 +411,38 @@ export function taraRules(root = process.cwd()): Record<string, unknown> {
 }
 
 /**
+ * The rules file's branch keys, in its order. Tests name a branch by its place here, never by a
+ * tenant slug in a literal (a client is rows, CLAUDE.md).
+ */
+export function ruleBranches(root = process.cwd()): string[] {
+  return Object.keys(taraRules(root)['branches'] as Record<string, unknown>);
+}
+
+/** A branch's test merchant: its own, by its place in the rules file. */
+export function testMerchant(branch: string): RawQpay {
+  const i = ruleBranches().indexOf(branch);
+  const m = TEST_MERCHANT_VALUES[i];
+  if (m === undefined) throw new Error(`no test merchant for branch ${branch}`);
+  return JSON.parse(JSON.stringify(m)) as RawQpay;
+}
+
+/**
  * A branch's real booking config (`config/booking/tara-salon.json`: the current price list, the
  * confirmed minutes, the founder's stylists, levels and deposits), with test calendars, the
  * branch's test merchant and one tester, then `overrides`. `calendars: false` leaves every
- * calendar «not connected», `qpay: 'not-connected'` the merchant.
+ * calendar «not connected»; `qpay: 'not-connected'` in `overrides` the merchant.
  */
-export function taraConfig(slug: keyof typeof TEST_MERCHANTS, overrides: Record<string, unknown> = {}, opts: { calendars?: boolean } = {}): Record<string, unknown> {
-  const built = branchConfig(taraRules(), slug, {
+export function taraConfig(branch: string, overrides: Record<string, unknown> = {}, opts: { calendars?: boolean } = {}): Record<string, unknown> {
+  const built = branchConfig(taraRules(), branch, {
     calendarFor: (w) => (opts.calendars === false ? null : (TEST_CALENDARS as Record<string, string>)[w.toLowerCase()] ?? null),
-    qpay: JSON.parse(JSON.stringify(TEST_MERCHANTS[slug])) as RawQpay,
+    qpay: testMerchant(branch),
     testSenderIds: ['psid-tester'],
   });
   if (!built.ok) throw new Error(built.detail);
   return { ...built.config, ...overrides };
 }
 
-/** Яармаг's config (the tests' default tenant). */
+/** The first branch's config (the tests' default tenant). */
 export function testConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return taraConfig('matrix-eco-salon', overrides);
+  return taraConfig(ruleBranches()[0] as string, overrides);
 }

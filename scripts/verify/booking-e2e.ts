@@ -33,7 +33,7 @@ import { runPayPage, runQpayCallback, runSweep } from '../../src/lib/booking/job
 import { signHold } from '../../src/lib/booking/links.ts';
 import { dayLabel } from '../../src/lib/booking/engine.ts';
 import { bookingTurn, type TurnResult } from '../../src/lib/booking/turn.ts';
-import { draftWording, FakeGoogle, FakeQpay, taraConfig, TEST_CALENDARS, TEST_MERCHANTS, testConfig } from '../../src/lib/booking/testkit.ts';
+import { draftWording, FakeGoogle, FakeQpay, ruleBranches, taraConfig, TEST_CALENDARS, testConfig, testMerchant } from '../../src/lib/booking/testkit.ts';
 import { qpayPortFor } from '../../src/lib/booking/live.ts';
 import { say } from '../../src/lib/booking/wording.ts';
 import type { QuickReply } from '../../src/lib/meta/send.ts';
@@ -118,7 +118,9 @@ const qpayFake = new FakeQpay();
 process.env['QPAY_USERNAME'] = qpayFake.username;
 process.env['QPAY_PASSWORD'] = qpayFake.password;
 process.env['QPAY_TERMINAL_ID'] = qpayFake.terminal;
-qpayFake.registerMerchant(qpayFake.username, TEST_MERCHANTS['matrix-eco-salon'].merchant_id);
+/** The rules file's branches by place: the first is the main test tenant, the second Парк Од (section 20). */
+const [BRANCH_1, BRANCH_2] = ruleBranches() as [string, string];
+qpayFake.registerMerchant(qpayFake.username, testMerchant(BRANCH_1).merchant_id);
 const wording = draftWording();
 type Sent = { outboundId: string; psid: string; body: string; quickReplies: readonly QuickReply[]; linkButtonTitle?: string };
 const sent: Sent[] = [];
@@ -1570,28 +1572,30 @@ const setPark = (config: Record<string, unknown>) => psql(
   `insert into booking_config (tenant_id, mode, config) values ('${T2}', 'live', $json$${JSON.stringify(config)}$json$::jsonb)
    on conflict (tenant_id) do update set mode = excluded.mode, config = excluded.config`);
 const parkSessions = () => psql(`select count(*) from booking_sessions where tenant_id = '${T2}'`);
-const PARK_Q = TEST_MERCHANTS['tara-park-od'];
-const YA_Q = TEST_MERCHANTS['matrix-eco-salon'];
+const PARK_Q = testMerchant(BRANCH_2);
+const YA_Q = testMerchant(BRANCH_1);
+const PARK_BANK = PARK_Q.bank_accounts[0] as { bank_code: string; account_number: string; account_name: string };
+const YA_BANK = YA_Q.bank_accounts[0] as { bank_code: string; account_number: string; account_name: string };
 
 // (a) Today's row (from-website.ts): every calendar and the merchant «not connected».
-setPark(taraConfig('tara-park-od', { qpay: 'not-connected' }, { calendars: false }));
+setPark(taraConfig(BRANCH_2, { qpay: 'not-connected' }, { calendars: false }));
 const pn = newChat(undefined, PARK);
 const pnr = await says(pn, 'Цаг авъя');
 const pnt = await says(newChat('psid-tester', PARK), 'Цаг авъя');
 check(!pnr.handled && pnr.reason === 'not_connected' && !pnt.handled && parkSessions() === '0',
   'Парк Од not connected: no booking offered there, not even to a tester; the ordinary Дали answers; nothing written');
 // (b) Calendars connected, her merchant not issued yet: still nothing (never Яармаг's merchant instead).
-setPark(taraConfig('tara-park-od', { qpay: 'not-connected' }));
+setPark(taraConfig(BRANCH_2, { qpay: 'not-connected' }));
 const pn2 = await says(newChat(undefined, PARK), 'Цаг авъя');
 check(!pn2.handled && pn2.reason === 'not_connected' && parkSessions() === '0', 'calendars connected, merchant still missing: still not offered');
 // One calendar still missing is enough to keep the branch off.
-setPark(taraConfig('tara-park-od', { stylists: (taraConfig('tara-park-od')['stylists'] as Record<string, unknown>[]).map((x, i) => (i === 6 ? { ...x, calendar_id: 'not-connected' } : x)) }));
+setPark(taraConfig(BRANCH_2, { stylists: (taraConfig(BRANCH_2)['stylists'] as Record<string, unknown>[]).map((x, i) => (i === 6 ? { ...x, calendar_id: 'not-connected' } : x)) }));
 const pn3 = await says(newChat(undefined, PARK), 'Цаг авъя');
 check(!pn3.handled && pn3.reason === 'not_connected', 'one stylist\'s calendar still missing (Tuchku): the branch stays off');
 
 // (c) Connected: her own merchant, registered under the platform's partner login.
 qpayFake.registerMerchant(qpayFake.username, PARK_Q.merchant_id);
-setPark(taraConfig('tara-park-od'));
+setPark(taraConfig(BRANCH_2));
 const pk = newChat(undefined, PARK);
 await says(pk, 'Цаг авъя');
 check(JSON.stringify(titles(pk)) === JSON.stringify([FEMALE, MALE, CHILD, CANCEL]), 'Парк Од connected: the booking starts, who it is for first');
@@ -1615,10 +1619,10 @@ const holdPk = holdOf(pk);
 const invPk = qpayFake.invoices.get(invoicesOf(holdPk)[0] as string);
 check(holdState(holdPk) === 'held' && psql(`select calendar_id || '/' || minutes || '/' || deposit_mnt from booking_holds where id = '${holdPk}'`) === `${TEST_CALENDARS.saraa}/60/20000`,
   'held on Saraa\'s own calendar, 60 minutes, 20,000₮');
-check(qpayFake.invoices.size === parkQBefore + 1 && invPk?.merchantId === PARK_Q.merchant_id && invPk.bankAccount === PARK_Q.bank_accounts[0].account_number
-  && invPk.bankCode === PARK_Q.bank_accounts[0].bank_code && invPk.accountName === PARK_Q.bank_accounts[0].account_name && invPk.amount === 20000 && invPk.mcc === '7230',
+check(qpayFake.invoices.size === parkQBefore + 1 && invPk?.merchantId === PARK_Q.merchant_id && invPk.bankAccount === PARK_BANK.account_number
+  && invPk.bankCode === PARK_BANK.bank_code && invPk.accountName === PARK_BANK.account_name && invPk.amount === 20000 && invPk.mcc === '7230',
   'the QPay invoice carries Парк Од\'s OWN merchant id and payout account (bank_accounts), 20,000₮');
-check(qinvA?.merchantId === YA_Q.merchant_id && qinvA.bankAccount === YA_Q.bank_accounts[0].account_number && invPk?.merchantId !== qinvA.merchantId && invPk?.bankAccount !== qinvA.bankAccount,
+check(qinvA?.merchantId === YA_Q.merchant_id && qinvA.bankAccount === YA_BANK.account_number && invPk?.merchantId !== qinvA.merchantId && invPk?.bankAccount !== qinvA.bankAccount,
   'and Яармаг\'s invoices carry Яармаг\'s: each branch is paid into its own account');
 qpayFake.pay(invoicesOf(holdPk)[0] as string);
 const beforePk = sent.length;
@@ -1641,7 +1645,7 @@ async function parkSummary(chat: Chat, stylist: string, time: string, phone: str
   await says(chat, phone);
 }
 // (d) Her own login named in the row and absent from the environment: no invoice, and never the platform's login instead.
-setPark(taraConfig('tara-park-od', { qpay: { ...PARK_Q, login: 'PARKOD' } }));
+setPark(taraConfig(BRANCH_2, { qpay: { ...PARK_Q, login: 'PARKOD' } }));
 const pl = newChat(undefined, PARK);
 await parkSummary(pl, 'Tomoo · Мастер', '15:00', '88990012');
 const callsL = qpayFake.calls.length;
@@ -1660,15 +1664,20 @@ const pl2 = newChat(undefined, PARK);
 await parkSummary(pl2, 'Tomoo · Мастер', '16:00', '88990013');
 await taps(pl2, AGREE);
 const invPl2 = qpayFake.invoices.get(invoicesOf(holdOf(pl2))[0] as string);
-check(holdState(holdOf(pl2)) === 'held' && invPl2?.login === 'parkod-user' && invPl2.merchantId === PARK_Q.merchant_id && invPl2.bankAccount === PARK_Q.bank_accounts[0].account_number,
+check(holdState(holdOf(pl2)) === 'held' && invPl2?.login === 'parkod-user' && invPl2.merchantId === PARK_Q.merchant_id && invPl2.bankAccount === PARK_BANK.account_number,
   'her own login set (all three): the invoice is made on her login, her merchant, her account');
 // The row back on the platform's login while her merchant is registered only under her own: QPay refuses; no QR.
-setPark(taraConfig('tara-park-od'));
+setPark(taraConfig(BRANCH_2));
 const pl3 = newChat(undefined, PARK);
 await parkSummary(pl3, 'Bulgaa · Мастер', '15:00', '88990014');
 await taps(pl3, AGREE);
 check(pl3.lastBody === say(wording, 'booking_unavailable', { booking_url: 'https://www.matrixecosalon.org/' }) && invoicesOf(holdOf(pl3)).length === 0 && holdState(holdOf(pl3)) === 'released',
   'a merchant QPay does not know under that login (MERCHANT_NOTFOUND): no QR, the time given back');
+// The invoice made on her own login is paid after her row changed: it is still read on the login it was made on.
+qpayFake.pay(invoicesOf(holdOf(pl2))[0] as string);
+await runQpayCallback(ports, signHold(SECRET, 'callback', holdOf(pl2)));
+check(holdState(holdOf(pl2)) === 'booked' && psql(`select qpay_login || '/' || merchant_id from booking_invoices where hold_id = '${holdOf(pl2)}'`) === `PARKOD/${PARK_Q.merchant_id}`,
+  'paid after the row changed: QPay is asked on the login the invoice was made on (recorded on it), and it is booked');
 delete process.env['BOOKING_QPAY_PARKOD_USERNAME'];
 delete process.env['BOOKING_QPAY_PARKOD_PASSWORD'];
 delete process.env['BOOKING_QPAY_PARKOD_TERMINAL_ID'];
@@ -1676,7 +1685,7 @@ qpayFake.registerMerchant(qpayFake.username, PARK_Q.merchant_id);
 
 // (e) Never another branch's money: Парк Од's row naming Яармаг's merchant, or Яармаг's account, is refused before QPay.
 for (const [what, q] of [['merchant id', { ...PARK_Q, merchant_id: YA_Q.merchant_id }], ['payout account', { ...PARK_Q, bank_accounts: YA_Q.bank_accounts }]] as const) {
-  setPark(taraConfig('tara-park-od', { qpay: q }));
+  setPark(taraConfig(BRANCH_2, { qpay: q }));
   const px = newChat(undefined, PARK);
   await parkSummary(px, 'Enhuush · Мастер', what === 'merchant id' ? '12:00' : '13:00', what === 'merchant id' ? '88990015' : '88990016');
   const before = qpayFake.calls.length;
@@ -1685,7 +1694,7 @@ for (const [what, q] of [['merchant id', { ...PARK_Q, merchant_id: YA_Q.merchant
     && invoicesOf(holdOf(px)).length === 0 && alerts.some((al) => al.kind === 'booking.merchant_shared' && al.tenantId === T2),
     `Парк Од's row with Яармаг's ${what}: refused before QPay is asked, and you are paged`);
 }
-setPark(taraConfig('tara-park-od'));
+setPark(taraConfig(BRANCH_2));
 
 // (f) Who it is for, at Парк Од: a man and a boy book only Tuchku; a girl the women; every deposit 20,000₮.
 const pm = newChat(undefined, PARK);

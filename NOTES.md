@@ -17,8 +17,14 @@ draft PR #280 (`claude/happy-pasteur-4gp7gd`, 87a8875). Booking stays OFF for ev
       or account in another tenant's row, or QPay refuses it.
 - [x] Website hold contract (lead): `sh` prefix, holdExpiresAt/holdPlacedAt; expired `sh` free; earlier-
       placed wins; chat holds recognised by `dalaBookingState: 'hold'` only (lead's review finding).
-- [x] e2e 246 local (11 run the website's own code incl. its placeHold), 235 CI-shaped; unit + check green.
-- [ ] Reviewer, commit, push, draft PR, CI.
+- [x] e2e 247 local (11 run the website's own code incl. its placeHold), 236 CI-shaped; unit + check green;
+      5 SQL suites + query columns, postgrest.ts, billing-e2e 118 pass locally (PG16 + PostgREST 12.2.3).
+- [x] Draft PR #285 (base claude/happy-pasteur-4gp7gd). CI green on 8287e82 (booking e2e 235 in CI).
+- [x] Independent review (remote reviewer session, Opus, read-only, ~$2.59 of session spend): 3 findings,
+      all fixed: (1) invoices record merchant/account/login (0082 columns) and are checked/cancelled on
+      that login, not the row's current one; (2) no tenant slug literals in src/ (tests name branches by
+      their place in the rules file); (3) an own QPay login shared by two tenants is refused/flagged.
+      The lead's finding (chat hold by dalaBookingState only) also fixed.
 
 ## Decisions (with reason)
 1. Rules file holds services WITH minutes (not only the website): CI can test the real list; from-website.ts
@@ -44,6 +50,8 @@ draft PR #280 (`claude/happy-pasteur-4gp7gd`, 87a8875). Booking stays OFF for ev
    `created` (no own property written). Tie → we yield.
 10. Agreement: Дали never shows terms; the hold's agreement_text = the summary shown (evidence of what was
     accepted). Consequence for the founder: chat customers never agree to «non-refundable» in writing.
+12. Invoices record merchant_id/payout_account/qpay_login (0082 edit, unapplied): the login an invoice was
+    made on is the only one that can read or cancel it (QPay scopes invoices per login; the fake does too).
 11. testConfig() is now Tara's real Яармаг config (test calendars/merchants), so unit tests and e2e prove the
     real list; section numbers: 19 updated, 20 (two branches), 21 (hold contract) new.
 

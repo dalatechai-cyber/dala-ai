@@ -16,7 +16,10 @@ import { branchLabel } from './store.ts';
 import { callbackUrl, linkSecret, payUrl, publicOrigin, signHold, verifyHold } from './links.ts';
 import { clock, renderBookingPage } from './page.ts';
 import { freeStarts, isFree, openDays } from './slots.ts';
-import { draftWording, FakeGoogle, FakeQpay, taraConfig, TEST_CALENDARS, testConfig } from './testkit.ts';
+import { draftWording, FakeGoogle, FakeQpay, ruleBranches, taraConfig, TEST_CALENDARS, testConfig } from './testkit.ts';
+
+/** The rules file's two branches by place (first: Яармаг, second: Парк Од), never by a slug literal. */
+const [YA, PO] = ruleBranches() as [string, string];
 import { looksLikeName, sameChoice, typedName, typedPhone, typedTime } from './turn.ts';
 import { BOOKING_BLOCK_KEYS, missingBlocks, say, WordingError } from './wording.ts';
 import { dayLabel } from './engine.ts';
@@ -52,8 +55,8 @@ test('a complete config parses; its timing defaults are the website\'s', () => {
 
 test('Tara\'s rules: the current price list with the 62 confirmed minutes, nothing old, both branches alike', async () => {
   const { compareBranches } = await import('./branches.ts');
-  const ya = parseBookingConfig(taraConfig('matrix-eco-salon'));
-  const po = parseBookingConfig(taraConfig('tara-park-od'));
+  const ya = parseBookingConfig(taraConfig(YA));
+  const po = parseBookingConfig(taraConfig(PO));
   assert.ok(ya.ok && po.ok);
   const all = allServices(ya.config);
   assert.equal(all.length, 62, 'every service of the 2026-10-01 price list, once');
@@ -75,7 +78,7 @@ test('Tara\'s rules: the current price list with the 62 confirmed minutes, nothi
   assert.ok(![...ya.config.stylists, ...po.config.stylists].some((s) => /Отгон|Otgon/u.test(s.name)));
   assert.equal(po.config.branchLabel, 'Парк Од');
   // Two branches: one rule set, their own calendars and merchants.
-  assert.deepEqual(compareBranches([{ slug: 'matrix-eco-salon', config: ya.config }, { slug: 'tara-park-od', config: po.config }]), []);
+  assert.deepEqual(compareBranches([{ slug: YA, config: ya.config }, { slug: PO, config: po.config }]), []);
 });
 
 test('a config missing anything that touches money or a calendar is refused, never partly on', () => {
@@ -122,7 +125,7 @@ test('a config missing anything that touches money or a calendar is refused, nev
 });
 
 test('«not connected»: a branch being prepared parses, books nobody, and never borrows', () => {
-  const none = parseBookingConfig(taraConfig('tara-park-od', { qpay: 'not-connected' }, { calendars: false }));
+  const none = parseBookingConfig(taraConfig(PO, { qpay: 'not-connected' }, { calendars: false }));
   assert.ok(none.ok, none.ok ? '' : none.detail);
   assert.equal(none.config.qpay, null);
   assert.ok(none.config.stylists.every((s) => s.calendarId === null));
@@ -131,10 +134,10 @@ test('«not connected»: a branch being prepared parses, books nobody, and never
     assert.deepEqual(customerMode(env, 'live', none.config, 'psid-tester'), { on: false }, 'not even a tester');
   }
   // One calendar missing is enough.
-  const one = parseBookingConfig(taraConfig('tara-park-od', { stylists: (taraConfig('tara-park-od')['stylists'] as Record<string, unknown>[]).map((s, i) => (i === 3 ? { ...s, calendar_id: 'not-connected' } : s)) }));
+  const one = parseBookingConfig(taraConfig(PO, { stylists: (taraConfig(PO)['stylists'] as Record<string, unknown>[]).map((s, i) => (i === 3 ? { ...s, calendar_id: 'not-connected' } : s)) }));
   assert.ok(one.ok && one.config.notConnected.join() === 'Bulgaa\'s calendar');
   assert.deepEqual(customerMode('live', 'live', one.config, 'psid-x'), { on: false });
-  const ready = parseBookingConfig(taraConfig('tara-park-od'));
+  const ready = parseBookingConfig(taraConfig(PO));
   assert.ok(ready.ok && ready.config.notConnected.length === 0);
   assert.deepEqual(customerMode('live', 'live', ready.config, 'psid-x'), { on: true, isTest: false });
 });
@@ -332,8 +335,8 @@ test('every button a customer taps fits Meta\'s 20 characters', () => {
 test('stylist buttons: by level, no level recommended, «Аль ч {level}» only where two may serve; never 1-р зэрэг at Парк Од', async () => {
   const { stylistOffers } = await import('./turn.ts');
   const w = { wording: draftWording() } as never;
-  const ya = parseBookingConfig(taraConfig('matrix-eco-salon'));
-  const po = parseBookingConfig(taraConfig('tara-park-od'));
+  const ya = parseBookingConfig(taraConfig(YA));
+  const po = parseBookingConfig(taraConfig(PO));
   assert.ok(ya.ok && po.ok);
   const t = (c: typeof ya, g: 'female' | 'male', level: string | null = null) => stylistOffers(w, (c as { ok: true; config: never }).config, g, level).map((o) => o.t);
   assert.deepEqual(t(ya, 'female'), ['Oyunaa · SPECIAL', 'Badamaa · Мастер', 'Аль ч 1-р зэрэг', 'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг']);
@@ -348,7 +351,7 @@ test('stylist buttons: by level, no level recommended, «Аль ч {level}» onl
   for (const o of [...t(ya, 'female'), ...t(po, 'female')]) assert.ok(!o.startsWith('Аль ч') || /^Аль ч (SPECIAL|Мастер|1-р зэрэг)$/u.test(o));
   assert.ok([...t(ya, 'female'), ...t(po, 'female')].every((x) => [...x].length <= QUICK_REPLY_TITLE_MAX));
   // A level label too long for «Аль ч …» loses only that button; its stylists stay.
-  const long = parseBookingConfig(taraConfig('matrix-eco-salon', { levels: [{ key: 'special', label: 'SPECIAL', deposit_mnt: 20000 }, { key: 'master', label: 'Мастер', deposit_mnt: 20000 }, { key: 'first', label: 'Нэгдүгээр зэргийн', deposit_mnt: 10000 }] }));
+  const long = parseBookingConfig(taraConfig(YA, { levels: [{ key: 'special', label: 'SPECIAL', deposit_mnt: 20000 }, { key: 'master', label: 'Мастер', deposit_mnt: 20000 }, { key: 'first', label: 'Нэгдүгээр зэргийн', deposit_mnt: 10000 }] }));
   assert.ok(long.ok);
   const lo = stylistOffers(w, long.config, 'female', null);
   assert.ok(!lo.some((o) => o.v === 'any:first') && lo.some((o) => o.v === `s:${TEST_CALENDARS.zaya}`));
@@ -531,26 +534,31 @@ test('a tapped quick reply carries its payload into the inbound message', () => 
 
 test('branches: same services and deposits; never one calendar, merchant or payout account in two', async () => {
   const { compareBranches } = await import('./branches.ts');
-  const ya = parseBookingConfig(taraConfig('matrix-eco-salon'));
-  const po = parseBookingConfig(taraConfig('tara-park-od'));
+  const ya = parseBookingConfig(taraConfig(YA));
+  const po = parseBookingConfig(taraConfig(PO));
   assert.ok(ya.ok && po.ok);
   const pair = (b: typeof po) => compareBranches([{ slug: 'a', config: ya.config }, { slug: 'b', config: (b as { ok: true; config: typeof po extends { ok: true; config: infer C } ? C : never }).config }]);
   assert.deepEqual(pair(po), []);
-  const cheaper = parseBookingConfig(taraConfig('tara-park-od', { levels: [{ key: 'special', label: 'SPECIAL', deposit_mnt: 20000 }, { key: 'master', label: 'Мастер', deposit_mnt: 15000 }, { key: 'first', label: '1-р зэрэг', deposit_mnt: 10000 }] }));
+  const cheaper = parseBookingConfig(taraConfig(PO, { levels: [{ key: 'special', label: 'SPECIAL', deposit_mnt: 20000 }, { key: 'master', label: 'Мастер', deposit_mnt: 15000 }, { key: 'first', label: '1-р зэрэг', deposit_mnt: 10000 }] }));
   assert.ok(cheaper.ok && pair(cheaper).some((x) => x.kind === 'drift' && /deposits/u.test(x.detail)));
-  const sameCal = parseBookingConfig(taraConfig('tara-park-od', { stylists: [{ name: 'Boloroo', level: 'special', gender: 'female', calendar_id: TEST_CALENDARS.oyunaa }] }));
+  const sameCal = parseBookingConfig(taraConfig(PO, { stylists: [{ name: 'Boloroo', level: 'special', gender: 'female', calendar_id: TEST_CALENDARS.oyunaa }] }));
   assert.ok(sameCal.ok && pair(sameCal).some((x) => x.kind === 'shared_calendar'));
   // Each branch is paid into its own: the same merchant id, or the same account, is a finding.
-  const yq = (taraConfig('matrix-eco-salon')['qpay']) as Record<string, unknown>;
-  const sameMerchant = parseBookingConfig(taraConfig('tara-park-od', { qpay: { ...(taraConfig('tara-park-od')['qpay'] as Record<string, unknown>), merchant_id: yq['merchant_id'] } }));
+  const yq = (taraConfig(YA)['qpay']) as Record<string, unknown>;
+  const sameMerchant = parseBookingConfig(taraConfig(PO, { qpay: { ...(taraConfig(PO)['qpay'] as Record<string, unknown>), merchant_id: yq['merchant_id'] } }));
   assert.ok(sameMerchant.ok && pair(sameMerchant).some((x) => x.kind === 'shared_merchant' && /merchant id/u.test(x.detail)));
-  const sameAccount = parseBookingConfig(taraConfig('tara-park-od', { qpay: { ...(taraConfig('tara-park-od')['qpay'] as Record<string, unknown>), bank_accounts: yq['bank_accounts'] } }));
+  const sameAccount = parseBookingConfig(taraConfig(PO, { qpay: { ...(taraConfig(PO)['qpay'] as Record<string, unknown>), bank_accounts: yq['bank_accounts'] } }));
   assert.ok(sameAccount.ok && pair(sameAccount).some((x) => x.kind === 'shared_merchant' && /payout account/u.test(x.detail)));
+  // An own QPay login is one branch's too.
+  const ownLogin = (b: string) => taraConfig(b, { qpay: { ...(taraConfig(b)['qpay'] as Record<string, unknown>), login: 'PARKOD' } });
+  const both = [parseBookingConfig(ownLogin(YA)), parseBookingConfig(ownLogin(PO))];
+  assert.ok(both[0]?.ok && both[1]?.ok && compareBranches([{ slug: 'a', config: both[0].config }, { slug: 'b', config: both[1].config }])
+    .some((x) => x.kind === 'shared_merchant' && /own QPay login/u.test(x.detail)));
   // A branch not connected yet is still compared on its shape.
-  const prep = parseBookingConfig(taraConfig('tara-park-od', { qpay: 'not-connected' }, { calendars: false }));
+  const prep = parseBookingConfig(taraConfig(PO, { qpay: 'not-connected' }, { calendars: false }));
   assert.ok(prep.ok && pair(prep).length === 0);
   // Who serves a children's service is part of the one rule set.
-  const swapped = parseBookingConfig(taraConfig('tara-park-od', {
-    child_services: (taraConfig('tara-park-od')['child_services'] as Record<string, unknown>[]).map((c) => ({ ...c, gender: 'male' })) }));
+  const swapped = parseBookingConfig(taraConfig(PO, {
+    child_services: (taraConfig(PO)['child_services'] as Record<string, unknown>[]).map((c) => ({ ...c, gender: 'male' })) }));
   assert.ok(swapped.ok && pair(swapped).some((x) => /children/u.test(x.detail)));
 });

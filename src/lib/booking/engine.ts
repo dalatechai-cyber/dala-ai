@@ -251,11 +251,14 @@ export async function createInvoice(ports: BookingPorts, hold: Hold, config: Boo
     // Two tenants on one merchant or payout account would pay one branch's deposits to the other.
     await ports.alert({
       tenantId: hold.tenantId, kind: 'booking.merchant_shared', dedupKey: `booking.merchant_shared:${hold.tenantId}:${config.qpay.merchantId}`,
-      body: `⚠️ In-chat booking refused a deposit: this tenant's QPay merchant or payout account is also in ${shared.tenants.length} other tenant(s)' booking_config. Each branch must be paid into its own. No invoice was made; fix the rows (scripts/booking/check.ts).`,
+      body: `⚠️ In-chat booking refused a deposit: this tenant's QPay merchant, payout account or own QPay login is also in ${shared.tenants.length} other tenant(s)' booking_config. Each branch must be paid into its own. No invoice was made; fix the rows (scripts/booking/check.ts).`,
     });
-    return { ok: false, detail: 'the QPay merchant or account is also another tenant\'s' };
+    return { ok: false, detail: 'the QPay merchant, account or own login is also another tenant\'s' };
   }
-  const claimed = await claimInvoice(ports.db, { tenantId: hold.tenantId, holdId: hold.id, amountMnt: hold.depositMnt });
+  const claimed = await claimInvoice(ports.db, {
+    tenantId: hold.tenantId, holdId: hold.id, amountMnt: hold.depositMnt,
+    merchantId: config.qpay.merchantId, payoutAccount: config.qpay.bankAccounts[0]?.accountNumber ?? '', qpayLogin: config.qpay.login,
+  });
   if (!claimed.ok) return claimed;
   const token = await qpay.token();
   if (!token.ok) {
@@ -299,6 +302,34 @@ export async function createInvoice(ports: BookingPorts, hold: Hold, config: Boo
 }
 
 /**
+ * Asking QPay about an invoice already made, or cancelling it: on the login it was MADE on (its
+ * row records the merchant, the payout account and the login), never the tenant's current row,
+ * which may have changed since (a branch's own login added, or set back to «not connected"). A
+ * check or a cancel sends no merchant or bank details, only the login's token; the merchant and
+ * account here are the invoice's own, and the mcc is never sent. One token per login per call.
+ */
+function invoiceSessions(ports: BookingPorts): (inv: Invoice) => Promise<{ ok: true; port: QpayPort; token: string } | { ok: false; detail: string }> {
+  const byLogin = new Map<string, Promise<{ ok: true; port: QpayPort; token: string } | { ok: false; detail: string }>>();
+  return (inv) => {
+    const key = inv.qpayLogin ?? '';
+    let s = byLogin.get(key);
+    if (s === undefined) {
+      s = (async () => {
+        const port = ports.qpayFor({
+          merchantId: inv.merchantId, mccCode: '0000', login: inv.qpayLogin,
+          bankAccounts: [{ bankCode: '-', accountNumber: inv.payoutAccount, accountName: '-' }],
+        });
+        if (port === null) return { ok: false as const, detail: `QPay is not configured (the login invoice ${inv.id} was made on)` };
+        const t = await port.token();
+        return t.ok ? { ok: true as const, port, token: t.token } : { ok: false as const, detail: t.detail };
+      })();
+      byLogin.set(key, s);
+    }
+    return s;
+  };
+}
+
+/**
  * The invoice a customer should pay now: the newest open one whose QR is still valid, or a fresh
  * one (only when none is: the first, or one QPay refused). Every QR of a hold ends with the hold,
  * so a new QR never lengthens the five minutes. A redelivered message never makes a second one.
@@ -336,13 +367,13 @@ async function collectPayments(ports: BookingPorts, hold: Hold, config: BookingC
   if (!invoices.ok) return invoices;
   const asked = invoices.invoices.filter((i) => i.qpayInvoiceId !== null && i.state !== 'refused');
   if (asked.length === 0) return { ok: true, fresh: [] };
-  const qpay = config.qpay === null ? null : ports.qpayFor(config.qpay);
-  if (qpay === null) return { ok: false, detail: 'QPay is not configured' };
-  const token = await qpay.token();
-  if (!token.ok) return { ok: false, detail: token.detail };
+  const session = invoiceSessions(ports);
   const fresh: { key: string; disposition: string; amount: number }[] = [];
   for (const inv of asked) {
-    const check = await qpay.checkPayment(token.token, inv.qpayInvoiceId as string);
+    // Asked on the login the invoice was made on, whatever the tenant's row says now.
+    const s = await session(inv);
+    if (!s.ok) return { ok: false, detail: s.detail };
+    const check = await s.port.checkPayment(s.token, inv.qpayInvoiceId as string);
     if (!check.ok) return { ok: false, detail: check.detail };
     if (!check.determined) {
       await ports.alert({
@@ -600,7 +631,7 @@ export async function settleHold(ports: BookingPorts, holdId: string, opts: { mi
   }
   await confirmBooked(ports, hold, facts, config);
   // The other QR codes of this hold can no longer be paid for nothing.
-  await cancelInvoices(ports, hold, config);
+  await cancelInvoices(ports, hold);
   return 'booked';
 }
 
@@ -626,7 +657,7 @@ async function confirmBooked(ports: BookingPorts, hold: Hold, facts: TenantFacts
  * it). An invoice QPay would not cancel stays `open`, so the sweep keeps asking about it for a
  * day, and a person is told once.
  */
-async function cancelInvoices(ports: BookingPorts, hold: Hold, config: BookingConfig): Promise<void> {
+async function cancelInvoices(ports: BookingPorts, hold: Hold): Promise<void> {
   const inv = await holdInvoices(ports.db, hold.id);
   if (!inv.ok) return;
   // An invoice that carries a recorded payment is paid, whatever its row says: never "cancel" it.
@@ -635,12 +666,11 @@ async function cancelInvoices(ports: BookingPorts, hold: Hold, config: BookingCo
   const paidIds = new Set((paidRows ?? []).map((r) => String((r as Record<string, unknown>)['invoice_id'])));
   const open = inv.invoices.filter((i) => i.state === 'open' && i.qpayInvoiceId !== null && !paidIds.has(i.id));
   if (open.length === 0) return;
-  const qpay = config.qpay === null ? null : ports.qpayFor(config.qpay);
-  const token = qpay === null ? null : await qpay.token();
+  const session = invoiceSessions(ports);
   for (const i of open) {
-    const r = qpay === null || token === null || !token.ok
-      ? { ok: false as const, detail: token !== null && !token.ok ? token.detail : 'QPay is not configured' }
-      : await qpay.cancelInvoice(token.token, i.qpayInvoiceId as string);
+    // Cancelled on the login it was made on.
+    const s = await session(i);
+    const r = !s.ok ? { ok: false as const, detail: s.detail } : await s.port.cancelInvoice(s.token, i.qpayInvoiceId as string);
     if (r.ok) {
       await finishInvoice(ports.db, i.id, { state: 'cancelled' });
       continue;
@@ -675,10 +705,12 @@ export async function expireHold(ports: BookingPorts, holdId: string, kind: 'exp
     // Already ended by another caller: nothing more to do here.
     return hold.state === 'released' ? 'released' : 'expired';
   }
-  const cfg = await readConfig(ports.db, hold.tenantId);
-  if (cfg.ok && cfg.present && cfg.valid) await cancelInvoices(ports, hold, cfg.config);
+  // Each invoice is cancelled on the login it was made on (its own row), so the tenant's current
+  // settings, valid or not, never stand between an ended hold and its QR's cancellation.
+  await cancelInvoices(ports, hold);
   await removeOurEvent(ports, hold);
   if (kind === 'expired') {
+    const cfg = await readConfig(ports.db, hold.tenantId);
     const facts = await readTenantFacts(ports.db, hold.tenantId);
     if (facts.ok) {
       const w = ports.wording;

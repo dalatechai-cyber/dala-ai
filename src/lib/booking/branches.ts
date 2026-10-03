@@ -2,9 +2,10 @@
  * A brand's branches book alike (D-157: one price list, one booking link, one rule set): the
  * same services, minutes, levels and deposits, the same entry matchers and the same gender and
  * children's rules. What differs is each branch's own: its stylists, their calendars, and its QPay
- * merchant and payout account. Those must DIFFER: a calendar in two branches would let one
- * booking block both, and a merchant or account in two branches would pay one branch's deposits
- * to the other (each branch is its own business). Pure; `scripts/booking/check.ts` reads the rows.
+ * merchant, payout account and (if it has one) its own QPay login. Those must DIFFER: a calendar in
+ * two branches would let one booking block both, and a merchant, account or own login in two
+ * branches would pay or invoice one branch's deposits as the other (each branch is its own
+ * business). Pure; `scripts/booking/check.ts` reads the rows.
  *
  * A branch whose calendars or merchant are still `not-connected` is compared all the same: its
  * shape must already match, so connecting it later is filling in ids, never a rewrite.
@@ -33,6 +34,7 @@ export function compareBranches(branches: readonly { slug: string; config: Booki
   const calendarOwner = new Map<string, string>();
   const merchantOwner = new Map<string, string>();
   const accountOwner = new Map<string, string>();
+  const loginOwner = new Map<string, string>();
   for (const b of branches) {
     for (const s of b.config.stylists) {
       if (s.calendarId === null) continue;
@@ -45,6 +47,11 @@ export function compareBranches(branches: readonly { slug: string; config: Booki
     const m = merchantOwner.get(q.merchantId);
     if (m !== undefined && m !== b.slug) out.push({ kind: 'shared_merchant', detail: `${m} and ${b.slug} name the same QPay merchant id` });
     merchantOwner.set(q.merchantId, b.slug);
+    if (q.login !== null) {
+      const l = loginOwner.get(q.login);
+      if (l !== undefined && l !== b.slug) out.push({ kind: 'shared_merchant', detail: `${l} and ${b.slug} name the same own QPay login (${q.login})` });
+      loginOwner.set(q.login, b.slug);
+    }
     for (const a of q.bankAccounts) {
       const o = accountOwner.get(a.accountNumber);
       if (o !== undefined && o !== b.slug) out.push({ kind: 'shared_merchant', detail: `${o} and ${b.slug} name the same payout account` });

@@ -222,9 +222,12 @@ login is a secret and comes from the environment only (rule 7):
   `_PASSWORD` / `_TERMINAL_ID`.
 
 An invoice is refused, and no QR exists, when: the row's `qpay` is `not-connected`; the login it
-names is incomplete; another tenant's `booking_config` names the same merchant id or the same
-payout account (checked in the database before every invoice; you are paged once,
-`booking.merchant_shared`); or QPay itself refuses the merchant under that login. The website does
+names is incomplete; another tenant's `booking_config` names the same merchant id, the same payout
+account or the same own login (checked in the database before every invoice; you are paged once,
+`booking.merchant_shared`); or QPay itself refuses the merchant under that login. Each invoice
+row records the merchant, payout account and login it was made on (`booking_invoices`, 0082), and
+a payment is checked, or a QR cancelled, on THAT login, so changing a branch's row while a QR is
+out never strands a paid deposit. The website does
 the same for Парк Од from `PARKOD_QPAY_MERCHANT_ID`, `PARKOD_QPAY_BANK_CODE`,
 `PARKOD_QPAY_ACCOUNT_NUMBER`, `PARKOD_QPAY_ACCOUNT_NAME`; `from-website.ts` reads her values under
 those same names from the operator's shell, so both sides carry the same values. QPay's own
