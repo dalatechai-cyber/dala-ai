@@ -54,7 +54,7 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       now logs as a failure (never a silent skip); bare «цаг өмнө/дотор/дараа» are lengths too; e2e now covers the
       leftover-draft path both ways and «өнөөдөр» when nothing can still start. e2e 156 locally.
       Not done (noted): quality_flags has no index for the follow-up's read (fine at today's volume).
-- [ ] CI on this push
+- [x] CI green on d236bab (148 in CI). Done; PR body updated.
 
 ## Decisions (with reason)
 1. Deterministic flow, no model: C1/E2 stay true of the model; every line is a signed platform block.
