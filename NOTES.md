@@ -85,7 +85,12 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
 - [x] Last review of 78e4335: all 3 fixed; applied its two leftovers verbatim (a failed close of the rebook chat
       returns `failed`, never «yours»; the «unreadable» page defers to any earlier page). Not re-reviewed: two-line
       changes taken as the reviewer wrote them. e2e 194 locally.
-- [ ] CI on this push
+- [x] CI green on a5d49a0 (186 in CI).
+- [x] Founder 2026-10-03: approved booking_pay and booking_expired as drafted; booking_paid_unbooked_offer
+      with «бид тантай холбогдож» (founder handles refunds); approved decisions 27 (same stylist first),
+      29 (30-min offer), 25 (no «new QR»). 0082 checked on the project: NOT applied (latest 0081_ora_billing,
+      no booking tables/functions; main has no other 0082). Website hold goes in the Tara website round
+      before switch-on. Brief: docs/proposals/tara-inchat-booking-brief.md.
 
 ## Decisions (with reason)
 1. Deterministic flow, no model: C1/E2 stay true of the model; every line is a signed platform block.

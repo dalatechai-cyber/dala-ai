@@ -10,6 +10,10 @@ booking flow refuses to start for any tenant until every block below is signed:
 Signing moves them into `prompt/platform/`, records their hashes and writes the seed migration
 (layer null: never part of a tenant's prompt).
 
+**Approved by the founder (2026-10-03), still to be signed with the script above:**
+`booking_pay`, `booking_expired`, `booking_paid_unbooked_offer` (with «бид тантай холбогдож»). Every other
+line here awaits approval; `docs/proposals/tara-inchat-booking-brief.md` lists them all.
+
 Style: «та», short, no markdown, no emoji. Where Tara's website already says the same thing, its
 words are kept: «Уучлаарай, энэ цаг өөр хүнд захиалагдсан байна. Өөр цаг сонгоно уу.»
 (`booking_slot_taken`), «Төлбөр тань амжилттай орсон. Харамсалтай нь…» (`booking_paid_unbooked`),
