@@ -10,7 +10,7 @@ import { extractInboundMessages } from '../meta/extract.ts';
 import { sendMessage, sendMessageParts } from '../meta/send.ts';
 import { localDayStart } from '../time/clock.ts';
 import { eventIdForHold, googleCalendar } from './calendar.ts';
-import { bookingEnvMode, customerMode, depositFor, parseBookingConfig, QUICK_REPLY_TITLE_MAX, stylistButton } from './config.ts';
+import { allServices, bookingEnvMode, customerMode, depositFor, parseBookingConfig, QUICK_REPLY_TITLE_MAX, stylistButton } from './config.ts';
 import { branchLabel } from './store.ts';
 import { callbackUrl, linkSecret, payUrl, publicOrigin, signHold, verifyHold } from './links.ts';
 import { clock, renderBookingPage } from './page.ts';
@@ -75,6 +75,13 @@ test('a config missing anything that touches money or a calendar is refused, nev
   assert.ok(long.ok && stylistButton(long.config.stylists[0] as never, long.config.levels[1] as never) === 'Отгонжаргал',
     'a name too long to carry its level shows the name alone');
   refuse({ qr_minutes: 5 }, /qr_minutes/);
+  // Children's services: who serves each is the tenant's rule, never guessed; minutes required.
+  refuse({ child_services: [{ name: 'Хүүхдийн тайралт', label: 'Охин', minutes: 60 }] }, /child_services\[0\]\.gender/);
+  refuse({ child_services: [{ name: 'Хүүхдийн тайралт', label: 'Охин', gender: 'female' }] }, /minutes/);
+  refuse({ gender_rule: false, child_services: [{ name: 'Хүүхдийн тайралт', label: 'Охин', gender: 'female', minutes: 60 }] }, /gender_rule/);
+  refuse({ child_services: [{ name: 'Энгийн засалт', gender: 'female', minutes: 60 }] }, /listed twice/);
+  const kids = parseBookingConfig(testConfig());
+  assert.ok(kids.ok && kids.config.childServices.length === 2 && allServices(kids.config).some((x) => x.name === 'Хүүхдийн тайралт (хүү)'));
 });
 
 test('off anywhere is off; test anywhere is testers only; a tester in live gets the test deposit', () => {
@@ -210,10 +217,13 @@ test('every button a customer taps fits Meta\'s 20 characters', () => {
   const w = draftWording();
   const c = cfg();
   const cp = (s: string) => [...s].length;
-  for (const k of ['booking_gender_female', 'booking_gender_male', 'booking_day_today', 'booking_day_tomorrow', 'booking_agree', 'booking_cancel'] as const) {
+  for (const k of ['booking_gender_female', 'booking_gender_male', 'booking_gender_child', 'booking_day_today', 'booking_day_tomorrow', 'booking_agree', 'booking_cancel'] as const) {
     assert.ok(cp(say(w, k)) <= QUICK_REPLY_TITLE_MAX, k);
   }
-  for (const l of c.levels) assert.ok(cp(say(w, 'booking_any_of_level', { level: l.label })) <= QUICK_REPLY_TITLE_MAX);
+  // «{level} — аль ч үсчин» fits for «Мастер» (20) and not for «1-р зэрэг» (23): that «any» button
+  // is left out (stylistOffers), never cut. A shorter line is the founder's call.
+  assert.equal(cp(say(w, 'booking_any_of_level', { level: 'Мастер' })), 20);
+  assert.ok(cp(say(w, 'booking_any_of_level', { level: '1-р зэрэг' })) > QUICK_REPLY_TITLE_MAX);
   // The longest date label: a two-digit month and day and the longest weekday.
   assert.ok(cp(say(w, 'booking_date', { month: '12', day: '28', weekday: 'Мягмар' })) <= QUICK_REPLY_TITLE_MAX);
   for (const s of c.stylists) {

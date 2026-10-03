@@ -22,6 +22,7 @@ export const BOOKING_BLOCKS = {
   booking_ask_gender: NONE,
   booking_gender_female: NONE,
   booking_gender_male: NONE,
+  booking_gender_child: NONE,
   booking_ask_stylist: NONE,
   booking_any_of_level: { required: ['level'], optional: [] },
   booking_ask_when: { required: ['service'], optional: [] },

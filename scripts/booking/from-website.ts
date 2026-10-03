@@ -6,7 +6,7 @@
  * the website checkout at run time and written only to the output file.
  *
  *     node scripts/booking/from-website.ts --website ../matrix_website --rules config/booking/tara-salon.json \
- *       --slug matrix-eco-salon --stylists "Оюунсүрэн=Оюунаа,Бадамцэцэг=Бадмаа,Батзаяа,Уянга,Отгонжаргал" \
+ *       --slug matrix-eco-salon --stylists "Оюунсүрэн=Оюунаа,Бадамцэцэг=Бадмаа,Ананд,Уранчимэг,Батзаяа,Уянга,Отгонжаргал" \
  *       [--tester <your PSID>] --out /tmp/booking-matrix-eco-salon.sql
  *
  * `--stylists` is THIS branch's bookable stylists, by the website's Cyrillic key, each with an
@@ -89,6 +89,13 @@ const grouped = new Set(groups.flatMap((g) => g.services.map((s) => s.name)));
 const missing = durations.services.filter((s) => !grouped.has(s.name)).map((s) => s.name);
 if (missing.length > 0) die(`website services missing from the groups: ${missing.join(', ')}`);
 
+// --- children's services: names and who serves them from the rules (the tenant's price rows);
+// minutes from the rules or the website, never guessed ------------------------------------
+const childRaw = (rules['child_services'] ?? []) as { name: string; label?: string; gender: string; minutes?: number }[];
+const noMinutes = childRaw.filter((s) => s.minutes === undefined && !minutes.has(s.name)).map((s) => s.name);
+if (noMinutes.length > 0) die(`no duration for the children's services: ${noMinutes.join(', ')} (add "minutes" in --rules)`);
+const childServices = childRaw.map((s) => ({ name: s.name, gender: s.gender, minutes: s.minutes ?? minutes.get(s.name), ...(s.label === undefined ? {} : { label: s.label }) }));
+
 const config = {
   test_sender_ids: tester === undefined ? [] : [tester],
   hold_minutes: rules['hold_minutes'], slot_step_minutes: rules['slot_step_minutes'],
@@ -99,6 +106,7 @@ const config = {
   levels: [...levels.values()],
   stylists,
   service_groups: groups,
+  child_services: childServices,
   qpay: { merchant_id: merchantId, mcc_code: mccCode, bank_accounts: [{ bank_code: bankCode, account_number: accountNumber, account_name: accountName }] },
 };
 const parsed = parseBookingConfig(config);

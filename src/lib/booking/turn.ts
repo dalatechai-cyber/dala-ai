@@ -6,7 +6,8 @@
  * typed. A message that answers none of the buttons is asked again once, then the flow steps
  * aside and the ordinary Дали answers it: a customer who changed the subject is never trapped.
  *
- * The steps: service group → service → who it is for (the gender rule) → stylist or «any» of a
+ * The steps: who it is for (the gender rule; «Хүүхэд» leads to the children's services) → service
+ * group → service → stylist or «any» of a
  * level → WHEN (Дали asks the day and time; the customer types «маргааш 2 цагт» or taps a day)
  * → the free times nearest to what they asked, read from the real calendar → name → phone →
  * the summary with the deposit and Tara's terms, «Зөвшөөрч, захиалах» → hold, invoice,
@@ -23,7 +24,7 @@ import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
 import { eventIdForHold } from './calendar.ts';
 import {
-  allServices, bookingEnvMode, customerMode, depositFor, entryFires, stylistButton,
+  allServices, bookingEnvMode, customerMode, depositFor, entryFires, QUICK_REPLY_TITLE_MAX, stylistButton,
   type BookingConfig, type Gender, type Stylist,
 } from './config.ts';
 import {
@@ -168,7 +169,10 @@ function stylistOffers(ports: BookingPorts, config: BookingConfig, gender: Gende
   const offers: Offer[] = [];
   for (const level of config.levels) {
     const of = list.filter((s) => s.level === level.key);
-    if (of.length >= 2) offers.push({ t: say(ports.wording, 'booking_any_of_level', { level: level.label }), v: `any:${level.key}` });
+    // «Any stylist of this level», when its approved words fit a button; when they do not
+    // (Meta cuts a title at 20 characters), only the named stylists are offered.
+    const any = say(ports.wording, 'booking_any_of_level', { level: level.label });
+    if (of.length >= 2 && [...any].length <= QUICK_REPLY_TITLE_MAX) offers.push({ t: any, v: `any:${level.key}` });
     for (const s of of) offers.push({ t: stylistButton(s, level), v: `s:${s.calendarId}` });
   }
   return offers.slice(0, 12);
@@ -249,27 +253,45 @@ function unavailableReply(c: Ctx, data: Record<string, unknown>): Reply {
  * first message «Баасан» is as likely the customer's name.
  */
 function firstQuestion(c: Ctx): Reply {
-  const w = c.ports.wording;
   const local = tenantClock(c.now, c.facts.timezone);
   const want = parseWhen(c.input.respelled ?? c.input.text, { date: local.date, weekday: local.weekday }, { weekdays: false });
   const base: Record<string, unknown> = want === null ? {} : { want };
+  return c.config.genderRule ? whoQuestion(c, base) : serviceQuestion(c, base);
+}
+
+/** The children's services someone can serve under the gender rule. */
+function childServicesOffered(config: BookingConfig): BookingConfig['childServices'] {
+  return config.childServices.filter((s) => config.stylists.some((x) => x.gender === s.gender));
+}
+
+/**
+ * «Хэнд зориулж цаг авах вэ?», first, under the tenant's gender rule: a woman books a woman
+ * stylist, a man a man, and «Хүүхэд» leads to the children's services (each says who serves it).
+ * Only choices someone can serve are offered.
+ */
+function whoQuestion(c: Ctx, data: Record<string, unknown>): Reply {
+  const w = c.ports.wording;
+  const offers: Offer[] = [];
+  if (c.config.stylists.some((s) => s.gender === 'female')) offers.push({ t: say(w, 'booking_gender_female'), v: 'female' });
+  if (c.config.stylists.some((s) => s.gender === 'male')) offers.push({ t: say(w, 'booking_gender_male'), v: 'male' });
+  if (childServicesOffered(c.config).length > 0) offers.push({ t: say(w, 'booking_gender_child'), v: 'child' });
+  return ask('gender', say(w, 'booking_ask_gender'), offers, data);
+}
+
+function serviceQuestion(c: Ctx, data: Record<string, unknown>): Reply {
+  const w = c.ports.wording;
   const groups = c.config.serviceGroups;
   if (groups.length === 1) {
     const g = groups[0] as BookingConfig['serviceGroups'][number];
-    return ask('service', say(w, 'booking_ask_service'), g.services.map((s) => ({ t: s.label, v: s.name })), { ...base, group: 0 });
+    return ask('service', say(w, 'booking_ask_service'), g.services.map((s) => ({ t: s.label, v: s.name })), { ...data, group: 0 });
   }
-  return ask('group', say(w, 'booking_ask_service_group'), groups.map((g, i) => ({ t: g.label, v: String(i) })), base);
+  return ask('group', say(w, 'booking_ask_service_group'), groups.map((g, i) => ({ t: g.label, v: String(i) })), data);
 }
 
+/** The service is chosen (and, under the rule, who it is for): the stylists who may serve it. */
 function afterService(c: Ctx, data: Record<string, unknown>): Reply {
-  const w = c.ports.wording;
-  if (c.config.genderRule) {
-    const offers: Offer[] = [];
-    if (c.config.stylists.some((s) => s.gender === 'female')) offers.push({ t: say(w, 'booking_gender_female'), v: 'female' });
-    if (c.config.stylists.some((s) => s.gender === 'male')) offers.push({ t: say(w, 'booking_gender_male'), v: 'male' });
-    return ask('gender', say(w, 'booking_ask_gender'), offers, data);
-  }
-  return ask('stylist', say(w, 'booking_ask_stylist'), stylistOffers(c.ports, c.config, null), data);
+  const gender = (data['gender'] === 'male' || data['gender'] === 'female') ? data['gender'] as Gender : null;
+  return ask('stylist', say(c.ports.wording, 'booking_ask_stylist'), stylistOffers(c.ports, c.config, c.config.genderRule ? gender : null), data);
 }
 
 function noTimes(c: Ctx, data: Record<string, unknown>): Reply {
@@ -610,13 +632,19 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
       return ask('service', say(w, 'booking_ask_service'), g.services.map((s) => ({ t: s.label, v: s.name })), { ...data, group: Number(choice.v) });
     }
     case 'service': {
-      const s = allServices(c.config).find((x) => x.name === choice.v);
+      // A children's service says who serves it: a girl's a woman stylist, a boy's a man.
+      const child = data['child'] === true ? childServicesOffered(c.config).find((x) => x.name === choice.v) : undefined;
+      const s = child ?? (data['child'] === true ? undefined : allServices(c.config).find((x) => x.name === choice.v));
       if (s === undefined) return 'not_mine';
-      return afterService(c, { ...data, service: s.name, minutes: s.minutes });
+      return afterService(c, { ...data, service: s.name, minutes: s.minutes, ...(child === undefined ? {} : { gender: child.gender }) });
     }
     case 'gender': {
-      const gender = choice.v === 'male' ? 'male' : 'female';
-      return ask('stylist', say(w, 'booking_ask_stylist'), stylistOffers(c.ports, c.config, gender), { ...data, gender });
+      if (choice.v === 'child') {
+        const kids = childServicesOffered(c.config);
+        if (kids.length === 0) return 'not_mine';
+        return ask('service', say(w, 'booking_ask_service'), kids.map((s) => ({ t: s.label, v: s.name })), { ...data, child: true });
+      }
+      return serviceQuestion(c, { ...data, gender: choice.v === 'male' ? 'male' : 'female' });
     }
     case 'stylist':
       return afterStylist(c, { ...data, stylist: choice.v });

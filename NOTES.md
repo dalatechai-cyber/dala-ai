@@ -152,7 +152,28 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
 14. Yaarmag stylists proposed = dala-ai active staff (Оюунаа, Бадмаа, Батзаяа, Уянга, Отгонжаргал); website
     also has Уранчимэг + Ананд (male) -> founder question; men cannot book in chat with that list.
 
+31. (founder, 2026-10-03) Every booking line approved, seven rewritten (README). «Хэнд зориулж цаг авах
+    вэ?» is asked FIRST with Эмэгтэй / Эрэгтэй / Хүүхэд; «Хүүхэд» leads straight to the children's
+    services, and each children's service says who serves it (a girl's a woman, a boy's Ананд), so the
+    gender is never asked twice. Children's names are Tara's price rows; durations are missing
+    (from-website.ts refuses until given). Prices are never shown in the flow (the deposit is by level).
+32. «{level} — аль ч үсчин» does not fit a button for «1-р зэрэг» (23 > 20): that one «any» button is left
+    out, never cut; founder asked for a shorter button.
+33. (founder) Yaarmag's stylist list adds Ананд (the only man; men book only with him) and Уранчимэг
+    (woman, 1-р зэрэг), both from the website's own data. Booking stays off; the Tara round applies it.
+34. Deposits: the website's levels (Мастер 20,000₮, 1-р зэрэг 10,000₮) match Tara's live deposit rows;
+    SPECIAL 20,000₮ (D-169) is a live row, but no stylist anywhere is SPECIAL, so nothing books it; a
+    SPECIAL stylist on the website stops from-website.ts (unknown level) until the level is added.
+
 ## Findings
+- 2026-10-03, the «11 of 26 booking chats got no Дали answer» (live rows, read-only): 8 were before Tara's
+  channel went live (2026-09-21 01:59 UTC): Дали wrote a reply, kept as a draft by design. 2 (09-22,
+  09-24) were the canned_stale outage of 21–24 Sep: every reply refused, then dropped as older than 15
+  min (reply_too_late); fixed by D-163 (0074/0075 applied 09-30, page + hand-off line). 1 (09-27) a staff
+  member had taken the chat 2 min earlier (handover cooldown, correct). The 4 extra asks found later add
+  2 more pre-live drafts and 1 more staff hold. Every booking ask since 09-24 that no person held got a
+  reply within seconds. Residual gap: a reply dropped as too late for any OTHER reason still leaves the
+  customer silent (only canned_stale sends the hand-off line).
 - dala-ai already has a Quick QR client (`src/lib/billing/qpay.ts`) for DalaTech's own merchant
   (Core Language's). Tara's deposits must go to Tara's merchant (website's), not this one.
 - dali.md C1 «Дали never books/confirms» and E2 «no availability»: hold for the MODEL. The booking

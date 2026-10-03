@@ -19,6 +19,12 @@
     { "mode": "stem_sequence", "stems": ["tsag", "bn"], "windowCp": 14 },
     { "mode": "stem_sequence", "stems": ["tsag", "bg"], "windowCp": 14 }
   ],
+  "_child_services": "«Хүүхэд» on the who-is-it-for question (founder, 2026-10-03). Names and who serves each are Tara's own price rows (scripts/provision/tara-price-list-2026-10-01.sql, «Хүүхдийн тайралт»: охин; эрэгтэй, 0–13 нас; эрэгтэй, 14–18 нас): a girl's haircut a woman stylist, a boy's Ананд. The labels are DRAFT. No minutes: neither the website nor Tara's rows give a duration, so from-website.ts refuses until the founder gives them (add \"minutes\" here).",
+  "child_services": [
+    { "name": "Хүүхдийн тайралт (охин)", "label": "Охин", "gender": "female" },
+    { "name": "Хүүхдийн тайралт (эрэгтэй, 0–13 нас)", "label": "Эрэгтэй 0–13 нас", "gender": "male" },
+    { "name": "Хүүхдийн тайралт (эрэгтэй, 14–18 нас)", "label": "Эрэгтэй 14–18 нас", "gender": "male" }
+  ],
   "service_groups": [
     { "label": "Засалт", "services": [
       { "name": "Энгийн засалт" }, { "name": "Хэлбэрт" }, { "name": "Чолк тайралт" }, { "name": "Гоёл / Засалт" },

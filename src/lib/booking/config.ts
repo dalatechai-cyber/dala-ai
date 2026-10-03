@@ -31,6 +31,12 @@ export type Stylist = { name: string; label: string; level: string; gender: Gend
 /** `name` goes into the calendar and the messages; `label` (≤ 20 characters) is the button. */
 export type Service = { name: string; label: string; minutes: number };
 export type ServiceGroup = { label: string; services: Service[] };
+/**
+ * A children's service from the tenant's own price list. `gender` says who serves it under the
+ * gender rule: a girl's haircut a woman stylist, a boy's a man (the tenant's own rule, read
+ * from the service itself, never asked a second time).
+ */
+export type ChildService = Service & { gender: Gender };
 export type QpayMerchant = {
   merchantId: string;
   mccCode: string;
@@ -53,6 +59,8 @@ export type BookingConfig = {
   levels: Level[];
   stylists: Stylist[];
   serviceGroups: ServiceGroup[];
+  /** «Хүүхэд» on the who-is-it-for question, with these services. Empty: no such button. */
+  childServices: ChildService[];
   qpay: QpayMerchant;
   /** The deposit in test mode. The tenant's website uses 100₮. */
   testDepositMnt: number;
@@ -180,6 +188,26 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
     serviceGroups.push({ label, services: list });
   }
 
+  const childRaw = raw['child_services'] === undefined ? [] : raw['child_services'];
+  if (!Array.isArray(childRaw)) return fail('child_services, when given, must be a list');
+  if (childRaw.length > QUICK_REPLIES_MAX - 1) return fail(`at most ${QUICK_REPLIES_MAX - 1} child_services`);
+  if (childRaw.length > 0 && !genderRule) return fail('child_services need gender_rule: who serves a child follows the tenant\'s gender rule');
+  const childServices: ChildService[] = [];
+  for (const [j, s] of childRaw.entries()) {
+    if (!isObj(s)) return fail(`child_services[${j}] is not an object`);
+    const name = str(s['name']);
+    const label = s['label'] === undefined ? name : str(s['label']);
+    const minutes = int(s['minutes'], 5, 720);
+    const gender = s['gender'];
+    if (name === null || label === null || minutes === null) return fail(`child_services[${j}] needs name and minutes (5–720)`);
+    if (gender !== 'female' && gender !== 'male') return fail(`child_services[${j}].gender must be female or male (who serves it; never guessed)`);
+    if (cp(label) > QUICK_REPLY_TITLE_MAX) return fail(`service ${name}: its button is longer than ${QUICK_REPLY_TITLE_MAX} characters; give it a label`);
+    if (seen.has(name) || seen.has(`label:${label}`)) return fail(`service ${name} (or its label) is listed twice`);
+    seen.add(name);
+    seen.add(`label:${label}`);
+    childServices.push({ name, label, minutes, gender });
+  }
+
   const q = raw['qpay'];
   if (!isObj(q)) return fail('qpay is required: the tenant\'s own merchant');
   const merchantId = str(q['merchant_id']);
@@ -221,6 +249,7 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
       levels,
       stylists,
       serviceGroups,
+      childServices,
       qpay: { merchantId, mccCode, bankAccounts },
       testDepositMnt: testDepositMnt as number,
       branchLabel,
@@ -238,9 +267,9 @@ export function stylistButton(s: Stylist, level: Level): string {
   return cp(both) <= QUICK_REPLY_TITLE_MAX ? both : s.label;
 }
 
-/** Every service, flattened, in the order the tenant listed them. */
+/** Every service, flattened, in the order the tenant listed them; the children's last. */
 export function allServices(c: BookingConfig): Service[] {
-  return c.serviceGroups.flatMap((g) => g.services);
+  return [...c.serviceGroups.flatMap((g) => g.services), ...c.childServices];
 }
 
 /**

@@ -9,7 +9,7 @@ _The short version of the first report and the follow-ups (2026-10-03). The full
 - **33 booking asks** (29 found by a keyword count, 4 more by the proposed entry phrases); 1 false hit (a vendor pitch).
 - **About half ask whether a time is free today or tomorrow**: «Onoodriin tsag bgaa yu», «Маргаашын цаг бнауу», «10 сарын 3 нд цаг байна уу». Others name a stylist or level («Oyunaa masteraar unuudur buduulah tsag bnuu») or a time («ogloo 9.30 … tsag bnu»).
 - **13 of 29 are in Latin script.**
-- What they got: 10 of 26 conversations got the website link first, 11 got no bot answer, the rest hours or phone numbers. Nothing could say whether a time is free.
+- What they got: 10 of 26 conversations got the website link first, 11 got no bot answer (8 before Tara's channel went live on 21 Sep, Дали's reply kept as a draft; 2 in the 21–24 Sep outage, since fixed; 1 a staff member had taken the chat), the rest hours or phone numbers. Nothing could say whether a time is free.
 
 ## The design
 
@@ -24,7 +24,7 @@ Draft PR https://github.com/dalatechai-cyber/dala-ai/pull/280, off for every ten
 - Several services in one booking; moving or cancelling a booking in chat; Instagram and the website chat.
 - The website's own hold while its QR is open (`matrix-website-booking-holds.md`, in the Tara website round before switch-on).
 - Signing the drafts below; your 100₮ test (steps in the design doc).
-- Men cannot book in chat until Уранчимэг and Ананд are in the stylist list (your call).
+- Ананд (the only man; men book only with him) and Уранчимэг are in the Yaarmag stylist list (founder, 2026-10-03). Still missing for the Tara round: children's durations, SPECIAL stylists (none named), and the service list (it is still the website's old one: Оффис колор, Омбре, CMC are no longer offered, D-168).
 
 ## Every draft line
 

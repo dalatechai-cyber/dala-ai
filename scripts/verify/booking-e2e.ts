@@ -226,15 +226,18 @@ const invoicesOf = (id: string) => psql(`select qpay_invoice_id from booking_inv
 const tomorrow = () => tenantClock(new Date(Date.now() + 24 * 3600_000), TZ).date;
 const ubAt = (date: string, hh: number) => new Date(localDayStart(date, TZ).getTime() + hh * 3600_000);
 const T_MAR = say(wording, 'booking_day_tomorrow');
+const FEMALE = say(wording, 'booking_gender_female');
+const MALE = say(wording, 'booking_gender_male');
+const CHILD = say(wording, 'booking_gender_child');
 const AGREE = say(wording, 'booking_agree');
 const CANCEL = say(wording, 'booking_cancel');
 
 /** Walk a chat to the agreement for one stylist and time tomorrow. */
 async function toAgreement(chat: Chat, opts: { service?: string; group?: string; stylist: string; time: string; name?: string; phone?: string; gender?: string; day?: string }) {
   await says(chat, 'Цаг авъя');
+  await taps(chat, opts.gender ?? say(wording, 'booking_gender_female'));
   await taps(chat, opts.group ?? 'Будаг');
   await taps(chat, opts.service ?? 'Будаг');
-  await taps(chat, opts.gender ?? say(wording, 'booking_gender_female'));
   await taps(chat, opts.stylist);
   await taps(chat, opts.day ?? T_MAR);
   await taps(chat, opts.time);
@@ -247,14 +250,14 @@ section('1. Choose → pay → confirmed once');
 // =====================================================================================
 const a = newChat();
 await says(a, 'Цаг авъя');
-check(a.last?.handled === true && a.lastBody === say(wording, 'booking_ask_service_group'), 'a booking message starts the flow with the service groups');
-check(JSON.stringify(titles(a)) === JSON.stringify(['Засалт', 'Будаг', CANCEL]), 'groups are buttons, with «Цуцлах»');
+check(a.last?.handled === true && a.lastBody === say(wording, 'booking_ask_gender'), 'a booking message starts the flow with who it is for');
+check(JSON.stringify(titles(a)) === JSON.stringify([FEMALE, MALE, CHILD, CANCEL]), 'Эмэгтэй / Эрэгтэй / Хүүхэд, with «Цуцлах»');
+await taps(a, FEMALE);
+check(a.lastBody === say(wording, 'booking_ask_service_group') && JSON.stringify(titles(a)) === JSON.stringify(['Засалт', 'Будаг', CANCEL]), 'then the service groups');
 await taps(a, 'Будаг');
 check(JSON.stringify(titles(a)) === JSON.stringify(['Будаг', 'Оффис колор', CANCEL]), 'the group\'s services');
 await taps(a, 'Будаг');
-check(a.lastBody === say(wording, 'booking_ask_gender') && titles(a).length === 3, 'who it is for (the gender rule): two choices and cancel');
-await taps(a, say(wording, 'booking_gender_female'));
-check(JSON.stringify(titles(a)) === JSON.stringify(['Мастер (аль нь ч)', 'Оюунаа · Мастер', 'Бадмаа · Мастер', 'Уянга · 1-р зэрэг', CANCEL]),
+check(JSON.stringify(titles(a)) === JSON.stringify([say(wording, 'booking_any_of_level', { level: 'Мастер' }), 'Оюунаа · Мастер', 'Бадмаа · Мастер', 'Уянга · 1-р зэрэг', CANCEL]),
   'a woman is offered only the women stylists, «any Мастер» first, the man not at all');
 await taps(a, 'Оюунаа · Мастер');
 check(a.lastBody === say(wording, 'booking_ask_when', { service: 'Будаг' }) && titles(a).includes(T_MAR),
@@ -501,7 +504,7 @@ section('8. «Any Мастер»: the first free one is assigned');
 // =====================================================================================
 const any = newChat();
 google.websiteBooks(TEST_CALENDARS.master1, ubAt(tomorrow(), 19), 60);
-await toAgreement(any, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Мастер (аль нь ч)', time: '19:00', name: 'Ням', phone: '93000001' });
+await toAgreement(any, { group: 'Засалт', service: 'Энгийн засалт', stylist: say(wording, 'booking_any_of_level', { level: 'Мастер' }), time: '19:00', name: 'Ням', phone: '93000001' });
 await taps(any, AGREE);
 const holdAny = holdOf(any);
 check(psql(`select calendar_id from booking_holds where id = '${holdAny}'`) === TEST_CALENDARS.master2, 'Оюунаа is busy at 19:00, so Бадмаа takes it');
@@ -537,6 +540,7 @@ check(qpayFake.invoices.get(invoicesOf(holdX)[0] as string)?.status === 'CANCELL
   'its invoice cancelled and its calendar hold removed');
 const y = newChat();
 await says(y, 'цаг авах');
+await taps(y, FEMALE);
 await taps(y, 'Будаг');
 await says(y, 'Хаяг хаана вэ?');
 check(y.lastBody === say(wording, 'booking_pick_from_list'), 'something else: asked once to choose');
@@ -607,9 +611,9 @@ check(!(await says(k1, 'Баярлалаа')).handled && pushedTo(k1, beforeK1).
 // (b) A question at the name step is asked once, then let go; «Цуцлах» typed cancels.
 const k2 = newChat();
 await says(k2, 'Цаг авъя');
+await taps(k2, FEMALE);
 await taps(k2, 'Засалт');
 await taps(k2, 'Энгийн засалт');
-await taps(k2, say(wording, 'booking_gender_female'));
 await taps(k2, 'Уянга · 1-р зэрэг');
 await taps(k2, T_MAR);
 await taps(k2, '12:00');
@@ -620,9 +624,9 @@ const k2r = await says(k2, 'Урьдчилгаа хэд вэ? хариулаач
 check(!k2r.handled, 'asked again: the flow steps aside and Дали answers');
 const k4 = newChat();
 await says(k4, 'Цаг авъя');
+await taps(k4, FEMALE);
 await taps(k4, 'Засалт');
 await taps(k4, 'Энгийн засалт');
-await taps(k4, say(wording, 'booking_gender_female'));
 await taps(k4, 'Уянга · 1-р зэрэг');
 await taps(k4, T_MAR);
 await taps(k4, '12:00');
@@ -632,9 +636,9 @@ check(k4.lastBody === say(wording, 'booking_phone_invalid'), 'a wrong phone is a
 check(!(await says(k4, 'яагаад утас хэрэгтэй вэ')).handled, 'and then let go, never asked for ever');
 const k5 = newChat();
 await says(k5, 'Цаг авъя');
+await taps(k5, FEMALE);
 await taps(k5, 'Засалт');
 await taps(k5, 'Энгийн засалт');
-await taps(k5, say(wording, 'booking_gender_female'));
 await taps(k5, 'Уянга · 1-р зэрэг');
 await taps(k5, T_MAR);
 await taps(k5, '12:00');
@@ -768,8 +772,6 @@ const day3 = tenantClock(new Date(Date.now() + 72 * 3600_000), TZ).date;
 const day4 = tenantClock(new Date(Date.now() + 96 * 3600_000), TZ).date;
 const D3 = dayLabel(wording, day3, new Date(), TZ);
 const typedDay3 = `${Number(day3.slice(5, 7))} сарын ${Number(day3.slice(8, 10))}-нд`;
-const FEMALE = say(wording, 'booking_gender_female');
-
 /**
  * What Tara's website offers a customer for one stylist and day: its own `/available-slots`
  * (matrix_website routes/calendar.js, read 2026-10-02): one free/busy call over the working
@@ -798,9 +800,9 @@ async function websiteOffers(calendarId: string, date: string, minutes: number):
 /** To the «when» question for one 1-hour service and stylist. */
 async function toWhen(chat: Chat, stylist: string, first = 'Цаг авъя') {
   await says(chat, first);
+  await taps(chat, FEMALE);
   await taps(chat, 'Засалт');
   await taps(chat, 'Энгийн засалт');
-  await taps(chat, FEMALE);
   await taps(chat, stylist);
 }
 
@@ -1193,7 +1195,7 @@ check(releasedMsg.length === 1 && (releasedMsg[0]?.body ?? '').startsWith('Уу�
 await runSweep(ports);
 check(pushedTo(t1, beforeT1).length === 1, 'never twice');
 await says(t1, say(wording, 'booking_choose_again'), releasedMsg[0]?.quickReplies[0]?.payload);
-check(t1.lastBody === say(wording, 'booking_ask_service_group'), 'tapping «Цаг сонгох» starts a new booking');
+check(t1.lastBody === say(wording, 'booking_ask_gender'), 'tapping «Цаг сонгох» starts a new booking');
 await says(t2, '12:00');
 check(t2.lastBody === say(wording, 'booking_time_free', { date: D6, time: '12:00' }) && titles(t2).includes('12:00'),
   'and the other customer, asking again, is told 12:00 is free now');
@@ -1255,11 +1257,11 @@ const holdT5a = holdOf(t5);
 const invT5a = invoicesOf(holdT5a)[0] as string;
 check(holdState(holdT5a) === 'held', 'set-up: the customer holds 10:00');
 await says(t5, 'Өөр цаг авъя');
-check(t5.lastBody === say(wording, 'booking_ask_service_group') && holdState(holdT5a) === 'held',
+check(t5.lastBody === say(wording, 'booking_ask_gender') && holdState(holdT5a) === 'held',
   'they start a new booking while the QR is out: a new chat begins; the old time stays held until a new QR is made');
+await taps(t5, FEMALE);
 await taps(t5, 'Засалт');
 await taps(t5, 'Энгийн засалт');
-await taps(t5, FEMALE);
 await taps(t5, 'Оюунаа · Мастер');
 await says(t5, `${typedDay6} 11 цагт`);
 await taps(t5, '11:00');
@@ -1361,7 +1363,7 @@ await says(rv5, `${typedDay6} 17 цагт`);
 await taps(rv5, '17:00');
 check(rv5.lastBody === say(wording, 'booking_ask_name'), 'set-up: at the name step');
 await says(rv5, say(wording, 'booking_choose_again'), 'bk:start');
-check(rv5.lastBody === say(wording, 'booking_ask_service_group')
+check(rv5.lastBody === say(wording, 'booking_ask_gender')
   && psql(`select count(*) from booking_sessions where conversation_id = '${rv5.conversationId}' and data->>'name' = '${say(wording, 'booking_choose_again')}'`) === '0',
   '«Цаг сонгох» at the name step starts again; it is never stored as a name');
 
@@ -1431,6 +1433,34 @@ check(psql(`select count(*) from booking_sessions where conversation_id = '${rv1
   'and no offer is left open behind that page: a later tap cannot book a deposit you may have refunded');
 
 // =====================================================================================
+section('19. Who it is for: a man books only the man stylist; «Хүүхэд» leads to the children\'s services');
+const man = newChat();
+await says(man, 'Цаг авъя');
+await taps(man, MALE);
+await taps(man, 'Засалт');
+await taps(man, 'Энгийн засалт');
+check(JSON.stringify(titles(man)) === JSON.stringify(['Ананд · Мастер', CANCEL]), 'a man is offered only Ананд, the one man stylist');
+const girl = newChat();
+await says(girl, 'Цаг авъя');
+await taps(girl, CHILD);
+check(girl.lastBody === say(wording, 'booking_ask_service') && JSON.stringify(titles(girl)) === JSON.stringify(['Охин', 'Хүү', CANCEL]),
+  '«Хүүхэд»: the children\'s services, straight away (no service groups)');
+await taps(girl, 'Охин');
+check(JSON.stringify(titles(girl)) === JSON.stringify([say(wording, 'booking_any_of_level', { level: 'Мастер' }), 'Оюунаа · Мастер', 'Бадмаа · Мастер', 'Уянга · 1-р зэрэг', CANCEL]),
+  'a girl\'s haircut: the women stylists only');
+const boy = newChat();
+await says(boy, 'Цаг авъя');
+await taps(boy, CHILD);
+await taps(boy, 'Хүү');
+check(JSON.stringify(titles(boy)) === JSON.stringify(['Ананд · Мастер', CANCEL]), 'a boy\'s haircut: Ананд only');
+await taps(boy, 'Ананд · Мастер');
+check(boy.lastBody === say(wording, 'booking_ask_when', { service: 'Хүүхдийн тайралт (хүү)' }), 'and on to when, with the children\'s service by its own name');
+const adultAfterChild = newChat();
+await says(adultAfterChild, 'Цаг авъя');
+await taps(adultAfterChild, CHILD);
+await says(adultAfterChild, 'Энгийн засалт');
+check(adultAfterChild.lastBody === say(wording, 'booking_pick_from_list'), 'an adult service typed on the children\'s list is not taken');
+
 section('13. Every customer message got at most one reply; nothing was confirmed unpaid');
 // =====================================================================================
 check(psql(`select count(*) from (select dedup_key from outbound_messages where tenant_id = '${T}' group by dedup_key having count(*) > 1) d`) === '0', 'no reply key twice');

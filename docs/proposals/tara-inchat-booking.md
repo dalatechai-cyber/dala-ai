@@ -204,7 +204,7 @@ Nothing below has been done. Each step is yours: wording, credentials, a migrati
    `QSTASH_TOKEN`); it releases unpaid holds and books late payments. With `BOOKING_MODE` unset it
    answers "disabled".
 5. **The row.** Run `node scripts/booking/from-website.ts --website <matrix_website checkout>
-   --rules config/booking/tara-salon.json --slug matrix-eco-salon --stylists "Оюунсүрэн=Оюунаа,Бадамцэцэг=Бадмаа,Батзаяа,Уянга,Отгонжаргал"
+   --rules config/booking/tara-salon.json --slug matrix-eco-salon --stylists "Оюунсүрэн=Оюунаа,Бадамцэцэг=Бадмаа,Ананд,Уранчимэг,Батзаяа,Уянга,Отгонжаргал"
    --tester <your PSID on Tara's Page> --out booking.sql`. Read the summary and run `booking.sql`
    in the Supabase SQL editor. It writes mode `off`. Then run:
    `update booking_config set mode = 'test' where tenant_id = (select id from tenants where slug = 'matrix-eco-salon');`

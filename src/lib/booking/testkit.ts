@@ -333,6 +333,10 @@ export function testConfig(overrides: Record<string, unknown> = {}): Record<stri
       { label: 'Засалт', services: [{ name: 'Энгийн засалт', minutes: 60 }, { name: 'Гоёлын засалт, хуримын засалт', label: 'Гоёл / Засалт', minutes: 90 }] },
       { label: 'Будаг', services: [{ name: 'Будаг', minutes: 120 }, { name: 'Оффис колор', minutes: 240 }] },
     ],
+    child_services: [
+      { name: 'Хүүхдийн тайралт (охин)', label: 'Охин', gender: 'female', minutes: 60 },
+      { name: 'Хүүхдийн тайралт (хүү)', label: 'Хүү', gender: 'male', minutes: 60 },
+    ],
     qpay: {
       merchant_id: '00000000-0000-4000-8000-00000000c0de',
       mcc_code: '7230',
