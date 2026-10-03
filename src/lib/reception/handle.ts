@@ -424,8 +424,18 @@ const MIN_WORD_CP = 4;
  * for every tenant; used only to decide whether a bare set question is owed its rows.
  */
 const ASKS_PRICE: readonly string[] = [
-  'үнэ', 'үнийн', 'үнэтэй', 'үнэ нь', 'хэд', 'хэдэн', 'хэдээр', 'хэдвэ', 'хэдбэ',
-  'une', 'vne', 'uniin', 'vniin', 'unetei', 'vnetei', 'hed', 'heden', 'hedeer', 'hedve', 'hedbe', 'hedv', 'hd',
+  'үнэ', 'үнээ', 'үнийг', 'үнийн', 'үнэтэй', 'үнэ нь', 'хэд', 'хэдэн', 'хэдээр', 'хэдвэ', 'хэдбэ',
+  'une', 'vne', 'une ni', 'vne ni', 'uniin', 'vniin', 'unetei', 'vnetei',
+  'hed', 'heden', 'hedeer', 'hedve', 'hedbe', 'hedv', 'hedwe', 'hedw', 'hd', 'hdve', 'hdv', 'hdwe',
+];
+
+/**
+ * «хэд» also asks WHEN or HOW MANY DAYS («Хэдэн цагт ирэх вэ», «heden tsagt neeh ve», «Хэд
+ * хоногийн дараа ирье»). A message carrying one of these words is not read as a price ask.
+ */
+const NOT_A_PRICE_ASK: readonly string[] = [
+  'цаг', 'цагт', 'цагаас', 'цагийн', 'хоног', 'хоногийн', 'хоногт',
+  'tsag', 'tsagt', 'tsagaas', 'tsagiin', 'honog', 'honogiin', 'honogt',
 ];
 
 /** A service name's last word — its kind, in a head-final language: «Усан хими» is a хими. */
@@ -1596,13 +1606,16 @@ async function receive(
     // named), not when every row is already in the conversation (the question is then a fair
     // follow-up), and never on a turn where a refusal rule blocks prices.
     if (presentation.quoted.length === 0 && !matched.refusedTopicBlocksPrice && matched.grounded === null
-        && hasWord(input.customerMessage, ASKS_PRICE)) {
+        && hasWord(input.customerMessage, ASKS_PRICE) && !hasWord(input.customerMessage, NOT_A_PRICE_ASK)) {
       const reply = fold(capped.text);
       const asked = setRows(input.deterministic).find((r) => r.body.trim() !== '' && reply.includes(fold(r.body.trim())));
       const setBody = asked === undefined ? null : composeQuoted(asked, input.serviceNames);
       const said = input.history.filter((h) => h.role === 'assistant').map((h) => fold(h.content));
       const rows = asked === undefined ? []
         : asked.quoteServices.flatMap((n) => input.serviceNames.find((s) => s.name === n)?.rows ?? []);
+      // Rows are looked for as the price list writes them. That holds while the tenant's
+      // `reply_style` sets no price header or line template (Tara: none, read 2026-10-03); a
+      // tenant that restyles its rows would see them served again after a restyled showing.
       const shown = rows.length > 0 && rows.every((row) => said.some((t) => t.includes(fold(row))));
       if (asked !== undefined && setBody !== null && !shown) {
         await deps.flag({ code: 'set_question_unpriced', detail: `${asked.intent}'s question with no price; served the row`, attempted: capped.text });

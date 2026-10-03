@@ -678,3 +678,16 @@ test('an adaptation inside a reply UNDER the certain share is still unsure and g
   await handleReception(t.deps, { ...base, customerMessage: 'энэ юу вэ' });
   assert.equal(t.drafts[0]?.body, CANNED[0]?.body, 'the handoff line, not the price refusal');
 });
+
+test('price asks typed with w for в, and «үнийг», are price asks; «хэд» about a time or days is not', async () => {
+  for (const message of ['budalt hedwe', 'budah hdv', 'budalt une ni', 'будалтын үнийг хэлээч']) {
+    const t = run(QUESTION);
+    await handleReception(t.deps, { ...base, customerMessage: message });
+    assert.ok(t.flags.includes('set_question_unpriced'), message);
+  }
+  for (const message of ['Хэдэн цагт будуулж болох вэ', 'heden tsagt budah ve', 'Хэд хоногийн дараа будуулъя']) {
+    const t = run(QUESTION);
+    await handleReception(t.deps, { ...base, customerMessage: message });
+    assert.equal(t.flags.includes('set_question_unpriced'), false, message);
+  }
+});

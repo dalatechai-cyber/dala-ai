@@ -39,7 +39,7 @@ no model spend.
 - [x] Two code fixes + 8 unit tests in `compose.test.ts` (each mutation-checked: fails without its condition)
 - [x] Provision draft + revert, drafts file, dali.md v1.5 (A4, D12)
 - [x] Draft PR #283; independent review (Opus reviewer session): 2 medium + 2 low findings, all fixed
-- [x] `npm run check` after the review fixes: guards 10/10, typecheck clean, 2641 tests (2640 pass, 1 pre-existing skip: ancestor repo not checked out)
+- [x] `npm run check` after the review fixes: guards 10/10, typecheck clean, 2642 tests (2641 pass, 1 pre-existing skip: ancestor repo not checked out); re-review lows fixed (more Latin price spellings, «хэд» about a time or days excluded, dedup limit noted)
 - [ ] CI on the PR head (see PR #283)
 
 ## Open items for the founder
