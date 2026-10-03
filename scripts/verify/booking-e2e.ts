@@ -1455,6 +1455,8 @@ await taps(boy, 'Хүү');
 check(JSON.stringify(titles(boy)) === JSON.stringify(['Ананд · Мастер', CANCEL]), 'a boy\'s haircut: Ананд only');
 await taps(boy, 'Ананд · Мастер');
 check(boy.lastBody === say(wording, 'booking_ask_when', { service: 'Хүүхдийн тайралт (хүү)' }), 'and on to when, with the children\'s service by its own name');
+check(psql(`select data->>'gender' || '/' || (data->>'minutes') from booking_sessions where conversation_id = '${boy.conversationId}' and closed_at is null`) === 'male/60',
+  'the boy\'s haircut is recorded as served by a man, with its own minutes (what the hold will carry)');
 const adultAfterChild = newChat();
 await says(adultAfterChild, 'Цаг авъя');
 await taps(adultAfterChild, CHILD);

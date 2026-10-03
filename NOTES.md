@@ -157,6 +157,11 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
     services, and each children's service says who serves it (a girl's a woman, a boy's Ананд), so the
     gender is never asked twice. Children's names are Tara's price rows; durations are missing
     (from-website.ts refuses until given). Prices are never shown in the flow (the deposit is by level).
+31b. Review of 31 (2026-10-03): under the rule a stylist is never offered before «who for» is known (an old
+    session at step service is asked it); the adult list never resolves a children's service; branches
+    compare who serves each children's service; from-website.ts no longer counts a children's service on
+    the website as ungrouped. For the founder: a child's deposit follows the stylist's level like any
+    booking (Мастер 20,000₮ on a 33,000₮ haircut), money, so the founder's call.
 32. «{level} — аль ч үсчин» does not fit a button for «1-р зэрэг» (23 > 20): that one «any» button is left
     out, never cut; founder asked for a shorter button.
 33. (founder) Yaarmag's stylist list adds Ананд (the only man; men book only with him) and Уранчимэг

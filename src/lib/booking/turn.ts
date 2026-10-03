@@ -24,7 +24,7 @@ import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
 import { eventIdForHold } from './calendar.ts';
 import {
-  allServices, bookingEnvMode, customerMode, depositFor, entryFires, QUICK_REPLY_TITLE_MAX, stylistButton,
+  bookingEnvMode, customerMode, depositFor, entryFires, QUICK_REPLY_TITLE_MAX, stylistButton,
   type BookingConfig, type Gender, type Stylist,
 } from './config.ts';
 import {
@@ -164,7 +164,7 @@ function candidates(config: BookingConfig, data: Record<string, unknown>): Styli
   return [];
 }
 
-function stylistOffers(ports: BookingPorts, config: BookingConfig, gender: Gender | null): Offer[] {
+export function stylistOffers(ports: Pick<BookingPorts, 'wording'>, config: BookingConfig, gender: Gender | null): Offer[] {
   const list = stylistsFor(config, gender);
   const offers: Offer[] = [];
   for (const level of config.levels) {
@@ -291,6 +291,9 @@ function serviceQuestion(c: Ctx, data: Record<string, unknown>): Reply {
 /** The service is chosen (and, under the rule, who it is for): the stylists who may serve it. */
 function afterService(c: Ctx, data: Record<string, unknown>): Reply {
   const gender = (data['gender'] === 'male' || data['gender'] === 'female') ? data['gender'] as Gender : null;
+  // Under the rule a stylist is never offered before it is known who the booking is for (a
+  // session from before the question moved first): ask it now.
+  if (c.config.genderRule && gender === null) return whoQuestion(c, data);
   return ask('stylist', say(c.ports.wording, 'booking_ask_stylist'), stylistOffers(c.ports, c.config, c.config.genderRule ? gender : null), data);
 }
 
@@ -634,7 +637,7 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
     case 'service': {
       // A children's service says who serves it: a girl's a woman stylist, a boy's a man.
       const child = data['child'] === true ? childServicesOffered(c.config).find((x) => x.name === choice.v) : undefined;
-      const s = child ?? (data['child'] === true ? undefined : allServices(c.config).find((x) => x.name === choice.v));
+      const s = child ?? (data['child'] === true ? undefined : c.config.serviceGroups.flatMap((g) => g.services).find((x) => x.name === choice.v));
       if (s === undefined) return 'not_mine';
       return afterService(c, { ...data, service: s.name, minutes: s.minutes, ...(child === undefined ? {} : { gender: child.gender }) });
     }

@@ -232,6 +232,18 @@ test('every button a customer taps fits Meta\'s 20 characters', () => {
   }
 });
 
+test('«any stylist of a level» is offered only when its approved words fit a button, never cut', async () => {
+  const { stylistOffers } = await import('./turn.ts');
+  const base = testConfig();
+  const two = parseBookingConfig(testConfig({ stylists: [...(base['stylists'] as unknown[]),
+    { name: 'Батзаяа', label: 'Батзаяа', level: 'first', gender: 'female', calendar_id: 'c-first-2' }] }));
+  assert.ok(two.ok);
+  const offers = stylistOffers({ wording: draftWording() } as never, two.config, 'female');
+  assert.ok(offers.some((o) => o.v === 'any:master'), '«Мастер — аль ч үсчин» fits (20)');
+  assert.ok(!offers.some((o) => o.v === 'any:first'), '«1-р зэрэг — аль ч үсчин» (23) is left out');
+  assert.ok(offers.some((o) => o.t === 'Батзаяа · 1-р зэрэг') && offers.every((o) => [...o.t].length <= QUICK_REPLY_TITLE_MAX));
+});
+
 test('day labels: today, tomorrow, then «10 сарын 5, Даваа»', () => {
   const w = draftWording();
   const now = ub('2026-10-03', 9);
@@ -395,4 +407,9 @@ test('branches: same services, deposits, agreement and merchant; never one calen
   const f = compareBranches([{ slug: 'a', config: base.config }, { slug: 'b', config: cheaper.config }]);
   assert.ok(f.some((x) => x.kind === 'drift' && /deposits/u.test(x.detail)));
   assert.ok(f.some((x) => x.kind === 'shared_calendar'));
+  // Who serves a children's service is part of the one rule set.
+  const swapped = parseBookingConfig(testConfig({ stylists: [{ name: 'Парк', level: 'master', gender: 'female', calendar_id: 'park@group.calendar.google.com' }],
+    child_services: [{ name: 'Хүүхдийн тайралт (охин)', label: 'Охин', gender: 'male', minutes: 60 }, { name: 'Хүүхдийн тайралт (хүү)', label: 'Хүү', gender: 'male', minutes: 60 }] }));
+  assert.ok(swapped.ok);
+  assert.ok(compareBranches([{ slug: 'a', config: base.config }, { slug: 'b', config: swapped.config }]).some((x) => /children/u.test(x.detail)));
 });

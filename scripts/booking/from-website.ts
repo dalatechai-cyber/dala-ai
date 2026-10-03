@@ -85,7 +85,8 @@ const groups = (rules['service_groups'] as { label: string; services: { name: st
     return { name: s.name, minutes: m, ...(s.label === undefined ? {} : { label: s.label }) };
   }),
 }));
-const grouped = new Set(groups.flatMap((g) => g.services.map((s) => s.name)));
+const childNames = new Set(((rules['child_services'] ?? []) as { name: string }[]).map((s) => s.name));
+const grouped = new Set([...groups.flatMap((g) => g.services.map((s) => s.name)), ...childNames]);
 const missing = durations.services.filter((s) => !grouped.has(s.name)).map((s) => s.name);
 if (missing.length > 0) die(`website services missing from the groups: ${missing.join(', ')}`);
 

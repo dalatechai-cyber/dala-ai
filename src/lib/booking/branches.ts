@@ -16,6 +16,7 @@ export function compareBranches(branches: readonly { slug: string; config: Booki
   const services = (c: BookingConfig) => JSON.stringify(allServices(c).map((s) => [s.name, s.minutes]));
   const levels = (c: BookingConfig) => JSON.stringify(c.levels.map((l) => [l.key, l.label, l.depositMnt]));
   const merchant = (c: BookingConfig) => JSON.stringify(c.qpay);
+  const childRule = (c: BookingConfig) => JSON.stringify(c.childServices.map((s) => [s.name, s.gender]));
   for (const b of rest) {
     const pair = `${first.slug} / ${b.slug}`;
     if (services(first.config) !== services(b.config)) out.push({ kind: 'drift', detail: `${pair}: services or their minutes differ` });
@@ -24,6 +25,7 @@ export function compareBranches(branches: readonly { slug: string; config: Booki
     if (merchant(first.config) !== merchant(b.config)) out.push({ kind: 'drift', detail: `${pair}: the QPay merchant differs` });
     if (JSON.stringify(first.config.entryMatchers) !== JSON.stringify(b.config.entryMatchers)) out.push({ kind: 'drift', detail: `${pair}: entry matchers differ` });
     if (first.config.genderRule !== b.config.genderRule) out.push({ kind: 'drift', detail: `${pair}: the gender rule differs` });
+    if (childRule(first.config) !== childRule(b.config)) out.push({ kind: 'drift', detail: `${pair}: who serves a children's service differs` });
   }
   const owner = new Map<string, string>();
   for (const b of branches) {
