@@ -4,8 +4,10 @@ Same branch and PR #283. Founder, 2026-10-04: every item of
 `prompt/drafts/tara_quality_2026-10-03.mn.txt` approved as written. Nothing applied, published or merged.
 
 - **Item 4** (the `image_received` line as the one question after a photo): approved; draft headers updated.
-- **Items 5, 6** (price-page sentence, «Үнийн хуудас»): approved, but the rows STAY DISABLED until the
-  website shows both prices (the founder is getting them from the salon). Only comments changed.
+- **Items 5, 6** (price-page sentence, «Үнийн хуудас»): DROPPED 2026-10-04 (D-177): the two prices are
+  not services Tara offers. Rows, contact, `price_page` kind and provision files removed; `0083` renamed
+  `0083_photo_reel_question.sql`. New items 8 (`treatment_perm_women`) and 9 (`colour_lift`) await
+  approval, rows disabled (`tara-yarmag-colour-and-treatment-perm-2026-10-04.sql`).
 - **Item 7** (the reel line): approved and WIRED like the photo line (D-176 addendum). Its own row
   `reel_price_question` (kind added to the unapplied 0083, `MODEL_INVISIBLE_KINDS`, the guard, the D-163
   trigger list); `handover/media.ts` `unseenMediaOf` decides photo / video / mixed (`video`, `reel`,
@@ -59,7 +61,7 @@ replies, FAQs, contacts, services, gate topics; a few anonymous phrasings to tes
    other refusal rows (unlisted price, schedule, promotions, suitability) keep their own words.
 6. **Approved facts as fixed replies + FAQs** (D-174: word-for-word facts in fixed replies), matchers
    tested against this week's phrasings and the live rows (deposit AMOUNT, «хуваарь» excluded).
-7. **Price page mirrors Парк Од byte for byte** (#284's uncommitted `tara-park-od-after-onboarding.sql`:
+7. **(Superseded 2026-10-04 by D-177: no price page.) Price page mirrors Парк Од byte for byte** (#284's uncommitted `tara-park-od-after-onboarding.sql`:
    two appended, DISABLED rows with the matrixecosalon.org/services.html link). Added: the link is
    DECLARED as a new `price_page` contact kind (0083), inserted with the go-live switch, because the
    model is shown an appended line and a reply repeating an undeclared link is refused (B1). For

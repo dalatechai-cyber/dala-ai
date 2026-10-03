@@ -26,19 +26,10 @@
    after one question that brought nothing the rows know:
 Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
 
-5. Women's «Эмчилгээний хими» and «өнгө гаргалт» (answer 4: point to the website's price page).
-   Fixed replies `price_page_treatment_perm` / `price_page_color`, appended
-   (scripts/provision/tara-yarmag-price-page-2026-10-04.sql). The same bytes as Парк Од's draft
-   (branch claude/tara-park-od-tenant). APPROVED 2026-10-04, BUT the rows STAY DISABLED until the
-   website's price page shows both prices (the founder is getting the two prices from the salon);
-   the new site must also be live at this address. At the domain move the link becomes
-   https://tarasalon.org/services.html in both tenants' rows:
-Үнийн мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/services.html хуудаснаас үзнэ үү.
-
-6. The heading the price page carries in Дали's contact data (`price_page`, migration 0083; the
-   model reads it, a customer may see it quoted). APPROVED 2026-10-04; the contact row is inserted
-   with item 5's switch, so it waits with it:
-Үнийн хуудас
+5. and 6. DROPPED 2026-10-04 (founder, D-177). The price-page sentence and the «Үнийн хуудас»
+   heading were approved, but the two prices they pointed to are not services Tara offers. The rows
+   `price_page_treatment_perm` / `price_page_color`, the `price_page` contact and its migration part
+   are removed. Items 8 and 9 below answer the two questions instead.
 
 7. A shared reel or a video (or a link to one) with no words, «how much?» or only a greeting: the
    one question, wired like the photo line (D-176, reel addendum) as its own row
@@ -48,9 +39,34 @@
    post, a link to a post, photo, story or pin, and a photo beside a video still go to staff:
 Уучлаарай, би бичлэг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
 
-## AWAITING the founder's approval (new wording)
+## AWAITING the founder's approval (new, 2026-10-04, D-177)
 
-None. Every line of this round is approved (2026-10-04).
+Rows: scripts/provision/tara-yarmag-colour-and-treatment-perm-2026-10-04.sql (NOT applied; the rows
+go in disabled and switch on only after your approval). Парк Од gets the same rows the same day.
+
+8. A woman asks for «Эмчилгээний хими» (fixed reply `treatment_perm_women`; it needs the word
+   «эмэгтэй/emegtei»; men's «Эмчилгээний хими», 189,000₮, is unchanged).
+   You asked for the approved «service unavailable» line. Tara's line is about NAILS: «Манай салон
+   одоогоор хумсны үйлчилгээ үзүүлэхгүй байна.» Sent here, it would tell a customer asking about a
+   perm that we do not do nails. So this is the same sentence with the service changed — new
+   wording, please approve or correct:
+Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.
+
+9. «Өнгө гаргалт» (fixed reply `colour_lift`). Never «we don't offer it». The reply is the
+   salon's related colour rows, read from the price list when it is sent (no price is typed
+   anywhere), then Яармаг's approved phone line byte for byte (Парк Од: her own, «Та 76001888
+   дугаараар холбогдоно уу.»). No new sentence; please approve the composition. Roughly as a customer
+   would see it today (the exact layout and row order come from the price list when sent):
+Хэсэгчилсэн сор (эрэгтэй): 195,000₮
+Хэсэгчилсэн сор (эмэгтэй): 150,000₮
+Бүтэн сор: 210,000₮
+Бүтэн цайруулалт (эрэгтэй): 450,000₮
+
+Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.
+
+   Questions: (a) «Бүтэн цайруулалт» is on the list for men only (450,000₮). Keep it, or drop it so
+   a woman is not shown a men's price? (b) Add «Өнгөлөгч будаг» (toner, 160,000–210,000₮ by length)?
+   It is a colour service but not a lightening one, so it is left out.
 
 ## FAQ questions (the model reads them; never sent as written). Not customer wording, listed for completeness.
 

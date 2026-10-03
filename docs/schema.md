@@ -280,9 +280,9 @@ partial, one of four tables.
 - **Billing of tenants' own customers** — `0065` invoices DalaTech's clients for DalaTech's
   fee. Nothing here bills a tenant's customers.
 
-### `0083_photo_question_price_page`
+### `0083_photo_reel_question`
 
-**Additive: one `canned_response_kinds` row, one function redefined, two widened CHECKs.**
+**Additive: two `canned_response_kinds` rows, one function redefined.**
 Registers `photo_price_question` (D-176): the reviewed question a customer who sends a photo is
 asked (which service, the hair length), served whole by the platform and never by the model
 (`reception/photoPrice.ts`), and `reel_price_question`, the same question for a video, a reel or
@@ -291,8 +291,7 @@ one keeps D-152's hand-off for that kind. Both kinds are in `MODEL_INVISIBLE_KIN
 must be deployed before any tenant has a row. `ops.refuse_unpublished_canned_edit` (0074) is
 redefined with the same body and the new kinds in its invisible list (`check-gate-keys` holds the
 two lists equal).
-`contact_points.kind` and `branch_contact_points.kind` admit `price_page`, the website's price
-page, a declared link (`URL_CONTACT_KINDS`) labelled «Үнийн хуудас» in the prefix. Not applied.
+Not applied. (A `price_page` contact kind was drafted here and dropped, D-177.)
 Note: `0082` is taken by the in-chat booking branch (PR #285); renumber whichever merges second.
 
 ### `0081_ora_billing`

@@ -1,6 +1,6 @@
 # Дали — the reply standard
 
-**Version 1.6, 2026-10-04.** Version 1.6 adds D-176 (a photo and «how much?»: G2, G2a, §3 gap 12, conflict 2; its reel addendum: G1, G2a) and the `price_page` link (B1). **Version 1.5, 2026-10-03.** Version 1.5 updates A4 and D12 for the Tara quality round (`docs/reports/2026-10-03-tara-dali-quality.md`). **Version 1.4, 2026-09-30.** Version 1.4 adds F7 (D-163). **Version 1.3, 2026-09-30.** Version 1.3 brings F2–F5, G4, K4 and §3 up to what is live after D-158 and its addenda. **Version 1.2, 2026-09-29.** Written from the code, the tests, the live tenant data (read-only)
+**Version 1.6, 2026-10-04.** Version 1.6 adds D-176 (a photo and «how much?»: G2, G2a, §3 gap 12, conflict 2; its reel addendum: G1, G2a) (the `price_page` link it also added was dropped the same day, D-177). **Version 1.5, 2026-10-03.** Version 1.5 updates A4 and D12 for the Tara quality round (`docs/reports/2026-10-03-tara-dali-quality.md`). **Version 1.4, 2026-09-30.** Version 1.4 adds F7 (D-163). **Version 1.3, 2026-09-30.** Version 1.3 brings F2–F5, G4, K4 and §3 up to what is live after D-158 and its addenda. **Version 1.2, 2026-09-29.** Written from the code, the tests, the live tenant data (read-only)
 and `docs/DECISIONS.md`. Version 1 changed nothing. Version 1.1 records the founder's branch
 decision and the «та» register rule, and adds the branch gate (§7). Version 1.2 corrects §6 and
 §5: `deterministic_replies` and `faqs` rows have no `reviewed_at` gate (`src/lib/gate/deterministic.ts:100`); they have a `provenance` gate (D-020) that withholds rows not `tenant_confirmed`. Where the repo cannot answer, the line says
@@ -72,7 +72,7 @@ rules (1)–(5) carry the same numbers in all three.
 
 | ID | Rule | Status | Where |
 |---|---|---|---|
-| B1 | Never send a link the tenant did not declare (booking URL, contact points including the `price_page` kind (`0083`), branch contacts). An unparseable link counts as undeclared. | BLOCK on the model's text | `outbound.ts` check 1 (`outbound_url`); list built in `src/lib/reception/load.ts`. Not applied to a fixed reply's or an appended row's own bytes (reviewed rows, added after the guard); a model reply that repeats an appended row's undeclared link is refused, so such a link is also declared |
+| B1 | Never send a link the tenant did not declare (booking URL, contact points, branch contacts). An unparseable link counts as undeclared. | BLOCK on the model's text | `outbound.ts` check 1 (`outbound_url`); list built in `src/lib/reception/load.ts`. Not applied to a fixed reply's or an appended row's own bytes (reviewed rows, added after the guard); a model reply that repeats an appended row's undeclared link is refused, so such a link is also declared |
 | B2 | Phone, address, map link come only from `contact_points` rows. | BLOCK via A1/A2 | |
 | B3 | Contact headings always match their kind («Утас» = phone, «Хаяг» = address…). | Rendering only (`CONTACT_KIND_LABELS`, `src/lib/prompt/tenant.ts`) | Not a check on the reply |
 | B4 | Never give a staff member's personal number; give the salon number. | DATA (reply case c06, `docs/reports/2026-09-25-egune-vs-sonnet.md`) + BLOCK via A2 if the number is not in the data | |

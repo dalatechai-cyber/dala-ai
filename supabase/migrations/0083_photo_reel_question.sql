@@ -1,5 +1,6 @@
--- A photo and «how much?» is answered by Дали, not left to staff (founder, 2026-10-04, D-176);
--- and a tenant can declare its website's price page as a link of its own.
+-- A photo and «how much?» is answered by Дали, not left to staff (founder, 2026-10-04, D-176).
+-- (A `price_page` contact kind was drafted here and dropped the same day, D-177: the two prices it
+-- would have pointed to are not services Tara offers.)
 --
 -- 1. `photo_price_question`, a canned kind: the reviewed question a customer who sends a photo
 --    is asked (which service, the hair length). Served whole by the platform, never by the
@@ -15,16 +16,9 @@
 --    and `photo_price_question` and `reel_price_question` added to its invisible list, so adding
 --    or editing those rows never needs a republish. `check-gate-keys` holds the list equal to
 --    MODEL_INVISIBLE_KINDS.
--- 3. `contact_points.kind` (and the branch copy) gains `price_page`, the website's price page
---    (founder, 2026-10-04: for a price Дали does not hold, point to the website's price page).
---    `contact_points` is keyed (tenant_id, kind) and Tara Яармаг's `website` row already holds
---    her products page, which an FAQ links; a kind of its own also lets the prefix label it.
---    Every URL kind reaches the outbound guard's allow-list through `URL_CONTACT_KINDS`, so a
---    price page a reply carries is a declared link (dali.md B1).
 --
--- Additive: two lookup rows, a function redefined with two more skipped kinds (an edit it
--- skips is one that never moved the hash), and two widened CHECKs that every existing row
--- satisfies. Nothing is dropped, rewritten or narrowed.
+-- Additive: two lookup rows and a function redefined with two more skipped kinds (an edit it
+-- skips is one that never moved the hash). Nothing is dropped, rewritten or narrowed.
 
 insert into canned_response_kinds (kind, description) values
   ('photo_price_question',
@@ -76,11 +70,3 @@ begin
     using errcode = 'P0001',
           hint = 'In one SQL transaction: begin; set local dala.canned_edit = ''republish''; <edit>; commit; then publish the tenant at once (scripts/publish/tenant.ts). PostgREST and scripts/provision cannot set this; edit through SQL. D-163.';
 end $$;
-
-alter table contact_points drop constraint if exists contact_points_kind_check;
-alter table contact_points add constraint contact_points_kind_check
-  check (kind in ('phone','email','address','maps_url','facebook','instagram','website','demo_url','price_page'));
-
-alter table branch_contact_points drop constraint if exists branch_contact_points_kind_check;
-alter table branch_contact_points add constraint branch_contact_points_kind_check
-  check (kind in ('phone','email','address','maps_url','facebook','instagram','website','demo_url','price_page'));

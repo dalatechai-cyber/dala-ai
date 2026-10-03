@@ -177,7 +177,6 @@ export const CONTACT_KIND_LABELS: Readonly<Record<string, string>> = {
    * value here it reaches a customer only through a republish, which the founder runs. Listed
    * for his approval in `prompt/drafts/tara_quality_2026-10-03.mn.txt`.
    */
-  price_page: 'Үнийн хуудас',
 };
 
 /** `tenant_booking.booking_url`, which is rendered into the same section. */

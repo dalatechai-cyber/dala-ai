@@ -11983,3 +11983,24 @@ founder's sentence for «anything Дали doesn't know» («Энэ талаар
 «өнгө гаргалт», declared as a `price_page` contact («Үнийн хуудас», `0083`). Both lines approved
 2026-10-04; the price-page rows stay disabled until the website shows both prices (the founder is
 getting them from the salon) and the new site is live.
+
+## D-177 — Women's «Эмчилгээний хими» and «өнгө гаргалт» are not Tara services; no price page (2026-10-04, founder)
+
+**Decision.** The two prices the price-page rows pointed to are not services Tara offers. The
+price-page replies (`price_page_treatment_perm`, `price_page_color`), the «Үнийн хуудас» contact,
+the `price_page` contact kind (drafted in `0083`) and any website change for them are dropped, in
+both tenants. Supersedes D-176's price-page part.
+
+- Women's «Эмчилгээний хими»: told it is not offered (`treatment_perm_women`, a `matcher` row that
+  needs «эмэгтэй»). Men's «Эмчилгээний хими» is unchanged. The founder asked for the approved
+  `refusal_service_unavailable` line; Tara's names nails, so the row carries the same sentence with
+  the service changed, awaiting approval.
+- «Өнгө гаргалт» (6+ chats a week): never told it is not offered. `colour_lift` quotes the related
+  colour rows from the price list (Хэсэгчилсэн сор, Бүтэн сор, Бүтэн цайруулалт) and then the
+  tenant's own `salon_phone` line. No new facts, no typed price. Awaiting approval of the
+  composition.
+
+Both rows are provisioned disabled and `seeded`
+(`scripts/provision/tara-yarmag-colour-and-treatment-perm-2026-10-04.sql`; Парк Од's in
+`tara-park-od-after-onboarding.sql`), with inactive reply cases, until the founder approves.
+
