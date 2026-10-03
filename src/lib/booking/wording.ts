@@ -4,9 +4,11 @@
  * Each is a signed platform block (`prompt_blocks`, scope `platform`, layer null), exactly as
  * billing's are (`billing/templates.ts`). There is no fallback string anywhere: a block that is
  * missing or unsigned keeps the WHOLE flow off for every tenant (`missingBlocks`), because a
- * half-worded booking is worse than the website link a customer gets today. The drafts are in
- * `prompt/drafts/booking/`; deployed code never reads a draft. Tests and the end-to-end check
- * read the drafts through `draftWording`, which nothing in `src/` outside tests calls.
+ * half-worded booking is worse than the website link a customer gets today. Signed by the founder
+ * on 2026-10-04 (set c787decc1f0a): the files are in `prompt/platform/`, seeded by
+ * `0084_prompt_blocks_seed`, and only the database rows are read here. Tests read the files
+ * through `draftWording`, which nothing in `src/` outside tests calls; the end-to-end check
+ * reads the rows with this function and compares them with the files.
  *
  * Placeholders are checked both ways, as billing's are: a block that uses a name it may not, or
  * leaves out one it must carry, refuses to render.

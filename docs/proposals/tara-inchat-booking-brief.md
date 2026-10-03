@@ -4,7 +4,7 @@ _The short version of the first report and the follow-ups (2026-10-03). The full
 
 ## Round 2026-10-04: your answers
 
-- **Your approvals** (2026-10-04, as written): `booking_ask_agreement`, `booking_ask_variant` and every button label (group, family, short service and children's). Nothing in the booking waits for approval; signing the drafts is your own step (`scripts/prompt/sign-drafts.ts --dir prompt/drafts/booking`).
+- **Your approvals** (2026-10-04, as written): `booking_ask_agreement`, `booking_ask_variant` and every button label (group, family, short service and children's). Nothing in the booking waits for approval. **Signed** at your request on 2026-10-04: set `c787decc1f0a`, by Bilguun, all 42 lines; seed `0084_prompt_blocks_seed` (layer null, never in a tenant's prompt), **not applied**.
 - **Otgonjargal is bookable again**: Яармаг, 1-р зэрэг, female, 10,000₮, on the same Google Calendar the website uses for her. Her button is «Otgonjargal» alone (with «· 1-р зэрэг» it is over Messenger's 20 characters); the summary still says «Otgonjargal (1-р зэрэг)». She gets the 1-р зэрэг haircut and every unlevelled service a woman books; never the SPECIAL or МАСТЕР haircut.
 - **Typed names**: at the stylist question a customer may type the Latin name alone («Uyanga») or a Cyrillic spelling from the approved «Үсчдийн нэр» list («Отгонжаргал», «Бадмаа», «Чимгээ» …) or a former name the website still accepts («Batzaya»); it picks that stylist, only if she may serve that service. Cyrillic is never shown. «Отгоо» and Парк Од's Cyrillic spellings (Болороо, Болор, Сараа, Томоо, Төмөө, Булгаа, Энхүүш, Чимэгээ, Тучку, Түчкү) are recognised since you approved them (2026-10-04), each only in its own branch.
 - **Deposit deducted** (your answer): the summary before «Зөвшөөрч, захиалах» now adds your approved sentence «Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.» (the block approved as written, 2026-10-04; never «non-refundable»).
@@ -44,53 +44,53 @@ Draft PR https://github.com/dalatechai-cyber/dala-ai/pull/280, off for every ten
 
 - Several services in one booking; moving or cancelling a booking in chat; Instagram and the website chat.
 - Парк Од: her tenant (another round), her calendars, her bank account (not given yet), then her row and a 100₮ test landing in HER account.
-- Signing the drafts below; your 100₮ test (steps in the design doc).
+- Applying `0082`, #283's `0083`, then `0084` (the signed wording); your 100₮ test (steps in the design doc).
 
 ## Every draft line
 
 | Block | Draft | Status |
 |---|---|---|
-| `booking_agree` | Зөвшөөрч, захиалах | approved by the founder 2026-10-03 (to be signed) |
-| `booking_any_of_level` | Аль ч {level} | approved by the founder 2026-10-03 (to be signed) |
-| `booking_ask_agreement` | {service}, {stylist} / {date}, {time} / Урьдчилгаа төлбөр: {amount} / Зөвшөөрч байвал доорх товчийг дарна уу. | **CHANGED 2026-10-03 and 2026-10-04, approved by the founder 2026-10-04 (to be signed)**: the «Нөхцөл: «{agreement}»» line is removed (Дали never states the deposit terms); «Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.» added after the amount |
-| `booking_ask_gender` | Хэнд зориулж цаг авах вэ? | approved by the founder 2026-10-03 (to be signed) |
-| `booking_ask_name` | Таны нэрийг бичнэ үү. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_ask_phone` | Холбогдох утасны дугаараа бичнэ үү. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_ask_service` | Аль үйлчилгээг сонгох вэ? | approved by the founder 2026-10-03 (to be signed) |
-| `booking_ask_service_group` | Ямар үйлчилгээнд цаг авах вэ? Доороос сонгоно уу. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_ask_stylist` | Аль үсчинд цаг авах вэ? | approved by the founder 2026-10-03 (to be signed) |
-| `booking_ask_time` | {date} — сул цагаас сонгоно уу. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_ask_variant` | {service} — аль нь вэ? | **NEW 2026-10-03, approved by the founder 2026-10-04 (to be signed)**: the second question for a price-list line sold by length or level |
-| `booking_ask_when` | {service} — хэзээ, хэдэн цагт ирэх вэ? Жишээ нь: маргааш 14:00 | approved by the founder 2026-10-03 (to be signed) |
-| `booking_cancel` | Цуцлах | approved by the founder 2026-10-03 (to be signed) |
-| `booking_cancelled` | Цаг захиалгыг цуцаллаа. Өөр асуух зүйл байвал бичнэ үү. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_choose_again` | Цаг сонгох | approved by the founder 2026-10-03 (to be signed) |
-| `booking_confirmed` | Төлбөр амжилттай орлоо. Таны цаг захиалга баталгаажлаа. / {service}, {stylist} / {date}, {time} / {branch} салбар: {address} | approved by the founder 2026-10-03 (to be signed) |
-| `booking_date` | {month} сарын {day}, {weekday} | approved by the founder 2026-10-03 (to be signed) |
-| `booking_day_closed` | Уучлаарай, {date} цаг захиалах боломжгүй байна. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_day_full` | Уучлаарай, {date} сул цаг алга. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_day_today` | Өнөөдөр | approved by the founder 2026-10-03 (to be signed) |
-| `booking_day_tomorrow` | Маргааш | approved by the founder 2026-10-03 (to be signed) |
-| `booking_excess` | Таны цаг захиалга нэг удаа бүртгэгдсэн. Давхар орсон төлбөрийн талаар бид тантай холбогдоно. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_expired` | Уучлаарай, {minutes} минутын дотор төлбөр ороогүй тул {date}, {time} цагийг чөлөөллөө. Дахин цаг сонгох бол доорх товчийг дарна уу. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_follow_up` | Цаг захиалах уу? | approved by the founder 2026-10-03 (to be signed) |
-| `booking_gender_child` | Хүүхэд | approved by the founder 2026-10-03 (to be signed) |
-| `booking_gender_female` | Эмэгтэй | approved by the founder 2026-10-03 (to be signed) |
-| `booking_gender_male` | Эрэгтэй | approved by the founder 2026-10-03 (to be signed) |
-| `booking_no_times` | Уучлаарай, ойрын өдрүүдэд энэ үсчинд сул цаг алга. Өөр үсчин сонгоно уу. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_page_ended` | Төлбөр төлөх хугацаа дууссан. Messenger-ээр дахин цаг сонгоно уу. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_page_paid` | Төлбөр орлоо. Баталгаажуулалтыг Messenger-ээс харна уу. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_page_title` | Урьдчилгаа төлбөр | approved by the founder 2026-10-03 (to be signed) |
-| `booking_paid_unbooked` | Төлбөр тань амжилттай орсон. Харамсалтай нь сонгосон цаг тань энэ хооронд өөр хүнд захиалагдсан байна. Бид тантай удахгүй холбогдож өөр цаг тохирно. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_paid_unbooked_offer` | Таны төлбөр орсон боловч {date}, {time} цаг энэ хооронд өөр хүнд захиалагдсан байна. Доорх ойрын сул цагаас сонговол таны төлсөн урьдчилгаагаар шууд захиална. Сонгохгүй бол бид тантай холбогдож төлбөрийг буцаана. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_pay` | {service}, {stylist} / {date}, {time} / Урьдчилгаа төлбөр: {amount} /  / Энэ QR {minutes} минутын турш хүчинтэй. Энэ хугацаанд таны сонгосон цаг хадгалагдана. Доорх товчоор QPay-ээр төлнө үү. {pay_link} | approved by the founder 2026-10-03 (to be signed) |
-| `booking_phone_invalid` | Утасны дугаар 8 оронтой байх ёстой. Дахин бичнэ үү. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_pick_from_list` | Доорх сонголтоос сонгоно уу. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_slot_taken` | Уучлаарай, энэ цаг өөр хүнд захиалагдсан байна. Өөр цаг сонгоно уу. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_test_prefix` | ТЕСТ | approved by the founder 2026-10-03 (to be signed) |
-| `booking_time_free` | {date}, {time} сул байна. Энэ цагийг сонгох бол доорх товчийг дарна уу. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_time_not_free` | Уучлаарай, {date}, {time} цаг захиалгатай байна. Ойрын сул цагаас сонгоно уу. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_unavailable` | Уучлаарай, яг одоо цагийн хуваарийг шалгаж чадсангүй. Та {booking_url} хаягаар цагаа захиална уу. | approved by the founder 2026-10-03 (to be signed) |
-| `booking_when_again` | Өдөр, цагаа бичнэ үү. Жишээ нь: маргааш 14:00. Эсвэл доороос өдрөө сонгоно уу. | approved by the founder 2026-10-03 (to be signed) |
+| `booking_agree` | Зөвшөөрч, захиалах | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_any_of_level` | Аль ч {level} | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_ask_agreement` | {service}, {stylist} / {date}, {time} / Урьдчилгаа төлбөр: {amount} / Зөвшөөрч байвал доорх товчийг дарна уу. | **CHANGED 2026-10-03 and 2026-10-04, approved by the founder 2026-10-04 (signed 2026-10-04)**: the «Нөхцөл: «{agreement}»» line is removed (Дали never states the deposit terms); «Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.» added after the amount |
+| `booking_ask_gender` | Хэнд зориулж цаг авах вэ? | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_ask_name` | Таны нэрийг бичнэ үү. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_ask_phone` | Холбогдох утасны дугаараа бичнэ үү. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_ask_service` | Аль үйлчилгээг сонгох вэ? | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_ask_service_group` | Ямар үйлчилгээнд цаг авах вэ? Доороос сонгоно уу. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_ask_stylist` | Аль үсчинд цаг авах вэ? | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_ask_time` | {date} — сул цагаас сонгоно уу. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_ask_variant` | {service} — аль нь вэ? | **NEW 2026-10-03, approved by the founder 2026-10-04 (signed 2026-10-04)**: the second question for a price-list line sold by length or level |
+| `booking_ask_when` | {service} — хэзээ, хэдэн цагт ирэх вэ? Жишээ нь: маргааш 14:00 | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_cancel` | Цуцлах | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_cancelled` | Цаг захиалгыг цуцаллаа. Өөр асуух зүйл байвал бичнэ үү. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_choose_again` | Цаг сонгох | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_confirmed` | Төлбөр амжилттай орлоо. Таны цаг захиалга баталгаажлаа. / {service}, {stylist} / {date}, {time} / {branch} салбар: {address} | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_date` | {month} сарын {day}, {weekday} | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_day_closed` | Уучлаарай, {date} цаг захиалах боломжгүй байна. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_day_full` | Уучлаарай, {date} сул цаг алга. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_day_today` | Өнөөдөр | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_day_tomorrow` | Маргааш | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_excess` | Таны цаг захиалга нэг удаа бүртгэгдсэн. Давхар орсон төлбөрийн талаар бид тантай холбогдоно. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_expired` | Уучлаарай, {minutes} минутын дотор төлбөр ороогүй тул {date}, {time} цагийг чөлөөллөө. Дахин цаг сонгох бол доорх товчийг дарна уу. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_follow_up` | Цаг захиалах уу? | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_gender_child` | Хүүхэд | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_gender_female` | Эмэгтэй | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_gender_male` | Эрэгтэй | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_no_times` | Уучлаарай, ойрын өдрүүдэд энэ үсчинд сул цаг алга. Өөр үсчин сонгоно уу. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_page_ended` | Төлбөр төлөх хугацаа дууссан. Messenger-ээр дахин цаг сонгоно уу. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_page_paid` | Төлбөр орлоо. Баталгаажуулалтыг Messenger-ээс харна уу. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_page_title` | Урьдчилгаа төлбөр | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_paid_unbooked` | Төлбөр тань амжилттай орсон. Харамсалтай нь сонгосон цаг тань энэ хооронд өөр хүнд захиалагдсан байна. Бид тантай удахгүй холбогдож өөр цаг тохирно. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_paid_unbooked_offer` | Таны төлбөр орсон боловч {date}, {time} цаг энэ хооронд өөр хүнд захиалагдсан байна. Доорх ойрын сул цагаас сонговол таны төлсөн урьдчилгаагаар шууд захиална. Сонгохгүй бол бид тантай холбогдож төлбөрийг буцаана. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_pay` | {service}, {stylist} / {date}, {time} / Урьдчилгаа төлбөр: {amount} /  / Энэ QR {minutes} минутын турш хүчинтэй. Энэ хугацаанд таны сонгосон цаг хадгалагдана. Доорх товчоор QPay-ээр төлнө үү. {pay_link} | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_phone_invalid` | Утасны дугаар 8 оронтой байх ёстой. Дахин бичнэ үү. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_pick_from_list` | Доорх сонголтоос сонгоно уу. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_slot_taken` | Уучлаарай, энэ цаг өөр хүнд захиалагдсан байна. Өөр цаг сонгоно уу. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_test_prefix` | ТЕСТ | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_time_free` | {date}, {time} сул байна. Энэ цагийг сонгох бол доорх товчийг дарна уу. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_time_not_free` | Уучлаарай, {date}, {time} цаг захиалгатай байна. Ойрын сул цагаас сонгоно уу. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_unavailable` | Уучлаарай, яг одоо цагийн хуваарийг шалгаж чадсангүй. Та {booking_url} хаягаар цагаа захиална уу. | approved by the founder 2026-10-03 (signed 2026-10-04) |
+| `booking_when_again` | Өдөр, цагаа бичнэ үү. Жишээ нь: маргааш 14:00. Эсвэл доороос өдрөө сонгоно уу. | approved by the founder 2026-10-03 (signed 2026-10-04) |
 
-Also customer-visible, in `config/booking/tara-salon.json`, and approved by the founder as written (2026-10-04, to be signed): the group labels (the price list's own section names: «Эмэгтэй засалт», «Эрэгтэй засалт», «Үйлчилгээ», «Эмэгтэй хими», «Эмэгтэй будаг»); the family buttons («Afro хими», «Hippie & Jerry curl», «TARA BLEND», «TARA LUMI», «Tara perm», «Гоёлын засалт», «Сэттинг хими», «Тайралт том хүн», «Усан хими», «Хэлбэржүүлэлт», «Шулуун хими», «Энгийн будаг», «Өнгөлөгч будаг»); the short button labels that differ from the price list's words: «SPECIAL» (Эмэгтэй засалт — Тайралт том хүн /SPECIAL/); «МАСТЕР» (Эмэгтэй засалт — Тайралт том хүн /МАСТЕР/); «1-р зэрэг» (Эмэгтэй засалт — Тайралт том хүн /1-р зэрэг/); «өдөр тутмын» (Эмэгтэй засалт — Хэлбэржүүлэлт /өдөр тутмын/); «гоёлын» (Эмэгтэй засалт — Хэлбэржүүлэлт /гоёлын/); «бүтэн» (Эмэгтэй засалт — Гоёлын засалт /бүтэн/); «хагас» (Эмэгтэй засалт — Гоёлын засалт /хагас/); «Тайралт /SPECIAL/» (Эрэгтэй засалт — Тайралт том хүн /SPECIAL/); «Гоёлын засалт» (Эмэгтэй засалт — Гоёлын засалт /эрэгтэй/); «Нөхөн сэргээх» (Эрэгтэй засалт — Нөхөн сэргээх эмчилгээ); «Үс оношлогоо» (Үйлчилгээ — Үс оношлогоо зөвлөгөө); «Нөхөн сэргээх» (Үйлчилгээ — Нөхөн сэргээх эмчилгээ); «CICA эмчилгээ» (Үйлчилгээ — CICA үсний гүний эмчилгээ); «Богино» (Эмэгтэй хими — Tara perm (Богино)); «Дунд» (Эмэгтэй хими — Tara perm (Дунд)); «Урт» (Эмэгтэй хими — Tara perm (Урт)); «Богино» (Эмэгтэй хими — Усан хими (Богино)); «Дунд» (Эмэгтэй хими — Усан хими (Дунд)); «Урт» (Эмэгтэй хими — Усан хими (Урт)); «Богино» (Эмэгтэй хими — Afro хими (Богино)); «Дунд» (Эмэгтэй хими — Afro хими (Дунд)); «Урт» (Эмэгтэй хими — Afro хими (Урт)); «Богино» (Эмэгтэй хими — Hippie & Jerry curl (Богино)); «Дунд» (Эмэгтэй хими — Hippie & Jerry curl (Дунд)); «Урт» (Эмэгтэй хими — Hippie & Jerry curl (Урт)); «Богино» (Эмэгтэй хими — Сэттинг хими (Богино)); «Дунд» (Эмэгтэй хими — Сэттинг хими (Дунд)); «Урт» (Эмэгтэй хими — Сэттинг хими (Урт)); «Богино» (Эмэгтэй хими — Шулуун хими (Богино)); «Дунд» (Эмэгтэй хими — Шулуун хими (Дунд)); «Урт» (Эмэгтэй хими — Шулуун хими (Урт)); «Богино» (Эмэгтэй будаг — Энгийн будаг (Богино)); «Дунд» (Эмэгтэй будаг — Энгийн будаг (Дунд)); «Урт» (Эмэгтэй будаг — Энгийн будаг (Урт)); «Богино» (Эмэгтэй будаг — Өнгөлөгч будаг (Богино)); «Дунд» (Эмэгтэй будаг — Өнгөлөгч будаг (Дунд)); «Урт» (Эмэгтэй будаг — Өнгөлөгч будаг (Урт)); «Богино» (Эмэгтэй будаг — TARA LUMI (Богино)); «Дунд» (Эмэгтэй будаг — TARA LUMI (Дунд)); «Урт» (Эмэгтэй будаг — TARA LUMI (Урт)); «Богино» (Эмэгтэй будаг — TARA BLEND (Богино)); «Дунд» (Эмэгтэй будаг — TARA BLEND (Дунд)); «Урт» (Эмэгтэй будаг — TARA BLEND (Урт)); and the children's buttons «Охин», «Эрэгтэй 0–13 нас», «Эрэгтэй 14–18 нас». Eight lines on the pay page are your already-signed billing lines.
+Also customer-visible, in `config/booking/tara-salon.json`, and approved by the founder as written (2026-10-04; config, not prompt blocks, so the signing covers none of them and this approval is their record): the group labels (the price list's own section names: «Эмэгтэй засалт», «Эрэгтэй засалт», «Үйлчилгээ», «Эмэгтэй хими», «Эмэгтэй будаг»); the family buttons («Afro хими», «Hippie & Jerry curl», «TARA BLEND», «TARA LUMI», «Tara perm», «Гоёлын засалт», «Сэттинг хими», «Тайралт том хүн», «Усан хими», «Хэлбэржүүлэлт», «Шулуун хими», «Энгийн будаг», «Өнгөлөгч будаг»); the short button labels that differ from the price list's words: «SPECIAL» (Эмэгтэй засалт — Тайралт том хүн /SPECIAL/); «МАСТЕР» (Эмэгтэй засалт — Тайралт том хүн /МАСТЕР/); «1-р зэрэг» (Эмэгтэй засалт — Тайралт том хүн /1-р зэрэг/); «өдөр тутмын» (Эмэгтэй засалт — Хэлбэржүүлэлт /өдөр тутмын/); «гоёлын» (Эмэгтэй засалт — Хэлбэржүүлэлт /гоёлын/); «бүтэн» (Эмэгтэй засалт — Гоёлын засалт /бүтэн/); «хагас» (Эмэгтэй засалт — Гоёлын засалт /хагас/); «Тайралт /SPECIAL/» (Эрэгтэй засалт — Тайралт том хүн /SPECIAL/); «Гоёлын засалт» (Эмэгтэй засалт — Гоёлын засалт /эрэгтэй/); «Нөхөн сэргээх» (Эрэгтэй засалт — Нөхөн сэргээх эмчилгээ); «Үс оношлогоо» (Үйлчилгээ — Үс оношлогоо зөвлөгөө); «Нөхөн сэргээх» (Үйлчилгээ — Нөхөн сэргээх эмчилгээ); «CICA эмчилгээ» (Үйлчилгээ — CICA үсний гүний эмчилгээ); «Богино» (Эмэгтэй хими — Tara perm (Богино)); «Дунд» (Эмэгтэй хими — Tara perm (Дунд)); «Урт» (Эмэгтэй хими — Tara perm (Урт)); «Богино» (Эмэгтэй хими — Усан хими (Богино)); «Дунд» (Эмэгтэй хими — Усан хими (Дунд)); «Урт» (Эмэгтэй хими — Усан хими (Урт)); «Богино» (Эмэгтэй хими — Afro хими (Богино)); «Дунд» (Эмэгтэй хими — Afro хими (Дунд)); «Урт» (Эмэгтэй хими — Afro хими (Урт)); «Богино» (Эмэгтэй хими — Hippie & Jerry curl (Богино)); «Дунд» (Эмэгтэй хими — Hippie & Jerry curl (Дунд)); «Урт» (Эмэгтэй хими — Hippie & Jerry curl (Урт)); «Богино» (Эмэгтэй хими — Сэттинг хими (Богино)); «Дунд» (Эмэгтэй хими — Сэттинг хими (Дунд)); «Урт» (Эмэгтэй хими — Сэттинг хими (Урт)); «Богино» (Эмэгтэй хими — Шулуун хими (Богино)); «Дунд» (Эмэгтэй хими — Шулуун хими (Дунд)); «Урт» (Эмэгтэй хими — Шулуун хими (Урт)); «Богино» (Эмэгтэй будаг — Энгийн будаг (Богино)); «Дунд» (Эмэгтэй будаг — Энгийн будаг (Дунд)); «Урт» (Эмэгтэй будаг — Энгийн будаг (Урт)); «Богино» (Эмэгтэй будаг — Өнгөлөгч будаг (Богино)); «Дунд» (Эмэгтэй будаг — Өнгөлөгч будаг (Дунд)); «Урт» (Эмэгтэй будаг — Өнгөлөгч будаг (Урт)); «Богино» (Эмэгтэй будаг — TARA LUMI (Богино)); «Дунд» (Эмэгтэй будаг — TARA LUMI (Дунд)); «Урт» (Эмэгтэй будаг — TARA LUMI (Урт)); «Богино» (Эмэгтэй будаг — TARA BLEND (Богино)); «Дунд» (Эмэгтэй будаг — TARA BLEND (Дунд)); «Урт» (Эмэгтэй будаг — TARA BLEND (Урт)); and the children's buttons «Охин», «Эрэгтэй 0–13 нас», «Эрэгтэй 14–18 нас». Eight lines on the pay page are your already-signed billing lines.

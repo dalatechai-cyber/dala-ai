@@ -440,6 +440,258 @@
       "reviewed_at": "2026-09-28"
     },
     {
+      "block_id": "booking_agree",
+      "sha256": "3faca06e729c6671222f0b1d6008acb311bd5b707d2d5398cb3c02499bbd8038",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_any_of_level",
+      "sha256": "6fb128e8c4a8a0060291912e5a74846adc03d99d6d637e893a6905a01bf2e67c",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_ask_agreement",
+      "sha256": "81b05f2c858e189f6357266216863c80b301d4d09eb357fe4d2ea1b476441704",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_ask_gender",
+      "sha256": "40b8b3f8d03067a21f14cd8c5848de88b147f7e3500237b1870401de88576c52",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_ask_name",
+      "sha256": "2a50b7df698ef1c7c793402884c15198c90c6fe798c14b5b8d0510ae9a088802",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_ask_phone",
+      "sha256": "087d6ae078391c8e37a99702b0941884085054c90bef5e65b5c322c0c05a48f7",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_ask_service",
+      "sha256": "7e9424129964d3cbe0aac23135242ffa789e1b38f1f8bd7872615f66a33ce424",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_ask_service_group",
+      "sha256": "6d5d3bc9637cf6b69149f7c100509b1afc3713c1f2176471bae4e49df844b5ff",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_ask_stylist",
+      "sha256": "045ea349d2cbee797d3dd0a327b5b3b5a3434b9c4fe46384c1c074c253a842b9",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_ask_time",
+      "sha256": "29fc95c217976f76cbf47ff081858707807402cb8d96602aa819f97a3ddc387c",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_ask_variant",
+      "sha256": "91db47affe1c7961a04093b9a8c62f1caed8f2a085fcd4c83339c05aaa90443a",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_ask_when",
+      "sha256": "7830f73ec01355032956b555254efd727add42741d07d18a6b83b7ab9e124e5c",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_cancel",
+      "sha256": "7e292fa4168098c6b82949b1087a03adcabe979d7243e9fcd52b72960f9c57b4",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_cancelled",
+      "sha256": "2e9daf6a29e3872ca13f625d50fc5e13b795db13eafb12e6b71d63a3cf2ca672",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_choose_again",
+      "sha256": "206aad10689614b1e91b2bd4973ff2f5b289fa5f8fd9f173b74e923ea690d008",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_confirmed",
+      "sha256": "3c86ef26cf703a64d7d431f6b811ebf250e8b37e1c0bf392e361e6456984d563",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_date",
+      "sha256": "4e20a78299b0b7208a1fdfc4dd2392683f71ab391656e25f2568b16eaab00d6c",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_day_closed",
+      "sha256": "6245b94d8fd05e8fe709266fbbcaad38e7cd354ce2bf8a112f87aa46abd46720",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_day_full",
+      "sha256": "0e07d4fae07548f213c715693d851e0244d040a1e96dc1a6eab2d347711a891b",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_day_today",
+      "sha256": "7803fd199d0270b762632b990d1ebffdcbd6c9cedf1a09a96c5c591ecf0560c5",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_day_tomorrow",
+      "sha256": "ce0c019c9718b52b3ef512a165381ea0313f27814441b45a27a37ef2c3b03f07",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_excess",
+      "sha256": "2be2a8177ae8bc6370a3f9ebbc31fdd5c40bb9a8cc75df3e1d5ddfd02cb32af4",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_expired",
+      "sha256": "f731be6eba27c0297ebbe113bfc7c1631abbd7d02001315fe18da4f4e4e3040b",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_follow_up",
+      "sha256": "38b100fcd109e1579673fc3229af4a6ca11145a1d1da5dba1ba933f1f863ce39",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_gender_child",
+      "sha256": "7234a00cf73b3e726fd97e6777ef3a3e7d60b37860f8b024bf32e12c662eb677",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_gender_female",
+      "sha256": "7dd429bfdbb6d1d588a485fb4666e9f582ade3753339caf6a1325cac4e260238",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_gender_male",
+      "sha256": "2de642b51e96f65e46f053db205a219004a6b999ccdc29466b77181a91557092",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_no_times",
+      "sha256": "1067536e94d1097d03ccd7023ec0a77268cf01d9a37e5323f92f7da6ff4a5490",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_page_ended",
+      "sha256": "85b2b0166f61a08654a9b140693fbf6d9645ec40820372f9a6b61b158252c14d",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_page_paid",
+      "sha256": "28ee35500f460cd44095a4fc61cdddc8764ef1fd00280375db7bf9d5393a852e",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_page_title",
+      "sha256": "acedb85be4d87171b4bacf0307d25643c92788c558be2b4cc79787b6c0442ae7",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_paid_unbooked",
+      "sha256": "19a0199321cca35683adefc38f53965e71f2502cfc7ced200852202d94a91954",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_paid_unbooked_offer",
+      "sha256": "872c8b666437187754ddc033135e12839aac2bf9287eaf6e36f7fbf5a5aaad17",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_pay",
+      "sha256": "a7d9fd11f3c46fb3368ab04153fcf58a44aae907aee09e970aaacfe150a3ab8b",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_phone_invalid",
+      "sha256": "a023b2955773669a78f6dc6d89ca520101b07ced3b99709e486bf5558a380225",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_pick_from_list",
+      "sha256": "7dd2fdd107a79d5cbcbe0b46db5e58523708c75333228c4d580c99d34b0a75bd",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_slot_taken",
+      "sha256": "4550a21fb01ad797cbbdfa4be09c64d19c76305615bae718d8ece80d5889507c",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_test_prefix",
+      "sha256": "cec07e49c2df0025cb04096b8462d7eb74f2f4f8a00087ae450a6c9987cf0456",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_time_free",
+      "sha256": "64085d3627719aa817ba4643cf3b9fd589121aa9dd430328384fa0e63d66ed4d",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_time_not_free",
+      "sha256": "201ed73f0324e05425a245e50bd0316e3bf756aa81ac842f210b911d5c58a46a",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_unavailable",
+      "sha256": "cd52d294f50d055ce7948af7b241d1fe645135b8f038fe5a13d3702cec88eb5d",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
+      "block_id": "booking_when_again",
+      "sha256": "7c4e05e9f95d435458134c872a9002d6893f1ab4e192e68305f7e717956090aa",
+      "reviewed_by": "Bilguun",
+      "reviewed_at": "2026-10-04"
+    },
+    {
       "block_id": "comment_public_reply",
       "sha256": "cae9ffbaaa7d5f2119b28a2a5b01830d60389c865e748563de25a7b20c70472e",
       "reviewed_by": "Bilguun",

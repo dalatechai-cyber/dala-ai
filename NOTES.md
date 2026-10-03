@@ -1,3 +1,30 @@
+# NOTES — Round 5 (2026-10-04): the booking wording signed
+
+Same branch/worktree/PR (#285). Signed at the founder's request (he approved every block on
+2026-10-03/04 and asked us to sign). Nothing live: no merge, no `supabase db push`, no SQL on a
+real database, no Vercel/Supabase change.
+
+## Status
+- [x] `sign-drafts.ts --dir prompt/drafts/booking --set c787decc1f0a --by Bilguun`: 42 blocks
+      moved to `prompt/platform/`, hashes in `platform-mn-review.json` (2026-10-04), seed written.
+- [x] Root cause of the 4 red tests after signing: `generate-seed.ts` `layerFor` gave every key that
+      is not `data_deletion_*`, `comment_public_reply` or `billing_*` layer L0, so the 42 booking
+      blocks became gate sections (ordinal 0). Through the real loader every tenant's compile then
+      REFUSED (`ambiguous_order` at L0/platform/0) — every live tenant's next publish would have
+      failed. Fix: `booking_*` is layer null (read by key by `booking/wording.ts`, like billing);
+      DONE-TEST over `BOOKING_BLOCK_KEYS`; the family test checks the booking family by prefix.
+- [x] Live tenants unchanged: the compiled gate prefix through `loadPromptSections` over every
+      seeded row has the same content hash before and after (salon, software, other, none; 14
+      sections). The other 107 rows of the seed are byte-identical to `0080`'s, dates included;
+      no existing sign-off entry changed.
+- [x] Seed renamed `0083` → `0084_prompt_blocks_seed.sql` (sibling #283 has `0083`). Order:
+      `0082_booking`, #283's `0083`, `0084`. Not applied.
+- [x] e2e section 0: the flow's wording is read from the database with `loadBookingWording` (the
+      production read), all 50 blocks present (`missingBlocks` empty), each byte-identical to its
+      signed file, every `booking_*` row layer null and signed. Was the draft files before.
+- [x] check green (2669 tests); run-all SQL suites green; e2e 266 local with the website, 245
+      CI-shaped.
+
 # NOTES — Round 4 (2026-10-04): the founder's wording approvals
 
 Same branch/worktree/PR (#285). Nothing live: no merge, no SQL on a real database, nothing signed

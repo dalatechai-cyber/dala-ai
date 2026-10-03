@@ -74,7 +74,7 @@ The people who ask are asking exactly the question a calendar answers.
    terms**: the founder's rule is that Дали never says in chat that the deposit is non-refundable
    (the website's own tick box carries that). It says only the founder's approved line that the
    deposit is deducted from the service price («Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж
-   тооцогдоно.», 2026-10-04; the block itself approved as written on 2026-10-04, to be signed). The hold records the summary the customer accepted,
+   тооцогдоно.», 2026-10-04; the block itself approved as written and signed on 2026-10-04). The hold records the summary the customer accepted,
    word for word, with the time, and writes it on the calendar event («Summary accepted: «…»»).
    Nothing is held and no QR exists before this tap.
 8. Дали holds the time and sends **one message with a «Төлбөр төлөх» button**: the summary and
@@ -267,12 +267,15 @@ calendar ids are never copied into this repository. The row is written with mode
 
 ## Switching it on for Tara Яармаг (the founder's steps, in order)
 
-Nothing below has been done. Each step is yours: wording, credentials, a migration, a live switch.
+Nothing below has been done but step 1. Each other step is yours: credentials, migrations, a live switch.
 
-1. **Sign the wording.** Read `docs/proposals/tara-inchat-booking-transcript.md` (every draft in
-   context), then `node scripts/prompt/sign-drafts.ts --dir prompt/drafts/booking`, then sign with
-   `--set <id> --by Bilguun`, and push. Until it is signed, the flow refuses to start.
-2. **Apply `0082_booking`.** Then merge the PR (D-058: code that reads a table only after the push).
+1. **Sign the wording.** DONE 2026-10-04: set `c787decc1f0a`, signed by Bilguun (all 42
+   `booking_*` blocks, at the founder's request), seeded by `0084_prompt_blocks_seed` at layer
+   null. Until `0084` is applied, the flow refuses to start (it reads the signed rows).
+2. **Apply `0082_booking`, then `0083_photo_question_price_page` (PR #283), then
+   `0084_prompt_blocks_seed`**, in that order (`0084` is numbered past #283's `0083` so the two
+   cannot collide; merge #283 first, or `supabase db push` refuses the out-of-order `0083`). Then
+   merge the PR (D-058: code that reads a table only after the push).
 3. **Vercel → dala-ai → Environment Variables (Production).**
    - `GOOGLE_SERVICE_ACCOUNT_EMAIL` and `GOOGLE_PRIVATE_KEY`: copy them from the matrix_website
      Vercel project, same names. This is the service account the stylists' calendars are shared

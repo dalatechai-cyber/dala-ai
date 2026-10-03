@@ -1,17 +1,20 @@
-# In-chat booking wording — DRAFTS, unsigned
+# In-chat booking wording — SIGNED 2026-10-04
 
 What a customer reads while booking and paying the deposit inside Messenger
-(`docs/proposals/tara-inchat-booking.md`). **Nothing loads these files in a deployment.** The
-booking flow refuses to start for any tenant until every block below is signed:
+(`docs/proposals/tara-inchat-booking.md`). **Signed by Bilguun on 2026-10-04, set
+`c787decc1f0a`** (all 42 blocks, at the founder's request):
 
     node scripts/prompt/sign-drafts.ts --dir prompt/drafts/booking              # read, get the set id
     node scripts/prompt/sign-drafts.ts --dir prompt/drafts/booking --set <id> --by Bilguun
 
-Signing moves them into `prompt/platform/`, records their hashes and writes the seed migration
-(layer null: never part of a tenant's prompt).
+The files are now in `prompt/platform/booking_*.mn.txt`, their hashes in
+`prompt/platform-mn-review.json`, their rows in `supabase/migrations/0084_prompt_blocks_seed.sql`
+(layer null: never part of a tenant's prompt; `generate-seed.ts` `layerFor`). The seed is **not
+applied**; until it is, the booking flow refuses to start for every tenant. This folder now holds
+only this record of what was approved; a changed line is drafted here again and signed again.
 
-**Every line here is approved by the founder (2026-10-03), still to be signed with the script
-above.** `booking_pay`, `booking_expired`, `booking_paid_unbooked_offer` (with «бид тантай
+**Every line here is approved by the founder (2026-10-03), signed with the script above on
+2026-10-04.** `booking_pay`, `booking_expired`, `booking_paid_unbooked_offer` (with «бид тантай
 холбогдож») first; then all the others, as drafted, except seven the founder rewrote, which now
 read as approved: `booking_excess` («…Давхар орсон төлбөрийн талаар бид тантай холбогдоно.»),
 `booking_paid_unbooked` («…Бид тантай удахгүй холбогдож өөр цаг тохирно.»), `booking_ask_gender`
@@ -21,11 +24,10 @@ new `booking_gender_child` «Хүүхэд» is part of that approval), `booking_
 цаг сонгоно уу.»), and `booking_time_free`
 («{date}, {time} сул байна. Энэ цагийг сонгох бол доорх товчийг дарна уу.»).
 
-**Approved by the founder on 2026-10-04, as written, still to be signed with the script above:**
-`booking_ask_agreement` (both rounds below), `booking_ask_variant`, and every button label in
-`config/booking/tara-salon.json` (group, family, short service and children's labels). Nothing in
-this folder or in those labels waits for approval any more; only signing is left (the founder's
-own step).
+**Approved by the founder on 2026-10-04, as written:** `booking_ask_agreement` (both rounds
+below), `booking_ask_variant`, and every button label in `config/booking/tara-salon.json` (group,
+family, short service and children's labels). The blocks were signed the same day; the button
+labels are config, not prompt blocks, so no signing covers them and this approval is their record.
 
 **Round 2026-10-03 (two branches), APPROVED 2026-10-04:** `booking_ask_agreement` CHANGED: its
 «Нөхцөл: «{agreement}»» line is removed, because Дали must never say in chat that the deposit is

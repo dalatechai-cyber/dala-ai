@@ -54,6 +54,10 @@ export function layerFor(blockKey: string): 'L0' | null {
   // DalaTech's invoices, reminders, receipts and pay page (D-156): `billing/templates.ts`
   // reads them by key. As L0 they would be compiled into every tenant's prompt.
   if (blockKey.startsWith('billing_')) return null;
+  // The in-chat booking's customer lines: `booking/wording.ts` reads them by key, as billing's
+  // are read. As L0 they would be compiled into every tenant's prompt and move every live
+  // tenant's gate prefix; they are never a prompt section.
+  if (blockKey.startsWith('booking_')) return null;
   // Everything else is the boundary gate: the L0 scaffold, ahead of every tenant section,
   // which is what makes it one cache entry for the whole platform (render.ts's note).
   return 'L0';
