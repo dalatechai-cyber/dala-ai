@@ -19,6 +19,7 @@ const NONE: Spec = { required: [], optional: [] };
 export const BOOKING_BLOCKS = {
   booking_ask_service_group: NONE,
   booking_ask_service: NONE,
+  booking_ask_variant: { required: ['service'], optional: [] },
   booking_ask_gender: NONE,
   booking_gender_female: NONE,
   booking_gender_male: NONE,
@@ -40,7 +41,8 @@ export const BOOKING_BLOCKS = {
   booking_ask_name: NONE,
   booking_ask_phone: NONE,
   booking_phone_invalid: NONE,
-  booking_ask_agreement: { required: ['service', 'stylist', 'date', 'time', 'amount', 'agreement'], optional: [] },
+  // The summary before «Зөвшөөрч, захиалах». No `{agreement}`: Дали states no deposit terms (founder).
+  booking_ask_agreement: { required: ['service', 'stylist', 'date', 'time', 'amount'], optional: [] },
   booking_agree: NONE,
   booking_cancel: NONE,
   booking_pay: { required: ['service', 'stylist', 'date', 'time', 'amount', 'minutes', 'pay_link'], optional: [] },

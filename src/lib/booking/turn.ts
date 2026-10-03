@@ -7,8 +7,9 @@
  * aside and the ordinary Дали answers it: a customer who changed the subject is never trapped.
  *
  * The steps: who it is for (the gender rule; «Хүүхэд» leads to the children's services) → service
- * group → service → stylist or «any» of a
- * level → WHEN (Дали asks the day and time; the customer types «маргааш 2 цагт» or taps a day)
+ * group (only the groups for that customer) → service, or a family of services and then which one
+ * («Tara perm» → «Богино») → stylist (only those who may serve it: the customer's gender, and the
+ * level a price-list line names) or «any» of a level → WHEN (Дали asks the day and time; the customer types «маргааш 2 цагт» or taps a day)
  * → the free times nearest to what they asked, read from the real calendar → name → phone →
  * the summary with the deposit and Tara's terms, «Зөвшөөрч, захиалах» → hold, invoice,
  * «Төлбөр төлөх». A day and time already named in the first message («маргааш 14 цагт цаг
@@ -22,10 +23,10 @@ import { fold } from '../mn/text.ts';
 import type { QuickReply } from '../meta/send.ts';
 import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import { tenantClock } from '../time/clock.ts';
-import { eventIdForHold } from './calendar.ts';
+import { eventIdForHold, otherBlocking } from './calendar.ts';
 import {
   bookingEnvMode, customerMode, depositFor, entryFires, QUICK_REPLY_TITLE_MAX, stylistButton,
-  type BookingConfig, type Gender, type Stylist,
+  type BookingConfig, type Gender, type Service, type Stylist,
 } from './config.ts';
 import {
   bookingEvent, currentInvoice, dayLabel, deliverDrafted, expireHold, marked, removeOurEvent, settleHold, START, stylistLabel, timeLabel, type BookingPorts,
@@ -68,7 +69,7 @@ export const FOLLOW_UP_MINUTES = 10;
 const ONE_FOLLOW_UP_MS = 20_000;
 
 type Offer = { t: string; v: string };
-type Step = 'group' | 'service' | 'gender' | 'stylist' | 'when' | 'time' | 'name' | 'phone' | 'agree' | 'pay' | 'rebook';
+type Step = 'group' | 'service' | 'variant' | 'gender' | 'stylist' | 'when' | 'time' | 'name' | 'phone' | 'agree' | 'pay' | 'rebook';
 type Reply = { step: Step; body: string; offers: Offer[]; data: Record<string, unknown>; close: string | null; linkButtonTitle?: string };
 
 const CANCEL = 'bk:cancel';
@@ -151,21 +152,38 @@ function picked(session: Session, input: TurnInput, cancelTitle: string): Offer 
 // What can be offered
 // ---------------------------------------------------------------------------
 
-function stylistsFor(config: BookingConfig, gender: Gender | null): Stylist[] {
-  return config.stylists.filter((s) => !config.genderRule || gender === null || s.gender === gender);
+/** A stylist whose calendar is connected. A config with any other is off (`customerMode`); typed here. */
+type Bookable = Stylist & { calendarId: string };
+
+/**
+ * Who may serve this booking: a connected calendar, the customer's gender under the tenant's rule,
+ * and the level a price-list line names («Тайралт /SPECIAL/»: SPECIAL only). Null: no restriction.
+ */
+function stylistsFor(config: BookingConfig, gender: Gender | null, level: string | null): Bookable[] {
+  return config.stylists.filter((s): s is Bookable => s.calendarId !== null
+    && (!config.genderRule || gender === null || s.gender === gender)
+    && (level === null || s.level === level));
 }
 
+const genderOf = (data: Record<string, unknown>): Gender | null =>
+  (data['gender'] === 'male' || data['gender'] === 'female') ? data['gender'] as Gender : null;
+const levelOf = (data: Record<string, unknown>): string | null => (typeof data['level'] === 'string' ? data['level'] : null);
+
 /** The stylists a choice stands for: one, or every stylist of a level, in the tenant's order. */
-function candidates(config: BookingConfig, data: Record<string, unknown>): Stylist[] {
+function candidates(config: BookingConfig, data: Record<string, unknown>): Bookable[] {
   const choice = String(data['stylist'] ?? '');
-  const gender = (data['gender'] === 'male' || data['gender'] === 'female') ? data['gender'] as Gender : null;
-  if (choice.startsWith('s:')) return config.stylists.filter((s) => s.calendarId === choice.slice(2));
-  if (choice.startsWith('any:')) return stylistsFor(config, gender).filter((s) => s.level === choice.slice(4));
+  if (choice.startsWith('s:')) return stylistsFor(config, null, null).filter((s) => s.calendarId === choice.slice(2));
+  if (choice.startsWith('any:')) return stylistsFor(config, genderOf(data), levelOf(data)).filter((s) => s.level === choice.slice(4));
   return [];
 }
 
-export function stylistOffers(ports: Pick<BookingPorts, 'wording'>, config: BookingConfig, gender: Gender | null): Offer[] {
-  const list = stylistsFor(config, gender);
+/**
+ * The stylist buttons, level by level in the tenant's order, and nothing else: no level is ever
+ * recommended (Tara's rule). «Аль ч {level}» only where at least two stylists of that level may
+ * serve this booking, so it is never offered for a level the branch does not have.
+ */
+export function stylistOffers(ports: Pick<BookingPorts, 'wording'>, config: BookingConfig, gender: Gender | null, level: string | null = null): Offer[] {
+  const list = stylistsFor(config, gender, level);
   const offers: Offer[] = [];
   for (const level of config.levels) {
     const of = list.filter((s) => s.level === level.key);
@@ -179,8 +197,8 @@ export function stylistOffers(ports: Pick<BookingPorts, 'wording'>, config: Book
 }
 
 /** Busy time on these calendars: Google's, plus every active hold (which Google may not show yet). */
-async function busyOn(ports: BookingPorts, calendars: readonly string[], from: Date, to: Date): Promise<Map<string, Interval[]> | null> {
-  const [g, h] = await Promise.all([ports.calendar.busy(calendars, from, to), activeHolds(ports.db, calendars, from, to)]);
+async function busyOn(ports: BookingPorts, calendars: readonly string[], from: Date, to: Date, timezone: string): Promise<Map<string, Interval[]> | null> {
+  const [g, h] = await Promise.all([ports.calendar.busy(calendars, from, to, timezone), activeHolds(ports.db, calendars, from, to)]);
   if (!g.ok) {
     ports.log('error', 'booking_calendar_busy_failed', { detail: g.detail });
     return null;
@@ -207,7 +225,7 @@ async function freeByDay(c: Ctx, data: Record<string, unknown>): Promise<DayStar
   const who = candidates(c.config, data);
   const days = openDays({ now: c.now, timezone: c.facts.timezone, daysAhead: c.config.daysAhead, hours: c.input.hours, closures: c.input.closures });
   if (who.length === 0 || days.length === 0) return [];
-  const busy = await busyOn(c.ports, who.map((s) => s.calendarId), c.now, (days[days.length - 1] as OpenDay).closesAt);
+  const busy = await busyOn(c.ports, who.map((s) => s.calendarId), c.now, (days[days.length - 1] as OpenDay).closesAt, c.facts.timezone);
   if (busy === null) return null;
   return days.map((day) => {
     const starts = new Set<number>();
@@ -261,7 +279,31 @@ function firstQuestion(c: Ctx): Reply {
 
 /** The children's services someone can serve under the gender rule. */
 function childServicesOffered(config: BookingConfig): BookingConfig['childServices'] {
-  return config.childServices.filter((s) => config.stylists.some((x) => x.gender === s.gender));
+  return config.childServices.filter((s) => stylistsFor(config, s.gender, s.level).length > 0);
+}
+
+/** Can anyone here serve this service for this customer? A service nobody may serve is never shown. */
+function servable(config: BookingConfig, s: Service, gender: Gender | null): boolean {
+  return stylistsFor(config, config.genderRule ? gender : null, s.level).length > 0;
+}
+
+/** The groups for this customer (by index): their audience fits, and someone may serve one of their services. */
+function groupsFor(config: BookingConfig, gender: Gender | null): number[] {
+  return config.serviceGroups.flatMap((g, i) =>
+    (g.audience === null || gender === null || g.audience === gender) && g.services.some((s) => servable(config, s, gender)) ? [i] : []);
+}
+
+/** A group's buttons: each ordinary service, and each family once (`f:<family>`), servable ones only. */
+function serviceOffers(config: BookingConfig, group: number, gender: Gender | null): Offer[] {
+  const g = config.serviceGroups[group];
+  if (g === undefined) return [];
+  const offers: Offer[] = [];
+  for (const s of g.services) {
+    if (!servable(config, s, gender)) continue;
+    if (s.family === null) offers.push({ t: s.label, v: s.name });
+    else if (!offers.some((o) => o.v === `f:${s.family}`)) offers.push({ t: s.family, v: `f:${s.family}` });
+  }
+  return offers;
 }
 
 /**
@@ -272,34 +314,39 @@ function childServicesOffered(config: BookingConfig): BookingConfig['childServic
 function whoQuestion(c: Ctx, data: Record<string, unknown>): Reply {
   const w = c.ports.wording;
   const offers: Offer[] = [];
-  if (c.config.stylists.some((s) => s.gender === 'female')) offers.push({ t: say(w, 'booking_gender_female'), v: 'female' });
-  if (c.config.stylists.some((s) => s.gender === 'male')) offers.push({ t: say(w, 'booking_gender_male'), v: 'male' });
+  if (groupsFor(c.config, 'female').length > 0) offers.push({ t: say(w, 'booking_gender_female'), v: 'female' });
+  if (groupsFor(c.config, 'male').length > 0) offers.push({ t: say(w, 'booking_gender_male'), v: 'male' });
   if (childServicesOffered(c.config).length > 0) offers.push({ t: say(w, 'booking_gender_child'), v: 'child' });
   return ask('gender', say(w, 'booking_ask_gender'), offers, data);
 }
 
 function serviceQuestion(c: Ctx, data: Record<string, unknown>): Reply {
   const w = c.ports.wording;
-  const groups = c.config.serviceGroups;
+  const gender = genderOf(data);
+  const groups = groupsFor(c.config, gender);
   if (groups.length === 1) {
-    const g = groups[0] as BookingConfig['serviceGroups'][number];
-    return ask('service', say(w, 'booking_ask_service'), g.services.map((s) => ({ t: s.label, v: s.name })), { ...data, group: 0 });
+    const i = groups[0] as number;
+    return ask('service', say(w, 'booking_ask_service'), serviceOffers(c.config, i, gender), { ...data, group: i });
   }
-  return ask('group', say(w, 'booking_ask_service_group'), groups.map((g, i) => ({ t: g.label, v: String(i) })), data);
+  return ask('group', say(w, 'booking_ask_service_group'), groups.map((i) => ({ t: (c.config.serviceGroups[i] as BookingConfig['serviceGroups'][number]).label, v: String(i) })), data);
+}
+
+/** A service is chosen: what the booking carries of it (its level decides who may serve it). */
+function withService(data: Record<string, unknown>, s: Service): Record<string, unknown> {
+  return { ...data, service: s.name, minutes: s.minutes, level: s.level };
 }
 
 /** The service is chosen (and, under the rule, who it is for): the stylists who may serve it. */
 function afterService(c: Ctx, data: Record<string, unknown>): Reply {
-  const gender = (data['gender'] === 'male' || data['gender'] === 'female') ? data['gender'] as Gender : null;
+  const gender = genderOf(data);
   // Under the rule a stylist is never offered before it is known who the booking is for (a
   // session from before the question moved first): ask it now.
   if (c.config.genderRule && gender === null) return whoQuestion(c, data);
-  return ask('stylist', say(c.ports.wording, 'booking_ask_stylist'), stylistOffers(c.ports, c.config, c.config.genderRule ? gender : null), data);
+  return ask('stylist', say(c.ports.wording, 'booking_ask_stylist'), stylistOffers(c.ports, c.config, c.config.genderRule ? gender : null, levelOf(data)), data);
 }
 
 function noTimes(c: Ctx, data: Record<string, unknown>): Reply {
-  const gender = (data['gender'] === 'male' || data['gender'] === 'female') ? data['gender'] as Gender : null;
-  return ask('stylist', say(c.ports.wording, 'booking_no_times'), stylistOffers(c.ports, c.config, gender), data);
+  return ask('stylist', say(c.ports.wording, 'booking_no_times'), stylistOffers(c.ports, c.config, genderOf(data), levelOf(data)), data);
 }
 
 /**
@@ -390,8 +437,11 @@ function wantAround(data: Record<string, unknown>, tz: string): Want {
   return { date: String(data['date']), hour: h, minute: m, afternoon: false };
 }
 
-/** The summary before the hold: what, who, when, how much, Tara's terms, «Зөвшөөрч, захиалах». */
-function confirmQuestion(c: Ctx, session: Session, data: Record<string, unknown>): Reply | null {
+/**
+ * The summary before the hold: what, who, when, how much, «Зөвшөөрч, захиалах». No deposit terms:
+ * Дали never states them (the founder's rule; the website's own tick box carries them).
+ */
+function summaryText(c: Ctx, session: Session, data: Record<string, unknown>): string | null {
   const w = c.ports.wording;
   const who = candidates(c.config, data);
   const first = who[0];
@@ -400,11 +450,18 @@ function confirmQuestion(c: Ctx, session: Session, data: Record<string, unknown>
   if (first === undefined || level === undefined || deposit === null) return null;
   const stylist = String(data['stylist']).startsWith('s:') ? stylistLabel(first.label, level.label) : say(w, 'booking_any_of_level', { level: level.label });
   const start = new Date(String(data['start']));
-  return ask('agree', say(w, 'booking_ask_agreement', {
+  return say(w, 'booking_ask_agreement', {
     service: String(data['service']), stylist,
     date: dayLabel(w, tenantClock(start, c.facts.timezone).date, c.now, c.facts.timezone), time: timeLabel(start, c.facts.timezone),
-    amount: formatMnt(deposit), agreement: c.config.agreementText,
-  }), [{ t: say(w, 'booking_agree'), v: 'yes' }], data);
+    amount: formatMnt(deposit),
+  });
+}
+
+function confirmQuestion(c: Ctx, session: Session, data: Record<string, unknown>): Reply | null {
+  const summary = summaryText(c, session, data);
+  if (summary === null) return null;
+  // Kept with the session: the hold records exactly what the customer accepted.
+  return ask('agree', summary, [{ t: say(c.ports.wording, 'booking_agree'), v: 'yes' }], { ...data, summary });
 }
 
 /**
@@ -419,11 +476,16 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
   const end = new Date(start.getTime() + minutes * 60_000);
   // The tenant's gender rule asked; without the rule nothing is recorded, never a guess.
   const gender = !config.genderRule ? null : data['gender'] === 'male' ? 'male' as const : data['gender'] === 'female' ? 'female' as const : null;
+  // What the customer accepted with «Зөвшөөрч, захиалах»: the summary as it was shown (a session
+  // from before it was kept: the same summary, rendered again from the same choices).
+  const accepted = typeof data['summary'] === 'string' ? data['summary'] : summaryText(c, session, data);
+  if (accepted === null) return unavailableReply(c, data);
 
   /**
    * Put a database hold into the stylist's calendar (unless it is there already: a redelivered
    * message reuses its hold), then look again. `clash`: the website or a person wrote into the
-   * time first, so the hold is given back. `fail`: the calendar cannot be used now.
+   * time first (a booking, or a website hold created before ours), so the hold is given back.
+   * `fail`: the calendar cannot be used now.
    */
   const place = async (h: Hold): Promise<'ok' | 'clash' | 'fail'> => {
     const id = eventIdForHold(h.id);
@@ -443,7 +505,9 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
       await expireHold(ports, h.id, 'released', 'calendar unreadable after the hold');
       return 'fail';
     }
-    const clash = ev.events.some((e) => e.blocks && e.id !== id && e.start.getTime() < h.endsAt.getTime() && h.startsAt.getTime() < e.end.getTime());
+    // Anything else in the time now, a website booking or an earlier hold of either side's, wins;
+    // an expired website hold and a hold made after ours (it yields to ours) do not.
+    const clash = otherBlocking(ev.events, id, h.startsAt, h.endsAt, ports.now()).length > 0;
     if (clash) {
       await expireHold(ports, h.id, 'released', 'the calendar had another booking in this time');
       return 'clash';
@@ -472,7 +536,7 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
       const level = config.levels.find((l) => l.key === s.level);
       const deposit = depositFor(config, s.level, session.isTest);
       if (level === undefined || deposit === null) continue;
-      const busy = await busyOn(ports, [s.calendarId], start, end);
+      const busy = await busyOn(ports, [s.calendarId], start, end, facts.timezone);
       if (busy === null) return unavailableReply(c, data);
       if (!isFree(start, minutes, busy.get(s.calendarId) ?? [])) continue;
       const take = () => acquireHold(ports.db, {
@@ -480,7 +544,7 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
         hold: {
           calendarId: s.calendarId, staffName: s.label, level: level.label, service: String(data['service']), minutes,
           startsAt: start, endsAt: end, depositMnt: deposit, customerName: String(data['name']), customerPhone: String(data['phone']),
-          gender, agreedAt: c.now, agreementText: config.agreementText,
+          gender, agreedAt: c.now, agreementText: accepted,
         },
       });
       let got = await take();
@@ -630,16 +694,36 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
 
   switch (step) {
     case 'group': {
-      const g = c.config.serviceGroups[Number(choice.v)];
-      if (g === undefined) return 'not_mine';
-      return ask('service', say(w, 'booking_ask_service'), g.services.map((s) => ({ t: s.label, v: s.name })), { ...data, group: Number(choice.v) });
+      const i = Number(choice.v);
+      if (!groupsFor(c.config, genderOf(data)).includes(i)) return 'not_mine';
+      return ask('service', say(w, 'booking_ask_service'), serviceOffers(c.config, i, genderOf(data)), { ...data, group: i });
     }
     case 'service': {
       // A children's service says who serves it: a girl's a woman stylist, a boy's a man.
-      const child = data['child'] === true ? childServicesOffered(c.config).find((x) => x.name === choice.v) : undefined;
-      const s = child ?? (data['child'] === true ? undefined : c.config.serviceGroups.flatMap((g) => g.services).find((x) => x.name === choice.v));
-      if (s === undefined) return 'not_mine';
-      return afterService(c, { ...data, service: s.name, minutes: s.minutes, ...(child === undefined ? {} : { gender: child.gender }) });
+      if (data['child'] === true) {
+        const child = childServicesOffered(c.config).find((x) => x.name === choice.v);
+        return child === undefined ? 'not_mine' : afterService(c, { ...withService(data, child), gender: child.gender });
+      }
+      // Only a service of a group this customer was offered, that someone may serve.
+      const gender = genderOf(data);
+      const offered = groupsFor(c.config, gender).flatMap((i) => (c.config.serviceGroups[i] as BookingConfig['serviceGroups'][number]).services)
+        .filter((x) => servable(c.config, x, gender));
+      if (choice.v.startsWith('f:')) {
+        const family = choice.v.slice(2);
+        const members = offered.filter((x) => x.family === family);
+        if (members.length === 0) return 'not_mine';
+        // One member left for this customer: it is the service (no question with one answer).
+        if (members.length === 1) return afterService(c, withService(data, members[0] as Service));
+        return ask('variant', say(w, 'booking_ask_variant', { service: family }), members.map((x) => ({ t: x.label, v: x.name })), { ...data, family });
+      }
+      const s = offered.find((x) => x.name === choice.v && x.family === null);
+      return s === undefined ? 'not_mine' : afterService(c, withService(data, s));
+    }
+    case 'variant': {
+      const gender = genderOf(data);
+      const s = c.config.serviceGroups.flatMap((g) => g.services)
+        .find((x) => x.name === choice.v && x.family === data['family'] && servable(c.config, x, gender));
+      return s === undefined ? 'not_mine' : afterService(c, withService(data, s));
     }
     case 'gender': {
       if (choice.v === 'child') {
@@ -789,7 +873,7 @@ async function rebookTo(c: Ctx, data: Record<string, unknown>, start: Date): Pro
   const prefer = String(data['preferCalendar'] ?? '');
   const order = [...candidates(config, data)].sort((a, b) => Number(b.calendarId === prefer) - Number(a.calendarId === prefer));
   for (const s of order) {
-    const busy = await busyOn(ports, [s.calendarId], start, end);
+    const busy = await busyOn(ports, [s.calendarId], start, end, tz);
     if (busy === null) return 'not_mine';
     if (!isFree(start, minutes, busy.get(s.calendarId) ?? [])) continue;
     // The stylist's own level, compared in SQL with the deposit's: a stylist moved to another
@@ -917,6 +1001,8 @@ export async function bookingTurn(ports: BookingPorts, input: TurnInput): Promis
     ports.log('warn', 'booking_config_invalid', { tenantId: input.tenantId, detail: cfg.detail });
     return { handled: false, reason: 'config_invalid' };
   }
+  // A branch still being connected (a calendar or its own QPay merchant missing) books nobody.
+  if (cfg.config.notConnected.length > 0) return { handled: false, reason: 'not_connected' };
   const who = customerMode(bookingEnvMode(), cfg.mode, cfg.config, input.psid);
   if (!who.on) return { handled: false, reason: 'not_for_this_customer' };
   const facts = await readTenantFacts(ports.db, input.tenantId);

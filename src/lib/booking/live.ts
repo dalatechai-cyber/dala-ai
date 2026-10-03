@@ -1,6 +1,7 @@
 /**
- * The booking ports bound to the real world: Google Calendar on the service account, QPay on
- * the platform's Quick QR credentials with the tenant's merchant, Messenger through the same
+ * The booking ports bound to the real world: Google Calendar on the service account, QPay with
+ * the tenant's OWN merchant and payout account on the login its row names (`qpayLogin.ts`: the
+ * platform's Quick QR partner login unless the tenant has its own), Messenger through the same
  * delivery path every reply takes, and the founder's alerts.
  *
  * `null` with the reason whenever anything is missing: a route answers 503 and the worker's
@@ -8,7 +9,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { raiseAlert } from '../alerts/alert.ts';
-import { quickQr } from '../billing/qpay.ts';
+import { quickQr, type QpayPort } from '../billing/qpay.ts';
 import { deliverOutbound } from '../outbound/deliver.ts';
 import { scheduleBookingSweep } from '../queue/qstash.ts';
 import { buildDeliverDeps } from '../outbound/deliverDeps.ts';
@@ -16,10 +17,29 @@ import { googleCalendar } from './calendar.ts';
 import { bookingEnvMode, type QpayMerchant } from './config.ts';
 import type { BookingPorts } from './engine.ts';
 import { linkSecret, publicOrigin } from './links.ts';
+import { qpayLoginFor } from './qpayLogin.ts';
 import { loadBookingWording } from './wording.ts';
 import { bookingTurn, type TurnInput, type TurnResult } from './turn.ts';
 
 const env = (k: string): string => (process.env[k] ?? '').trim();
+
+/**
+ * The QPay port for one tenant's merchant: its own payout account on every invoice, on the login
+ * its row names, read now (never cached, rule 7). Missing anything: null, so no invoice is made;
+ * never another login or another tenant's merchant instead. `fetchImpl` is the test seam.
+ */
+export function qpayPortFor(m: QpayMerchant, fetchImpl?: typeof fetch): QpayPort | null {
+  const bank = m.bankAccounts[0];
+  const login = qpayLoginFor(m);
+  if (bank === undefined || !login.ok) {
+    if (!login.ok) console.error(JSON.stringify({ level: 'error', event: 'booking.qpay_login_missing', missing: login.missing }));
+    return null;
+  }
+  return quickQr({
+    ...login.login, merchantId: m.merchantId, mccCode: m.mccCode,
+    bankCode: bank.bankCode, bankAccount: bank.accountNumber, accountName: bank.accountName,
+  }, fetchImpl ?? fetch);
+}
 
 export async function liveBookingPorts(db: SupabaseClient, opts: { graphVersionDefault?: () => string } = {}):
   Promise<{ ok: true; ports: BookingPorts } | { ok: false; detail: string }> {
@@ -42,14 +62,7 @@ export async function liveBookingPorts(db: SupabaseClient, opts: { graphVersionD
     db,
     now: () => new Date(),
     calendar: googleCalendar({ email, privateKey: key }),
-    qpayFor: (m: QpayMerchant) => {
-      const bank = m.bankAccounts[0];
-      if (bank === undefined) return null;
-      return quickQr({
-        ...qpay, merchantId: m.merchantId, mccCode: m.mccCode,
-        bankCode: bank.bankCode, bankAccount: bank.accountNumber, accountName: bank.accountName,
-      });
-    },
+    qpayFor: (m: QpayMerchant) => qpayPortFor(m),
     wording: wording.wording,
     origin: origin as string,
     secret: secret as string,

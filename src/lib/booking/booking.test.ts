@@ -9,13 +9,14 @@ import { quickQr, QPAY_MCC_CODE } from '../billing/qpay.ts';
 import { extractInboundMessages } from '../meta/extract.ts';
 import { sendMessage, sendMessageParts } from '../meta/send.ts';
 import { localDayStart } from '../time/clock.ts';
-import { eventIdForHold, googleCalendar } from './calendar.ts';
+import { eventIdForHold, googleCalendar, isExpiredWebsiteHold, otherBlocking, withoutExpiredHolds, type CalendarEvent } from './calendar.ts';
 import { allServices, bookingEnvMode, customerMode, depositFor, parseBookingConfig, QUICK_REPLY_TITLE_MAX, stylistButton } from './config.ts';
+import { qpayLoginFor } from './qpayLogin.ts';
 import { branchLabel } from './store.ts';
 import { callbackUrl, linkSecret, payUrl, publicOrigin, signHold, verifyHold } from './links.ts';
 import { clock, renderBookingPage } from './page.ts';
 import { freeStarts, isFree, openDays } from './slots.ts';
-import { draftWording, FakeGoogle, FakeQpay, TEST_CALENDARS, testConfig } from './testkit.ts';
+import { draftWording, FakeGoogle, FakeQpay, taraConfig, TEST_CALENDARS, testConfig } from './testkit.ts';
 import { looksLikeName, sameChoice, typedName, typedPhone, typedTime } from './turn.ts';
 import { BOOKING_BLOCK_KEYS, missingBlocks, say, WordingError } from './wording.ts';
 import { dayLabel } from './engine.ts';
@@ -45,8 +46,36 @@ test('a complete config parses; its timing defaults are the website\'s', () => {
   assert.equal(c.holdMinutes, 5, 'the time is held exactly as long as the website\'s QR: five minutes');
   assert.equal(c.slotStepMinutes, 60);
   assert.equal(c.testDepositMnt, 100);
-  assert.equal(c.levels.find((l) => l.key === 'master')?.depositMnt, 20000);
-  assert.equal(c.levels.find((l) => l.key === 'first')?.depositMnt, 10000);
+  // The founder's deposits (2026-10-03).
+  assert.deepEqual(c.levels.map((l) => [l.key, l.label, l.depositMnt]), [['special', 'SPECIAL', 20000], ['master', 'Мастер', 20000], ['first', '1-р зэрэг', 10000]]);
+});
+
+test('Tara\'s rules: the current price list with the 62 confirmed minutes, nothing old, both branches alike', async () => {
+  const { compareBranches } = await import('./branches.ts');
+  const ya = parseBookingConfig(taraConfig('matrix-eco-salon'));
+  const po = parseBookingConfig(taraConfig('tara-park-od'));
+  assert.ok(ya.ok && po.ok);
+  const all = allServices(ya.config);
+  assert.equal(all.length, 62, 'every service of the 2026-10-01 price list, once');
+  const min = (n: string) => all.find((s) => s.name === n)?.minutes;
+  assert.equal(min('Эмэгтэй засалт — Тайралт том хүн /SPECIAL/'), 75);
+  assert.equal(min('Эмэгтэй засалт — Тайралт том хүн /МАСТЕР/'), 60);
+  assert.equal(min('Эмэгтэй засалт — Тайралт том хүн /1-р зэрэг/'), 60);
+  assert.equal(min('Эмэгтэй засалт — Тайралт хүүхэд'), 45);
+  assert.equal(min('Эмэгтэй засалт — Тайралт /чёлк/'), 15);
+  assert.equal(min('Эмэгтэй будаг — TARA BLEND (Урт)'), 300);
+  // The website's old menu is gone from the booking: never mixed in.
+  for (const old of ['Оффис колор', 'Омбре / Колор', 'CMC тэжээл', 'Энгийн засалт', 'Будаг', 'Хими арчилгаа']) {
+    assert.ok(!all.some((s) => s.name === old || s.label === old), `${old} is not bookable`);
+  }
+  assert.deepEqual(ya.config.childServices.map((s) => [s.label, s.gender, s.minutes]), [['Охин', 'female', 45], ['Эрэгтэй 0–13 нас', 'male', 30], ['Эрэгтэй 14–18 нас', 'male', 45]]);
+  // Names: the founder's short Latin names, by branch; Отгонжаргал in neither.
+  assert.deepEqual(ya.config.stylists.map((s) => `${s.label}:${s.level}:${s.gender}`), ['Oyunaa:special:female', 'Badamaa:master:female', 'Uyanga:first:female', 'Zaya:first:female', 'Chimgee:first:female', 'Anand:master:male']);
+  assert.deepEqual(po.config.stylists.map((s) => `${s.label}:${s.level}:${s.gender}`), ['Boloroo:special:female', 'Saraa:master:female', 'Tomoo:master:female', 'Bulgaa:master:female', 'Enhuush:master:female', 'Chimegee:master:female', 'Tuchku:master:male']);
+  assert.ok(![...ya.config.stylists, ...po.config.stylists].some((s) => /Отгон|Otgon/u.test(s.name)));
+  assert.equal(po.config.branchLabel, 'Парк Од');
+  // Two branches: one rule set, their own calendars and merchants.
+  assert.deepEqual(compareBranches([{ slug: 'matrix-eco-salon', config: ya.config }, { slug: 'tara-park-od', config: po.config }]), []);
 });
 
 test('a config missing anything that touches money or a calendar is refused, never partly on', () => {
@@ -55,33 +84,102 @@ test('a config missing anything that touches money or a calendar is refused, nev
     assert.equal(p.ok, false);
     assert.match(p.ok ? '' : p.detail, why);
   };
-  refuse({ agreement_text: '' }, /agreement_text/);
+  // Дали states no deposit terms in chat: a row still carrying the sentence is refused, not ignored.
+  refuse({ agreement_text: 'Урьдчилгаа төлбөр …' }, /agreement_text is gone/);
   refuse({ qpay: undefined }, /qpay/);
   refuse({ qpay: { merchant_id: 'm', mcc_code: '72', bank_accounts: [] } }, /mcc_code/);
+  refuse({ qpay: { merchant_id: 'not-connected', mcc_code: '7230', bank_accounts: [] } }, /never a partial merchant/);
+  refuse({ qpay: { merchant_id: 'm', mcc_code: '7230', bank_accounts: [] } }, /exactly one account/);
+  refuse({ qpay: { merchant_id: 'm', mcc_code: '7230', bank_accounts: [{ bank_code: '1', account_number: '2', account_name: 'x' }], login: 'parkod' } }, /qpay\.login/);
   refuse({ levels: [{ key: 'master', label: 'Мастер', deposit_mnt: 0 }] }, /deposit_mnt/);
   refuse({ stylists: [{ name: 'A', level: 'master', gender: 'x', calendar_id: 'c' }] }, /gender/);
   refuse({ stylists: [{ name: 'A', level: 'nope', gender: 'female', calendar_id: 'c' }] }, /not a listed level/);
+  refuse({ stylists: [{ name: 'A', level: 'master', gender: 'female' }] }, /calendar_id/);
   refuse({ stylists: [
     { name: 'A', level: 'master', gender: 'female', calendar_id: 'c' },
     { name: 'B', level: 'master', gender: 'female', calendar_id: 'c' },
   ] }, /calendar_id is used twice/);
   refuse({ entry_matchers: [{ mode: 'contains_stem', stems: ['ц'] }] }, /entry_matchers\[0\]/);
   refuse({ entry_matchers: [] }, /entry_matchers/);
-  refuse({ service_groups: [{ label: 'Засалт', services: [{ name: 'Маш урт нэртэй үйлчилгээний нэр', minutes: 60 }] }] }, /longer than 20/);
-  const labelled = parseBookingConfig(testConfig({ service_groups: [{ label: 'Арчилгаа', services: [{ name: 'CICA нөхөн сэргээх эмчилгээ', label: 'CICA эмчилгээ', minutes: 90 }] }] }));
+  refuse({ service_groups: [{ label: 'Үйлчилгээ', services: [{ name: 'Маш урт нэртэй үйлчилгээний нэр', minutes: 60 }] }] }, /longer than 20/);
+  refuse({ service_groups: [{ label: 'Үйлчилгээ', services: [{ name: 'A', minutes: 60, level: 'nope' }] }] }, /not a listed level/);
+  refuse({ service_groups: [{ label: 'Үйлчилгээ', audience: 'child', services: [{ name: 'A', minutes: 60 }] }] }, /audience/);
+  refuse({ service_groups: [{ label: 'Үйлчилгээ', services: [{ name: 'A', minutes: 60 }, { name: 'B', label: 'A', minutes: 60 }] }] }, /two buttons read «A»/);
+  refuse({ service_groups: [{ label: 'Үйлчилгээ', services: [{ name: 'A', label: 'Урт', family: 'Хими', minutes: 60 }, { name: 'B', label: 'Урт', family: 'Хими', minutes: 60 }] }] }, /two «Урт»/);
+  refuse({ service_groups: [{ label: 'Үйлчилгээ', services: [{ name: 'A', family: 'Маш урт нэртэй гэр бүлийн нэр', minutes: 60 }] }] }, /family/);
+  const labelled = parseBookingConfig(testConfig({ service_groups: [{ label: 'Үйлчилгээ', services: [{ name: 'Үйлчилгээ — CICA үсний гүний эмчилгээ', label: 'CICA эмчилгээ', minutes: 90 }] }] }));
   assert.ok(labelled.ok && labelled.config.serviceGroups[0]?.services[0]?.label === 'CICA эмчилгээ', 'a long name with a short button label is fine');
   refuse({ stylists: [{ name: 'A', label: 'Хэтэрхий урт нэртэй үсчин хүн', level: 'master', gender: 'female', calendar_id: 'c' }] }, /longer than 20/);
-  const long = parseBookingConfig(testConfig({ stylists: [{ name: 'Отгонжаргал', level: 'first', gender: 'female', calendar_id: 'c' }] }));
-  assert.ok(long.ok && stylistButton(long.config.stylists[0] as never, long.config.levels[1] as never) === 'Отгонжаргал',
+  const long = parseBookingConfig(testConfig({ stylists: [{ name: 'Oyunchimeg', level: 'first', gender: 'female', calendar_id: 'c' }] }));
+  assert.ok(long.ok && stylistButton(long.config.stylists[0] as never, long.config.levels[2] as never) === 'Oyunchimeg',
     'a name too long to carry its level shows the name alone');
   refuse({ qr_minutes: 5 }, /qr_minutes/);
   // Children's services: who serves each is the tenant's rule, never guessed; minutes required.
-  refuse({ child_services: [{ name: 'Хүүхдийн тайралт', label: 'Охин', minutes: 60 }] }, /child_services\[0\]\.gender/);
-  refuse({ child_services: [{ name: 'Хүүхдийн тайралт', label: 'Охин', gender: 'female' }] }, /minutes/);
-  refuse({ gender_rule: false, child_services: [{ name: 'Хүүхдийн тайралт', label: 'Охин', gender: 'female', minutes: 60 }] }, /gender_rule/);
-  refuse({ child_services: [{ name: 'Энгийн засалт', gender: 'female', minutes: 60 }] }, /listed twice/);
-  const kids = parseBookingConfig(testConfig());
-  assert.ok(kids.ok && kids.config.childServices.length === 2 && allServices(kids.config).some((x) => x.name === 'Хүүхдийн тайралт (хүү)'));
+  refuse({ child_services: [{ name: 'Хүүхэд', label: 'Охин', minutes: 60 }] }, /child_services\[0\]\.gender/);
+  refuse({ child_services: [{ name: 'Хүүхэд', label: 'Охин', gender: 'female' }] }, /minutes/);
+  refuse({ gender_rule: false, child_services: [{ name: 'Хүүхэд', label: 'Охин', gender: 'female', minutes: 60 }] }, /gender_rule|audience/);
+  refuse({ child_services: [{ name: 'Үйлчилгээ — Хуйх цэвэрлэгээ', label: 'Охин', gender: 'female', minutes: 60 }] }, /listed twice/);
+});
+
+test('«not connected»: a branch being prepared parses, books nobody, and never borrows', () => {
+  const none = parseBookingConfig(taraConfig('tara-park-od', { qpay: 'not-connected' }, { calendars: false }));
+  assert.ok(none.ok, none.ok ? '' : none.detail);
+  assert.equal(none.config.qpay, null);
+  assert.ok(none.config.stylists.every((s) => s.calendarId === null));
+  assert.equal(none.config.notConnected.length, 8, 'seven calendars and the merchant');
+  for (const env of ['test', 'live'] as const) {
+    assert.deepEqual(customerMode(env, 'live', none.config, 'psid-tester'), { on: false }, 'not even a tester');
+  }
+  // One calendar missing is enough.
+  const one = parseBookingConfig(taraConfig('tara-park-od', { stylists: (taraConfig('tara-park-od')['stylists'] as Record<string, unknown>[]).map((s, i) => (i === 3 ? { ...s, calendar_id: 'not-connected' } : s)) }));
+  assert.ok(one.ok && one.config.notConnected.join() === 'Bulgaa\'s calendar');
+  assert.deepEqual(customerMode('live', 'live', one.config, 'psid-x'), { on: false });
+  const ready = parseBookingConfig(taraConfig('tara-park-od'));
+  assert.ok(ready.ok && ready.config.notConnected.length === 0);
+  assert.deepEqual(customerMode('live', 'live', ready.config, 'psid-x'), { on: true, isTest: false });
+});
+
+test('QPay login: the platform\'s unless the row names its own, then only its own (no fallback)', () => {
+  const env = { QPAY_USERNAME: 'p', QPAY_PASSWORD: 'pp', QPAY_TERMINAL_ID: 'DALATECH_AI', BOOKING_QPAY_PARKOD_USERNAME: 'k', BOOKING_QPAY_PARKOD_PASSWORD: 'kk' };
+  assert.deepEqual(qpayLoginFor({ login: null }, env), { ok: true, login: { username: 'p', password: 'pp', terminalId: 'DALATECH_AI' } });
+  assert.deepEqual(qpayLoginFor({ login: 'PARKOD' }, env), { ok: false, missing: ['BOOKING_QPAY_PARKOD_TERMINAL_ID'] }, 'two of three: refused, not the platform\'s');
+  assert.deepEqual(qpayLoginFor({ login: 'PARKOD' }, { ...env, BOOKING_QPAY_PARKOD_TERMINAL_ID: 'T2' }), { ok: true, login: { username: 'k', password: 'kk', terminalId: 'T2' } });
+  assert.deepEqual(qpayLoginFor({ login: null }, {}), { ok: false, missing: ['QPAY_USERNAME', 'QPAY_PASSWORD', 'QPAY_TERMINAL_ID'] });
+});
+
+test('website holds: an expired one is free, a live one busy; the earlier of two holds wins', () => {
+  const at = new Date('2026-10-04T06:00:00Z');
+  const hour = new Date(at.getTime() + 3600_000);
+  const now = new Date('2026-10-04T01:00:00Z');
+  const ev = (id: string, created: number, hold: CalendarEvent['hold'], start = at, end = hour): CalendarEvent =>
+    ({ id, cancelled: false, blocks: true, start, end, created: new Date(created), hold });
+  const site = (expiresAt: Date | null, placed: number | null = null) => ({ kind: 'website' as const, expiresAt, placedAt: placed === null ? null : new Date(placed) });
+  const soon = new Date(now.getTime() + 60_000);
+  const expired = ev('sh1', 1, site(new Date(now.getTime() - 1)));
+  const live = ev('sh2', 1, site(soon));
+  const unreadable = ev('sh3', 1, site(null));
+  assert.ok(isExpiredWebsiteHold(expired, now) && !isExpiredWebsiteHold(live, now) && !isExpiredWebsiteHold(unreadable, now));
+  const from = new Date('2026-10-04T00:00:00Z');
+  const to = new Date('2026-10-05T00:00:00Z');
+  assert.deepEqual(withoutExpiredHolds([{ start: at, end: hour }], [expired], now, from, to), [], 'an expired website hold is free');
+  // Free/busy merged an expired hold with a booking that overlaps it: the booking stays busy.
+  const booking = ev('qb1', 2, null, new Date(at.getTime() + 1800_000), new Date(hour.getTime() + 1800_000));
+  const merged = withoutExpiredHolds([{ start: at, end: booking.end }], [expired, booking], now, from, to);
+  assert.deepEqual(merged.map((i) => [i.start.toISOString(), i.end.toISOString()]), [[booking.start.toISOString(), booking.end.toISOString()]]);
+  assert.equal(withoutExpiredHolds([{ start: at, end: hour }], [live], now, from, to).length, 1, 'a live website hold is busy');
+  // Our hold (created at 10) against others in its time.
+  const ours = ev('dhours', 10, { kind: 'chat' });
+  assert.equal(otherBlocking([ours, ev('sh9', 5, site(soon))], 'dhours', at, hour, now).length, 1, 'an earlier website hold wins: we yield');
+  assert.equal(otherBlocking([ours, ev('sh9', 11, site(soon))], 'dhours', at, hour, now).length, 0, 'a later website hold yields to ours');
+  assert.equal(otherBlocking([ours, ev('sh9', 10, site(soon))], 'dhours', at, hour, now).length, 1, 'a tie: we yield (never two winners)');
+  // «Placed» is the website's holdPlacedAt (rewritten on a renewal), not the event's created.
+  assert.equal(otherBlocking([ours, ev('sh9', 5, site(soon, 11))], 'dhours', at, hour, now).length, 0, 'created earlier, but placed (renewed) after ours: it yields');
+  assert.equal(otherBlocking([ours, ev('sh9', 11, site(soon, 5))], 'dhours', at, hour, now).length, 1, 'placed before ours: we yield');
+  assert.equal(otherBlocking([ours, ev('qb9', 11, null)], 'dhours', at, hour, now).length, 1, 'a booking always wins, whenever it was written');
+  assert.equal(otherBlocking([ours, expired], 'dhours', at, hour, now).length, 0, 'an expired website hold never wins');
+  assert.equal(otherBlocking([{ ...ours, created: null }, ev('sh9', 11, site(null))], 'dhours', at, hour, now).length, 1, 'our own time unknown: we yield');
+  // Every id this platform writes is a valid Google event id (base32hex: 0-9 and a-v only).
+  assert.match(eventIdForHold('6f1c1a3e-6b0a-4c37-9d4a-1b2c3d4e5f60'), /^[0-9a-v]{5,1024}$/u);
 });
 
 test('off anywhere is off; test anywhere is testers only; a tester in live gets the test deposit', () => {
@@ -93,6 +191,7 @@ test('off anywhere is off; test anywhere is testers only; a tester in live gets 
   assert.deepEqual(customerMode('test', 'test', c, 'psid-tester'), { on: true, isTest: true });
   assert.deepEqual(customerMode('live', 'live', c, 'psid-x'), { on: true, isTest: false });
   assert.deepEqual(customerMode('live', 'live', c, 'psid-tester'), { on: true, isTest: true });
+  assert.equal(depositFor(c, 'special', false), 20000);
   assert.equal(depositFor(c, 'master', false), 20000);
   assert.equal(depositFor(c, 'first', false), 10000);
   assert.equal(depositFor(c, 'master', true), 100);
@@ -230,22 +329,29 @@ test('every button a customer taps fits Meta\'s 20 characters', () => {
   }
 });
 
-test('«any stylist of a level» is offered only when its approved words fit a button, never cut', async () => {
+test('stylist buttons: by level, no level recommended, «Аль ч {level}» only where two may serve; never 1-р зэрэг at Парк Од', async () => {
   const { stylistOffers } = await import('./turn.ts');
-  const base = testConfig();
-  const two = parseBookingConfig(testConfig({ stylists: [...(base['stylists'] as unknown[]),
-    { name: 'Батзаяа', label: 'Батзаяа', level: 'first', gender: 'female', calendar_id: 'c-first-2' }] }));
-  assert.ok(two.ok);
-  const offers = stylistOffers({ wording: draftWording() } as never, two.config, 'female');
-  assert.ok(offers.some((o) => o.v === 'any:master' && o.t === 'Аль ч Мастер'));
-  assert.ok(offers.some((o) => o.v === 'any:first' && o.t === 'Аль ч 1-р зэрэг'));
-  assert.ok(offers.every((o) => [...o.t].length <= QUICK_REPLY_TITLE_MAX));
+  const w = { wording: draftWording() } as never;
+  const ya = parseBookingConfig(taraConfig('matrix-eco-salon'));
+  const po = parseBookingConfig(taraConfig('tara-park-od'));
+  assert.ok(ya.ok && po.ok);
+  const t = (c: typeof ya, g: 'female' | 'male', level: string | null = null) => stylistOffers(w, (c as { ok: true; config: never }).config, g, level).map((o) => o.t);
+  assert.deepEqual(t(ya, 'female'), ['Oyunaa · SPECIAL', 'Badamaa · Мастер', 'Аль ч 1-р зэрэг', 'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг']);
+  assert.deepEqual(t(ya, 'male'), ['Anand · Мастер'], 'a man: the branch\'s man only');
+  assert.deepEqual(t(po, 'female'), ['Boloroo · SPECIAL', 'Аль ч Мастер', 'Saraa · Мастер', 'Tomoo · Мастер', 'Bulgaa · Мастер', 'Enhuush · Мастер', 'Chimegee · Мастер']);
+  assert.deepEqual(t(po, 'male'), ['Tuchku · Мастер']);
+  assert.ok(!t(po, 'female').some((x) => x.includes('1-р зэрэг')), 'Парк Од has no 1-р зэрэг: never offered there');
+  assert.deepEqual(t(po, 'female', 'first'), [], 'a 1-р зэрэг price line has nobody at Парк Од');
+  assert.deepEqual(t(ya, 'female', 'special'), ['Oyunaa · SPECIAL'], 'a SPECIAL price line: SPECIAL only');
+  assert.deepEqual(t(ya, 'male', 'special'), [], 'no man is SPECIAL: the men\'s SPECIAL line has nobody');
+  // The «any» button says the level and nothing else: no ranking, no «best», no recommendation.
+  for (const o of [...t(ya, 'female'), ...t(po, 'female')]) assert.ok(!o.startsWith('Аль ч') || /^Аль ч (SPECIAL|Мастер|1-р зэрэг)$/u.test(o));
+  assert.ok([...t(ya, 'female'), ...t(po, 'female')].every((x) => [...x].length <= QUICK_REPLY_TITLE_MAX));
   // A level label too long for «Аль ч …» loses only that button; its stylists stay.
-  const long = parseBookingConfig(testConfig({ levels: [{ key: 'master', label: 'Мастер', deposit_mnt: 20000 }, { key: 'first', label: 'Нэгдүгээр зэргийн', deposit_mnt: 10000 }],
-    stylists: [...(base['stylists'] as unknown[]), { name: 'Батзаяа', label: 'Батзаяа', level: 'first', gender: 'female', calendar_id: 'c-first-2' }] }));
+  const long = parseBookingConfig(taraConfig('matrix-eco-salon', { levels: [{ key: 'special', label: 'SPECIAL', deposit_mnt: 20000 }, { key: 'master', label: 'Мастер', deposit_mnt: 20000 }, { key: 'first', label: 'Нэгдүгээр зэргийн', deposit_mnt: 10000 }] }));
   assert.ok(long.ok);
-  const lo = stylistOffers({ wording: draftWording() } as never, long.config, 'female');
-  assert.ok(!lo.some((o) => o.v === 'any:first') && lo.some((o) => o.v === `s:c-first-2`));
+  const lo = stylistOffers(w, long.config, 'female', null);
+  assert.ok(!lo.some((o) => o.v === 'any:first') && lo.some((o) => o.v === `s:${TEST_CALENDARS.zaya}`));
 });
 
 test('day labels: today, tomorrow, then «10 сарын 5, Даваа»', () => {
@@ -294,42 +400,61 @@ test('the page shows the QR, the bank buttons and the countdown, and refuses uns
 // ---------------------------------------------------------------------------
 
 test('Google Calendar: the signed service-account token, busy, insert 409, patch, delete', async () => {
-  const g = new FakeGoogle([TEST_CALENDARS.master1]);
+  const g = new FakeGoogle([TEST_CALENDARS.oyunaa]);
   const cal = googleCalendar({ email: g.email, privateKey: g.privateKey }, g.fetch);
   const at = new Date('2026-10-04T06:00:00Z');
-  g.websiteBooks(TEST_CALENDARS.master1, at, 60);
-  const busy = await cal.busy([TEST_CALENDARS.master1], new Date('2026-10-04T00:00:00Z'), new Date('2026-10-05T00:00:00Z'));
+  g.websiteBooks(TEST_CALENDARS.oyunaa, at, 60);
+  const busy = await cal.busy([TEST_CALENDARS.oyunaa], new Date('2026-10-04T00:00:00Z'), new Date('2026-10-05T00:00:00Z'), TZ);
   assert.ok(busy.ok);
-  assert.equal(busy.ok && busy.busy.get(TEST_CALENDARS.master1)?.length, 1);
+  assert.equal(busy.ok && busy.busy.get(TEST_CALENDARS.oyunaa)?.length, 1);
   const id = eventIdForHold('6f1c1a3e-6b0a-4c37-9d4a-1b2c3d4e5f60');
   const ev = { id, summary: 's', description: 'd', start: at, end: new Date(at.getTime() + 3600_000), transparency: 'opaque' as const, privateProps: {} };
-  assert.deepEqual(await cal.insert(TEST_CALENDARS.master1, ev), { ok: true });
-  assert.deepEqual(await cal.insert(TEST_CALENDARS.master1, ev), { ok: false, outcome: 'exists' });
-  assert.deepEqual(await cal.remove(TEST_CALENDARS.master1, id), { ok: true });
-  assert.deepEqual(await cal.remove(TEST_CALENDARS.master1, id), { ok: true }); // already gone counts as done
+  assert.deepEqual(await cal.insert(TEST_CALENDARS.oyunaa, ev), { ok: true });
+  assert.deepEqual(await cal.insert(TEST_CALENDARS.oyunaa, ev), { ok: false, outcome: 'exists' });
+  assert.deepEqual(await cal.remove(TEST_CALENDARS.oyunaa, id), { ok: true });
+  assert.deepEqual(await cal.remove(TEST_CALENDARS.oyunaa, id), { ok: true }); // already gone counts as done
   // A deleted event comes back on patch (status confirmed), as Google's does.
-  assert.deepEqual(await cal.patch(TEST_CALENDARS.master1, id, ev), { ok: true });
-  assert.equal(g.live(TEST_CALENDARS.master1).length, 2);
-  assert.deepEqual(await cal.patch(TEST_CALENDARS.master1, 'dhnothere000', ev), { ok: false, outcome: 'gone' });
-  const list = await cal.events(TEST_CALENDARS.master1, at, new Date(at.getTime() + 3600_000), TZ);
-  assert.ok(list.ok && list.events.length === 2 && list.events.every((e) => e.blocks));
+  assert.deepEqual(await cal.patch(TEST_CALENDARS.oyunaa, id, ev), { ok: true });
+  assert.equal(g.live(TEST_CALENDARS.oyunaa).length, 2);
+  assert.deepEqual(await cal.patch(TEST_CALENDARS.oyunaa, 'dhnothere000', ev), { ok: false, outcome: 'gone' });
+  const list = await cal.events(TEST_CALENDARS.oyunaa, at, new Date(at.getTime() + 3600_000), TZ);
+  assert.ok(list.ok && list.events.length === 2 && list.events.every((e) => e.blocks && e.created !== null));
+  assert.ok(list.ok && list.events.find((e) => e.id === id)?.hold === null, 'a dh event with no hold state is not a hold (never classified by its id)');
+  await cal.patch(TEST_CALENDARS.oyunaa, id, { ...ev, privateProps: { dalaBookingHold: 'h', dalaBookingState: 'hold' } });
+  const asHold = await cal.events(TEST_CALENDARS.oyunaa, at, new Date(at.getTime() + 3600_000), TZ);
+  assert.ok(asHold.ok && asHold.events.find((e) => e.id === id)?.hold?.kind === 'chat', 'our event in state «hold» reads as our hold');
+  await cal.patch(TEST_CALENDARS.oyunaa, id, { ...ev, privateProps: { dalaBookingHold: 'h', dalaBookingState: 'booking' } });
+  const asBooking = await cal.events(TEST_CALENDARS.oyunaa, at, new Date(at.getTime() + 3600_000), TZ);
+  assert.ok(asBooking.ok && asBooking.events.find((e) => e.id === id)?.hold === null, 'once paid (state «booking»), the same dh id is a booking, not a hold');
+  // A website hold, as its contract writes it: busy while it lasts, free once expired.
+  const later = new Date(at.getTime() + 3 * 3600_000);
+  const wh = g.websiteHolds(TEST_CALENDARS.oyunaa, later, 60, '8800 1122', new Date(Date.now() + 5 * 60_000));
+  const seen = await cal.events(TEST_CALENDARS.oyunaa, later, new Date(later.getTime() + 3600_000), TZ);
+  assert.ok(seen.ok && seen.events[0]?.id === wh.id && /^sh[0-9a-f]{40}$/u.test(wh.id) && seen.events[0]?.hold?.kind === 'website');
+  const day = [new Date('2026-10-04T00:00:00Z'), new Date('2026-10-05T00:00:00Z')] as const;
+  const busyLive = await cal.busy([TEST_CALENDARS.oyunaa], day[0], day[1], TZ);
+  assert.ok(busyLive.ok && busyLive.busy.get(TEST_CALENDARS.oyunaa)?.some((i) => i.start.getTime() === later.getTime()), 'a live website hold is busy');
+  wh.privateProps['holdExpiresAt'] = new Date(Date.now() - 1000).toISOString();
+  const busyExpired = await cal.busy([TEST_CALENDARS.oyunaa], day[0], day[1], TZ);
+  assert.ok(busyExpired.ok && !busyExpired.busy.get(TEST_CALENDARS.oyunaa)?.some((i) => i.start.getTime() === later.getTime()), 'an expired website hold is free, although free/busy still shows it');
   // Only one token fetch for the whole port.
   assert.equal(g.calls.filter((c) => c.includes('/token')).length, 1);
 });
 
 test('Google Calendar: a calendar Google cannot read is a failure, never an empty one', async () => {
-  const g = new FakeGoogle([TEST_CALENDARS.master1]);
-  g.brokenCalendars.add(TEST_CALENDARS.master1);
+  const g = new FakeGoogle([TEST_CALENDARS.oyunaa]);
+  g.brokenCalendars.add(TEST_CALENDARS.oyunaa);
   const cal = googleCalendar({ email: g.email, privateKey: g.privateKey }, g.fetch);
-  const busy = await cal.busy([TEST_CALENDARS.master1], new Date(), new Date(Date.now() + 3600_000));
+  const busy = await cal.busy([TEST_CALENDARS.oyunaa], new Date(), new Date(Date.now() + 3600_000), TZ);
   assert.equal(busy.ok, false);
   const wrongKey = googleCalendar({ email: g.email, privateKey: new FakeGoogle([]).privateKey }, g.fetch);
-  const refused = await wrongKey.busy([TEST_CALENDARS.master1], new Date(), new Date(Date.now() + 3600_000));
+  const refused = await wrongKey.busy([TEST_CALENDARS.oyunaa], new Date(), new Date(Date.now() + 3600_000), TZ);
   assert.equal(refused.ok, false);
 });
 
-test('QPay: the tenant\'s merchant and mcc go on the invoice; billing still sends its own 8299', async () => {
+test('QPay: the tenant\'s merchant, payout account and mcc go on the invoice; billing still sends its own 8299', async () => {
   const q = new FakeQpay();
+  q.registerMerchant('qpay-user', 'tara-merchant');
   const merchant = { username: 'qpay-user', password: 'qpay-pass', terminalId: 'DALATECH_AI', merchantId: 'tara-merchant', bankCode: '040000', bankAccount: 'ACC', accountName: 'Holder' };
   const tara = quickQr({ ...merchant, mccCode: '7230' }, q.fetch);
   const t = await tara.token();
@@ -338,7 +463,12 @@ test('QPay: the tenant\'s merchant and mcc go on the invoice; billing still send
   assert.ok(inv.ok);
   const stored = q.invoices.get(inv.ok ? inv.invoiceId : '');
   assert.equal(stored?.merchantId, 'tara-merchant');
+  assert.deepEqual([stored?.bankCode, stored?.bankAccount, stored?.accountName], ['040000', 'ACC', 'Holder']);
   assert.equal(stored?.mcc, '7230');
+  // A merchant not registered under this login: QPay refuses, as it does.
+  const stranger = quickQr({ ...merchant, merchantId: 'someone-else', mccCode: '7230' }, q.fetch);
+  const refused = await stranger.createInvoice(t.ok ? t.token : '', { amountMnt: 20000, description: 'x', callbackUrl: 'https://x/cb' });
+  assert.equal(refused.ok, false);
   assert.equal(stored?.amount, 20000);
   const billing = quickQr(merchant, q.fetch);
   const inv2 = await billing.createInvoice(t.ok ? t.token : '', { amountMnt: 100, description: 'DalaTech', callbackUrl: 'https://x/cb' });
@@ -399,21 +529,28 @@ test('a tapped quick reply carries its payload into the inbound message', () => 
   assert.equal('quickReplyPayload' in (plain.messages[0] ?? {}), false);
 });
 
-test('branches: same services, deposits, agreement and merchant; never one calendar in two', async () => {
+test('branches: same services and deposits; never one calendar, merchant or payout account in two', async () => {
   const { compareBranches } = await import('./branches.ts');
-  const base = parseBookingConfig(testConfig());
-  assert.ok(base.ok);
-  const park = parseBookingConfig(testConfig({ stylists: [{ name: 'Парк', level: 'master', gender: 'female', calendar_id: 'park@group.calendar.google.com' }] }));
-  assert.ok(park.ok);
-  assert.deepEqual(compareBranches([{ slug: 'a', config: base.config }, { slug: 'b', config: park.config }]), []);
-  const cheaper = parseBookingConfig(testConfig({ levels: [{ key: 'master', label: 'Мастер', deposit_mnt: 15000 }, { key: 'first', label: '1-р зэрэг', deposit_mnt: 10000 }] }));
-  assert.ok(cheaper.ok);
-  const f = compareBranches([{ slug: 'a', config: base.config }, { slug: 'b', config: cheaper.config }]);
-  assert.ok(f.some((x) => x.kind === 'drift' && /deposits/u.test(x.detail)));
-  assert.ok(f.some((x) => x.kind === 'shared_calendar'));
+  const ya = parseBookingConfig(taraConfig('matrix-eco-salon'));
+  const po = parseBookingConfig(taraConfig('tara-park-od'));
+  assert.ok(ya.ok && po.ok);
+  const pair = (b: typeof po) => compareBranches([{ slug: 'a', config: ya.config }, { slug: 'b', config: (b as { ok: true; config: typeof po extends { ok: true; config: infer C } ? C : never }).config }]);
+  assert.deepEqual(pair(po), []);
+  const cheaper = parseBookingConfig(taraConfig('tara-park-od', { levels: [{ key: 'special', label: 'SPECIAL', deposit_mnt: 20000 }, { key: 'master', label: 'Мастер', deposit_mnt: 15000 }, { key: 'first', label: '1-р зэрэг', deposit_mnt: 10000 }] }));
+  assert.ok(cheaper.ok && pair(cheaper).some((x) => x.kind === 'drift' && /deposits/u.test(x.detail)));
+  const sameCal = parseBookingConfig(taraConfig('tara-park-od', { stylists: [{ name: 'Boloroo', level: 'special', gender: 'female', calendar_id: TEST_CALENDARS.oyunaa }] }));
+  assert.ok(sameCal.ok && pair(sameCal).some((x) => x.kind === 'shared_calendar'));
+  // Each branch is paid into its own: the same merchant id, or the same account, is a finding.
+  const yq = (taraConfig('matrix-eco-salon')['qpay']) as Record<string, unknown>;
+  const sameMerchant = parseBookingConfig(taraConfig('tara-park-od', { qpay: { ...(taraConfig('tara-park-od')['qpay'] as Record<string, unknown>), merchant_id: yq['merchant_id'] } }));
+  assert.ok(sameMerchant.ok && pair(sameMerchant).some((x) => x.kind === 'shared_merchant' && /merchant id/u.test(x.detail)));
+  const sameAccount = parseBookingConfig(taraConfig('tara-park-od', { qpay: { ...(taraConfig('tara-park-od')['qpay'] as Record<string, unknown>), bank_accounts: yq['bank_accounts'] } }));
+  assert.ok(sameAccount.ok && pair(sameAccount).some((x) => x.kind === 'shared_merchant' && /payout account/u.test(x.detail)));
+  // A branch not connected yet is still compared on its shape.
+  const prep = parseBookingConfig(taraConfig('tara-park-od', { qpay: 'not-connected' }, { calendars: false }));
+  assert.ok(prep.ok && pair(prep).length === 0);
   // Who serves a children's service is part of the one rule set.
-  const swapped = parseBookingConfig(testConfig({ stylists: [{ name: 'Парк', level: 'master', gender: 'female', calendar_id: 'park@group.calendar.google.com' }],
-    child_services: [{ name: 'Хүүхдийн тайралт (охин)', label: 'Охин', gender: 'male', minutes: 60 }, { name: 'Хүүхдийн тайралт (хүү)', label: 'Хүү', gender: 'male', minutes: 60 }] }));
-  assert.ok(swapped.ok);
-  assert.ok(compareBranches([{ slug: 'a', config: base.config }, { slug: 'b', config: swapped.config }]).some((x) => /children/u.test(x.detail)));
+  const swapped = parseBookingConfig(taraConfig('tara-park-od', {
+    child_services: (taraConfig('tara-park-od')['child_services'] as Record<string, unknown>[]).map((c) => ({ ...c, gender: 'male' })) }));
+  assert.ok(swapped.ok && pair(swapped).some((x) => /children/u.test(x.detail)));
 });

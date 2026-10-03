@@ -1,3 +1,64 @@
+# NOTES — Round 2026-10-03: two-branch in-chat booking
+
+Branch `claude/tara-inchat-booking-two-branch` (worktree `/home/user/dala-wt/booking`), stacked on
+draft PR #280 (`claude/happy-pasteur-4gp7gd`, 87a8875). Booking stays OFF for every tenant. Migration
+0082 NOT applied; edited only by one comment (agreement_text now records the accepted summary).
+
+## Status
+- [x] Service list: current 2026-10-01 price list (62 services, website keys) with the 62 confirmed
+      minutes, in `config/booking/tara-salon.json`; old menu gone. Prices: Дали's SQL and the website's
+      `data/services.json` agree on every price; NAME differences reported, not picked (see Findings).
+- [x] Stylists by Latin names, per branch; Отгонжаргал removed (flagged). Парк Од block with
+      `not-connected` calendars and QPay. Levels/deposits SPECIAL/Мастер 20,000, 1-р зэрэг 10,000.
+- [x] No deposit terms in chat: `booking_ask_agreement` lost «Нөхцөл: «{agreement}»»; `agreement_text`
+      refused in config; the hold records the summary accepted.
+- [x] Per-branch QPay: merchant + payout account are rows per tenant; optional own login
+      `BOOKING_QPAY_<login>_*`; no fallback; invoice refused if not connected, login incomplete, merchant
+      or account in another tenant's row, or QPay refuses it.
+- [x] Website hold contract (lead): `sh` prefix, holdExpiresAt/holdPlacedAt; expired `sh` free; earlier-
+      placed wins; chat holds recognised by `dalaBookingState: 'hold'` only (lead's review finding).
+- [x] e2e 246 local (11 run the website's own code incl. its placeHold), 235 CI-shaped; unit + check green.
+- [ ] Reviewer, commit, push, draft PR, CI.
+
+## Decisions (with reason)
+1. Rules file holds services WITH minutes (not only the website): CI can test the real list; from-website.ts
+   refuses unless they equal the website's current list exactly (one source checked, two copies).
+2. Service names = the website's keys («Эмэгтэй будаг — TARA BLEND (Урт)»): the duration sheet and the
+   website's calendar events use them. Button labels = the price list's words; shortened only where > 20.
+3. Groups = the price list's sections with an `audience` (women's/men's sections shown only to that gender).
+   «Гоёлын засалт /эрэгтэй/» (printed in the women's section) is offered to men, in «Эрэгтэй засалт»:
+   it is a men's styling. Founder question.
+4. `family` (one button, then lengths/levels) because «Эмэгтэй хими» has 18 lines and Messenger shows 13.
+   One new draft line `booking_ask_variant` «{service} — аль нь вэ?».
+5. A price line per level (`level`) is served only by that level; a line nobody may serve is hidden
+   (men's SPECIAL haircut everywhere; 1-р зэрэг haircut at Парк Од). This also guarantees no 1-р зэрэг
+   button at Парк Од. Levels are identical in both rows (one price list); Парк Од just has no 1-р зэрэг.
+6. «Not connected» = literal `not-connected` in `calendar_id` / `qpay`: parses (shape checked, branches
+   compared) but `customerMode` off and `bookingTurn` reason `not_connected`, testers included.
+7. Merchant id/account are rows (not secret; the website has Яармаг's in source). Login stays env (rule 7).
+   Own login named by the row (`qpay.login`), env `BOOKING_QPAY_<LOGIN>_*` so the env guard sees the prefix.
+8. One merchant = one tenant, checked before every invoice by reading other tenants' booking_config
+   (`merchantSharedWith`), plus `check.ts` (`shared_merchant`). Unreadable → refused.
+9. Website holds: busy() = free/busy minus expired `sh` holds plus the other events (one events.list per
+   calendar per read; fine at today's volume). Placed-at: website `holdPlacedAt` else `created`; ours
+   `created` (no own property written). Tie → we yield.
+10. Agreement: Дали never shows terms; the hold's agreement_text = the summary shown (evidence of what was
+    accepted). Consequence for the founder: chat customers never agree to «non-refundable» in writing.
+11. testConfig() is now Tara's real Яармаг config (test calendars/merchants), so unit tests and e2e prove the
+    real list; section numbers: 19 updated, 20 (two branches), 21 (hold contract) new.
+
+## Findings
+- Prices agree (SQL vs website). Name differences: «Afro хими» (site) / «Афро хими» (SQL); «TARA LUMI» /
+  «TARA Lumi»; «Уг будаг» / «Үсний угийн будаг»; men's «Хуйхны цэвэрлэгээ» vs «Хуйх цэвэрлэгээ», and the
+  site lists the men's «Хуйхны цэвэрлэгээ» and «Нөхөн сэргээх эмчилгээ» separately while SQL merges them;
+  girls' haircut «Эмэгтэй засалт — Тайралт хүүхэд» / «Хүүхдийн тайралт (охин)»; «Үс оношлогоо, зөвлөгөө»
+  (site key drops the comma). Not picked.
+- dala-ai's staff rows (matrix-stage4-kb.sql / intake) disagree with the founder's list: Ананд active=false
+  («left»), Уранчимэг absent, Г. Мөнхзаяа active (in neither the website nor the list), Отгонжаргал active.
+  dala-ai holds no stylist levels (only deposit_rules), so no level disagreement; the website matches the
+  founder (Oyunaa special, Badamaa/Anand master, Uyanga/Zaya/Chimgee first).
+- Website `bookingRules.js` DEPOSIT_TERMS_TEXT is the non-refundable sentence that the summary used to quote.
+
 # NOTES — Tara in-chat QPay booking (session 2026-10-02, resume point)
 
 Branch: `claude/happy-pasteur-4gp7gd`. Brief: in-Messenger booking + QPay deposit for Tara, built OFF

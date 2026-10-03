@@ -20,11 +20,10 @@
 import { execFileSync } from 'node:child_process';
 import http from 'node:http';
 import { createHmac, randomUUID } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'; // guard-ok: scripts/, not src/
-import { quickQr } from '../../src/lib/billing/qpay.ts';
 import { claim, markFailed, markSent } from '../../src/lib/outbound/claim.ts';
 import { usdToNano } from '../../src/lib/money.ts';
 import { localDayStart, tenantClock } from '../../src/lib/time/clock.ts';
@@ -34,7 +33,8 @@ import { runPayPage, runQpayCallback, runSweep } from '../../src/lib/booking/job
 import { signHold } from '../../src/lib/booking/links.ts';
 import { dayLabel } from '../../src/lib/booking/engine.ts';
 import { bookingTurn, type TurnResult } from '../../src/lib/booking/turn.ts';
-import { draftWording, FakeGoogle, FakeQpay, TEST_CALENDARS, testConfig } from '../../src/lib/booking/testkit.ts';
+import { draftWording, FakeGoogle, FakeQpay, taraConfig, TEST_CALENDARS, TEST_MERCHANTS, testConfig } from '../../src/lib/booking/testkit.ts';
+import { qpayPortFor } from '../../src/lib/booking/live.ts';
 import { say } from '../../src/lib/booking/wording.ts';
 import type { QuickReply } from '../../src/lib/meta/send.ts';
 
@@ -113,6 +113,12 @@ const db: SupabaseClient = createClient(proxy.url, jwt('service_role'), { auth: 
 
 const google = new FakeGoogle(Object.values(TEST_CALENDARS));
 const qpayFake = new FakeQpay();
+// The platform's partner login, as the deployment's environment holds it; Яармаг's merchant is
+// registered under it (as on QPay), Парк Од's only once section 19 registers it.
+process.env['QPAY_USERNAME'] = qpayFake.username;
+process.env['QPAY_PASSWORD'] = qpayFake.password;
+process.env['QPAY_TERMINAL_ID'] = qpayFake.terminal;
+qpayFake.registerMerchant(qpayFake.username, TEST_MERCHANTS['matrix-eco-salon'].merchant_id);
 const wording = draftWording();
 type Sent = { outboundId: string; psid: string; body: string; quickReplies: readonly QuickReply[]; linkButtonTitle?: string };
 const sent: Sent[] = [];
@@ -123,18 +129,15 @@ let clockShift = 0;
 /** Messenger refuses every send while set. */
 let failDeliver = false;
 const now = () => new Date(Date.now() + clockShift);
+google.now = now;
 
 const ports: BookingPorts = {
   db,
   now,
   calendar: googleCalendar({ email: google.email, privateKey: google.privateKey }, google.fetch, now),
-  qpayFor: (m) => {
-    const bank = m.bankAccounts[0];
-    return bank === undefined ? null : quickQr({
-      username: qpayFake.username, password: qpayFake.password, terminalId: qpayFake.terminal,
-      merchantId: m.merchantId, mccCode: m.mccCode, bankCode: bank.bankCode, bankAccount: bank.accountNumber, accountName: bank.accountName,
-    }, qpayFake.fetch);
-  },
+  // The production port (`live.ts`): the tenant's own merchant and account, on the login its row
+  // names, read from the environment now. Only the far side of the wire is the fake.
+  qpayFor: (m) => qpayPortFor(m, qpayFake.fetch),
   wording,
   origin: ORIGIN,
   secret: SECRET,
@@ -175,27 +178,31 @@ const HOURS = [0, 1, 2, 3, 4, 5, 6].map((d) => ({ weekday: d, opens: '10:00:00',
 /** The hours the next customer messages see (one check swaps in a day that closes half an hour from now). */
 let hoursNow = HOURS;
 
-type Chat = { psid: string; conversationId: string; last: TurnResult | null; lastBody: string | null; transcript: string[] };
+/** A branch tenant the chats talk to. `hours` null: the main tenant's `hoursNow`. */
+type Tenant = { id: string; channel: string; page: string; hours: typeof HOURS | null };
+const MAIN: Tenant = { id: T, channel: CH, page: PAGE, hours: null };
+type Chat = { psid: string; conversationId: string; last: TurnResult | null; lastBody: string | null; transcript: string[]; tenant: Tenant };
 
-function newChat(psid = `psid-${randomUUID().slice(0, 8)}`): Chat {
-  const contact = psql(`insert into contacts (tenant_id, channel_id, external_id) values ('${T}', '${CH}', '${psid}') returning id`).split('\n')[0] as string;
-  const conv = psql(`insert into conversations (tenant_id, contact_id, channel_id) values ('${T}', '${contact}', '${CH}') returning id`).split('\n')[0] as string;
-  return { psid, conversationId: conv, last: null, lastBody: null, transcript: [] };
+function newChat(psid = `psid-${randomUUID().slice(0, 8)}`, tenant: Tenant = MAIN): Chat {
+  const contact = psql(`insert into contacts (tenant_id, channel_id, external_id) values ('${tenant.id}', '${tenant.channel}', '${psid}') returning id`).split('\n')[0] as string;
+  const conv = psql(`insert into conversations (tenant_id, contact_id, channel_id) values ('${tenant.id}', '${contact}', '${tenant.channel}') returning id`).split('\n')[0] as string;
+  return { psid, conversationId: conv, last: null, lastBody: null, transcript: [], tenant };
 }
 
 /** One customer message through the hook exactly as the reception worker calls it, then the worker's claim and send. */
 async function says(chat: Chat, text: string, payload?: string): Promise<TurnResult> {
   const mid = `mid.${randomUUID()}`;
+  const tn = chat.tenant;
   const r = await bookingTurn(ports, {
-    tenantId: T, channelId: CH, conversationId: chat.conversationId, psid: chat.psid, mid, text,
-    ...(payload === undefined ? {} : { quickReplyPayload: payload }), respelled: null, hours: hoursNow, closures: [],
+    tenantId: tn.id, channelId: tn.channel, conversationId: chat.conversationId, psid: chat.psid, mid, text,
+    ...(payload === undefined ? {} : { quickReplyPayload: payload }), respelled: null, hours: tn.hours ?? hoursNow, closures: [],
   });
   chat.last = r;
   chat.transcript.push(`**Customer:** ${text}${payload === undefined ? '' : ' *(tap)*'}`);
   if (r.handled && r.outboundId !== null) {
-    const held = await claim(db, { id: r.outboundId, tenantId: T, now: new Date() });
+    const held = await claim(db, { id: r.outboundId, tenantId: tn.id, now: new Date() });
     if (held.outcome !== 'claimed') throw new Error(`claim: ${held.outcome} ${held.outcome === 'unavailable' ? held.detail : ''}`);
-    await ports.deliver({ tenantId: T, channelId: CH, pageId: PAGE, recipientId: chat.psid, outboundId: held.id, body: held.body, attempts: held.attempts,
+    await ports.deliver({ tenantId: tn.id, channelId: tn.channel, pageId: tn.page, recipientId: chat.psid, outboundId: held.id, body: held.body, attempts: held.attempts,
       graphVersion: 'v21.0', quickReplies: r.quickReplies, ...(r.linkButtonTitle === undefined ? {} : { linkButtonTitle: r.linkButtonTitle }) });
     chat.lastBody = held.body;
     const buttons = r.quickReplies.map((q) => `[${q.title}]`).join(' ');
@@ -231,13 +238,16 @@ const MALE = say(wording, 'booking_gender_male');
 const CHILD = say(wording, 'booking_gender_child');
 const AGREE = say(wording, 'booking_agree');
 const CANCEL = say(wording, 'booking_cancel');
+/** Two services of Tara's current list used throughout: 120 and 60 minutes, any stylist of either gender. */
+const SVC_120 = 'Үйлчилгээ — Эмчилгээний будаг';
+const SVC_60 = 'Үйлчилгээ — Хуйх цэвэрлэгээ';
 
 /** Walk a chat to the agreement for one stylist and time tomorrow. */
 async function toAgreement(chat: Chat, opts: { service?: string; group?: string; stylist: string; time: string; name?: string; phone?: string; gender?: string; day?: string }) {
   await says(chat, 'Цаг авъя');
   await taps(chat, opts.gender ?? say(wording, 'booking_gender_female'));
-  await taps(chat, opts.group ?? 'Будаг');
-  await taps(chat, opts.service ?? 'Будаг');
+  await taps(chat, opts.group ?? 'Үйлчилгээ');
+  await taps(chat, opts.service ?? 'Эмчилгээний будаг');
   await taps(chat, opts.stylist);
   await taps(chat, opts.day ?? T_MAR);
   await taps(chat, opts.time);
@@ -253,17 +263,19 @@ await says(a, 'Цаг авъя');
 check(a.last?.handled === true && a.lastBody === say(wording, 'booking_ask_gender'), 'a booking message starts the flow with who it is for');
 check(JSON.stringify(titles(a)) === JSON.stringify([FEMALE, MALE, CHILD, CANCEL]), 'Эмэгтэй / Эрэгтэй / Хүүхэд, with «Цуцлах»');
 await taps(a, FEMALE);
-check(a.lastBody === say(wording, 'booking_ask_service_group') && JSON.stringify(titles(a)) === JSON.stringify(['Засалт', 'Будаг', CANCEL]), 'then the service groups');
-await taps(a, 'Будаг');
-check(JSON.stringify(titles(a)) === JSON.stringify(['Будаг', 'Оффис колор', CANCEL]), 'the group\'s services');
-await taps(a, 'Будаг');
-check(JSON.stringify(titles(a)) === JSON.stringify([say(wording, 'booking_any_of_level', { level: 'Мастер' }), 'Оюунаа · Мастер', 'Бадмаа · Мастер', 'Уянга · 1-р зэрэг', CANCEL]),
-  'a woman is offered only the women stylists, «any Мастер» first, the man not at all');
-await taps(a, 'Оюунаа · Мастер');
-check(a.lastBody === say(wording, 'booking_ask_when', { service: 'Будаг' }) && titles(a).includes(T_MAR),
+check(a.lastBody === say(wording, 'booking_ask_service_group') && JSON.stringify(titles(a)) === JSON.stringify(['Эмэгтэй засалт', 'Үйлчилгээ', 'Эмэгтэй хими', 'Эмэгтэй будаг', CANCEL]),
+  'then the current price list\'s sections for a woman (the men\'s section is not offered)');
+await taps(a, 'Үйлчилгээ');
+check(JSON.stringify(titles(a)) === JSON.stringify(['Хуйх цэвэрлэгээ', 'Үс оношлогоо', 'Нөхөн сэргээх', 'Үсний тэжээл', 'Үсний спа', 'CICA эмчилгээ', 'Эмчилгээний будаг', CANCEL]), 'the group\'s services');
+await taps(a, 'Эмчилгээний будаг');
+check(a.lastBody === say(wording, 'booking_ask_stylist') && JSON.stringify(titles(a)) === JSON.stringify(['Oyunaa · SPECIAL', 'Badamaa · Мастер', say(wording, 'booking_any_of_level', { level: '1-р зэрэг' }),
+  'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг', CANCEL]),
+  'a woman is offered only the women stylists, by their short Latin names, level by level (none recommended), the man not at all');
+await taps(a, 'Oyunaa · SPECIAL');
+check(a.lastBody === say(wording, 'booking_ask_when', { service: SVC_120 }) && titles(a).includes(T_MAR),
   'Дали asks when (day and time), with the days that still have a free time as buttons');
 // The website books Оюунаа 10:00–12:00 tomorrow: those starts must not be offered.
-google.websiteBooks(TEST_CALENDARS.master1, ubAt(tomorrow(), 10), 120);
+google.websiteBooks(TEST_CALENDARS.oyunaa, ubAt(tomorrow(), 10), 120);
 await taps(a, T_MAR);
 check(!titles(a).includes('10:00') && !titles(a).includes('11:00') && titles(a).includes('12:00') && titles(a).includes('18:00') && !titles(a).includes('19:00'),
   'times read from the real calendar: the website\'s 10–12 booking is gone, and a 2-hour service is not offered at 19:00');
@@ -273,9 +285,10 @@ await says(a, 'Болд');
 await says(a, '991122');
 check(a.lastBody === say(wording, 'booking_phone_invalid'), 'a phone that is not 8 digits is asked again');
 await says(a, '+976 9911 2233');
-check(a.lastBody?.includes(testConfig()['agreement_text'] as string) === true && (a.lastBody ?? '').includes('Оюунаа (Мастер)')
+check((a.lastBody ?? '').includes('Oyunaa (SPECIAL)') && (a.lastBody ?? '').includes(SVC_120)
   && (a.lastBody ?? '').includes('14:00') && (a.lastBody ?? '').includes('20,000₮') && JSON.stringify(titles(a)) === JSON.stringify([AGREE, CANCEL]),
-  'before anything is held: the summary (stylist, time, 20,000₮ deposit) and Tara\'s terms verbatim, with «Зөвшөөрч, захиалах»');
+  'before anything is held: the summary (service, stylist, time, SPECIAL 20,000₮ deposit), with «Зөвшөөрч, захиалах»');
+check(!/Нөхцөл|буца/u.test(a.lastBody ?? ''), 'the summary states no deposit terms: Дали never says the deposit is non-refundable');
 check(psql(`select count(*) from booking_holds h join booking_sessions s on s.id = h.session_id where s.conversation_id = '${a.conversationId}'`) === '0', 'no hold and no QR until the customer says to book');
 const agreedAt = sent.length;
 await taps(a, AGREE);
@@ -283,8 +296,8 @@ const holdA = holdOf(a);
 check(holdState(holdA) === 'held', 'agreeing holds the time');
 check(a.last?.handled === true && a.last.linkButtonTitle === say(wording, 'billing_pay_button') && /\/book\/[0-9a-f-]{36}\./u.test(a.lastBody ?? ''),
   'the answer carries the «Төлбөр төлөх» button to the signed deposit page');
-check((a.lastBody ?? '').includes('20,000₮') && (a.lastBody ?? '').includes('Оюунаа (Мастер)') && (a.lastBody ?? '').includes('14:00'), 'it names the deposit (Мастер: 20,000₮), stylist and time');
-const evA = google.live(TEST_CALENDARS.master1).find((e) => e.id === eventIdForHold(holdA));
+check((a.lastBody ?? '').includes('20,000₮') && (a.lastBody ?? '').includes('Oyunaa (SPECIAL)') && (a.lastBody ?? '').includes('14:00'), 'it names the deposit (Мастер: 20,000₮), stylist and time');
+const evA = google.live(TEST_CALENDARS.oyunaa).find((e) => e.id === eventIdForHold(holdA));
 check(evA !== undefined && evA.transparency === 'opaque' && evA.summary.startsWith('HOLD'), 'the stylist\'s calendar holds the time (busy: the website stops offering it)');
 const invA = invoicesOf(holdA);
 const qinvA = qpayFake.invoices.get(invA[0] as string);
@@ -311,10 +324,10 @@ check(psql(`select count(*) from booking_payments where hold_id = '${holdA}'`) =
 const confirmations = pushedTo(a, before).filter((s) => s.body.includes(say(wording, 'booking_confirmed', { service: 'x', stylist: 'x', date: 'x', time: 'x', branch: 'x', address: 'x' }).split('\n')[0] as string));
 check(confirmations.length === 1, 'the customer is told once');
 const conf = confirmations[0]?.body ?? '';
-check(conf.includes('Будаг') && conf.includes('Оюунаа (Мастер)') && conf.includes('14:00') && conf.includes('Яармаг салбар') && conf.includes('Номин Хайпермаркет'),
+check(conf.includes(SVC_120) && conf.includes('Oyunaa (SPECIAL)') && conf.includes('14:00') && conf.includes('Яармаг салбар') && conf.includes('Номин Хайпермаркет'),
   'the confirmation names service, stylist, day, time, branch and address');
-const liveA = google.live(TEST_CALENDARS.master1).filter((e) => e.start.getTime() === ubAt(tomorrow(), 14).getTime());
-check(liveA.length === 1 && liveA[0]?.summary === '99112233 - Будаг' && liveA[0]?.description.includes('QPay invoice: ') && liveA[0]?.description.includes('Agreed: «'),
+const liveA = google.live(TEST_CALENDARS.oyunaa).filter((e) => e.start.getTime() === ubAt(tomorrow(), 14).getTime());
+check(liveA.length === 1 && liveA[0]?.summary === `99112233 - ${SVC_120}` && liveA[0]?.description.includes('QPay invoice: ') && liveA[0]?.description.includes('Summary accepted: «'),
   'one event in the calendar, in the website\'s format («phone - service», agreement and invoice recorded)');
 for (let i = 0; i < 3; i += 1) await runQpayCallback(ports, signHold(SECRET, 'callback', holdA));
 await runSweep(ports);
@@ -328,7 +341,7 @@ check(paidPage.html.includes(say(wording, 'booking_page_paid')), 'the page now s
 section('2. Unpaid → released, customer told once');
 // =====================================================================================
 const b = newChat();
-await toAgreement(b, { stylist: 'Бадмаа · Мастер', time: '15:00', name: 'Сараа', phone: '88112233' });
+await toAgreement(b, { stylist: 'Badamaa · Мастер', time: '15:00', name: 'Сараа', phone: '88112233' });
 await taps(b, AGREE);
 const holdB = holdOf(b);
 const invB = invoicesOf(holdB);
@@ -340,7 +353,7 @@ const beforeB = sent.length;
 swept = await runSweep(ports);
 check(holdState(holdB) === 'expired' && swept.body['expired'] === 1, 'past its time and unpaid: released');
 check(qpayFake.invoices.get(invB[0] as string)?.status === 'CANCELLED', 'its QPay invoice is cancelled, so it can no longer be paid');
-check(google.live(TEST_CALENDARS.master2).every((e) => e.id !== eventIdForHold(holdB)), 'the calendar hold is removed: the time is free again');
+check(google.live(TEST_CALENDARS.badamaa).every((e) => e.id !== eventIdForHold(holdB)), 'the calendar hold is removed: the time is free again');
 const expiredLines = pushedTo(b, beforeB);
 check(expiredLines.length === 1 && expiredLines[0]?.body.includes('15:00') === true && expiredLines[0]?.body.startsWith('Уучлаарай'), 'the customer is told, politely, once');
 await runSweep(ports);
@@ -358,13 +371,13 @@ check(holdState(holdB) === 'booked', 'the late payment re-takes the free time an
 check(psql(`select disposition from booking_payments where hold_id = '${holdB}'`) === 'late_booked', 'recorded as late_booked');
 check(pushedTo(b, beforeL).length === 1 && pushedTo(b, beforeL)[0]?.body.includes('15:00') === true, 'the customer gets the confirmation');
 check(alerts.some((x) => x.kind === 'booking.late_booked' && x.body.includes('88112233')), 'the founder is told it was late (with the phone)');
-check(google.live(TEST_CALENDARS.master2).filter((e) => e.start.getTime() === ubAt(tomorrow(), 15).getTime()).length === 1, 'one event at 15:00');
+check(google.live(TEST_CALENDARS.badamaa).filter((e) => e.start.getTime() === ubAt(tomorrow(), 15).getTime()).length === 1, 'one event at 15:00');
 
 // =====================================================================================
 section('4. Late payment: the time was taken → no booking, founder paged, money visible');
 // =====================================================================================
 const c = newChat();
-await toAgreement(c, { stylist: 'Уянга · 1-р зэрэг', time: '11:00', name: 'Туяа', phone: '95112233' });
+await toAgreement(c, { stylist: 'Uyanga · 1-р зэрэг', time: '11:00', name: 'Туяа', phone: '95112233' });
 await taps(c, AGREE);
 const holdC = holdOf(c);
 check(c.lastBody?.includes('10,000₮') === true, '1-р зэрэг: the deposit is 10,000₮ (Tara\'s rule)');
@@ -372,7 +385,7 @@ const invC = invoicesOf(holdC);
 psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdC}'`);
 await runSweep(ports);
 check(holdState(holdC) === 'expired', 'released');
-google.websiteBooks(TEST_CALENDARS.first1, ubAt(tomorrow(), 11), 60);
+google.websiteBooks(TEST_CALENDARS.uyanga, ubAt(tomorrow(), 11), 60);
 const d = newChat();
 qpayFake.pay(invC[0] as string, { force: true });
 const beforeC = sent.length;
@@ -382,14 +395,14 @@ check(holdState(holdC) === 'paid_unbooked', 'paid, the time is gone: paid_unbook
 check(alerts.some((x) => x.kind === 'booking.paid_unbooked' && x.body.includes('95112233') && x.body.includes('10,000₮') && /refund/u.test(x.body)),
   'the founder is paged at once with name, phone and amount, to refund or rebook');
 check(pushedTo(c, beforeC).some((s) => s.body === say(wording, 'booking_paid_unbooked')), 'the customer is told a person will call');
-check(google.live(TEST_CALENDARS.first1).filter((e) => e.start.getTime() === ubAt(tomorrow(), 11).getTime()).length === 1, 'still one event at 11:00 (the website\'s)');
+check(google.live(TEST_CALENDARS.uyanga).filter((e) => e.start.getTime() === ubAt(tomorrow(), 11).getTime()).length === 1, 'still one event at 11:00 (the website\'s)');
 void d;
 
 // =====================================================================================
 section('5. Paid twice → one booking, the second payment paged for a refund');
 // =====================================================================================
 const e = newChat();
-await toAgreement(e, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Оюунаа · Мастер', time: '16:00', name: 'Ану', phone: '99001122' });
+await toAgreement(e, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Oyunaa · SPECIAL', time: '16:00', name: 'Ану', phone: '99001122' });
 await taps(e, AGREE);
 const holdE = holdOf(e);
 // The first QR runs out; the customer asks for a new one, and pays both.
@@ -404,14 +417,14 @@ const beforeE = sent.length;
 await Promise.all([runQpayCallback(ports, signHold(SECRET, 'callback', holdE)), runQpayCallback(ports, signHold(SECRET, 'callback', holdE))]);
 check(holdState(holdE) === 'booked', 'booked');
 check(psql(`select string_agg(disposition, ',' order by disposition) from booking_payments where hold_id = '${holdE}'`) === 'applied,excess', 'one payment applied, one excess');
-check(google.live(TEST_CALENDARS.master1).filter((x) => x.start.getTime() === ubAt(tomorrow(), 16).getTime()).length === 1, 'one event, not two');
+check(google.live(TEST_CALENDARS.oyunaa).filter((x) => x.start.getTime() === ubAt(tomorrow(), 16).getTime()).length === 1, 'one event, not two');
 check(alerts.filter((x) => x.kind === 'booking.excess_payment' && x.body.includes('99001122')).length === 1, 'the extra payment is paged once, for a refund');
 check(pushedTo(e, beforeE).filter((s) => s.body === say(wording, 'booking_excess')).length === 1
   && pushedTo(e, beforeE).filter((s) => s.body.includes('16:00')).length === 1, 'the customer gets one confirmation and one line about the double payment');
 
 // A payment twice on ONE invoice (two taps in the bank app) is the same.
 const e2 = newChat();
-await toAgreement(e2, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '17:00', name: 'Ану', phone: '99001123' });
+await toAgreement(e2, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Badamaa · Мастер', time: '17:00', name: 'Ану', phone: '99001123' });
 await taps(e2, AGREE);
 const holdE2 = holdOf(e2);
 const invE2 = invoicesOf(holdE2);
@@ -426,18 +439,18 @@ section('6. Two customers race for one time → only one wins');
 // =====================================================================================
 const r1 = newChat();
 const r2 = newChat();
-await toAgreement(r1, { stylist: 'Уянга · 1-р зэрэг', time: '13:00', name: 'Нэг', phone: '91000001' });
-await toAgreement(r2, { stylist: 'Уянга · 1-р зэрэг', time: '13:00', name: 'Хоёр', phone: '91000002' });
+await toAgreement(r1, { stylist: 'Uyanga · 1-р зэрэг', time: '13:00', name: 'Нэг', phone: '91000001' });
+await toAgreement(r2, { stylist: 'Uyanga · 1-р зэрэг', time: '13:00', name: 'Хоёр', phone: '91000002' });
 await Promise.all([taps(r1, AGREE), taps(r2, AGREE)]);
-const held13 = psql(`select count(*) from booking_holds where calendar_id = '${TEST_CALENDARS.first1}' and starts_at = '${ubAt(tomorrow(), 13).toISOString()}' and state = 'held'`);
+const held13 = psql(`select count(*) from booking_holds where calendar_id = '${TEST_CALENDARS.uyanga}' and starts_at = '${ubAt(tomorrow(), 13).toISOString()}' and state = 'held'`);
 check(held13 === '1', 'exactly one hold on that time');
 const winners = [r1, r2].filter((x) => x.last?.handled === true && x.last.linkButtonTitle !== undefined);
 const losers = [r1, r2].filter((x) => x.last?.handled === true && x.last.linkButtonTitle === undefined);
 check(winners.length === 1 && losers.length === 1, 'one customer gets the pay button, the other does not');
 check(losers[0]?.lastBody?.startsWith(say(wording, 'booking_slot_taken')) === true && !titles(losers[0] as Chat).includes('13:00') && !titles(losers[0] as Chat).includes('14:00') && titles(losers[0] as Chat).includes('15:00'),
   'the other is told the time was taken and offered only times a 2-hour service still fits (15:00 on)');
-check(google.live(TEST_CALENDARS.first1).filter((x) => x.start.getTime() === ubAt(tomorrow(), 13).getTime()).length === 1, 'one hold event in the calendar');
-check(psql(`select count(*) from booking_invoices i join booking_holds h on h.id = i.hold_id where h.starts_at = '${ubAt(tomorrow(), 13).toISOString()}' and h.calendar_id = '${TEST_CALENDARS.first1}'`) === '1',
+check(google.live(TEST_CALENDARS.uyanga).filter((x) => x.start.getTime() === ubAt(tomorrow(), 13).getTime()).length === 1, 'one hold event in the calendar');
+check(psql(`select count(*) from booking_invoices i join booking_holds h on h.id = i.hold_id where h.starts_at = '${ubAt(tomorrow(), 13).toISOString()}' and h.calendar_id = '${TEST_CALENDARS.uyanga}'`) === '1',
   'one invoice: the loser was never asked to pay');
 
 // The database alone, ten at once.
@@ -449,7 +462,7 @@ for (let i = 0; i < 10; i += 1) {
 const s18 = ubAt(tomorrow(), 18);
 const results = await Promise.all(sessions.map((sid) => db.rpc('booking_acquire_hold', {
   p_tenant: T, p_session: sid, p_expires_at: new Date(Date.now() + 600_000).toISOString(),
-  p_hold: { calendar_id: TEST_CALENDARS.male1, staff_name: 'Ананд', level: 'Мастер', service: 'Будаг', minutes: 120,
+  p_hold: { calendar_id: TEST_CALENDARS.anand, staff_name: 'Anand', level: 'Мастер', service: SVC_120, minutes: 120,
     starts_at: s18.toISOString(), ends_at: new Date(s18.getTime() + 7_200_000).toISOString(), deposit_mnt: 20000,
     customer_name: 'X', customer_phone: '90000000', gender: 'male', agreed_at: new Date().toISOString(), agreement_text: 'a' },
 })));
@@ -459,7 +472,7 @@ check(outcomes.filter((o) => o === 'held').length === 1 && outcomes.filter((o) =
 const overlap = await db.rpc('booking_acquire_hold', {
   p_tenant: T, p_session: psql(`insert into booking_sessions (tenant_id, conversation_id, channel_id, psid, is_test, step) values ('${T}', '${newChat().conversationId}', '${CH}', 'p', false, 'agree') returning id`).split('\n')[0],
   p_expires_at: new Date(Date.now() + 600_000).toISOString(),
-  p_hold: { calendar_id: TEST_CALENDARS.male1, staff_name: 'Ананд', level: 'Мастер', service: 'Энгийн засалт', minutes: 60,
+  p_hold: { calendar_id: TEST_CALENDARS.anand, staff_name: 'Anand', level: 'Мастер', service: SVC_60, minutes: 60,
     starts_at: ubAt(tomorrow(), 19).toISOString(), ends_at: ubAt(tomorrow(), 20).toISOString(), deposit_mnt: 20000,
     customer_name: 'Y', customer_phone: '90000001', gender: 'male', agreed_at: new Date().toISOString(), agreement_text: 'a' },
 });
@@ -470,50 +483,51 @@ section('7. The website and the chat race → only one wins');
 // =====================================================================================
 // (a) The website books between the offer and the agreement: the chat sees it and does not hold.
 const w1 = newChat();
-await toAgreement(w1, { stylist: 'Бадмаа · Мастер', time: '12:00', name: 'Вэб', phone: '92000001' });
-google.websiteBooks(TEST_CALENDARS.master2, ubAt(tomorrow(), 12), 60);
+await toAgreement(w1, { stylist: 'Badamaa · Мастер', time: '12:00', name: 'Вэб', phone: '92000001' });
+google.websiteBooks(TEST_CALENDARS.badamaa, ubAt(tomorrow(), 12), 60);
 await taps(w1, AGREE);
 check(w1.lastBody?.startsWith(say(wording, 'booking_slot_taken')) === true && psql(`select count(*) from booking_holds h join booking_sessions s on s.id = h.session_id where s.conversation_id = '${w1.conversationId}'`) === '0',
   'the website booked first: the chat holds nothing and offers other times');
 // (b) The website writes in the instant between the chat's hold event and its second look.
 const w2 = newChat();
-await toAgreement(w2, { stylist: 'Бадмаа · Мастер', time: '13:00', name: 'Вэб2', phone: '92000002' });
+await toAgreement(w2, { stylist: 'Badamaa · Мастер', time: '13:00', name: 'Вэб2', phone: '92000002' });
 google.afterInsert = (calId, ev) => {
-  if (calId === TEST_CALENDARS.master2 && ev.start.getTime() === ubAt(tomorrow(), 13).getTime()) google.websiteBooks(calId, ubAt(tomorrow(), 13), 60);
+  if (calId === TEST_CALENDARS.badamaa && ev.start.getTime() === ubAt(tomorrow(), 13).getTime()) google.websiteBooks(calId, ubAt(tomorrow(), 13), 60);
 };
 await taps(w2, AGREE);
 google.afterInsert = null;
 const holdW2 = psql(`select h.id from booking_holds h join booking_sessions s on s.id = h.session_id where s.conversation_id = '${w2.conversationId}'`);
 check(holdState(holdW2) === 'released' && w2.lastBody?.startsWith(say(wording, 'booking_slot_taken')) === true, 'the website wrote in the gap: the chat yields and says so');
-check(google.live(TEST_CALENDARS.master2).filter((x) => x.start.getTime() === ubAt(tomorrow(), 13).getTime()).length === 1, 'one event left at 13:00, the website\'s');
+check(google.live(TEST_CALENDARS.badamaa).filter((x) => x.start.getTime() === ubAt(tomorrow(), 13).getTime()).length === 1, 'one event left at 13:00, the website\'s');
 check(invoicesOf(holdW2).length === 0, 'no invoice was made for a time the chat did not hold');
 // (c) A person writes into a held time by hand; the customer pays anyway → no double booking, founder paged.
 const w3 = newChat();
-await toAgreement(w3, { stylist: 'Оюунаа · Мастер', time: '17:00', name: 'Вэб3', phone: '92000003' });
+await toAgreement(w3, { stylist: 'Oyunaa · SPECIAL', time: '17:00', name: 'Вэб3', phone: '92000003' });
 await taps(w3, AGREE);
 const holdW3 = holdOf(w3);
-google.websiteBooks(TEST_CALENDARS.master1, ubAt(tomorrow(), 17), 60);
+google.websiteBooks(TEST_CALENDARS.oyunaa, ubAt(tomorrow(), 17), 60);
 qpayFake.pay(invoicesOf(holdW3)[0] as string);
 await runQpayCallback(ports, signHold(SECRET, 'callback', holdW3));
-check(holdState(holdW3) === 'paid_unbooked' && google.live(TEST_CALENDARS.master1).filter((x) => x.start.getTime() === ubAt(tomorrow(), 17).getTime()).length === 1,
+check(holdState(holdW3) === 'paid_unbooked' && google.live(TEST_CALENDARS.oyunaa).filter((x) => x.start.getTime() === ubAt(tomorrow(), 17).getTime()).length === 1,
   'paid, but the time was written over: not booked twice; the hold event is gone');
 check(alerts.some((x) => x.kind === 'booking.paid_unbooked' && x.body.includes('92000003')), 'the founder is paged to refund or rebook');
 
 // =====================================================================================
-section('8. «Any Мастер»: the first free one is assigned');
+section('8. «Аль ч 1-р зэрэг»: the first free one is assigned');
 // =====================================================================================
 const any = newChat();
-google.websiteBooks(TEST_CALENDARS.master1, ubAt(tomorrow(), 19), 60);
-await toAgreement(any, { group: 'Засалт', service: 'Энгийн засалт', stylist: say(wording, 'booking_any_of_level', { level: 'Мастер' }), time: '19:00', name: 'Ням', phone: '93000001' });
+google.websiteBooks(TEST_CALENDARS.uyanga, ubAt(tomorrow(), 18), 60);
+await toAgreement(any, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: say(wording, 'booking_any_of_level', { level: '1-р зэрэг' }), time: '18:00', name: 'Ням', phone: '93000001' });
+check((any.lastBody ?? '').includes(say(wording, 'booking_any_of_level', { level: '1-р зэрэг' })) && (any.lastBody ?? '').includes('10,000₮'), 'the summary says «Аль ч 1-р зэрэг» and its 10,000₮');
 await taps(any, AGREE);
 const holdAny = holdOf(any);
-check(psql(`select calendar_id from booking_holds where id = '${holdAny}'`) === TEST_CALENDARS.master2, 'Оюунаа is busy at 19:00, so Бадмаа takes it');
+check(psql(`select calendar_id from booking_holds where id = '${holdAny}'`) === TEST_CALENDARS.zaya, 'Uyanga is busy at 18:00, so Zaya (the next 1-р зэрэг) takes it');
 
 // =====================================================================================
 section('9. A QPay answer that cannot be read records nothing and pages');
 // =====================================================================================
 const u = newChat();
-await toAgreement(u, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Уянга · 1-р зэрэг', time: '16:00', name: 'Уншихгүй', phone: '94000001' });
+await toAgreement(u, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Uyanga · 1-р зэрэг', time: '16:00', name: 'Уншихгүй', phone: '94000001' });
 await taps(u, AGREE);
 const holdU = holdOf(u);
 qpayFake.unreadable.add(invoicesOf(holdU)[0] as string);
@@ -531,17 +545,17 @@ check(holdState(holdU) === 'expired', 'once QPay answers (unpaid), the sweep rel
 section('10. The customer cancels, or changes the subject');
 // =====================================================================================
 const x = newChat();
-await toAgreement(x, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Уянга · 1-р зэрэг', time: '17:00', name: 'Болиулах', phone: '96000001' });
+await toAgreement(x, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Uyanga · 1-р зэрэг', time: '17:00', name: 'Болиулах', phone: '96000001' });
 await taps(x, AGREE);
 const holdX = holdOf(x);
 await taps(x, CANCEL);
 check(holdState(holdX) === 'released' && x.lastBody === say(wording, 'booking_cancelled'), '«Цуцлах» after the pay button: released, cancelled line');
-check(qpayFake.invoices.get(invoicesOf(holdX)[0] as string)?.status === 'CANCELLED' && google.live(TEST_CALENDARS.first1).every((ev) => ev.id !== eventIdForHold(holdX)),
+check(qpayFake.invoices.get(invoicesOf(holdX)[0] as string)?.status === 'CANCELLED' && google.live(TEST_CALENDARS.uyanga).every((ev) => ev.id !== eventIdForHold(holdX)),
   'its invoice cancelled and its calendar hold removed');
 const y = newChat();
 await says(y, 'цаг авах');
 await taps(y, FEMALE);
-await taps(y, 'Будаг');
+await taps(y, 'Үйлчилгээ');
 await says(y, 'Хаяг хаана вэ?');
 check(y.lastBody === say(wording, 'booking_pick_from_list'), 'something else: asked once to choose');
 const left = await says(y, 'Хаяг хаана байдаг вэ?');
@@ -557,14 +571,14 @@ setConfig('test');
 const stranger = newChat();
 check(!(await says(stranger, 'Цаг авъя')).handled, 'in test mode a customer who is not a tester gets the ordinary Дали');
 const tester = newChat('psid-tester');
-await toAgreement(tester, { stylist: 'Оюунаа · Мастер', time: '12:00', name: 'Тест', phone: '99999999' });
+await toAgreement(tester, { stylist: 'Oyunaa · SPECIAL', time: '12:00', name: 'Тест', phone: '99999999' });
 await taps(tester, AGREE);
 const holdT = holdOf(tester);
 check(tester.lastBody?.startsWith(say(wording, 'booking_test_prefix')) === true && tester.lastBody.includes('100₮'), 'the tester\'s messages are marked ТЕСТ and the deposit is 100₮');
 qpayFake.pay(invoicesOf(holdT)[0] as string);
 await runQpayCallback(ports, signHold(SECRET, 'callback', holdT));
-const testEvent = google.live(TEST_CALENDARS.master1).find((ev) => ev.id === eventIdForHold(holdT));
-check(holdState(holdT) === 'booked' && testEvent?.summary === 'ТЕСТ – 99999999 - Будаг', 'booked as «ТЕСТ – …» in the calendar, as the website\'s test bookings');
+const testEvent = google.live(TEST_CALENDARS.oyunaa).find((ev) => ev.id === eventIdForHold(holdT));
+check(holdState(holdT) === 'booked' && testEvent?.summary === `ТЕСТ – 99999999 - ${SVC_120}`, 'booked as «ТЕСТ – …» in the calendar, as the website\'s test bookings');
 setConfig('live');
 
 // =====================================================================================
@@ -592,7 +606,7 @@ section('14. The review\'s cases: nothing stuck, nobody trapped');
 // =====================================================================================
 // (a) A settle died right after booking: no confirmation was sent. The customer writes again.
 const k1 = newChat();
-await toAgreement(k1, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '10:00', name: 'Тасарсан', phone: '97000001' });
+await toAgreement(k1, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Badamaa · Мастер', time: '10:00', name: 'Тасарсан', phone: '97000001' });
 await taps(k1, AGREE);
 const holdK1 = holdOf(k1);
 const invK1 = invoicesOf(holdK1)[0] as string;
@@ -612,9 +626,9 @@ check(!(await says(k1, 'Баярлалаа')).handled && pushedTo(k1, beforeK1).
 const k2 = newChat();
 await says(k2, 'Цаг авъя');
 await taps(k2, FEMALE);
-await taps(k2, 'Засалт');
-await taps(k2, 'Энгийн засалт');
-await taps(k2, 'Уянга · 1-р зэрэг');
+await taps(k2, 'Үйлчилгээ');
+await taps(k2, 'Хуйх цэвэрлэгээ');
+await taps(k2, 'Uyanga · 1-р зэрэг');
 await taps(k2, T_MAR);
 await taps(k2, '12:00');
 await says(k2, 'Урьдчилгаа хэд вэ?');
@@ -625,9 +639,9 @@ check(!k2r.handled, 'asked again: the flow steps aside and Дали answers');
 const k4 = newChat();
 await says(k4, 'Цаг авъя');
 await taps(k4, FEMALE);
-await taps(k4, 'Засалт');
-await taps(k4, 'Энгийн засалт');
-await taps(k4, 'Уянга · 1-р зэрэг');
+await taps(k4, 'Үйлчилгээ');
+await taps(k4, 'Хуйх цэвэрлэгээ');
+await taps(k4, 'Uyanga · 1-р зэрэг');
 await taps(k4, T_MAR);
 await taps(k4, '12:00');
 await says(k4, 'Нараа');
@@ -637,9 +651,9 @@ check(!(await says(k4, 'яагаад утас хэрэгтэй вэ')).handled, 
 const k5 = newChat();
 await says(k5, 'Цаг авъя');
 await taps(k5, FEMALE);
-await taps(k5, 'Засалт');
-await taps(k5, 'Энгийн засалт');
-await taps(k5, 'Уянга · 1-р зэрэг');
+await taps(k5, 'Үйлчилгээ');
+await taps(k5, 'Хуйх цэвэрлэгээ');
+await taps(k5, 'Uyanga · 1-р зэрэг');
 await taps(k5, T_MAR);
 await taps(k5, '12:00');
 await says(k5, CANCEL);
@@ -647,7 +661,7 @@ check(k5.lastBody === say(wording, 'booking_cancelled'), '«Цуцлах» typed
 
 // (c) A short payment never keeps the time held for ever.
 const k6 = newChat();
-await toAgreement(k6, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Уянга · 1-р зэрэг', time: '19:00', name: 'Дутуу', phone: '97000006' });
+await toAgreement(k6, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Uyanga · 1-р зэрэг', time: '19:00', name: 'Дутуу', phone: '97000006' });
 await taps(k6, AGREE);
 const holdK6 = holdOf(k6);
 qpayFake.pay(invoicesOf(holdK6)[0] as string, { amount: 50 });
@@ -655,11 +669,11 @@ await runQpayCallback(ports, signHold(SECRET, 'callback', holdK6));
 check(holdState(holdK6) === 'held' && alerts.some((x) => x.kind === 'booking.short_payment' && x.body.includes('97000006')), 'a short payment is paged and books nothing');
 psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdK6}'`);
 await runSweep(ports);
-check(holdState(holdK6) === 'expired' && google.live(TEST_CALENDARS.first1).every((e) => e.id !== eventIdForHold(holdK6)), 'and the hold is still released when its time is up');
+check(holdState(holdK6) === 'expired' && google.live(TEST_CALENDARS.uyanga).every((e) => e.id !== eventIdForHold(holdK6)), 'and the hold is still released when its time is up');
 
 // (d) A time that has started since it was offered is not held.
 const k7 = newChat();
-await toAgreement(k7, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '11:00', name: 'Хоцорсон', phone: '97000007' });
+await toAgreement(k7, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Badamaa · Мастер', time: '11:00', name: 'Хоцорсон', phone: '97000007' });
 clockShift = ubAt(tomorrow(), 11).getTime() - Date.now() + 5 * 60_000;
 // The customer was typing just before: their session is not idle at the shifted clock.
 psql(`update booking_sessions set updated_at = '${new Date(Date.now() + clockShift - 60_000).toISOString()}' where conversation_id = '${k7.conversationId}' and closed_at is null`);
@@ -671,22 +685,22 @@ check(k7.lastBody?.startsWith(say(wording, 'booking_slot_taken')) === true
 
 // (e) The first attempt died between the database hold and the calendar: the retry writes it.
 const k8 = newChat();
-await toAgreement(k8, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '14:00', name: 'Дахин', phone: '97000008' });
+await toAgreement(k8, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Badamaa · Мастер', time: '14:00', name: 'Дахин', phone: '97000008' });
 const sessK8 = psql(`select id from booking_sessions where conversation_id = '${k8.conversationId}' and closed_at is null`);
 const s14 = ubAt(tomorrow(), 14);
 await db.rpc('booking_acquire_hold', { p_tenant: T, p_session: sessK8, p_expires_at: new Date(Date.now() + 600_000).toISOString(), p_hold: {
-  calendar_id: TEST_CALENDARS.master2, staff_name: 'Бадмаа', level: 'Мастер', service: 'Энгийн засалт', minutes: 60,
+  calendar_id: TEST_CALENDARS.badamaa, staff_name: 'Badamaa', level: 'Мастер', service: SVC_60, minutes: 60,
   starts_at: s14.toISOString(), ends_at: new Date(s14.getTime() + 3_600_000).toISOString(), deposit_mnt: 20000,
   customer_name: 'Дахин', customer_phone: '97000008', gender: 'female', agreed_at: new Date().toISOString(), agreement_text: 'x' } });
 const holdK8 = holdOf(k8);
 check(psql(`select calendar_state from booking_holds where id = '${holdK8}'`) === 'none', 'set-up: held in the database, not in the calendar');
 await taps(k8, AGREE);
-check(google.live(TEST_CALENDARS.master2).some((e) => e.id === eventIdForHold(holdK8) && e.transparency === 'opaque')
+check(google.live(TEST_CALENDARS.badamaa).some((e) => e.id === eventIdForHold(holdK8) && e.transparency === 'opaque')
   && k8.last?.handled === true && k8.last.linkButtonTitle !== undefined, 'the retry puts the hold in the calendar before asking for money');
 
 // (f) QPay would not cancel an expired hold's invoice: paged, and a payment on it still lands.
 const k9 = newChat();
-await toAgreement(k9, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '18:00', name: 'Цуцлагдаагүй', phone: '97000009' });
+await toAgreement(k9, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Badamaa · Мастер', time: '18:00', name: 'Цуцлагдаагүй', phone: '97000009' });
 await taps(k9, AGREE);
 const holdK9 = holdOf(k9);
 psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdK9}'`);
@@ -701,7 +715,7 @@ check(holdState(holdK9) === 'booked', 'a payment hours later on that QR is found
 
 // (g) The pay page's poll asks QPay at most every 15 s per hold.
 const k10 = newChat();
-await toAgreement(k10, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '11:00', name: 'Хүлээж', phone: '97000010' });
+await toAgreement(k10, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Badamaa · Мастер', time: '11:00', name: 'Хүлээж', phone: '97000010' });
 await taps(k10, AGREE);
 const holdK10 = holdOf(k10);
 const checksBefore = qpayFake.calls.filter((x) => x.endsWith('/payment/check')).length;
@@ -713,7 +727,7 @@ check(qpayFake.calls.filter((x) => x.endsWith('/payment/check')).length - checks
 const day2 = tenantClock(new Date(Date.now() + 48 * 3600_000), TZ).date;
 const D2 = dayLabel(wording, day2, new Date(), TZ);
 const k12 = newChat();
-await toAgreement(k12, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Бадмаа · Мастер', time: '19:00', name: 'Мартагдсан', phone: '97000012', day: D2 });
+await toAgreement(k12, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Badamaa · Мастер', time: '19:00', name: 'Мартагдсан', phone: '97000012', day: D2 });
 await taps(k12, AGREE);
 const holdK12 = holdOf(k12);
 const invK12 = invoicesOf(holdK12)[0] as string;
@@ -722,7 +736,7 @@ qpayFake.failCancel = true;
 await runSweep(ports);
 qpayFake.failCancel = false;
 check(holdState(holdK12) === 'expired', 'set-up: expired (its QR not cancelled)');
-google.websiteBooks(TEST_CALENDARS.master2, ubAt(day2, 19), 60);
+google.websiteBooks(TEST_CALENDARS.badamaa, ubAt(day2, 19), 60);
 const payK12 = qpayFake.pay(invK12);
 const invRowK12 = psql(`select id from booking_invoices where qpay_invoice_id = '${invK12}'`);
 // What a settle that died right after recording would have left: the payment, the invoice paid, nobody told.
@@ -740,7 +754,7 @@ check(psql(`select notified_at is not null from booking_holds where id = '${hold
 
 // (i) Booked, confirmation never sent, the customer never writes again: the sweep confirms.
 const k13 = newChat();
-await toAgreement(k13, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Уянга · 1-р зэрэг', time: '15:00', name: 'Чимээгүй', phone: '97000013', day: D2 });
+await toAgreement(k13, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Uyanga · 1-р зэрэг', time: '15:00', name: 'Чимээгүй', phone: '97000013', day: D2 });
 await taps(k13, AGREE);
 const holdK13 = holdOf(k13);
 const invK13 = invoicesOf(holdK13)[0] as string;
@@ -756,7 +770,7 @@ check(pushedTo(k13, beforeK13).filter((m) => m.body.includes('баталгааж
 
 // (j) «Цуцлах» while QPay cannot be read: the time is kept, and Дали answers (no silence).
 const k14 = newChat();
-await toAgreement(k14, { group: 'Засалт', service: 'Энгийн засалт', stylist: 'Уянга · 1-р зэрэг', time: '17:00', name: 'Тасалдал', phone: '97000014', day: D2 });
+await toAgreement(k14, { group: 'Үйлчилгээ', service: 'Хуйх цэвэрлэгээ', stylist: 'Uyanga · 1-р зэрэг', time: '17:00', name: 'Тасалдал', phone: '97000014', day: D2 });
 await taps(k14, AGREE);
 const holdK14 = holdOf(k14);
 qpayFake.failChecks = 5;
@@ -801,18 +815,18 @@ async function websiteOffers(calendarId: string, date: string, minutes: number):
 async function toWhen(chat: Chat, stylist: string, first = 'Цаг авъя') {
   await says(chat, first);
   await taps(chat, FEMALE);
-  await taps(chat, 'Засалт');
-  await taps(chat, 'Энгийн засалт');
+  await taps(chat, 'Үйлчилгээ');
+  await taps(chat, 'Хуйх цэвэрлэгээ');
   await taps(chat, stylist);
 }
 
 // (a) The day and time in the very first message are checked as soon as the stylist is known.
 const p1 = newChat();
-await toWhen(p1, 'Бадмаа · Мастер', `${typedDay3} 2 цагт цаг авъя`);
+await toWhen(p1, 'Badamaa · Мастер', `${typedDay3} 2 цагт цаг авъя`);
 check(p1.lastBody === say(wording, 'booking_time_free', { date: D3, time: '14:00' })
   && JSON.stringify(titles(p1)) === JSON.stringify(['11:00', '12:00', '13:00', '14:00', '15:00', '16:00', CANCEL]),
   '«… 2 цагт цаг авъя» in the first message: Дали checks the calendar and says 14:00 is free, with the times around it');
-check((await websiteOffers(TEST_CALENDARS.master2, day3, 60)).includes('14:00'), 'free/busy, asked the way the website asks it: 14:00 free before anyone books it');
+check((await websiteOffers(TEST_CALENDARS.badamaa, day3, 60)).includes('14:00'), 'free/busy, asked the way the website asks it: 14:00 free before anyone books it');
 await taps(p1, '14:00');
 await says(p1, 'Сэлэнгэ');
 await says(p1, '99112244');
@@ -822,17 +836,17 @@ await taps(p1, AGREE);
 const holdP1 = holdOf(p1);
 check(holdState(holdP1) === 'held' && p1.last?.handled === true && p1.last.linkButtonTitle === say(wording, 'billing_pay_button'),
   '«Зөвшөөрч, захиалах»: the time is held and the QR is made at once');
-check(!(await websiteOffers(TEST_CALENDARS.master2, day3, 60)).includes('14:00'),
+check(!(await websiteOffers(TEST_CALENDARS.badamaa, day3, 60)).includes('14:00'),
   'Messenger holds 14:00: the website\'s free/busy question now sees 14:00 busy, while the customer pays (section 16 runs the website\'s own code)');
 qpayFake.pay(invoicesOf(holdP1)[0] as string);
 await runQpayCallback(ports, signHold(SECRET, 'callback', holdP1));
-check(holdState(holdP1) === 'booked' && !(await websiteOffers(TEST_CALENDARS.master2, day3, 60)).includes('14:00'),
+check(holdState(holdP1) === 'booked' && !(await websiteOffers(TEST_CALENDARS.badamaa, day3, 60)).includes('14:00'),
   'paid: booked in the calendar, still busy to the website\'s free/busy question');
 
 // (b) An unpaid chat hold gives the time back to the website.
 const p2 = newChat();
-await toWhen(p2, 'Бадмаа · Мастер');
-check(p2.lastBody === say(wording, 'booking_ask_when', { service: 'Энгийн засалт' }), 'no time named yet: Дали asks when');
+await toWhen(p2, 'Badamaa · Мастер');
+check(p2.lastBody === say(wording, 'booking_ask_when', { service: SVC_60 }), 'no time named yet: Дали asks when');
 await says(p2, `${typedDay3} 17 цагт`);
 check(p2.lastBody === say(wording, 'booking_time_free', { date: D3, time: '17:00' }), 'typed «… 17 цагт»: 17:00 is free');
 await taps(p2, '17:00');
@@ -840,16 +854,16 @@ await says(p2, 'Хулан');
 await says(p2, '99112255');
 await taps(p2, AGREE);
 const holdP2 = holdOf(p2);
-check(!(await websiteOffers(TEST_CALENDARS.master2, day3, 60)).includes('17:00'), 'held in Messenger: busy to the website\'s free/busy question');
+check(!(await websiteOffers(TEST_CALENDARS.badamaa, day3, 60)).includes('17:00'), 'held in Messenger: busy to the website\'s free/busy question');
 psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdP2}'`);
 await runSweep(ports);
-check(holdState(holdP2) === 'expired' && (await websiteOffers(TEST_CALENDARS.master2, day3, 60)).includes('17:00'),
+check(holdState(holdP2) === 'expired' && (await websiteOffers(TEST_CALENDARS.badamaa, day3, 60)).includes('17:00'),
   'not paid in time: released, and free again to the website\'s free/busy question');
 
 // (c) A website booking is never offered in Messenger; the nearest free times are.
-google.websiteBooks(TEST_CALENDARS.master2, ubAt(day3, 11), 60);
+google.websiteBooks(TEST_CALENDARS.badamaa, ubAt(day3, 11), 60);
 const p3 = newChat();
-await toWhen(p3, 'Бадмаа · Мастер');
+await toWhen(p3, 'Badamaa · Мастер');
 await says(p3, `${typedDay3} 11 цагт`);
 check(p3.lastBody === say(wording, 'booking_time_not_free', { date: D3, time: '11:00' })
   && !titles(p3).includes('11:00') && !titles(p3).includes('14:00') && titles(p3).includes('10:00') && titles(p3).includes('12:00'),
@@ -862,16 +876,16 @@ check(p3.lastBody === say(wording, 'booking_ask_time', { date: dayLabel(wording,
   'and another day shows that day\'s free times');
 
 // (d) A day with nothing free: Дали says so and offers the next day that has time.
-google.websiteBooks(TEST_CALENDARS.first1, ubAt(day3, 10), 600);
+google.websiteBooks(TEST_CALENDARS.uyanga, ubAt(day3, 10), 600);
 const p4 = newChat();
-await toWhen(p4, 'Уянга · 1-р зэрэг');
+await toWhen(p4, 'Uyanga · 1-р зэрэг');
 await says(p4, typedDay3);
 check(p4.lastBody === [say(wording, 'booking_day_full', { date: D3 }), say(wording, 'booking_ask_time', { date: dayLabel(wording, day4, new Date(), TZ) })].join('\n'),
   'the stylist is fully booked that day: «… сул цаг алга», and the next day\'s free times');
 
 // (e) Not a day or a time: asked once more, then Дали answers normally.
 const p5 = newChat();
-await toWhen(p5, 'Бадмаа · Мастер');
+await toWhen(p5, 'Badamaa · Мастер');
 await says(p5, 'хэзээ ч болно');
 check(p5.lastBody === say(wording, 'booking_when_again') && titles(p5).includes(D3), 'not a day or time: asked once more, the day buttons kept');
 const p5r = await says(p5, 'Үнэ хэд вэ?');
@@ -885,7 +899,7 @@ const quietFor = (chat: Chat, minutes: number) => {
 };
 for (const d of [0, 1, 2, 3, 4, 5, 6]) psql(`insert into business_hours (tenant_id, weekday, opens, closes, closed) values ('${T}', ${d}, '10:00', '20:00', false) on conflict do nothing`);
 const p6 = newChat();
-await toWhen(p6, 'Бадмаа · Мастер');
+await toWhen(p6, 'Badamaa · Мастер');
 await says(p6, `${typedDay3} 12 цагт`);
 const oldButtons = p6.last !== null && p6.last.handled ? p6.last.quickReplies : [];
 const sessionP6 = () => psql(`select id from booking_sessions where conversation_id = '${p6.conversationId}' and closed_at is null`);
@@ -894,7 +908,7 @@ quietFor(p6, 9);
 await runSweep(ports);
 check(pushedTo(p6, beforeP6).length === 0, 'nine minutes quiet: no follow-up yet');
 quietFor(p6, 11);
-google.websiteBooks(TEST_CALENDARS.master2, ubAt(day3, 13), 60);
+google.websiteBooks(TEST_CALENDARS.badamaa, ubAt(day3, 13), 60);
 const swept12 = await runSweep(ports);
 const follow = pushedTo(p6, beforeP6);
 check(follow.length === 1 && (follow[0]?.body ?? '').startsWith(`${say(wording, 'booking_follow_up')}\n`)
@@ -917,11 +931,11 @@ check(p6.lastBody === say(wording, 'booking_ask_name')
   'an old «12:00» button means 12:00 on the day it was offered for, never the same label on the day now shown');
 // An old button whose time has gone since: «taken», and the free times nearest it on its day.
 const p6b = newChat();
-await toWhen(p6b, 'Бадмаа · Мастер');
+await toWhen(p6b, 'Badamaa · Мастер');
 await says(p6b, `${typedDay3} 16 цагт`);
 const old16 = (p6b.last !== null && p6b.last.handled ? p6b.last.quickReplies : []).find((q) => q.title === '16:00');
 await says(p6b, 'нөгөөдөр');
-google.websiteBooks(TEST_CALENDARS.master2, ubAt(day3, 16), 60);
+google.websiteBooks(TEST_CALENDARS.badamaa, ubAt(day3, 16), 60);
 await says(p6b, '16:00', old16?.payload);
 check((p6b.lastBody ?? '').startsWith(`${say(wording, 'booking_slot_taken')}\n`) && !titles(p6b).includes('16:00')
   && psql(`select data->>'date' from booking_sessions where conversation_id = '${p6b.conversationId}' and closed_at is null`) === day3,
@@ -929,14 +943,14 @@ check((p6b.lastBody ?? '').startsWith(`${say(wording, 'booking_slot_taken')}\n`)
 
 // A question with no hour at the times is a miss, not a new offer: asked once, then Дали answers.
 const q1 = newChat();
-await toWhen(q1, 'Бадмаа · Мастер');
+await toWhen(q1, 'Badamaa · Мастер');
 await says(q1, `${typedDay3} 17 цагт`);
 await says(q1, `${typedDay3} ажиллах уу?`);
 check(q1.lastBody === say(wording, 'booking_pick_from_list'), 'at the times, asking about the day already shown adds nothing: asked once to pick');
 const q1r = await says(q1, 'Нөгөөдөр ажиллах уу?');
 check(!q1r.handled, 'a second question: the flow steps aside and the ordinary Дали answers');
 const q3 = newChat();
-await toWhen(q3, 'Бадмаа · Мастер');
+await toWhen(q3, 'Badamaa · Мастер');
 await says(q3, 'Нөгөөдөр болох уу?');
 check(q3.lastBody === say(wording, 'booking_ask_time', { date: dayLabel(wording, tenantClock(new Date(Date.now() + 48 * 3600_000), TZ).date, new Date(), TZ) }),
   '«Нөгөөдөр болох уу?» at «when» is answered with that day\'s free times');
@@ -946,30 +960,30 @@ check(!q3r.handled, 'but it counted as a miss: a second non-answer lets the ordi
 // A day that cannot be booked at all is not called «full».
 const far = tenantClock(new Date(Date.now() + 20 * 24 * 3600_000), TZ).date;
 const q2 = newChat();
-await toWhen(q2, 'Бадмаа · Мастер');
+await toWhen(q2, 'Badamaa · Мастер');
 await says(q2, `${Number(far.slice(5, 7))} сарын ${Number(far.slice(8, 10))}-нд 14 цагт`);
 check((q2.lastBody ?? '').startsWith(`${say(wording, 'booking_day_closed', { date: dayLabel(wording, far, new Date(), TZ) })}\n`),
   'a day beyond the days the salon books ahead: «… цаг захиалах боломжгүй», then the nearest day with time');
 
 // Never over a person, never over the customer.
 const h1 = newChat();
-await toWhen(h1, 'Бадмаа · Мастер');
+await toWhen(h1, 'Badamaa · Мастер');
 await says(h1, `${typedDay3} 18 цагт`);
 psql(`update conversations set thread_control = 'human', thread_control_at = now() where id = '${h1.conversationId}'`);
 quietFor(h1, 11);
 const h2 = newChat();
-await toWhen(h2, 'Бадмаа · Мастер');
+await toWhen(h2, 'Badamaa · Мастер');
 await says(h2, `${typedDay3} 19 цагт`);
 quietFor(h2, 11);
 // A photo gets no `messages` row (no text); its answer, the image line, is a reply row as reception writes it.
 psql(`insert into outbound_messages (tenant_id, channel_id, conversation_id, kind, body, dedup_key, state) values ('${T}', '${CH}', '${h2.conversationId}', 'reply', 'image line', 'in:mid.photo.${randomUUID()}', 'draft')`);
 const h3 = newChat();
-await toWhen(h3, 'Бадмаа · Мастер');
+await toWhen(h3, 'Badamaa · Мастер');
 await says(h3, `${typedDay3} 10 цагт`);
 quietFor(h3, 11);
 psql(`insert into messages (tenant_id, conversation_id, direction, external_id, body) values ('${T}', '${h3.conversationId}', 'inbound', 'mid.text.${randomUUID()}', 'Хаяг хаана вэ')`);
 const h4 = newChat();
-await toWhen(h4, 'Бадмаа · Мастер');
+await toWhen(h4, 'Badamaa · Мастер');
 await says(h4, `${typedDay3} 15 цагт`);
 quietFor(h4, 11);
 // A sticker gets neither a message row nor a reply: only the dropped-message flag, as inbound/dropped.ts writes it.
@@ -986,10 +1000,10 @@ check(pushedTo(h4, beforeH).length === 0, 'the customer sent a sticker (no messa
 // alone while another run may be sending it. A run's draft moves the session on in the same
 // transaction, so the leftover row carries the session's own time.
 const fu1 = newChat();
-await toWhen(fu1, 'Бадмаа · Мастер');
+await toWhen(fu1, 'Badamaa · Мастер');
 await says(fu1, `${typedDay3} 16 цагт`);
 const fu2 = newChat();
-await toWhen(fu2, 'Бадмаа · Мастер');
+await toWhen(fu2, 'Badamaa · Мастер');
 await says(fu2, `${typedDay3} 17 цагт`);
 quietFor(fu1, 11);
 const sessFu1 = psql(`select id from booking_sessions where conversation_id = '${fu1.conversationId}' and closed_at is null`);
@@ -1014,7 +1028,7 @@ check(pushedTo(fu2, beforeFu).length === 0 && psql(`select state from outbound_m
 const ubNow = tenantClock(new Date(), TZ);
 const closeIn30 = Math.min(23 * 60 + 59, Number(ubNow.time.slice(0, 2)) * 60 + Number(ubNow.time.slice(3, 5)) + 30);
 const late = newChat();
-await toWhen(late, 'Бадмаа · Мастер');
+await toWhen(late, 'Badamaa · Мастер');
 hoursNow = HOURS.map((h) => h.weekday === ubNow.weekday
   ? { ...h, opens: '00:00:00', closes: `${String(Math.floor(closeIn30 / 60)).padStart(2, '0')}:${String(closeIn30 % 60).padStart(2, '0')}:00` } : h);
 await says(late, 'өнөөдөр');
@@ -1022,7 +1036,7 @@ hoursNow = HOURS;
 check((late.lastBody ?? '').startsWith(`${say(wording, 'booking_day_closed', { date: say(wording, 'booking_day_today') })}\n`),
   '«өнөөдөр» when nothing can still start before closing: «… цаг захиалах боломжгүй», then the next day with time');
 const p7 = newChat();
-await toWhen(p7, 'Бадмаа · Мастер');
+await toWhen(p7, 'Badamaa · Мастер');
 await says(p7, `${typedDay3} 18 цагт`);
 quietFor(p7, 31);
 const beforeP7 = sent.length;
@@ -1060,6 +1074,11 @@ if (WEBSITE === null) {
       insert: (a: { calendarId: string; requestBody: unknown }) => g(`/calendars/${enc(a.calendarId)}/events`, 'POST', a.requestBody),
       get: (a: { calendarId: string; eventId: string }) => g(`/calendars/${enc(a.calendarId)}/events/${enc(a.eventId)}`, 'GET'),
       patch: (a: { calendarId: string; eventId: string; requestBody: unknown }) => g(`/calendars/${enc(a.calendarId)}/events/${enc(a.eventId)}`, 'PATCH', a.requestBody),
+      delete: (a: { calendarId: string; eventId: string }) => g(`/calendars/${enc(a.calendarId)}/events/${enc(a.eventId)}`, 'DELETE'),
+      list: (a: Record<string, unknown>) => {
+        const q = new URLSearchParams(Object.entries(a).filter(([k, v]) => k !== 'calendarId' && v !== undefined).map(([k, v]) => [k, String(v)]));
+        return g(`/calendars/${enc(String(a['calendarId']))}/events?${q.toString()}`, 'GET');
+      },
     },
   };
   const stub = (rel: string, exports: unknown) => {
@@ -1068,9 +1087,12 @@ if (WEBSITE === null) {
   };
   stub('./services/googleCalendar.js', { getCalendarClient: async () => client, normalisePrivateKey: (k: string) => k });
   stub('./services/telegram.js', { sendSalonAlert: async (text: string) => { websiteAlerts.push(text); return true; } });
-  const { STYLIST_CONFIG } = req('./config/stylists.js') as { STYLIST_CONFIG: Record<string, { calendarId: string }> };
-  for (const [name, cal] of [['Оюунсүрэн', TEST_CALENDARS.master1], ['Бадамцэцэг', TEST_CALENDARS.master2], ['Уянга', TEST_CALENDARS.first1], ['Ананд', TEST_CALENDARS.male1]] as const) {
-    (STYLIST_CONFIG[name] as { calendarId: string }).calendarId = cal;
+  // The website's own calendar ids are read-only getters now: its real Яармаг ids are made
+  // aliases of the test calendars inside the fake, so both sides write to the same calendar.
+  const { STYLIST_CONFIG } = req('./config/stylists.js') as { STYLIST_CONFIG: Record<string, { calendarId: string | null }> };
+  for (const name of ['Oyunaa', 'Badamaa', 'Uyanga', 'Zaya', 'Chimgee', 'Anand'] as const) {
+    const real = STYLIST_CONFIG[name]?.calendarId;
+    if (typeof real === 'string' && real !== '') google.aliases.set(real, TEST_CALENDARS[name.toLowerCase() as keyof typeof TEST_CALENDARS]);
   }
   const express = req('express') as () => { use: (p: string, r: unknown) => void; listen: (port: number, host: string, cb: () => void) => http.Server };
   const { ensurePaidBooking } = req('./services/bookingWriter.js') as {
@@ -1085,10 +1107,10 @@ if (WEBSITE === null) {
     return ((await r.json()) as { availableSlots: string[] }).availableSlots;
   };
   const websitePays = (start: Date, phone: string) => ensurePaidBooking(client, {
-    stylistId: 'Бадамцэцэг', start, customerName: 'Вэб үйлчлүүлэгч', customerPhone: phone, services: ['Энгийн засалт'],
+    stylistId: 'Badamaa', start, customerName: 'Вэб үйлчлүүлэгч', customerPhone: phone, services: [SVC_60],
     invoiceId: `web-${randomUUID()}`, test: false, customerGender: 'female', depositTermsAccepted: true, depositTermsAcceptedAt: new Date(),
   }, { amount: 20000 });
-  const blocking = (start: Date) => google.live(TEST_CALENDARS.master2)
+  const blocking = (start: Date) => google.live(TEST_CALENDARS.badamaa)
     .filter((e) => e.transparency === 'opaque' && e.start.getTime() < start.getTime() + 3600_000 && start.getTime() < e.end.getTime());
 
   // Five days ahead, or six when that is a Sunday: the website keeps Sunday 11–19, these chat
@@ -1098,15 +1120,15 @@ if (WEBSITE === null) {
   const typedDay5 = `${Number(day5.slice(5, 7))} сарын ${Number(day5.slice(8, 10))}-нд`;
 
   // (a) Messenger holds 12:00: the website's own page stops offering it.
-  check((await websiteSlots('Бадамцэцэг', day5, 'Энгийн засалт')).includes('12:00'), 'website: 12:00 is offered while nobody has it');
+  check((await websiteSlots('Badamaa', day5, SVC_60)).includes('12:00'), 'website: 12:00 is offered while nobody has it');
   const p8 = newChat();
-  await toWhen(p8, 'Бадмаа · Мастер', `${typedDay5} 12 цагт цаг авъя`);
+  await toWhen(p8, 'Badamaa · Мастер', `${typedDay5} 12 цагт цаг авъя`);
   await taps(p8, '12:00');
   await says(p8, 'Мессенжер');
   await says(p8, '99887766');
   await taps(p8, AGREE);
   const holdP8 = holdOf(p8);
-  check(holdState(holdP8) === 'held' && !(await websiteSlots('Бадамцэцэг', day5, 'Энгийн засалт')).includes('12:00'),
+  check(holdState(holdP8) === 'held' && !(await websiteSlots('Badamaa', day5, SVC_60)).includes('12:00'),
     'Messenger holds 12:00 → the website\'s own /available-slots no longer offers 12:00');
 
   // (b) A website customer who opened the website before the hold pays for 12:00 anyway.
@@ -1120,23 +1142,61 @@ if (WEBSITE === null) {
   // (c) The website books 15:00 first: Messenger never offers it.
   const web15 = await websitePays(ubAt(day5, 15), '88001133');
   check(web15.status === 'booked', 'website: a customer pays for 15:00 and it is booked');
-  check(!(await websiteSlots('Бадамцэцэг', day5, 'Энгийн засалт')).includes('15:00') && !(await websiteSlots('Бадамцэцэг', day5, 'Энгийн засалт')).includes('12:00'),
+  check(!(await websiteSlots('Badamaa', day5, SVC_60)).includes('15:00') && !(await websiteSlots('Badamaa', day5, SVC_60)).includes('12:00'),
     'website: 12:00 (Messenger) and 15:00 (website) are both gone');
   const p9 = newChat();
-  await toWhen(p9, 'Бадмаа · Мастер');
+  await toWhen(p9, 'Badamaa · Мастер');
   await says(p9, `${typedDay5} 15 цагт`);
   check(p9.lastBody === say(wording, 'booking_time_not_free', { date: dayLabel(wording, day5, new Date(), TZ), time: '15:00' })
     && !titles(p9).includes('15:00') && !titles(p9).includes('12:00') && titles(p9).includes('14:00'),
     'Messenger: asked for 15:00, Дали says it is taken and offers neither 15:00 nor 12:00');
 
   // (d) Both sides agree, start by start, for the whole day.
-  const webSide = await websiteSlots('Бадамцэцэг', day5, 'Энгийн засалт');
+  const webSide = await websiteSlots('Badamaa', day5, SVC_60);
   const p10 = newChat();
-  await toWhen(p10, 'Бадмаа · Мастер');
+  await toWhen(p10, 'Badamaa · Мастер');
   await taps(p10, dayLabel(wording, day5, new Date(), TZ));
   const chatTimes = titles(p10).filter((t) => t !== CANCEL);
   check(webSide.length > 0 && JSON.stringify(chatTimes) === JSON.stringify(webSide),
     `the chat and the website offer exactly the same times that day (${webSide.join(', ')})`);
+
+  // (e)–(g) The website's own 5-minute hold (services/bookingHold.js), when the checkout has it with
+  // the agreed contract (`sh…` ids, holdPlacedAt). Older checkouts: SKIPPED, said so.
+  const holdPath = path.join(path.resolve(WEBSITE), 'services/bookingHold.js');
+  const siteHold = existsSync(holdPath) ? req('./services/bookingHold.js') as {
+    HOLD_PREFIX?: string;
+    placeHold: (calendar: unknown, a: { stylistId: string; start: Date; minutes: number; phone: string; services?: string[]; now?: Date }) => Promise<{ ok: boolean; reason?: string; holdId?: string }>;
+  } : null;
+  if (siteHold === null || siteHold.HOLD_PREFIX !== 'sh') {
+    process.stdout.write(`  SKIPPED (e)–(g): the website checkout has ${siteHold === null ? 'no services/bookingHold.js' : `hold prefix «${String(siteHold.HOLD_PREFIX)}», not the agreed «sh»`}; section 21 proves the chat's side against the contract\n`);
+  } else {
+    // (e) The website's customer is at the QR for 16:00: Messenger does not offer 16:00.
+    const h16 = await siteHold.placeHold(client, { stylistId: 'Badamaa', start: ubAt(day5, 16), minutes: 60, phone: '88001144', services: [SVC_60] });
+    const p11 = newChat();
+    await toWhen(p11, 'Badamaa · Мастер');
+    await says(p11, `${typedDay5} 16 цагт`);
+    check(h16.ok && String(h16.holdId).startsWith('sh') && p11.lastBody === say(wording, 'booking_time_not_free', { date: dayLabel(wording, day5, new Date(), TZ), time: '16:00' }),
+      'the website\'s own hold on 16:00 (its QR open): Messenger says 16:00 is taken');
+    // (f) A website hold whose QR ran out, not deleted yet: free to Messenger.
+    const h17 = await siteHold.placeHold(client, { stylistId: 'Badamaa', start: ubAt(day5, 17), minutes: 60, phone: '88001155', services: [SVC_60], now: new Date(Date.now() - 10 * 60_000) });
+    const p12 = newChat();
+    await toWhen(p12, 'Badamaa · Мастер');
+    await says(p12, `${typedDay5} 17 цагт`);
+    check(h17.ok && google.live(TEST_CALENDARS.badamaa).some((ev) => ev.id === h17.holdId)
+      && p12.lastBody === say(wording, 'booking_time_free', { date: dayLabel(wording, day5, new Date(), TZ), time: '17:00' }),
+      'a website hold whose five minutes are over (still in the calendar): Messenger offers that time');
+    // (g) Messenger holds 18:00 first: the website's own hold for 18:00 is refused.
+    const p13 = newChat();
+    await toWhen(p13, 'Badamaa · Мастер');
+    await says(p13, `${typedDay5} 18 цагт`);
+    await taps(p13, '18:00');
+    await says(p13, 'Чат');
+    await says(p13, '99887700');
+    await taps(p13, AGREE);
+    const h18 = await siteHold.placeHold(client, { stylistId: 'Badamaa', start: ubAt(day5, 18), minutes: 60, phone: '88001166', services: [SVC_60] });
+    check(holdState(holdOf(p13)) === 'held' && !h18.ok && h18.reason === 'slot-taken',
+      'Messenger held 18:00 first: the website\'s own hold for 18:00 is refused (no QR for it)');
+  }
   server.close();
 }
 
@@ -1149,9 +1209,9 @@ const typedDay6 = `${Number(day6.slice(5, 7))} сарын ${Number(day6.slice(8,
 const POLICY = 'Энэ QR 5 минутын турш хүчинтэй. Энэ хугацаанд таны сонгосон цаг хадгалагдана.';
 /** From «when» to the QR, for one 1-hour service with Оюунаа at `hh` on day 6. */
 async function toQr(chat: Chat, hh: number, name: string, phone: string, first = 'Цаг авъя', day = day6) {
-  await toWhen(chat, 'Оюунаа · Мастер', first);
+  await toWhen(chat, 'Oyunaa · SPECIAL', first);
   const typed = `${Number(day.slice(5, 7))} сарын ${Number(day.slice(8, 10))}-нд`;
-  if (chat.lastBody === say(wording, 'booking_ask_when', { service: 'Энгийн засалт' })) await says(chat, `${typed} ${hh} цагт`);
+  if (chat.lastBody === say(wording, 'booking_ask_when', { service: SVC_60 })) await says(chat, `${typed} ${hh} цагт`);
   await taps(chat, `${String(hh).padStart(2, '0')}:00`);
   await says(chat, name);
   await says(chat, phone);
@@ -1175,20 +1235,20 @@ check(scheduled.length === scheduledBefore + 1 && scheduled[scheduled.length - 1
 
 // (b) During those five minutes the time is taken everywhere.
 const t2 = newChat();
-await toWhen(t2, 'Оюунаа · Мастер');
+await toWhen(t2, 'Oyunaa · SPECIAL');
 await says(t2, `${typedDay6} 12 цагт`);
 check(t2.lastBody === say(wording, 'booking_time_not_free', { date: D6, time: '12:00' }) && !titles(t2).includes('12:00'),
   'another Messenger customer asking for 12:00 is told it is taken, and is not offered it');
-check(!(await websiteOffers(TEST_CALENDARS.master1, day6, 60)).includes('12:00'), 'the website\'s free/busy sees 12:00 busy (section 16 runs the website\'s own code)');
+check(!(await websiteOffers(TEST_CALENDARS.oyunaa, day6, 60)).includes('12:00'), 'the website\'s free/busy sees 12:00 busy (section 16 runs the website\'s own code)');
 
 // (c) Not paid in five minutes: released, and told once, with a button to choose again.
 psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdT1}'`);
 const beforeT1 = sent.length;
 await runSweep(ports);
 const releasedMsg = pushedTo(t1, beforeT1);
-check(holdState(holdT1) === 'expired' && google.live(TEST_CALENDARS.master1).every((e) => e.id !== eventIdForHold(holdT1)),
+check(holdState(holdT1) === 'expired' && google.live(TEST_CALENDARS.oyunaa).every((e) => e.id !== eventIdForHold(holdT1)),
   'five minutes unpaid: the hold ends and the calendar event is removed');
-check((await websiteOffers(TEST_CALENDARS.master1, day6, 60)).includes('12:00'), 'and 12:00 is free again to the website');
+check((await websiteOffers(TEST_CALENDARS.oyunaa, day6, 60)).includes('12:00'), 'and 12:00 is free again to the website');
 check(releasedMsg.length === 1 && (releasedMsg[0]?.body ?? '').startsWith('Уучлаарай, 5 минутын дотор')
   && JSON.stringify((releasedMsg[0]?.quickReplies ?? []).map((q) => q.title)) === JSON.stringify([say(wording, 'booking_choose_again')]),
   'the customer is told once, politely, with a «Цаг сонгох» button');
@@ -1226,7 +1286,7 @@ psql(`update booking_holds set expires_at = now() - interval '1 second' where id
 qpayFake.failCancel = true;
 await runSweep(ports);
 qpayFake.failCancel = false;
-google.websiteBooks(TEST_CALENDARS.master1, ubAt(day6, 16), 60);
+google.websiteBooks(TEST_CALENDARS.oyunaa, ubAt(day6, 16), 60);
 qpayFake.pay(invT4);
 const beforeT4 = sent.length;
 await runQpayCallback(ports, signHold(SECRET, 'callback', holdT4));
@@ -1246,7 +1306,7 @@ check(holdState(holdT4) === 'booked' && psql(`select to_char(starts_at at time z
   && pushedTo(t4, beforePick).filter((m) => m.body.includes('баталгаажлаа') && m.body.includes('17:00')).length === 1,
   'the customer taps 17:00: booked on the deposit already paid, confirmed once');
 check(psql(`select count(*) from booking_payments where hold_id = '${holdT4}'`) === '1' && invoicesOf(holdT4).length === 1
-  && google.live(TEST_CALENDARS.master1).filter((e) => e.id === eventIdForHold(holdT4) && e.start.getTime() === ubAt(day6, 17).getTime()).length === 1
+  && google.live(TEST_CALENDARS.oyunaa).filter((e) => e.id === eventIdForHold(holdT4) && e.start.getTime() === ubAt(day6, 17).getTime()).length === 1
   && alerts.some((a) => a.kind === 'booking.rebooked' && a.dedupKey.endsWith(holdT4)),
   'one payment, no new QR, one calendar event at 17:00, and you are told it was rebooked (nothing to refund)');
 
@@ -1260,9 +1320,9 @@ await says(t5, 'Өөр цаг авъя');
 check(t5.lastBody === say(wording, 'booking_ask_gender') && holdState(holdT5a) === 'held',
   'they start a new booking while the QR is out: a new chat begins; the old time stays held until a new QR is made');
 await taps(t5, FEMALE);
-await taps(t5, 'Засалт');
-await taps(t5, 'Энгийн засалт');
-await taps(t5, 'Оюунаа · Мастер');
+await taps(t5, 'Үйлчилгээ');
+await taps(t5, 'Хуйх цэвэрлэгээ');
+await taps(t5, 'Oyunaa · SPECIAL');
 await says(t5, `${typedDay6} 11 цагт`);
 await taps(t5, '11:00');
 await says(t5, 'Нэг хүн');
@@ -1270,7 +1330,7 @@ await says(t5, '99550005');
 await taps(t5, AGREE);
 const holdT5b = holdOf(t5);
 check(holdT5b !== holdT5a && holdState(holdT5b) === 'held' && holdState(holdT5a) === 'released'
-  && qpayFake.invoices.get(invT5a)?.status === 'CANCELLED' && google.live(TEST_CALENDARS.master1).every((e) => e.id !== eventIdForHold(holdT5a)),
+  && qpayFake.invoices.get(invT5a)?.status === 'CANCELLED' && google.live(TEST_CALENDARS.oyunaa).every((e) => e.id !== eventIdForHold(holdT5a)),
   'the new QR replaces the old hold: 10:00 is released, its QR cancelled, its calendar event removed');
 check(psql(`select count(*) from booking_holds where tenant_id = '${T}' and psid = '${t5.psid}' and state = 'held'`) === '1',
   'one held time per customer, never two');
@@ -1287,7 +1347,7 @@ async function lateAndTaken(chat: Chat, hh: number, name: string, phone: string,
   qpayFake.failCancel = true;
   await runSweep(ports);
   qpayFake.failCancel = false;
-  google.websiteBooks(TEST_CALENDARS.master1, ubAt(day, hh), 60);
+  google.websiteBooks(TEST_CALENDARS.oyunaa, ubAt(day, hh), 60);
   qpayFake.pay(inv);
   const before = sent.length;
   failDeliver = failOffer;
@@ -1308,7 +1368,7 @@ google.failWrites = true;
 await says(rv1, '19:00', tap(lr1.offer, '19:00')?.payload);
 google.failWrites = false;
 check(holdState(lr1.hold) === 'paid', 'set-up: moved to 19:00, but the calendar would not take the booking yet');
-google.websiteBooks(TEST_CALENDARS.master1, ubAt(day6, 19), 60);
+google.websiteBooks(TEST_CALENDARS.oyunaa, ubAt(day6, 19), 60);
 const beforeR1 = sent.length;
 await runSweep(ports);
 const second = pushedTo(rv1, beforeR1);
@@ -1323,7 +1383,7 @@ const rv2 = newChat();
 await toQr(rv2, 10, 'Бичсэн', '99660002');
 const holdR2 = holdOf(rv2);
 psql(`update booking_holds set calendar_state = 'held' where id = '${holdR2}'`);
-google.websiteBooks(TEST_CALENDARS.master1, ubAt(day6, 10), 60);
+google.websiteBooks(TEST_CALENDARS.oyunaa, ubAt(day6, 10), 60);
 qpayFake.pay(invoicesOf(holdR2)[0] as string);
 const beforeR2 = sent.length;
 await says(rv2, 'Төлсөн');
@@ -1358,9 +1418,9 @@ check(holdState(lr4.hold) === 'booked' && pushedTo(rv4, beforeR4).filter((m) => 
 
 // (5) «Цаг сонгох» tapped in the middle of another booking chat is never a name.
 const rv5 = newChat();
-await toWhen(rv5, 'Оюунаа · Мастер');
+await toWhen(rv5, 'Oyunaa · SPECIAL');
 await says(rv5, `${typedDay6} 17 цагт`);
-await taps(rv5, '17:00');
+await taps(rv5, titles(rv5).find((t) => /^\d{2}:\d{2}$/u.test(t)) ?? '17:00');
 check(rv5.lastBody === say(wording, 'booking_ask_name'), 'set-up: at the name step');
 await says(rv5, say(wording, 'booking_choose_again'), 'bk:start');
 check(rv5.lastBody === say(wording, 'booking_ask_gender')
@@ -1420,7 +1480,7 @@ psql(`update booking_holds set expires_at = now() - interval '1 second' where id
 qpayFake.failCancel = true;
 await runSweep(ports);
 qpayFake.failCancel = false;
-google.websiteBooks(TEST_CALENDARS.master1, ubAt(day5b, 18), 60);
+google.websiteBooks(TEST_CALENDARS.oyunaa, ubAt(day5b, 18), 60);
 qpayFake.pay(invRv10);
 psql(`update tenant_channels set delivery_mode = 'shadow' where id = '${CH}'`);
 await runQpayCallback(ports, signHold(SECRET, 'callback', holdRv10));
@@ -1437,39 +1497,328 @@ section('19. Who it is for: a man books only the man stylist; «Хүүхэд» l
 const man = newChat();
 await says(man, 'Цаг авъя');
 await taps(man, MALE);
-await taps(man, 'Засалт');
-await taps(man, 'Энгийн засалт');
-check(JSON.stringify(titles(man)) === JSON.stringify(['Ананд · Мастер', CANCEL]), 'a man is offered only Ананд, the one man stylist');
+await taps(man, 'Үйлчилгээ');
+await taps(man, 'Хуйх цэвэрлэгээ');
+check(JSON.stringify(titles(man)) === JSON.stringify(['Anand · Мастер', CANCEL]), 'a man is offered only Anand, the one man stylist');
+const manG = newChat();
+await says(manG, 'Цаг авъя');
+await taps(manG, MALE);
+check(JSON.stringify(titles(manG)) === JSON.stringify(['Эрэгтэй засалт', 'Үйлчилгээ', CANCEL]), 'a man: the men\'s section and the services for everyone, no women\'s section');
+await taps(manG, 'Эрэгтэй засалт');
+check(!titles(manG).includes('Тайралт /SPECIAL/') && titles(manG).includes('Тайралт том хүн') && titles(manG).includes('Гоёлын засалт'),
+  'the men\'s SPECIAL haircut is not offered (no man here is SPECIAL); the men\'s styling from the price list is');
 const girl = newChat();
 await says(girl, 'Цаг авъя');
 await taps(girl, CHILD);
-check(girl.lastBody === say(wording, 'booking_ask_service') && JSON.stringify(titles(girl)) === JSON.stringify(['Охин', 'Хүү', CANCEL]),
+check(girl.lastBody === say(wording, 'booking_ask_service') && JSON.stringify(titles(girl)) === JSON.stringify(['Охин', 'Эрэгтэй 0–13 нас', 'Эрэгтэй 14–18 нас', CANCEL]),
   '«Хүүхэд»: the children\'s services, straight away (no service groups)');
 await taps(girl, 'Охин');
-check(JSON.stringify(titles(girl)) === JSON.stringify([say(wording, 'booking_any_of_level', { level: 'Мастер' }), 'Оюунаа · Мастер', 'Бадмаа · Мастер', 'Уянга · 1-р зэрэг', CANCEL]),
+check(JSON.stringify(titles(girl)) === JSON.stringify(['Oyunaa · SPECIAL', 'Badamaa · Мастер', say(wording, 'booking_any_of_level', { level: '1-р зэрэг' }), 'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг', CANCEL]),
   'a girl\'s haircut: the women stylists only');
 const boy = newChat();
 await says(boy, 'Цаг авъя');
 await taps(boy, CHILD);
-await taps(boy, 'Хүү');
-check(JSON.stringify(titles(boy)) === JSON.stringify(['Ананд · Мастер', CANCEL]), 'a boy\'s haircut: Ананд only');
-await taps(boy, 'Ананд · Мастер');
-check(boy.lastBody === say(wording, 'booking_ask_when', { service: 'Хүүхдийн тайралт (хүү)' }), 'and on to when, with the children\'s service by its own name');
-check(psql(`select data->>'gender' || '/' || (data->>'minutes') from booking_sessions where conversation_id = '${boy.conversationId}' and closed_at is null`) === 'male/60',
-  'the boy\'s haircut is recorded as served by a man, with its own minutes (what the hold will carry)');
+await taps(boy, 'Эрэгтэй 0–13 нас');
+check(JSON.stringify(titles(boy)) === JSON.stringify(['Anand · Мастер', CANCEL]), 'a boy\'s haircut: Anand only');
+await taps(boy, 'Anand · Мастер');
+check(boy.lastBody === say(wording, 'booking_ask_when', { service: 'Эрэгтэй засалт — Тайралт хүүхэд /0–13 нас/' }), 'and on to when, with the children\'s service by its own name');
+check(psql(`select data->>'gender' || '/' || (data->>'minutes') from booking_sessions where conversation_id = '${boy.conversationId}' and closed_at is null`) === 'male/30',
+  'the boy\'s haircut is recorded as served by a man, with its confirmed 30 minutes (what the hold will carry)');
+// The price list's per-level lines: one button, then the level; a level line is served only at that level.
+const cut = newChat();
+await says(cut, 'Цаг авъя');
+await taps(cut, FEMALE);
+await taps(cut, 'Эмэгтэй засалт');
+check(JSON.stringify(titles(cut)) === JSON.stringify(['Тайралт том хүн', 'Тайралт /чёлк/', 'Хэлбэржүүлэлт', 'Гоёлын засалт', 'Хуримын засалт', CANCEL]), 'the women\'s section: one button per price-list line or family');
+await taps(cut, 'Тайралт том хүн');
+check(cut.lastBody === say(wording, 'booking_ask_variant', { service: 'Тайралт том хүн' }) && JSON.stringify(titles(cut)) === JSON.stringify(['SPECIAL', 'МАСТЕР', '1-р зэрэг', CANCEL]),
+  'then which of its lines, in the price list\'s words');
+await taps(cut, 'SPECIAL');
+check(JSON.stringify(titles(cut)) === JSON.stringify(['Oyunaa · SPECIAL', CANCEL])
+  && psql(`select data->>'minutes' from booking_sessions where conversation_id = '${cut.conversationId}' and closed_at is null`) === '75',
+  'the SPECIAL haircut: Oyunaa only, 75 minutes (the confirmed sheet)');
+const cut1 = newChat();
+await says(cut1, 'Цаг авъя');
+await taps(cut1, FEMALE);
+await taps(cut1, 'Эмэгтэй засалт');
+await taps(cut1, 'Тайралт том хүн');
+await taps(cut1, '1-р зэрэг');
+check(JSON.stringify(titles(cut1)) === JSON.stringify([say(wording, 'booking_any_of_level', { level: '1-р зэрэг' }), 'Uyanga · 1-р зэрэг', 'Zaya · 1-р зэрэг', 'Chimgee · 1-р зэрэг', CANCEL]),
+  'the 1-р зэрэг haircut: only 1-р зэрэг stylists');
 const adultAfterChild = newChat();
 await says(adultAfterChild, 'Цаг авъя');
 await taps(adultAfterChild, CHILD);
-await says(adultAfterChild, 'Энгийн засалт');
+await says(adultAfterChild, 'Хуйх цэвэрлэгээ');
 check(adultAfterChild.lastBody === say(wording, 'booking_pick_from_list'), 'an adult service typed on the children\'s list is not taken');
+
+// =====================================================================================
+section('20. Two branches: Парк Од is her own tenant, with her own calendars and her own QPay merchant');
+// =====================================================================================
+const T2 = randomUUID();
+const CH2 = randomUUID();
+const PAGE2 = `page-${T2.slice(0, 8)}`;
+const PARK_ADDRESS = 'Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот';
+psql(`insert into tenants (id, slug, display_name, vertical, timezone) values ('${T2}', 'park-od-e2e-${T2.slice(0, 8)}', 'Tara Salon — Парк Од', 'salon', '${TZ}')`);
+psql(`insert into tenant_channels (id, tenant_id, provider, external_id, auth_flavour, app_slug, status, delivery_mode, token_status, name_confirmed_at)
+      values ('${CH2}', '${T2}', 'facebook_page', '${PAGE2}', 'facebook_login', 'dalatech', 'active', 'live', 'active', now())`);
+psql(`insert into contact_points (tenant_id, kind, value) values ('${T2}', 'address', '${PARK_ADDRESS}')`);
+psql(`insert into tenant_booking (tenant_id, mode, booking_url) values ('${T2}', 'link', 'https://www.matrixecosalon.org/')`);
+// Парк Од's hours (founder): Monday–Saturday 10:00–20:00, Sunday 11:00–19:00.
+const PARK_HOURS = [0, 1, 2, 3, 4, 5, 6].map((d) => ({ weekday: d, opens: d === 0 ? '11:00:00' : '10:00:00', closes: d === 0 ? '19:00:00' : '20:00:00', closed: false }));
+const PARK: Tenant = { id: T2, channel: CH2, page: PAGE2, hours: PARK_HOURS };
+const setPark = (config: Record<string, unknown>) => psql(
+  `insert into booking_config (tenant_id, mode, config) values ('${T2}', 'live', $json$${JSON.stringify(config)}$json$::jsonb)
+   on conflict (tenant_id) do update set mode = excluded.mode, config = excluded.config`);
+const parkSessions = () => psql(`select count(*) from booking_sessions where tenant_id = '${T2}'`);
+const PARK_Q = TEST_MERCHANTS['tara-park-od'];
+const YA_Q = TEST_MERCHANTS['matrix-eco-salon'];
+
+// (a) Today's row (from-website.ts): every calendar and the merchant «not connected».
+setPark(taraConfig('tara-park-od', { qpay: 'not-connected' }, { calendars: false }));
+const pn = newChat(undefined, PARK);
+const pnr = await says(pn, 'Цаг авъя');
+const pnt = await says(newChat('psid-tester', PARK), 'Цаг авъя');
+check(!pnr.handled && pnr.reason === 'not_connected' && !pnt.handled && parkSessions() === '0',
+  'Парк Од not connected: no booking offered there, not even to a tester; the ordinary Дали answers; nothing written');
+// (b) Calendars connected, her merchant not issued yet: still nothing (never Яармаг's merchant instead).
+setPark(taraConfig('tara-park-od', { qpay: 'not-connected' }));
+const pn2 = await says(newChat(undefined, PARK), 'Цаг авъя');
+check(!pn2.handled && pn2.reason === 'not_connected' && parkSessions() === '0', 'calendars connected, merchant still missing: still not offered');
+// One calendar still missing is enough to keep the branch off.
+setPark(taraConfig('tara-park-od', { stylists: (taraConfig('tara-park-od')['stylists'] as Record<string, unknown>[]).map((x, i) => (i === 6 ? { ...x, calendar_id: 'not-connected' } : x)) }));
+const pn3 = await says(newChat(undefined, PARK), 'Цаг авъя');
+check(!pn3.handled && pn3.reason === 'not_connected', 'one stylist\'s calendar still missing (Tuchku): the branch stays off');
+
+// (c) Connected: her own merchant, registered under the platform's partner login.
+qpayFake.registerMerchant(qpayFake.username, PARK_Q.merchant_id);
+setPark(taraConfig('tara-park-od'));
+const pk = newChat(undefined, PARK);
+await says(pk, 'Цаг авъя');
+check(JSON.stringify(titles(pk)) === JSON.stringify([FEMALE, MALE, CHILD, CANCEL]), 'Парк Од connected: the booking starts, who it is for first');
+await taps(pk, FEMALE);
+check(JSON.stringify(titles(pk)) === JSON.stringify(['Эмэгтэй засалт', 'Үйлчилгээ', 'Эмэгтэй хими', 'Эмэгтэй будаг', CANCEL]), 'the same price list as Яармаг');
+await taps(pk, 'Эмэгтэй засалт');
+await taps(pk, 'Тайралт том хүн');
+check(JSON.stringify(titles(pk)) === JSON.stringify(['SPECIAL', 'МАСТЕР', CANCEL]), 'no 1-р зэрэг line at Парк Од: nobody there is 1-р зэрэг');
+await taps(pk, 'МАСТЕР');
+check(JSON.stringify(titles(pk)) === JSON.stringify([say(wording, 'booking_any_of_level', { level: 'Мастер' }), 'Saraa · Мастер', 'Tomoo · Мастер', 'Bulgaa · Мастер', 'Enhuush · Мастер', 'Chimegee · Мастер', CANCEL]),
+  'her Мастер stylists by their short names, «Аль ч Мастер»; never «Аль ч 1-р зэрэг»');
+await taps(pk, 'Saraa · Мастер');
+await taps(pk, T_MAR);
+await taps(pk, '14:00');
+await says(pk, 'Номин');
+await says(pk, '88990011');
+check((pk.lastBody ?? '').includes('Saraa (Мастер)') && (pk.lastBody ?? '').includes('20,000₮') && !/Нөхцөл|буца/u.test(pk.lastBody ?? ''), 'the summary: Saraa (Мастер), 20,000₮, no deposit terms');
+const parkQBefore = qpayFake.invoices.size;
+await taps(pk, AGREE);
+const holdPk = holdOf(pk);
+const invPk = qpayFake.invoices.get(invoicesOf(holdPk)[0] as string);
+check(holdState(holdPk) === 'held' && psql(`select calendar_id || '/' || minutes || '/' || deposit_mnt from booking_holds where id = '${holdPk}'`) === `${TEST_CALENDARS.saraa}/60/20000`,
+  'held on Saraa\'s own calendar, 60 minutes, 20,000₮');
+check(qpayFake.invoices.size === parkQBefore + 1 && invPk?.merchantId === PARK_Q.merchant_id && invPk.bankAccount === PARK_Q.bank_accounts[0].account_number
+  && invPk.bankCode === PARK_Q.bank_accounts[0].bank_code && invPk.accountName === PARK_Q.bank_accounts[0].account_name && invPk.amount === 20000 && invPk.mcc === '7230',
+  'the QPay invoice carries Парк Од\'s OWN merchant id and payout account (bank_accounts), 20,000₮');
+check(qinvA?.merchantId === YA_Q.merchant_id && qinvA.bankAccount === YA_Q.bank_accounts[0].account_number && invPk?.merchantId !== qinvA.merchantId && invPk?.bankAccount !== qinvA.bankAccount,
+  'and Яармаг\'s invoices carry Яармаг\'s: each branch is paid into its own account');
+qpayFake.pay(invoicesOf(holdPk)[0] as string);
+const beforePk = sent.length;
+await runQpayCallback(ports, signHold(SECRET, 'callback', holdPk));
+const confPk = pushedTo(pk, beforePk).find((m) => m.body.includes('баталгаажлаа'))?.body ?? '';
+check(holdState(holdPk) === 'booked' && confPk.includes('Парк Од салбар') && confPk.includes(PARK_ADDRESS) && confPk.includes('Saraa (Мастер)')
+  && google.live(TEST_CALENDARS.saraa).some((ev) => ev.start.getTime() === ubAt(tomorrow(), 14).getTime() && ev.description.includes('Branch: Tara Salon — Парк Од')),
+  'paid: booked in Saraa\'s calendar; the confirmation names «Парк Од салбар» and her address');
+
+/** Walk a Парк Од chat to the summary for one service of «Үйлчилгээ» with one stylist. */
+async function parkSummary(chat: Chat, stylist: string, time: string, phone: string) {
+  await says(chat, 'Цаг авъя');
+  await taps(chat, FEMALE);
+  await taps(chat, 'Үйлчилгээ');
+  await taps(chat, 'Хуйх цэвэрлэгээ');
+  await taps(chat, stylist);
+  await taps(chat, T_MAR);
+  await taps(chat, time);
+  await says(chat, 'Сүх');
+  await says(chat, phone);
+}
+// (d) Her own login named in the row and absent from the environment: no invoice, and never the platform's login instead.
+setPark(taraConfig('tara-park-od', { qpay: { ...PARK_Q, login: 'PARKOD' } }));
+const pl = newChat(undefined, PARK);
+await parkSummary(pl, 'Tomoo · Мастер', '15:00', '88990012');
+const callsL = qpayFake.calls.length;
+await taps(pl, AGREE);
+check(pl.lastBody === say(wording, 'booking_unavailable', { booking_url: 'https://www.matrixecosalon.org/' }) && holdState(holdOf(pl)) === 'released'
+  && qpayFake.calls.length === callsL && invoicesOf(holdOf(pl)).length === 0,
+  'her own login named but not in the environment: no invoice, the time given back, QPay never asked on any other login');
+// …and once it is there (all three), invoices go through her login with her merchant.
+qpayFake.addLogin('parkod-user', 'parkod-pass', 'PARKOD_TERMINAL');
+qpayFake.registerMerchant('parkod-user', PARK_Q.merchant_id);
+(qpayFake.logins.get(qpayFake.username) as { merchants: Set<string> }).merchants.delete(PARK_Q.merchant_id);
+process.env['BOOKING_QPAY_PARKOD_USERNAME'] = 'parkod-user';
+process.env['BOOKING_QPAY_PARKOD_PASSWORD'] = 'parkod-pass';
+process.env['BOOKING_QPAY_PARKOD_TERMINAL_ID'] = 'PARKOD_TERMINAL';
+const pl2 = newChat(undefined, PARK);
+await parkSummary(pl2, 'Tomoo · Мастер', '16:00', '88990013');
+await taps(pl2, AGREE);
+const invPl2 = qpayFake.invoices.get(invoicesOf(holdOf(pl2))[0] as string);
+check(holdState(holdOf(pl2)) === 'held' && invPl2?.login === 'parkod-user' && invPl2.merchantId === PARK_Q.merchant_id && invPl2.bankAccount === PARK_Q.bank_accounts[0].account_number,
+  'her own login set (all three): the invoice is made on her login, her merchant, her account');
+// The row back on the platform's login while her merchant is registered only under her own: QPay refuses; no QR.
+setPark(taraConfig('tara-park-od'));
+const pl3 = newChat(undefined, PARK);
+await parkSummary(pl3, 'Bulgaa · Мастер', '15:00', '88990014');
+await taps(pl3, AGREE);
+check(pl3.lastBody === say(wording, 'booking_unavailable', { booking_url: 'https://www.matrixecosalon.org/' }) && invoicesOf(holdOf(pl3)).length === 0 && holdState(holdOf(pl3)) === 'released',
+  'a merchant QPay does not know under that login (MERCHANT_NOTFOUND): no QR, the time given back');
+delete process.env['BOOKING_QPAY_PARKOD_USERNAME'];
+delete process.env['BOOKING_QPAY_PARKOD_PASSWORD'];
+delete process.env['BOOKING_QPAY_PARKOD_TERMINAL_ID'];
+qpayFake.registerMerchant(qpayFake.username, PARK_Q.merchant_id);
+
+// (e) Never another branch's money: Парк Од's row naming Яармаг's merchant, or Яармаг's account, is refused before QPay.
+for (const [what, q] of [['merchant id', { ...PARK_Q, merchant_id: YA_Q.merchant_id }], ['payout account', { ...PARK_Q, bank_accounts: YA_Q.bank_accounts }]] as const) {
+  setPark(taraConfig('tara-park-od', { qpay: q }));
+  const px = newChat(undefined, PARK);
+  await parkSummary(px, 'Enhuush · Мастер', what === 'merchant id' ? '12:00' : '13:00', what === 'merchant id' ? '88990015' : '88990016');
+  const before = qpayFake.calls.length;
+  await taps(px, AGREE);
+  check(px.lastBody === say(wording, 'booking_unavailable', { booking_url: 'https://www.matrixecosalon.org/' }) && qpayFake.calls.length === before
+    && invoicesOf(holdOf(px)).length === 0 && alerts.some((al) => al.kind === 'booking.merchant_shared' && al.tenantId === T2),
+    `Парк Од's row with Яармаг's ${what}: refused before QPay is asked, and you are paged`);
+}
+setPark(taraConfig('tara-park-od'));
+
+// (f) Who it is for, at Парк Од: a man and a boy book only Tuchku; a girl the women; every deposit 20,000₮.
+const pm = newChat(undefined, PARK);
+await says(pm, 'Цаг авъя');
+await taps(pm, MALE);
+check(JSON.stringify(titles(pm)) === JSON.stringify(['Эрэгтэй засалт', 'Үйлчилгээ', CANCEL]), 'a man at Парк Од: the men\'s section and the services for everyone');
+await taps(pm, 'Эрэгтэй засалт');
+await taps(pm, 'Тайралт том хүн');
+check(JSON.stringify(titles(pm)) === JSON.stringify(['Tuchku · Мастер', CANCEL]), 'a man: Tuchku only');
+const pb = newChat(undefined, PARK);
+await says(pb, 'Цаг авъя');
+await taps(pb, CHILD);
+await taps(pb, 'Эрэгтэй 14–18 нас');
+check(JSON.stringify(titles(pb)) === JSON.stringify(['Tuchku · Мастер', CANCEL]), 'a boy: Tuchku only');
+await taps(pb, 'Tuchku · Мастер');
+await taps(pb, T_MAR);
+await taps(pb, titles(pb).find((t) => /^\d{2}:\d{2}$/u.test(t)) ?? '');
+await says(pb, 'Бат');
+await says(pb, '88990017');
+check((pb.lastBody ?? '').includes('Tuchku (Мастер)') && (pb.lastBody ?? '').includes('20,000₮'), 'a boy\'s deposit is his stylist\'s level\'s: 20,000₮');
+const pg = newChat(undefined, PARK);
+await says(pg, 'Цаг авъя');
+await taps(pg, CHILD);
+await taps(pg, 'Охин');
+check(JSON.stringify(titles(pg)) === JSON.stringify(['Boloroo · SPECIAL', say(wording, 'booking_any_of_level', { level: 'Мастер' }), 'Saraa · Мастер', 'Tomoo · Мастер', 'Bulgaa · Мастер', 'Enhuush · Мастер', 'Chimegee · Мастер', CANCEL]),
+  'a girl: the women of Парк Од, Boloroo (SPECIAL) first by level, nobody recommended');
+await taps(pg, 'Boloroo · SPECIAL');
+await taps(pg, T_MAR);
+await taps(pg, titles(pg).find((t) => /^\d{2}:\d{2}$/u.test(t)) ?? '');
+await says(pg, 'Сараа');
+await says(pg, '88990018');
+check((pg.lastBody ?? '').includes('Boloroo (SPECIAL)') && (pg.lastBody ?? '').includes('20,000₮'), 'a girl with Boloroo (SPECIAL): 20,000₮');
+check(psql(`select count(*) from booking_holds where tenant_id = '${T2}' and deposit_mnt <> 20000 and not is_test`) === '0', 'no Парк Од hold carries anything but 20,000₮');
+
+// (g) Minutes from the confirmed sheet, and Парк Од's own hours.
+const pt = newChat(undefined, PARK);
+await says(pt, 'Цаг авъя');
+await taps(pt, FEMALE);
+await taps(pt, 'Эмэгтэй будаг');
+await taps(pt, 'TARA BLEND');
+check(JSON.stringify(titles(pt)) === JSON.stringify(['Богино', 'Дунд', 'Урт', CANCEL]), 'TARA BLEND: then the hair length');
+await taps(pt, 'Урт');
+await taps(pt, 'Boloroo · SPECIAL');
+await taps(pt, T_MAR);
+const tomorrowSunday = tenantClock(new Date(Date.now() + 24 * 3600_000), TZ).weekday === 0;
+const lastBlend = tomorrowSunday ? '14:00' : '15:00';
+check(titles(pt).includes(lastBlend) && !titles(pt).some((t) => t > lastBlend && /^\d{2}:\d{2}$/u.test(t))
+  && psql(`select data->>'minutes' from booking_sessions where conversation_id = '${pt.conversationId}' and closed_at is null`) === '300',
+  `TARA BLEND long is 300 minutes: the last start offered is ${lastBlend}, five hours before closing`);
+const sunday = [1, 2, 3, 4, 5, 6].map((n) => tenantClock(new Date(Date.now() + n * 24 * 3600_000), TZ)).find((d) => d.weekday === 0);
+if (sunday !== undefined) {
+  const ps = newChat(undefined, PARK);
+  await says(ps, 'Цаг авъя');
+  await taps(ps, FEMALE);
+  await taps(ps, 'Үйлчилгээ');
+  await taps(ps, 'Хуйх цэвэрлэгээ');
+  await taps(ps, 'Chimegee · Мастер');
+  await taps(ps, dayLabel(wording, sunday.date, new Date(), TZ));
+  const times = titles(ps).filter((t) => /^\d{2}:\d{2}$/u.test(t));
+  check(times[0] === '11:00' && times[times.length - 1] === '18:00', 'Парк Од on Sunday: 11:00–19:00 (a 60-minute service from 11:00 to 18:00)');
+}
+
+// =====================================================================================
+section('21. Website holds (`sh…`, its 5-minute QR) and chat holds (`dh…`) on one calendar');
+// =====================================================================================
+// The website's contract (matrix_website services/bookingHold.js), written by the fake exactly as
+// the contract says; section 16 (e)–(g) runs the website's own code where the checkout has it.
+async function chimgeeTimes(chat: Chat) {
+  await says(chat, 'Цаг авъя');
+  await taps(chat, FEMALE);
+  await taps(chat, 'Үйлчилгээ');
+  await taps(chat, 'Хуйх цэвэрлэгээ');
+  await taps(chat, 'Chimgee · 1-р зэрэг');
+  await taps(chat, T_MAR);
+}
+const wh12 = google.websiteHolds(TEST_CALENDARS.chimgee, ubAt(tomorrow(), 12), 60, '8811 2200', new Date(Date.now() + 5 * 60_000));
+const hq1 = newChat();
+await chimgeeTimes(hq1);
+check(/^sh[0-9a-f]{40}$/u.test(wh12.id) && titles(hq1).includes('11:00') && !titles(hq1).includes('12:00'), 'a website customer at the QR for 12:00 (its hold live): Messenger does not offer 12:00');
+wh12.privateProps['holdExpiresAt'] = new Date(Date.now() - 1000).toISOString();
+const hq2 = newChat();
+await chimgeeTimes(hq2);
+check(titles(hq2).includes('12:00'), 'its five minutes over, the hold not deleted yet: 12:00 is free to Messenger');
+await taps(hq2, '12:00');
+await says(hq2, 'Нэгдүгээр');
+await says(hq2, '88112201');
+await taps(hq2, AGREE);
+check(holdState(holdOf(hq2)) === 'held' && google.live(TEST_CALENDARS.chimgee).some((ev) => ev.id === wh12.id),
+  'Messenger holds 12:00 over the expired website hold (still in the calendar): an expired hold never wins');
+// A website hold PLACED before ours reaches the calendar between our look and our write: we yield.
+const hq3 = newChat();
+await chimgeeTimes(hq3);
+await taps(hq3, '13:00');
+await says(hq3, 'Хоёрдугаар');
+await says(hq3, '88112202');
+google.afterInsert = (calId, ev) => {
+  if (calId === TEST_CALENDARS.chimgee && ev.id.startsWith('dh') && ev.start.getTime() === ubAt(tomorrow(), 13).getTime()) {
+    google.websiteHolds(calId, ev.start, 60, '88112299', new Date(Date.now() + 5 * 60_000), new Date(ev.created.getTime() - 1));
+  }
+};
+await taps(hq3, AGREE);
+google.afterInsert = null;
+check(holdState(holdOf(hq3)) === 'released' && (hq3.lastBody ?? '').startsWith(say(wording, 'booking_slot_taken')) && invoicesOf(holdOf(hq3)).length === 0
+  && !google.live(TEST_CALENDARS.chimgee).some((ev) => ev.id === eventIdForHold(holdOf(hq3))),
+  'a website hold placed just before ours: Messenger yields (hold and event removed, no QR) and offers other times');
+// A website hold placed just AFTER ours: ours stands (by the contract, the website re-reads and yields).
+const hq4 = newChat();
+await chimgeeTimes(hq4);
+await taps(hq4, '15:00');
+await says(hq4, 'Гуравдугаар');
+await says(hq4, '88112203');
+google.afterInsert = (calId, ev) => {
+  if (calId === TEST_CALENDARS.chimgee && ev.id.startsWith('dh') && ev.start.getTime() === ubAt(tomorrow(), 15).getTime()) {
+    google.websiteHolds(calId, ev.start, 60, '88112298', new Date(Date.now() + 5 * 60_000), new Date(ev.created.getTime() + 1));
+  }
+};
+await taps(hq4, AGREE);
+google.afterInsert = null;
+check(holdState(holdOf(hq4)) === 'held' && invoicesOf(holdOf(hq4)).length === 1, 'a website hold placed just after ours: ours stands, the QR is made (the website yields to the earlier hold)');
+const allIds = [...google.calendars.values()].flatMap((m) => [...m.keys()]).filter((id) => id.startsWith('dh'));
+check(allIds.length > 0 && allIds.every((id) => /^dh[0-9a-f]{32}$/u.test(id) && /^[0-9a-v]+$/u.test(id)),
+  `every event id Messenger wrote is \`dh\` + 32 hex: valid base32hex, never a website \`sh\`/\`qb\` id (${allIds.length} ids)`);
 
 section('13. Every customer message got at most one reply; nothing was confirmed unpaid');
 // =====================================================================================
-check(psql(`select count(*) from (select dedup_key from outbound_messages where tenant_id = '${T}' group by dedup_key having count(*) > 1) d`) === '0', 'no reply key twice');
-check(psql(`select count(*) from booking_holds where tenant_id = '${T}' and state = 'booked' and not exists (select 1 from booking_payments p where p.hold_id = booking_holds.id and p.disposition in ('applied','late_booked'))`) === '0',
+// Both branches.
+check(psql(`select count(*) from (select tenant_id, dedup_key from outbound_messages where tenant_id in ('${T}', '${T2}') group by 1, 2 having count(*) > 1) d`) === '0', 'no reply key twice');
+check(psql(`select count(*) from booking_holds where tenant_id in ('${T}', '${T2}') and state = 'booked' and not exists (select 1 from booking_payments p where p.hold_id = booking_holds.id and p.disposition in ('applied','late_booked'))`) === '0',
   'every booked hold has a payment that paid it');
-check(psql(`select count(*) from (select calendar_id, starts_at from booking_holds where tenant_id = '${T}' and state in ('held','paid','booked') group by 1, 2 having count(*) > 1) d`) === '0',
+check(psql(`select count(*) from (select calendar_id, starts_at from booking_holds where tenant_id in ('${T}', '${T2}') and state in ('held','paid','booked') group by 1, 2 having count(*) > 1) d`) === '0',
   'no calendar and start held twice');
+check(psql(`select count(*) from booking_holds h1 join booking_holds h2 on h1.calendar_id = h2.calendar_id and h1.tenant_id <> h2.tenant_id where h1.tenant_id in ('${T}', '${T2}')`) === '0',
+  'no calendar was ever held by both branches');
 
 if (TRANSCRIPT !== null) {
   const block = (title: string, chat: Chat, extra: string[] = []) => [`## ${title}`, '', ...chat.transcript.map((l) => `- ${l}`), ...extra, ''];
@@ -1477,7 +1826,7 @@ if (TRANSCRIPT !== null) {
   const out = [
     '# In-chat booking — what the customer reads (generated)',
     '',
-    `Generated by \`scripts/verify/booking-e2e.ts --transcript\` with the DRAFT wording and test data (stylists, calendars and the merchant are test values). Every line here is unsigned. [Buttons] are Messenger quick replies; «… ↗» is the link button.`,
+    `Generated by \`scripts/verify/booking-e2e.ts --transcript\` with the DRAFT wording and Tara's real booking rules (config/booking/tara-salon.json: the 2026-10-01 price list, the confirmed minutes, the founder's stylists and deposits); calendars, merchants and customers are test values. Every line here is unsigned. [Buttons] are Messenger quick replies; «… ↗» is the link button.`,
     '',
     ...block('1. Book and pay', a, pushed(a)),
     ...block('2. Not paid in time', b, pushed(b)),
@@ -1489,6 +1838,11 @@ if (TRANSCRIPT !== null) {
     ...block('15. Asked when, in words; booked; the website no longer offers the time', p1, pushed(p1)),
     ...block('15. A time the website booked', p3),
     ...block('15. Quiet on the offered times: the one follow-up', p6, pushed(p6)),
+    ...block('19. A haircut priced by level (the SPECIAL line)', cut),
+    ...block('19. A boy\'s haircut', boy),
+    ...block('20. Парк Од: book and pay (her own merchant)', pk, pushed(pk)),
+    ...block('20. Парк Од: a girl with Boloroo', pg),
+    ...block('20. Парк Од: TARA BLEND, long hair (300 minutes)', pt),
   ].join('\n');
   writeFileSync(TRANSCRIPT, `${out}\n`);
   process.stdout.write(`\ntranscript written to ${TRANSCRIPT}\n`);

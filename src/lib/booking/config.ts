@@ -3,8 +3,9 @@
  * switch (`BOOKING_MODE`). Design: `docs/proposals/tara-inchat-booking.md`.
  *
  * A client is rows (CLAUDE.md): the services, their minutes, the stylists and their calendars,
- * the deposits, the agreement sentence and the QPay merchant are all in the tenant's row,
- * copied from the tenant's own booking rules. Nothing here knows a tenant.
+ * the deposits and the QPay merchant are all in the tenant's row, copied from the tenant's own
+ * booking rules. Nothing here knows a tenant. A brand's branches are separate tenants, so each
+ * branch has its own row: its own stylists, calendars and QPay merchant (D-157).
  *
  * ## Off unless everything says on
  *
@@ -13,6 +14,14 @@
  * in `test` mode (row or environment), the customer is one of `test_sender_ids`. A row that
  * does not validate is OFF, with the reason, never partly on: a booking flow with a missing
  * deposit or a stylist without a calendar would take money for a time nobody can see.
+ *
+ * ## «Not connected yet»
+ *
+ * A branch being prepared names what it does not have yet with the literal `not-connected`: a
+ * stylist's `calendar_id` (her calendar is not shared yet) or the whole `qpay` (no merchant of
+ * its own yet). Such a row parses, so its shape is checked today, but it is OFF for every
+ * customer (`customerMode`, `notConnected`) until every placeholder is replaced. A placeholder is
+ * never filled from another branch: there is no fallback anywhere.
  */
 import { matcherFires, parseMatcher, type MatcherSpec, type MatchSubject } from '../gate/match.ts';
 
@@ -27,21 +36,39 @@ export function bookingEnvMode(raw: string | undefined = process.env['BOOKING_MO
 export type Gender = 'female' | 'male';
 
 export type Level = { key: string; label: string; depositMnt: number };
-export type Stylist = { name: string; label: string; level: string; gender: Gender; calendarId: string };
-/** `name` goes into the calendar and the messages; `label` (≤ 20 characters) is the button. */
-export type Service = { name: string; label: string; minutes: number };
-export type ServiceGroup = { label: string; services: Service[] };
+/** `calendarId` null: not connected yet (the row says `not-connected`); the flow is then off. */
+export type Stylist = { name: string; label: string; level: string; gender: Gender; calendarId: string | null };
+/**
+ * `name` goes into the calendar and the messages; `label` (≤ 20 characters) is the button.
+ * `level`: only stylists of this level serve it (a price-list line priced per level, «/SPECIAL/»).
+ * `family`: services of one group that share a family are ONE button (the family), then their
+ * own labels («Богино», «Дунд», «Урт») as a second question, so a long price list fits Meta's 13
+ * buttons. Both null for an ordinary service.
+ */
+export type Service = { name: string; label: string; minutes: number; level: string | null; family: string | null };
+/** `audience`: offered only to a booking for this gender (a women's or men's price-list section); null: everyone. */
+export type ServiceGroup = { label: string; audience: Gender | null; services: Service[] };
 /**
  * A children's service from the tenant's own price list. `gender` says who serves it under the
  * gender rule: a girl's haircut a woman stylist, a boy's a man (the tenant's own rule, read
  * from the service itself, never asked a second time).
  */
 export type ChildService = Service & { gender: Gender };
+/**
+ * The tenant's OWN QPay merchant and payout account: every invoice carries both, so a branch's
+ * deposits are paid to that branch. `login` names a Quick QR login of the tenant's own in the
+ * environment (`BOOKING_QPAY_<login>_USERNAME/_PASSWORD/_TERMINAL_ID`, secrets: rule 7); null:
+ * the platform's partner login (`QPAY_USERNAME/…`), under which the merchant is registered.
+ */
 export type QpayMerchant = {
   merchantId: string;
   mccCode: string;
   bankAccounts: { bankCode: string; accountNumber: string; accountName: string }[];
+  login: string | null;
 };
+
+/** What a branch being prepared writes where it has nothing yet. Never a usable value. */
+export const NOT_CONNECTED = 'not-connected';
 
 export type BookingConfig = {
   testSenderIds: string[];
@@ -52,8 +79,6 @@ export type BookingConfig = {
   minLeadMinutes: number;
   /** A woman books a woman stylist, a man a man (the tenant's own rule, when it has one). */
   genderRule: boolean;
-  /** The tenant's deposit agreement, verbatim. Recorded on the hold with the time it was accepted. */
-  agreementText: string;
   /** What starts the flow: gate matcher specs (`gate/match.ts`), the tenant's own stems; any one fires. */
   entryMatchers: MatcherSpec[];
   levels: Level[];
@@ -61,7 +86,10 @@ export type BookingConfig = {
   serviceGroups: ServiceGroup[];
   /** «Хүүхэд» on the who-is-it-for question, with these services. Empty: no such button. */
   childServices: ChildService[];
-  qpay: QpayMerchant;
+  /** Null: not connected yet (`qpay: "not-connected"`): no invoice is ever made. */
+  qpay: QpayMerchant | null;
+  /** What is still a `not-connected` placeholder. Non-empty: the flow is off for every customer. */
+  notConnected: string[];
   /** The deposit in test mode. The tenant's website uses 100₮. */
   testDepositMnt: number;
   /** What the confirmation calls the branch («Яармаг»). Absent: the display name's «— Branch» label. */
@@ -79,6 +107,9 @@ const int = (v: unknown, min: number, max: number): number | null =>
 export const QUICK_REPLY_TITLE_MAX = 20;
 /** Meta's limit on quick replies in one message. */
 export const QUICK_REPLIES_MAX = 13;
+
+/** A tenant's own QPay login name (`qpay.login`): the middle of its environment names. */
+export const QPAY_LOGIN_NAME = /^[A-Z][A-Z0-9]{1,30}$/u;
 
 /** Code points, never UTF-16 units (rule 6). */
 const cp = (s: string): number => [...s].length;
@@ -115,8 +146,10 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
 
   const branchLabel = raw['branch_label'] === undefined ? null : str(raw['branch_label']);
   if (raw['branch_label'] !== undefined && branchLabel === null) return fail('branch_label, when given, must be text');
-  const agreementText = str(raw['agreement_text']);
-  if (agreementText === null) return fail('agreement_text is required: the deposit is taken only on the tenant\'s own agreement');
+  // Дали never states the deposit terms in chat (founder, 2026-10-03: the website's tick box says
+  // the deposit is non-refundable; the chat must not). The hold records the summary the customer
+  // accepted instead (`turn.ts`), so a row still carrying a terms sentence is refused, not ignored.
+  if (raw['agreement_text'] !== undefined) return fail('agreement_text is gone: Дали does not state deposit terms in chat; the hold records the summary the customer accepted');
 
   const matchersRaw = raw['entry_matchers'];
   if (!Array.isArray(matchersRaw) || matchersRaw.length === 0) return fail('entry_matchers must list at least one matcher');
@@ -149,13 +182,14 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
     const label = str(s['label']) ?? name;
     const level = str(s['level']);
     const gender = s['gender'];
-    const calendarId = str(s['calendar_id']);
-    if (name === null || label === null || level === null || calendarId === null) {
-      return fail(`stylists[${i}] needs name, level and calendar_id`);
+    const calendarRaw = str(s['calendar_id']);
+    if (name === null || label === null || level === null || calendarRaw === null) {
+      return fail(`stylists[${i}] needs name, level and calendar_id (or "${NOT_CONNECTED}")`);
     }
+    const calendarId = calendarRaw === NOT_CONNECTED ? null : calendarRaw;
     if (gender !== 'female' && gender !== 'male') return fail(`stylists[${i}].gender must be female or male (never guessed)`);
     if (!levels.some((l) => l.key === level)) return fail(`stylists[${i}].level ${level} is not a listed level`);
-    if (stylists.some((x) => x.calendarId === calendarId)) return fail(`stylists[${i}]: calendar_id is used twice`);
+    if (calendarId !== null && stylists.some((x) => x.calendarId === calendarId)) return fail(`stylists[${i}]: calendar_id is used twice`);
     if (stylists.some((x) => x.label === label)) return fail(`stylists[${i}]: label ${label} repeats`);
     stylists.push({ name, label, level, gender, calendarId });
   }
@@ -164,28 +198,55 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
   if (!Array.isArray(groupsRaw) || groupsRaw.length === 0) return fail('service_groups must list at least one group');
   if (groupsRaw.length > QUICK_REPLIES_MAX - 1) return fail(`at most ${QUICK_REPLIES_MAX - 1} service groups (one button is «cancel»)`);
   const serviceGroups: ServiceGroup[] = [];
-  const seen = new Set<string>();
+  /** Service names: unique across the whole config (a booking carries the name). */
+  const names = new Set<string>();
+  const service = (s: unknown, where: string, inGroup: boolean): Service | string => {
+    if (!isObj(s)) return `${where} is not an object`;
+    const name = str(s['name']);
+    const label = s['label'] === undefined ? name : str(s['label']);
+    const minutes = int(s['minutes'], 5, 720);
+    if (name === null || label === null || minutes === null) return `${where} needs name and minutes (5–720)`;
+    if (cp(label) > QUICK_REPLY_TITLE_MAX) return `service ${name}: its button is longer than ${QUICK_REPLY_TITLE_MAX} characters; give it a label`;
+    const level = s['level'] === undefined ? null : str(s['level']);
+    if (s['level'] !== undefined && (level === null || !levels.some((l) => l.key === level))) return `service ${name}: level ${String(s['level'])} is not a listed level`;
+    const family = s['family'] === undefined || !inGroup ? null : str(s['family']);
+    if (s['family'] !== undefined && (!inGroup || family === null)) return `service ${name}: family, when given, is text (and only in a group)`;
+    if (family !== null && cp(family) > QUICK_REPLY_TITLE_MAX) return `service ${name}: family «${family}» is longer than ${QUICK_REPLY_TITLE_MAX} characters`;
+    if (names.has(name)) return `service ${name} is listed twice`;
+    names.add(name);
+    return { name, label, minutes, level, family };
+  };
   for (const [i, g] of groupsRaw.entries()) {
     if (!isObj(g)) return fail(`service_groups[${i}] is not an object`);
     const label = str(g['label']);
     const services = g['services'];
     if (label === null || !Array.isArray(services) || services.length === 0) return fail(`service_groups[${i}] needs a label and services`);
     if (cp(label) > QUICK_REPLY_TITLE_MAX) return fail(`service_groups[${i}].label is longer than ${QUICK_REPLY_TITLE_MAX} characters`);
-    if (services.length > QUICK_REPLIES_MAX - 1) return fail(`service_groups[${i}] has more than ${QUICK_REPLIES_MAX - 1} services`);
+    if (serviceGroups.some((x) => x.label === label)) return fail(`service_groups[${i}]: label ${label} repeats`);
+    const audience = g['audience'] === undefined ? null : g['audience'];
+    if (audience !== null && audience !== 'female' && audience !== 'male') return fail(`service_groups[${i}].audience, when given, is female or male`);
+    if (audience !== null && !genderRule) return fail(`service_groups[${i}].audience needs gender_rule (who the booking is for is asked only under it)`);
     const list: Service[] = [];
     for (const [j, s] of services.entries()) {
-      if (!isObj(s)) return fail(`service_groups[${i}].services[${j}] is not an object`);
-      const name = str(s['name']);
-      const label = s['label'] === undefined ? name : str(s['label']);
-      const minutes = int(s['minutes'], 5, 720);
-      if (name === null || label === null || minutes === null) return fail(`service_groups[${i}].services[${j}] needs name and minutes (5–720)`);
-      if (cp(label) > QUICK_REPLY_TITLE_MAX) return fail(`service ${name}: its button is longer than ${QUICK_REPLY_TITLE_MAX} characters; give it a label`);
-      if (seen.has(name) || seen.has(`label:${label}`)) return fail(`service ${name} (or its label) is listed twice`);
-      seen.add(name);
-      seen.add(`label:${label}`);
-      list.push({ name, label, minutes });
+      const parsed = service(s, `service_groups[${i}].services[${j}]`, true);
+      if (typeof parsed === 'string') return fail(parsed);
+      list.push(parsed);
     }
-    serviceGroups.push({ label, services: list });
+    // One button per family or ordinary service; the buttons of a group, and the labels inside a
+    // family, must each read differently (a typed title must pick exactly one).
+    const buttons = new Set<string>();
+    for (const s of list) {
+      const b = s.family ?? s.label;
+      if (s.family === null && buttons.has(b)) return fail(`service_groups[${i}]: two buttons read «${b}»`);
+      if (s.family !== null && list.some((x) => x.family === null && x.label === s.family)) return fail(`service_groups[${i}]: family «${s.family}» reads like a service's button`);
+      buttons.add(b);
+      if (s.family !== null && list.filter((x) => x.family === s.family && x.label === s.label).length > 1) return fail(`service_groups[${i}]: «${s.family}» has two «${s.label}»`);
+    }
+    if (buttons.size > QUICK_REPLIES_MAX - 1) return fail(`service_groups[${i}] has more than ${QUICK_REPLIES_MAX - 1} buttons`);
+    for (const f of new Set(list.map((s) => s.family).filter((x): x is string => x !== null))) {
+      if (list.filter((s) => s.family === f).length > QUICK_REPLIES_MAX - 1) return fail(`service_groups[${i}]: «${f}» has more than ${QUICK_REPLIES_MAX - 1} services`);
+    }
+    serviceGroups.push({ label, audience, services: list });
   }
 
   const childRaw = raw['child_services'] === undefined ? [] : raw['child_services'];
@@ -194,36 +255,43 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
   if (childRaw.length > 0 && !genderRule) return fail('child_services need gender_rule: who serves a child follows the tenant\'s gender rule');
   const childServices: ChildService[] = [];
   for (const [j, s] of childRaw.entries()) {
-    if (!isObj(s)) return fail(`child_services[${j}] is not an object`);
-    const name = str(s['name']);
-    const label = s['label'] === undefined ? name : str(s['label']);
-    const minutes = int(s['minutes'], 5, 720);
-    const gender = s['gender'];
-    if (name === null || label === null || minutes === null) return fail(`child_services[${j}] needs name and minutes (5–720)`);
+    const parsed = service(s, `child_services[${j}]`, false);
+    if (typeof parsed === 'string') return fail(parsed);
+    const gender = isObj(s) ? s['gender'] : undefined;
     if (gender !== 'female' && gender !== 'male') return fail(`child_services[${j}].gender must be female or male (who serves it; never guessed)`);
-    if (cp(label) > QUICK_REPLY_TITLE_MAX) return fail(`service ${name}: its button is longer than ${QUICK_REPLY_TITLE_MAX} characters; give it a label`);
-    if (seen.has(name) || seen.has(`label:${label}`)) return fail(`service ${name} (or its label) is listed twice`);
-    seen.add(name);
-    seen.add(`label:${label}`);
-    childServices.push({ name, label, minutes, gender });
+    if (childServices.some((x) => x.label === parsed.label)) return fail(`child_services[${j}]: label ${parsed.label} repeats`);
+    childServices.push({ ...parsed, gender });
   }
 
   const q = raw['qpay'];
-  if (!isObj(q)) return fail('qpay is required: the tenant\'s own merchant');
-  const merchantId = str(q['merchant_id']);
-  const mccCode = str(q['mcc_code']);
-  const banks = q['bank_accounts'];
-  if (merchantId === null || mccCode === null || !/^\d{4}$/u.test(mccCode)) return fail('qpay needs merchant_id and a four-digit mcc_code');
-  if (!Array.isArray(banks) || banks.length !== 1) return fail('qpay.bank_accounts must hold exactly one account (the tenant\'s)');
-  const bankAccounts: QpayMerchant['bankAccounts'] = [];
-  for (const b of banks) {
-    if (!isObj(b)) return fail('qpay.bank_accounts[0] is not an object');
-    const bankCode = str(b['bank_code']);
-    const accountNumber = str(b['account_number']);
-    const accountName = str(b['account_name']);
-    if (bankCode === null || accountNumber === null || accountName === null) return fail('qpay.bank_accounts[0] needs bank_code, account_number, account_name');
-    bankAccounts.push({ bankCode, accountNumber, accountName });
+  let qpay: QpayMerchant | null = null;
+  if (q !== NOT_CONNECTED) {
+    if (!isObj(q)) return fail(`qpay is required: the tenant's own merchant (or "${NOT_CONNECTED}" until it is issued)`);
+    const merchantId = str(q['merchant_id']);
+    const mccCode = str(q['mcc_code']);
+    const banks = q['bank_accounts'];
+    if (merchantId === null || mccCode === null || !/^\d{4}$/u.test(mccCode)) return fail('qpay needs merchant_id and a four-digit mcc_code');
+    if (merchantId === NOT_CONNECTED) return fail(`qpay: write "qpay": "${NOT_CONNECTED}" for a merchant not issued yet, never a partial merchant`);
+    if (!Array.isArray(banks) || banks.length !== 1) return fail('qpay.bank_accounts must hold exactly one account (the tenant\'s)');
+    const bankAccounts: QpayMerchant['bankAccounts'] = [];
+    for (const b of banks) {
+      if (!isObj(b)) return fail('qpay.bank_accounts[0] is not an object');
+      const bankCode = str(b['bank_code']);
+      const accountNumber = str(b['account_number']);
+      const accountName = str(b['account_name']);
+      if (bankCode === null || accountNumber === null || accountName === null) return fail('qpay.bank_accounts[0] needs bank_code, account_number, account_name');
+      bankAccounts.push({ bankCode, accountNumber, accountName });
+    }
+    const login = q['login'] === undefined ? null : str(q['login']);
+    if (q['login'] !== undefined && (login === null || !QPAY_LOGIN_NAME.test(login))) {
+      return fail('qpay.login, when given, is capital letters and digits (it names BOOKING_QPAY_<login>_USERNAME/_PASSWORD/_TERMINAL_ID)');
+    }
+    qpay = { merchantId, mccCode, bankAccounts, login };
   }
+  const notConnected = [
+    ...stylists.filter((s) => s.calendarId === null).map((s) => `${s.label}'s calendar`),
+    ...(qpay === null ? ['the QPay merchant'] : []),
+  ];
 
   // Every stylist's button must fit, and no two buttons may read the same.
   const buttons = new Set<string>();
@@ -244,13 +312,13 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
       daysAhead: daysAhead as number,
       minLeadMinutes: minLeadMinutes as number,
       genderRule,
-      agreementText,
       entryMatchers,
       levels,
       stylists,
       serviceGroups,
       childServices,
-      qpay: { merchantId, mccCode, bankAccounts },
+      qpay,
+      notConnected,
       testDepositMnt: testDepositMnt as number,
       branchLabel,
     },
@@ -280,6 +348,9 @@ export function customerMode(
   envMode: BookingMode, rowMode: BookingMode, config: BookingConfig, psid: string,
 ): { on: false } | { on: true; isTest: boolean } {
   if (envMode === 'off' || rowMode === 'off') return { on: false };
+  // A branch with a calendar or its merchant still «not connected» books nobody, testers included:
+  // a test booking there would hold a time on no calendar or invoice on no merchant.
+  if (config.notConnected.length > 0) return { on: false };
   const tester = config.testSenderIds.includes(psid);
   if (envMode === 'test' || rowMode === 'test') return tester ? { on: true, isTest: true } : { on: false };
   return { on: true, isTest: tester };

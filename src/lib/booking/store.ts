@@ -3,7 +3,7 @@
  * and an unreadable answer is never read as "nothing there".
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { parseBookingConfig, type BookingConfig, type BookingMode } from './config.ts';
+import { parseBookingConfig, type BookingConfig, type BookingMode, type QpayMerchant } from './config.ts';
 import { DROPPED_FLAG } from '../inbound/dropped.ts';
 import type { BusinessHours, Closure } from '../reception/volatile.ts';
 import type { Interval } from './slots.ts';
@@ -29,6 +29,25 @@ export async function readConfig(db: SupabaseClient, tenantId: string): Promise<
   return parsed.ok
     ? { ok: true, present: true, mode, valid: true, config: parsed.config }
     : { ok: true, present: true, mode, valid: false, detail: parsed.detail };
+}
+
+/**
+ * Which OTHER tenants' booking rows name this merchant id or this payout account. A merchant is
+ * one tenant's (each branch is paid into its own): any match refuses the invoice. A row whose
+ * config is unreadable is compared by what it does say; an unreadable table refuses.
+ */
+export async function merchantSharedWith(db: SupabaseClient, tenantId: string, m: QpayMerchant): Promise<Ok<{ tenants: string[] }> | Fail> {
+  const { data, error } = await db.from('booking_config').select('tenant_id, config').neq('tenant_id', tenantId);
+  if (error) return { ok: false, detail: `booking_config unreadable: ${error.message}` };
+  const mine = new Set(m.bankAccounts.map((b) => b.accountNumber));
+  const tenants: string[] = [];
+  for (const row of Array.isArray(data) ? data : []) {
+    const r = rec(row);
+    const q = rec(rec(r['config'])['qpay']);
+    const accounts = Array.isArray(q['bank_accounts']) ? (q['bank_accounts'] as unknown[]).map((b) => String(rec(b)['account_number'] ?? '').trim()) : [];
+    if (String(q['merchant_id'] ?? '').trim() === m.merchantId || accounts.some((a) => a !== '' && mine.has(a))) tenants.push(String(r['tenant_id']));
+  }
+  return { ok: true, tenants };
 }
 
 /** What a confirmation names: the tenant's own rows, read once per job. */

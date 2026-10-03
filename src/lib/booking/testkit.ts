@@ -6,18 +6,25 @@
  * client in `billing/qpay.ts` and the Google Calendar client in `calendar.ts`. What is faked is
  * only the far side of the wire, with the shapes the real services answer:
  *
- *  - QPay Quick QR v2 (`quickqr.qpay.mn/v2`): `/auth/token` (Basic auth, `terminal_id`),
- *    `POST /invoice` → `{id, qr_text, qr_image, urls}`, `POST /payment/check` → the invoice
- *    itself with `payments: [{id, amount, currency, payment_status, payment_status_date}]`
- *    (seen live on 2026-09-28, `billing/qpay.ts`), `DELETE /invoice/{id}`.
+ *  - QPay Quick QR v2 (`quickqr.qpay.mn/v2`): `/auth/token` (Basic auth, `terminal_id`; one
+ *    token per partner login), `POST /invoice` → `{id, qr_text, qr_image, urls}`, refused
+ *    unless its `merchant_id` is registered under the token's login (QPay's merchants are
+ *    registered per partner login, `POST /v2/merchant/company|person`) and it carries one
+ *    complete `bank_accounts` entry, `POST /payment/check` → the invoice itself with
+ *    `payments: [{id, amount, currency, payment_status, payment_status_date}]` (seen live on
+ *    2026-09-28, `billing/qpay.ts`), `DELETE /invoice/{id}`. Every invoice keeps the merchant
+ *    and the payout account it was made with, so a test can say whose money it is.
  *  - Google: the service-account token exchange (the JWT's RS256 signature is VERIFIED), and
- *    Calendar v3 `freeBusy`, `events.list`, `events.insert` (409 on a used id, deleted ones
- *    included), `events.patch` (brings a deleted event back), `events.delete` (410 when gone).
+ *    Calendar v3 `freeBusy`, `events.list` (with `created` and `extendedProperties`, and the
+ *    `privateExtendedProperty` filter), `events.insert` (409 on a used id, deleted ones
+ *    included), `events.get`, `events.patch` (brings a deleted event back), `events.delete` (410
+ *    when gone). `websiteHolds` writes a hold exactly as the website's `services/bookingHold.js`.
  */
-import { createPublicKey, createVerify, generateKeyPairSync, randomUUID, type KeyObject } from 'node:crypto';
+import { createHash, createPublicKey, createVerify, generateKeyPairSync, randomUUID, type KeyObject } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { BOOKING_BLOCK_KEYS, type BookingWording } from './wording.ts';
+import { branchConfig, type RawQpay } from './rules.ts';
 
 // ---------------------------------------------------------------------------
 // Wording: the drafts, plus the eight signed billing lines the page reuses.
@@ -54,7 +61,7 @@ async function bodyOf(init: RequestInit | undefined): Promise<string> {
 
 export type FakeQpayInvoice = {
   id: string; merchantId: string; amount: number; description: string; callbackUrl: string; mcc: string;
-  bankAccount: string; status: 'OPEN' | 'PAID' | 'CANCELLED';
+  bankAccount: string; bankCode: string; accountName: string; login: string; status: 'OPEN' | 'PAID' | 'CANCELLED';
   payments: { id: string; amount: number; status: string; at: string }[];
 };
 
@@ -69,9 +76,28 @@ export class FakeQpay {
   unreadable = new Set<string>();
   private seq = 0;
 
+  /** The platform's partner login (the website's and the platform's `QPAY_*`). */
   readonly username = 'qpay-user';
   readonly password = 'qpay-pass';
   readonly terminal = 'DALATECH_AI';
+  /** Partner logins: username → password, terminal, and the merchants registered under it. */
+  readonly logins = new Map<string, { password: string; terminal: string; merchants: Set<string> }>();
+
+  constructor() {
+    this.addLogin(this.username, this.password, this.terminal);
+  }
+
+  /** Another partner login (a branch with its own). */
+  addLogin(username: string, password: string, terminal: string): void {
+    this.logins.set(username, { password, terminal, merchants: new Set() });
+  }
+
+  /** `POST /v2/merchant/company`: a merchant registered under a login. Invoices name it. */
+  registerMerchant(username: string, merchantId: string): void {
+    const l = this.logins.get(username);
+    if (l === undefined) throw new Error(`no QPay login ${username}`);
+    l.merchants.add(merchantId);
+  }
 
   fetch: typeof fetch = async (input, init) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
@@ -80,19 +106,29 @@ export class FakeQpay {
     this.calls.push(`${method} ${p}`);
     const headers = new Headers(init?.headers);
     if (p === '/auth/token') {
-      const want = `Basic ${Buffer.from(`${this.username}:${this.password}`).toString('base64')}`;
       const body = JSON.parse(await bodyOf(init)) as { terminal_id?: string };
-      if (headers.get('authorization') !== want || body.terminal_id !== this.terminal) return json(401, { error: 'unauthorized' });
-      return json(200, { access_token: 'qpay-token', expires_in: 3600 });
+      const basic = /^Basic (.+)$/u.exec(headers.get('authorization') ?? '');
+      const [user, ...rest] = Buffer.from(basic?.[1] ?? '', 'base64').toString().split(':');
+      const l = this.logins.get(user ?? '');
+      if (l === undefined || l.password !== rest.join(':') || body.terminal_id !== l.terminal) return json(401, { error: 'unauthorized' });
+      return json(200, { access_token: `qpay-token-${user as string}`, expires_in: 3600 });
     }
-    if (headers.get('authorization') !== 'Bearer qpay-token') return json(401, { error: 'unauthorized' });
+    const login = /^Bearer qpay-token-(.+)$/u.exec(headers.get('authorization') ?? '')?.[1];
+    if (login === undefined || !this.logins.has(login)) return json(401, { error: 'unauthorized' });
     if (p === '/invoice' && method === 'POST') {
       const b = JSON.parse(await bodyOf(init)) as Record<string, unknown>;
+      const merchantId = String(b['merchant_id'] ?? '');
+      if (!(this.logins.get(login) as { merchants: Set<string> }).merchants.has(merchantId)) return json(400, { error: 'MERCHANT_NOTFOUND' });
+      const banks = Array.isArray(b['bank_accounts']) ? b['bank_accounts'] as Record<string, unknown>[] : [];
+      const bank = banks[0];
+      if (banks.length !== 1 || bank === undefined || [bank['account_bank_code'], bank['account_number'], bank['account_name']].some((v) => typeof v !== 'string' || v === '')) {
+        return json(400, { error: 'INVALID_BANK_ACCOUNTS' });
+      }
       const id = randomUUID();
-      const banks = b['bank_accounts'] as { account_number: string }[];
       this.invoices.set(id, {
-        id, merchantId: String(b['merchant_id']), amount: Number(b['amount']), description: String(b['description']),
-        callbackUrl: String(b['callback_url']), mcc: String(b['mcc_code']), bankAccount: banks[0]?.account_number ?? '',
+        id, merchantId, amount: Number(b['amount']), description: String(b['description']),
+        callbackUrl: String(b['callback_url']), mcc: String(b['mcc_code']), bankAccount: String(bank['account_number']),
+        bankCode: String(bank['account_bank_code']), accountName: String(bank['account_name']), login,
         status: 'OPEN', payments: [],
       });
       return json(200, {
@@ -155,7 +191,14 @@ export class FakeQpay {
 export type FakeEvent = {
   id: string; status: 'confirmed' | 'cancelled'; transparency: 'opaque' | 'transparent';
   start: Date; end: Date; summary: string; description: string; privateProps: Record<string, string>;
+  /** Google's `created`: set once on insert, strictly increasing here (two writes never tie). */
+  created: Date;
 };
+
+/** The website's hold id (matrix_website `services/bookingHold.js` `holdIdFor`): `sh` + 40 hex, base32hex. */
+export function websiteHoldId(calendarId: string, start: Date, phone: string): string {
+  return `sh${createHash('sha256').update(`${calendarId}|${start.toISOString()}|${phone.replace(/\D/gu, '')}`).digest('hex').slice(0, 40)}`;
+}
 
 export class FakeGoogle {
   readonly calendars = new Map<string, Map<string, FakeEvent>>();
@@ -170,6 +213,16 @@ export class FakeGoogle {
   failAll = false;
   /** Writes (insert, patch, delete) answer 503; reads still work. */
   failWrites = false;
+  /** Another id for a calendar (the website's real id → the test calendar both sides write to). */
+  readonly aliases = new Map<string, string>();
+  private lastCreated = 0;
+  /** The clock `created` is stamped with (the e2e shifts it). */
+  now: () => Date = () => new Date();
+
+  private stamp(): Date {
+    this.lastCreated = Math.max(this.now().getTime(), this.lastCreated + 1);
+    return new Date(this.lastCreated);
+  }
 
   constructor(calendarIds: readonly string[]) {
     const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -180,7 +233,25 @@ export class FakeGoogle {
 
   /** The website (or a person) books a time directly in the calendar. */
   websiteBooks(calendarId: string, start: Date, minutes: number, id = `qb${randomUUID().replace(/-/gu, '')}`): FakeEvent {
-    const ev: FakeEvent = { id, status: 'confirmed', transparency: 'opaque', start, end: new Date(start.getTime() + minutes * 60_000), summary: 'website', description: '', privateProps: {} };
+    const ev: FakeEvent = { id, status: 'confirmed', transparency: 'opaque', start, end: new Date(start.getTime() + minutes * 60_000), summary: 'website', description: '', privateProps: {}, created: this.stamp() };
+    this.cal(calendarId).set(id, ev);
+    return ev;
+  }
+
+  /**
+   * The website holds a time while its customer looks at the QR, exactly as its contract says:
+   * an opaque `sh…` event over the whole appointment, `{ taraHold: '1', holdExpiresAt,
+   * holdPlacedAt, holdPhone }`. `placedAt` defaults to the event's own `created`.
+   */
+  websiteHolds(calendarId: string, start: Date, minutes: number, phone: string, expiresAt: Date, placedAt?: Date): FakeEvent {
+    const id = websiteHoldId(calendarId, start, phone);
+    const created = this.stamp();
+    const digits = phone.replace(/\D/gu, '');
+    const ev: FakeEvent = {
+      id, status: 'confirmed', transparency: 'opaque', start, end: new Date(start.getTime() + minutes * 60_000),
+      summary: `⏳ Түр хадгалсан (төлбөр хүлээж байна) – ${digits}`, description: 'Website hold',
+      privateProps: { taraHold: '1', holdExpiresAt: expiresAt.toISOString(), holdPlacedAt: (placedAt ?? created).toISOString(), holdPhone: digits }, created,
+    };
     this.cal(calendarId).set(id, ev);
     return ev;
   }
@@ -189,7 +260,8 @@ export class FakeGoogle {
     return [...this.cal(calendarId).values()].filter((e) => e.status === 'confirmed');
   }
 
-  private cal(id: string): Map<string, FakeEvent> {
+  private cal(raw: string): Map<string, FakeEvent> {
+    const id = this.aliases.get(raw) ?? raw;
     const c = this.calendars.get(id);
     if (c === undefined) throw new Error(`no calendar ${id}`);
     return c;
@@ -224,12 +296,13 @@ export class FakeGoogle {
       const from = new Date(b.timeMin).getTime();
       const to = new Date(b.timeMax).getTime();
       const calendars: Record<string, unknown> = {};
-      for (const { id } of b.items) {
+      for (const { id: asked } of b.items) {
+        const id = this.aliases.get(asked) ?? asked;
         if (this.brokenCalendars.has(id) || !this.calendars.has(id)) {
-          calendars[id] = { errors: [{ domain: 'global', reason: 'notFound' }], busy: [] };
+          calendars[asked] = { errors: [{ domain: 'global', reason: 'notFound' }], busy: [] };
           continue;
         }
-        calendars[id] = {
+        calendars[asked] = {
           busy: this.live(id).filter((e) => e.transparency === 'opaque' && e.start.getTime() < to && from < e.end.getTime())
             .map((e) => ({ start: e.start.toISOString(), end: e.end.toISOString() })),
         };
@@ -238,7 +311,8 @@ export class FakeGoogle {
     }
     const m = /^\/calendar\/v3\/calendars\/([^/]+)\/events(?:\/([^/]+))?$/u.exec(url.pathname);
     if (m === null) return json(404, { error: 'notFound' });
-    const calId = decodeURIComponent(m[1] as string);
+    const rawId = decodeURIComponent(m[1] as string);
+    const calId = this.aliases.get(rawId) ?? rawId;
     if (!this.calendars.has(calId) || this.brokenCalendars.has(calId)) return json(404, { error: 'notFound' });
     const cal = this.cal(calId);
     const eventId = m[2] === undefined ? null : decodeURIComponent(m[2]);
@@ -257,18 +331,25 @@ export class FakeGoogle {
     };
     const wire = (e: FakeEvent) => ({
       id: e.id, status: e.status, summary: e.summary, ...(e.transparency === 'transparent' ? { transparency: 'transparent' } : {}),
+      created: e.created.toISOString(), updated: e.created.toISOString(),
       start: { dateTime: e.start.toISOString() }, end: { dateTime: e.end.toISOString() },
+      ...(Object.keys(e.privateProps).length === 0 ? {} : { extendedProperties: { private: e.privateProps } }),
     });
     if (eventId === null && method === 'GET') {
       const from = new Date(url.searchParams.get('timeMin') ?? '').getTime();
       const to = new Date(url.searchParams.get('timeMax') ?? '').getTime();
-      return json(200, { items: this.live(calId).filter((e) => e.start.getTime() < to && from < e.end.getTime()).map(wire) });
+      // `privateExtendedProperty=k=v` keeps only events carrying that private property.
+      const [pk, pv] = (url.searchParams.get('privateExtendedProperty') ?? '').split('=');
+      return json(200, {
+        items: this.live(calId).filter((e) => e.start.getTime() < to && from < e.end.getTime())
+          .filter((e) => pk === undefined || pk === '' || e.privateProps[pk] === pv).map(wire),
+      });
     }
     if (eventId === null && method === 'POST') {
       const b = JSON.parse(await bodyOf(init)) as Record<string, unknown>;
       const id = String(b['id'] ?? randomUUID().replace(/-/gu, ''));
       if (cal.has(id)) return json(409, { error: { code: 409, message: 'The requested identifier already exists.' } });
-      const ev: FakeEvent = { id, status: 'confirmed', transparency: 'opaque', summary: '', description: '', privateProps: {}, start: new Date(0), end: new Date(0), ...read(b) } as FakeEvent;
+      const ev: FakeEvent = { id, status: 'confirmed', transparency: 'opaque', summary: '', description: '', privateProps: {}, start: new Date(0), end: new Date(0), ...read(b), created: this.stamp() } as FakeEvent;
       cal.set(id, ev);
       this.afterInsert?.(calId, ev);
       return json(200, wire(ev));
@@ -300,48 +381,57 @@ export class FakeGoogle {
 // A tenant's booking config, as the founder would write it (shape only; test values).
 // ---------------------------------------------------------------------------
 
+/** One test calendar per stylist of the two Tara branches, by the website's Latin key, lower case. */
 export const TEST_CALENDARS = {
-  master1: 'master1@group.calendar.google.com',
-  master2: 'master2@group.calendar.google.com',
-  first1: 'first1@group.calendar.google.com',
-  male1: 'male1@group.calendar.google.com',
+  oyunaa: 'oyunaa@group.calendar.google.com',
+  badamaa: 'badamaa@group.calendar.google.com',
+  uyanga: 'uyanga@group.calendar.google.com',
+  zaya: 'zaya@group.calendar.google.com',
+  chimgee: 'chimgee@group.calendar.google.com',
+  anand: 'anand@group.calendar.google.com',
+  boloroo: 'boloroo@group.calendar.google.com',
+  saraa: 'saraa@group.calendar.google.com',
+  tomoo: 'tomoo@group.calendar.google.com',
+  bulgaa: 'bulgaa@group.calendar.google.com',
+  enhuush: 'enhuush@group.calendar.google.com',
+  chimegee: 'chimegee@group.calendar.google.com',
+  tuchku: 'tuchku@group.calendar.google.com',
 } as const;
 
+/** Each branch's own test merchant and payout account (test values; never a real one). */
+export const TEST_MERCHANTS = {
+  'matrix-eco-salon': {
+    merchant_id: '00000000-0000-4000-8000-00000000c0de', mcc_code: '7230',
+    bank_accounts: [{ bank_code: '040000', account_number: '1111000001', account_name: 'Yaarmag test holder' }],
+  },
+  'tara-park-od': {
+    merchant_id: '00000000-0000-4000-8000-0000000000d0', mcc_code: '7230',
+    bank_accounts: [{ bank_code: '050000', account_number: '2222000002', account_name: 'Park Od test holder' }],
+  },
+} as const satisfies Record<string, RawQpay>;
+
+/** The brand rules every branch's config is built from (repo root = cwd). */
+export function taraRules(root = process.cwd()): Record<string, unknown> {
+  return JSON.parse(readFileSync(path.join(root, 'config/booking/tara-salon.json'), 'utf8')) as Record<string, unknown>;
+}
+
+/**
+ * A branch's real booking config (`config/booking/tara-salon.json`: the current price list, the
+ * confirmed minutes, the founder's stylists, levels and deposits), with test calendars, the
+ * branch's test merchant and one tester, then `overrides`. `calendars: false` leaves every
+ * calendar «not connected», `qpay: 'not-connected'` the merchant.
+ */
+export function taraConfig(slug: keyof typeof TEST_MERCHANTS, overrides: Record<string, unknown> = {}, opts: { calendars?: boolean } = {}): Record<string, unknown> {
+  const built = branchConfig(taraRules(), slug, {
+    calendarFor: (w) => (opts.calendars === false ? null : (TEST_CALENDARS as Record<string, string>)[w.toLowerCase()] ?? null),
+    qpay: JSON.parse(JSON.stringify(TEST_MERCHANTS[slug])) as RawQpay,
+    testSenderIds: ['psid-tester'],
+  });
+  if (!built.ok) throw new Error(built.detail);
+  return { ...built.config, ...overrides };
+}
+
+/** Яармаг's config (the tests' default tenant). */
 export function testConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    test_sender_ids: ['psid-tester'],
-    hold_minutes: 5,
-    slot_step_minutes: 60,
-    days_ahead: 7,
-    gender_rule: true,
-    agreement_text: 'Урьдчилгаа төлбөр нь цагаа цуцалсан эсвэл ирээгүй тохиолдолд буцаан олгогдохгүй гэдгийг ойлгож, зөвшөөрч байна.',
-    entry_matchers: [
-      { mode: 'stem_sequence', stems: ['цаг', 'ав'], windowCp: 20 },
-      { mode: 'stem_sequence', stems: ['tsag', 'av'], windowCp: 20 },
-    ],
-    levels: [
-      { key: 'master', label: 'Мастер', deposit_mnt: 20000 },
-      { key: 'first', label: '1-р зэрэг', deposit_mnt: 10000 },
-    ],
-    stylists: [
-      { name: 'Оюунсүрэн', label: 'Оюунаа', level: 'master', gender: 'female', calendar_id: TEST_CALENDARS.master1 },
-      { name: 'Бадамцэцэг', label: 'Бадмаа', level: 'master', gender: 'female', calendar_id: TEST_CALENDARS.master2 },
-      { name: 'Уянга', label: 'Уянга', level: 'first', gender: 'female', calendar_id: TEST_CALENDARS.first1 },
-      { name: 'Ананд', label: 'Ананд', level: 'master', gender: 'male', calendar_id: TEST_CALENDARS.male1 },
-    ],
-    service_groups: [
-      { label: 'Засалт', services: [{ name: 'Энгийн засалт', minutes: 60 }, { name: 'Гоёлын засалт, хуримын засалт', label: 'Гоёл / Засалт', minutes: 90 }] },
-      { label: 'Будаг', services: [{ name: 'Будаг', minutes: 120 }, { name: 'Оффис колор', minutes: 240 }] },
-    ],
-    child_services: [
-      { name: 'Хүүхдийн тайралт (охин)', label: 'Охин', gender: 'female', minutes: 60 },
-      { name: 'Хүүхдийн тайралт (хүү)', label: 'Хүү', gender: 'male', minutes: 60 },
-    ],
-    qpay: {
-      merchant_id: '00000000-0000-4000-8000-00000000c0de',
-      mcc_code: '7230',
-      bank_accounts: [{ bank_code: '040000', account_number: 'TEST-ACCOUNT', account_name: 'Test holder' }],
-    },
-    ...overrides,
-  };
+  return taraConfig('matrix-eco-salon', overrides);
 }

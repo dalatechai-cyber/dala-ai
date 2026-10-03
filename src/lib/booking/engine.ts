@@ -30,7 +30,7 @@ import { eventIdForHold, type CalendarPort, type NewEvent } from './calendar.ts'
 import type { BookingConfig, QpayMerchant } from './config.ts';
 import { callbackUrl, payUrl } from './links.ts';
 import {
-  endHold, finishInvoice, claimInvoice, setHoldExpiry, REBOOK_OFFER_MINUTES, outboundExists, holdInvoices, markBooked, markUnbooked, readConfig, readHold, readTenantFacts,
+  endHold, finishInvoice, claimInvoice, merchantSharedWith, setHoldExpiry, REBOOK_OFFER_MINUTES, outboundExists, holdInvoices, markBooked, markUnbooked, readConfig, readHold, readTenantFacts,
   recordPayment, setCalendarState, holdsToSweep, holdsWithOpenInvoices, markChecked, markNotified, closeSessionRow, logEvent, type Hold, type Invoice, type TenantFacts,
 } from './store.ts';
 import { say, type BookingWording } from './wording.ts';
@@ -46,7 +46,10 @@ export type BookingPorts = {
   db: SupabaseClient;
   now: () => Date;
   calendar: CalendarPort;
-  /** The QPay port for one merchant, on the platform's QPay credentials. Null: not configured. */
+  /**
+   * The QPay port for one tenant's merchant, on the login it names (its own, or the platform's).
+   * Null: that login is not configured. Never another tenant's merchant or login instead.
+   */
   qpayFor: (merchant: QpayMerchant) => QpayPort | null;
   wording: BookingWording;
   origin: string;
@@ -110,8 +113,9 @@ export function bookingEvent(hold: Hold, facts: TenantFacts, kind: 'hold' | 'boo
     `Price: ${hold.depositMnt} MNT (${hold.level})`,
     `Duration: ${hold.minutes} min`,
     `Customer: ${hold.gender === 'female' ? 'Эмэгтэй (female)' : hold.gender === 'male' ? 'Эрэгтэй (male)' : 'not recorded'}`,
-    `Deposit terms accepted: ${ub(hold.agreedAt)} (${facts.timezone})`,
-    `Agreed: «${hold.agreementText}»`,
+    // Дали states no deposit terms in chat (founder): what the customer accepted is the summary.
+    `Accepted in Messenger: ${ub(hold.agreedAt)} (${facts.timezone})`,
+    `Summary accepted: «${hold.agreementText.replace(/\n/gu, ' / ')}»`,
     ...(invoiceIds.length > 0 ? [`QPay invoice: ${invoiceIds.join(', ')}`] : []),
     `Source: Messenger (Дали)`,
     `Branch: ${facts.displayName}`,
@@ -237,8 +241,20 @@ export type InvoiceOutcome = { ok: true; invoice: Invoice } | { ok: false; detai
  * answer we cannot read leaves the row `unknown` and nothing is shown, so nobody pays it.
  */
 export async function createInvoice(ports: BookingPorts, hold: Hold, config: BookingConfig): Promise<InvoiceOutcome> {
+  // The tenant's own merchant, complete, on its own login, and nobody else's: else no invoice.
+  if (config.qpay === null) return { ok: false, detail: 'QPay is not connected for this tenant' };
   const qpay = ports.qpayFor(config.qpay);
-  if (qpay === null) return { ok: false, detail: 'QPay is not configured' };
+  if (qpay === null) return { ok: false, detail: 'QPay is not configured (the login this tenant names is not in the environment)' };
+  const shared = await merchantSharedWith(ports.db, hold.tenantId, config.qpay);
+  if (!shared.ok) return { ok: false, detail: shared.detail };
+  if (shared.tenants.length > 0) {
+    // Two tenants on one merchant or payout account would pay one branch's deposits to the other.
+    await ports.alert({
+      tenantId: hold.tenantId, kind: 'booking.merchant_shared', dedupKey: `booking.merchant_shared:${hold.tenantId}:${config.qpay.merchantId}`,
+      body: `⚠️ In-chat booking refused a deposit: this tenant's QPay merchant or payout account is also in ${shared.tenants.length} other tenant(s)' booking_config. Each branch must be paid into its own. No invoice was made; fix the rows (scripts/booking/check.ts).`,
+    });
+    return { ok: false, detail: 'the QPay merchant or account is also another tenant\'s' };
+  }
   const claimed = await claimInvoice(ports.db, { tenantId: hold.tenantId, holdId: hold.id, amountMnt: hold.depositMnt });
   if (!claimed.ok) return claimed;
   const token = await qpay.token();
@@ -320,7 +336,7 @@ async function collectPayments(ports: BookingPorts, hold: Hold, config: BookingC
   if (!invoices.ok) return invoices;
   const asked = invoices.invoices.filter((i) => i.qpayInvoiceId !== null && i.state !== 'refused');
   if (asked.length === 0) return { ok: true, fresh: [] };
-  const qpay = ports.qpayFor(config.qpay);
+  const qpay = config.qpay === null ? null : ports.qpayFor(config.qpay);
   if (qpay === null) return { ok: false, detail: 'QPay is not configured' };
   const token = await qpay.token();
   if (!token.ok) return { ok: false, detail: token.detail };
@@ -619,7 +635,7 @@ async function cancelInvoices(ports: BookingPorts, hold: Hold, config: BookingCo
   const paidIds = new Set((paidRows ?? []).map((r) => String((r as Record<string, unknown>)['invoice_id'])));
   const open = inv.invoices.filter((i) => i.state === 'open' && i.qpayInvoiceId !== null && !paidIds.has(i.id));
   if (open.length === 0) return;
-  const qpay = ports.qpayFor(config.qpay);
+  const qpay = config.qpay === null ? null : ports.qpayFor(config.qpay);
   const token = qpay === null ? null : await qpay.token();
   for (const i of open) {
     const r = qpay === null || token === null || !token.ok

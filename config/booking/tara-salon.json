@@ -1,44 +1,194 @@
 {
-  "_comment": "Tara Salon's in-chat booking: the parts the website does not hold. DRAFT for the founder: the group labels and the short service labels are customer-visible Mongolian. scripts/booking/from-website.ts merges this with the website's own stylists, calendars, deposits, agreement, durations and QPay merchant (read from a matrix_website checkout, never copied here) and prints the booking_config row. The same file serves both branches (D-157: one price list, one booking rule set); each branch gets its own stylists and calendars from its own --stylists list.",
+  "_comment": "Tara Salon's in-chat booking rules, shared by both branches (D-157: one price list, one booking rule set), and each branch's own stylists and QPay source. DRAFT for the founder: the group labels, the short service button labels, the family labels and the children's labels are customer-visible Mongolian. Service names are the website's keys (matrix_website data/services.json) and the minutes are the 62 confirmed durations (data/serviceDurations.json, non-retired; founder 2026-10-03); scripts/booking/from-website.ts refuses unless both agree exactly. It merges this with the website's own calendar ids and Яармаг's QPay merchant (read from a matrix_website checkout at run time, never copied here) and prints one branch's booking_config row. Дали states no deposit terms in chat, so there is no agreement sentence (founder, 2026-10-03).",
   "hold_minutes": 5,
   "slot_step_minutes": 60,
   "days_ahead": 7,
   "min_lead_minutes": 0,
   "gender_rule": true,
   "test_deposit_mnt": 100,
-  "level_labels": { "Мастер үсчин": "Мастер", "1-р зэргийн үсчин": "1-р зэрэг" },
+  "_levels": "Founder, 2026-10-03: SPECIAL 20,000₮, Мастер 20,000₮, 1-р зэрэг 10,000₮. The same three levels in both branches' rows (one price list); Парк Од simply has no 1-р зэрэг stylist, so nothing there is ever 10,000₮ and no 1-р зэрэг button or service is shown there.",
+  "levels": [
+    { "key": "special", "label": "SPECIAL", "deposit_mnt": 20000 },
+    { "key": "master", "label": "Мастер", "deposit_mnt": 20000 },
+    { "key": "first", "label": "1-р зэрэг", "deposit_mnt": 10000 }
+  ],
   "entry_matchers": [
-    { "mode": "stem_sequence", "stems": ["цаг", "ав"], "windowCp": 20 },
-    { "mode": "stem_sequence", "stems": ["цаг", "зах"], "windowCp": 20 },
-    { "mode": "stem_sequence", "stems": ["цаг", "бай"], "windowCp": 14 },
-    { "mode": "stem_sequence", "stems": ["цаг", "бн"], "windowCp": 14 },
-    { "mode": "stem_sequence", "stems": ["tsag", "av"], "windowCp": 20 },
-    { "mode": "stem_sequence", "stems": ["tsag", "zah"], "windowCp": 20 },
-    { "mode": "stem_sequence", "stems": ["tsag", "zax"], "windowCp": 20 },
-    { "mode": "stem_sequence", "stems": ["tsag", "bai"], "windowCp": 14 },
-    { "mode": "stem_sequence", "stems": ["tsag", "bn"], "windowCp": 14 },
-    { "mode": "stem_sequence", "stems": ["tsag", "bg"], "windowCp": 14 }
+    {
+      "mode": "stem_sequence",
+      "stems": ["цаг", "ав"],
+      "windowCp": 20
+    },
+    {
+      "mode": "stem_sequence",
+      "stems": ["цаг", "зах"],
+      "windowCp": 20
+    },
+    {
+      "mode": "stem_sequence",
+      "stems": ["цаг", "бай"],
+      "windowCp": 14
+    },
+    {
+      "mode": "stem_sequence",
+      "stems": ["цаг", "бн"],
+      "windowCp": 14
+    },
+    {
+      "mode": "stem_sequence",
+      "stems": ["tsag", "av"],
+      "windowCp": 20
+    },
+    {
+      "mode": "stem_sequence",
+      "stems": ["tsag", "zah"],
+      "windowCp": 20
+    },
+    {
+      "mode": "stem_sequence",
+      "stems": ["tsag", "zax"],
+      "windowCp": 20
+    },
+    {
+      "mode": "stem_sequence",
+      "stems": ["tsag", "bai"],
+      "windowCp": 14
+    },
+    {
+      "mode": "stem_sequence",
+      "stems": ["tsag", "bn"],
+      "windowCp": 14
+    },
+    {
+      "mode": "stem_sequence",
+      "stems": ["tsag", "bg"],
+      "windowCp": 14
+    }
   ],
-  "_child_services": "«Хүүхэд» on the who-is-it-for question (founder, 2026-10-03). Names and who serves each are Tara's own price rows (scripts/provision/tara-price-list-2026-10-01.sql, «Хүүхдийн тайралт»: охин; эрэгтэй, 0–13 нас; эрэгтэй, 14–18 нас): a girl's haircut a woman stylist, a boy's Ананд. The labels are DRAFT. No minutes: neither the website nor Tara's rows give a duration, so from-website.ts refuses until the founder gives them (add \"minutes\" here).",
-  "child_services": [
-    { "name": "Хүүхдийн тайралт (охин)", "label": "Охин", "gender": "female" },
-    { "name": "Хүүхдийн тайралт (эрэгтэй, 0–13 нас)", "label": "Эрэгтэй 0–13 нас", "gender": "male" },
-    { "name": "Хүүхдийн тайралт (эрэгтэй, 14–18 нас)", "label": "Эрэгтэй 14–18 нас", "gender": "male" }
-  ],
+  "_service_groups": "The price list's own sections, in its order. `audience`: shown only to a booking for that gender (asked first). One exception, a DECISION for the founder: «Гоёлын засалт /эрэгтэй/» is printed in the women's section of the price list; it is a men's styling, so the booking offers it to men, in «Эрэгтэй засалт». `family`: one button, then the lengths or levels as a second question (Messenger shows at most 13 buttons). `level`: a line priced per level is served only by a stylist of that level («Тайралт том хүн /SPECIAL/»: SPECIAL only); a line nobody here may serve is not shown.",
   "service_groups": [
-    { "label": "Засалт", "services": [
-      { "name": "Энгийн засалт" }, { "name": "Хэлбэрт" }, { "name": "Чолк тайралт" }, { "name": "Гоёл / Засалт" },
-      { "name": "Хурим" }, { "name": "Хусалт" }, { "name": "Сахал" }, { "name": "Угаалт" }
-    ] },
-    { "label": "Будаг", "services": [
-      { "name": "Үндэс" }, { "name": "Будаг" }, { "name": "Оффис колор" }, { "name": "Омбре / Колор" }, { "name": "Сор" }, { "name": "Цайруулалт" }
-    ] },
-    { "label": "Хими", "services": [
-      { "name": "Эмчилгээний хими" }, { "name": "Эмэгтэй хими" }, { "name": "Эрэгтэй хими" }, { "name": "Афро хими" }, { "name": "Шулуун хими" }
-    ] },
-    { "label": "Арчилгаа", "services": [
-      { "name": "Хуйхны цэвэрлэгээ" }, { "name": "Толгойн тос" }, { "name": "Тэжээл" }, { "name": "Хими арчилгаа" },
-      { "name": "CICA нөхөн сэргээх эмчилгээ", "label": "CICA эмчилгээ" }, { "name": "CMC тэжээл" }
-    ] }
-  ]
+    {
+      "label": "Эмэгтэй засалт",
+      "audience": "female",
+      "services": [
+        { "name": "Эмэгтэй засалт — Тайралт том хүн /SPECIAL/", "label": "SPECIAL", "family": "Тайралт том хүн", "level": "special", "minutes": 75 },
+        { "name": "Эмэгтэй засалт — Тайралт том хүн /МАСТЕР/", "label": "МАСТЕР", "family": "Тайралт том хүн", "level": "master", "minutes": 60 },
+        { "name": "Эмэгтэй засалт — Тайралт том хүн /1-р зэрэг/", "label": "1-р зэрэг", "family": "Тайралт том хүн", "level": "first", "minutes": 60 },
+        { "name": "Эмэгтэй засалт — Тайралт /чёлк/", "label": "Тайралт /чёлк/", "minutes": 15 },
+        { "name": "Эмэгтэй засалт — Хэлбэржүүлэлт /өдөр тутмын/", "label": "өдөр тутмын", "family": "Хэлбэржүүлэлт", "minutes": 45 },
+        { "name": "Эмэгтэй засалт — Хэлбэржүүлэлт /гоёлын/", "label": "гоёлын", "family": "Хэлбэржүүлэлт", "minutes": 60 },
+        { "name": "Эмэгтэй засалт — Гоёлын засалт /бүтэн/", "label": "бүтэн", "family": "Гоёлын засалт", "minutes": 90 },
+        { "name": "Эмэгтэй засалт — Гоёлын засалт /хагас/", "label": "хагас", "family": "Гоёлын засалт", "minutes": 60 },
+        { "name": "Эмэгтэй засалт — Хуримын засалт", "label": "Хуримын засалт", "minutes": 120 }
+      ]
+    },
+    {
+      "label": "Эрэгтэй засалт",
+      "audience": "male",
+      "services": [
+        { "name": "Эрэгтэй засалт — Тайралт том хүн /SPECIAL/", "label": "Тайралт /SPECIAL/", "level": "special", "minutes": 60 },
+        { "name": "Эрэгтэй засалт — Тайралт том хүн", "label": "Тайралт том хүн", "minutes": 45 },
+        { "name": "Эмэгтэй засалт — Гоёлын засалт /эрэгтэй/", "label": "Гоёлын засалт", "minutes": 30 },
+        { "name": "Эрэгтэй засалт — Бүтэн будалт", "label": "Бүтэн будалт", "minutes": 90 },
+        { "name": "Эрэгтэй засалт — Эмчилгээний хими", "label": "Эмчилгээний хими", "minutes": 120 },
+        { "name": "Эрэгтэй засалт — Down perm", "label": "Down perm", "minutes": 90 },
+        { "name": "Эрэгтэй засалт — Бүтэн цайруулалт", "label": "Бүтэн цайруулалт", "minutes": 240 },
+        { "name": "Эрэгтэй засалт — Хэсэгчилсэн сор", "label": "Хэсэгчилсэн сор", "minutes": 150 },
+        { "name": "Эрэгтэй засалт — Хуйхны цэвэрлэгээ", "label": "Хуйхны цэвэрлэгээ", "minutes": 60 },
+        { "name": "Эрэгтэй засалт — Нөхөн сэргээх эмчилгээ", "label": "Нөхөн сэргээх", "minutes": 60 }
+      ]
+    },
+    {
+      "label": "Үйлчилгээ",
+      "services": [
+        { "name": "Үйлчилгээ — Хуйх цэвэрлэгээ", "label": "Хуйх цэвэрлэгээ", "minutes": 60 },
+        { "name": "Үйлчилгээ — Үс оношлогоо зөвлөгөө", "label": "Үс оношлогоо", "minutes": 30 },
+        { "name": "Үйлчилгээ — Нөхөн сэргээх эмчилгээ", "label": "Нөхөн сэргээх", "minutes": 60 },
+        { "name": "Үйлчилгээ — Үсний тэжээл", "label": "Үсний тэжээл", "minutes": 45 },
+        { "name": "Үйлчилгээ — Үсний спа", "label": "Үсний спа", "minutes": 90 },
+        { "name": "Үйлчилгээ — CICA үсний гүний эмчилгээ", "label": "CICA эмчилгээ", "minutes": 90 },
+        { "name": "Үйлчилгээ — Эмчилгээний будаг", "label": "Эмчилгээний будаг", "minutes": 120 }
+      ]
+    },
+    {
+      "label": "Эмэгтэй хими",
+      "audience": "female",
+      "services": [
+        { "name": "Эмэгтэй хими — Tara perm (Богино)", "label": "Богино", "family": "Tara perm", "minutes": 120 },
+        { "name": "Эмэгтэй хими — Tara perm (Дунд)", "label": "Дунд", "family": "Tara perm", "minutes": 150 },
+        { "name": "Эмэгтэй хими — Tara perm (Урт)", "label": "Урт", "family": "Tara perm", "minutes": 180 },
+        { "name": "Эмэгтэй хими — Усан хими (Богино)", "label": "Богино", "family": "Усан хими", "minutes": 120 },
+        { "name": "Эмэгтэй хими — Усан хими (Дунд)", "label": "Дунд", "family": "Усан хими", "minutes": 150 },
+        { "name": "Эмэгтэй хими — Усан хими (Урт)", "label": "Урт", "family": "Усан хими", "minutes": 180 },
+        { "name": "Эмэгтэй хими — Afro хими (Богино)", "label": "Богино", "family": "Afro хими", "minutes": 240 },
+        { "name": "Эмэгтэй хими — Afro хими (Дунд)", "label": "Дунд", "family": "Afro хими", "minutes": 270 },
+        { "name": "Эмэгтэй хими — Afro хими (Урт)", "label": "Урт", "family": "Afro хими", "minutes": 300 },
+        { "name": "Эмэгтэй хими — Hippie & Jerry curl (Богино)", "label": "Богино", "family": "Hippie & Jerry curl", "minutes": 240 },
+        { "name": "Эмэгтэй хими — Hippie & Jerry curl (Дунд)", "label": "Дунд", "family": "Hippie & Jerry curl", "minutes": 270 },
+        { "name": "Эмэгтэй хими — Hippie & Jerry curl (Урт)", "label": "Урт", "family": "Hippie & Jerry curl", "minutes": 300 },
+        { "name": "Эмэгтэй хими — Сэттинг хими (Богино)", "label": "Богино", "family": "Сэттинг хими", "minutes": 240 },
+        { "name": "Эмэгтэй хими — Сэттинг хими (Дунд)", "label": "Дунд", "family": "Сэттинг хими", "minutes": 270 },
+        { "name": "Эмэгтэй хими — Сэттинг хими (Урт)", "label": "Урт", "family": "Сэттинг хими", "minutes": 300 },
+        { "name": "Эмэгтэй хими — Шулуун хими (Богино)", "label": "Богино", "family": "Шулуун хими", "minutes": 240 },
+        { "name": "Эмэгтэй хими — Шулуун хими (Дунд)", "label": "Дунд", "family": "Шулуун хими", "minutes": 270 },
+        { "name": "Эмэгтэй хими — Шулуун хими (Урт)", "label": "Урт", "family": "Шулуун хими", "minutes": 300 }
+      ]
+    },
+    {
+      "label": "Эмэгтэй будаг",
+      "audience": "female",
+      "services": [
+        { "name": "Эмэгтэй будаг — Энгийн будаг (Богино)", "label": "Богино", "family": "Энгийн будаг", "minutes": 120 },
+        { "name": "Эмэгтэй будаг — Энгийн будаг (Дунд)", "label": "Дунд", "family": "Энгийн будаг", "minutes": 135 },
+        { "name": "Эмэгтэй будаг — Энгийн будаг (Урт)", "label": "Урт", "family": "Энгийн будаг", "minutes": 150 },
+        { "name": "Эмэгтэй будаг — Өнгөлөгч будаг (Богино)", "label": "Богино", "family": "Өнгөлөгч будаг", "minutes": 60 },
+        { "name": "Эмэгтэй будаг — Өнгөлөгч будаг (Дунд)", "label": "Дунд", "family": "Өнгөлөгч будаг", "minutes": 75 },
+        { "name": "Эмэгтэй будаг — Өнгөлөгч будаг (Урт)", "label": "Урт", "family": "Өнгөлөгч будаг", "minutes": 90 },
+        { "name": "Эмэгтэй будаг — TARA LUMI (Богино)", "label": "Богино", "family": "TARA LUMI", "minutes": 180 },
+        { "name": "Эмэгтэй будаг — TARA LUMI (Дунд)", "label": "Дунд", "family": "TARA LUMI", "minutes": 210 },
+        { "name": "Эмэгтэй будаг — TARA LUMI (Урт)", "label": "Урт", "family": "TARA LUMI", "minutes": 240 },
+        { "name": "Эмэгтэй будаг — TARA BLEND (Богино)", "label": "Богино", "family": "TARA BLEND", "minutes": 240 },
+        { "name": "Эмэгтэй будаг — TARA BLEND (Дунд)", "label": "Дунд", "family": "TARA BLEND", "minutes": 270 },
+        { "name": "Эмэгтэй будаг — TARA BLEND (Урт)", "label": "Урт", "family": "TARA BLEND", "minutes": 300 },
+        { "name": "Эмэгтэй будаг — Хэсэгчилсэн сор", "label": "Хэсэгчилсэн сор", "minutes": 150 },
+        { "name": "Эмэгтэй будаг — Бүтэн сор", "label": "Бүтэн сор", "minutes": 210 },
+        { "name": "Эмэгтэй будаг — Уг будаг", "label": "Уг будаг", "minutes": 90 }
+      ]
+    }
+  ],
+  "_child_services": "«Хүүхэд» on the who-is-it-for question (founder, 2026-10-03): girls are served by a woman stylist, boys by the branch's man; the deposit is the stylist's level's, as for an adult. Names and minutes are the website's and the confirmed sheet's; the labels are DRAFT.",
+  "child_services": [
+    { "name": "Эмэгтэй засалт — Тайралт хүүхэд", "label": "Охин", "minutes": 45, "gender": "female" },
+    { "name": "Эрэгтэй засалт — Тайралт хүүхэд /0–13 нас/", "label": "Эрэгтэй 0–13 нас", "minutes": 30, "gender": "male" },
+    { "name": "Эрэгтэй засалт — Тайралт хүүхэд /14–18 нас/", "label": "Эрэгтэй 14–18 нас", "minutes": 45, "gender": "male" }
+  ],
+  "_branches": "One block per branch tenant (config/branch-groups.json). `stylists`: the founder's confirmed list of 2026-10-03, short Latin names exactly as written; `website` is the key in matrix_website config/stylists.js whose calendar the branch books into (the same calendar as the website). A stylist the website has no calendar for is written \"not-connected\", and the whole branch stays off until every one is connected. `qpay`: \"website\" reads the branch's merchant and payout account from the website's create-payment handler and config/branches.js (Яармаг, unchanged); \"operator\" takes them from the operator's environment under the website's own names (PARKOD_QPAY_MERCHANT_ID, PARKOD_QPAY_BANK_CODE, PARKOD_QPAY_ACCOUNT_NUMBER, PARKOD_QPAY_ACCOUNT_NAME) and writes \"not-connected\" until all four exist. Отгонжаргал (Otgonjargal) is not in the founder's list and is not here (flagged for the founder).",
+  "branches": {
+    "matrix-eco-salon": {
+      "branch_label": "Яармаг",
+      "website_branch": "yaarmag",
+      "qpay": "website",
+      "stylists": [
+        { "name": "Oyunaa", "level": "special", "gender": "female", "website": "Oyunaa" },
+        { "name": "Badamaa", "level": "master", "gender": "female", "website": "Badamaa" },
+        { "name": "Uyanga", "level": "first", "gender": "female", "website": "Uyanga" },
+        { "name": "Zaya", "level": "first", "gender": "female", "website": "Zaya" },
+        { "name": "Chimgee", "level": "first", "gender": "female", "website": "Chimgee" },
+        { "name": "Anand", "level": "master", "gender": "male", "website": "Anand" }
+      ]
+    },
+    "tara-park-od": {
+      "branch_label": "Парк Од",
+      "website_branch": "parkod",
+      "qpay": "operator",
+      "stylists": [
+        { "name": "Boloroo", "level": "special", "gender": "female", "website": "Boloroo" },
+        { "name": "Saraa", "level": "master", "gender": "female", "website": "Saraa" },
+        { "name": "Tomoo", "level": "master", "gender": "female", "website": "Tomoo" },
+        { "name": "Bulgaa", "level": "master", "gender": "female", "website": "Bulgaa" },
+        { "name": "Enhuush", "level": "master", "gender": "female", "website": "Enhuush" },
+        { "name": "Chimegee", "level": "master", "gender": "female", "website": "Chimegee" },
+        { "name": "Tuchku", "level": "master", "gender": "male", "website": "Tuchku" }
+      ]
+    }
+  }
 }

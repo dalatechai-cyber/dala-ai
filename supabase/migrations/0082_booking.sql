@@ -85,6 +85,8 @@ create table booking_holds (
   customer_phone   text not null check (customer_phone ~ '^[0-9]{8}$'),
   -- Null when the tenant has no gender rule: never recorded as a guess.
   gender           text check (gender in ('female', 'male')),
+  -- When and what the customer accepted with «Зөвшөөрч, захиалах»: the summary exactly as shown
+  -- (service, stylist, day, time, deposit). Дали states no deposit terms in chat (founder, 2026-10-03).
   agreed_at        timestamptz not null,
   agreement_text   text not null check (agreement_text is normalized and length(btrim(agreement_text)) > 0),
   state            text not null default 'held'

@@ -1,8 +1,9 @@
 # Booking and paying the deposit inside Messenger (Tara) — design
 
-Status: **built, switched off for every tenant** (branch `claude/happy-pasteur-4gp7gd`). Written
-2026-10-02 before the code, then kept in step with it. Nothing here is live, and no customer
-reads a word of it until the founder signs the drafts and switches it on.
+Status: **built, switched off for every tenant** (branch `claude/happy-pasteur-4gp7gd`; the
+two-branch round of 2026-10-03 is stacked on it as `claude/tara-inchat-booking-two-branch`).
+Written 2026-10-02 before the code, then kept in step with it. Nothing here is live, and no
+customer reads a word of it until the founder signs the drafts and switches it on.
 
 ## Why
 
@@ -35,12 +36,22 @@ The people who ask are asking exactly the question a calendar answers.
 
 1. The customer writes something that asks for a time («Цаг авъя», «margaash tsag bnu»). Дали
    answers with buttons (Messenger quick replies), never with a link to leave.
-2. **Service**: a group, then the service (Tara's bookable list and its minutes, from the
-   website's `data/serviceDurations.json`).
-3. **Who it is for**: «Эмэгтэй / Эрэгтэй» (the website's gender rule: a woman books a woman
-   stylist, a man a man).
-4. **Stylist**: each stylist of that gender with their level («Оюунаа · Мастер»), plus «any
-   Мастер» and «any 1-р зэрэг». The level sets the deposit.
+2. **Who it is for**, first: «Эмэгтэй / Эрэгтэй / Хүүхэд» (Tara's rule: a woman books a woman
+   stylist, a man the branch's man; «Хүүхэд» goes straight to the children's services, a girl's
+   served by a woman, a boy's by the branch's man).
+3. **Service**: the price list's own sections for that customer (a woman: «Эмэгтэй засалт»,
+   «Үйлчилгээ», «Эмэгтэй хими», «Эмэгтэй будаг»; a man: «Эрэгтэй засалт», «Үйлчилгээ»), then the
+   service. This is the **current price list of 2026-10-01** (the same one Дали quotes, the same in
+   both branches), with the **62 confirmed minutes** (founder, 2026-10-03). A line sold by hair
+   length or by level is one button and then a second question («Tara perm» → «Богино / Дунд /
+   Урт»; «Тайралт том хүн» → «SPECIAL / МАСТЕР / 1-р зэрэг»), so a long list fits Messenger's 13
+   buttons. A line nobody at that branch may serve is not shown (no man is SPECIAL, so the men's
+   SPECIAL haircut is never offered; Парк Од has no 1-р зэрэг, so its 1-р зэрэг haircut is not).
+4. **Stylist**: each stylist who may serve it, by the short Latin name the salon chose
+   («Oyunaa · SPECIAL», «Badamaa · Мастер», «Uyanga · 1-р зэрэг»), level by level in a fixed
+   order, plus «Аль ч {level}» where two or more of a level may serve. No level is ever
+   recommended. The level sets the deposit: SPECIAL 20,000₮, Мастер 20,000₮, 1-р зэрэг 10,000₮
+   (only Яармаг has 1-р зэрэг, so every Парк Од deposit is 20,000₮).
 5. **When**: Дали asks «{service} — хэзээ, хэдэн цагт ирэх вэ?», with the days that still have
    a free start as buttons. The customer can tap a day or type it in words: «маргааш 2 цагт»,
    «10 сарын 15-нд 14:00», «баасан гарагт оройн 6», Latin «margaash 14 tsagt»
@@ -55,10 +66,13 @@ The people who ask are asking exactly the question a calendar answers.
    whole service fits before closing (the website's rule). Typing another hour or day at this
    point checks again.
 7. **Name and phone** (typed; the phone must be 8 digits), then **the summary**: service,
-   stylist, day, time, the deposit, and Tara's own deposit sentence from the website, with one
-   button, «Зөвшөөрч, захиалах». Nothing is held and no QR exists before this tap.
+   stylist, day, time and the deposit, with one button, «Зөвшөөрч, захиалах». **No deposit
+   terms**: the founder's rule is that Дали never says in chat that the deposit is non-refundable
+   (the website's own tick box carries that). The hold records the summary the customer accepted,
+   word for word, with the time, and writes it on the calendar event («Summary accepted: «…»»).
+   Nothing is held and no QR exists before this tap.
 8. Дали holds the time and sends **one message with a «Төлбөр төлөх» button**: the summary and
-   the deposit (Мастер 20,000₮, 1-р зэрэг 10,000₮: Tara's rule, see "Rules reused"). The
+   the deposit (SPECIAL and Мастер 20,000₮, 1-р зэрэг 10,000₮: Tara's rule, see "Rules reused"). The
    button opens a page with the QPay QR and one button per bank app; on a phone one tap opens
    the bank app with the payment filled in. **The QR and the held time last exactly five
    minutes, together** (the website's own QR countdown), and the message says so: «Энэ QR 5
@@ -88,12 +102,13 @@ hold (the normal Дали answers it); after the hold the payment still complete
 
 | Rule | Website source | Here |
 |---|---|---|
-| Deposit = stylist level: Мастер 20,000₮, 1-р зэрэг 10,000₮, every booking | `config/stylists.js`, `config/siteMode.js` `depositFor` | `booking_config.config.levels[].deposit_mnt`. Agrees with Яармаг's live `deposit_rules` rows (Мастер 20,000₮, 1-р зэрэг 10,000₮, SPECIAL 20,000₮). The brief said 20,000₮; Tara's rule is per level, so 1-р зэрэг is 10,000₮ |
-| Gender rule (woman→woman stylist, man→man) | `services/bookingRules.js` `checkGenderMatch` | the stylist step only offers that gender |
-| Non-refundable agreement, verbatim | `bookingRules.js:22` | `config.agreement_text`, recorded with the time it was accepted |
-| Hours Mon–Sat 10–20, Sun 11–19; starts every 60 min; last start = close − length; nothing in the past | `routes/calendar.js` | the tenant's `business_hours` rows (identical today) and `tenant_closures`; `config.slot_step_minutes`; same arithmetic |
-| Service lengths, unknown → 60 | `data/serviceDurations.json` | `config.services[].minutes` (copied) |
-| QPay Quick QR v2, terminal `DALATECH_AI`, mcc 7230, one merchant and bank account, description «Name - Phone» | `api/qpay/create-payment.js` | `config.qpay` (merchant id, mcc, bank account) + the platform's `QPAY_*` credentials |
+| Deposit = stylist level: SPECIAL 20,000₮, Мастер 20,000₮, 1-р зэрэг 10,000₮ (Яармаг only), every booking, children too | `config/stylists.js` `LEVELS`, `config/siteMode.js` `depositFor` | `booking_config.config.levels[].deposit_mnt` (the same three levels in both branches' rows). `from-website.ts` refuses if the website's deposit for a level differs |
+| Gender rule (woman→woman stylist, man→the branch's man; girl→woman, boy→the man) | `services/bookingRules.js` | asked first; groups, services and stylists are filtered by it |
+| Non-refundable tick box | `bookingRules.js` `DEPOSIT_TERMS_TEXT` | **not said in chat** (founder, 2026-10-03). The chat records the summary accepted instead |
+| Hours: Яармаг and Парк Од Mon–Sat 10–20, Sun 11–19; starts every 60 min; last start = close − length; nothing in the past | `data/branches.json`, `routes/calendar.js` | each branch tenant's `business_hours` rows and `tenant_closures`; `config.slot_step_minutes`; same arithmetic |
+| Services and lengths: the 2026-10-01 price list, 62 confirmed minutes | `data/services.json`, `data/serviceDurations.json` (non-retired) | `config/booking/tara-salon.json` holds them (CI tests the real list); `from-website.ts` refuses unless they equal the website's exactly |
+| Stylists by short Latin names, level, gender, calendar | `config/stylists.js` (Latin keys; Парк Од calendars from `PARKOD_CALENDAR_<NAME>`) | `tara-salon.json` per branch; calendar ids read from the website at run time; none yet: `not-connected` |
+| QPay Quick QR v2, terminal `DALATECH_AI`, mcc 7230, description «Name - Phone»; **each branch its own merchant id and payout account** | `api/qpay/create-payment.js`, `config/branches.js` `qpayAccountFor` | `config.qpay` per branch row (merchant id, mcc, one bank account, optional own login); no fallback between branches (see "Per-branch QPay") |
 | Calendar event: summary «phone - services», the description lines, «ТЕСТ – » for tests | `services/bookingWriter.js` | the same lines, plus «Source: Messenger (Дали)» and «Branch: …» |
 | Test: 100₮ and «ТЕСТ» only for the tester | `config/siteMode.js` | `mode = 'test'`: only the channel's listed testers enter; 100₮; «ТЕСТ» |
 
@@ -128,24 +143,39 @@ hold (the normal Дали answers it); after the hold the payment still complete
   writing again, the sweep scheduled for each hold's end, and the minute sweep (the fallback) all
   call `settleHold`, which is idempotent.
 
-## Website vs chat (what the website does not do)
+## Website and chat holds (one calendar, one rule)
 
-The website keeps no hold while its customer looks at the QR, and its create-payment does not
-re-check the time. So a website customer can pay for a time a chat customer is holding; the
-website then re-checks at write time, sees the chat's busy event, writes its own "paid, slot
-taken" note and alerts on Telegram (its existing PR #77 behaviour). **No double booking either
-way**; the loser is a refund. The change request that would make the website hold too is
-`docs/proposals/matrix-website-booking-holds.md` (not done here: that repo is read-only for
-this work).
+Both sides now hold a time while their customer looks at the QR (website round of 2026-10-03,
+matrix_website `services/bookingHold.js`; the chat's hold is described above). The contract:
+
+| | Website hold | Chat hold |
+|---|---|---|
+| Event id | `sh` + sha256(calendarId\|startISO\|phoneDigits), first 40 hex (base32hex; `w` is not allowed) | `dh` + the hold's uuid hex (32), base32hex |
+| Marks | private `taraHold: '1'`, `holdExpiresAt`, `holdPlacedAt` (rewritten on every insert or renewal), `holdPhone` | private `dalaBookingHold: <hold id>`, `dalaBookingState: 'hold'` (then `'booking'` once paid; a paid `dh` event is a booking, not a hold) |
+| «Placed» | `holdPlacedAt` (else `created`) | the event's own `created` (no separate property) |
+| Expired | `holdExpiresAt` passed: free to both sides, deleted lazily by the website | removed by the chat's sweep at the hold's end (QStash) or within a minute |
+
+- **Free time.** The chat reads Google's free/busy and, for the same window, the events: an
+  `sh` hold whose `holdExpiresAt` has passed is taken out of the busy time
+  (`calendar.ts` `withoutExpiredHolds`), and any booking that overlapped it stays busy.
+- **Two holds on one time: the earlier-placed wins, on both sides.** After writing its hold, each
+  side reads the window again and gives its hold back for every other blocking event (a booking
+  always wins), except an expired website hold and a hold placed strictly after its own (that one
+  yields). A tie: both yield (never two winners). The chat's half is `otherBlocking`; **yes, the
+  chat's `dh` re-check yields to an earlier-placed `sh`** (and to an earlier-created `dh`).
+- **Never a double booking** either way; at worst a customer is told the time was just taken.
 
 **Proven against the website's own code** (`scripts/verify/booking-e2e.ts` section 16, run with
 `MATRIX_WEBSITE=<checkout>`; CI has no checkout and prints SKIPPED). The website's real
-`/available-slots` route and its real paid-booking writer, pointed at the same calendar the chat
-uses: a chat hold at 12:00 removes 12:00 from the website at once; a website customer who pays
-for that 12:00 anyway is refused by the website (no second booking) and the salon is alerted
-with their phone; a time the website books is never offered in the chat; and for a whole day
-the chat and the website offer exactly the same times. Run 2026-10-02 against matrix_website
-`e1f1f4e`: all pass.
+`/available-slots`, its paid-booking writer and its own `placeHold`, pointed at the same calendar
+the chat uses: a chat hold at 12:00 removes 12:00 from the website; a website customer who pays
+for that 12:00 anyway is refused (no second booking) and alerted; a time the website books is
+never offered in the chat; for a whole day both offer exactly the same times; the website's live
+hold at 16:00 makes the chat say «taken»; its expired hold at 17:00 is offered by the chat; and a
+chat hold at 18:00 makes the website's own hold for 18:00 refuse. Section 21 proves the chat's side
+of the contract in CI with the fake (live, expired, earlier-placed and later-placed `sh` holds;
+every `dh` id base32hex). Run 2026-10-03 against matrix_website `claude/cool-albattani-9om8zg`
+(`070bdb8` plus the lead's uncommitted hold work): all pass.
 
 ## Switches (all off)
 
@@ -157,28 +187,70 @@ the chat and the website offer exactly the same times. Run 2026-10-02 against ma
 
 ## Branches (Яармаг, Парк Од)
 
-One `booking_config` row per branch tenant: its own stylists and calendars, its own address
-(from its `contact_points`), the same services, minutes, deposits and QPay merchant.
+Each branch is its own tenant (D-157) with its own `booking_config` row, built from ONE rules file,
+`config/booking/tara-salon.json`: the same services, minutes, levels, deposits, entry words and
+children's rule; each branch's own stylists (Яармаг: Oyunaa SPECIAL, Badamaa Мастер, Uyanga /
+Zaya / Chimgee 1-р зэрэг, Anand Мастер, the only man; Парк Од: Boloroo SPECIAL, Saraa, Tomoo,
+Bulgaa, Enhuush, Chimegee, Tuchku, all Мастер, Tuchku the only man), its own calendars, its own
+address and hours (its rows), and **its own QPay merchant and payout account**.
+
 `scripts/booking/check.ts --group tara-salon` refuses when the branches' services, minutes,
-deposits, agreement or merchant differ, or when a calendar id appears in two branches.
+service buttons, levels, deposits, entry words or children's rule differ, and when a calendar,
+a merchant id or a payout account appears in two branches.
+
+**Not connected yet.** Парк Од's calendar ids and her merchant do not exist yet. Her row says so
+with the literal `not-connected` (each stylist's `calendar_id`, and `qpay`). Such a row parses
+(its shape is checked) but books nobody, testers included (`reason: not_connected`); the ordinary
+Дали answers. One placeholder left is enough to keep the branch off. Nothing is ever borrowed
+from Яармаг.
+
+## Per-branch QPay
+
+What makes a branch's money its own is its **merchant id** (registered under the Quick QR partner
+login with `POST /v2/merchant/company` or `/person`) and its **payout account**, both sent on every
+invoice (`merchant_id`, `bank_accounts`). They are **rows** (`booking_config.qpay`), not secrets:
+`merchant_id`, `mcc_code`, `bank_accounts: [{ bank_code, account_number, account_name }]`. The
+login is a secret and comes from the environment only (rule 7):
+
+- default: the platform's partner login, `QPAY_USERNAME` / `QPAY_PASSWORD` / `QPAY_TERMINAL_ID`
+  (the same login and terminal `DALATECH_AI` the website uses; Яармаг's merchant is registered under
+  it);
+- a branch whose merchant lives under a login of its own names it in its row, `"login": "PARKOD"`,
+  and then ONLY `BOOKING_QPAY_PARKOD_USERNAME`, `BOOKING_QPAY_PARKOD_PASSWORD`,
+  `BOOKING_QPAY_PARKOD_TERMINAL_ID` are used: all three or no invoice, never the platform's login
+  instead (`qpayLogin.ts`). This mirrors the website's optional `PARKOD_QPAY_USERNAME` /
+  `_PASSWORD` / `_TERMINAL_ID`.
+
+An invoice is refused, and no QR exists, when: the row's `qpay` is `not-connected`; the login it
+names is incomplete; another tenant's `booking_config` names the same merchant id or the same
+payout account (checked in the database before every invoice; you are paged once,
+`booking.merchant_shared`); or QPay itself refuses the merchant under that login. The website does
+the same for Парк Од from `PARKOD_QPAY_MERCHANT_ID`, `PARKOD_QPAY_BANK_CODE`,
+`PARKOD_QPAY_ACCOUNT_NUMBER`, `PARKOD_QPAY_ACCOUNT_NAME`; `from-website.ts` reads her values under
+those same names from the operator's shell, so both sides carry the same values. QPay's own
+documentation could not be reached from this environment: that a payment settles to the invoice's
+`bank_accounts` is inferred from the SDKs and must be confirmed with QPay in writing.
 
 ## Setting it up for a branch
 
 `node scripts/booking/from-website.ts --website ../matrix_website --rules config/booking/tara-salon.json
---slug <branch> --stylists "Оюунсүрэн=Оюунаа,…" --out <file.sql>` builds the `booking_config` row
-from the website's own `config/stylists.js` (calendars, levels, deposits, genders),
-`data/serviceDurations.json`, `services/bookingRules.js` (the agreement) and
-`api/qpay/create-payment.js` (merchant, mcc, bank account). The merchant, account and calendar ids
-are never copied into this repository. The row is written with mode `off`. It refuses a stylist the
-website does not know, a website service missing from the groups, or anything the platform's parser
-would refuse.
+--slug <branch> [--tester <PSID>] [--qpay-login PARKOD] --out <file.sql>` builds the branch's row:
+the rules file's services, minutes and stylists, checked against the website (every service and
+minute equal to its current list; every stylist at that branch with the same level, gender and
+deposit; a disagreement stops it, never picked), the calendar ids from the website's
+`config/stylists.js` (`not-connected` where it has none), and the merchant: Яармаг's from the
+website's create-payment handler and `config/branches.js`; Парк Од's from `PARKOD_QPAY_*` in the
+operator's shell, else `not-connected`. It refuses a merchant id or account equal to another
+branch's. The merchant, account and calendar ids are never copied into this repository. The row is
+written with mode `off`.
 
 ## What is not built
 
 - More than one service per booking (the website lets several be ticked and sums them).
 - Moving or cancelling a booking in chat; refunds (always by a person).
 - Instagram and the website chat (Messenger only).
-- The website's own hold (change request).
+- Asking whether the booking is for the customer or someone else of the other gender (the
+  «who for» answer decides the stylists; a woman booking for her husband taps «Эрэгтэй»).
 
 ## Switching it on for Tara Яармаг (the founder's steps, in order)
 
@@ -195,16 +267,15 @@ Nothing below has been done. Each step is yours: wording, credentials, a migrati
    - `BOOKING_LINK_SECRET`: `openssl rand -base64 36`.
    - `SUPABASE_SECRET_BOOKING`: a new secret key (Supabase → Settings → API keys).
    - **Confirm** that the platform's `QPAY_USERNAME` / `QPAY_PASSWORD` / `QPAY_TERMINAL_ID` are the
-     same Quick QR login the website uses. The website sends terminal `DALATECH_AI` with its own
-     `QPAY_USERNAME`/`QPAY_PASSWORD`. If they are different logins, copy the website's values and
-     tell Claude: the code then needs a per-tenant QPay login, which is not built.
+     same Quick QR partner login the website uses (terminal `DALATECH_AI`), the one Яармаг's
+     merchant is registered under. If not, copy the website's values under those names.
    - `BOOKING_MODE=test`. Preflight refuses the deploy if anything above is missing.
 4. **QStash.** Add one schedule: every minute, POST `https://api.dalatech.online/api/workers/booking`,
    empty body. It is the fallback (each hold's end is also scheduled by itself, through the same
    `QSTASH_TOKEN`); it releases unpaid holds and books late payments. With `BOOKING_MODE` unset it
    answers "disabled".
 5. **The row.** Run `node scripts/booking/from-website.ts --website <matrix_website checkout>
-   --rules config/booking/tara-salon.json --slug matrix-eco-salon --stylists "Оюунсүрэн=Оюунаа,Бадамцэцэг=Бадмаа,Ананд,Уранчимэг,Батзаяа,Уянга,Отгонжаргал"
+   --rules config/booking/tara-salon.json --slug matrix-eco-salon
    --tester <your PSID on Tara's Page> --out booking.sql`. Read the summary and run `booking.sql`
    in the Supabase SQL editor. It writes mode `off`. Then run:
    `update booking_config set mode = 'test' where tenant_id = (select id from tenants where slug = 'matrix-eco-salon');`
@@ -222,7 +293,18 @@ Nothing below has been done. Each step is yours: wording, credentials, a migrati
    every other tenant stays off (no row). To stop: set the row's `mode = 'off'`. That takes effect
    on the next message, with no deploy. Holds already open are still settled or released.
 
-**Парк Од:** once she is onboarded (her own tenant and Page) and her stylists' calendars are shared
-with the same service account, run the same `from-website.ts` with her own `--slug` and
-`--stylists`. Then run `node scripts/booking/check.ts --group tara-salon`. It refuses when the two
-branches' services, minutes, deposits, agreement or merchant differ, or when a calendar is in both.
+**Парк Од** (after Яармаг works), in order:
+1. Her tenant `tara-park-od` onboarded (another round), with her hours (Mon–Sat 10–20, Sun 11–19),
+   address and Page.
+2. Her booking account and stylists' calendars: each stylist shares her calendar with
+   tarasalon.parkod@gmail.com and with the website's service account («make changes to events»);
+   the calendar ids go into the website's `PARKOD_CALENDAR_<NAME>` variables.
+3. Her QPay merchant registered under the partner login (or her own login), with her own payout
+   account; the values into the website's `PARKOD_QPAY_*` (and, if her own login,
+   `BOOKING_QPAY_PARKOD_USERNAME/_PASSWORD/_TERMINAL_ID` in dala-ai's Vercel project).
+4. `PARKOD_QPAY_MERCHANT_ID=… PARKOD_QPAY_BANK_CODE=… PARKOD_QPAY_ACCOUNT_NUMBER=… PARKOD_QPAY_ACCOUNT_NAME=…
+   PARKOD_CALENDAR_…=… node scripts/booking/from-website.ts --website <checkout> --rules
+   config/booking/tara-salon.json --slug tara-park-od [--qpay-login PARKOD] --tester <PSID> --out park.sql`;
+   the summary must say «connected». Run it, then `node scripts/booking/check.ts --group tara-salon`
+   (it must print «the branches book alike»).
+5. One 100₮ test on her Page, as step 6 above, and check the 100₮ arrived in HER account.

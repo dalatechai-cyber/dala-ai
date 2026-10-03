@@ -21,6 +21,16 @@ new `booking_gender_child` «Хүүхэд» is part of that approval), `booking_
 цаг сонгоно уу.»), and `booking_time_free`
 («{date}, {time} сул байна. Энэ цагийг сонгох бол доорх товчийг дарна уу.»).
 
+**Round 2026-10-03 (two branches), awaiting approval:** `booking_ask_agreement` CHANGED: its
+«Нөхцөл: «{agreement}»» line is removed, because Дали must never say in chat that the deposit is
+non-refundable (the founder's rule; that sentence was the website's non-refundable tick-box text).
+It now reads «{service}, {stylist} / {date}, {time} / Урьдчилгаа төлбөр: {amount} / Зөвшөөрч байвал
+доорх товчийг дарна уу.». `booking_ask_variant` NEW: «{service} — аль нь вэ?», the second question
+for a price-list line sold by hair length or by level («Tara perm» → Богино / Дунд / Урт; «Тайралт
+том хүн» → SPECIAL / МАСТЕР / 1-р зэрэг). The service group, family and short button labels in
+`config/booking/tara-salon.json` (the price list's own words where they fit 20 characters) are
+drafts too. No other line changed; none says the deposit is non-refundable.
+
 **Button (founder, 2026-10-03):** `booking_any_of_level` is «Аль ч {level}» («Аль ч Мастер», «Аль ч
 1-р зэрэг»), which fits Messenger's 20 characters; it replaces «{level} — аль ч үсчин». Should a
 level label ever make it too long, only that «any» button is left out, never cut. Tara's
@@ -47,8 +57,9 @@ button's title in Messenger).
 | `booking_ask_time` | `{date}` | «Маргааш» or «10 сарын 5, Бямба» |
 | `booking_time_free`, `booking_time_not_free` | `{date}` `{time}` | the day and the time the customer asked for, «14:00» |
 | `booking_day_full`, `booking_day_closed` | `{date}` | the day the customer asked for: open with every time taken (full), or not bookable at all (closed, a closure, past, or beyond the days the tenant books ahead) |
-| `booking_ask_agreement` | `{service}` `{stylist}` `{date}` `{time}` `{amount}` `{agreement}` | the summary before the hold; `{agreement}` is the tenant's own sentence, verbatim; «Аль ч Мастер» when any stylist of the level |
-| `booking_pay` | `{service}` `{stylist}` `{date}` `{time}` `{amount}` `{minutes}` `{pay_link}` | «Оюунаа (Мастер)», «14:00», «20,000₮», «10», the pay page address (sent as the «Төлбөр төлөх» button) |
+| `booking_ask_agreement` | `{service}` `{stylist}` `{date}` `{time}` `{amount}` | the summary before the hold (no deposit terms); «Аль ч Мастер» when any stylist of the level; the hold records it as accepted |
+| `booking_ask_variant` | `{service}` | the family's button, «Tara perm», «Тайралт том хүн» |
+| `booking_pay` | `{service}` `{stylist}` `{date}` `{time}` `{amount}` `{minutes}` `{pay_link}` | «Oyunaa (SPECIAL)», «14:00», «20,000₮», «10», the pay page address (sent as the «Төлбөр төлөх» button) |
 | `booking_confirmed` | `{service}` `{stylist}` `{date}` `{time}` `{branch}` `{address}` | «Яармаг» (from the tenant's display name), the tenant's address row |
 | `booking_expired` | `{date}` `{time}` | |
 | `booking_unavailable` | `{booking_url}` | the tenant's booking link |

@@ -1,6 +1,19 @@
 # Change request for `matrix_website` (Tara's booking site): hold the time while the customer pays
 
-For a later session in the `dalatechai-cyber/matrix_website` repository. **Nothing here is done.**
+> **Status 2026-10-03: being done in the Tara website round** (`claude/cool-albattani-9om8zg`,
+> `services/bookingHold.js`). The agreed contract, which supersedes the sketch below where they
+> differ: the website's hold id is `sh` + 40 hex of sha256(calendarId|startISO|phoneDigits) (Google
+> event ids are base32hex, so not `wh`), private `{ taraHold: '1', holdExpiresAt, holdPlacedAt,
+> holdPhone }`; the chat's is `dh` + the hold uuid's hex, private `dalaBookingState: 'hold'` (a paid
+> chat booking keeps its `dh` id with state `booking` and is a booking, not a hold), placed at its
+> `created`. Each side yields after writing to every overlapping blocking event except an expired
+> website hold and a hold placed strictly later than its own. dala-ai's side is built
+> (`src/lib/booking/calendar.ts` `withoutExpiredHolds`, `otherBlocking`) and proven against the
+> website's own `placeHold` (`booking-e2e.ts` section 16 (e)–(g)) and the contract (section 21).
+> See `tara-inchat-booking.md`, «Website and chat holds».
+
+For a later session in the `dalatechai-cyber/matrix_website` repository. **Nothing here was done
+when this was written.**
 That repository was read-only for this work (2026-10-02, at commit `e1f1f4e`, after PRs #76–#79).
 Context: the in-chat booking flow in dala-ai (`docs/proposals/tara-inchat-booking.md`) books into
 the same stylist calendars the website does.
