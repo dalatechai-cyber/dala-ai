@@ -46,10 +46,10 @@ import { capEmoji, stylePriceRows, type ReplyStyle } from './style.ts';
 import { withoutOwnSite } from '../website/ownSite.ts';
 import { SECTION_LABELS, depositRow } from '../prompt/tenant.ts';
 import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '../services/match.ts';
-import { containsStem, findStem } from '../mn/match.ts';
+import { containsStem, findStem, hasWord } from '../mn/match.ts';
 import { IMAGE_REPLY_KIND } from '../inbound/imageReply.ts';
 import { isLike, likeIsOwedReply } from '../inbound/like.ts';
-import { NEAR_COPY_MIN_SIMILARITY, checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
+import { EMBEDDED_CERTAIN_SHARE, checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
 import { priceLineReport } from '../quality/priceLines.ts';
@@ -417,6 +417,16 @@ function quotedRow(text: string, rows: readonly CannedRow[]): CannedRow | null {
 
 /** The gate's stem floor, for the same reason: a three-letter word is in every other row. */
 const MIN_WORD_CP = 4;
+
+/**
+ * Words with which a customer asks what something costs, Cyrillic and Latin-typed, matched as
+ * WHOLE words (`hasWord`), so «хэд» is not found inside «хэдийд». Platform Mongolian, the same
+ * for every tenant; used only to decide whether a bare set question is owed its rows.
+ */
+const ASKS_PRICE: readonly string[] = [
+  'үнэ', 'үнийн', 'үнэтэй', 'үнэ нь', 'хэд', 'хэдэн', 'хэдээр', 'хэдвэ', 'хэдбэ',
+  'une', 'vne', 'uniin', 'vniin', 'unetei', 'vnetei', 'hed', 'heden', 'hedeer', 'hedve', 'hedbe', 'hedv', 'hd',
+];
 
 /** A service name's last word — its kind, in a head-final language: «Усан хими» is a хими. */
 function headOf(name: string): string {
@@ -1304,15 +1314,15 @@ async function receive(
     // phone sentence, and the customer was told a holiday question had no price. The
     // tenant's handoff line is true for any question; a topic's refusal is true for one.
     //
-    // An adaptation that reproduces NEAR_COPY_MIN_SIMILARITY of the row is not unsure: it is
-    // the row with a word changed, by this file's own threshold for a certain copy. Tara,
-    // live: «Tsag awch ochih uu» (2026-10-01) and «unuudur hiilgeh tsag bga yu» (2026-10-03)
-    // carried the booking line at 0.992 and 0.984 inside a longer reply, and a customer
-    // asking to book was served «I cannot answer this question». «Manikur hiilgewel»
-    // (2026-09-30) carried the no-nails line at 0.982 and got the same. The 0.754 holiday
-    // reply this rule was built for is still unsure and still gets the general line.
+    // An adaptation holding EMBEDDED_CERTAIN_SHARE of the row as one unbroken run is not
+    // unsure: it is the row with a word changed (see the constant for why the figure keeps two
+    // refusals that share a frame apart). Tara, live: «Tsag awch ochih uu» (2026-10-01) and
+    // «unuudur hiilgeh tsag bga yu» (2026-10-03) carried the booking line at 0.992 and 0.984
+    // inside a longer reply, and a customer asking to book was served «I cannot answer this
+    // question». «Manikur hiilgewel» (2026-09-30) carried the no-nails line at 0.982 and got
+    // the same. The 0.754 holiday reply this rule was built for still gets the general line.
     const unsure = pinned.kind === 'paraphrase' && pinned.embedded === true && pinned.canonicalKind !== 'handoff'
-      && pinned.similarity < NEAR_COPY_MIN_SIMILARITY;
+      && pinned.similarity < EMBEDDED_CERTAIN_SHARE;
     const general = unsure ? generalLine(input)?.body ?? null : null;
     const servedBody = general ?? pinned.canonical;
     if (pinned.kind === 'paraphrase') {
@@ -1574,20 +1584,26 @@ async function receive(
           : { kind: 'retry', detail: served.detail };
       }
     }
-    // The set's question with NO price at all. Tara, live 2026-09-29 to 2026-10-03: «Us
-    // budahad hed gdg ve?», «ene budalt hed ve», «Сортой будалт» and seven more price
-    // questions were answered by the model with the colour question alone, so a customer who
-    // asked what dyeing costs was asked a question back and given no price (dali.md A4/E10).
-    // The tenant's own answer to that question is its set row — the rows, then the question
-    // (founder, 2026-09-24: *"…then my question, also when served from data"*) — and that is
-    // what is served. Not when those rows are already in the conversation (the question is
-    // then a fair follow-up), and never on a turn where a refusal rule blocks prices.
-    if (presentation.quoted.length === 0 && !matched.refusedTopicBlocksPrice) {
+    // The set's question with NO price, to a customer who ASKED a price. Tara, live
+    // 2026-09-29 to 2026-10-03: «Us budahad hed gdg ve?», «ene budalt hed ve», «Үс будхад хэд
+    // байдаг бол» and more were answered by the model with the colour question alone, so a
+    // customer who asked what dyeing costs was asked a question back and given no price
+    // (dali.md A4/E10). The tenant's own answer to that question is its set row — the rows,
+    // then the question (founder, 2026-09-24: *"…then my question, also when served from
+    // data"*) — and that is what is served. Only when the customer's words ask a price
+    // (`ASKS_PRICE`): «I want a perm» answered «which perm?» is a fair question, not a price
+    // list. Not on a suitability turn (its own composition below adds the rows the customer
+    // named), not when every row is already in the conversation (the question is then a fair
+    // follow-up), and never on a turn where a refusal rule blocks prices.
+    if (presentation.quoted.length === 0 && !matched.refusedTopicBlocksPrice && matched.grounded === null
+        && hasWord(input.customerMessage, ASKS_PRICE)) {
       const reply = fold(capped.text);
       const asked = setRows(input.deterministic).find((r) => r.body.trim() !== '' && reply.includes(fold(r.body.trim())));
       const setBody = asked === undefined ? null : composeQuoted(asked, input.serviceNames);
-      const shown = setBody !== null
-        && input.history.some((h) => h.role === 'assistant' && fold(h.content).includes(fold(setBody)));
+      const said = input.history.filter((h) => h.role === 'assistant').map((h) => fold(h.content));
+      const rows = asked === undefined ? []
+        : asked.quoteServices.flatMap((n) => input.serviceNames.find((s) => s.name === n)?.rows ?? []);
+      const shown = rows.length > 0 && rows.every((row) => said.some((t) => t.includes(fold(row))));
       if (asked !== undefined && setBody !== null && !shown) {
         await deps.flag({ code: 'set_question_unpriced', detail: `${asked.intent}'s question with no price; served the row`, attempted: capped.text });
         const served = await d.draft({ body: setBody, answeredBy: 'deterministic' });

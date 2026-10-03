@@ -642,3 +642,39 @@ test('DONE-TEST (Tara, 2026-10-01 and 2026-10-03): THE BOOKING LINE ADAPTED INSI
   assert.equal(t.drafts[0]?.body, `${SERVED_DEPOSITS.join('\n')}\n\n${BOOKING}`);
   assert.ok(t.flags.includes('canned_paraphrased'));
 });
+
+test('the colour question alone stands when the customer did not ask a price', async () => {
+  const t = run(QUESTION);
+  await handleReception(t.deps, { ...base, customerMessage: 'Будаг хийлгэмээр байна' });
+  assert.deepEqual(t.drafts, [{ body: QUESTION, answeredBy: 'model' }]);
+  assert.equal(t.flags.includes('set_question_unpriced'), false);
+});
+
+test('on a suitability turn a grounded answer keeps its own composition, not the set row', async () => {
+  // The salon's own words plus the colour question, both in the tenant's data: the grounded
+  // answer stands and the suitability step adds the rows the customer named after it.
+  const t = run(`${DOC} ${QUESTION}`);
+  await handleReception(t.deps, { ...base, promptStable: `${STABLE}\n${QUESTION}`, customerMessage: 'Хар өнгөтэй usend orohu hed ve' });
+  assert.equal(t.flags.includes('set_question_unpriced'), false, JSON.stringify(t.flags));
+  assert.ok(t.drafts[0]?.body.startsWith(DOC), String(t.drafts[0]?.body));
+});
+
+test('the colour question alone stands when every row was already shown, in any layout', async () => {
+  const t = run(QUESTION);
+  await handleReception(t.deps, {
+    ...base, customerMessage: 'ene budalt hed ve',
+    history: [{ role: 'user', content: 'Будаг хэд вэ?' }, { role: 'assistant', content: `Будгийн үнэ:\n${ROWS.long}\n${ROWS.root}\n${ROWS.mid}` }],
+  });
+  assert.deepEqual(t.drafts, [{ body: QUESTION, answeredBy: 'model' }]);
+});
+
+test('an adaptation inside a reply UNDER the certain share is still unsure and gets the general line', async () => {
+  const { checkPinnedLines, EMBEDDED_CERTAIN_SHARE, EMBEDDED_MIN_SHARE } = await import('../gate/pinned.ts');
+  const text = `Таны асуусан зүйлийн талаар тодруулахад хэцүү байна, дахин бичнэ үү. ${UNLISTED.replace('надад байхгүй', 'надад одоогоор байхгүй')}`;
+  const verdict = checkPinnedLines(text, CANNED);
+  assert.ok(verdict.kind === 'paraphrase' && verdict.embedded === true, JSON.stringify(verdict));
+  assert.ok(verdict.kind === 'paraphrase' && verdict.similarity >= EMBEDDED_MIN_SHARE && verdict.similarity < EMBEDDED_CERTAIN_SHARE, JSON.stringify(verdict));
+  const t = run(text);
+  await handleReception(t.deps, { ...base, customerMessage: 'энэ юу вэ' });
+  assert.equal(t.drafts[0]?.body, CANNED[0]?.body, 'the handoff line, not the price refusal');
+});

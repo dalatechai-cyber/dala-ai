@@ -256,6 +256,20 @@ function longestCommonRun(a: readonly string[], b: readonly string[]): number {
 export const EMBEDDED_MIN_SHARE = 0.6;
 
 /**
+ * At or above this share an adaptation found inside a reply is no longer UNSURE: the reply
+ * holds nine-tenths of the row as one unbroken run, so it is that row with a word or two
+ * changed, and the caller serves the row rather than the general line (2026-10-03, Tara:
+ * the booking line at 0.992 and 0.984 inside a reply was served as «I cannot answer»).
+ *
+ * A different measure from `NEAR_COPY_MIN_SIMILARITY` (edit distance over the whole reply):
+ * this is the longest common run over the ROW's length. The figure is the same on purpose,
+ * and it is what keeps two refusals that share a frame apart: Tara's shared phone sentence is
+ * at most 51 of 99+ code points (about 0.52), and the D-126 holiday reply scored 0.754.
+ * `reception/compose.test.ts` pins a shared-frame adaptation under this line as unsure.
+ */
+export const EMBEDDED_CERTAIN_SHARE = 0.9;
+
+/**
  * And a floor, because a proportion alone is too generous to a short row.
  *
  * Matrix's rows share a closing sentence and a reply may legitimately end that way without

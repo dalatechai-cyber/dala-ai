@@ -12,16 +12,19 @@ no model spend.
   (D-151/D-152, question left to staff; D-153, Tara's media alert off), so changing it is his
   call. Options written for him (see open items).
 - **Code fix 1 (`handle.ts` pinned step):** an approved line adapted inside a longer reply at
-  ≥ 0.9 (`NEAR_COPY_MIN_SIMILARITY`, the file's own "certain copy" threshold) now gets its row,
-  not the hand-off line. Why: 4 live replies (booking line 0.992 / 0.984, no-nails line 0.982 ×2)
+  ≥ 0.9 of the row as one unbroken run (new `EMBEDDED_CERTAIN_SHARE` in `gate/pinned.ts`) now
+  gets its row, not the hand-off line. Why: 4 live replies (booking line 0.992 / 0.984, no-nails line 0.982 ×2)
   were served «I cannot answer»; the D-126 case (0.754) is still the hand-off line.
 - **Code fix 2 (`handle.ts` presentation step, flag `set_question_unpriced`):** a reply that asks
   a set row's question and quotes no price is served as the set row (rows, then question). Why:
-  12 dye-price questions got the question alone. Not when the rows are already in the chat
-  (no repeat) and never when a refusal rule blocks prices.
-- **Data draft:** `scripts/provision/tara-dali-quality-2026-10-03.sql` (+ revert): booking stems
-  «авч» family and 7 cover words; 6 reply cases (2 deterministic, 4 need the model). Validated
-  apply → refuse-second-apply → revert → re-apply on a scratch PostgreSQL 16 with stub tables.
+  12 dye-price questions got the question alone. Only when the customer's words ask a price
+  (`ASKS_PRICE`, whole words), not on a suitability turn, not when every row is already in the
+  chat, never when a refusal rule blocks prices (all four from the review).
+- **Data draft:** `scripts/provision/tara-dali-quality-2026-10-03.sql` (+ revert): 5 reply cases,
+  all needing the model. Validated apply → refuse-second-apply → revert → re-apply on a scratch
+  PostgreSQL 16 with stub tables. Booking stems «авч/awch/avch» were drafted and DROPPED after the
+  review: they also cover «bring» («avchirch») and «buy» («онлайн авч»); code fix 1 covers the
+  live case.
 - **No new customer sentence is live-bound.** The only Mongolian written is
   `prompt/drafts/tara_quality_2026-10-03.mn.txt` (FAQ options for three data gaps); facts unknown,
   so each has options for the founder to pick.
@@ -33,10 +36,11 @@ no model spend.
 ## Status
 
 - [x] Read 315 DMs, flags, staff echoes; report written
-- [x] Two code fixes + 4 unit tests (fail without the fix), offline reply-case harness test (3)
+- [x] Two code fixes + 8 unit tests in `compose.test.ts` (each mutation-checked: fails without its condition)
 - [x] Provision draft + revert, drafts file, dali.md v1.5 (A4, D12)
-- [x] `npm run check`: guards 10/10, typecheck clean, 2640 tests (2639 pass, 1 pre-existing skip)
-- [ ] Independent review, draft PR, CI
+- [x] Draft PR #283; independent review (Opus reviewer session): 2 medium + 2 low findings, all fixed
+- [x] `npm run check` after the review fixes: guards 10/10, typecheck clean, 2641 tests (2640 pass, 1 pre-existing skip: ancestor repo not checked out)
+- [ ] CI on the PR head (see PR #283)
 
 ## Open items for the founder
 
@@ -44,8 +48,8 @@ no model spend.
    person is told at once; (b) let the hourly reclaim (F4) also come back to a bot media hand-off
    nobody answered in 2 open hours (code, not built); or (c) answer the price part of a photo
    question from data (reverses D-152). Recommendation: (a) now, (b) next.
-2. Apply `tara-dali-quality-2026-10-03.sql`, then one `--with-model` dry run for Tara (the 4 model
-   cases prove the two code fixes on the real model).
+2. Merge #283 (after its deploy), apply `tara-dali-quality-2026-10-03.sql`, then one
+   `--with-model` dry run for Tara (the 5 model cases prove the two code fixes on the real model).
 3. Facts: deposit off the price?, loan/instalment apps?, dye brand?, Эмчилгээний хими for women?,
    which service is «өнгө гаргалт»?
 4. Not fixed (prompt-only rules): multi-part answers (E10), one «<br>» (D4), a complaint misread.
