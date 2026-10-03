@@ -1,0 +1,38 @@
+# DRAFT — not loaded. Tara Яармаг, quality round of 2026-10-03 (docs/reports/2026-10-03-tara-dali-quality.md).
+# Customers asked these in the last seven days and Дали had nothing in its data to answer with,
+# so it served the hand-off line (correct, by rule A8). Each needs a FACT from the salon first;
+# nothing here may be applied until the founder picks the true option or writes the fact in.
+# Once approved, each becomes an FAQ row (question + answer) for matrix-eco-salon only, and the
+# same row for Парк Од if the fact is the same there. Style: short, polite «та», no emoji.
+
+## 1. Is the deposit taken off the price? (asked twice, 2026-10-02, after the booking line)
+
+Option A (if the deposit is counted toward the service price):
+Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.
+
+Option B (if it is not):
+Урьдчилгаа төлбөр үйлчилгээний үнэд орж тооцогдохгүй.
+
+Never: anything saying the deposit is not returned (founder rule: Дали does not say it in chat).
+
+## 2. Can I pay with a loan / instalment app? (asked in three chats, 2026-10-01)
+
+Option A (if the salon takes none):
+Одоогоор зээлийн аппаар төлбөр авдаггүй.
+
+Option B (if it takes some; the founder names them):
+Та {аппын нэрс} аппаар төлөх боломжтой.
+
+## 3. Which brand of dye do you use? (asked once, 2026-10-03)
+
+Proposed (the founder names the brand):
+Манай салон {брэндийн нэр} будаг хэрэглэдэг.
+
+## Questions that are not wording (the founder answers; then a row or alias follows)
+
+- «Эмчилгээний хими» is on the list for men only (189,000₮). Does the salon do it for women, and
+  at what price? A customer asked twice (2026-10-02 and 2026-10-03) and was told the men's price
+  and «no price for women, call».
+- «Өнгө гаргалт» (asked in at least six chats in seven days): which listed service is it — Хэсэгчилсэн
+  сор, Бүтэн сор, Бүтэн цайруулалт, or the dye rows? The answer becomes a matcher alias, not a
+  sentence.

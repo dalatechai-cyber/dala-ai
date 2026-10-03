@@ -595,3 +595,50 @@ test('without a reviewed notice nothing changes: the photo line, and no handover
   assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined);
   assert.deepEqual(t.drafts.map((x) => x.body), [IMAGE]);
 });
+
+// ---- Tara, live 2026-09-29 to 2026-10-03 (quality round of 2026-10-03) -------------------------
+
+test('DONE-TEST (Tara, 2026-10-03): THE COLOUR QUESTION ALONE, WITH NO PRICE, IS SERVED AS THE SET ROW: ROWS, THEN THE QUESTION', async () => {
+  // «Us budahad hed gdg ve?» (2026-10-01) reached the model, which answered with the question
+  // alone: a customer who asked what dyeing costs got no price.
+  const t = run(`Будалтын төрөл олон тул тодруулъя: ${QUESTION.charAt(0).toLowerCase()}${QUESTION.slice(1)}`);
+  const r = await handleReception(t.deps, { ...base, customerMessage: 'Us budahad hed gdg ve?' });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.equal(t.drafts[0]?.body, `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${QUESTION}`);
+  assert.ok(t.flags.includes('set_question_unpriced'));
+});
+
+test('the colour question alone stands when the rows are already in the conversation', async () => {
+  const shown = `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${QUESTION}`;
+  const t = run(QUESTION);
+  await handleReception(t.deps, {
+    ...base, customerMessage: 'ene budalt hed ve',
+    history: [{ role: 'user', content: 'Будаг хэд вэ?' }, { role: 'assistant', content: shown }],
+  });
+  assert.deepEqual(t.drafts, [{ body: QUESTION, answeredBy: 'model' }]);
+  assert.equal(t.flags.includes('set_question_unpriced'), false);
+});
+
+test('the colour question alone gets no rows on a turn where a refusal rule blocks prices', async () => {
+  const BLOCK: GateRule = {
+    gate: 'Ш1', topicKey: 'keratin', matcher: { mode: 'contains_stem', stems: ['кератин'] },
+    quotePrice: false, deterministicShortcircuit: false, responseKind: 'refusal_price_unlisted',
+    provenance: 'tenant_confirmed', groundedOnly: false,
+  };
+  const t = run(QUESTION);
+  await handleReception(t.deps, { ...base, rules: [SUIT, BLOCK], customerMessage: 'кератин budah hed ve' });
+  assert.equal(t.requests.length, 1, 'the model was asked');
+  assert.equal(t.flags.includes('set_question_unpriced'), false);
+  assert.equal(t.drafts[0]?.body.includes('135,000₮'), false, String(t.drafts[0]?.body));
+});
+
+test('DONE-TEST (Tara, 2026-10-01 and 2026-10-03): THE BOOKING LINE ADAPTED INSIDE A REPLY AT 0.9+ IS SERVED, WITH THE DEPOSITS, NOT THE HANDOFF', async () => {
+  // «Tsag awch ochih uu» carried the booking line at 0.992 inside a longer reply and was
+  // served «I cannot answer this question». One word changed is the line, not a doubt.
+  const drifted = BOOKING.replace('боломжтой.', 'боломжтой шүү.');
+  const t = run(`Би өөрөө цаг захиалгыг баталгаажуулах боломжгүй байна, уучлаарай. ${drifted}`);
+  const r = await handleReception(t.deps, { ...base, customerMessage: 'Tsag awch ochih uu' });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
+  assert.equal(t.drafts[0]?.body, `${SERVED_DEPOSITS.join('\n')}\n\n${BOOKING}`);
+  assert.ok(t.flags.includes('canned_paraphrased'));
+});

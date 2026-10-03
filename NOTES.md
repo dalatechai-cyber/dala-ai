@@ -1,3 +1,55 @@
+# Round 2026-10-03: Tara Яармаг Дали quality
+
+Branch `claude/tara-dali-quality-oct3` (worktree `/home/user/dala-wt/quality`). Brief: read Tara
+Яармаг's last 7 days of DMs read-only, list every weak reply with its cause, fix as drafts.
+Full list: `docs/reports/2026-10-03-tara-dali-quality.md`. Nothing applied, published or merged;
+no model spend.
+
+## Decisions (and why)
+
+- **Biggest finding is not fixed in code: photo/reel + «how much?» → hand-off line → silence.**
+  34 chats, 50 unanswered texts, 26 chats never answered by staff. It is the founder's own rule
+  (D-151/D-152, question left to staff; D-153, Tara's media alert off), so changing it is his
+  call. Options written for him (see open items).
+- **Code fix 1 (`handle.ts` pinned step):** an approved line adapted inside a longer reply at
+  ≥ 0.9 (`NEAR_COPY_MIN_SIMILARITY`, the file's own "certain copy" threshold) now gets its row,
+  not the hand-off line. Why: 4 live replies (booking line 0.992 / 0.984, no-nails line 0.982 ×2)
+  were served «I cannot answer»; the D-126 case (0.754) is still the hand-off line.
+- **Code fix 2 (`handle.ts` presentation step, flag `set_question_unpriced`):** a reply that asks
+  a set row's question and quotes no price is served as the set row (rows, then question). Why:
+  12 dye-price questions got the question alone. Not when the rows are already in the chat
+  (no repeat) and never when a refusal rule blocks prices.
+- **Data draft:** `scripts/provision/tara-dali-quality-2026-10-03.sql` (+ revert): booking stems
+  «авч» family and 7 cover words; 6 reply cases (2 deterministic, 4 need the model). Validated
+  apply → refuse-second-apply → revert → re-apply on a scratch PostgreSQL 16 with stub tables.
+- **No new customer sentence is live-bound.** The only Mongolian written is
+  `prompt/drafts/tara_quality_2026-10-03.mn.txt` (FAQ options for three data gaps); facts unknown,
+  so each has options for the founder to pick.
+- **Staff names, levels, manicurist, Отгонжаргал:** not touched; the rename worker's
+  `tara-yarmag-stylist-names-2026-10-03.sql` (branch `claude/tara-park-od-tenant`) covers all four.
+- Pending provision files read live: price list, branches, branch count, stylist levels are all
+  applied; the November move is not (by design).
+
+## Status
+
+- [x] Read 315 DMs, flags, staff echoes; report written
+- [x] Two code fixes + 4 unit tests (fail without the fix), offline reply-case harness test (3)
+- [x] Provision draft + revert, drafts file, dali.md v1.5 (A4, D12)
+- [x] `npm run check`: guards 10/10, typecheck clean, 2640 tests (2639 pass, 1 pre-existing skip)
+- [ ] Independent review, draft PR, CI
+
+## Open items for the founder
+
+1. Media silence: (a) turn Tara's media alert on (`tenants.media_handoff_alert`, D-153) so a
+   person is told at once; (b) let the hourly reclaim (F4) also come back to a bot media hand-off
+   nobody answered in 2 open hours (code, not built); or (c) answer the price part of a photo
+   question from data (reverses D-152). Recommendation: (a) now, (b) next.
+2. Apply `tara-dali-quality-2026-10-03.sql`, then one `--with-model` dry run for Tara (the 4 model
+   cases prove the two code fixes on the real model).
+3. Facts: deposit off the price?, loan/instalment apps?, dye brand?, Эмчилгээний хими for women?,
+   which service is «өнгө гаргалт»?
+4. Not fixed (prompt-only rules): multi-part answers (E10), one «<br>» (D4), a complaint misread.
+
 # NOTES — overnight session 2026-10-02 (resume point after a context reset)
 
 Branch: `claude/serene-johnson-gla2u7`. Brief: Part 1 Дали live-customer gaps (roadmap 6b),

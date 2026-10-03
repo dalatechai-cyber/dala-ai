@@ -49,7 +49,7 @@ import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '.
 import { containsStem, findStem } from '../mn/match.ts';
 import { IMAGE_REPLY_KIND } from '../inbound/imageReply.ts';
 import { isLike, likeIsOwedReply } from '../inbound/like.ts';
-import { checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
+import { NEAR_COPY_MIN_SIMILARITY, checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
 import { priceLineReport } from '../quality/priceLines.ts';
@@ -1303,7 +1303,16 @@ async function receive(
     // надад байхгүй» scored 0.754 of the PRICE refusal because both share a frame and a
     // phone sentence, and the customer was told a holiday question had no price. The
     // tenant's handoff line is true for any question; a topic's refusal is true for one.
-    const unsure = pinned.kind === 'paraphrase' && pinned.embedded === true && pinned.canonicalKind !== 'handoff';
+    //
+    // An adaptation that reproduces NEAR_COPY_MIN_SIMILARITY of the row is not unsure: it is
+    // the row with a word changed, by this file's own threshold for a certain copy. Tara,
+    // live: «Tsag awch ochih uu» (2026-10-01) and «unuudur hiilgeh tsag bga yu» (2026-10-03)
+    // carried the booking line at 0.992 and 0.984 inside a longer reply, and a customer
+    // asking to book was served «I cannot answer this question». «Manikur hiilgewel»
+    // (2026-09-30) carried the no-nails line at 0.982 and got the same. The 0.754 holiday
+    // reply this rule was built for is still unsure and still gets the general line.
+    const unsure = pinned.kind === 'paraphrase' && pinned.embedded === true && pinned.canonicalKind !== 'handoff'
+      && pinned.similarity < NEAR_COPY_MIN_SIMILARITY;
     const general = unsure ? generalLine(input)?.body ?? null : null;
     const servedBody = general ?? pinned.canonical;
     if (pinned.kind === 'paraphrase') {
@@ -1560,6 +1569,28 @@ async function receive(
       if (rowsOnly !== '') {
         await deps.flag({ code: 'set_question_stray', detail: `${stray.intent}'s question under ${presentation.quoted.map((q) => q.name).join(', ')}`, attempted: capped.text });
         const served = await d.draft({ body: rowsOnly, answeredBy: 'deterministic' });
+        return served.ok
+          ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
+          : { kind: 'retry', detail: served.detail };
+      }
+    }
+    // The set's question with NO price at all. Tara, live 2026-09-29 to 2026-10-03: «Us
+    // budahad hed gdg ve?», «ene budalt hed ve», «Сортой будалт» and seven more price
+    // questions were answered by the model with the colour question alone, so a customer who
+    // asked what dyeing costs was asked a question back and given no price (dali.md A4/E10).
+    // The tenant's own answer to that question is its set row — the rows, then the question
+    // (founder, 2026-09-24: *"…then my question, also when served from data"*) — and that is
+    // what is served. Not when those rows are already in the conversation (the question is
+    // then a fair follow-up), and never on a turn where a refusal rule blocks prices.
+    if (presentation.quoted.length === 0 && !matched.refusedTopicBlocksPrice) {
+      const reply = fold(capped.text);
+      const asked = setRows(input.deterministic).find((r) => r.body.trim() !== '' && reply.includes(fold(r.body.trim())));
+      const setBody = asked === undefined ? null : composeQuoted(asked, input.serviceNames);
+      const shown = setBody !== null
+        && input.history.some((h) => h.role === 'assistant' && fold(h.content).includes(fold(setBody)));
+      if (asked !== undefined && setBody !== null && !shown) {
+        await deps.flag({ code: 'set_question_unpriced', detail: `${asked.intent}'s question with no price; served the row`, attempted: capped.text });
+        const served = await d.draft({ body: setBody, answeredBy: 'deterministic' });
         return served.ok
           ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
           : { kind: 'retry', detail: served.detail };
