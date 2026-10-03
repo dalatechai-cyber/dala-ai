@@ -799,7 +799,7 @@ await toWhen(p1, 'Бадмаа · Мастер', `${typedDay3} 2 цагт цаг
 check(p1.lastBody === say(wording, 'booking_time_free', { date: D3, time: '14:00' })
   && JSON.stringify(titles(p1)) === JSON.stringify(['11:00', '12:00', '13:00', '14:00', '15:00', '16:00', CANCEL]),
   '«… 2 цагт цаг авъя» in the first message: Дали checks the calendar and says 14:00 is free, with the times around it');
-check((await websiteOffers(TEST_CALENDARS.master2, day3, 60)).includes('14:00'), 'the website offers 14:00 too, before anyone books it');
+check((await websiteOffers(TEST_CALENDARS.master2, day3, 60)).includes('14:00'), 'free/busy, asked the way the website asks it: 14:00 free before anyone books it');
 await taps(p1, '14:00');
 await says(p1, 'Сэлэнгэ');
 await says(p1, '99112244');
@@ -810,11 +810,11 @@ const holdP1 = holdOf(p1);
 check(holdState(holdP1) === 'held' && p1.last?.handled === true && p1.last.linkButtonTitle === say(wording, 'billing_pay_button'),
   '«Зөвшөөрч, захиалах»: the time is held and the QR is made at once');
 check(!(await websiteOffers(TEST_CALENDARS.master2, day3, 60)).includes('14:00'),
-  'Messenger holds 14:00: on the website 14:00 is gone, while the customer pays');
+  'Messenger holds 14:00: the website\'s free/busy question now sees 14:00 busy, while the customer pays (section 16 runs the website\'s own code)');
 qpayFake.pay(invoicesOf(holdP1)[0] as string);
 await runQpayCallback(ports, signHold(SECRET, 'callback', holdP1));
 check(holdState(holdP1) === 'booked' && !(await websiteOffers(TEST_CALENDARS.master2, day3, 60)).includes('14:00'),
-  'paid: booked in the calendar, and the website still does not offer 14:00');
+  'paid: booked in the calendar, still busy to the website\'s free/busy question');
 
 // (b) An unpaid chat hold gives the time back to the website.
 const p2 = newChat();
@@ -827,11 +827,11 @@ await says(p2, 'Хулан');
 await says(p2, '99112255');
 await taps(p2, AGREE);
 const holdP2 = holdOf(p2);
-check(!(await websiteOffers(TEST_CALENDARS.master2, day3, 60)).includes('17:00'), 'held in Messenger: gone from the website');
+check(!(await websiteOffers(TEST_CALENDARS.master2, day3, 60)).includes('17:00'), 'held in Messenger: busy to the website\'s free/busy question');
 psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdP2}'`);
 await runSweep(ports);
 check(holdState(holdP2) === 'expired' && (await websiteOffers(TEST_CALENDARS.master2, day3, 60)).includes('17:00'),
-  'not paid in time: released, and the website offers 17:00 again');
+  'not paid in time: released, and free again to the website\'s free/busy question');
 
 // (c) A website booking is never offered in Messenger; the nearest free times are.
 google.websiteBooks(TEST_CALENDARS.master2, ubAt(day3, 11), 60);
@@ -886,11 +886,62 @@ check(follow.length === 1 && (follow[0]?.body ?? '').startsWith(`${say(wording, 
 psql(`update booking_sessions set updated_at = now() - interval '11 minutes' where id = '${sessionP6()}'`);
 await runSweep(ports);
 check(pushedTo(p6, beforeP6).length === 1, 'never a second follow-up');
+// Old buttons. The customer moves to another day, then taps a button from the first day's list:
+// it means 12:00 on THAT day, although the other day also shows a «12:00».
+const day2b = tenantClock(new Date(Date.now() + 48 * 3600_000), TZ).date;
+await says(p6, 'нөгөөдөр');
+check(titles(p6).includes('12:00') && psql(`select data->>'date' from booking_sessions where id = '${sessionP6()}'`) === day2b,
+  'set-up: the customer moved to the day after tomorrow, which also offers a «12:00»');
 const old12 = oldButtons.find((q) => q.title === '12:00');
 await says(p6, '12:00', old12?.payload);
 check(p6.lastBody === say(wording, 'booking_ask_name')
   && psql(`select data->>'start' from booking_sessions where id = '${sessionP6()}'`) === ubAt(day3, 12).toISOString(),
-  'a button from before the follow-up still means the time it showed');
+  'an old «12:00» button means 12:00 on the day it was offered for, never the same label on the day now shown');
+// An old button whose time has gone since: «taken», and the free times nearest it on its day.
+const p6b = newChat();
+await toWhen(p6b, 'Бадмаа · Мастер');
+await says(p6b, `${typedDay3} 16 цагт`);
+const old16 = (p6b.last !== null && p6b.last.handled ? p6b.last.quickReplies : []).find((q) => q.title === '16:00');
+await says(p6b, 'нөгөөдөр');
+google.websiteBooks(TEST_CALENDARS.master2, ubAt(day3, 16), 60);
+await says(p6b, '16:00', old16?.payload);
+check((p6b.lastBody ?? '').startsWith(`${say(wording, 'booking_slot_taken')}\n`) && !titles(p6b).includes('16:00')
+  && psql(`select data->>'date' from booking_sessions where conversation_id = '${p6b.conversationId}' and closed_at is null`) === day3,
+  'an old button for a time taken since: «taken», and that day\'s nearest free times');
+
+// A question with no hour at the times is a miss, not a new offer: asked once, then Дали answers.
+const q1 = newChat();
+await toWhen(q1, 'Бадмаа · Мастер');
+await says(q1, `${typedDay3} 17 цагт`);
+await says(q1, 'Өнөөдөр ажиллах уу?');
+check(q1.lastBody === say(wording, 'booking_pick_from_list'), '«Өнөөдөр ажиллах уу?» at the times: asked once to pick');
+const q1r = await says(q1, 'Маргааш ажиллах уу?');
+check(!q1r.handled, 'a second question: the flow steps aside and the ordinary Дали answers');
+
+// A day that cannot be booked at all is not called «full».
+const far = tenantClock(new Date(Date.now() + 20 * 24 * 3600_000), TZ).date;
+const q2 = newChat();
+await toWhen(q2, 'Бадмаа · Мастер');
+await says(q2, `${Number(far.slice(5, 7))} сарын ${Number(far.slice(8, 10))}-нд 14 цагт`);
+check((q2.lastBody ?? '').startsWith(`${say(wording, 'booking_day_closed', { date: dayLabel(wording, far, new Date(), TZ) })}\n`),
+  'a day beyond the days the salon books ahead: «… цаг захиалах боломжгүй», then the nearest day with time');
+
+// Never over a person, never over the customer.
+const h1 = newChat();
+await toWhen(h1, 'Бадмаа · Мастер');
+await says(h1, `${typedDay3} 18 цагт`);
+psql(`update conversations set thread_control = 'human', thread_control_at = now() where id = '${h1.conversationId}'`);
+psql(`update booking_sessions set updated_at = now() - interval '11 minutes' where conversation_id = '${h1.conversationId}' and closed_at is null`);
+const h2 = newChat();
+await toWhen(h2, 'Бадмаа · Мастер');
+await says(h2, `${typedDay3} 19 цагт`);
+psql(`update booking_sessions set updated_at = now() - interval '11 minutes' where conversation_id = '${h2.conversationId}' and closed_at is null`);
+psql(`insert into messages (tenant_id, conversation_id, direction, external_id, body) values ('${T}', '${h2.conversationId}', 'inbound', 'mid.photo.${randomUUID()}', '')`);
+const beforeH = sent.length;
+await runSweep(ports);
+check(pushedTo(h1, beforeH).length === 0 && psql(`select followed_up_at is not null from booking_sessions where conversation_id = '${h1.conversationId}' and closed_at is null`) === 't',
+  'staff took the thread (an echo set it to human): no follow-up, and the chat is not looked at again');
+check(pushedTo(h2, beforeH).length === 0, 'the customer sent something the flow did not take (a photo): no follow-up');
 const p7 = newChat();
 await toWhen(p7, 'Бадмаа · Мастер');
 await says(p7, `${typedDay3} 18 цагт`);
@@ -1000,11 +1051,12 @@ if (WEBSITE === null) {
     'Messenger: asked for 15:00, Дали says it is taken and offers neither 15:00 nor 12:00');
 
   // (d) Both sides agree, start by start, for the whole day.
-  const chatSide = google.live(TEST_CALENDARS.master2).length;
   const webSide = await websiteSlots('Бадамцэцэг', day5, 'Энгийн засалт');
-  await says(p9, typedDay5);
-  const chatTimes = titles(p9).filter((t) => t !== CANCEL);
-  check(chatSide > 0 && JSON.stringify(chatTimes) === JSON.stringify(webSide),
+  const p10 = newChat();
+  await toWhen(p10, 'Бадмаа · Мастер');
+  await taps(p10, dayLabel(wording, day5, new Date(), TZ));
+  const chatTimes = titles(p10).filter((t) => t !== CANCEL);
+  check(webSide.length > 0 && JSON.stringify(chatTimes) === JSON.stringify(webSide),
     `the chat and the website offer exactly the same times that day (${webSide.join(', ')})`);
   server.close();
 }

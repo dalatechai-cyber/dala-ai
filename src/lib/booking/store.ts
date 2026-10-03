@@ -363,6 +363,22 @@ export async function sessionsToFollowUp(db: SupabaseClient, now: Date, afterMin
   return { ok: true, sessions: (data ?? []).map(toSession) };
 }
 
+/**
+ * Did the customer write anything after `since` that the booking flow did not take (a photo, a
+ * sticker, a message it stepped aside from)? `messages` holds the customer's side; the flow's
+ * own sends are `outbound_messages`, and a message the flow took is stored before its session
+ * moves on, so neither counts. A person's reply shows as `thread_control`, read separately.
+ * `answered_by = 'human'` is included so a staff row written here one day is not missed.
+ */
+export async function conversationMovedOn(db: SupabaseClient, tenantId: string, conversationId: string, since: Date):
+  Promise<Ok<{ moved: boolean }> | Fail> {
+  const { data, error } = await db.from('messages').select('id')
+    .eq('tenant_id', tenantId).eq('conversation_id', conversationId).gt('at', since.toISOString())
+    .or('direction.eq.inbound,answered_by.eq.human').limit(1);
+  if (error) return { ok: false, detail: `messages unreadable: ${error.message}` };
+  return { ok: true, moved: (data ?? []).length > 0 }; // ascii-safe: counts rows
+}
+
 /** The follow-up went out (or was drafted); never again for this chat. A failure only logs: the reply's dedup key still holds. */
 export async function markFollowedUp(db: SupabaseClient, sessionId: string, at: Date): Promise<Ok<object> | Fail> {
   const { error } = await db.from('booking_sessions').update({ followed_up_at: at.toISOString() }).eq('id', sessionId).is('followed_up_at', null);

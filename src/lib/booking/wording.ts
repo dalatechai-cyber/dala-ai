@@ -33,6 +33,7 @@ export const BOOKING_BLOCKS = {
   booking_time_free: { required: ['date', 'time'], optional: [] },
   booking_time_not_free: { required: ['date', 'time'], optional: [] },
   booking_day_full: { required: ['date'], optional: [] },
+  booking_day_closed: { required: ['date'], optional: [] },
   booking_follow_up: NONE,
   booking_no_times: NONE,
   booking_ask_name: NONE,

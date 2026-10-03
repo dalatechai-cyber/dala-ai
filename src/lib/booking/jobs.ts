@@ -76,8 +76,10 @@ export async function runQpayCallback(ports: BookingPorts, token: string): Promi
 }
 
 export async function runSweep(ports: BookingPorts): Promise<{ status: number; body: Record<string, unknown> }> {
+  const started = Date.now();
   const out = await sweep(ports);
-  const asked = await followUps(ports);
+  // What the sweep left of the route's 120 s, less a margin: follow-ups are the first to wait.
+  const asked = await followUps(ports, Math.max(0, 100_000 - (Date.now() - started)));
   return { status: 200, body: { ...out, followUps: asked } };
 }
 

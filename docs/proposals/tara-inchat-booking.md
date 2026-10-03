@@ -50,7 +50,8 @@ The people who ask are asking exactly the question a calendar answers.
 6. **Дали checks and offers**: the stylists' real Google Calendars and every hold are read at
    that moment. The asked time is free: «…, 14:00 сул байна» with the six times around it. It is
    taken: «Уучлаарай, …, 14:00 цаг захиалгатай байна» with the six nearest free times. The day
-   has nothing: «… сул цаг алга» and the next day that has time. A start is offered only if the
+   has nothing: «… сул цаг алга» and the next day that has time; a day the salon is closed or
+   that is beyond how far ahead it books: «… цаг захиалах боломжгүй байна» instead. A start is offered only if the
    whole service fits before closing (the website's rule). Typing another hour or day at this
    point checks again.
 7. **Name and phone** (typed; the phone must be 8 digits), then **the summary**: service,
@@ -69,8 +70,9 @@ The people who ask are asking exactly the question a calendar answers.
 11. **Quiet on the offered times**: ten minutes after the times were offered with no answer,
     Дали asks once «Цаг захиалах уу?» with the times read fresh from the calendar (a time the
     website took meanwhile is gone). Never twice, and never once the chat has idled out (30
-    minutes). A button from before the follow-up still means the time it showed: buttons carry
-    the time itself, not their position in the list.
+    minutes), never while a person holds the thread (staff answered in the Page Inbox), and
+    never once the customer has sent anything the flow did not take. An old button still means
+    the day and time it showed: buttons carry the time itself, never their position or label.
 
 Any typed message that is not an answer to the current question leaves the flow before the
 hold (the normal Дали answers it); after the hold the payment still completes on its own.

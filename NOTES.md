@@ -31,7 +31,15 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       one follow-up if quiet, Messenger and website never cross. Built: when.ts parser, offerTimes, confirm summary,
       followUps in the minute sweep, value-carrying button payloads, followed_up_at column (0082, unapplied),
       e2e section 15 (+22) and 16 (website's OWN code, +8 when MATRIX_WEBSITE set). e2e 142 local.
-- [ ] Opus review of the follow-up diff, CI, push
+- [x] Opus review of 06098f0: 8 findings, all fixed: follow-up now skips a thread a person holds (any `human`) and
+      a conversation with a newer customer message, re-reads the session before sending, never sends an `exists`
+      draft, refuses an undelivered follow-up so no retry sends it late, logs every failed read, has a time budget,
+      marks skipped chats; an old button whose value is not on offer is never matched by its title (its own day and
+      time, or «taken» + nearest); parser: «14:30-нд» minutes not a day, two days / «биш» -> ask again, «үдээс өмнө»/
+      «өглөө» morning, «цагийн дараа» not a time, «хагас»/«минут», bad hour keeps the day; a question with no hour and
+      the same day again count as misses; closed/beyond-window day says «боломжгүй», not «full»; off-grid hour gets
+      the nearest times, not «taken». e2e 149 locally (141 in CI, 8 need MATRIX_WEBSITE).
+- [ ] CI on the fix push
 
 ## Decisions (with reason)
 1. Deterministic flow, no model: C1/E2 stay true of the model; every line is a signed platform block.
@@ -67,6 +75,14 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
 19. Button payloads carry the offer's value (`bk:time:<iso>`), not its index: the follow-up re-reads the list.
 20. Weekday names are not read from the FIRST message (a name like «Баасан» is as likely); they are at the
     when/times steps. A number followed by words («маргааш 2 хүн») is not a time.
+22. Follow-up never over a person: skipped on ANY `thread_control = human`, ignoring the tenant cooldown (a
+    nudge is worth less than talking over a receptionist). Reception's own replies keep the cooldown rule.
+23. A question with an hour in it («Маргааш 2 цагт болох уу?») IS a request for that time; without an hour it
+    is a miss (so the flow still lets go on the second).
+24. Calendar ids: Tara's booking_config is generated from the website's own config/stylists.js
+    (scripts/booking/from-website.ts), so both sides use the same calendar per stylist by construction.
+    Section 16 swaps in test ids; it cannot catch a hand-edited mismatch later. Re-run from-website.ts
+    after any website stylist change.
 21. The website side is unchanged (brief: no website edits). Its gap stays the change request: it holds
     nothing while its own QR is open, so a chat customer can take that time first; the website then refuses
     its paid booking and alerts (proven with its own code, e2e section 16). Never a double booking.

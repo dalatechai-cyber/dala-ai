@@ -59,3 +59,29 @@ test('BOOKING when: «2» is 14:00 only when the salon is shut at 2 and open at 
   assert.deepEqual(at('оройн 7'), { date: null, at: 19 * 60 });
   assert.equal(at('7 хүн'), null, 'a bare number inside words, with no day or evening, is not a time');
 });
+
+test('BOOKING when: the review\'s cases — minutes are not a day, two days are not guessed between', () => {
+  assert.deepEqual(at('маргааш 14:30-нд'), { date: '2026-10-03', at: 14 * 60 + 30 }, 'the «30» of 14:30 is minutes');
+  assert.equal(at('маргааш 11-нд'), null, 'tomorrow AND the 11th: asked again, never the 11th');
+  assert.equal(at('Маргааш 1-нд ирье'), null);
+  assert.equal(at('маргааш 2 цаг 30-нд'), null);
+  assert.equal(at('маргааш биш, нөгөөдөр'), null, 'a day ruled out');
+  assert.equal(at('маргааш биш'), null);
+  assert.equal(at('Маргааш эсвэл нөгөөдөр'), null, 'two days');
+});
+
+test('BOOKING when: morning and afternoon words', () => {
+  assert.deepEqual(at('Маргааш үдээс өмнө 10 цагт'), { date: '2026-10-03', at: 10 * 60 }, '«үдээс өмнө» is the morning');
+  assert.deepEqual(at('үдээс хойш 3 цагт'), { date: null, at: 15 * 60 });
+  assert.deepEqual(at('өглөө 7 цагт'), { date: null, at: 7 * 60 }, 'morning: as typed, even when the salon is shut then');
+  assert.equal(at('өглөө орой 7'), null);
+});
+
+test('BOOKING when: «цаг» is a whole word; half past and minutes', () => {
+  assert.equal(at('2 цагийн дараа'), null, 'in two hours is not two o\'clock');
+  assert.deepEqual(at('2 цаг хагаст'), { date: null, at: 14 * 60 + 30 });
+  assert.deepEqual(at('маргааш 2 цаг 30 минутад'), { date: '2026-10-03', at: 14 * 60 + 30 });
+  assert.deepEqual(at('margaash 2 tsag hagast'), { date: '2026-10-03', at: 14 * 60 + 30 });
+  assert.deepEqual(at('14 цагаас'), { date: null, at: 14 * 60 });
+  assert.deepEqual(at('маргааш 50'), { date: '2026-10-03', at: null }, 'not an hour: the day still stands');
+});

@@ -14,7 +14,8 @@
  * авъя») is used without asking again. A customer silent on the offered times is asked once
  * more (`followUps`). What happens after the pay button is `engine.ts`.
  */
-import { replyDedupKey } from '../outbound/claim.ts';
+import { markRefused, replyDedupKey } from '../outbound/claim.ts';
+import { readThreadState } from '../handover/record.ts';
 import { formatMnt } from '../billing/templates.ts';
 import { fold } from '../mn/text.ts';
 import type { QuickReply } from '../meta/send.ts';
@@ -29,7 +30,7 @@ import { bookingEvent, currentInvoice, dayLabel, deliverDrafted, expireHold, mar
 import { payUrl } from './links.ts';
 import { freeStarts, isFree, openDays, type Interval, type OpenDay } from './slots.ts';
 import {
-  acquireHold, activeHolds, applyTurn, closeSessionRow, endHold, markFollowedUp, openSession, readConfig, readHold, readHoursAndClosures,
+  acquireHold, activeHolds, applyTurn, closeSessionRow, conversationMovedOn, endHold, markFollowedUp, openSession, readConfig, readHold, readHoursAndClosures,
   readOpenSession, readTenantFacts, sessionHold, sessionsToFollowUp, setCalendarState, type Hold, type Session, type TenantFacts,
 } from './store.ts';
 import { hourOn, parseWhen, type Want } from './when.ts';
@@ -115,7 +116,12 @@ function quickReplies(step: Step, offers: readonly Offer[], cancelTitle: string)
 }
 
 /** Which offer, if any, this message picks. */
-function picked(session: Session, input: TurnInput, cancelTitle: string): Offer | 'cancel' | null {
+/**
+ * Which offer, if any, this message picks. A tapped button of this step whose value is no longer
+ * on offer is `stale`, and is never matched by its title instead: «12:00» on an old button means
+ * 12:00 on the day it was offered for, not 12:00 on whatever day is on offer now.
+ */
+function picked(session: Session, input: TurnInput, cancelTitle: string): Offer | 'cancel' | { stale: string } | null {
   const offers = Array.isArray(session.data['offers']) ? (session.data['offers'] as Offer[]) : [];
   const p = input.quickReplyPayload;
   // «Цуцлах», tapped or typed, at every step: typing it is never taken as a name or a phone.
@@ -123,7 +129,7 @@ function picked(session: Session, input: TurnInput, cancelTitle: string): Offer 
   if (p !== undefined && p.startsWith(`bk:${session.step}:`)) {
     const v = p.slice(`bk:${session.step}:`.length);
     const hit = offers.find((o) => o.v === v);
-    if (hit !== undefined) return hit;
+    return hit !== undefined ? hit : { stale: v };
   }
   const typed = offers.find((o) => sameChoice(o.t, input.text));
   if (typed !== undefined) return typed;
@@ -308,7 +314,9 @@ async function offerTimes(c: Ctx, data: Record<string, unknown>, want: Want, lea
     const named = all.find((d) => d.day.date === want.date);
     if (named !== undefined && named.starts.length > 0) pick = named;
     else {
-      dayFull = say(w, 'booking_day_full', { date: dayLabel(w, want.date, c.now, tz) });
+      // Open that day and every start taken: full. Not among the open days at all (closed, a
+      // closure, past, or beyond how far ahead the tenant books): not bookable, never «full».
+      dayFull = say(w, named !== undefined ? 'booking_day_full' : 'booking_day_closed', { date: dayLabel(w, want.date, c.now, tz) });
       pick = open.find((d) => d.day.date > (want.date as string)) ?? open[0] as DayStarts;
     }
   } else if (want.hour !== null) {
@@ -325,8 +333,12 @@ async function offerTimes(c: Ctx, data: Record<string, unknown>, want: Want, lea
       .sort((a, b) => Math.abs(minuteOfDay(a, tz) - t) - Math.abs(minuteOfDay(b, tz) - t) || a.getTime() - b.getTime())
       .slice(0, NEAREST).sort((a, b) => a.getTime() - b.getTime());
   }
+  // «14:00 is taken» only of a start the salon could ever offer: «12:30» on an hourly step, or
+  // 7:00 before opening, is not taken, it is just not a time; the times nearest it are offered.
+  const [opens, closes] = minutesOf(pick.day);
+  const slot = t !== null && t >= opens && (t - opens) % c.config.slotStepMinutes === 0 && t + Number(data['minutes']) <= closes;
   let body: string;
-  if (lead !== undefined || dayFull !== null || t === null) {
+  if (lead !== undefined || dayFull !== null || t === null || !slot) {
     body = [lead, dayFull, say(w, 'booking_ask_time', { date })].filter((x): x is string => x !== undefined && x !== null).join('\n');
   } else if (has(pick, t)) {
     body = say(w, 'booking_time_free', { date, time: hhmm(t) });
@@ -494,6 +506,28 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
     return { step, body: say(w, 'booking_cancelled'), offers: [], data, close: 'cancelled' };
   }
 
+  // An old button. A day: that day's times. A time: that time if it is still free (it is what
+  // the customer saw and tapped), else «taken» with the nearest free times on that day.
+  if (choice !== null && 'stale' in choice) {
+    if (step === 'when' && /^\d{4}-\d{2}-\d{2}$/u.test(choice.stale)) {
+      return offerTimes(c, data, { date: choice.stale, hour: null, minute: 0, afternoon: false });
+    }
+    const at = new Date(choice.stale);
+    if (step === 'time' && !Number.isNaN(at.getTime())) {
+      const date = tenantClock(at, c.facts.timezone).date;
+      const around = wantAround({ start: at.toISOString(), date }, c.facts.timezone);
+      const fresh = await offerTimes(c, { ...data, date }, around);
+      if (fresh.step === 'time' && fresh.offers.some((o) => o.v === at.toISOString())) {
+        return ask('name', say(w, 'booking_ask_name'), [], { ...fresh.data, start: at.toISOString() });
+      }
+      if (fresh.step !== 'time') return fresh;
+      return offerTimes(c, { ...data, date }, around, say(w, 'booking_slot_taken'));
+    }
+    if (data['missed'] === true) return 'not_mine';
+    const offers = Array.isArray(data['offers']) ? (data['offers'] as Offer[]) : [];
+    return { step, body: say(w, 'booking_pick_from_list'), offers, data: { ...data, missed: true }, close: null };
+  }
+
   // Free-text steps. Anything that is not a name or a phone is asked again ONCE, then the flow
   // steps aside so Дали answers it: a question is never stored as a name, never trapped.
   if (step === 'name') {
@@ -515,7 +549,14 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
     const local = tenantClock(c.now, c.facts.timezone);
     const typed = parseWhen(c.input.respelled ?? c.input.text, { date: local.date, weekday: local.weekday })
       ?? (c.input.respelled === null ? null : parseWhen(c.input.text, { date: local.date, weekday: local.weekday }));
-    if (typed !== null) {
+    // A question with no hour in it («Өнөөдөр ажиллах уу?») is not an answer, and naming the
+    // day already on offer with no hour adds nothing: both count as a miss, so the flow still
+    // steps aside on the second one and the ordinary Дали answers. «Маргааш 2 цагт болох уу?»
+    // names an hour: it is the customer asking for that time.
+    const question = /[?？]\s*$/u.test(c.input.text) || /(?<![\p{L}\p{N}])(?:уу|үү|юу|юү|вэ|бэ)[\s.!]*$/u.test(fold(c.input.text));
+    const noHour = typed !== null && typed.hour === null;
+    const sameDay = step === 'time' && noHour && typed?.date === data['date'];
+    if (typed !== null && !(question && noHour) && !sameDay) {
       return offerTimes(c, data, step === 'time' && typed.date === null ? { ...typed, date: String(data['date']) } : typed);
     }
   }
@@ -707,13 +748,20 @@ export async function bookingTurn(ports: BookingPorts, input: TurnInput): Promis
 /**
  * The minute sweep's follow-up: a customer who was offered times and has said nothing for
  * `FOLLOW_UP_MINUTES` is asked once «Цаг захиалах уу?» with the times read fresh from the
- * calendar (some may have gone meanwhile). Once per booking chat, never after the chat idled out,
- * never for a customer the flow is not on for. Written through the same versioned turn as a
- * reply, so a customer answering at the same moment wins and the follow-up is dropped.
+ * calendar (some may have gone meanwhile). Once per booking chat, never after the chat idled
+ * out, never for a customer the flow is not on for.
+ *
+ * Never over a person or over the customer: not while staff hold the thread (any `human`
+ * control, whatever its cooldown: a nudge is worth less than talking over a receptionist), and
+ * not once anything newer than the offer is in the conversation (a photo, a sticker, a message
+ * the flow did not take, staff's own reply). Written through the same versioned turn as a reply,
+ * and the session is read again just before sending, so a customer answering at the same moment
+ * wins and the follow-up is refused, never sent late.
  */
-export async function followUps(ports: BookingPorts): Promise<{ sent: number; skipped: number; failed: number }> {
+export async function followUps(ports: BookingPorts, budgetMs = 30_000): Promise<{ sent: number; skipped: number; failed: number }> {
   const out = { sent: 0, skipped: 0, failed: 0 };
   if (bookingEnvMode() === 'off' || missingBlocks(ports.wording).length > 0) return out;
+  const started = Date.now();
   const now = ports.now();
   const due = await sessionsToFollowUp(ports.db, now, FOLLOW_UP_MINUTES, SESSION_IDLE_MINUTES);
   if (!due.ok) {
@@ -722,6 +770,8 @@ export async function followUps(ports: BookingPorts): Promise<{ sent: number; sk
     return out;
   }
   for (const session of due.sessions) {
+    // The rest wait for the next minute; a follow-up a minute late is still a follow-up.
+    if (Date.now() - started > budgetMs) break;
     try {
       const r = await followUp(ports, session, now);
       out[r] += 1;
@@ -734,16 +784,37 @@ export async function followUps(ports: BookingPorts): Promise<{ sent: number; sk
 }
 
 async function followUp(ports: BookingPorts, session: Session, now: Date): Promise<'sent' | 'skipped' | 'failed'> {
+  const fail = (what: string, detail: string): 'failed' => {
+    ports.log('error', 'booking_follow_up_unreadable', { sessionId: session.id, what, detail });
+    return 'failed';
+  };
+  // Decided not to follow this chat up: marked, so it is not looked at again every minute.
+  const skip = async (why: string): Promise<'skipped'> => {
+    ports.log('info', 'booking_follow_up_skipped', { sessionId: session.id, why });
+    const m = await markFollowedUp(ports.db, session.id, now);
+    if (!m.ok) ports.log('error', 'booking_follow_up_mark_failed', { sessionId: session.id, detail: m.detail });
+    return 'skipped';
+  };
+
   const cfg = await readConfig(ports.db, session.tenantId);
-  if (!cfg.ok) return 'failed';
-  if (!cfg.present || !cfg.valid) return 'skipped';
+  if (!cfg.ok) return fail('config', cfg.detail);
+  if (!cfg.present || !cfg.valid) return skip('no usable config');
   const who = customerMode(bookingEnvMode(), cfg.mode, cfg.config, session.psid);
-  if (!who.on || who.isTest !== session.isTest) return 'skipped';
+  if (!who.on || who.isTest !== session.isTest) return skip('flow not on for this customer');
+
+  const thread = await readThreadState(ports.db, { tenantId: session.tenantId, conversationId: session.conversationId });
+  if (thread === 'unreadable') return fail('thread_control', 'conversation unreadable');
+  if (thread.control === 'human') return skip('a person holds the thread');
+  const moved = await conversationMovedOn(ports.db, session.tenantId, session.conversationId, session.updatedAt);
+  if (!moved.ok) return fail('messages', moved.detail);
+  if (moved.moved) return skip('the conversation moved on after the offer');
+
   const facts = await readTenantFacts(ports.db, session.tenantId);
-  if (!facts.ok) return 'failed';
+  if (!facts.ok) return fail('facts', facts.detail);
   const local = tenantClock(now, facts.facts.timezone);
+  if (String(session.data['date']) < local.date) return skip('the offered day has passed');
   const hc = await readHoursAndClosures(ports.db, session.tenantId, local.date);
-  if (!hc.ok) return 'failed';
+  if (!hc.ok) return fail('hours', hc.detail);
   const c: Ctx = {
     ports, config: cfg.config, facts: facts.facts, now,
     input: {
@@ -753,24 +824,47 @@ async function followUp(ports: BookingPorts, session: Session, now: Date): Promi
   };
   const data = { ...session.data };
   const stored = data['want'] as Want | undefined;
-  const want: Want = { date: String(data['date']), hour: stored?.hour ?? null, minute: stored?.minute ?? 0, afternoon: stored?.afternoon ?? false };
+  const want: Want = {
+    date: String(data['date']), hour: stored?.hour ?? null, minute: stored?.minute ?? 0, afternoon: stored?.afternoon ?? false,
+    ...(stored?.morning === true ? { morning: true } : {}),
+  };
   const offer = await offerTimes(c, data, want);
-  // No time left to offer, or the calendar cannot be read: say nothing; the chat idles out.
-  if (offer.step !== 'time' || offer.close !== null || offer.offers.length === 0) return 'skipped';
+  if (offer.close === 'unavailable') return fail('calendar', 'calendar unreadable');
+  if (offer.step !== 'time' || offer.close !== null || offer.offers.length === 0) return skip('no time left to offer');
+
   const body = marked(ports.wording, session.isTest, `${say(ports.wording, 'booking_follow_up')}\n${offer.body}`);
   const applied = await applyTurn(ports.db, {
     tenantId: session.tenantId, session, dedupKey: `booking-followup:${session.id}`, step: 'time',
     data: { ...offer.data, offerStep: 'time' }, closeReason: null, body,
   });
-  if (!applied.ok) {
-    ports.log('error', 'booking_follow_up_failed', { sessionId: session.id, detail: applied.detail });
-    return 'failed';
-  }
+  if (!applied.ok) return fail('turn', applied.detail);
+  // The customer answered meanwhile: their turn won. Looked at again only if they go quiet on new times.
   if (applied.turn.outcome === 'stale') return 'skipped';
+  // Drafted by an earlier run that stopped before marking: never sent now (its text named the
+  // times of then, and the buttons would be today's).
+  if (applied.turn.outcome === 'exists') return skip('already drafted once');
   const marked2 = await markFollowedUp(ports.db, session.id, now);
   if (!marked2.ok) ports.log('error', 'booking_follow_up_mark_failed', { sessionId: session.id, detail: marked2.detail });
-  if (applied.turn.outboundId === null) return 'skipped';
-  const sent = await deliverDrafted(ports, { tenantId: session.tenantId, channelId: session.channelId, psid: session.psid }, applied.turn.outboundId,
+  const outboundId = applied.turn.outboundId;
+  if (outboundId === null) return 'skipped';
+
+  // Last look before sending: the customer may have answered in the moment since the draft.
+  const refuse = async (why: string): Promise<'skipped'> => {
+    const r = await markRefused(ports.db, { id: outboundId, tenantId: session.tenantId, reason: `booking_follow_up: ${why}`, from: ['draft'] });
+    if (!r.ok) ports.log('error', 'booking_follow_up_refuse_failed', { sessionId: session.id, detail: r.detail });
+    return 'skipped';
+  };
+  const now2 = await readOpenSession(ports.db, session.tenantId, session.conversationId);
+  if (!now2.ok) {
+    await refuse('session unreadable before sending');
+    return fail('session', now2.detail);
+  }
+  if (now2.session === null || now2.session.id !== session.id || now2.session.version !== session.version + 1) return refuse('the customer answered first');
+
+  const sent = await deliverDrafted(ports, { tenantId: session.tenantId, channelId: session.channelId, psid: session.psid }, outboundId,
     { sessionId: session.id, event: 'follow_up' }, { quickReplies: quickReplies('time', offer.offers, say(ports.wording, 'booking_cancel')) });
-  return sent === 'sent' ? 'sent' : sent === 'failed' ? 'failed' : 'skipped';
+  if (sent === 'sent') return 'sent';
+  // Not sent now: never later. A follow-up resent by a retry an hour on would arrive out of place.
+  await refuse(`not delivered (${sent})`);
+  return sent === 'failed' ? 'failed' : 'skipped';
 }
