@@ -608,6 +608,9 @@ export const MODEL_INVISIBLE_KINDS: readonly string[] = [
   // reception worker), never by the model. Listed while `0083` registers the kind and no
   // tenant has a row, for the reason above.
   'photo_price_question',
+  // D-176. The reel question (a video, a reel or a link to one), served the same way. Listed
+  // while `0083` registers the kind and no tenant has a row, for the reason above.
+  'reel_price_question',
 ];
 
 /**

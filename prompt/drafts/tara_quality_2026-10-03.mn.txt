@@ -20,31 +20,37 @@
 
 4. Photo + price (founder's decision 2026-10-04, D-176). The question a photo is answered with is
    Tara's ALREADY APPROVED `image_received` line, byte for byte, as a new row `photo_price_question`
-   (scripts/provision/tara-yarmag-photo-question-2026-10-04.sql). No new sentence; the founder's OK
-   is for the new use: Дали asks this once, answers the price from the rows when the customer names
-   the service, and hands off (the approved «Баярлалаа! Таны илгээсэн зураг…» notice) after one
-   question that brought nothing the rows know:
+   (scripts/provision/tara-yarmag-photo-question-2026-10-04.sql). No new sentence. Its new use was
+   APPROVED by the founder 2026-10-04: Дали asks this once, answers the price from the rows when the
+   customer names the service, and hands off (the approved «Баярлалаа! Таны илгээсэн зураг…» notice)
+   after one question that brought nothing the rows know:
 Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
+
+5. Women's «Эмчилгээний хими» and «өнгө гаргалт» (answer 4: point to the website's price page).
+   Fixed replies `price_page_treatment_perm` / `price_page_color`, appended
+   (scripts/provision/tara-yarmag-price-page-2026-10-04.sql). The same bytes as Парк Од's draft
+   (branch claude/tara-park-od-tenant). APPROVED 2026-10-04, BUT the rows STAY DISABLED until the
+   website's price page shows both prices (the founder is getting the two prices from the salon);
+   the new site must also be live at this address. At the domain move the link becomes
+   https://tarasalon.org/services.html in both tenants' rows:
+Үнийн мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/services.html хуудаснаас үзнэ үү.
+
+6. The heading the price page carries in Дали's contact data (`price_page`, migration 0083; the
+   model reads it, a customer may see it quoted). APPROVED 2026-10-04; the contact row is inserted
+   with item 5's switch, so it waits with it:
+Үнийн хуудас
+
+7. A shared reel or a video (or a link to one) with no words, «how much?» or only a greeting: the
+   one question, wired like the photo line (D-176, reel addendum) as its own row
+   `reel_price_question` (scripts/provision/tara-yarmag-reel-question-2026-10-04.sql). APPROVED as
+   written 2026-10-04. A named service gets its price from the rows; staff get the chat only when
+   the answer names nothing the rows know, or another reel comes 10 to 60 minutes later. A shared
+   post, a link to a post, photo, story or pin, and a photo beside a video still go to staff:
+Уучлаарай, би бичлэг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
 
 ## AWAITING the founder's approval (new wording)
 
-5. Women's «Эмчилгээний хими» and «өнгө гаргалт» (answer 4: point to the website's price page).
-   Fixed replies `price_page_treatment_perm` / `price_page_color`, appended, DISABLED until the new
-   site is live at this address (scripts/provision/tara-yarmag-price-page-2026-10-04.sql). The same
-   bytes as Парк Од's draft (branch claude/tara-park-od-tenant), which wrote them first:
-Үнийн мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/services.html хуудаснаас үзнэ үү.
-   Note for the founder: the new website's price page has neither price either (men's «Эмчилгээний
-   хими» only; no «өнгө гаргалт»). Either add both prices to the website and to both branches' price
-   rows, or accept that the page shows the nearest services. At the domain move the link becomes
-   https://tarasalon.org/services.html in both tenants' rows.
-
-6. The heading the price page carries in Дали's contact data (`price_page`, migration 0083; the
-   model reads it, a customer may see it quoted):
-Үнийн хуудас
-
-7. OPTIONAL, not wired: if the founder wants a shared reel or video with «how much?» handled like a
-   photo (today it still goes to staff, D-152), a line that does not say «зураг»:
-Уучлаарай, би бичлэг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.
+None. Every line of this round is approved (2026-10-04).
 
 ## FAQ questions (the model reads them; never sent as written). Not customer wording, listed for completeness.
 

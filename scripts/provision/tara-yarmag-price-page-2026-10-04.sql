@@ -1,6 +1,9 @@
--- NOT APPLIED. DRAFT WORDING (awaiting the founder): Tara Яармаг (matrix-eco-salon) points a
--- customer to the website's price page for the two prices the list does not hold (founder,
--- 2026-10-04, answer 4): women's «Эмчилгээний хими» and «өнгө гаргалт». Never a price.
+-- NOT APPLIED. WORDING APPROVED by the founder 2026-10-04 (the sentence and the «Үнийн хуудас»
+-- label, prompt/drafts/tara_quality_2026-10-03.mn.txt items 5 and 6), but the rows STAY DISABLED
+-- until the website shows both prices (the founder is getting them from the salon). Tara Яармаг
+-- (matrix-eco-salon) points a customer to the website's price page for the two prices the list
+-- does not hold (founder, 2026-10-04, answer 4): women's «Эмчилгээний хими» and «өнгө гаргалт».
+-- Never a price.
 --
 -- The same two rows as Парк Од's (`tara-park-od-after-onboarding.sql`, branch
 -- claude/tara-park-od-tenant), BYTE FOR BYTE: intent, body, matcher, append placement, and
@@ -8,16 +11,17 @@
 -- price page for both. The line is appended after whatever else the reply says (for women's
 -- «Эмчилгээний хими», after the men's row the model or `perm_types` gives).
 --
--- Why disabled: today https://www.matrixecosalon.org/services.html still serves the OLD Matrix
--- site and its old prices. Switch both rows on (step 2 below, both branches the same day) only
--- once the new site is live at that address; at the domain move both bodies (and the booking
+-- Why disabled: the founder's condition (2026-10-04): not until the website's price page shows
+-- both prices. Also, today https://www.matrixecosalon.org/services.html still serves the OLD
+-- Matrix site and its old prices. Switch both rows on (step 2 below, both branches the same day)
+-- only once the new site is live at that address AND shows both prices; at the domain move both bodies (and the booking
 -- links) change to https://tarasalon.org/services.html in the move-day SQL for BOTH tenants.
 --
 -- CHECK BEFORE SWITCHING ON: the new site's price page (matrix_website data/services.json, list of
--- 2026-10-01) has NEITHER price either: «Эмчилгээний хими» only under men, no «өнгө гаргалт». The
--- line says «Үнийн мэдээллийг … үзнэ үү», so a customer will look for a price that is not there.
--- The founder decides: add both prices to the website (and then to both branches' price rows),
--- or keep the pointer as it is.
+-- 2026-10-01) has NEITHER price yet: «Эмчилгээний хими» only under men, no «өнгө гаргалт». The
+-- line says «Үнийн мэдээллийг … үзнэ үү», so a customer would look for a price that is not there.
+-- The founder's answer (2026-10-04): both prices go on the website first (he is getting them from
+-- the salon); then step 2. If the prices are added to the price rows too, Дали quotes them itself.
 --
 -- The link is also declared (dali.md B1) by a `price_page` contact row (`0083`, labelled
 -- «Үнийн хуудас» in the prefix), inserted in step 2 with the switch: the model is shown an
@@ -59,7 +63,8 @@ select t.id, v.msg, null, array['https://www.matrixecosalon.org/services.html']:
 commit;
 
 -- 2. GO-LIVE STEP, only when the new site is live at https://www.matrixecosalon.org/services.html
---    (and `0083` is applied). Run for both branches the same day, then publish both.
+--    AND its price page shows both prices (founder, 2026-10-04), and `0083` is applied. Run for
+--    both branches the same day, then publish both.
 --
 -- begin;
 -- update deterministic_replies d set enabled = true from tenants t

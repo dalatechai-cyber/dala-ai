@@ -285,10 +285,12 @@ partial, one of four tables.
 **Additive: one `canned_response_kinds` row, one function redefined, two widened CHECKs.**
 Registers `photo_price_question` (D-176): the reviewed question a customer who sends a photo is
 asked (which service, the hair length), served whole by the platform and never by the model
-(`reception/photoPrice.ts`). No row of the kind is inserted; a tenant without a reviewed one
-keeps D-152's hand-off. The kind is in `MODEL_INVISIBLE_KINDS`, so the code must be deployed
-before any tenant has a row. `ops.refuse_unpublished_canned_edit` (0074) is redefined with the
-same body and the new kind in its invisible list (`check-gate-keys` holds the two lists equal).
+(`reception/photoPrice.ts`), and `reel_price_question`, the same question for a video, a reel or
+a link to one (D-176 addendum). No row of either kind is inserted; a tenant without a reviewed
+one keeps D-152's hand-off for that kind. Both kinds are in `MODEL_INVISIBLE_KINDS`, so the code
+must be deployed before any tenant has a row. `ops.refuse_unpublished_canned_edit` (0074) is
+redefined with the same body and the new kinds in its invisible list (`check-gate-keys` holds the
+two lists equal).
 `contact_points.kind` and `branch_contact_points.kind` admit `price_page`, the website's price
 page, a declared link (`URL_CONTACT_KINDS`) labelled «Үнийн хуудас» in the prefix. Not applied.
 Note: `0082` is taken by the in-chat booking branch (PR #285); renumber whichever merges second.

@@ -2,48 +2,52 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  asksPrice, hasWords, isPhotoQuestion, PHOTO_QUESTION_ANSWER_WINDOW_MS, photoAloneStep, photoPriceStep, type PhotoPriceInput,
+  asksPrice, hasWords, isMediaQuestion, isPhotoQuestion, PHOTO_QUESTION_ANSWER_WINDOW_MS, photoAloneStep, photoPriceStep, questionFor,
+  type PhotoPriceInput,
 } from './photoPrice.ts';
 
 const Q = 'Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.';
 const base: PhotoPriceInput = {
-  question: Q, photo: false, otherMedia: false, previousReply: null, questionState: 'answering',
+  question: Q, reelQuestion: null, media: null, previousReply: null, questionState: 'answering',
   namesService: false, fixedReply: null, gateTopic: false, asksPrice: false, hasWords: true,
 };
 const step = (over: Partial<PhotoPriceInput>) => photoPriceStep({ ...base, ...over });
 
 test('no reviewed question row: nothing changes for any message (D-152 stays)', () => {
-  for (const photo of [true, false]) {
-    assert.equal(step({ question: null, photo, asksPrice: true }), 'off');
-    assert.equal(step({ question: null, photo, previousReply: Q }), 'off');
+  for (const media of ['photo', 'video', 'mixed', null] as const) {
+    assert.equal(step({ question: null, media, asksPrice: true }), 'off');
+    assert.equal(step({ question: null, media, previousReply: Q }), 'off');
   }
 });
 
-test('a video, a reel or a link to one is never this path: still the hand-off', () => {
-  assert.equal(step({ photo: true, otherMedia: true, asksPrice: true }), 'off');
-  assert.equal(step({ otherMedia: true, previousReply: Q }), 'off');
+test('a video, a reel or a link to one, with no reel row, is never this path: still the hand-off', () => {
+  assert.equal(step({ media: 'video', asksPrice: true }), 'off');
+  assert.equal(step({ media: 'video', hasWords: false }), 'off');
+  assert.equal(step({ media: 'video', previousReply: Q }), 'off');
+  assert.equal(step({ media: 'mixed', asksPrice: true }), 'off', 'a shared post, or a photo beside a video');
+  assert.equal(step({ media: 'mixed', previousReply: Q }), 'off');
 });
 
 test('DONE-TEST: A PHOTO WITH «ХЭД ВЭ» IS ASKED THE QUESTION, ONCE', () => {
-  assert.equal(step({ photo: true, asksPrice: true }), 'ask');
-  assert.equal(step({ photo: true, hasWords: false }), 'ask', 'a photo with only a link or emoji');
-  assert.equal(step({ photo: true, fixedReply: 'smalltalk' }), 'ask', 'a photo with a greeting');
+  assert.equal(step({ media: 'photo', asksPrice: true }), 'ask');
+  assert.equal(step({ media: 'photo', hasWords: false }), 'ask', 'a photo with only a link or emoji');
+  assert.equal(step({ media: 'photo', fixedReply: 'smalltalk' }), 'ask', 'a photo with a greeting');
 });
 
 test('a photo whose price ask names a service, or whose words fire an answering fixed reply, is answered', () => {
-  assert.equal(step({ photo: true, namesService: true, asksPrice: true }), 'answer');
-  assert.equal(step({ photo: true, fixedReply: 'content' }), 'answer', '«будаг хэд вэ» fires the dye rows');
-  assert.equal(step({ photo: true, fixedReply: 'content', previousReply: Q }), 'answer');
+  assert.equal(step({ media: 'photo', namesService: true, asksPrice: true }), 'answer');
+  assert.equal(step({ media: 'photo', fixedReply: 'content' }), 'answer', '«будаг хэд вэ» fires the dye rows');
+  assert.equal(step({ media: 'photo', fixedReply: 'content', previousReply: Q }), 'answer');
 });
 
 test('review: a photo asking «can this colour be done?» stays the stylist\'s, even naming a service', () => {
-  assert.equal(step({ photo: true }), 'handoff');
-  assert.equal(step({ photo: true, namesService: true }), 'handoff', '«ийм будаг хийж болох уу?» names a kind and asks no price');
-  assert.equal(step({ photo: true, gateTopic: true }), 'handoff', 'a suitability topic on a caption is not an answer');
+  assert.equal(step({ media: 'photo' }), 'handoff');
+  assert.equal(step({ media: 'photo', namesService: true }), 'handoff', '«ийм будаг хийж болох уу?» names a kind and asks no price');
+  assert.equal(step({ media: 'photo', gateTopic: true }), 'handoff', 'a suitability topic on a caption is not an answer');
 });
 
 test('DONE-TEST: AFTER ONE QUESTION, A PHOTO PRICE ASK STILL NAMING NOTHING GOES TO STAFF', () => {
-  assert.equal(step({ photo: true, asksPrice: true, previousReply: Q }), 'handoff');
+  assert.equal(step({ media: 'photo', asksPrice: true, previousReply: Q }), 'handoff');
 });
 
 test('DONE-TEST: A PRICE ASK WRITTEN WITH THE PHOTO, BEFORE THE QUESTION ARRIVED, GETS NOTHING MORE', () => {
@@ -67,7 +71,7 @@ test('DONE-TEST: THE ANSWER TO THE QUESTION GETS ITS PRICE; AN ANSWER NAMING NOT
 
 test('review: a question from another hour or day is not the one being answered', () => {
   assert.equal(step({ previousReply: Q, questionState: 'stale' }), 'off', 'a later message is answered as usual');
-  assert.equal(step({ photo: true, asksPrice: true, previousReply: Q, questionState: 'stale' }), 'ask', 'a new photo is asked again');
+  assert.equal(step({ media: 'photo', asksPrice: true, previousReply: Q, questionState: 'stale' }), 'ask', 'a new photo is asked again');
 });
 
 test('the question is recognised exactly, never by similarity', () => {
@@ -87,7 +91,7 @@ test('photo alone: ask, then nothing to a burst, then the hand-off; a stale ques
   const ago = (ms: number) => new Date(now.getTime() - ms);
   const w = 10 * 60_000;
   const go = (lastReply: { body: string; at: Date; dedupKey?: string | null } | null) =>
-    photoAloneStep({ question: Q, lastReply, ownKey: 'pq:9:0', now, burstWindowMs: w });
+    photoAloneStep({ questions: [Q], lastReply, ownKey: 'pq:9:0', now, burstWindowMs: w });
   assert.equal(go(null), 'ask');
   assert.equal(go({ body: 'Үнэ: 1₮', at: ago(1000) }), 'ask');
   assert.equal(go({ body: Q, at: ago(30_000) }), 'suppress');
@@ -103,4 +107,69 @@ test('a price ask is whole words, and «хэдэн цагт» asks a time', () =
   assert.equal(asksPrice('Хэдэн цагт ирэх вэ'), false);
   assert.equal(hasWords('https://www.instagram.com/p/abc/ 😍'), false);
   assert.equal(hasWords('ийм'), true);
+});
+
+// D-176, the reel line (founder, 2026-10-04): a video, a reel or a link to one, wired like a photo.
+const R = 'Уучлаарай, би бичлэг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.';
+const reel = (over: Partial<PhotoPriceInput>) => step({ question: null, reelQuestion: R, media: 'video', ...over });
+
+test('DONE-TEST: A REEL WITH NO WORDS, A PRICE ASK OR ONLY A GREETING IS ASKED THE REEL QUESTION, ONCE', () => {
+  assert.equal(reel({ hasWords: false }), 'ask');
+  assert.equal(reel({ asksPrice: true }), 'ask');
+  assert.equal(reel({ fixedReply: 'smalltalk' }), 'ask');
+  assert.equal(questionFor('video', { photo: Q, reel: R }), R, 'the reel line, never the photo line');
+  assert.equal(questionFor('photo', { photo: Q, reel: R }), Q);
+  assert.equal(questionFor('mixed', { photo: Q, reel: R }), null);
+});
+
+test('DONE-TEST: A REEL WHOSE PRICE ASK NAMES A SERVICE IS PRICED FROM THE ROWS', () => {
+  assert.equal(reel({ asksPrice: true, namesService: true }), 'answer');
+  assert.equal(reel({ fixedReply: 'content' }), 'answer');
+  assert.equal(reel({ namesService: true }), 'handoff', '«ийм болгож болох уу?» is the stylist\'s');
+});
+
+test('DONE-TEST: AFTER THE REEL QUESTION, AN ANSWER NAMING A SERVICE IS PRICED; NAMING NOTHING GOES TO STAFF', () => {
+  assert.equal(reel({ media: null, previousReply: R, namesService: true }), 'answer');
+  assert.equal(reel({ media: null, previousReply: R, fixedReply: 'content' }), 'answer');
+  assert.equal(reel({ media: null, previousReply: R }), 'handoff');
+  assert.equal(reel({ media: null, previousReply: R, asksPrice: true }), 'handoff', '«хэд вэ» again');
+  assert.equal(reel({ asksPrice: true, previousReply: R }), 'handoff', 'a second reel with «хэд вэ» after the question');
+  assert.equal(reel({ media: null, previousReply: R, questionState: 'crossed', asksPrice: true }), 'wait');
+  assert.equal(reel({ media: null, previousReply: R, questionState: 'stale' }), 'off');
+});
+
+test('DONE-TEST: A SECOND PICTURE INSIDE THE BURST WINDOW GETS NOTHING MORE; A TEXT THEN IS AN ANSWER', () => {
+  const burst = { previousReply: R, questionState: 'burst' as const };
+  assert.equal(reel({ ...burst, hasWords: false }), 'wait', 'a second reel link a minute later');
+  assert.equal(reel({ ...burst, asksPrice: true }), 'wait');
+  assert.equal(reel({ ...burst, asksPrice: true, namesService: true }), 'answer');
+  assert.equal(reel({ ...burst }), 'handoff', '«like this» on a second reel is the stylist\'s');
+  assert.equal(reel({ ...burst, media: null, namesService: true }), 'answer');
+  assert.equal(reel({ ...burst, media: null }), 'handoff', 'an answer naming nothing, even a minute later');
+  assert.equal(step({ media: 'photo', asksPrice: true, previousReply: Q, questionState: 'burst' }), 'wait', 'the same for photos');
+});
+
+test('each kind is its own switch; the two questions are one question', () => {
+  assert.equal(step({ reelQuestion: R, media: 'photo', asksPrice: true }), 'ask', 'the photo row still asks a photo');
+  assert.equal(step({ question: null, reelQuestion: R, media: 'photo', asksPrice: true }), 'off', 'no photo row: D-152 for photos');
+  assert.equal(step({ reelQuestion: R, media: 'video', asksPrice: true, previousReply: Q }), 'handoff', 'a reel after the photo question');
+  assert.equal(step({ reelQuestion: R, media: 'photo', asksPrice: true, previousReply: R }), 'handoff', 'a photo after the reel question');
+  assert.equal(step({ question: null, reelQuestion: R, previousReply: Q }), 'off', 'the photo line is no question for a tenant without the photo row');
+  assert.equal(isMediaQuestion(R, [null, R]), true);
+  assert.equal(isMediaQuestion(`${R} 😊`, [Q, R]), false);
+});
+
+test('reel alone: ask, then nothing to a burst, then the hand-off; either question counts', () => {
+  const now = new Date('2026-10-04T05:00:00Z');
+  const ago = (ms: number) => new Date(now.getTime() - ms);
+  const w = 10 * 60_000;
+  const go = (lastReply: { body: string; at: Date } | null) =>
+    photoAloneStep({ questions: [Q, R], lastReply, ownKey: 'pq:9:0', now, burstWindowMs: w });
+  assert.equal(go(null), 'ask');
+  assert.equal(go({ body: R, at: ago(30_000) }), 'suppress');
+  assert.equal(go({ body: R, at: ago(11 * 60_000) }), 'handoff', 'another reel 10 to 60 minutes later');
+  assert.equal(go({ body: Q, at: ago(11 * 60_000) }), 'handoff', 'a reel after the photo question');
+  assert.equal(go({ body: R, at: ago(PHOTO_QUESTION_ANSWER_WINDOW_MS) }), 'ask');
+  assert.equal(photoAloneStep({ questions: [Q], lastReply: { body: R, at: ago(11 * 60_000) }, ownKey: 'k', now, burstWindowMs: w }), 'ask',
+    'a tenant whose reel row is gone does not read the reel line as a question');
 });

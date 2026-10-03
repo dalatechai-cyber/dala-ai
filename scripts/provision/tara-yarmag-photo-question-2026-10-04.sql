@@ -6,8 +6,9 @@
 -- asked: which service, the hair length. Its bytes are Tara's APPROVED `image_received` line,
 -- reviewed by the founder (D-076 addendum), word for word:
 --   «Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.»
--- so no new sentence reaches a customer. Its new USE is listed for the founder's OK in
--- prompt/drafts/tara_quality_2026-10-03.mn.txt; applying this file is that OK.
+-- so no new sentence reaches a customer. Its new USE (the one question after a photo) was
+-- APPROVED by the founder on 2026-10-04 (prompt/drafts/tara_quality_2026-10-03.mn.txt, item 4).
+-- The reel and video question is its own row and file: tara-yarmag-reel-question-2026-10-04.sql.
 --
 -- ORDER (each step refuses or breaks replies if skipped):
 --   1. Deploy the code (MODEL_INVISIBLE_KINDS has `photo_price_question`); otherwise this row

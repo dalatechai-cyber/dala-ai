@@ -9,9 +9,12 @@
 --    (`gate/match.ts`) and that code must be DEPLOYED before any tenant has a row of it (0033's
 --    order, 0072's note): a row the compiled prefix does not expect moves `canned_hash` on one
 --    side only and refuses every DM reply until a republish.
+--    `reel_price_question`, the same for a video, a reel or a link to one (founder, 2026-10-04:
+--    the photo line says «зураг», so a video has its own reviewed line). Same rules, same order.
 -- 2. `ops.refuse_unpublished_canned_edit` (0074, D-163) redefined with the same function body
---    and `photo_price_question` added to its invisible list, so adding or editing that row
---    never needs a republish. `check-gate-keys` holds the list equal to MODEL_INVISIBLE_KINDS.
+--    and `photo_price_question` and `reel_price_question` added to its invisible list, so adding
+--    or editing those rows never needs a republish. `check-gate-keys` holds the list equal to
+--    MODEL_INVISIBLE_KINDS.
 -- 3. `contact_points.kind` (and the branch copy) gains `price_page`, the website's price page
 --    (founder, 2026-10-04: for a price Дали does not hold, point to the website's price page).
 --    `contact_points` is keyed (tenant_id, kind) and Tara Яармаг's `website` row already holds
@@ -19,13 +22,15 @@
 --    Every URL kind reaches the outbound guard's allow-list through `URL_CONTACT_KINDS`, so a
 --    price page a reply carries is a declared link (dali.md B1).
 --
--- Additive: one lookup row, a function redefined with one more skipped kind (an edit it
+-- Additive: two lookup rows, a function redefined with two more skipped kinds (an edit it
 -- skips is one that never moved the hash), and two widened CHECKs that every existing row
 -- satisfies. Nothing is dropped, rewritten or narrowed.
 
 insert into canned_response_kinds (kind, description) values
   ('photo_price_question',
-   'D-176. Sent when a customer sends a photo with no words or with a price question: asks which service and the hair length, so the price comes from the rows. Served whole by the platform, never by the model.')
+   'D-176. Sent when a customer sends a photo with no words or with a price question: asks which service and the hair length, so the price comes from the rows. Served whole by the platform, never by the model.'),
+  ('reel_price_question',
+   'D-176. Sent when a customer sends a video, a reel or a link to one with no words or with a price question: asks which service and the hair length, so the price comes from the rows. Served whole by the platform, never by the model.')
 on conflict (kind) do nothing;
 
 create or replace function ops.refuse_unpublished_canned_edit() returns trigger
@@ -35,7 +40,7 @@ declare
   -- hash, so editing them never makes a tenant stale. Same list as MODEL_INVISIBLE_KINDS.
   invisible constant text[] := array['image_received', 'comment_public_reply', 'comment_private_reply',
     'handover_notice', 'handover_reclaim', 'clarify_branch', 'comment_cta_public_reply',
-    'comment_cta_private_reply', 'voice_received', 'photo_price_question'];
+    'comment_cta_private_reply', 'voice_received', 'photo_price_question', 'reel_price_question'];
   old_counts boolean := false;
   new_counts boolean := false;
 begin

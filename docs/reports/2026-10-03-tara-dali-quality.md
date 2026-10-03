@@ -12,21 +12,28 @@ The founder answered the round-1 questions on 2026-10-04. Nothing below is appli
   for this case). A photo with no words or with a price ask gets the approved `image_received`
   sentence as a question (which service, the hair length); the answer gets its price from the
   rows; only an answer naming nothing the rows know (or a second photo after the question) goes to
-  staff. A «how much?» typed with the photo, crossing the question, gets nothing more. Photos only:
-  reels and videos still go to staff. Inert until Tara's `photo_price_question` row exists
-  (`src/lib/reception/photoPrice.ts`, `src/lib/inbound/photoQuestion.ts`, migration `0083`,
-  `scripts/provision/tara-yarmag-photo-question-2026-10-04.sql`).
+  staff. A «how much?» typed with the photo, crossing the question, gets nothing more. The new use
+  of the line was approved by the founder (2026-10-04). Inert until Tara's `photo_price_question`
+  row exists (`src/lib/reception/photoPrice.ts`, `src/lib/inbound/photoQuestion.ts`, migration
+  `0083`, `scripts/provision/tara-yarmag-photo-question-2026-10-04.sql`).
+- **A shared reel or a video gets the same, with its own approved line** («Уучлаарай, би бичлэг
+  харах боломжгүй. …», founder 2026-10-04, D-176 addendum): one question, priced from the rows,
+  staff only when the answer names nothing the rows know or another reel comes 10 to 60 minutes
+  later. Inert until Tara's `reel_price_question` row exists
+  (`scripts/provision/tara-yarmag-reel-question-2026-10-04.sql`). A shared post and a photo beside
+  a video still go to staff.
 - **#8, #9, #10 answered** with the founder's approved sentences as fixed replies and FAQs; the
   hand-off line becomes «Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно
   уу.» (answer 3, «anything Дали doesn't know») — `tara-yarmag-answers-2026-10-04.sql`.
-- **#7 and #11** point to the website's price page (answer 4), byte for byte as Парк Од's rows,
-  disabled until the new site is live at matrixecosalon.org; the link is declared as a
-  `price_page` contact (new kind, `0083`). The page itself lacks both prices: a question for the
-  founder.
+- **#7 and #11** point to the website's price page (answer 4), byte for byte as Парк Од's rows;
+  the link is declared as a `price_page` contact («Үнийн хуудас», new kind, `0083`). Both lines
+  approved 2026-10-04, but the rows stay disabled until the website shows both prices (the founder
+  is getting them from the salon) and the new site is live at matrixecosalon.org.
 - **#5, #6:** names are Latin everywhere (the rename worker's PR #284); Otgonjargal stays a
   bookable 1-р зэрэг hairdresser (answer 5).
 - Reply cases: 8 deterministic (every build and publish checks them), 2 more inactive until the
   price page goes live, and 2 model cases; the round-1 cases also refuse the new hand-off bytes.
+  The reel file adds 5 more, none needing the model (4 exact, 1 the dye rows).
 
 ## The picture
 

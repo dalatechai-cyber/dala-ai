@@ -18,11 +18,18 @@
  * kind, `0083`): the question the customer is asked. A tenant without it keeps D-152 exactly.
  * So the switch is a row, not a code path (CLAUDE.md, "a client is rows").
  *
- * ## Photos only
+ * ## Photos, and videos with their own line
  *
- * A video, a shared reel or post, or a link to one still goes to staff (D-152): the founder's
- * decision names photos, and the approved question says «зураг». Widening it is one condition
- * in `photoPriceStep` once the founder approves a line that fits a video.
+ * A video, a shared reel or a link to one is handled the same way, with its own reviewed row
+ * (`reel_price_question`, founder 2026-10-04: «Уучлаарай, би бичлэг харах боломжгүй. …»), because
+ * the photo line says «зураг». Each kind is switched on by its own row: a tenant with only the
+ * photo row keeps D-152 for videos, and the reverse. A shared post, a link to a post, a photo, a
+ * story or a pin (it may be a picture, and the line says «бичлэг»), and a photo beside a video,
+ * still go to staff (`unseenMediaOf`, D-152).
+ *
+ * The two questions are one question: either, sent within the hour, is "the question" for what
+ * follows. A reel after the photo question (or a photo after the reel question) is a second
+ * picture after one question, so it goes on exactly as a second photo would.
  *
  * ## The steps
  *
@@ -50,6 +57,9 @@ import { fold } from '../mn/text.ts';
 
 /** The reviewed question a photo is answered with (`0083`). Model-invisible. */
 export const PHOTO_PRICE_QUESTION_KIND = 'photo_price_question';
+
+/** The reviewed question a video, a reel or a link to one is answered with (`0083`). Model-invisible. */
+export const REEL_PRICE_QUESTION_KIND = 'reel_price_question';
 
 /**
  * Words with which a customer asks what something costs, Cyrillic and Latin-typed, matched as
@@ -98,6 +108,21 @@ export function isPhotoQuestion(reply: string | null, question: string | null): 
   return q !== '' && fold(reply).trim() === q;
 }
 
+/** Is `reply` one of the tenant's question rows (the photo's or the reel's)? */
+export function isMediaQuestion(reply: string | null, questions: readonly (string | null)[]): boolean {
+  return questions.some((q) => isPhotoQuestion(reply, q));
+}
+
+/** The row a message carrying `media` is asked with, or null (no such row, or not a kind with one). */
+export function questionFor(media: UnseenMedia | null, rows: { photo: string | null; reel: string | null }): string | null {
+  if (media === 'photo') return rows.photo;
+  if (media === 'video') return rows.reel;
+  return null;
+}
+
+/** What the message carries that the bot cannot see (`handover/media.ts`, `unseenMediaOf`). */
+export type UnseenMedia = 'photo' | 'video' | 'mixed';
+
 export type PhotoPriceStep =
   /** Nothing here applies: the path as it was before D-176. */
   | 'off'
@@ -112,11 +137,13 @@ export type PhotoPriceStep =
 
 /**
  * Where the conversation stands with the question, as the Messenger worker measured it from the
- * question's own row: `crossed` (the customer wrote before it arrived), `answering` (it was sent
- * within `PHOTO_QUESTION_ANSWER_WINDOW_MS`), `stale` (older: no longer a question being answered).
- * Absent (every other caller, and the reply cases) reads as `answering`.
+ * question's own row: `crossed` (the customer wrote before it arrived), `burst` (it was sent within
+ * the image burst window, 10 minutes: a second picture then is one sent together with the first),
+ * `answering` (within `PHOTO_QUESTION_ANSWER_WINDOW_MS`), `stale` (older: no longer a question
+ * being answered). `burst` is `answering` for everything but a second picture. Absent (every
+ * other caller, and the reply cases) reads as `answering`.
  */
-export type PhotoQuestionState = 'crossed' | 'answering' | 'stale';
+export type PhotoQuestionState = 'crossed' | 'burst' | 'answering' | 'stale';
 
 /**
  * How long the question stays one the customer is answering. An answer to «which service and how
@@ -126,12 +153,16 @@ export type PhotoQuestionState = 'crossed' | 'answering' | 'stale';
 export const PHOTO_QUESTION_ANSWER_WINDOW_MS = 60 * 60 * 1000;
 
 export type PhotoPriceInput = {
-  /** The tenant's reviewed question row, or null (then always `off`). */
+  /** The tenant's reviewed photo question row, or null. */
   question: string | null;
-  /** This message carries a photograph (never a sticker, D-070). */
-  photo: boolean;
-  /** A video, reel, shared post or a link to one: still D-152's hand-off. */
-  otherMedia: boolean;
+  /** The tenant's reviewed reel question row, or null. With both null: always `off`. */
+  reelQuestion: string | null;
+  /**
+   * What this message carries that the bot cannot see: a photograph (never a sticker, D-070), a
+   * video or reel or a link to one, `mixed` (a shared post, or a photo beside a video: still
+   * D-152's hand-off), or null.
+   */
+  media: UnseenMedia | null;
   /** The bot's last reply in the conversation. */
   previousReply: string | null;
   /** See `PhotoQuestionState`; meaningful only when `previousReply` is the question. */
@@ -149,7 +180,7 @@ export type PhotoPriceInput = {
    * still the stylist's to answer, and a topic may fire on the attachment itself (D-083).
    */
   gateTopic: boolean;
-  /** The words ask a price (`asksPrice`). */
+  /** The words, links masked, ask a price (`asksPrice`). */
   asksPrice: boolean;
   /** The message has a word once links are masked (`hasWords`). */
   hasWords: boolean;
@@ -157,10 +188,11 @@ export type PhotoPriceInput = {
 
 /** The step for one customer message. Pure; every branch is in `photoPrice.test.ts`. */
 export function photoPriceStep(s: PhotoPriceInput): PhotoPriceStep {
-  if (s.question === null || s.otherMedia) return 'off';
-  const asked = isPhotoQuestion(s.previousReply, s.question) && s.questionState !== 'stale';
+  // A picture of a kind this tenant has no row for, or a mixed one: D-152 exactly.
+  if (s.media !== null && questionFor(s.media, { photo: s.question, reel: s.reelQuestion }) === null) return 'off';
+  const asked = isMediaQuestion(s.previousReply, [s.question, s.reelQuestion]) && s.questionState !== 'stale';
   const crossed = asked && s.questionState === 'crossed';
-  if (s.photo || crossed) {
+  if (s.media !== null || crossed) {
     // A fixed reply with an answer (the dye rows for «будаг хэд вэ», the address) is served.
     if (s.fixedReply === 'content') return 'answer';
     // A price ask naming a service is priced from the rows; naming none, or saying nothing (no
@@ -168,7 +200,9 @@ export function photoPriceStep(s: PhotoPriceInput): PhotoPriceStep {
     if (s.asksPrice || !s.hasWords || s.fixedReply === 'smalltalk') {
       if (s.asksPrice && s.namesService) return 'answer';
       if (!asked) return 'ask';
-      return crossed ? 'wait' : 'handoff';
+      // Crossed, or a second picture (a reel link pasted a minute later) inside the burst window:
+      // the question already asks what it needs, as for a second photo alone. Later: a person.
+      return crossed || s.questionState === 'burst' ? 'wait' : 'handoff';
     }
     // Other words («ийм будаг хийж болох уу?»): whether it can be done is the stylist's.
     return 'handoff';
@@ -178,8 +212,10 @@ export function photoPriceStep(s: PhotoPriceInput): PhotoPriceStep {
 }
 
 /**
- * A photo with no words (`planMediaAlone`), as the worker sees it: ask, or say nothing more to a
- * burst, or hand off because the question was already asked and words never came.
+ * A photo, a video or a reel with no words (`planMediaAlone`), as the worker sees it: ask, or say
+ * nothing more to a burst, or hand off because a question was already asked and words never came.
+ * `questions` are the tenant's reviewed question rows (the photo's and the reel's): either, as
+ * the last reply, is the question already asked.
  *
  * `lastReply` is the bot's latest reply in the conversation, when it was made and its dedup key;
  * null when there is none. Unreadable is the caller's: it asks (a repeat is better than silence).
@@ -187,18 +223,18 @@ export function photoPriceStep(s: PhotoPriceInput): PhotoPriceStep {
  * its own question and asks again (an idempotent draft), never hands off.
  */
 export function photoAloneStep(input: {
-  question: string;
+  questions: readonly string[];
   lastReply: { body: string; at: Date; dedupKey?: string | null } | null;
   ownKey: string;
   now: Date;
   burstWindowMs: number;
 }): 'ask' | 'suppress' | 'handoff' {
   const last = input.lastReply;
-  if (last === null || !isPhotoQuestion(last.body, input.question)) return 'ask';
+  if (last === null || !isMediaQuestion(last.body, input.questions)) return 'ask';
   if (last.dedupKey === input.ownKey) return 'ask';
   const age = input.now.getTime() - last.at.getTime();
   if (Number.isNaN(age)) return 'ask';
-  // Several photos sent together arrive as several messages: the question already answers them.
+  // Several photos (or reels) sent together arrive as several messages: the question already answers them.
   if (age < input.burstWindowMs) return 'suppress';
   // A question from another day (or Tara's older image line, the same bytes) was not this one.
   if (age >= PHOTO_QUESTION_ANSWER_WINDOW_MS) return 'ask';

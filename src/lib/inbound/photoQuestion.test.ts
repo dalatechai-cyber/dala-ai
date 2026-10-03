@@ -28,7 +28,8 @@ test('DONE-TEST: A TEXT WRITTEN SECONDS AFTER THE PHOTO CROSSED THE QUESTION', a
 
 test('a text written well after the question is an answer to it; an hour later the question is stale', async () => {
   const s = db(row(Q, QUESTION_AT));
-  assert.equal(await photoQuestionState(s.db, input(new Date(QUESTION_AT.getTime() + 60_000))), 'answering');
+  assert.equal(await photoQuestionState(s.db, input(new Date(QUESTION_AT.getTime() + 60_000))), 'burst', 'inside the 10-minute burst window');
+  assert.equal(await photoQuestionState(s.db, input(new Date(QUESTION_AT.getTime() + 11 * 60_000))), 'answering');
   assert.equal(await photoQuestionState(s.db, input(new Date(QUESTION_AT.getTime() + 61 * 60_000))), 'stale');
 });
 
@@ -47,4 +48,16 @@ test('a later reply that is not the question means nothing crossed; a failed rea
   assert.equal(await photoQuestionState(db({ data: null, error: { message: 'reset' } }).db, input(t)), 'unreadable');
   assert.equal(await readLastReply(db({ data: [], error: null }).db, 't', 'c'), null);
   assert.equal(await readLastReply(db({ data: [{ body: Q, created_at: 'nope' }], error: null }).db, 't', 'c'), 'unreadable');
+});
+
+test('D-176 reel: a text crossing the reel question is read the same way', async () => {
+  const R = 'Уучлаарай, би бичлэг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.';
+  const canned = [{ kind: 'reel_price_question', body: R, reviewedAt: '2026-10-04' }];
+  const priorTurns = [{ role: 'user' as const, content: 'x' }, { role: 'assistant' as const, content: R }];
+  const s = db(row(R, QUESTION_AT));
+  assert.equal(await photoQuestionState(s.db, input(new Date(QUESTION_AT.getTime() - 2000), { canned, priorTurns })), 'crossed');
+  assert.equal(await photoQuestionState(s.db, input(new Date(QUESTION_AT.getTime() + 60_000), { canned, priorTurns })), 'burst');
+  assert.equal(await photoQuestionState(s.db, input(new Date(QUESTION_AT.getTime() + 20 * 60_000), { canned, priorTurns })), 'answering');
+  assert.equal(await photoQuestionState(s.db, input(new Date(QUESTION_AT.getTime() - 2000), { priorTurns })), null,
+    'the reel line is no question for a tenant with only the photo row');
 });

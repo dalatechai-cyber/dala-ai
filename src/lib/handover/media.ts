@@ -46,6 +46,13 @@
  * no Instagram customer has sent one yet, so those three are unproven on the live channel.
  * `story_mention` is left out on purpose: it is a customer tagging the business in their
  * own story, not a question about a picture.
+ *
+ * ## Since D-176: a question first, where the tenant has one
+ *
+ * A tenant with the reviewed photo question (`photo_price_question`) or reel question
+ * (`reel_price_question`) asks it instead of handing off, for a photo or for a video, reel or
+ * link to one respectively (`reception/photoPrice.ts`). `unseenMediaOf` says which a message
+ * carries; anything else (a shared post, a photo beside a video) still comes here.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { raiseAlert, type AlertOutcome } from '../alerts/alert.ts';
@@ -62,6 +69,13 @@ export const MEDIA_ATTACHMENT_KINDS: readonly string[] = ['video', 'reel', 'ig_r
 function hasMediaAttachment(attachments: readonly string[]): boolean {
   return attachments.some((k) => MEDIA_ATTACHMENT_KINDS.includes(k));
 }
+
+/**
+ * The attachment kinds among `MEDIA_ATTACHMENT_KINDS` that are always a video: a recorded video,
+ * a shared Facebook reel, an Instagram reel (D-176's reel question). `share` is not: a shared post
+ * may be a photo, and the reel line says «бичлэг».
+ */
+export const VIDEO_ATTACHMENT_KINDS: readonly string[] = ['video', 'reel', 'ig_reel'];
 
 /** The reviewed line this path serves. */
 export const MEDIA_HANDOFF_KIND = 'handover_notice';
@@ -92,8 +106,35 @@ function hostMatches(host: string, base: string): boolean {
   return host === base || host.endsWith(`.${base}`);
 }
 
+/**
+ * The paths of `MEDIA_PATHS` that are always a video (D-176's reel question). A post (`/p/`,
+ * `/share/p/`), a photo, a story or a pin may be a picture, so it is left out and still goes to
+ * staff. TikTok's short links and `/t/` are videos (or a slideshow, which plays like one).
+ */
+const VIDEO_PATHS: ReadonlyArray<readonly [string, readonly string[] | null]> = [
+  ['fb.watch', null],
+  ['facebook.com', ['/share/r/', '/share/v/', '/reel', '/reels', '/watch', '/videos/']],
+  ['fb.com', ['/share/r/', '/share/v/', '/reel', '/reels', '/watch', '/videos/']],
+  ['instagram.com', ['/reel/', '/reels/', '/tv/']],
+  ['instagr.am', ['/reel/']],
+  ['vm.tiktok.com', null],
+  ['vt.tiktok.com', null],
+  ['tiktok.com', ['/@', '/t/']],
+  ['youtu.be', null],
+  ['youtube.com', ['/watch', '/shorts/', '/live/']],
+];
+
 /** The links in `text` that point at a photo or a video. */
 export function mediaLinksIn(text: string): string[] {
+  return linksOn(text, MEDIA_PATHS);
+}
+
+/** The links in `text` that point at a video (a subset of `mediaLinksIn`). */
+export function videoLinksIn(text: string): string[] {
+  return linksOn(text, VIDEO_PATHS);
+}
+
+function linksOn(text: string, table: ReadonlyArray<readonly [string, readonly string[] | null]>): string[] {
   return extractUrls(text).filter((raw) => {
     let u: URL;
     try {
@@ -104,12 +145,14 @@ export function mediaLinksIn(text: string): string[] {
     const host = u.hostname.toLowerCase();
     const path = u.pathname.toLowerCase();
     // Most specific host first: `vm.tiktok.com` before `tiktok.com`.
-    const entry = MEDIA_PATHS.find(([base]) => hostMatches(host, base));
+    const entry = table.find(([base]) => hostMatches(host, base));
     if (entry === undefined) return false;
     const paths = entry[1];
     if (paths === null) return true;
     // A TikTok profile is `/@name`; its videos are `/@name/video/…`.
-    if (hostMatches(host, 'tiktok.com') && path.startsWith('/@')) return path.includes('/video/') || path.includes('/photo/');
+    if (hostMatches(host, 'tiktok.com') && path.startsWith('/@')) {
+      return path.includes('/video/') || (table === MEDIA_PATHS && path.includes('/photo/'));
+    }
     return paths.some((p) => path.startsWith(p));
   });
 }
@@ -120,6 +163,25 @@ export function mediaLinksIn(text: string): string[] {
  */
 export function isMediaMessage(input: { text: string; attachments: readonly string[]; sentPhoto: boolean }): boolean {
   return input.sentPhoto || hasMediaAttachment(input.attachments) || mediaLinksIn(input.text).length > 0;
+}
+
+/**
+ * What a customer's message carries that the bot cannot see, for D-176's questions: `photo` (a
+ * photograph and nothing else unseen), `video` (videos, reels or links to one, and nothing else
+ * unseen), `mixed` (a shared post, a link to a post, a photo, a story or a pin, or a photo beside
+ * a video: still D-152's hand-off), or null (nothing unseen). `sentPhoto` already excludes a
+ * sticker (D-070).
+ */
+export function unseenMediaOf(input: { text: string; attachments: readonly string[]; sentPhoto: boolean }):
+  'photo' | 'video' | 'mixed' | null {
+  const links = mediaLinksIn(input.text);
+  const videoLinks = videoLinksIn(input.text);
+  const videoAttached = input.attachments.some((k) => VIDEO_ATTACHMENT_KINDS.includes(k));
+  const otherAttached = input.attachments.some((k) => MEDIA_ATTACHMENT_KINDS.includes(k) && !VIDEO_ATTACHMENT_KINDS.includes(k));
+  const video = videoAttached || videoLinks.length > 0;
+  if (otherAttached || links.length > videoLinks.length || (input.sentPhoto && video)) return 'mixed';
+  if (input.sentPhoto) return 'photo';
+  return video ? 'video' : null;
 }
 
 /**
@@ -161,8 +223,12 @@ export async function raiseMediaHandoff(
 
 export type PlannedMediaAlone = {
   idx: number; senderId: string; externalId: string | null;
-  /** A photo and nothing the bot treats as a video, reel or shared post (D-176's photo question). */
-  photoOnly: boolean;
+  /**
+   * D-176's questions: `photo` (a photo and nothing the bot treats as a video, reel or shared
+   * post), `video` (a video or a reel and nothing else), `mixed` (a shared post, or a photo
+   * beside a video: still D-152's notice).
+   */
+  media: 'photo' | 'video' | 'mixed';
 };
 
 /**
@@ -179,12 +245,17 @@ export function planMediaAlone(skipped: readonly SkippedEvent[]): PlannedMediaAl
     if (s.stickerIds.length > 0) continue;
     if (s.senderId === null || s.senderId === '' || seen.has(s.senderId)) continue;
     seen.add(s.senderId);
-    out.push({ idx: s.idx, senderId: s.senderId, externalId: s.externalId, photoOnly: s.attachments.includes('image') && !hasMediaAttachment(s.attachments) });
+    // No text, so no link: what it carries is its attachments (`image` here is never a sticker).
+    const media = unseenMediaOf({ text: '', attachments: s.attachments, sentPhoto: s.attachments.includes('image') }) ?? 'mixed';
+    out.push({ idx: s.idx, senderId: s.senderId, externalId: s.externalId, media });
   }
   return out;
 }
 
-/** `pq:{event}:{idx}`: the photo question's key (D-176), stable across a redelivery like the notice's. */
+/**
+ * `pq:{event}:{idx}`: the photo or reel question's key (D-176), stable across a redelivery like
+ * the notice's. One message is one media kind, so one key serves both questions.
+ */
 export function photoQuestionDedupKey(eventId: number | string, idx: number): string {
   return `pq:${eventId}:${idx}`;
 }

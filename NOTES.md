@@ -1,3 +1,34 @@
+# Round 2026-10-04 (b): the founder's approvals of items 4–7; the reel line wired
+
+Same branch and PR #283. Founder, 2026-10-04: every item of
+`prompt/drafts/tara_quality_2026-10-03.mn.txt` approved as written. Nothing applied, published or merged.
+
+- **Item 4** (the `image_received` line as the one question after a photo): approved; draft headers updated.
+- **Items 5, 6** (price-page sentence, «Үнийн хуудас»): approved, but the rows STAY DISABLED until the
+  website shows both prices (the founder is getting them from the salon). Only comments changed.
+- **Item 7** (the reel line): approved and WIRED like the photo line (D-176 addendum). Its own row
+  `reel_price_question` (kind added to the unapplied 0083, `MODEL_INVISIBLE_KINDS`, the guard, the D-163
+  trigger list); `handover/media.ts` `unseenMediaOf` decides photo / video / mixed (`video`, `reel`,
+  `ig_reel` and always-video link paths; `share`, posts, photo links, stories, pins and photo+video are
+  mixed ⇒ D-152); `photoPriceStep` and `photoAloneStep` take both rows (the two questions are one
+  question); the worker reads both rows for a text-less photo or reel; the reply path reads the words
+  with links masked (fixed replies, price ask, service). Provisioning's video-link probe expects the reel
+  question for a tenant with the row. Draft `scripts/provision/tara-yarmag-reel-question-2026-10-04.sql`
+  (+ revert): the approved bytes, 5 reply cases, refuses while a reply case sends a video link and
+  expects the notice.
+- **Review** (code-review skill, high): 9 findings; fixed: a TikTok photo post read as a video; the
+  reel question could fire on the website (now never with `noInbox`); a second reel LINK minutes after
+  the question was handed off while a second attachment was held (new state `burst`, < 10 min: a
+  second picture gets nothing more, no «typing…»); the two row reads now parallel; masking only for a
+  tenant with a row; reel-specific flag codes; the SQL clash pattern now follows VIDEO_PATHS (and
+  `must_include`, Page cases only); 0083's header. Left: one row-resolver shared by the three readers
+  (a refactor, not a bug).
+- **Checked:** `npm run check`; scratch PG16 (all migrations incl. amended 0083, every verify suite):
+  reel file alone and after the photo file, second apply refused, the clash guard, reverts
+  byte-identical (md5).
+- **Go-live order** (adds to the list below): `tara-yarmag-reel-question-2026-10-04.sql` after 0083,
+  any time, independent of the photo file (no republish).
+
 # Round 2026-10-04: Tara Яармаг Дали quality, round 2 (founder's answers)
 
 Same branch and PR #283. Binding: the founder's answers and approvals of 2026-10-04. Nothing applied,
@@ -9,9 +40,10 @@ replies, FAQs, contacts, services, gate topics; a few anonymous phrasings to tes
 1. **Photo + price = D-176**, photos only, switched on by a ROW (`photo_price_question`, model-
    invisible, migration 0083), so a tenant without it keeps D-152 and no code path names Tara.
    Why photos only: the founder's decision names photos and the question line says «зураг»; reels
-   stay with staff (an optional reel line is drafted, not wired).
+   stay with staff (an optional reel line is drafted, not wired). Superseded by round (b) above: the
+   reel line was approved and wired.
 2. **The question is Tara's approved `image_received` bytes**, not new wording: it already asks
-   «Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл…». New use flagged for the founder's OK.
+   «Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл…». New use flagged for the founder's OK (approved 2026-10-04).
 3. **"After one question"**: hand-off when the customer's answer names nothing the rows know (no
    service, no fixed reply, no gate topic), or when a second photo comes after the 10-minute burst.
 4. **Crossing**: a photo and «хэд вэ?» arrive as two messages, the photo answered first. A text
@@ -66,9 +98,10 @@ replies, FAQs, contacts, services, gate topics; a few anonymous phrasings to tes
 
 1. Merge #283 after its deploy; apply 0083 (after the deploy, never before).
 2. `tara-yarmag-answers-2026-10-04.sql`, publish at once (dry run, then --publish); one --with-model run.
-3. `tara-yarmag-photo-question-2026-10-04.sql` (no republish needed).
+3. `tara-yarmag-photo-question-2026-10-04.sql` and/or `tara-yarmag-reel-question-2026-10-04.sql` (no republish needed).
 4. `tara-yarmag-price-page-2026-10-04.sql` any time (rows land disabled); its step 2 only when the
-   new site is live at matrixecosalon.org (both branches the same day, publish both); the domain
+   new site is live at matrixecosalon.org AND shows both prices (founder, 2026-10-04; both branches
+   the same day, publish both); the domain
    move changes the link to https://tarasalon.org/services.html in both tenants' rows.
 
 # Round 2026-10-03: Tara Яармаг Дали quality

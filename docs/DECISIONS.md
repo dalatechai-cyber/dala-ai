@@ -11911,9 +11911,10 @@ of them never answered by a person (`docs/reports/2026-10-03-tara-dali-quality.m
   (model-invisible kind). Without it, D-152 holds exactly. For Tara the row's bytes are her
   approved `image_received` line («…Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар
   хариулна.»), so no new sentence reaches a customer.
-- **Photos only.** A video, a shared reel or post, or a link to one still goes to staff (the
-  decision names photos and the line says «зураг»). Widening it is one condition plus an approved
-  line that fits a video (drafted, not wired).
+- **Photos, and videos with their own line (addendum below).** The photo line says «зураг», so a
+  video, a reel or a link to one has its own row, `reel_price_question`; each row switches its own
+  kind on. A shared post, a link to a post, a photo, a story or a pin, and a photo beside a video
+  still go to staff.
 - **A photo with no words** (worker): the question, sent, and the thread stays the bot's. A second
   photo inside the image burst window (10 min) gets nothing more; a photo 10 to 60 minutes after a
   question that never got words goes to the notice and the hand-off as before; after an hour (or a
@@ -11942,8 +11943,43 @@ the worker path, unproven on real traffic. An unreviewed `photo_price_question` 
 reply (as any unreviewed line does), so the row is inserted signed or not at all. Order: deploy,
 `0083`, then the row. Not verified live.
 
+**Addendum, the reel line (founder, 2026-10-04).** The founder approved as written «Уучлаарай, би
+бичлэг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.» and asked
+for it to be wired like the photo line. Why: the same silence after a hand-off; Tara's Page gets
+shared reels of a colour, text-less or with «…hed boloh be?» (webhooks 142, 144, 979; report §1).
+Built the same way:
+- **A row is the switch.** `reel_price_question` (model-invisible, registered by the same unapplied
+  migration `0083`, in `MODEL_INVISIBLE_KINDS`, the guard and the D-163 trigger's list). Without it
+  a reel goes to staff exactly as D-152. Tara's row is the approved line byte for byte
+  (`scripts/provision/tara-yarmag-reel-question-2026-10-04.sql`, revert beside it).
+- **What counts as a video** (`handover/media.ts`, `unseenMediaOf`): attachments `video`, `reel`,
+  `ig_reel`, and links whose path is always a video (fb.watch, Facebook `/share/r/`, `/share/v/`,
+  `/reel`, `/watch`, `/videos/`, Instagram `/reel/`, `/tv/`, TikTok, YouTube). `share`, Instagram
+  `/p/`, Facebook `/share/p/` and `/photo`, stories and pins may be a picture, and the line says
+  «бичлэг»: they stay D-152, as does a photo beside a video.
+- **Same steps as a photo**: no words, a price ask or only a greeting ⇒ the reel question once; a
+  price ask naming a service or an answering fixed reply ⇒ the rows; other words ⇒ staff; the
+  answer to the question ⇒ priced, or staff when it names nothing the rows know; another reel 10 to
+  60 minutes after the question ⇒ staff; inside 10 minutes ⇒ nothing more, whether it comes as an
+  attachment or as a pasted link (question state `burst`, measured like the photo burst; applies
+  to a second photo with «хэд вэ?» too); a crossed caption ⇒ nothing more.
+- **The two questions are one question.** Either, as the last reply within the hour, is "the
+  question": a reel after the photo question (or a photo after the reel question) goes on as a
+  second picture would. Same dedup key family (`pq:`), same crossing and answer windows.
+- **Links are masked when the words are read** for a picture's message (fixed replies, price ask,
+  service): a reel link's host or handle («facebook.com», «tiktok.com/@une…») is not the customer
+  naming a topic or asking a price.
+- **Never on the website** (`noInbox`): it has no inbox and no question timing; a pasted video
+  link there keeps today's path. Flags name the kind (`reel_price_question`, `reel_price_handoff`,
+  `reel_question_pending`).
+- Provisioning's video-link reply case (`MEDIA_PROBE`) expects the reel question for a tenant that
+  has the row; Tara's draft refuses to apply while any of her reply cases sends a video link and
+  expects the notice.
+
 **Also 2026-10-04, data for Tara Яармаг (drafts, not applied):** the hand-off line becomes the
 founder's sentence for «anything Дали doesn't know» («Энэ талаар манай ажилтан танд хариулна. Та
 76001888 дугаараар холбогдоно уу.»); fixed replies and FAQs for the deposit (deducted), loan apps
 (none) and the dye brand (that sentence); the price page for women's «Эмчилгээний хими» and
-«өнгө гаргалт», disabled until the new site is live, declared as a `price_page` contact (`0083`).
+«өнгө гаргалт», declared as a `price_page` contact («Үнийн хуудас», `0083`). Both lines approved
+2026-10-04; the price-page rows stay disabled until the website shows both prices (the founder is
+getting them from the salon) and the new site is live.

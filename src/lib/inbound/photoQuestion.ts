@@ -1,12 +1,14 @@
 /**
- * The two reads D-176's photo question needs on the Messenger path (`reception/photoPrice.ts`):
- * the bot's latest reply and when it was made, and whether the customer's text crossed the
- * question (written before it reached them).
+ * The two reads D-176's photo and reel questions need on the Messenger path
+ * (`reception/photoPrice.ts`): the bot's latest reply and when it was made, and whether the
+ * customer's text crossed the question (written before it reached them).
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
-  isPhotoQuestion, PHOTO_PRICE_QUESTION_KIND, PHOTO_QUESTION_ANSWER_WINDOW_MS, PHOTO_QUESTION_CROSSING_MS, type PhotoQuestionState,
+  isMediaQuestion, PHOTO_PRICE_QUESTION_KIND, PHOTO_QUESTION_ANSWER_WINDOW_MS, PHOTO_QUESTION_CROSSING_MS, REEL_PRICE_QUESTION_KIND,
+  type PhotoQuestionState,
 } from '../reception/photoPrice.ts';
+import { BURST_WINDOW_MS } from './imageReply.ts';
 
 /**
  * The bot's latest reply in a conversation and when it was made. The states the history shows
@@ -29,10 +31,11 @@ export async function readLastReply(db: SupabaseClient, tenantId: string, conver
 }
 
 /**
- * Where the conversation stands with the photo question (`PhotoQuestionState`), or null when the
- * history does not end on the tenant's reviewed question (then nothing is read). `crossed`: Meta's
+ * Where the conversation stands with the photo or reel question (`PhotoQuestionState`), or null
+ * when the history does not end on one of the tenant's reviewed questions (then nothing is read). `crossed`: Meta's
  * time for the message is earlier than the question's row plus `PHOTO_QUESTION_CROSSING_MS`.
- * `answering`: the question is under `PHOTO_QUESTION_ANSWER_WINDOW_MS` old. `stale`: older.
+ * `burst`: under the image burst window (10 minutes) old, as `photoAloneStep` measures it.
+ * `answering`: under `PHOTO_QUESTION_ANSWER_WINDOW_MS` old. `stale`: older.
  * `'unreadable'` when the read failed: the caller treats it as `answering` (the text is then an
  * answer, which at worst hands off).
  */
@@ -46,13 +49,17 @@ export async function photoQuestionState(
     now: Date;
   },
 ): Promise<PhotoQuestionState | null | 'unreadable'> {
-  const row = input.canned.find((c) => c.kind === PHOTO_PRICE_QUESTION_KIND && c.reviewedAt !== null);
-  if (row === undefined) return null;
+  const rows = input.canned
+    .filter((c) => (c.kind === PHOTO_PRICE_QUESTION_KIND || c.kind === REEL_PRICE_QUESTION_KIND) && c.reviewedAt !== null)
+    .map((c) => c.body);
+  if (rows.length === 0) return null;
   const lastSaid = [...input.priorTurns].reverse().find((t) => t.role === 'assistant')?.content ?? null;
-  if (!isPhotoQuestion(lastSaid, row.body)) return null;
+  if (!isMediaQuestion(lastSaid, rows)) return null;
   const last = await readLastReply(db, input.tenantId, input.conversationId);
   if (last === 'unreadable') return 'unreadable';
-  if (last === null || !isPhotoQuestion(last.body, row.body)) return null;
+  if (last === null || !isMediaQuestion(last.body, rows)) return null;
   if (input.eventAt.getTime() < last.at.getTime() + PHOTO_QUESTION_CROSSING_MS) return 'crossed';
-  return input.now.getTime() - last.at.getTime() < PHOTO_QUESTION_ANSWER_WINDOW_MS ? 'answering' : 'stale';
+  const age = input.now.getTime() - last.at.getTime();
+  if (age < BURST_WINDOW_MS) return 'burst';
+  return age < PHOTO_QUESTION_ANSWER_WINDOW_MS ? 'answering' : 'stale';
 }

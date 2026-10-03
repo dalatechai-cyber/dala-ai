@@ -41,8 +41,10 @@ import { draftImageReplies, planImageReplies, readImageLine } from '../inbound/i
 import { applyThreadControl, recordHandover, readThreadState } from '../handover/record.ts';
 import { personRepliedSince } from '../handover/presend.ts';
 import { humanHoldsThread } from '../handover/control.ts';
-import { mediaAloneDedupKey, photoQuestionDedupKey, planMediaAlone, readCannedLine, readHandoverNotice } from '../handover/media.ts';
-import { PHOTO_PRICE_QUESTION_KIND, photoAloneStep, type PhotoQuestionState } from '../reception/photoPrice.ts';
+import { mediaAloneDedupKey, photoQuestionDedupKey, planMediaAlone, readCannedLine, readHandoverNotice, unseenMediaOf } from '../handover/media.ts';
+import {
+  PHOTO_PRICE_QUESTION_KIND, photoAloneStep, questionFor, REEL_PRICE_QUESTION_KIND, type PhotoQuestionState,
+} from '../reception/photoPrice.ts';
 import { photoQuestionState, readLastReply } from '../inbound/photoQuestion.ts';
 import { BURST_WINDOW_MS } from '../inbound/imageReply.ts';
 import { isApprovedLinesRefusal, publishedLine } from '../prompt/cannedDrift.ts';
@@ -847,60 +849,76 @@ async function runReceptionDelivery(
     let mediaHandled = false;
     let plannedMedia = planMediaAlone(skipped);
 
-    // --- A photo with no words, for a tenant with the photo question (D-176). ---------------
+    // --- A photo or a reel with no words, for a tenant with its question (D-176). -----------
     // (founder, 2026-10-04; `reception/photoPrice.ts`)
     //
-    // The tenant's reviewed `photo_price_question` row asks which service and the hair length,
-    // SENT here like the notice, and the thread stays the bot's so the answer gets its price
-    // from the rows. A second photo inside the burst window is not answered again; a photo after
-    // a question that never got words goes on to the notice below (the hand-off). A thread a
-    // person holds is left to them. Videos, reels and shared posts are not photos and go on to
-    // the notice as before. Unreadable row: the notice path, as before D-176. Unreadable last
-    // reply: the question (a repeat is better than silence).
-    if (plannedMedia.some((p) => p.photoOnly)) {
-      const question = await readCannedLine(db, { tenantId, locale: settings.defaultLocale, kind: PHOTO_PRICE_QUESTION_KIND });
-      if (!question.ok) {
-        fx.log('error', 'photo_question_unreadable', { eventId, detail: question.detail });
-      } else if (question.line !== null && !question.line.reviewed) {
-        fx.log('info', 'photo_question_unreviewed', { tenantId });
-      } else if (question.line !== null && question.line.body.trim() !== '') {
-        const body = question.line.body;
-        const toNotice: typeof plannedMedia = [];
-        for (const plan of plannedMedia) {
-          if (!plan.photoOnly) { toNotice.push(plan); continue; }
-          const contact = await ensureContact(db, { tenantId, channelId, externalId: plan.senderId, now });
-          if (!contact.ok) return unavailable('worker.photo_contact_failed');
-          const conv = await openConversation(db, { tenantId, contactId: contact.value.contactId, channelId, now });
-          if (!conv.ok) return unavailable('worker.photo_conversation_failed');
-          const conversationId = conv.value.conversationId;
-
-          const state = await readThreadState(db, { tenantId, conversationId });
-          if (state !== 'unreadable' && humanHoldsThread(state, cooldownMinutes, now).refuse) {
-            fx.log('info', 'photo_alone_person_has_thread', { tenantId, conversationId });
-            mediaHandled = true;
-            continue;
-          }
-          const last = await readLastReply(db, tenantId, conversationId);
-          if (last === 'unreadable') fx.log('error', 'photo_question_time_unreadable', { tenantId, conversationId });
-          const step = photoAloneStep({
-            question: body, lastReply: last === 'unreadable' ? null : last,
-            ownKey: photoQuestionDedupKey(eventId, plan.idx), now, burstWindowMs: BURST_WINDOW_MS,
-          });
-          if (step === 'handoff') { toNotice.push(plan); continue; }
-          mediaHandled = true;
-          if (step === 'suppress') {
-            fx.log('info', 'photo_alone_burst', { tenantId, conversationId });
-            continue;
-          }
-          const sent = await sendLineAlone({
-            senderId: plan.senderId, conversationId, dedupKey: photoQuestionDedupKey(eventId, plan.idx), body, what: 'photo_question',
-          });
-          if (typeof sent !== 'string') return sent;
-          if (sent !== 'sent') continue;
-          await fx.flagQuality({ tenantId, conversationId, code: 'photo_price_question', detail: 'photo with no text: asked which service and the hair length' });
+    // The tenant's reviewed `photo_price_question` row (a photo) or `reel_price_question` row (a
+    // video or a reel) asks which service and the hair length, SENT here like the notice, and the
+    // thread stays the bot's so the answer gets its price from the rows. A second picture inside
+    // the burst window is not answered again; one after a question (either) that never got words
+    // goes on to the notice below (the hand-off). A thread a person holds is left to them. A kind
+    // the tenant has no reviewed row for, and a shared post, go on to the notice as before.
+    // Unreadable row: the notice path for that kind, as before D-176. Unreadable last reply: the
+    // question (a repeat is better than silence).
+    if (plannedMedia.some((p) => p.media !== 'mixed')) {
+      const readQuestion = async (kind: string, what: string): Promise<string | null> => {
+        const question = await readCannedLine(db, { tenantId, locale: settings.defaultLocale, kind });
+        if (!question.ok) {
+          fx.log('error', `${what}_unreadable`, { eventId, detail: question.detail });
+          return null;
         }
-        plannedMedia = toNotice;
+        if (question.line !== null && !question.line.reviewed) {
+          fx.log('info', `${what}_unreviewed`, { tenantId });
+          return null;
+        }
+        return question.line !== null && question.line.body.trim() !== '' ? question.line.body : null;
+      };
+      // Both rows, whatever was sent: either, as the last reply, is the question already asked.
+      const [photoRow, reelRow] = await Promise.all([
+        readQuestion(PHOTO_PRICE_QUESTION_KIND, 'photo_question'), readQuestion(REEL_PRICE_QUESTION_KIND, 'reel_question'),
+      ]);
+      const rows = { photo: photoRow, reel: reelRow };
+      const questions = [rows.photo, rows.reel].filter((q): q is string => q !== null);
+      const toNotice: typeof plannedMedia = [];
+      for (const plan of plannedMedia) {
+        const body = questionFor(plan.media, rows);
+        if (body === null) { toNotice.push(plan); continue; }
+        const contact = await ensureContact(db, { tenantId, channelId, externalId: plan.senderId, now });
+        if (!contact.ok) return unavailable('worker.photo_contact_failed');
+        const conv = await openConversation(db, { tenantId, contactId: contact.value.contactId, channelId, now });
+        if (!conv.ok) return unavailable('worker.photo_conversation_failed');
+        const conversationId = conv.value.conversationId;
+
+        const state = await readThreadState(db, { tenantId, conversationId });
+        if (state !== 'unreadable' && humanHoldsThread(state, cooldownMinutes, now).refuse) {
+          fx.log('info', 'photo_alone_person_has_thread', { tenantId, conversationId });
+          mediaHandled = true;
+          continue;
+        }
+        const last = await readLastReply(db, tenantId, conversationId);
+        if (last === 'unreadable') fx.log('error', 'photo_question_time_unreadable', { tenantId, conversationId });
+        const step = photoAloneStep({
+          questions, lastReply: last === 'unreadable' ? null : last,
+          ownKey: photoQuestionDedupKey(eventId, plan.idx), now, burstWindowMs: BURST_WINDOW_MS,
+        });
+        if (step === 'handoff') { toNotice.push(plan); continue; }
+        mediaHandled = true;
+        if (step === 'suppress') {
+          fx.log('info', 'photo_alone_burst', { tenantId, conversationId });
+          continue;
+        }
+        const video = plan.media === 'video';
+        const sent = await sendLineAlone({
+          senderId: plan.senderId, conversationId, dedupKey: photoQuestionDedupKey(eventId, plan.idx), body,
+          what: video ? 'reel_question' : 'photo_question',
+        });
+        if (typeof sent !== 'string') return sent;
+        if (sent !== 'sent') continue;
+        await fx.flagQuality(video
+          ? { tenantId, conversationId, code: REEL_PRICE_QUESTION_KIND, detail: 'video or reel with no text: asked which service and the hair length' }
+          : { tenantId, conversationId, code: PHOTO_PRICE_QUESTION_KIND, detail: 'photo with no text: asked which service and the hair length' });
       }
+      plannedMedia = toNotice;
     }
 
     if (plannedMedia.length > 0) {
@@ -1803,9 +1821,14 @@ async function runReceptionDelivery(
     const questionRead = await photoQuestionState(db, { tenantId, conversationId, canned: ctx.canned, priorTurns, eventAt, now });
     if (questionRead === 'unreadable') fx.log('error', 'photo_question_time_unreadable', { tenantId, conversationId });
     const photoQuestion: PhotoQuestionState | null = questionRead === 'unreadable' ? 'answering' : questionRead;
+    // A second picture inside the burst window may get nothing more either (`photoPriceStep`).
+    const secondPicture = photoQuestion === 'burst' && unseenMediaOf({
+      text: message.text, attachments: message.attachments,
+      sentPhoto: message.attachments.includes('image') && message.stickerIds.length === 0,
+    }) !== null;
 
     let typingSettled = false;
-    const typing: Promise<void> | null = deliverThis && photoQuestion !== 'crossed'
+    const typing: Promise<void> | null = deliverThis && photoQuestion !== 'crossed' && !secondPicture
       ? fx.showTyping({ tenantId, channelId, recipientId: message.senderId, pageId, ...viaToken })
         .catch((e: unknown) => {
           fx.log('info', 'typing_indicator_failed', {
