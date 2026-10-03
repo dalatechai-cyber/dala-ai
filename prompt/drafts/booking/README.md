@@ -39,6 +39,11 @@ sentence is approved; the block as a whole is still a draft. Nothing says the de
 non-refundable. Stylist `aliases` in `config/booking/tara-salon.json` are typed-only (never
 shown): «Отгонжаргал» and the approved Яармаг «Үсчдийн нэр» spellings.
 
+**Service placement (founder, 2026-10-04): APPROVED, not a pending decision.** «Гоёлын засалт
+/эрэгтэй/» is printed in the price list's women's section but is a men's styling, so the booking
+offers it to men, in «Эрэгтэй засалт» (Anand at Яармаг, Tuchku at Парк Од). This is how
+`config/booking/tara-salon.json` already works; no wording changed for it.
+
 **Button (founder, 2026-10-03):** `booking_any_of_level` is «Аль ч {level}» («Аль ч Мастер», «Аль ч
 1-р зэрэг»), which fits Messenger's 20 characters; it replaces «{level} — аль ч үсчин». Should a
 level label ever make it too long, only that «any» button is left out, never cut. Tara's

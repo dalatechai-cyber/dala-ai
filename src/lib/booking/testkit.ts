@@ -62,6 +62,8 @@ async function bodyOf(init: RequestInit | undefined): Promise<string> {
 export type FakeQpayInvoice = {
   id: string; merchantId: string; amount: number; description: string; callbackUrl: string; mcc: string;
   bankAccount: string; bankCode: string; accountName: string; login: string; status: 'OPEN' | 'PAID' | 'CANCELLED';
+  /** The invoice body exactly as sent, so a test can compare two whole invoices. */
+  body: Record<string, unknown>;
   payments: { id: string; amount: number; status: string; at: string }[];
 };
 
@@ -84,12 +86,7 @@ export class FakeQpay {
   readonly logins = new Map<string, { password: string; terminal: string; merchants: Set<string> }>();
 
   constructor() {
-    this.addLogin(this.username, this.password, this.terminal);
-  }
-
-  /** Another partner login (a branch with its own). */
-  addLogin(username: string, password: string, terminal: string): void {
-    this.logins.set(username, { password, terminal, merchants: new Set() });
+    this.logins.set(this.username, { password: this.password, terminal: this.terminal, merchants: new Set() });
   }
 
   /** `POST /v2/merchant/company`: a merchant registered under a login. Invoices name it. */
@@ -129,7 +126,7 @@ export class FakeQpay {
         id, merchantId, amount: Number(b['amount']), description: String(b['description']),
         callbackUrl: String(b['callback_url']), mcc: String(b['mcc_code']), bankAccount: String(bank['account_number']),
         bankCode: String(bank['account_bank_code']), accountName: String(bank['account_name']), login,
-        status: 'OPEN', payments: [],
+        status: 'OPEN', body: b, payments: [],
       });
       return json(200, {
         id, qr_text: `qr-${id}`, qr_image: Buffer.from(`png-${id}`).toString('base64'),
@@ -400,10 +397,15 @@ export const TEST_CALENDARS = {
   tuchku: 'tuchku@group.calendar.google.com',
 } as const;
 
-/** Each branch's own test merchant and payout account, by its place in the rules file (test values; never a real one). */
+/**
+ * Each branch's test QPay, by its place in the rules file (test values; never a real one): ONE
+ * merchant and mcc for every branch, as Tara's branches share the founder's merchant (2026-10-04);
+ * each branch its own payout account.
+ */
+const TEST_MERCHANT_ID = '00000000-0000-4000-8000-00000000c0de';
 const TEST_MERCHANT_VALUES: readonly RawQpay[] = [
-  { merchant_id: '00000000-0000-4000-8000-00000000c0de', mcc_code: '7230', bank_accounts: [{ bank_code: '040000', account_number: '1111000001', account_name: 'First branch test holder' }] },
-  { merchant_id: '00000000-0000-4000-8000-0000000000d0', mcc_code: '7230', bank_accounts: [{ bank_code: '050000', account_number: '2222000002', account_name: 'Second branch test holder' }] },
+  { merchant_id: TEST_MERCHANT_ID, mcc_code: '7230', bank_accounts: [{ bank_code: '040000', account_number: '1111000001', account_name: 'First branch test holder' }] },
+  { merchant_id: TEST_MERCHANT_ID, mcc_code: '7230', bank_accounts: [{ bank_code: '040000', account_number: '2222000002', account_name: 'Second branch test holder' }] },
 ];
 
 /** The brand rules every branch's config is built from (repo root = cwd). */
@@ -419,7 +421,7 @@ export function ruleBranches(root = process.cwd()): string[] {
   return Object.keys(taraRules(root)['branches'] as Record<string, unknown>);
 }
 
-/** A branch's test merchant: its own, by its place in the rules file. */
+/** A branch's test QPay: the shared merchant and its own account, by its place in the rules file. */
 export function testMerchant(branch: string): RawQpay {
   const i = ruleBranches().indexOf(branch);
   const m = TEST_MERCHANT_VALUES[i];
@@ -430,8 +432,8 @@ export function testMerchant(branch: string): RawQpay {
 /**
  * A branch's real booking config (`config/booking/tara-salon.json`: the current price list, the
  * confirmed minutes, the founder's stylists, levels and deposits), with test calendars, the
- * branch's test merchant and one tester, then `overrides`. `calendars: false` leaves every
- * calendar «not connected»; `qpay: 'not-connected'` in `overrides` the merchant.
+ * branch's test QPay and one tester, then `overrides`. `calendars: false` leaves every
+ * calendar «not connected»; `qpay: 'not-connected'` in `overrides` the payout account.
  */
 export function taraConfig(branch: string, overrides: Record<string, unknown> = {}, opts: { calendars?: boolean } = {}): Record<string, unknown> {
   const built = branchConfig(taraRules(), branch, {

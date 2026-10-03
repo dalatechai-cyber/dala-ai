@@ -3,9 +3,9 @@
  * switch (`BOOKING_MODE`). Design: `docs/proposals/tara-inchat-booking.md`.
  *
  * A client is rows (CLAUDE.md): the services, their minutes, the stylists and their calendars,
- * the deposits and the QPay merchant are all in the tenant's row, copied from the tenant's own
- * booking rules. Nothing here knows a tenant. A brand's branches are separate tenants, so each
- * branch has its own row: its own stylists, calendars and QPay merchant (D-157).
+ * the deposits and the QPay merchant and payout account are all in the tenant's row, copied from
+ * the tenant's own booking rules. Nothing here knows a tenant. A brand's branches are separate
+ * tenants, so each branch has its own row: its own stylists, calendars and payout account (D-157).
  *
  * ## Off unless everything says on
  *
@@ -18,8 +18,8 @@
  * ## «Not connected yet»
  *
  * A branch being prepared names what it does not have yet with the literal `not-connected`: a
- * stylist's `calendar_id` (her calendar is not shared yet) or the whole `qpay` (no merchant of
- * its own yet). Such a row parses, so its shape is checked today, but it is OFF for every
+ * stylist's `calendar_id` (her calendar is not shared yet) or the whole `qpay` (no payout account
+ * of its own yet). Such a row parses, so its shape is checked today, but it is OFF for every
  * customer (`customerMode`, `notConnected`) until every placeholder is replaced. A placeholder is
  * never filled from another branch: there is no fallback anywhere.
  */
@@ -60,16 +60,16 @@ export type ServiceGroup = { label: string; audience: Gender | null; services: S
  */
 export type ChildService = Service & { gender: Gender };
 /**
- * The tenant's OWN QPay merchant and payout account: every invoice carries both, so a branch's
- * deposits are paid to that branch. `login` names a Quick QR login of the tenant's own in the
- * environment (`BOOKING_QPAY_<login>_USERNAME/_PASSWORD/_TERMINAL_ID`, secrets: rule 7); null:
- * the platform's partner login (`QPAY_USERNAME/…`), under which the merchant is registered.
+ * The QPay merchant a tenant's deposits are invoiced under and the tenant's OWN payout account:
+ * every invoice carries both, on the platform's one Quick QR login (`QPAY_USERNAME/…`, secrets:
+ * rule 7). Branches of one brand may share the merchant (Tara: the founder's, both branches,
+ * 2026-10-04); what makes a branch's money its own is the payout account (`bank_accounts`), which
+ * two tenants never share.
  */
 export type QpayMerchant = {
   merchantId: string;
   mccCode: string;
   bankAccounts: { bankCode: string; accountNumber: string; accountName: string }[];
-  login: string | null;
 };
 
 /** What a branch being prepared writes where it has nothing yet. Never a usable value. */
@@ -112,9 +112,6 @@ const int = (v: unknown, min: number, max: number): number | null =>
 export const QUICK_REPLY_TITLE_MAX = 20;
 /** Meta's limit on quick replies in one message. */
 export const QUICK_REPLIES_MAX = 13;
-
-/** A tenant's own QPay login name (`qpay.login`): the middle of its environment names. */
-export const QPAY_LOGIN_NAME = /^[A-Z][A-Z0-9]{1,30}$/u;
 
 /** Code points, never UTF-16 units (rule 6). */
 const cp = (s: string): number => [...s].length;
@@ -281,12 +278,12 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
   const q = raw['qpay'];
   let qpay: QpayMerchant | null = null;
   if (q !== NOT_CONNECTED) {
-    if (!isObj(q)) return fail(`qpay is required: the tenant's own merchant (or "${NOT_CONNECTED}" until it is issued)`);
+    if (!isObj(q)) return fail(`qpay is required: the merchant and the tenant's own payout account (or "${NOT_CONNECTED}" until they are there)`);
     const merchantId = str(q['merchant_id']);
     const mccCode = str(q['mcc_code']);
     const banks = q['bank_accounts'];
     if (merchantId === null || mccCode === null || !/^\d{4}$/u.test(mccCode)) return fail('qpay needs merchant_id and a four-digit mcc_code');
-    if (merchantId === NOT_CONNECTED) return fail(`qpay: write "qpay": "${NOT_CONNECTED}" for a merchant not issued yet, never a partial merchant`);
+    if (merchantId === NOT_CONNECTED) return fail(`qpay: write "qpay": "${NOT_CONNECTED}" until the merchant and account are there, never a partial qpay`);
     if (!Array.isArray(banks) || banks.length !== 1) return fail('qpay.bank_accounts must hold exactly one account (the tenant\'s)');
     const bankAccounts: QpayMerchant['bankAccounts'] = [];
     for (const b of banks) {
@@ -297,15 +294,14 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
       if (bankCode === null || accountNumber === null || accountName === null) return fail('qpay.bank_accounts[0] needs bank_code, account_number, account_name');
       bankAccounts.push({ bankCode, accountNumber, accountName });
     }
-    const login = q['login'] === undefined ? null : str(q['login']);
-    if (q['login'] !== undefined && (login === null || !QPAY_LOGIN_NAME.test(login))) {
-      return fail('qpay.login, when given, is capital letters and digits (it names BOOKING_QPAY_<login>_USERNAME/_PASSWORD/_TERMINAL_ID)');
-    }
-    qpay = { merchantId, mccCode, bankAccounts, login };
+    // Every tenant's invoices go on the platform's one QPay login; a row naming another is refused,
+    // never quietly invoiced on a login it did not name.
+    if (q['login'] !== undefined) return fail('qpay.login is not a setting: every tenant invoices on the platform\'s QPay login (QPAY_USERNAME/…)');
+    qpay = { merchantId, mccCode, bankAccounts };
   }
   const notConnected = [
     ...stylists.filter((s) => s.calendarId === null).map((s) => `${s.label}'s calendar`),
-    ...(qpay === null ? ['the QPay merchant'] : []),
+    ...(qpay === null ? ['the QPay payout account'] : []),
   ];
 
   // A typed name must pick exactly one stylist: no name or alias may be another stylist's.

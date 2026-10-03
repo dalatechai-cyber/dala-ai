@@ -1010,7 +1010,7 @@ export async function bookingTurn(ports: BookingPorts, input: TurnInput): Promis
     ports.log('warn', 'booking_config_invalid', { tenantId: input.tenantId, detail: cfg.detail });
     return { handled: false, reason: 'config_invalid' };
   }
-  // A branch still being connected (a calendar or its own QPay merchant missing) books nobody.
+  // A branch still being connected (a calendar or its own payout account missing) books nobody.
   if (cfg.config.notConnected.length > 0) return { handled: false, reason: 'not_connected' };
   const who = customerMode(bookingEnvMode(), cfg.mode, cfg.config, input.psid);
   if (!who.on) return { handled: false, reason: 'not_for_this_customer' };

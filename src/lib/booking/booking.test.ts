@@ -11,7 +11,7 @@ import { sendMessage, sendMessageParts } from '../meta/send.ts';
 import { localDayStart } from '../time/clock.ts';
 import { eventIdForHold, googleCalendar, isExpiredWebsiteHold, otherBlocking, withoutExpiredHolds, type CalendarEvent } from './calendar.ts';
 import { allServices, bookingEnvMode, customerMode, depositFor, parseBookingConfig, QUICK_REPLY_TITLE_MAX, stylistButton } from './config.ts';
-import { qpayLoginFor } from './qpayLogin.ts';
+import { platformQpayLogin, qpayPortFor } from './live.ts';
 import { branchLabel } from './store.ts';
 import { callbackUrl, linkSecret, payUrl, publicOrigin, signHold, verifyHold } from './links.ts';
 import { clock, renderBookingPage } from './page.ts';
@@ -82,7 +82,7 @@ test('Tara\'s rules: the current price list with the 62 confirmed minutes, nothi
   assert.ok(!/зэрэг үсчин/u.test(JSON.stringify(taraRules())));
   for (const [k, v] of draftWording().blocks) assert.ok(!/зэрэг үсчин/u.test(v), k);
   assert.equal(po.config.branchLabel, 'Парк Од');
-  // Two branches: one rule set, their own calendars and merchants.
+  // Two branches: one rule set, their own calendars and payout accounts (one merchant).
   assert.deepEqual(compareBranches([{ slug: YA, config: ya.config }, { slug: PO, config: po.config }]), []);
 });
 
@@ -96,9 +96,9 @@ test('a config missing anything that touches money or a calendar is refused, nev
   refuse({ agreement_text: 'Урьдчилгаа төлбөр …' }, /agreement_text is gone/);
   refuse({ qpay: undefined }, /qpay/);
   refuse({ qpay: { merchant_id: 'm', mcc_code: '72', bank_accounts: [] } }, /mcc_code/);
-  refuse({ qpay: { merchant_id: 'not-connected', mcc_code: '7230', bank_accounts: [] } }, /never a partial merchant/);
+  refuse({ qpay: { merchant_id: 'not-connected', mcc_code: '7230', bank_accounts: [] } }, /never a partial qpay/);
   refuse({ qpay: { merchant_id: 'm', mcc_code: '7230', bank_accounts: [] } }, /exactly one account/);
-  refuse({ qpay: { merchant_id: 'm', mcc_code: '7230', bank_accounts: [{ bank_code: '1', account_number: '2', account_name: 'x' }], login: 'parkod' } }, /qpay\.login/);
+  refuse({ qpay: { merchant_id: 'm', mcc_code: '7230', bank_accounts: [{ bank_code: '1', account_number: '2', account_name: 'x' }], login: 'PARKOD' } }, /qpay\.login is not a setting/);
   refuse({ levels: [{ key: 'master', label: 'Мастер', deposit_mnt: 0 }] }, /deposit_mnt/);
   refuse({ stylists: [{ name: 'A', level: 'master', gender: 'x', calendar_id: 'c' }] }, /gender/);
   refuse({ stylists: [{ name: 'A', level: 'nope', gender: 'female', calendar_id: 'c' }] }, /not a listed level/);
@@ -141,7 +141,7 @@ test('«not connected»: a branch being prepared parses, books nobody, and never
   assert.ok(none.ok, none.ok ? '' : none.detail);
   assert.equal(none.config.qpay, null);
   assert.ok(none.config.stylists.every((s) => s.calendarId === null));
-  assert.equal(none.config.notConnected.length, 8, 'seven calendars and the merchant');
+  assert.equal(none.config.notConnected.length, 8, 'seven calendars and the payout account');
   for (const env of ['test', 'live'] as const) {
     assert.deepEqual(customerMode(env, 'live', none.config, 'psid-tester'), { on: false }, 'not even a tester');
   }
@@ -154,12 +154,51 @@ test('«not connected»: a branch being prepared parses, books nobody, and never
   assert.deepEqual(customerMode('live', 'live', ready.config, 'psid-x'), { on: true, isTest: false });
 });
 
-test('QPay login: the platform\'s unless the row names its own, then only its own (no fallback)', () => {
-  const env = { QPAY_USERNAME: 'p', QPAY_PASSWORD: 'pp', QPAY_TERMINAL_ID: 'DALATECH_AI', BOOKING_QPAY_PARKOD_USERNAME: 'k', BOOKING_QPAY_PARKOD_PASSWORD: 'kk' };
-  assert.deepEqual(qpayLoginFor({ login: null }, env), { ok: true, login: { username: 'p', password: 'pp', terminalId: 'DALATECH_AI' } });
-  assert.deepEqual(qpayLoginFor({ login: 'PARKOD' }, env), { ok: false, missing: ['BOOKING_QPAY_PARKOD_TERMINAL_ID'] }, 'two of three: refused, not the platform\'s');
-  assert.deepEqual(qpayLoginFor({ login: 'PARKOD' }, { ...env, BOOKING_QPAY_PARKOD_TERMINAL_ID: 'T2' }), { ok: true, login: { username: 'k', password: 'kk', terminalId: 'T2' } });
-  assert.deepEqual(qpayLoginFor({ login: null }, {}), { ok: false, missing: ['QPAY_USERNAME', 'QPAY_PASSWORD', 'QPAY_TERMINAL_ID'] });
+test('QPay login: every tenant invoices on the platform\'s one login (no per-tenant login)', () => {
+  const env = { QPAY_USERNAME: 'p', QPAY_PASSWORD: 'pp', QPAY_TERMINAL_ID: 'DALATECH_AI' };
+  assert.deepEqual(platformQpayLogin(env), { ok: true, login: { username: 'p', password: 'pp', terminalId: 'DALATECH_AI' } });
+  assert.deepEqual(platformQpayLogin({ QPAY_USERNAME: 'p' }), { ok: false, missing: ['QPAY_PASSWORD', 'QPAY_TERMINAL_ID'] });
+  const po = parseBookingConfig(taraConfig(PO));
+  assert.ok(po.ok && po.config.qpay !== null);
+  assert.equal(qpayPortFor(po.config.qpay, undefined, {}), null, 'no platform login: no port, never anything else');
+});
+
+test('Парк Од\'s QPay invoice is Яармаг\'s exactly, but for bank_accounts (same merchant, mcc and login; founder 2026-10-04)', async () => {
+  const q = new FakeQpay();
+  const env = { QPAY_USERNAME: q.username, QPAY_PASSWORD: q.password, QPAY_TERMINAL_ID: q.terminal };
+  const ya = parseBookingConfig(taraConfig(YA));
+  const po = parseBookingConfig(taraConfig(PO));
+  assert.ok(ya.ok && po.ok && ya.config.qpay !== null && po.config.qpay !== null);
+  q.registerMerchant(q.username, ya.config.qpay.merchantId);
+  /** Every request one branch's port sends for one token and one invoice, as sent. */
+  const wire = async (m: NonNullable<typeof ya.config.qpay>) => {
+    const sentReqs: { url: string; auth: string | null; body: Record<string, unknown> }[] = [];
+    const spy: typeof fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      sentReqs.push({ url, auth: new Headers(init?.headers).get('authorization'), body: JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown> });
+      return q.fetch(input, init);
+    };
+    const port = qpayPortFor(m, spy, env);
+    assert.ok(port !== null);
+    const t = await port.token();
+    assert.ok(t.ok);
+    const inv = await port.createInvoice(t.token, { amountMnt: 20000, description: 'Номин - 88990011', callbackUrl: 'https://api.example.com/api/booking/qpay?t=x' });
+    assert.ok(inv.ok);
+    return sentReqs;
+  };
+  const a = await wire(ya.config.qpay);
+  const b = await wire(po.config.qpay);
+  assert.equal(a.length, 2);
+  assert.deepEqual(b[0], a[0], 'the token request: the same login and terminal');
+  assert.equal(b[1]?.url, a[1]?.url);
+  assert.equal(b[1]?.auth, a[1]?.auth);
+  const { bank_accounts: aBank, ...aRest } = a[1]?.body ?? {};
+  const { bank_accounts: bBank, ...bRest } = b[1]?.body ?? {};
+  assert.deepEqual(bRest, aRest, 'merchant_id, mcc_code, amount, currency, description, callback: identical');
+  assert.equal(aRest['merchant_id'], ya.config.qpay.merchantId);
+  assert.notDeepEqual(bBank, aBank, 'only the bank account differs');
+  const pb = po.config.qpay.bankAccounts[0];
+  assert.deepEqual(bBank, [{ account_bank_code: pb?.bankCode, account_number: pb?.accountNumber, account_name: pb?.accountName, is_default: true }]);
 });
 
 test('website holds: an expired one is free, a live one busy; the earlier of two holds wins', () => {
@@ -547,7 +586,7 @@ test('a tapped quick reply carries its payload into the inbound message', () => 
   assert.equal('quickReplyPayload' in (plain.messages[0] ?? {}), false);
 });
 
-test('branches: same services and deposits; never one calendar, merchant or payout account in two', async () => {
+test('branches: same services and deposits; never one calendar or payout account in two (one merchant is fine)', async () => {
   const { compareBranches } = await import('./branches.ts');
   const ya = parseBookingConfig(taraConfig(YA));
   const po = parseBookingConfig(taraConfig(PO));
@@ -558,17 +597,12 @@ test('branches: same services and deposits; never one calendar, merchant or payo
   assert.ok(cheaper.ok && pair(cheaper).some((x) => x.kind === 'drift' && /deposits/u.test(x.detail)));
   const sameCal = parseBookingConfig(taraConfig(PO, { stylists: [{ name: 'Boloroo', level: 'special', gender: 'female', calendar_id: TEST_CALENDARS.oyunaa }] }));
   assert.ok(sameCal.ok && pair(sameCal).some((x) => x.kind === 'shared_calendar'));
-  // Each branch is paid into its own: the same merchant id, or the same account, is a finding.
+  // Each branch is paid into its own account: the same account is a finding. The same merchant is
+  // not: Tara's branches share the founder's merchant (2026-10-04), and the test rows already do.
   const yq = (taraConfig(YA)['qpay']) as Record<string, unknown>;
-  const sameMerchant = parseBookingConfig(taraConfig(PO, { qpay: { ...(taraConfig(PO)['qpay'] as Record<string, unknown>), merchant_id: yq['merchant_id'] } }));
-  assert.ok(sameMerchant.ok && pair(sameMerchant).some((x) => x.kind === 'shared_merchant' && /merchant id/u.test(x.detail)));
+  assert.equal((taraConfig(PO)['qpay'] as Record<string, unknown>)['merchant_id'], yq['merchant_id']);
   const sameAccount = parseBookingConfig(taraConfig(PO, { qpay: { ...(taraConfig(PO)['qpay'] as Record<string, unknown>), bank_accounts: yq['bank_accounts'] } }));
-  assert.ok(sameAccount.ok && pair(sameAccount).some((x) => x.kind === 'shared_merchant' && /payout account/u.test(x.detail)));
-  // An own QPay login is one branch's too.
-  const ownLogin = (b: string) => taraConfig(b, { qpay: { ...(taraConfig(b)['qpay'] as Record<string, unknown>), login: 'PARKOD' } });
-  const both = [parseBookingConfig(ownLogin(YA)), parseBookingConfig(ownLogin(PO))];
-  assert.ok(both[0]?.ok && both[1]?.ok && compareBranches([{ slug: 'a', config: both[0].config }, { slug: 'b', config: both[1].config }])
-    .some((x) => x.kind === 'shared_merchant' && /own QPay login/u.test(x.detail)));
+  assert.ok(sameAccount.ok && pair(sameAccount).some((x) => x.kind === 'shared_account' && /payout account/u.test(x.detail)));
   // A branch not connected yet is still compared on its shape.
   const prep = parseBookingConfig(taraConfig(PO, { qpay: 'not-connected' }, { calendars: false }));
   assert.ok(prep.ok && pair(prep).length === 0);

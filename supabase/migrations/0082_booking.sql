@@ -138,12 +138,10 @@ create table booking_invoices (
   tenant_id        uuid not null references tenants(id) on delete cascade,
   hold_id          uuid not null,
   amount_mnt       integer not null check (amount_mnt > 0),
-  -- Whose money and which login, as the invoice was made: a payment is checked and an invoice
-  -- cancelled on THIS login even if the tenant's row changes later (a branch's own login added).
+  -- Whose money, as the invoice was made (the merchant it was invoiced under and the account it
+  -- pays into), whatever the tenant's row says later. Every invoice is on the platform's login.
   merchant_id      text not null check (length(merchant_id) > 0),
   payout_account   text not null check (length(payout_account) > 0),
-  -- The tenant's own Quick QR login name (BOOKING_QPAY_<login>_*); null: the platform's.
-  qpay_login       text check (qpay_login ~ '^[A-Z][A-Z0-9]{1,30}$'),
   state            text not null default 'creating' check (state in ('creating', 'open', 'unknown', 'refused', 'cancelled', 'paid')),
   qpay_invoice_id  text unique,
   qr_text          text,

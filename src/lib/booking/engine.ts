@@ -31,7 +31,7 @@ import { eventIdForHold, type CalendarPort, type NewEvent } from './calendar.ts'
 import type { BookingConfig, QpayMerchant } from './config.ts';
 import { callbackUrl, payUrl } from './links.ts';
 import {
-  endHold, finishInvoice, claimInvoice, merchantSharedWith, setHoldExpiry, REBOOK_OFFER_MINUTES, outboundExists, holdInvoices, markBooked, markUnbooked, readConfig, readHold, readTenantFacts,
+  endHold, finishInvoice, claimInvoice, accountSharedWith, setHoldExpiry, REBOOK_OFFER_MINUTES, outboundExists, holdInvoices, markBooked, markUnbooked, readConfig, readHold, readTenantFacts,
   recordPayment, setCalendarState, holdsToSweep, holdsWithOpenInvoices, markChecked, markNotified, closeSessionRow, logEvent, type Hold, type Invoice, type TenantFacts,
 } from './store.ts';
 import { say, type BookingWording } from './wording.ts';
@@ -52,8 +52,8 @@ export type BookingPorts = {
   now: () => Date;
   calendar: CalendarPort;
   /**
-   * The QPay port for one tenant's merchant, on the login it names (its own, or the platform's).
-   * Null: that login is not configured. Never another tenant's merchant or login instead.
+   * The QPay port for one tenant's merchant and payout account, on the platform's QPay login.
+   * Null: that login is not configured. Never another tenant's account instead.
    */
   qpayFor: (merchant: QpayMerchant) => QpayPort | null;
   wording: BookingWording;
@@ -246,23 +246,24 @@ export type InvoiceOutcome = { ok: true; invoice: Invoice } | { ok: false; detai
  * answer we cannot read leaves the row `unknown` and nothing is shown, so nobody pays it.
  */
 export async function createInvoice(ports: BookingPorts, hold: Hold, config: BookingConfig): Promise<InvoiceOutcome> {
-  // The tenant's own merchant, complete, on its own login, and nobody else's: else no invoice.
+  // The merchant and the tenant's own payout account, complete, and nobody else's account: else no invoice.
   if (config.qpay === null) return { ok: false, detail: 'QPay is not connected for this tenant' };
   const qpay = ports.qpayFor(config.qpay);
-  if (qpay === null) return { ok: false, detail: 'QPay is not configured (the login this tenant names is not in the environment)' };
-  const shared = await merchantSharedWith(ports.db, hold.tenantId, config.qpay);
+  if (qpay === null) return { ok: false, detail: 'QPay is not configured (QPAY_USERNAME / QPAY_PASSWORD / QPAY_TERMINAL_ID)' };
+  const shared = await accountSharedWith(ports.db, hold.tenantId, config.qpay);
   if (!shared.ok) return { ok: false, detail: shared.detail };
   if (shared.tenants.length > 0) {
-    // Two tenants on one merchant or payout account would pay one branch's deposits to the other.
+    // Two tenants on one payout account would pay one branch's deposits to the other. (One
+    // merchant for several branches is fine: the invoice's bank_accounts decides where money goes.)
     await ports.alert({
-      tenantId: hold.tenantId, kind: 'booking.merchant_shared', dedupKey: `booking.merchant_shared:${hold.tenantId}:${config.qpay.merchantId}`,
-      body: `⚠️ In-chat booking refused a deposit: this tenant's QPay merchant, payout account or own QPay login is also in ${shared.tenants.length} other tenant(s)' booking_config. Each branch must be paid into its own. No invoice was made; fix the rows (scripts/booking/check.ts).`,
+      tenantId: hold.tenantId, kind: 'booking.account_shared', dedupKey: `booking.account_shared:${hold.tenantId}`,
+      body: `⚠️ In-chat booking refused a deposit: this tenant's QPay payout account is also in ${shared.tenants.length} other tenant(s)' booking_config. Each branch must be paid into its own. No invoice was made; fix the rows (scripts/booking/check.ts).`,
     });
-    return { ok: false, detail: 'the QPay merchant, account or own login is also another tenant\'s' };
+    return { ok: false, detail: 'the QPay payout account is also another tenant\'s' };
   }
   const claimed = await claimInvoice(ports.db, {
     tenantId: hold.tenantId, holdId: hold.id, amountMnt: hold.depositMnt,
-    merchantId: config.qpay.merchantId, payoutAccount: config.qpay.bankAccounts[0]?.accountNumber ?? '', qpayLogin: config.qpay.login,
+    merchantId: config.qpay.merchantId, payoutAccount: config.qpay.bankAccounts[0]?.accountNumber ?? '',
   });
   if (!claimed.ok) return claimed;
   const token = await qpay.token();
@@ -307,42 +308,36 @@ export async function createInvoice(ports: BookingPorts, hold: Hold, config: Boo
 }
 
 /**
- * Asking QPay about an invoice already made, or cancelling it: on the login it was MADE on (its
- * row records the merchant, the payout account and the login), never the tenant's current row,
- * which may have changed since (a branch's own login added, or set back to «not connected"). A
- * check or a cancel sends no merchant or bank details, only the login's token; the merchant and
- * account here are the invoice's own, and the mcc is never sent. One token per login per call.
+ * Asking QPay about an invoice already made, or cancelling it: on the platform's login, with the
+ * merchant and account the invoice's row recorded, never the tenant's current row, which may have
+ * changed since (set back to «not connected»). A check or a cancel sends no merchant or bank
+ * details, only the login's token, and the mcc is never sent. One token per call.
  */
 function invoiceSessions(ports: BookingPorts, hold: Hold): (inv: Invoice) => Promise<{ ok: true; port: QpayPort; token: string } | { ok: false; detail: string }> {
-  const byLogin = new Map<string, Promise<{ ok: true; port: QpayPort; token: string } | { ok: false; detail: string }>>();
+  let s: Promise<{ ok: true; port: QpayPort; token: string } | { ok: false; detail: string }> | undefined;
   return (inv) => {
-    const key = inv.qpayLogin ?? '';
-    let s = byLogin.get(key);
-    if (s === undefined) {
-      s = (async () => {
-        // One episode per tenant and login, not per invoice: the login is gone from the environment
-        // while QR codes made on it are out, so their payments cannot be read. Closed once it reads again.
-        const alertKey = `booking.qpay_login_missing:${hold.tenantId}:${inv.qpayLogin ?? 'platform'}`;
-        const port = ports.qpayFor({
-          merchantId: inv.merchantId, mccCode: '0000', login: inv.qpayLogin,
-          bankAccounts: [{ bankCode: '-', accountNumber: inv.payoutAccount, accountName: '-' }],
+    s ??= (async () => {
+      // One episode per tenant, not per invoice: the login is gone from the environment while QR
+      // codes are out, so their payments cannot be read. Closed once it reads again.
+      const alertKey = `booking.qpay_login_missing:${hold.tenantId}`;
+      const port = ports.qpayFor({
+        merchantId: inv.merchantId, mccCode: '0000',
+        bankAccounts: [{ bankCode: '-', accountNumber: inv.payoutAccount, accountName: '-' }],
+      });
+      if (port === null) {
+        await ports.alert({
+          tenantId: hold.tenantId, kind: 'booking.qpay_login_missing', dedupKey: alertKey, repeat: 'on_change',
+          body: '⚠️ In-chat booking cannot read deposit payments: the QPay login QPAY_USERNAME / QPAY_PASSWORD / QPAY_TERMINAL_ID is missing from the environment while QR codes are out. Payments on them are not recorded until it is back; check the merchant app.',
         });
-        if (port === null) {
-          await ports.alert({
-            tenantId: hold.tenantId, kind: 'booking.qpay_login_missing', dedupKey: alertKey, repeat: 'on_change',
-            body: `⚠️ In-chat booking cannot read deposit payments: the QPay login ${inv.qpayLogin === null ? 'QPAY_USERNAME / QPAY_PASSWORD / QPAY_TERMINAL_ID' : `BOOKING_QPAY_${inv.qpayLogin}_USERNAME / _PASSWORD / _TERMINAL_ID`} that QR codes were made on is missing from the environment. Payments on them are not recorded until it is back; check the merchant app.`,
-          });
-          return { ok: false as const, detail: `QPay is not configured (the login invoice ${inv.id} was made on)` };
-        }
-        const t = await port.token();
-        if (t.ok) {
-          const r = await resolveOpenAlerts(ports.db, { keyPrefix: alertKey, now: ports.now() });
-          if (r.ok && r.resolved.length > 0) ports.log('info', 'booking_qpay_login_back', { login: inv.qpayLogin ?? 'platform' });
-        }
-        return t.ok ? { ok: true as const, port, token: t.token } : { ok: false as const, detail: t.detail };
-      })();
-      byLogin.set(key, s);
-    }
+        return { ok: false as const, detail: `QPay is not configured (invoice ${inv.id} cannot be read)` };
+      }
+      const t = await port.token();
+      if (t.ok) {
+        const r = await resolveOpenAlerts(ports.db, { keyPrefix: alertKey, now: ports.now() });
+        if (r.ok && r.resolved.length > 0) ports.log('info', 'booking_qpay_login_back', {});
+      }
+      return t.ok ? { ok: true as const, port, token: t.token } : { ok: false as const, detail: t.detail };
+    })();
     return s;
   };
 }
@@ -388,7 +383,7 @@ async function collectPayments(ports: BookingPorts, hold: Hold, facts: TenantFac
   const session = invoiceSessions(ports, hold);
   const fresh: { key: string; disposition: string; amount: number }[] = [];
   for (const inv of asked) {
-    // Asked on the login the invoice was made on, whatever the tenant's row says now.
+    // Asked about the invoice its row records, whatever the tenant's row says now.
     const s = await session(inv);
     if (!s.ok) return { ok: false, detail: s.detail };
     const check = await s.port.checkPayment(s.token, inv.qpayInvoiceId as string);
@@ -689,7 +684,6 @@ async function cancelInvoices(ports: BookingPorts, hold: Hold): Promise<void> {
   if (open.length === 0) return;
   const session = invoiceSessions(ports, hold);
   for (const i of open) {
-    // Cancelled on the login it was made on.
     const s = await session(i);
     const r = !s.ok ? { ok: false as const, detail: s.detail } : await s.port.cancelInvoice(s.token, i.qpayInvoiceId as string);
     if (r.ok) {

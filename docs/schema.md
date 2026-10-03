@@ -288,8 +288,8 @@ partial, one of four tables.
 chosen; one open per conversation; `followed_up_at` marks the one «Цаг захиалах уу?»), `booking_holds` (a held, paid or booked time; one active per
 `(calendar_id, starts_at)` by a partial unique index, overlaps refused under a per-calendar
 advisory lock), `booking_invoices` (QPay invoices per hold, claimed before QPay is asked; each
-records the `merchant_id`, `payout_account` and `qpay_login` it was made on, so a payment is
-checked and a QR cancelled on that login whatever the tenant's row says later),
+records the `merchant_id` and `payout_account` it was made with, whatever the tenant's row says
+later; every invoice is on the platform's one QPay login),
 `booking_payments` (append-only, unique on QPay's payment id, with what the money did:
 `applied`, `excess`, `short`, `late_booked`, `late_unbooked`) and `booking_events` (append-only
 audit). Eight functions: `booking_open_session`, `booking_apply_turn` (the session moves and the

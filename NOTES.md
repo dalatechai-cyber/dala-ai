@@ -1,3 +1,45 @@
+# NOTES — Round 3 (2026-10-04): founder's correction on Парк Од's QPay
+
+Same branch/worktree/PR (#285). Nothing live: no SQL on a real database, no Vercel/Supabase change.
+Founder: Парк Од does NOT get her own QPay merchant or login; she uses the founder's merchant and login
+exactly as Яармаг (and Core Language). The ONLY difference is her bank account (Khan Bank) in the
+invoice's `bank_accounts`. The website did the same (matrix_website bdbbaa1).
+
+## Status
+- [x] from-website.ts: every branch gets the website create-payment handler's ONE merchant id (exactly
+      one `*_MERCHANT_ID` constant there, else refused) and its one mcc; Парк Од's account from the website's
+      `qpayAccountFor('parkod')` with the operator's PARKOD_QPAY_BANK_CODE/_ACCOUNT_NUMBER/_ACCOUNT_NAME,
+      `not-connected` until the website calls it complete; an account equal to another branch's refused; an
+      equal merchant id no longer refused (it must be equal). `--qpay-login` refused with a reason.
+- [x] Per-tenant QPay login removed: `qpayLogin.ts`, `qpay.login` (the parser refuses it), `BOOKING_QPAY_*`,
+      `booking_invoices.qpay_login` (0082 not applied; column dropped from the file), `.env.example`.
+- [x] Sharing check is account-only: `accountSharedWith` (before every invoice, alert
+      `booking.account_shared`) and `compareBranches` `shared_account`; the same merchant is expected.
+- [x] Tests: test branches share one merchant id, own accounts; unit test: Парк Од's invoice body equals
+      Яармаг's except `bank_accounts` (token request too); e2e section 20: the same, field by field, on
+      the fake QPay; e2e 16(h) runs from-website.ts on the website checkout for both branches.
+- [x] «Гоёлын засалт /эрэгтэй/» offered to men: APPROVED (founder 2026-10-04), recorded in tara-salon.json
+      and prompt/drafts/booking/README.md. Owner alerts: none built; alerts reach only the founder; Boloroo
+      checks Парк Од's Messenger herself (design doc «What is not built»).
+- [x] Docs: design doc «Per-branch QPay» rewritten, switch-on steps (no registration, no
+      qpay-merchant.js, nothing from Boloroo), brief, schema.md, transcript heading (hand-edited: a full
+      regeneration only churned the time-of-day day buttons).
+- [x] check green (2668 tests); e2e 260 local with the website (21 website), 239 CI-shaped.
+
+## Decisions (with reason)
+R3-1. The merchant id comes from the website handler's single merchant constant, not from
+      `qpayAccountFor` (its `merchantId` is null for both branches; the handler keeps its own). More than
+      one id there means the website changed its model: stop, never pick.
+R3-2. The per-tenant login mechanism is REMOVED, not kept as a general option: Парк Од was its only user,
+      no other code needs it, and an unused secret path (env names, a DB column, a second alert key,
+      per-login token caching) is risk without benefit. Every tenant invoices on the platform's QPAY_*
+      (as billing and the website do). A row still carrying `qpay.login` is refused rather than silently
+      invoiced on another login. If a tenant ever needs its own login, it comes back with its own review.
+R3-3. Only the payout account is compared between tenants (DB check and check.ts). The merchant is
+      deliberately shared; comparing it would block the founder's design.
+R3-4. Яармаг's account typed as hers is stopped twice: the website's `qpayAccountFor` calls it incomplete
+      (→ `not-connected`), and from-website.ts refuses an equal account if the website ever stops doing so.
+
 # NOTES — Round 2 (2026-10-04): founder's answers on the in-chat booking
 
 Same branch/worktree/PR (#285). Binding: scratchpad round-facts.md + round2-facts.md. Nothing live.
@@ -12,8 +54,8 @@ Same branch/worktree/PR (#285). Binding: scratchpad round-facts.md + round2-fact
       МАСТЕР haircut is not taken; «Аль ч» still never a recommendation (unit test unchanged, extended).
 - [x] e2e: the website's own `requiredLevelFor` and the chat's `level` agree on all 62 services.
 - [x] `booking_ask_agreement` + the approved «Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.»
-- [x] Docs: tarasalon.org, tarasalon.parkod@gmail.com exists, founder registers Парк Од's merchant himself
-      (website scripts/qpay-merchant.js), proof = a real 100₮ in HER account. Transcript regenerated.
+- [x] Docs: tarasalon.org, tarasalon.parkod@gmail.com exists, proof = a real 100₮ in HER account.
+      Transcript regenerated. (Парк Од's QPay: see Round 3.)
 - [x] check green (2666 tests, guards); e2e 263 local with the website (19 run its code or check it), 244 CI-shaped.
 - [x] Independent review (code-review skill, high, acting as reviewer.md): 10 findings; fixed 9:
       (1) the alias collision check now uses the flow's own normaliser (`choiceKey`, quotes/punctuation);
@@ -60,25 +102,24 @@ draft PR #280 (`claude/happy-pasteur-4gp7gd`, 87a8875). Booking stays OFF for ev
       `not-connected` calendars and QPay. Levels/deposits SPECIAL/Мастер 20,000, 1-р зэрэг 10,000.
 - [x] No deposit terms in chat: `booking_ask_agreement` lost «Нөхцөл: «{agreement}»»; `agreement_text`
       refused in config; the hold records the summary accepted.
-- [x] Per-branch QPay: merchant + payout account are rows per tenant; optional own login
-      `BOOKING_QPAY_<login>_*`; no fallback; invoice refused if not connected, login incomplete, merchant
-      or account in another tenant's row, or QPay refuses it.
+- [x] Per-branch QPay: merchant + payout account are rows per tenant; no fallback; invoice refused if
+      not connected, or QPay refuses it. (Round 3: one merchant and login for both branches; only the
+      account is per branch and checked against other tenants' rows.)
 - [x] Website hold contract (lead): `sh` prefix, holdExpiresAt/holdPlacedAt; expired `sh` free; earlier-
       placed wins; chat holds recognised by `dalaBookingState: 'hold'` only (lead's review finding).
 - [x] e2e 251 local (11 run the website's own code incl. its placeHold), 240 CI-shaped; unit + check green;
       5 SQL suites + query columns, postgrest.ts, billing-e2e 118 pass locally (PG16 + PostgREST 12.2.3).
 - [x] Draft PR #285 (base claude/happy-pasteur-4gp7gd). CI green on 8287e82 (booking e2e 235 in CI).
 - [x] Independent review (remote reviewer session, Opus, read-only, ~$2.59 of session spend): 3 findings,
-      all fixed: (1) invoices record merchant/account/login (0082 columns) and are checked/cancelled on
-      that login, not the row's current one; (2) no tenant slug literals in src/ (tests name branches by
-      their place in the rules file); (3) an own QPay login shared by two tenants is refused/flagged.
+      all fixed: (1) invoices record merchant/account (0082 columns), not the row's current ones; (2) no
+      tenant slug literals in src/ (tests name branches by their place in the rules file); (3) (an own
+      QPay login check; the own login is gone in Round 3).
       The lead's finding (chat hold by dalaBookingState only) also fixed.
 - [x] Re-review of 35129b0 (relayed by the lead): 3 more, all fixed: settleHold reads and records payments
       even when the tenant's config is unusable (only the booking waits; e2e proves it, then books after the
-      fix); collectPayments' unused config parameter dropped; a login missing from the environment while QRs
-      made on it are out raises ONE on_change alert per tenant and login (`booking.qpay_login_missing`),
-      closed when a token on that login is obtained again (e2e proves the alert, no secret in it, and the
-      booking once the login is back).
+      fix); collectPayments' unused config parameter dropped; the QPay login missing from the environment
+      while QRs are out raises ONE on_change alert per tenant (`booking.qpay_login_missing`), closed when a
+      token is obtained again (e2e proves the alert, no secret in it, and the booking once it is back).
 
 ## Decisions (with reason)
 1. Rules file holds services WITH minutes (not only the website): CI can test the real list; from-website.ts
@@ -87,7 +128,7 @@ draft PR #280 (`claude/happy-pasteur-4gp7gd`, 87a8875). Booking stays OFF for ev
    website's calendar events use them. Button labels = the price list's words; shortened only where > 20.
 3. Groups = the price list's sections with an `audience` (women's/men's sections shown only to that gender).
    «Гоёлын засалт /эрэгтэй/» (printed in the women's section) is offered to men, in «Эрэгтэй засалт»:
-   it is a men's styling. Founder question.
+   it is a men's styling. APPROVED by the founder 2026-10-04 (Anand at Яармаг, Tuchku at Парк Од).
 4. `family` (one button, then lengths/levels) because «Эмэгтэй хими» has 18 lines and Messenger shows 13.
    One new draft line `booking_ask_variant` «{service} — аль нь вэ?».
 5. A price line per level (`level`) is served only by that level; a line nobody may serve is hidden
@@ -95,10 +136,11 @@ draft PR #280 (`claude/happy-pasteur-4gp7gd`, 87a8875). Booking stays OFF for ev
    button at Парк Од. Levels are identical in both rows (one price list); Парк Од just has no 1-р зэрэг.
 6. «Not connected» = literal `not-connected` in `calendar_id` / `qpay`: parses (shape checked, branches
    compared) but `customerMode` off and `bookingTurn` reason `not_connected`, testers included.
-7. Merchant id/account are rows (not secret; the website has Яармаг's in source). Login stays env (rule 7).
-   Own login named by the row (`qpay.login`), env `BOOKING_QPAY_<LOGIN>_*` so the env guard sees the prefix.
-8. One merchant = one tenant, checked before every invoice by reading other tenants' booking_config
-   (`merchantSharedWith`), plus `check.ts` (`shared_merchant`). Unreadable → refused.
+7. Merchant id/account are rows (not secret; the website has Яармаг's in source). Login stays env (rule 7):
+   the platform's QPAY_* for every tenant (Round 3, R3-2).
+8. One payout account = one tenant, checked before every invoice by reading other tenants' booking_config
+   (`accountSharedWith`), plus `check.ts` (`shared_account`). Unreadable → refused. (Round 3: the merchant
+   is shared by design, so it is no longer compared.)
 9. Website holds: busy() = free/busy minus expired `sh` holds plus the other events (one events.list per
    calendar per read; fine at today's volume). Placed-at: website `holdPlacedAt` else `created`; ours
    `created` (no own property written). Tie → we yield.

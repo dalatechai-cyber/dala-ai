@@ -113,7 +113,7 @@ hold (the normal Дали answers it); after the hold the payment still complete
 | Hours: Яармаг and Парк Од Mon–Sat 10–20, Sun 11–19; starts every 60 min; last start = close − length; nothing in the past | `data/branches.json`, `routes/calendar.js` | each branch tenant's `business_hours` rows and `tenant_closures`; `config.slot_step_minutes`; same arithmetic |
 | Services and lengths: the 2026-10-01 price list, 62 confirmed minutes | `data/services.json`, `data/serviceDurations.json` (non-retired) | `config/booking/tara-salon.json` holds them (CI tests the real list); `from-website.ts` refuses unless they equal the website's exactly |
 | Stylists by short Latin names, level, gender, calendar | `config/stylists.js` (Latin keys; Парк Од calendars from `PARKOD_CALENDAR_<NAME>`) | `tara-salon.json` per branch; calendar ids read from the website at run time; none yet: `not-connected` |
-| QPay Quick QR v2, terminal `DALATECH_AI`, mcc 7230, description «Name - Phone»; **each branch its own merchant id and payout account** | `api/qpay/create-payment.js`, `config/branches.js` `qpayAccountFor` | `config.qpay` per branch row (merchant id, mcc, one bank account, optional own login); no fallback between branches (see "Per-branch QPay") |
+| QPay Quick QR v2, terminal `DALATECH_AI`, mcc 7230, description «Name - Phone»; **one merchant and login for both branches, each branch its own payout account** | `api/qpay/create-payment.js` (`YAARMAG_MERCHANT_ID`, both branches), `config/branches.js` `qpayAccountFor` | `config.qpay` per branch row (the merchant id, mcc, the branch's one bank account); no fallback between branches' accounts (see "Per-branch QPay") |
 | Calendar event: summary «phone - services», the description lines, «ТЕСТ – » for tests | `services/bookingWriter.js` | the same lines, plus «Source: Messenger (Дали)» and «Branch: …» |
 | Test: 100₮ and «ТЕСТ» only for the tester | `config/siteMode.js` | `mode = 'test'`: only the channel's listed testers enter; 100₮; «ТЕСТ» |
 
@@ -197,13 +197,14 @@ Each branch is its own tenant (D-157) with its own `booking_config` row, built f
 children's rule; each branch's own stylists (Яармаг: Oyunaa SPECIAL, Badamaa Мастер, Uyanga /
 Zaya / Chimgee / Otgonjargal 1-р зэрэг, Anand Мастер, the only man; Парк Од: Boloroo SPECIAL, Saraa, Tomoo,
 Bulgaa, Enhuush, Chimegee, Tuchku, all Мастер, Tuchku the only man), its own calendars, its own
-address and hours (its rows), and **its own QPay merchant and payout account**.
+address and hours (its rows), and **its own payout account** (the bank account its deposits are paid
+into; both branches invoice under the same QPay merchant and login).
 
 `scripts/booking/check.ts --group tara-salon` refuses when the branches' services, minutes,
-service buttons, levels, deposits, entry words or children's rule differ, and when a calendar,
-a merchant id or a payout account appears in two branches.
+service buttons, levels, deposits, entry words or children's rule differ, and when a calendar or
+a payout account appears in two branches (the same merchant id in both is expected).
 
-**Not connected yet.** Парк Од's calendar ids and her merchant do not exist yet. Her row says so
+**Not connected yet.** Парк Од's calendar ids and her bank account are not given yet. Her row says so
 with the literal `not-connected` (each stylist's `calendar_id`, and `qpay`). Such a row parses
 (its shape is checked) but books nobody, testers included (`reason: not_connected`); the ordinary
 Дали answers. One placeholder left is enough to keep the branch off. Nothing is ever borrowed
@@ -211,49 +212,47 @@ from Яармаг.
 
 ## Per-branch QPay
 
-What makes a branch's money its own is its **merchant id** (registered under the Quick QR partner
-login with `POST /v2/merchant/company` or `/person`) and its **payout account**, both sent on every
-invoice (`merchant_id`, `bank_accounts`). They are **rows** (`booking_config.qpay`), not secrets:
-`merchant_id`, `mcc_code`, `bank_accounts: [{ bank_code, account_number, account_name }]`. The
-login is a secret and comes from the environment only (rule 7):
+Founder, 2026-10-04: Парк Од does **not** get a QPay merchant or login of her own. Both branches
+invoice under the founder's existing merchant on the platform's Quick QR partner login, exactly as
+Яармаг and Core Language do: `QPAY_USERNAME` / `QPAY_PASSWORD` / `QPAY_TERMINAL_ID` (terminal
+`DALATECH_AI`, the website's login too), a secret from the environment only (rule 7), the same for
+every tenant. The ONLY difference is the **payout account**, the bank account the invoice names in
+`bank_accounts` (Парк Од: her Khan Bank account). The row (`booking_config.qpay`, not secret) holds
+`merchant_id`, `mcc_code` and `bank_accounts: [{ bank_code, account_number, account_name }]`; for
+Tara both rows carry the same merchant id and mcc, and so the same invoice but for `bank_accounts`
+(a unit test and the e2e compare the two invoice bodies field by field). There is no per-tenant
+login (`qpay.login` is refused).
 
-- default: the platform's partner login, `QPAY_USERNAME` / `QPAY_PASSWORD` / `QPAY_TERMINAL_ID`
-  (the same login and terminal `DALATECH_AI` the website uses; Яармаг's merchant is registered under
-  it);
-- a branch whose merchant lives under a login of its own names it in its row, `"login": "PARKOD"`,
-  and then ONLY `BOOKING_QPAY_PARKOD_USERNAME`, `BOOKING_QPAY_PARKOD_PASSWORD`,
-  `BOOKING_QPAY_PARKOD_TERMINAL_ID` are used: all three or no invoice, never the platform's login
-  instead (`qpayLogin.ts`). This mirrors the website's optional `PARKOD_QPAY_USERNAME` /
-  `_PASSWORD` / `_TERMINAL_ID`.
-
-An invoice is refused, and no QR exists, when: the row's `qpay` is `not-connected`; the login it
-names is incomplete; another tenant's `booking_config` names the same merchant id, the same payout
-account or the same own login (checked in the database before every invoice; you are paged once,
-`booking.merchant_shared`); or QPay itself refuses the merchant under that login. Each invoice
-row records the merchant, payout account and login it was made on (`booking_invoices`, 0082), and
-a payment is checked, or a QR cancelled, on THAT login, so changing a branch's row while a QR is
-out never strands a paid deposit. If that login is missing from the environment, nothing is read
-on any other login: you get one alert for the login (`booking.qpay_login_missing`, an episode that
-closes once it reads again). A tenant whose `booking_config` becomes unusable still has its
-payments read and recorded; only the booking waits until the row is fixed. The website does
-the same for Парк Од from `PARKOD_QPAY_MERCHANT_ID`, `PARKOD_QPAY_BANK_CODE`,
-`PARKOD_QPAY_ACCOUNT_NUMBER`, `PARKOD_QPAY_ACCOUNT_NAME`; `from-website.ts` reads her values under
-those same names from the operator's shell, so both sides carry the same values. QPay's own
-documentation could not be reached from this environment: that a payment settles to the invoice's
-`bank_accounts` is inferred from the SDKs and must be confirmed with QPay in writing.
+An invoice is refused, and no QR exists, when: the row's `qpay` is `not-connected`; the platform's
+login is missing; another tenant's `booking_config` names the same payout account (checked in the
+database before every invoice; you are paged once, `booking.account_shared`); or QPay itself
+refuses. Each invoice row records the merchant and payout account it was made with
+(`booking_invoices`, 0082), so changing a branch's row while a QR is out never strands a paid
+deposit. If the login is missing from the environment while QR codes are out, nothing is read: you
+get one alert per tenant (`booking.qpay_login_missing`, an episode that closes once it reads
+again). A tenant whose `booking_config` becomes unusable still has its payments read and recorded;
+only the booking waits until the row is fixed. The website does the same for Парк Од from
+`PARKOD_QPAY_BANK_CODE`, `PARKOD_QPAY_ACCOUNT_NUMBER`, `PARKOD_QPAY_ACCOUNT_NAME` (its
+`qpayAccountFor('parkod')`: Яармаг's login and merchant, her account; complete only when all three
+exist and the account is not Яармаг's); `from-website.ts` reads her values under those same names
+from the operator's shell, so both sides carry the same values. QPay's own documentation could not
+be reached from this environment: that a payment settles to the invoice's `bank_accounts` is
+inferred from the SDKs, so **the proof is a real 100₮ test landing in HER account** before her
+row goes beyond `off`.
 
 ## Setting it up for a branch
 
 `node scripts/booking/from-website.ts --website ../matrix_website --rules config/booking/tara-salon.json
---slug <branch> [--tester <PSID>] [--qpay-login PARKOD] --out <file.sql>` builds the branch's row:
+--slug <branch> [--tester <PSID>] --out <file.sql>` builds the branch's row:
 the rules file's services, minutes and stylists, checked against the website (every service and
 minute equal to its current list; every stylist at that branch with the same level, gender and
 deposit; a disagreement stops it, never picked), the calendar ids from the website's
-`config/stylists.js` (`not-connected` where it has none), and the merchant: Яармаг's from the
-website's create-payment handler and `config/branches.js`; Парк Од's from `PARKOD_QPAY_*` in the
-operator's shell, else `not-connected`. It refuses a merchant id or account equal to another
-branch's. The merchant, account and calendar ids are never copied into this repository. The row is
-written with mode `off`.
+`config/stylists.js` (`not-connected` where it has none), and the QPay: the website
+create-payment handler's one merchant id and mcc for every branch, and the branch's own payout
+account: Яармаг's from the website's `config/branches.js`; Парк Од's from
+`PARKOD_QPAY_BANK_CODE` / `_ACCOUNT_NUMBER` / `_ACCOUNT_NAME` in the operator's shell, else
+`not-connected`. It refuses an account equal to another branch's. The merchant, account and
+calendar ids are never copied into this repository. The row is written with mode `off`.
 
 ## What is not built
 
@@ -262,6 +261,8 @@ written with mode `off`.
 - Instagram and the website chat (Messenger only).
 - Asking whether the booking is for the customer or someone else of the other gender (the
   «who for» answer decides the stylists; a woman booking for her husband taps «Эрэгтэй»).
+- Alerts to a branch owner (founder, 2026-10-04): for now every booking alert reaches only the
+  founder; Boloroo checks Парк Од's Messenger herself. Nothing is built for owner alerts.
 
 ## Switching it on for Tara Яармаг (the founder's steps, in order)
 
@@ -278,8 +279,9 @@ Nothing below has been done. Each step is yours: wording, credentials, a migrati
    - `BOOKING_LINK_SECRET`: `openssl rand -base64 36`.
    - `SUPABASE_SECRET_BOOKING`: a new secret key (Supabase → Settings → API keys).
    - **Confirm** that the platform's `QPAY_USERNAME` / `QPAY_PASSWORD` / `QPAY_TERMINAL_ID` are the
-     same Quick QR partner login the website uses (terminal `DALATECH_AI`), the one Яармаг's
-     merchant is registered under. If not, copy the website's values under those names.
+     same Quick QR partner login the website uses (terminal `DALATECH_AI`), the one the merchant
+     both branches invoice under is registered under. If not, copy the website's values under
+     those names.
    - `BOOKING_MODE=test`. Preflight refuses the deploy if anything above is missing.
 4. **QStash.** Add one schedule: every minute, POST `https://api.dalatech.online/api/workers/booking`,
    empty body. It is the fallback (each hold's end is also scheduled by itself, through the same
@@ -311,20 +313,19 @@ Nothing below has been done. Each step is yours: wording, credentials, a migrati
    exists (2026-10-04). Each stylist shares her calendar with it and with the website's service
    account («make changes to events»); the calendar ids go into the website's
    `PARKOD_CALENDAR_<NAME>` variables.
-3. Her QPay merchant: **you register it yourself** under your partner login (no e-mail to QPay),
-   with her own payout account, using the website's `scripts/qpay-merchant.js` (`register
-   <form.json>` is a dry run; `--send` creates it and prints the merchant id). The values go into
-   the website's `PARKOD_QPAY_*`. Only if QPay ever gives her a login of her own:
-   `BOOKING_QPAY_PARKOD_USERNAME/_PASSWORD/_TERMINAL_ID` in dala-ai's Vercel project and
-   `--qpay-login PARKOD` below. **The proof is step 5**: a real 100₮ landing in HER account.
-4. `PARKOD_QPAY_MERCHANT_ID=… PARKOD_QPAY_BANK_CODE=… PARKOD_QPAY_ACCOUNT_NUMBER=… PARKOD_QPAY_ACCOUNT_NAME=…
+3. Her QPay: nothing to register. She uses your existing merchant and login, exactly as Яармаг
+   does; only her bank account is hers. Put her Khan Bank account into the website's
+   `PARKOD_QPAY_BANK_CODE` (Khan Bank: 040000), `PARKOD_QPAY_ACCOUNT_NUMBER` and
+   `PARKOD_QPAY_ACCOUNT_NAME` (the holder's name as the bank has it). **The proof is step 5**: a
+   real 100₮ landing in HER account.
+4. `PARKOD_QPAY_BANK_CODE=… PARKOD_QPAY_ACCOUNT_NUMBER=… PARKOD_QPAY_ACCOUNT_NAME=…
    PARKOD_CALENDAR_…=… node scripts/booking/from-website.ts --website <checkout> --rules
-   config/booking/tara-salon.json --slug tara-park-od [--qpay-login PARKOD] --tester <PSID> --out park.sql`;
+   config/booking/tara-salon.json --slug tara-park-od --tester <PSID> --out park.sql`;
    the summary must say «connected». Run it, then `node scripts/booking/check.ts --group tara-salon`
    (it must print «the branches book alike»).
 5. One 100₮ test on her Page, as step 6 above, and check the 100₮ arrived in HER bank account
    (not Яармаг's). Until that 100₮ is seen there, her row stays `off`: this is the only proof that
-   her merchant pays her.
+   her deposits reach her account.
 
 **Domain.** Tara's website moves to **tarasalon.org** (bought at Namecheap; the website's
 `docs/DOMAIN_MOVE.md`), not tarasalon.mn. Nothing in the in-chat booking names the website's

@@ -8,7 +8,10 @@ _The short version of the first report and the follow-ups (2026-10-03). The full
 - **Typed names**: at the stylist question a customer may type the Latin name alone («Uyanga») or a Cyrillic spelling from the approved «Үсчдийн нэр» list («Отгонжаргал», «Бадмаа», «Чимгээ» …) or a former name the website still accepts («Batzaya»); it picks that stylist, only if she may serve that service. Cyrillic is never shown. «Отгоо» and Парк Од's Cyrillic spellings are NOT recognised until you confirm them.
 - **Deposit deducted** (your answer): the summary before «Зөвшөөрч, захиалах» now adds your approved sentence «Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.» (a draft of the block; never «non-refundable»).
 - **Levels** written out are «1-р зэргийн үсчин», never «1-р зэрэг үсчин» (the booking writes none today; a test keeps it so). Level-named haircuts go only to that level; «Аль ч {level}» is still never a recommendation.
-- **Парк Од switch-on**: you register her QPay merchant yourself under your login (no e-mail to QPay); proof is a real 100₮ test landing in HER account. Her booking account tarasalon.parkod@gmail.com exists. The website's domain will be tarasalon.org (links stay on matrixecosalon.org until the switch).
+- **Парк Од's QPay** (your correction): she uses YOUR existing QPay merchant and login, exactly as Яармаг and Core Language do; nothing is registered and nothing is asked of Boloroo. The only difference is the bank account her deposits are paid into (her Khan Bank account, the website's `PARKOD_QPAY_BANK_CODE` / `_ACCOUNT_NUMBER` / `_ACCOUNT_NAME`); her invoice is Яармаг's exactly but for `bank_accounts` (a test compares them). Proof is a real 100₮ test landing in HER account.
+- **«Гоёлын засалт /эрэгтэй/»** (your decision): offered to men, in «Эрэгтэй засалт» (Anand at Яармаг, Tuchku at Парк Од). Approved; it was already built so.
+- **Alerts**: for now every booking alert reaches only you; Boloroo checks Парк Од's Messenger herself. Nothing is built for owner alerts.
+- **Парк Од switch-on**: Her booking account tarasalon.parkod@gmail.com exists. The website's domain will be tarasalon.org (links stay on matrixecosalon.org until the switch).
 
 ## Round 2026-10-03: two branches
 
@@ -16,7 +19,7 @@ _The short version of the first report and the follow-ups (2026-10-03). The full
 - **Stylists** by their short Latin names. Яармаг: Oyunaa (SPECIAL), Badamaa (Мастер), Uyanga, Zaya, Chimgee (1-р зэрэг), Anand (Мастер, the only man). Парк Од: Boloroo (SPECIAL), Saraa, Tomoo, Bulgaa, Enhuush, Chimegee, Tuchku (Мастер; Tuchku the only man). (Отгонжаргал was left out in this round; she is back since 2026-10-04, above.)
 - **Deposits**: SPECIAL 20,000₮, Мастер 20,000₮, 1-р зэрэг 10,000₮ (Яармаг only; every Парк Од deposit is 20,000₮). Children: girls with a woman, boys with the branch's man, the stylist's level's deposit. «Аль ч {level}» never recommends a level and is never «Аль ч 1-р зэрэг» at Парк Од.
 - **No deposit terms in chat**: the summary no longer quotes the website's non-refundable sentence (your rule). The hold records the summary the customer accepted.
-- **Each branch is paid into its own QPay merchant and account**, no fallback between them; Парк Од stays off («not connected») until her calendars and merchant exist.
+- **Each branch is paid into its own bank account** (one QPay merchant and login for both, since 2026-10-04), no fallback between them; Парк Од stays off («not connected») until her calendars and her account are given.
 - **Website holds** (`sh…`) and chat holds (`dh…`) share one rule: an expired website hold is free; of two holds the earlier-placed wins.
 
 ## How Tara's customers ask to book today
@@ -30,16 +33,16 @@ _The short version of the first report and the follow-ups (2026-10-03). The full
 
 ## The design
 
-A deterministic flow (no model, every line a signed block): who it is for, service, stylist or level, then Дали asks *when*, reads the real calendars and holds, and offers the asked time or the nearest free ones. Name and phone, a summary (no deposit terms), «Зөвшөөрч, захиалах». That tap makes the QPay QR and holds the time for exactly 5 minutes, taken everywhere (database lock and a busy calendar event the website sees). Paid: booked and confirmed. Unpaid: released on time, told with «Цаг сонгох». Late and free: booked. Late and taken: the nearest free times on the same deposit, 30 minutes, and the founder paged. One hold per customer. Deposits are Tara's per level (SPECIAL and Мастер 20,000₮, 1-р зэрэг 10,000₮), each branch on its own QPay merchant.
+A deterministic flow (no model, every line a signed block): who it is for, service, stylist or level, then Дали asks *when*, reads the real calendars and holds, and offers the asked time or the nearest free ones. Name and phone, a summary (no deposit terms), «Зөвшөөрч, захиалах». That tap makes the QPay QR and holds the time for exactly 5 minutes, taken everywhere (database lock and a busy calendar event the website sees). Paid: booked and confirmed. Unpaid: released on time, told with «Цаг сонгох». Late and free: booked. Late and taken: the nearest free times on the same deposit, 30 minutes, and the founder paged. One hold per customer. Deposits are Tara's per level (SPECIAL and Мастер 20,000₮, 1-р зэрэг 10,000₮), both branches on your one QPay merchant, each paid into its own bank account.
 
 ## Built and proven
 
-Draft PR https://github.com/dalatechai-cyber/dala-ai/pull/280, off for every tenant; the two-branch round is a draft PR stacked on it. End-to-end 263 checks (2026-10-04) over real PostgreSQL and PostgREST with faithful QPay and Google fakes, 11 of them running Tara's own website code (including its own hold) against the same calendar, 244 in CI, which has no website checkout. Seven independent review rounds, every finding fixed. Migration `0082_booking` is **not applied** (checked on the project 2026-10-03: latest is `0081_ora_billing`, no booking tables or functions; main has no other 0082).
+Draft PR https://github.com/dalatechai-cyber/dala-ai/pull/280, off for every tenant; the two-branch round is a draft PR stacked on it. End-to-end 260 checks (2026-10-04) over real PostgreSQL and PostgREST with faithful QPay and Google fakes, 21 of them running or reading Tara's own website code (including its own hold and `from-website.ts` on her checkout) against the same calendar, 239 in CI, which has no website checkout. Seven independent review rounds, every finding fixed. Migration `0082_booking` is **not applied** (checked on the project 2026-10-03: latest is `0081_ora_billing`, no booking tables or functions; main has no other 0082).
 
 ## Still missing
 
 - Several services in one booking; moving or cancelling a booking in chat; Instagram and the website chat.
-- Парк Од: her tenant (another round), her calendars, her QPay merchant and payout account (not issued), then her row and a 100₮ test.
+- Парк Од: her tenant (another round), her calendars, her bank account (not given yet), then her row and a 100₮ test landing in HER account.
 - Signing the drafts below; your 100₮ test (steps in the design doc).
 
 ## Every draft line

@@ -1,7 +1,7 @@
 /**
  * One branch's `booking_config.config`, built from a brand's shared booking rules file
  * (`config/booking/<brand>.json`) and what only that branch has: its stylists' calendars and its
- * own QPay merchant. Pure: the caller says where the calendars and the merchant come from
+ * QPay (the brand's merchant, its own payout account). Pure: the caller says where they come from
  * (`scripts/booking/from-website.ts` reads the brand's website; the tests use test values). The
  * branch is named by an ARGUMENT, never here (a client is rows).
  *
@@ -13,7 +13,6 @@ import { NOT_CONNECTED } from './config.ts';
 export type RawQpay = {
   merchant_id: string; mcc_code: string;
   bank_accounts: { bank_code: string; account_number: string; account_name: string }[];
-  login?: string;
 };
 
 export type BranchRules = {
@@ -26,7 +25,7 @@ export type BranchRules = {
 export type BranchSource = {
   /** The calendar of the stylist the brand's website knows by `website`; null: not connected yet. */
   calendarFor: (website: string) => string | null;
-  /** This branch's own merchant, or not connected yet. */
+  /** The merchant and this branch's own payout account, or not connected yet. */
   qpay: RawQpay | typeof NOT_CONNECTED;
   testSenderIds?: readonly string[];
 };

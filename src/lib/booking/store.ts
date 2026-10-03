@@ -32,13 +32,13 @@ export async function readConfig(db: SupabaseClient, tenantId: string): Promise<
 }
 
 /**
- * Which OTHER tenants' booking rows name this merchant id, this payout account, or this tenant's
- * own QPay login (`qpay.login`; the platform's login, null, is everyone's). A merchant, an account
- * and an own login are one tenant's (each branch is paid into its own): any match refuses the
- * invoice. A row whose config is unreadable is compared by what it does say; an unreadable table
- * refuses.
+ * Which OTHER tenants' booking rows name this tenant's payout account. An account is one tenant's
+ * (each branch is paid into its own): any match refuses the invoice. The merchant id is NOT
+ * compared: branches of one brand invoice under one merchant (Tara, founder 2026-10-04), and the
+ * invoice's `bank_accounts` is what decides whose account the money reaches. A row whose config
+ * is unreadable is compared by what it does say; an unreadable table refuses.
  */
-export async function merchantSharedWith(db: SupabaseClient, tenantId: string, m: QpayMerchant): Promise<Ok<{ tenants: string[] }> | Fail> {
+export async function accountSharedWith(db: SupabaseClient, tenantId: string, m: QpayMerchant): Promise<Ok<{ tenants: string[] }> | Fail> {
   const { data, error } = await db.from('booking_config').select('tenant_id, config').neq('tenant_id', tenantId);
   if (error) return { ok: false, detail: `booking_config unreadable: ${error.message}` };
   const mine = new Set(m.bankAccounts.map((b) => b.accountNumber));
@@ -47,9 +47,7 @@ export async function merchantSharedWith(db: SupabaseClient, tenantId: string, m
     const r = rec(row);
     const q = rec(rec(r['config'])['qpay']);
     const accounts = Array.isArray(q['bank_accounts']) ? (q['bank_accounts'] as unknown[]).map((b) => String(rec(b)['account_number'] ?? '').trim()) : [];
-    const login = typeof q['login'] === 'string' ? q['login'].trim() : '';
-    if (String(q['merchant_id'] ?? '').trim() === m.merchantId || accounts.some((a) => a !== '' && mine.has(a))
-      || (m.login !== null && login === m.login)) tenants.push(String(r['tenant_id']));
+    if (accounts.some((a) => a !== '' && mine.has(a))) tenants.push(String(r['tenant_id']));
   }
   return { ok: true, tenants };
 }
@@ -321,8 +319,8 @@ export type Invoice = {
   id: string; holdId: string; amountMnt: number; state: 'creating' | 'open' | 'unknown' | 'refused' | 'cancelled' | 'paid';
   qpayInvoiceId: string | null; qrImage: string | null; qrText: string | null;
   urls: { name: string; description: string; logo: string; link: string }[]; qrExpiresAt: Date | null; createdAt: Date;
-  /** The merchant, payout account and login the invoice was made on (0082). */
-  merchantId: string; payoutAccount: string; qpayLogin: string | null;
+  /** The merchant and payout account the invoice was made with (0082). */
+  merchantId: string; payoutAccount: string;
 };
 
 function toInvoice(v: unknown): Invoice {
@@ -338,7 +336,6 @@ function toInvoice(v: unknown): Invoice {
     qrExpiresAt: typeof r['qr_expires_at'] === 'string' ? new Date(r['qr_expires_at']) : null,
     createdAt: new Date(String(r['created_at'])),
     merchantId: String(r['merchant_id'] ?? ''), payoutAccount: String(r['payout_account'] ?? ''),
-    qpayLogin: typeof r['qpay_login'] === 'string' ? r['qpay_login'] : null,
   };
 }
 
@@ -350,11 +347,11 @@ export async function holdInvoices(db: SupabaseClient, holdId: string): Promise<
 
 /** Claim a new invoice row before QPay is asked. */
 export async function claimInvoice(db: SupabaseClient, input: {
-  tenantId: string; holdId: string; amountMnt: number; merchantId: string; payoutAccount: string; qpayLogin: string | null;
+  tenantId: string; holdId: string; amountMnt: number; merchantId: string; payoutAccount: string;
 }): Promise<Ok<{ invoice: Invoice }> | Fail> {
   const { data, error } = await db.from('booking_invoices').insert({
     tenant_id: input.tenantId, hold_id: input.holdId, amount_mnt: input.amountMnt,
-    merchant_id: input.merchantId, payout_account: input.payoutAccount, qpay_login: input.qpayLogin,
+    merchant_id: input.merchantId, payout_account: input.payoutAccount,
   })
     .select('*').maybeSingle();
   if (error || data === null) return { ok: false, detail: `booking_invoices insert: ${error?.message ?? 'no row'}` };

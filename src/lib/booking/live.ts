@@ -1,8 +1,8 @@
 /**
  * The booking ports bound to the real world: Google Calendar on the service account, QPay with
- * the tenant's OWN merchant and payout account on the login its row names (`qpayLogin.ts`: the
- * platform's Quick QR partner login unless the tenant has its own), Messenger through the same
- * delivery path every reply takes, and the founder's alerts.
+ * the merchant and the tenant's OWN payout account from its row on the platform's one Quick QR
+ * partner login (`QPAY_USERNAME/…`, the same login billing and Tara's website use), Messenger
+ * through the same delivery path every reply takes, and the founder's alerts.
  *
  * `null` with the reason whenever anything is missing: a route answers 503 and the worker's
  * hook stays out of the way, so a half-configured deployment changes nothing for a customer.
@@ -17,20 +17,29 @@ import { googleCalendar } from './calendar.ts';
 import { bookingEnvMode, type QpayMerchant } from './config.ts';
 import type { BookingPorts } from './engine.ts';
 import { linkSecret, publicOrigin } from './links.ts';
-import { qpayLoginFor } from './qpayLogin.ts';
 import { loadBookingWording } from './wording.ts';
 import { bookingTurn, type TurnInput, type TurnResult } from './turn.ts';
 
 const env = (k: string): string => (process.env[k] ?? '').trim();
 
+/** The platform's Quick QR login, read now (never cached, rule 7), or the names that are missing. */
+export function platformQpayLogin(source: Readonly<Record<string, string | undefined>> = process.env):
+  { ok: true; login: { username: string; password: string; terminalId: string } } | { ok: false; missing: string[] } {
+  const read = (k: string) => (source[k] ?? '').trim();
+  const login = { username: read('QPAY_USERNAME'), password: read('QPAY_PASSWORD'), terminalId: read('QPAY_TERMINAL_ID') };
+  const missing = ([['QPAY_USERNAME', login.username], ['QPAY_PASSWORD', login.password], ['QPAY_TERMINAL_ID', login.terminalId]] as const)
+    .filter(([, v]) => v === '').map(([k]) => k);
+  return missing.length === 0 ? { ok: true, login } : { ok: false, missing };
+}
+
 /**
- * The QPay port for one tenant's merchant: its own payout account on every invoice, on the login
- * its row names, read now (never cached, rule 7). Missing anything: null, so no invoice is made;
- * never another login or another tenant's merchant instead. `fetchImpl` is the test seam.
+ * The QPay port for one tenant's row: the merchant and the tenant's own payout account on every
+ * invoice, on the platform's login. Missing anything: null, so no invoice is made; never another
+ * tenant's account instead. `fetchImpl` and `source` are the test seams.
  */
-export function qpayPortFor(m: QpayMerchant, fetchImpl?: typeof fetch): QpayPort | null {
+export function qpayPortFor(m: QpayMerchant, fetchImpl?: typeof fetch, source?: Readonly<Record<string, string | undefined>>): QpayPort | null {
   const bank = m.bankAccounts[0];
-  const login = qpayLoginFor(m);
+  const login = platformQpayLogin(source);
   if (bank === undefined || !login.ok) {
     if (!login.ok) console.error(JSON.stringify({ level: 'error', event: 'booking.qpay_login_missing', missing: login.missing }));
     return null;
@@ -48,11 +57,11 @@ export async function liveBookingPorts(db: SupabaseClient, opts: { graphVersionD
   const origin = publicOrigin();
   const email = (process.env['GOOGLE_SERVICE_ACCOUNT_EMAIL'] ?? '').trim();
   const key = process.env['GOOGLE_PRIVATE_KEY'] ?? '';
-  const qpay = { username: env('QPAY_USERNAME'), password: env('QPAY_PASSWORD'), terminalId: env('QPAY_TERMINAL_ID') };
+  const qpay = platformQpayLogin();
   const missing = [
     secret === null ? 'BOOKING_LINK_SECRET' : '', origin === null ? 'DALA_PUBLIC_URL' : '',
     email === '' ? 'GOOGLE_SERVICE_ACCOUNT_EMAIL' : '', key.trim() === '' ? 'GOOGLE_PRIVATE_KEY' : '',
-    qpay.username === '' ? 'QPAY_USERNAME' : '', qpay.password === '' ? 'QPAY_PASSWORD' : '', qpay.terminalId === '' ? 'QPAY_TERMINAL_ID' : '',
+    ...(qpay.ok ? [] : qpay.missing),
     env('META_GRAPH_VERSION') === '' && opts.graphVersionDefault === undefined ? 'META_GRAPH_VERSION' : '',
   ].filter((m) => m !== '');
   if (missing.length > 0) return { ok: false, detail: `booking is not configured: ${missing.join(', ')}` };
