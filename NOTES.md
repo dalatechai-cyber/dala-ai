@@ -50,6 +50,10 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       (only the dropped-message flag) also stops the follow-up; «today» with nothing that can still start says
       «боломжгүй»; «цагийн өмнө/дотор/турш» are lengths, not times; an `exists` follow-up draft younger than
       2 min is left to the run that may be sending it (runs can overlap). e2e 153 locally.
+- [x] CI green on bb52b3f (145 in CI). Final review: all 4 fixed; closed its leftovers: an unreadable draft time
+      now logs as a failure (never a silent skip); bare «цаг өмнө/дотор/дараа» are lengths too; e2e now covers the
+      leftover-draft path both ways and «өнөөдөр» when nothing can still start. e2e 156 locally.
+      Not done (noted): quality_flags has no index for the follow-up's read (fine at today's volume).
 - [ ] CI on this push
 
 ## Decisions (with reason)

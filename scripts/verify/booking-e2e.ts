@@ -163,6 +163,8 @@ setConfig('live');
 // 10:00–20:00 every day, so the walk-through does not depend on which weekday it runs
 // (Sunday's 11–19 is covered by the unit tests).
 const HOURS = [0, 1, 2, 3, 4, 5, 6].map((d) => ({ weekday: d, opens: '10:00:00', closes: '20:00:00', closed: false }));
+/** The hours the next customer messages see (one check swaps in a day that closes half an hour from now). */
+let hoursNow = HOURS;
 
 type Chat = { psid: string; conversationId: string; last: TurnResult | null; lastBody: string | null; transcript: string[] };
 
@@ -177,7 +179,7 @@ async function says(chat: Chat, text: string, payload?: string): Promise<TurnRes
   const mid = `mid.${randomUUID()}`;
   const r = await bookingTurn(ports, {
     tenantId: T, channelId: CH, conversationId: chat.conversationId, psid: chat.psid, mid, text,
-    ...(payload === undefined ? {} : { quickReplyPayload: payload }), respelled: null, hours: HOURS, closures: [],
+    ...(payload === undefined ? {} : { quickReplyPayload: payload }), respelled: null, hours: hoursNow, closures: [],
   });
   chat.last = r;
   chat.transcript.push(`**Customer:** ${text}${payload === undefined ? '' : ' *(tap)*'}`);
@@ -968,6 +970,46 @@ check(pushedTo(h1, beforeH).length === 0 && psql(`select followed_up_at is not n
 check(pushedTo(h2, beforeH).length === 0, 'the customer sent a photo and got the image line: no follow-up');
 check(pushedTo(h3, beforeH).length === 0, 'the customer wrote something the flow did not take: no follow-up');
 check(pushedTo(h4, beforeH).length === 0, 'the customer sent a sticker (no message, no reply, only the dropped flag): no follow-up');
+
+// A follow-up draft left by an earlier run: refused once it is old enough to be nobody's, left
+// alone while another run may be sending it. A run's draft moves the session on in the same
+// transaction, so the leftover row carries the session's own time.
+const fu1 = newChat();
+await toWhen(fu1, 'Бадмаа · Мастер');
+await says(fu1, `${typedDay3} 16 цагт`);
+const fu2 = newChat();
+await toWhen(fu2, 'Бадмаа · Мастер');
+await says(fu2, `${typedDay3} 17 цагт`);
+quietFor(fu1, 11);
+const sessFu1 = psql(`select id from booking_sessions where conversation_id = '${fu1.conversationId}' and closed_at is null`);
+const sessFu2 = psql(`select id from booking_sessions where conversation_id = '${fu2.conversationId}' and closed_at is null`);
+psql(`insert into outbound_messages (tenant_id, channel_id, conversation_id, kind, body, dedup_key, state, created_at)
+      values ('${T}', '${CH}', '${fu1.conversationId}', 'reply', 'old follow-up', 'booking-followup:${sessFu1}', 'draft', (select updated_at from booking_sessions where id = '${sessFu1}'))`);
+const beforeFu = sent.length;
+await runSweep(ports);
+// fu2 goes quiet only now, and its row appears as if another run drafted it a moment ago.
+quietFor(fu2, 11);
+psql(`insert into outbound_messages (tenant_id, channel_id, conversation_id, kind, body, dedup_key, state)
+      values ('${T}', '${CH}', '${fu2.conversationId}', 'reply', 'fresh follow-up', 'booking-followup:${sessFu2}', 'draft')`);
+await runSweep(ports);
+check(pushedTo(fu1, beforeFu).length === 0 && psql(`select state from outbound_messages where dedup_key = 'booking-followup:${sessFu1}'`) === 'refused'
+  && psql(`select followed_up_at is not null from booking_sessions where id = '${sessFu1}'`) === 't',
+  'a follow-up an earlier run drafted and never sent: refused (never sent late), the chat marked');
+check(pushedTo(fu2, beforeFu).length === 0 && psql(`select state from outbound_messages where dedup_key = 'booking-followup:${sessFu2}'`) === 'draft',
+  'one drafted moments ago (another run may be sending it): left alone, not sent twice');
+
+// «Өнөөдөр» half an hour before closing, when a 60-minute service can no longer start: not
+// bookable, never «full». Today closes 30 minutes from now (whatever the hour the check runs).
+const ubNow = tenantClock(new Date(), TZ);
+const closeIn30 = Math.min(23 * 60 + 59, Number(ubNow.time.slice(0, 2)) * 60 + Number(ubNow.time.slice(3, 5)) + 30);
+const late = newChat();
+await toWhen(late, 'Бадмаа · Мастер');
+hoursNow = HOURS.map((h) => h.weekday === ubNow.weekday
+  ? { ...h, opens: '00:00:00', closes: `${String(Math.floor(closeIn30 / 60)).padStart(2, '0')}:${String(closeIn30 % 60).padStart(2, '0')}:00` } : h);
+await says(late, 'өнөөдөр');
+hoursNow = HOURS;
+check((late.lastBody ?? '').startsWith(`${say(wording, 'booking_day_closed', { date: say(wording, 'booking_day_today') })}\n`),
+  '«өнөөдөр» when nothing can still start before closing: «… цаг захиалах боломжгүй», then the next day with time');
 const p7 = newChat();
 await toWhen(p7, 'Бадмаа · Мастер');
 await says(p7, `${typedDay3} 18 цагт`);

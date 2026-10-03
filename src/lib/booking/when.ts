@@ -136,7 +136,7 @@ export function parseWhen(text: string, today: { date: string; weekday: number }
   let minute = 0;
   const hm = new RegExp(`${NOT_DIGIT_BEFORE}(\\d{1,2})\\s*[:.]\\s*(\\d{2})(?!\\p{N})`, 'u').exec(withoutDate);
   const h = hm === null
-    ? new RegExp(`${NOT_DIGIT_BEFORE}(\\d{1,2})\\s*(?:цаг(?:т|аас|аар|ийн(?!\\s*(?:дараа|өмнө|дотор|турш)))?|tsag(?:t|aas|aar|iin(?!\\s*(?:daraa|umnu|omno|dotor|tursh)))?|ц)(?![\\p{L}\\p{N}])(?:\\s*(хагас\\p{L}*|hagas\\p{L}*)|\\s*(\\d{1,2})\\s*(?:мин|min)\\p{L}*)?`, 'u').exec(withoutDate)
+    ? new RegExp(`${NOT_DIGIT_BEFORE}(\\d{1,2})\\s*(?:цаг(?:т|аас|аар|ийн)?|tsag(?:t|aas|aar|iin)?|ц)(?![\\p{L}\\p{N}])(?!\\s*(?:дараа|өмнө|дотор|турш|daraa|umnu|omno|dotor|tursh))(?:\\s*(хагас\\p{L}*|hagas\\p{L}*)|\\s*(\\d{1,2})\\s*(?:мин|min)\\p{L}*)?`, 'u').exec(withoutDate)
     : null;
   if (hm !== null) {
     hour = Number(hm[1]);

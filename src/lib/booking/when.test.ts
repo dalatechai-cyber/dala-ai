@@ -97,3 +97,10 @@ test('BOOKING when: a length of time is not a clock time', () => {
   assert.deepEqual(at('маргааш 3 цагийн дотор'), { date: '2026-10-03', at: null });
   assert.deepEqual(at('маргааш 2 цагийн турш'), { date: '2026-10-03', at: null });
 });
+
+test('BOOKING when: the bare «цаг» before a length word is a length too', () => {
+  assert.deepEqual(at('маргааш 2 цаг өмнө'), { date: '2026-10-03', at: null });
+  assert.deepEqual(at('маргааш 3 цаг дотор'), { date: '2026-10-03', at: null });
+  assert.equal(at('2 цаг дараа'), null);
+  assert.deepEqual(at('маргааш 2 цагт'), { date: '2026-10-03', at: 14 * 60 });
+});

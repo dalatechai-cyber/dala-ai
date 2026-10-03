@@ -859,7 +859,8 @@ async function followUp(ports: BookingPorts, session: Session, now: Date): Promi
     // back as a turn the customer received. A draft younger than two minutes may be another run
     // that is sending it right now (runs can overlap): left to that run.
     const created = await outboundCreatedAt(ports.db, session.tenantId, applied.turn.outboundId);
-    if (created === null || now.getTime() - created.getTime() < 2 * 60_000) return 'skipped';
+    if (!created.ok) return fail('outbound', created.detail);
+    if (now.getTime() - created.at.getTime() < 2 * 60_000) return 'skipped';
     const r = await markRefused(ports.db, { id: applied.turn.outboundId, tenantId: session.tenantId, reason: 'booking_follow_up: drafted by an earlier run', from: ['draft', 'failed'] });
     if (!r.ok) ports.log('error', 'booking_follow_up_refuse_failed', { sessionId: session.id, detail: r.detail });
     return skip('already drafted once');

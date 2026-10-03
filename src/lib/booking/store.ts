@@ -395,11 +395,12 @@ export async function conversationMovedOn(db: SupabaseClient, tenantId: string, 
   return { ok: true, moved: any(m.data) || any(o.data) || any(d.data) };
 }
 
-/** When an outbound row was drafted, or null when it cannot be read. */
-export async function outboundCreatedAt(db: SupabaseClient, tenantId: string, id: string): Promise<Date | null> {
+/** When an outbound row was drafted. */
+export async function outboundCreatedAt(db: SupabaseClient, tenantId: string, id: string): Promise<Ok<{ at: Date }> | Fail> {
   const { data, error } = await db.from('outbound_messages').select('created_at').eq('tenant_id', tenantId).eq('id', id).maybeSingle();
-  if (error || data === null) return null;
-  return new Date(String(rec(data)['created_at']));
+  if (error) return { ok: false, detail: `outbound_messages unreadable: ${error.message}` };
+  if (data === null) return { ok: false, detail: `outbound_messages: no row ${id}` };
+  return { ok: true, at: new Date(String(rec(data)['created_at'])) };
 }
 
 /** The follow-up went out (or was drafted); never again for this chat. A failure only logs: the reply's dedup key still holds. */
