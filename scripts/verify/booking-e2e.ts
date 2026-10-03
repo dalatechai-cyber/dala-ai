@@ -1426,6 +1426,8 @@ check(holdState(holdRv10) === 'paid_unbooked'
   && alerts.some((a) => a.dedupKey.includes(holdRv10) && a.dedupKey.endsWith(':none'))
   && !alerts.some((a) => a.dedupKey.includes(holdRv10) && a.dedupKey.endsWith(':undelivered')),
   'the channel does not deliver: you are told the deposit is yours to refund or book, never «wait for a retry» that cannot come');
+check(psql(`select count(*) from booking_sessions where conversation_id = '${rv10.conversationId}' and closed_at is null and step = 'rebook'`) === '0',
+  'and no offer is left open behind that page: a later tap cannot book a deposit you may have refunded');
 
 // =====================================================================================
 section('13. Every customer message got at most one reply; nothing was confirmed unpaid');

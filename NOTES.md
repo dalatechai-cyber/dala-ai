@@ -78,6 +78,10 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       that does not deliver is «none», not «wait»; an unreadable read refuses and retries (never «nothing free»),
       and a round whose plain line was drafted is never offered after; the hold's end is moved before the QR row
       opens. e2e 193 locally.
+- [x] Review of 295a8e2: all 4 fixed; fixed its new one (an offer left open behind a «none» page on a
+      non-delivering channel: the rebook chat is closed) and the earlier one (setHoldExpiry reported success on
+      zero rows: a QR never opens for an ended hold); an unreadable record now pages «do not refund yet».
+      e2e 194 locally.
 - [ ] CI on this push
 
 ## Decisions (with reason)

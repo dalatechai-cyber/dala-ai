@@ -703,9 +703,16 @@ export async function offerRebook(ports: BookingPorts, hold: Hold, facts: Tenant
     body: marked(ports.wording, hold.isTest, offer.body),
   });
   if (!applied.ok || applied.turn.outcome === 'stale' || applied.turn.outboundId === null) return failed();
-  return deliverDrafted(ports, { tenantId: hold.tenantId, channelId: hold.channelId, psid: hold.psid }, applied.turn.outboundId,
+  const sent = await deliverDrafted(ports, { tenantId: hold.tenantId, channelId: hold.channelId, psid: hold.psid }, applied.turn.outboundId,
     { holdId: hold.id, event: 'paid_unbooked_offer' },
     { quickReplies: quickReplies('rebook', offer.offers, say(ports.wording, 'booking_cancel')) });
+  // A channel that does not deliver: the founder is told the deposit is theirs, so no offer may
+  // stay open behind that (a later tap would book a deposit they may have refunded).
+  if (sent === 'not_delivering') {
+    const r = await closeSessionRow(ports.db, (session as Session).id, 'rebook_not_delivering', now, 'rebook');
+    if (!r.ok) ports.log('error', 'booking_session_close_failed', { holdId: hold.id, detail: r.detail });
+  }
+  return sent;
 }
 
 /** A message in the rebook chat: a time tapped (or typed), another day asked, or nothing of the sort. */

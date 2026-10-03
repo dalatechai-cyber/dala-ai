@@ -262,8 +262,11 @@ export async function markUnbooked(db: SupabaseClient, holdId: string, reason: s
 
 /** The five minutes start when the QR exists: the held time's end moved to the QR's. Only while held. */
 export async function setHoldExpiry(db: SupabaseClient, holdId: string, expiresAt: Date): Promise<Ok<object> | Fail> {
-  const { error } = await db.from('booking_holds').update({ expires_at: expiresAt.toISOString() }).eq('id', holdId).eq('state', 'held');
-  return error ? { ok: false, detail: `booking_holds update: ${error.message}` } : { ok: true };
+  const { data, error } = await db.from('booking_holds').update({ expires_at: expiresAt.toISOString() }).eq('id', holdId).eq('state', 'held').select('id');
+  if (error) return { ok: false, detail: `booking_holds update: ${error.message}` };
+  // No row: the hold ended meanwhile (expired, released). Its QR must never open.
+  if ((data ?? []).length === 0) return { ok: false, detail: 'the hold is no longer held' }; // ascii-safe: counts rows
+  return { ok: true };
 }
 
 /** Move a paid deposit whose time was taken to another free time (`booking_rebook_hold`). */

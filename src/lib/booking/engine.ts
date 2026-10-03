@@ -414,8 +414,14 @@ async function tellPaidUnbooked(ports: BookingPorts, hold: Hold, facts: TenantFa
   const plainKey = `booking:${hold.id}:paid_unbooked:${round}`;
   const plainDrafted = await outboundExists(ports.db, hold.tenantId, plainKey);
   if (plainDrafted === null) {
-    // Unreadable: nothing said, nothing paged; untold, so the sweep asks again next minute.
+    // Unreadable: nothing said to the customer yet; untold, so the sweep asks again each minute.
+    // The founder knows at once that a paid deposit has no time, and to wait for the next page.
     ports.log('error', 'booking_paid_unbooked_unreadable', { holdId: hold.id });
+    await ports.alert({
+      tenantId: hold.tenantId, kind: 'booking.paid_unbooked', dedupKey: `booking.paid_unbooked:${hold.id}:${round}:unreadable`,
+      body: alertBody(hold, facts, '⚠️ A customer PAID the deposit in Messenger and has NO appointment.',
+        `${why}\nThe platform could not read its own records to tell the customer; it retries every minute. Do not refund or book by hand yet: you get another message when the customer has been told.`),
+    });
     return;
   }
   // turn.ts imports this module; imported here on use so neither loads the other half-made.
