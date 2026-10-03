@@ -1,0 +1,4 @@
+# DRAFT — copy of prompt/drafts/booking/booking_ask_variant.mn.txt (PR #285, commit 59a76e5).
+# The second question for a line sold by hair length or level (e.g. «Тайралт том хүн» → SPECIAL / МАСТЕР / 1-р зэрэг).
+
+{service} — аль нь вэ?

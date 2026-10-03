@@ -1,0 +1,170 @@
+# DRAFT — not loaded. Tara Salon — Парк Од (slug tara-park-od): every customer-read or
+# model-read line of hers that is NOT byte-identical to a line the founder already approved
+# for Яармаг (compared against Яармаг's live rows, read read-only on 2026-10-03 and 2026-10-04).
+#
+# Round 2 (founder's approvals of 2026-10-04): sections 1, 2 and 5 approved as drafted;
+# assistant_identity and booking_line are now Яармаг's approved lines byte for byte;
+# refusal_topic is not created; stylist_tier and the levels knowledge approved (SPECIAL and
+# Мастер only; she never quotes or offers 1-р зэрэг). What still waits is marked AWAITING.
+#
+# Where they come from:
+#   [form]    written by scripts/onboard/tenant.ts from intake/tara-park-od.docx
+#   [wording] intake/tara-park-od.wording.json, passed to the same command (--wording)
+#   [after]   scripts/provision/tara-park-od-after-onboarding.sql
+# Every other line of hers is Яармаг's approved bytes (listed at the end).
+
+## 1. Only the phone changes («76001888 эсвэл 91005498» → «76001888») — APPROVED 2026-10-04
+
+[wording] canned handoff — CHANGED 2026-10-04 to the founder's approved sentence for anything
+Дали does not know (answer 3, «both branches»), the same bytes as Яармаг's in PR #283:
+Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно уу.
+  (Her hand-off chats are answered by the owner, Boloroo.)
+
+[form] canned refusal_no_promotion
+Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та 76001888 дугаараар лавлана уу.
+
+[form] canned refusal_price_unlisted
+Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 76001888 дугаараар холбогдож лавлана уу.
+
+[form] canned refusal_staff_schedule
+Үсчдийн ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та 76001888 дугаараар лавлана уу.
+
+[after] canned refusal_suitability
+Уучлаарай, энэ таны үсэнд тохирох эсэхийг би шийдэж өгөх боломжгүй. Манай мэргэжилтэн үсийг тань харж хэлнэ. Та 76001888 дугаараар холбогдоно уу.
+
+[after] fixed reply salon_phone
+Та 76001888 дугаараар холбогдоно уу.
+
+## 2. Her own address (no map line: she has no Google Maps listing yet) — APPROVED 2026-10-04
+
+[after] fixed reply address
+Хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот
+
+## 3. Resolved 2026-10-04: no template wording left
+
+[wording] canned assistant_identity — Яармаг's approved line, byte for byte:
+Би Tara Salon-ы AI туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Хүссэн зүйлээ асуугаарай.
+
+[wording] canned booking_line — Яармаг's approved sentence, byte for byte:
+Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.
+
+[wording] canned refusal_topic — not created (founder: «don't create it»).
+
+## 3b. Only her two levels — APPROVED 2026-10-04
+
+[after] fixed reply stylist_tier (sent verbatim, no model)
+SPECIAL болон Мастер үсчний ялгаа нь зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.
+
+[form] knowledge «Ажилтны зэрэг ба үнэ» (form 5.2), first line
+SPECIAL болон Мастер үсчний ялгаа нь зэрэглэл болон үнэд байдаг.
+
+Her price rows carry NO 1-р зэрэг price: her form's «Эмэгтэй тайралт» has SPECIAL 120,000₮ and
+Мастер 99,000₮ only, and config/branch-groups.json `not_offered` tells the branch gate that the
+missing row is not drift (every price she carries still equals Яармаг's; no price changed).
+So the 1-р зэрэг price is in nothing she reads: not the price list, not the roster, not a
+document, not a fixed reply. Proven on the local replica (compiled sections: no «1-р зэрэг»).
+
+## 4. «Салбарууд», symmetric (founder, 2026-10-04: each branch names the other) — AWAITING
+
+[after] knowledge «Салбарууд» (the model reads it)
+Tara Salon хоёр салбартай: Яармаг салбар, Парк Од салбар.
+Энэ хуудас бол Парк Од салбарын хуудас.
+Boloroo Парк Од салбарт ажилладаг.
+Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот.
+Яармаг салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун талд.
+Хоёр салбарын нийтлэг утас: 76001888.
+Хоёр салбарын үнэ ижил.
+Яармаг салбар өөрийн Фэйсбүүк хуудастай.
+  Яармаг's approved «Салбарууд» mirrored: lines 1, 6, 7 are its bytes; «Энэ хуудас бол …» and
+  «… салбарт ажилладаг.» carry her branch and her owner; «Яармаг салбарын хаяг: …» and «Яармаг
+  салбар өөрийн Фэйсбүүк хуудастай.» mirror Яармаг's two Парк Од lines. Her own address line is
+  kept (it was in the first draft) so the model never takes Яармаг's address for hers. No
+  91005498 and no Яармаг map link: those are Яармаг's own.
+
+[after] fixed reply yarmag_branch (sent verbatim; mirrors Яармаг's approved `park_od_branch`)
+Яармаг салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун талд
+Утас: 76001888
+Фэйсбүүк хуудас: https://www.facebook.com/profile.php?id=100067872726164
+  Яармаг's Page link is the website's (matrix_website data/branches.json): CONFIRM it is the
+  Page Яармаг's customers should be sent to. Fires on «Яармаг салбар хаана байдаг вэ?»,
+  «Яармаг салбарын утас?», «yarmag salbar haana bdag ve» (checked with the real matcher).
+
+[after] fixed reply branch_count — Яармаг's approved row, byte for byte (no approval needed):
+Tara Salon хоёр салбартай: Яармаг салбар, Парк Од салбар.
+
+On the November move both rows above get the VIP Center address
+(scripts/provision/tara-yarmag-move-2026-11.sql updates both tenants).
+
+## 4b. «Үсчдийн нэр» (the model reads it) — AWAITING; the Cyrillic spellings are GUESSES
+
+[after] knowledge «Үсчдийн нэр»
+Үсчдийн нэрийг латин үсгээр бичнэ: Boloroo, Saraa, Tomoo, Bulgaa, Enhuush, Chimegee, Tuchku.
+Болороо, Болор гэвэл Boloroo.
+Сараа гэвэл Saraa.
+Томоо, Төмөө гэвэл Tomoo.
+Булгаа гэвэл Bulgaa.
+Энхүүш гэвэл Enhuush.
+Чимэгээ гэвэл Chimegee.
+Тучку, Түчкү гэвэл Tuchku.
+  Same shape as Яармаг's approved document. Every Cyrillic spelling is the lead's guess for the
+  founder to correct (Tomoo could be «Томоо» or «Төмөө»; Tuchku's is the least certain).
+  «Чимгээ» is deliberately NOT here: it is Яармаг's Chimgee, so the two stay apart (Chimgee at
+  Яармаг, Chimegee at Парк Од). Her roster is Latin only (no short names), as Яармаг's.
+
+## 5. Model-read lines from her form that are not Яармаг's — APPROVED 2026-10-04
+
+[form] deposit rule, rendered as «Урьдчилгаа төлбөр: SPECIAL болон Мастер үсчин: 20,000₮»
+
+## 6. The quality answers of 2026-10-04 — the same rows as Яармаг's in PR #283, byte for byte
+
+The answers are the founder's approved sentences. Each is a fixed reply (sent verbatim, no
+model: `deposit_deducted`, `loan_apps`, `dye_brand`, matchers as #283's) and an FAQ (so the
+model has it when a question has several parts). The FAQ QUESTIONS are #283's wording (model-read,
+never sent) — AWAITING with #283's.
+
+[form] FAQ
+Q: Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдах уу?
+A: Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.
+
+[form] FAQ
+Q: Зээлийн аппаар төлбөр төлж болох уу?
+A: Одоогоор зээлийн аппаар төлбөр авдаггүй.
+
+[form] FAQ (dye brand: no brand line, the staff answer)
+Q: Ямар брэндийн будаг хэрэглэдэг вэ?
+A: Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно уу.
+
+«Anything Дали doesn't know» is her `handoff` line (section 1), now the same sentence.
+
+[after] fixed replies price_page_color and price_page_treatment_perm — AWAITING (new sentence)
+Үнийн мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/services.html хуудаснаас үзнэ үү.
+  The two services the price list has no price for: «өнгө гаргалт» (stems «өнгө гаргал»,
+  «өнгө гаргуул», «ungu gargal», «ongo gargal» …) and women's «Эмчилгээний хими» (the words
+  «эмчилгээний», «хими» and «эмэгтэй», Cyrillic or Latin, all present). Shaped on Яармаг's
+  approved products FAQ («Бүтээгдэхүүний мэдээллийг манай вэбсайтын … хуудаснаас үзнэ үү.»).
+  Why a fixed reply and not an FAQ: the model's URL guard lets a reply carry only the booking
+  link and the contact links, by exact match; a fixed reply is sent verbatim. The link is also
+  declared, as in #283, by a `price_page` contact row (migration 0083, label «Үнийн хуудас»)
+  written in the go-live step, so a model reply repeating it is not refused. It is APPENDED
+  (placed after whatever else the reply says, never instead of it), so «өнгө гаргалт хийдэг үү,
+  хэдэн цаг болох вэ?» still gets its other answer.
+  Both land DISABLED: matrixecosalon.org still serves the old Matrix site, whose /services.html
+  shows the old prices, and the NEW site's price list (matrix_website data/services.json, read
+  2026-10-04) has neither price yet: no «өнгө гаргалт», and «Эмчилгээний хими» only for men.
+  Switch them on only once the live page shows both prices (the salon gives them, the website
+  adds them); on the move to tarasalon.org the link changes with the booking link.
+
+## Byte-identical to Яармаг's approved rows (no new approval needed; listed for completeness)
+
+canned: comment_public_reply, handover_notice, refusal_health, refusal_off_topic,
+refusal_public_channel [form]; assistant_identity, booking_line [wording]; image_received,
+refusal_out_of_scope, refusal_service_unavailable, comment_private_reply, voice_received,
+handover_reclaim [after].
+fixed replies [after]: acknowledgement, assistant_maker, assistant_who, booking, branch_count,
+correction_clarify, dye_prices, greeting, holiday_hours_note (76001888, the shared line),
+like_welcome, perm_types, photo_send, price_which_service, suitability_stylist, thanks,
+tomorrow_hours (stems and matchers checked equal by md5 on a local replica).
+FAQs [form]: both of Яармаг's. Knowledge [after]: Химийн хориглох заалт, Урамшуулал ба
+баримт, Химийн үйлчилгээний төрлүүд, Будалтын хориглох заалт ба боломж, CICA — эмчилгээ, хими
+биш, TARA Lumi – үүсгэлттэй будалт. Out-of-scope topics [after]: Яармаг's eleven.
+Not given to her: Яармаг's `park_od_branch` (her own branch), `tara_name`, `tara_rebrand`.

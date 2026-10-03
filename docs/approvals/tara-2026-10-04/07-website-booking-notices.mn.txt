@@ -1,0 +1,11 @@
+# DRAFT — two notices on the website's booking page, step 3 «Үсчин» (matrix_website PR #83,
+# commit f34c919, assets/booking.js; also listed in docs/COPY_DRAFT.md «Still waiting»).
+# Both appear only in rare cases. Until approved they show as written here.
+
+## A level-named haircut with no hairdresser of that level for this customer
+## (e.g. a man picks a women's SPECIAL cut). {level} is SPECIAL / Мастер / 1-р зэргийн;
+## {customer} is эмэгтэй / эрэгтэй.
+Сонгосон тайралтыг {level} үсчин хийдэг. Энэ салбарт {customer} үйлчлүүлэгчид үйлчлэх {level} үсчин одоогоор алга. Өөр тайралт сонгох эсвэл салбарын утсаар холбогдоно уу.
+
+## Two haircuts of different levels chosen together
+Өөр өөр зэргийн үсчний тайралтыг нэг захиалгад хамт сонгох боломжгүй. Үйлчилгээгээ дахин сонгоно уу.

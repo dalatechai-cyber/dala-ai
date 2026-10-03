@@ -1,0 +1,8 @@
+# DRAFT — copy of prompt/drafts/booking/booking_ask_agreement.mn.txt (PR #285, commit 59a76e5).
+# The block a customer reads before «Зөвшөөрч, захиалах». {…} are filled by the platform.
+
+{service}, {stylist}
+{date}, {time}
+Урьдчилгаа төлбөр: {amount}
+Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.
+Зөвшөөрч байвал доорх товчийг дарна уу.
