@@ -122,8 +122,8 @@ compare FAQs or fixed replies across branches, so "the same bytes" is by convent
   төлбөр төлж болох уу?», «Ямар брэндийн будаг хэрэглэдэг вэ?»; the same seven reply cases.
 - fixed replies `treatment_perm_women` (women's «Эмчилгээний хими» is not offered; approved, on),
   `colour_lift` («өнгө гаргалт»: the women's colour rows, then her phone line) and `colour_lift_men`
-  (the men's rows, only with «эрэгтэй»); the two colour rows land disabled and `seeded` until the
-  founder approves their wording (D-177, #283's
+  (the men's rows, only with «эрэгтэй»), each under «Манай өнгөний үйлчилгээний үнэ:» and ending
+  with 76001888 and 91005498; all approved 2026-10-04 and on (D-177, #283's
   `tara-yarmag-colour-and-treatment-perm-2026-10-04.sql`). The earlier price-page rows and the
   `price_page` contact are dropped: neither service is offered (founder, 2026-10-04).
 

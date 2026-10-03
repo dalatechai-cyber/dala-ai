@@ -1,8 +1,8 @@
-Files 1–7 approved by the founder on 2026-10-04. File 8 (D-177): part 1 approved; part 2 awaits approval.
+All files approved by the founder on 2026-10-04 (file 8, D-177, with two changes the same day).
 
 # Tara Salon — wording for the founder (2026-10-04)
 
-The founder approved files 1–7 **as written** on 2026-10-04; file 8 was added after, and waits. Approved is not live:
+The founder approved files 1–7 **as written** on 2026-10-04; file 8 was added after and approved the same day. Approved is not live:
 nothing here is loaded, applied, signed or published. These files are **copies**, kept exactly
 as the founder read them, so they still say «awaiting» where they did then; the sources now mark
 the same lines APPROVED. Each copy names its source file. If a copy and its source ever differ,
@@ -13,7 +13,7 @@ the source is the one that counts.
 - **Dropped 2026-10-04 (founder, D-177):** the price-page replies (file 1 items 5–6, file 3
   section 6) and the «Үнийн хуудас» contact. Neither price is a Tara service. The copies below
   still show them, as you read them.
-- **File 8:** the replies that take their place (both tenants). Part 1 (women's «Эмчилгээний хими») approved 2026-10-04; part 2 («өнгө гаргалт», split by gender) awaits approval.
+- **File 8:** the replies that take their place (both tenants), APPROVED 2026-10-04.
 - Signing the approved drafts is the founder's own step (`scripts/prompt/sign-drafts.ts` for the
   in-chat booking blocks; each tenant's wording sheet for its lines).
 
@@ -28,7 +28,7 @@ the source is the one that counts.
 | 5 | `05-booking-ask-variant.mn.txt` | In-chat booking: the second question for a line sold by length or level | **APPROVED 2026-10-04, as written.** Asked: unchanged since round 1, never approved | dala-ai#285 |
 | 6 | `06-booking-buttons.mn.txt` | In-chat booking: the group, service and children's buttons (20 characters max). «Гоёлын засалт /эрэгтэй/» is offered to men, as you decided on 2026-10-04 | **APPROVED 2026-10-04, as written**, the children's buttons included. Asked: round 2 added no new labels. Typed Cyrillic names (never shown) now pick a hairdresser. | dala-ai#285, `config/booking/tara-salon.json` |
 | 7 | `07-website-booking-notices.mn.txt` | Website booking, step 3: two rare notices (no hairdresser of that level; two levels picked together) | **APPROVED 2026-10-04, as written** (the website side is handled separately). Asked: **new** after the review. Hiding the men's SPECIAL cut from online booking was approved on 2026-10-04; only the wording of these two notices waits | matrix_website#83, `assets/booking.js` |
-| 8 | `08-colour-and-treatment-perm.mn.txt` | Both tenants: women's «Эмчилгээний хими» (not offered) and «өнгө гаргалт» (colour rows by gender) | **Part 1 APPROVED 2026-10-04; part 2 AWAITING.** Rows written; the colour rows disabled. | dala-ai#283 and #284 |
+| 8 | `08-colour-and-treatment-perm.mn.txt` | Both tenants: women's «Эмчилгээний хими» (not offered) and «өнгө гаргалт» (colour rows by gender) | **APPROVED 2026-10-04** (part 2 with a header line and Яармаг's 91005498). Rows written, on. | dala-ai#283 and #284 |
 
 Not here, because nothing in them waited for you: `intake/tara-park-od.wording.json`. It holds
 Парк Од's `handoff`, `assistant_identity` and `booking_line`, all of them lines you already

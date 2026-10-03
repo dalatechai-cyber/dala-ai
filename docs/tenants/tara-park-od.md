@@ -34,7 +34,7 @@ project waits for the steps at the end.
 | `intake/tara-park-od.answers.json` | Her questionnaire's answers, from the facts above, with Яармаг's approved wording where the form asks for words (FAQs, the level text), the three approved quality answers as FAQs, and 2.3 = Boloroo |
 | `intake/tara-park-od.wording.json` | Her own wording for templated sentences, passed with `--wording` on EVERY onboarding run (recorded on the tenant; a run without it, or with another file, is refused unless `--wording-changed`): the founder's `handoff` sentence and Яармаг's approved `assistant_identity` and `booking_line`, and no `refusal_topic` |
 | `intake/tara-park-od.docx` | The real client form (`dali-form-v2-blank.docx`) filled from it by `scripts/onboard/fixtures/fill.ts` |
-| `scripts/provision/tara-park-od-after-onboarding.sql` | What the form cannot carry: settings, hairdressers' groups, 7 canned lines, 26 fixed replies (the answers `deposit_deducted`, `loan_apps`, `dye_brand` as #283's; D-177's `treatment_perm_women` on, `colour_lift` and `colour_lift_men` disabled), 14 reply cases (inactive until her publish), 11 out-of-scope topics, the dye question, 8 knowledge documents, and the commented step that switches the two colour rows on after approval. Refuses to run unless onboarding used `--wording`, her rows carry no 1-р зэрэг price, and Яармаг's address is still the one it types. NOT applied |
+| `scripts/provision/tara-park-od-after-onboarding.sql` | What the form cannot carry: settings, hairdressers' groups, 7 canned lines, 26 fixed replies (the answers `deposit_deducted`, `loan_apps`, `dye_brand` as #283's; D-177's `treatment_perm_women`, `colour_lift` and `colour_lift_men`, all on), 14 reply cases (inactive until her publish), 11 out-of-scope topics, the dye question, 8 knowledge documents,  Refuses to run unless onboarding used `--wording`, her rows carry no 1-р зэрэг price, and Яармаг's address is still the one it types. NOT applied |
 | `prompt/drafts/tara_park_od_wording.mn.txt` | Every line of hers that differs from Яармаг's approved bytes, exactly |
 
 **Proven on a local PostgreSQL 16 + PostgREST 12.2.3 replica** (never the project), 2026-10-04,
@@ -135,11 +135,8 @@ real id.
    `node scripts/publish/tenant.ts --slug tara-park-od` (dry run), then once `--with-model`
    (the one paid pre-publish run, D-151, with the founder's go-ahead).
 10. **Publish:** `node scripts/publish/tenant.ts --slug tara-park-od --publish`, then switch on the
-    seven answer cases: `update reply_cases set active = true where tenant_id = <hers> and note like 'answers 2026-10-04%'`.
-    The two D-177 colour rows (`colour_lift`, `colour_lift_men`) stay disabled and `seeded`
-    until the founder approves their wording; then run the commented step 9 of
-    `tara-park-od-after-onboarding.sql` (rows on, the D-177 cases on) the same day as
-    Яармаг's (#283's `tara-yarmag-colour-and-treatment-perm-2026-10-04.sql` step 2).
+    fourteen cases: `update reply_cases set active = true where tenant_id = <hers> and (note like 'answers 2026-10-04%' or note like 'D-177:%')`.
+    The three D-177 rows (approved 2026-10-04) land on with the file; nothing else to switch.
 11. **Switch on:** the Reception entitlement and budget (money: founder), read the shadow
     replies, then move the channel to `live`.
 

@@ -1,7 +1,7 @@
 # Tara Salon, both branches — D-177 (2026-10-04)
 # Your decisions: women's «Эмчилгээний хими» and «өнгө гаргалт» are not services Tara offers; the
 # price-page replies and «Үнийн хуудас» are dropped in both tenants.
-# Rows: dala-ai#283 scripts/provision/tara-yarmag-colour-and-treatment-perm-2026-10-04.sql (Яармаг),
+# All APPROVED 2026-10-04. Rows: dala-ai#283 scripts/provision/tara-yarmag-colour-and-treatment-perm-2026-10-04.sql (Яармаг),
 #       dala-ai#284 scripts/provision/tara-park-od-after-onboarding.sql (Парк Од). Not applied.
 
 ==== 1. A woman asks for «Эмчилгээний хими» — APPROVED 2026-10-04, as written
@@ -11,7 +11,12 @@ Fixed reply treatment_perm_women, both branches. Fires only when the message has
 
 Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.
 
-==== 2. «Өнгө гаргалт» — AWAITING your approval of this final wording
+==== 2. «Өнгө гаргалт» — APPROVED 2026-10-04, with your two changes
+
+Changes: the header «Манай өнгөний үйлчилгээний үнэ:» above the prices (all four replies), and
+Яармаг's second number is 91005498. The earlier draft said 80905498: it was copied from the phone
+row as it stood before 2026-10-01, when D-167 replaced 80905498 with 91005498 everywhere (the
+website and Яармаг's contact rows already say 91005498). Rows on, not live.
 
 Never «we don't offer it». Fires on «өнгө гаргал», «өнгө гаргуул», «өнгөө гаргуул», «ungu gargal»,
 «ongo gargal» and the like. Your decision: women's colour services to women, men's only when the
@@ -23,12 +28,14 @@ branch's approved phone line, unchanged. No new sentence.
 2a. Anyone who does not say «эрэгтэй/eregtei» (fixed reply colour_lift).
 
 Яармаг:
+Манай өнгөний үйлчилгээний үнэ:
 Хэсэгчилсэн сор (эмэгтэй): 150,000₮
 Бүтэн сор: 210,000₮
 
-Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.
+Та 76001888 эсвэл 91005498 дугаараар холбогдоно уу.
 
 Парк Од:
+Манай өнгөний үйлчилгээний үнэ:
 Хэсэгчилсэн сор (эмэгтэй): 150,000₮
 Бүтэн сор: 210,000₮
 
@@ -37,12 +44,14 @@ branch's approved phone line, unchanged. No new sentence.
 2b. A man: the message also has «эрэгтэй/eregtei» (fixed reply colour_lift_men).
 
 Яармаг:
+Манай өнгөний үйлчилгээний үнэ:
 Хэсэгчилсэн сор (эрэгтэй): 195,000₮
 Бүтэн цайруулалт (эрэгтэй): 450,000₮
 
-Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.
+Та 76001888 эсвэл 91005498 дугаараар холбогдоно уу.
 
 Парк Од:
+Манай өнгөний үйлчилгээний үнэ:
 Хэсэгчилсэн сор (эрэгтэй): 195,000₮
 Бүтэн цайруулалт (эрэгтэй): 450,000₮
 
