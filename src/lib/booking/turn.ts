@@ -710,7 +710,11 @@ export async function offerRebook(ports: BookingPorts, hold: Hold, facts: Tenant
   // stay open behind that (a later tap would book a deposit they may have refunded).
   if (sent === 'not_delivering') {
     const r = await closeSessionRow(ports.db, (session as Session).id, 'rebook_not_delivering', now, 'rebook');
-    if (!r.ok) ports.log('error', 'booking_session_close_failed', { holdId: hold.id, detail: r.detail });
+    if (!r.ok) {
+      // Not closed: never report «yours to refund» with the offer still open. Retried next minute.
+      ports.log('error', 'booking_session_close_failed', { holdId: hold.id, detail: r.detail });
+      return 'failed';
+    }
   }
   return sent;
 }

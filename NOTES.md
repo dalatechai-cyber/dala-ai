@@ -82,6 +82,9 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       non-delivering channel: the rebook chat is closed) and the earlier one (setHoldExpiry reported success on
       zero rows: a QR never opens for an ended hold); an unreadable record now pages «do not refund yet».
       e2e 194 locally.
+- [x] Last review of 78e4335: all 3 fixed; applied its two leftovers verbatim (a failed close of the rebook chat
+      returns `failed`, never «yours»; the «unreadable» page defers to any earlier page). Not re-reviewed: two-line
+      changes taken as the reviewer wrote them. e2e 194 locally.
 - [ ] CI on this push
 
 ## Decisions (with reason)

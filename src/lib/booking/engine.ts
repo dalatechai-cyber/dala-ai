@@ -420,7 +420,7 @@ async function tellPaidUnbooked(ports: BookingPorts, hold: Hold, facts: TenantFa
     await ports.alert({
       tenantId: hold.tenantId, kind: 'booking.paid_unbooked', dedupKey: `booking.paid_unbooked:${hold.id}:${round}:unreadable`,
       body: alertBody(hold, facts, '⚠️ A customer PAID the deposit in Messenger and has NO appointment.',
-        `${why}\nThe platform could not read its own records to tell the customer; it retries every minute. Do not refund or book by hand yet: you get another message when the customer has been told.`),
+        `${why}\nThe platform could not read its own records to tell the customer; it retries every minute. If you already had a message about this deposit, follow that one. If not, wait for the next message before refunding or booking by hand.`),
     });
     return;
   }
