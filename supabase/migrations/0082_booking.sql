@@ -517,9 +517,12 @@ $$;
 
 -- A paid deposit whose time was taken (paid_unbooked), moved to another free time the customer
 -- picked: the hold takes the new stylist and time and is `paid` again, so the ordinary booking
--- path writes it. Same length (same service), never in the past, never over another hold.
+-- path writes it. Same length (same service), same level (same deposit), never in the past,
+-- never over another hold, never while its old busy event is still in a calendar, and only
+-- for 30 minutes after the time was lost: the founder's page names that deadline, after which
+-- the deposit is the founder's to refund or book by hand, and a late tap can no longer book it.
 create or replace function public.booking_rebook_hold(
-  p_hold uuid, p_calendar text, p_staff text, p_starts timestamptz, p_ends timestamptz)
+  p_hold uuid, p_calendar text, p_staff text, p_level text, p_starts timestamptz, p_ends timestamptz)
 returns jsonb
 language plpgsql
 set search_path = public, pg_temp
@@ -533,8 +536,14 @@ begin
   if h.state <> 'paid_unbooked' then
     return jsonb_build_object('outcome', 'not_paid_unbooked', 'state', h.state);
   end if;
-  if p_starts <= now() or p_ends - p_starts <> make_interval(mins => h.minutes) then
+  if h.ended_at is null or now() > h.ended_at + interval '30 minutes' then
+    return jsonb_build_object('outcome', 'offer_over');
+  end if;
+  if p_starts <= now() or p_ends - p_starts <> make_interval(mins => h.minutes) or p_level is distinct from h.level then
     return jsonb_build_object('outcome', 'invalid');
+  end if;
+  if h.calendar_state = 'held' then
+    return jsonb_build_object('outcome', 'calendar_busy');
   end if;
   perform pg_advisory_xact_lock(hashtextextended('booking:' || p_calendar, 0));
   select id into clash from booking_holds
@@ -568,7 +577,7 @@ begin
     'booking_record_payment(uuid, uuid, text, bigint, timestamptz, text)',
     'booking_mark_booked(uuid, text)',
     'booking_mark_unbooked(uuid, text)',
-    'booking_rebook_hold(uuid, text, text, timestamptz, timestamptz)'
+    'booking_rebook_hold(uuid, text, text, text, timestamptz, timestamptz)'
   ]
   loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);

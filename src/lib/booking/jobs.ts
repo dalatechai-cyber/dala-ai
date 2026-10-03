@@ -34,9 +34,16 @@ export async function runPayPage(ports: BookingPorts, input: { token: string; me
     const state = read.ok && read.hold !== null ? read.hold.state : 'unknown';
     return { status: 200, contentType: 'json', html: JSON.stringify({ state, settled }) };
   }
-  const read = await readHold(ports.db, holdId);
+  let read = await readHold(ports.db, holdId);
   if (!read.ok) return { status: 503, html: 'unavailable' };
   if (read.hold === null) return notFoundPage();
+  // The five minutes just ran out and nobody has looked yet: ask QPay before saying «ended»,
+  // so a customer who paid in the last seconds sees «paid», never a prompt to pay again.
+  if (read.hold.state === 'held' && ports.now().getTime() >= read.hold.expiresAt.getTime()) {
+    await settleHold(ports, holdId);
+    read = await readHold(ports.db, holdId);
+    if (!read.ok || read.hold === null) return { status: 503, html: 'unavailable' };
+  }
   const hold = read.hold;
   const facts = await readTenantFacts(ports.db, hold.tenantId);
   if (!facts.ok) return { status: 503, html: 'unavailable' };

@@ -168,6 +168,8 @@ export class FakeGoogle {
   /** Calendars whose free/busy answer carries an error (not shared with the service account). */
   readonly brokenCalendars = new Set<string>();
   failAll = false;
+  /** Writes (insert, patch, delete) answer 503; reads still work. */
+  failWrites = false;
 
   constructor(calendarIds: readonly string[]) {
     const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -207,6 +209,7 @@ export class FakeGoogle {
     const method = init?.method ?? 'GET';
     this.calls.push(`${method} ${url.pathname}`);
     if (this.failAll) return json(503, { error: 'backend' });
+    if (this.failWrites && method !== 'GET' && !url.pathname.endsWith('/freeBusy') && url.hostname !== 'oauth2.googleapis.com') return json(503, { error: 'backend' });
     if (url.href === 'https://oauth2.googleapis.com/token') {
       const form = new URLSearchParams(await bodyOf(init));
       if (form.get('grant_type') !== 'urn:ietf:params:oauth:grant-type:jwt-bearer' || !this.verifyJwt(form.get('assertion') ?? '')) {

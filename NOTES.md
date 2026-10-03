@@ -60,7 +60,15 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       taken -> nearest free times (same stylist first) + rebook on the same deposit (booking_rebook_hold) + alerts;
       one held per customer (unique index + customer_has_hold -> release old, then hold new); pay page has no
       «new QR» once it runs out. e2e section 17 (+21). e2e 177 locally.
-- [ ] Review + CI
+- [x] CI green on 57b2ee6. Opus review: 11 findings; fixed: a rebooked deposit that loses its time again is told
+      and paged again (round in every key); duringPay no longer closes the rebook chat it just opened (close only
+      at step pay); the rebook offer has a 30-min deadline in SQL, named in the page; «Цаг сонгох» in any open
+      chat restarts and no button is ever a name or phone; the pay page asks QPay before «ended» and keeps
+      polling a minute; offerRebook opens a chat only with an offer, closes it on failure; the page text follows
+      what was delivered; expiry minutes never 0; the 5 min start when the QR exists (hold end moved to the
+      QR's) and scheduling is bounded to 3 s; rebook SQL checks level and an old busy event; a 23505 on the
+      per-customer index is not «taken». e2e section 18 (+11). e2e 188 locally.
+- [ ] Re-review + CI
 
 ## Decisions (with reason)
 1. Deterministic flow, no model: C1/E2 stay true of the model; every line is a signed platform block.
@@ -113,6 +121,9 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
     deposit). A tap books on the paid deposit; founder paged at once and again on rebook.
 28. «A new QR replaces the old hold»: starting a new booking while a QR is out closes the paying chat but
     keeps the time held until the NEW QR is made (or the 5 min end); then the old hold is released.
+29. Rebook offer lasts 30 min from the moment the time was lost, enforced in SQL; the founder's page names the
+    deadline, after which a refund or a hand booking is safe from a late tap.
+30. Pay-page QR loss of the last seconds: the page asks QPay itself when the 5 min are up before saying ended.
 21. The website side is unchanged (brief: no website edits). Its gap stays the change request: it holds
     nothing while its own QR is open, so a chat customer can take that time first; the website then refuses
     its paid booking and alerts (proven with its own code, e2e section 16). Never a double booking.

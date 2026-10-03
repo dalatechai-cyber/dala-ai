@@ -1227,7 +1227,7 @@ check(holdState(holdT4) === 'paid_unbooked' && offerMsg.length === 1
   && (offerMsg[0]?.body ?? '').startsWith(say(wording, 'booking_paid_unbooked_offer', { date: D6, time: '16:00' }))
   && offered.includes('17:00') && offered.includes('15:00') && !offered.includes('16:00'),
   'paid after the five minutes, the website took 16:00 meanwhile: Дали says so and offers the nearest free times');
-const pageT4 = alerts.find((a) => a.kind === 'booking.paid_unbooked' && a.dedupKey.endsWith(holdT4));
+const pageT4 = alerts.find((a) => a.kind === 'booking.paid_unbooked' && a.dedupKey.includes(holdT4));
 check(pageT4 !== undefined && pageT4.body.includes('99550004') && pageT4.body.includes('refund'),
   'you are paged at once on Telegram with the customer\'s name, phone and amount, to refund or rebook');
 const q17 = offerMsg[0]?.quickReplies.find((q) => q.title === '17:00');
@@ -1265,6 +1265,103 @@ check(holdT5b !== holdT5a && holdState(holdT5b) === 'held' && holdState(holdT5a)
   'the new QR replaces the old hold: 10:00 is released, its QR cancelled, its calendar event removed');
 check(psql(`select count(*) from booking_holds where tenant_id = '${T}' and psid = '${t5.psid}' and state = 'held'`) === '1',
   'one held time per customer, never two');
+
+// =====================================================================================
+section('18. The review\'s cases for the five minutes and the rebook');
+// =====================================================================================
+/** A paid deposit whose time the website took after the five minutes: the customer gets the offer. */
+async function lateAndTaken(chat: Chat, hh: number, name: string, phone: string): Promise<{ hold: string; offer: Sent | undefined }> {
+  await toQr(chat, hh, name, phone);
+  const h = holdOf(chat);
+  const inv = invoicesOf(h)[0] as string;
+  psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${h}'`);
+  qpayFake.failCancel = true;
+  await runSweep(ports);
+  qpayFake.failCancel = false;
+  google.websiteBooks(TEST_CALENDARS.master1, ubAt(day6, hh), 60);
+  qpayFake.pay(inv);
+  const before = sent.length;
+  await runQpayCallback(ports, signHold(SECRET, 'callback', h));
+  return { hold: h, offer: pushedTo(chat, before)[0] };
+}
+const tap = (msg: Sent | undefined, title: string) => msg?.quickReplies.find((q) => q.title === title);
+
+// (1) Rebooked, then the new time is lost too before it is written: told and paged again.
+const rv1 = newChat();
+const lr1 = await lateAndTaken(rv1, 18, 'Хоёрдахь', '99660001');
+check(holdState(lr1.hold) === 'paid_unbooked' && tap(lr1.offer, '19:00') !== undefined, 'set-up: the offer is out');
+google.failWrites = true;
+await says(rv1, '19:00', tap(lr1.offer, '19:00')?.payload);
+google.failWrites = false;
+check(holdState(lr1.hold) === 'paid', 'set-up: moved to 19:00, but the calendar would not take the booking yet');
+google.websiteBooks(TEST_CALENDARS.master1, ubAt(day6, 19), 60);
+const beforeR1 = sent.length;
+await runSweep(ports);
+const second = pushedTo(rv1, beforeR1);
+check(holdState(lr1.hold) === 'paid_unbooked' && second.length === 1
+  && (second[0]?.body ?? '').startsWith(say(wording, 'booking_paid_unbooked_offer', { date: D6, time: '19:00' }).slice(0, 20))
+  && alerts.filter((a) => a.kind === 'booking.paid_unbooked' && a.dedupKey.includes(lr1.hold)).length === 2,
+  'the rebooked time was taken too before it was written: the customer is told again, with times, and you are paged again');
+
+// (2) Paid in time, a person took the time, the customer writes before QPay calls back: the
+// rebook offer stays open for their tap.
+const rv2 = newChat();
+await toQr(rv2, 10, 'Бичсэн', '99660002');
+const holdR2 = holdOf(rv2);
+psql(`update booking_holds set calendar_state = 'held' where id = '${holdR2}'`);
+google.websiteBooks(TEST_CALENDARS.master1, ubAt(day6, 10), 60);
+qpayFake.pay(invoicesOf(holdR2)[0] as string);
+const beforeR2 = sent.length;
+await says(rv2, 'Төлсөн');
+const offerR2 = pushedTo(rv2, beforeR2).find((m) => m.quickReplies.length > 1);
+check(holdState(holdR2) === 'paid_unbooked' && offerR2 !== undefined
+  && psql(`select step from booking_sessions where conversation_id = '${rv2.conversationId}' and closed_at is null`) === 'rebook',
+  'the customer\'s own message settled it: the offer went out and the chat stays open for the tap');
+const firstFree = offerR2?.quickReplies.find((q) => q.payload.startsWith('bk:rebook:'));
+await says(rv2, firstFree?.title ?? '', firstFree?.payload);
+check(holdState(holdR2) === 'booked', 'and the tap books it');
+
+// (3) Past the half hour the founder was given, a tap no longer books the deposit.
+const rv3 = newChat();
+const lr3 = await lateAndTaken(rv3, 13, 'Оройтсон', '99660003');
+psql(`update booking_holds set ended_at = now() - interval '31 minutes' where id = '${lr3.hold}'`);
+const t13 = lr3.offer?.quickReplies.find((q) => q.payload.startsWith('bk:rebook:'));
+await says(rv3, t13?.title ?? '', t13?.payload);
+check(holdState(lr3.hold) === 'paid_unbooked' && rv3.lastBody === say(wording, 'booking_paid_unbooked'),
+  'a tap after the offer\'s half hour books nothing: the founder may have refunded; the customer is told a person will call');
+const pageR3 = alerts.find((a) => a.kind === 'booking.paid_unbooked' && a.dedupKey.includes(lr3.hold));
+check(pageR3 !== undefined && /until \d{2}:\d{2} Ulaanbaatar time/u.test(pageR3.body), 'the page tells you the offer\'s deadline');
+
+// (4) Two taps at once on the offer: one booking, one confirmation.
+const rv4 = newChat();
+const lr4 = await lateAndTaken(rv4, 15, 'Давхар', '99660004');
+const opt = lr4.offer?.quickReplies.filter((q) => q.payload.startsWith('bk:rebook:')) ?? [];
+const beforeR4 = sent.length;
+await Promise.all([says(rv4, opt[0]?.title ?? '', opt[0]?.payload), says(rv4, opt[1]?.title ?? '', opt[1]?.payload)]);
+check(holdState(lr4.hold) === 'booked' && pushedTo(rv4, beforeR4).filter((m) => m.body.includes('баталгаажлаа')).length === 1
+  && psql(`select count(*) from booking_payments where hold_id = '${lr4.hold}'`) === '1',
+  'two taps at once: one booking, one confirmation, one payment');
+
+// (5) «Цаг сонгох» tapped in the middle of another booking chat is never a name.
+const rv5 = newChat();
+await toWhen(rv5, 'Оюунаа · Мастер');
+await says(rv5, `${typedDay6} 17 цагт`);
+await taps(rv5, '17:00');
+check(rv5.lastBody === say(wording, 'booking_ask_name'), 'set-up: at the name step');
+await says(rv5, say(wording, 'booking_choose_again'), 'bk:start');
+check(rv5.lastBody === say(wording, 'booking_ask_service_group')
+  && psql(`select count(*) from booking_sessions where conversation_id = '${rv5.conversationId}' and data->>'name' = '${say(wording, 'booking_choose_again')}'`) === '0',
+  '«Цаг сонгох» at the name step starts again; it is never stored as a name');
+
+// (6) Paid in the last seconds, the page opened just after: «paid», never «ended».
+const rv6 = newChat();
+await toQr(rv6, 11, 'Сүүлчийн', '99660006');
+const holdR6 = holdOf(rv6);
+qpayFake.pay(invoicesOf(holdR6)[0] as string);
+psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdR6}'`);
+const pageR6 = await runPayPage(ports, { token: signHold(SECRET, 'pay', holdR6), method: 'GET', stateOnly: false });
+check(pageR6.html.includes(say(wording, 'booking_page_paid')) && holdState(holdR6) === 'booked',
+  'the page opened just after the five minutes asks QPay first: «paid», and it is booked');
 
 // =====================================================================================
 section('13. Every customer message got at most one reply; nothing was confirmed unpaid');

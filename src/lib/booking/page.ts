@@ -76,7 +76,7 @@ export function clock(seconds: number): string {
  * The countdown, and every 4 s the state (`?state=1`, which asks QPay): once the hold is no
  * longer waiting for payment the page reloads and shows what happened.
  */
-function script(template: string | null, secondsLeft: number): string {
+function script(template: string | null, secondsLeft: number, ended = false): string {
   const tick = template === null ? '' : `var t=${jsString(template)},end=Date.now()+${Math.max(0, Math.floor(secondsLeft))}*1000;`
     + `var c=document.getElementById('qr-countdown'),live=document.getElementById('qr-live'),gone=document.getElementById('qr-expired');`
     + `function f(s){return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}`
@@ -84,9 +84,12 @@ function script(template: string | null, secondsLeft: number): string {
     // The QR and the held time end together: at zero the page reloads and says the time has ended.
     + `if(s<=0){clearInterval(i);if(live)live.style.display='none';if(gone)gone.style.display='block';setTimeout(function(){location.replace(location.pathname);},1500);}}`
     + `var i=setInterval(tick,1000);tick();`;
-  return `<script>(function(){${tick}`
-    + `function poll(){if(document.hidden)return;fetch(location.pathname+'?state=1',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})`
-    + `.then(function(d){if(d&&d.state&&d.state!=='held')location.replace(location.pathname);}).catch(function(){});}`
+  // While waiting: reload once the hold is no longer waiting. On «ended»: keep asking for a
+  // minute, and reload only if a payment turns up (QPay can be seconds behind the bank app).
+  const done = ended ? `['paid','booked','paid_unbooked'].indexOf(d.state)>=0` : `d.state!=='held'`;
+  return `<script>(function(){${tick}var n=0;`
+    + `function poll(){if(document.hidden)return;if(${ended ? 'true' : 'false'}&&++n>15)return;fetch(location.pathname+'?state=1',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})`
+    + `.then(function(d){if(d&&d.state&&${done})location.replace(location.pathname);}).catch(function(){});}`
     + `setInterval(poll,4000);})();</script>`;
 }
 
@@ -122,6 +125,7 @@ export function renderBookingPage(view: PageView, w: BookingWording): PageOutcom
       pay = `<p class="note">${esc(say(w, 'booking_page_paid'))}</p>`;
     } else {
       pay = `<p class="note">${esc(say(w, 'booking_page_ended'))}</p>`;
+      js = script(null, 0, true);
     }
     return { status: 200, html: doc(title, s.tenantName, `${head}<div class="card">${pay}</div>${js}`) };
   } catch (e) {

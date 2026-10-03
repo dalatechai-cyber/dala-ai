@@ -30,7 +30,7 @@ import { eventIdForHold, type CalendarPort, type NewEvent } from './calendar.ts'
 import type { BookingConfig, QpayMerchant } from './config.ts';
 import { callbackUrl, payUrl } from './links.ts';
 import {
-  endHold, finishInvoice, claimInvoice, holdInvoices, markBooked, markUnbooked, readConfig, readHold, readTenantFacts,
+  endHold, finishInvoice, claimInvoice, setHoldExpiry, REBOOK_OFFER_MINUTES, holdInvoices, markBooked, markUnbooked, readConfig, readHold, readTenantFacts,
   recordPayment, setCalendarState, holdsToSweep, holdsWithOpenInvoices, markChecked, markNotified, closeSessionRow, logEvent, type Hold, type Invoice, type TenantFacts,
 } from './store.ts';
 import { say, type BookingWording } from './wording.ts';
@@ -256,8 +256,9 @@ export async function createInvoice(ports: BookingPorts, hold: Hold, config: Boo
     await finishInvoice(ports.db, claimed.invoice.id, { state: made.outcome === 'refused' ? 'refused' : 'unknown' });
     return { ok: false, detail: made.detail };
   }
-  // The QR is valid exactly as long as the time is held: the same instant ends both.
-  const qrExpiresAt = hold.expiresAt;
+  // The five minutes start now that the QR exists, and end for both at one instant: the held
+  // time's end moves to the QR's (a turn's calendar and QPay calls never eat into them).
+  const qrExpiresAt = new Date(ports.now().getTime() + config.holdMinutes * 60_000);
   const done = await finishInvoice(ports.db, claimed.invoice.id, {
     state: 'open', qpayInvoiceId: made.invoiceId, qrImage: made.qrImage, qrText: made.qrText, urls: made.urls, qrExpiresAt,
   });
@@ -266,6 +267,9 @@ export async function createInvoice(ports: BookingPorts, hold: Hold, config: Boo
     await qpay.cancelInvoice(token.token, made.invoiceId);
     return done;
   }
+  const moved = await setHoldExpiry(ports.db, hold.id, qrExpiresAt);
+  if (moved.ok) hold.expiresAt = qrExpiresAt;
+  else ports.log('error', 'booking_hold_expiry_not_moved', { holdId: hold.id, detail: moved.detail });
   return {
     ok: true,
     invoice: { ...claimed.invoice, state: 'open', qpayInvoiceId: made.invoiceId, qrImage: made.qrImage, qrText: made.qrText, urls: made.urls, qrExpiresAt },
@@ -375,7 +379,7 @@ async function writeBooking(ports: BookingPorts, hold: Hold, facts: TenantFacts)
 }
 
 /** Our hold event out of the calendar, recorded. Best-effort; logged when it fails. */
-async function removeOurEvent(ports: BookingPorts, hold: Hold): Promise<void> {
+export async function removeOurEvent(ports: BookingPorts, hold: Hold): Promise<void> {
   if (hold.calendarState !== 'held') return;
   const id = eventIdForHold(hold.id);
   const r = await ports.calendar.remove(hold.calendarId, id);
@@ -393,21 +397,27 @@ async function removeOurEvent(ports: BookingPorts, hold: Hold): Promise<void> {
  * call. The founder is paged at once either way, to refund or rebook.
  */
 async function tellPaidUnbooked(ports: BookingPorts, hold: Hold, facts: TenantFacts | null, why: string, config: BookingConfig): Promise<void> {
+  // A rebooked deposit that lost its time again is a new round: told and paged again, never
+  // swallowed by the first round's keys.
+  const round = hold.rebookedAt === null ? '0' : String(hold.rebookedAt.getTime());
   // turn.ts imports this module; imported here on use so neither loads the other half-made.
   const { offerRebook } = await import('./turn.ts');
-  const offered = facts === null ? 'no_offer' as const : await offerRebook(ports, hold, facts, config);
+  const offered = facts === null ? 'no_offer' as const : await offerRebook(ports, hold, facts, config, round);
+  const delivered = offered === 'sent' || offered === 'already';
+  const until = new Date((hold.endedAt ?? ports.now()).getTime() + REBOOK_OFFER_MINUTES * 60_000);
+  const untilText = facts === null ? '' : ` (until ${tenantClock(until, facts.timezone).time} Ulaanbaatar time)`;
   await ports.alert({
-    tenantId: hold.tenantId, kind: 'booking.paid_unbooked', dedupKey: `booking.paid_unbooked:${hold.id}`,
+    tenantId: hold.tenantId, kind: 'booking.paid_unbooked', dedupKey: `booking.paid_unbooked:${hold.id}:${round}`,
     body: alertBody(hold, facts, '⚠️ A customer PAID the deposit in Messenger and has NO appointment.',
-      offered === 'no_offer'
-        ? `${why}\nNo free time could be offered in the chat. Call the customer: book another time by hand, or refund the deposit in QPay.`
-        : `${why}\nДали offered the customer the nearest free times. A time they pick is booked on this deposit and you get a second message. If they pick none, refund the deposit in QPay or book by hand.`),
+      delivered
+        ? `${why}\nДали offered the customer the nearest free times${untilText}. A time they pick in that window is booked on this deposit and you get a second message. After it, the deposit is yours to refund in QPay or book by hand; a late tap no longer books.`
+        : `${why}\n${offered === 'no_offer' ? 'No free time could be offered in the chat.' : 'The offer of other times could not be delivered.'} Call the customer: book another time by hand, or refund the deposit in QPay.`),
   });
   if (offered !== 'no_offer') {
     await toldIf(ports, hold, offered);
     return;
   }
-  const told = await notify(ports, hold, 'paid_unbooked', marked(ports.wording, hold.isTest, say(ports.wording, 'booking_paid_unbooked')));
+  const told = await notify(ports, hold, `paid_unbooked:${round}`, marked(ports.wording, hold.isTest, say(ports.wording, 'booking_paid_unbooked')));
   await closeSession(ports, hold, 'paid_unbooked');
   await toldIf(ports, hold, told);
 }
@@ -625,8 +635,9 @@ export async function expireHold(ports: BookingPorts, holdId: string, kind: 'exp
     if (facts.ok) {
       const w = ports.wording;
       const date = tenantClock(hold.startsAt, facts.facts.timezone).date;
-      // Reached only with usable settings: settleHold above answers `unavailable` without them.
-      const cfgMinutes = cfg.ok && cfg.present && cfg.valid ? cfg.config.holdMinutes : 0;
+      // The tenant's hold length; if the settings cannot be read now, the hold's own, from its row.
+      const cfgMinutes = cfg.ok && cfg.present && cfg.valid ? cfg.config.holdMinutes
+        : Math.max(1, Math.round((hold.expiresAt.getTime() - hold.createdAt.getTime()) / 60_000));
       await notify(ports, hold, 'expired', marked(w, hold.isTest, say(w, 'booking_expired', {
         minutes: String(cfgMinutes),
         date: dayLabel(w, date, ports.now(), facts.facts.timezone), time: timeLabel(hold.startsAt, facts.facts.timezone),

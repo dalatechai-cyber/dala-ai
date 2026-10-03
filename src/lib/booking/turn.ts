@@ -27,7 +27,7 @@ import {
   type BookingConfig, type Gender, type Stylist,
 } from './config.ts';
 import {
-  bookingEvent, currentInvoice, dayLabel, deliverDrafted, expireHold, marked, settleHold, START, stylistLabel, timeLabel, type BookingPorts,
+  bookingEvent, currentInvoice, dayLabel, deliverDrafted, expireHold, marked, removeOurEvent, settleHold, START, stylistLabel, timeLabel, type BookingPorts,
 } from './engine.ts';
 import { payUrl } from './links.ts';
 import { freeStarts, isFree, openDays, type Interval, type OpenDay } from './slots.ts';
@@ -500,7 +500,10 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
   }
   // The end of the five minutes, on time: the time is released and the customer told then.
   try {
-    await ports.scheduleSweep?.(hold.expiresAt, hold.id);
+    // Bounded: a slow QStash never delays the customer's QR (the minute sweep is the fallback).
+    if (ports.scheduleSweep !== undefined) {
+      await Promise.race([ports.scheduleSweep(hold.expiresAt, hold.id), new Promise<void>((r) => { setTimeout(r, 3_000).unref?.(); })]);
+    }
   } catch (e) {
     ports.log('error', 'booking_sweep_not_scheduled', { holdId: hold.id, error: e instanceof Error ? e.message : 'error' });
   }
@@ -556,14 +559,16 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
 
   // Free-text steps. Anything that is not a name or a phone is asked again ONCE, then the flow
   // steps aside so Дали answers it: a question is never stored as a name, never trapped.
+  // A button (an old one, another step's) is never a name or a phone.
+  const tapped = c.input.quickReplyPayload?.startsWith('bk:') === true;
   if (step === 'name') {
-    const name = looksLikeName(c.input.text) ? typedName(c.input.text) : null;
+    const name = !tapped && looksLikeName(c.input.text) ? typedName(c.input.text) : null;
     if (name !== null) return ask('phone', say(w, 'booking_ask_phone'), [], { ...data, name });
     if (data['missed'] === true) return 'not_mine';
     return { step, body: say(w, 'booking_ask_name'), offers: [], data: { ...data, missed: true }, close: null };
   }
   if (step === 'phone') {
-    const phone = typedPhone(c.input.text);
+    const phone = tapped ? null : typedPhone(c.input.text);
     if (phone !== null) return confirmQuestion(c, session, { ...data, phone }) ?? unavailableReply(c, data);
     if (data['missed'] === true) return 'not_mine';
     return { step, body: say(w, 'booking_phone_invalid'), offers: [], data: { ...data, missed: true }, close: null };
@@ -637,7 +642,7 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
  * either way (`engine.ts`), to refund if the customer picks nothing. `no_offer`: nothing free,
  * or the customer is in another booking chat: the plain paid-unbooked line is sent instead.
  */
-export async function offerRebook(ports: BookingPorts, hold: Hold, facts: TenantFacts, config: BookingConfig):
+export async function offerRebook(ports: BookingPorts, hold: Hold, facts: TenantFacts, config: BookingConfig, round: string):
   Promise<'sent' | 'already' | 'not_delivering' | 'failed' | 'no_offer'> {
   if (hold.notifiedAt !== null) return 'already';
   const level = config.levels.find((l) => l.label === hold.level);
@@ -647,18 +652,6 @@ export async function offerRebook(ports: BookingPorts, hold: Hold, facts: Tenant
   const local = tenantClock(now, tz);
   const hc = await readHoursAndClosures(ports.db, hold.tenantId, local.date);
   if (!hc.ok) return 'no_offer';
-  const open = await readOpenSession(ports.db, hold.tenantId, hold.conversationId);
-  if (!open.ok) return 'failed';
-  let session = open.session;
-  if (session !== null && session.id !== hold.sessionId && session.step !== 'rebook') return 'no_offer';
-  if (session === null) {
-    const opened = await openSession(ports.db, {
-      tenantId: hold.tenantId, conversationId: hold.conversationId, channelId: hold.channelId, psid: hold.psid,
-      isTest: hold.isTest, step: 'start', data: {},
-    });
-    if (!opened.ok) return 'failed';
-    session = opened.session;
-  }
   const c: Ctx = {
     ports, config, facts, now,
     input: {
@@ -667,7 +660,7 @@ export async function offerRebook(ports: BookingPorts, hold: Hold, facts: Tenant
     },
   };
   const base: Record<string, unknown> = {
-    service: hold.service, minutes: hold.minutes, gender: hold.gender,
+    service: hold.service, minutes: hold.minutes, gender: hold.gender, rebookLevel: hold.level,
     name: hold.customerName, phone: hold.customerPhone, rebookHold: hold.id, preferCalendar: hold.calendarId,
   };
   const heldDate = tenantClock(hold.startsAt, tz).date;
@@ -681,13 +674,32 @@ export async function offerRebook(ports: BookingPorts, hold: Hold, facts: Tenant
   let offer = await offerTimes(c, { ...base, stylist: `s:${hold.calendarId}` }, want, lead);
   if (!usable(offer)) offer = await offerTimes(c, { ...base, stylist: `any:${level.key}` }, want, lead);
   if (!usable(offer)) return 'no_offer';
+  // The chat is opened only now that there is something to offer: never a session left at
+  // `start` with nothing in it.
+  const open = await readOpenSession(ports.db, hold.tenantId, hold.conversationId);
+  if (!open.ok) return 'failed';
+  let session = open.session;
+  if (session !== null && session.id !== hold.sessionId && session.step !== 'rebook') return 'no_offer';
+  let openedHere = false;
+  if (session === null) {
+    const opened = await openSession(ports.db, {
+      tenantId: hold.tenantId, conversationId: hold.conversationId, channelId: hold.channelId, psid: hold.psid,
+      isTest: hold.isTest, step: 'start', data: {},
+    });
+    if (!opened.ok) return 'failed';
+    session = opened.session;
+    openedHere = opened.created;
+  }
+  const failed = async (): Promise<'failed'> => {
+    if (openedHere) await closeSessionRow(ports.db, (session as Session).id, 'rebook_offer_failed', now, 'start');
+    return 'failed';
+  };
   const applied = await applyTurn(ports.db, {
-    tenantId: hold.tenantId, session, dedupKey: `booking:${hold.id}:paid_unbooked`, step: 'rebook',
+    tenantId: hold.tenantId, session, dedupKey: `booking:${hold.id}:paid_unbooked:${round}`, step: 'rebook',
     data: { ...offer.data, offers: offer.offers, missed: false, offerStep: 'rebook' }, closeReason: null,
     body: marked(ports.wording, hold.isTest, offer.body),
   });
-  if (!applied.ok || applied.turn.outcome === 'stale') return 'failed';
-  if (applied.turn.outboundId === null) return 'failed';
+  if (!applied.ok || applied.turn.outcome === 'stale' || applied.turn.outboundId === null) return failed();
   return deliverDrafted(ports, { tenantId: hold.tenantId, channelId: hold.channelId, psid: hold.psid }, applied.turn.outboundId,
     { holdId: hold.id, event: 'paid_unbooked_offer' },
     { quickReplies: quickReplies('rebook', offer.offers, say(ports.wording, 'booking_cancel')) });
@@ -735,13 +747,24 @@ async function rebookTo(c: Ctx, data: Record<string, unknown>, start: Date): Pro
     const busy = await busyOn(ports, [s.calendarId], start, end);
     if (busy === null) return 'not_mine';
     if (!isFree(start, minutes, busy.get(s.calendarId) ?? [])) continue;
-    const moved = await rebookHold(ports.db, { holdId, calendarId: s.calendarId, staffName: s.label, startsAt: start, endsAt: end });
+    const move = () => rebookHold(ports.db, { holdId, calendarId: s.calendarId, staffName: s.label, level: String(data['rebookLevel']), startsAt: start, endsAt: end });
+    let moved = await move();
+    if (moved.ok && moved.outcome === 'calendar_busy') {
+      // The old time's busy event is still in a calendar: removed first, so nothing is left behind.
+      const h = await readHold(ports.db, holdId);
+      if (h.ok && h.hold !== null) await removeOurEvent(ports, h.hold);
+      moved = await move();
+    }
     if (!moved.ok) {
       ports.log('error', 'booking_rebook_failed', { holdId, detail: moved.detail });
       return 'not_mine';
     }
     // Already booked or ended meanwhile (another tap, a person): nothing more to say here.
     if (moved.outcome === 'not_paid_unbooked') return { step: 'rebook', body: '', offers: [], data, close: 'rebooked' };
+    // Past the half hour the founder was told: the deposit is theirs to refund or book now.
+    if (moved.outcome === 'offer_over' || moved.outcome === 'calendar_busy') {
+      return { step: 'rebook', body: say(w, 'booking_paid_unbooked'), offers: [], data, close: moved.outcome };
+    }
     if (moved.outcome !== 'rebooked') continue;
     const settled = await settleHold(ports, holdId);
     // Booked: the confirmation went out by itself. Pending: the sweep writes it and confirms.
@@ -765,7 +788,9 @@ async function duringPay(c: Ctx, session: Session): Promise<TurnResult> {
   if (!held.ok) return { handled: false, reason: 'hold_unreadable' };
   const hold = held.hold;
   const over = async (reason: string): Promise<TurnResult> => {
-    const r = await closeSessionRow(c.ports.db, session.id, reason, c.now);
+    // Only while still paying: a paid deposit whose time was taken has just been moved to the
+    // rebook offer in this very session, which must stay open for the customer's tap.
+    const r = await closeSessionRow(c.ports.db, session.id, reason, c.now, 'pay');
     if (!r.ok) c.ports.log('error', 'booking_session_close_failed', { sessionId: session.id, detail: r.detail });
     return { handled: false, reason: `booking over (${reason})` };
   };
@@ -867,7 +892,8 @@ export async function bookingTurn(ports: BookingPorts, input: TurnInput): Promis
 
     // A new booking asked for while a QR is out: the paying chat is closed and a new one starts.
     // The held time stays held until it ends or the new QR replaces it (one hold per customer).
-    if (session !== null && session.step === 'pay' && startsAgain) {
+    // «Цаг сонгох» tapped in any open chat starts again too: a button is never read as a name.
+    if (session !== null && ((session.step === 'pay' && startsAgain) || input.quickReplyPayload === START)) {
       const r = await closeSessionRow(ports.db, session.id, 'started_again', c.now);
       if (!r.ok) return { handled: false, reason: 'session_close_failed' };
       session = null;

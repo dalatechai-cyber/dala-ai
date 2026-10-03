@@ -129,6 +129,8 @@ export type Hold = {
   depositMnt: number; customerName: string; customerPhone: string; gender: 'female' | 'male' | null; agreedAt: Date; agreementText: string;
   state: HoldState; expiresAt: Date; calendarEventId: string | null; calendarState: 'none' | 'held' | 'booked' | 'deleted';
   paidAt: Date | null; late: boolean; lastCheckedAt: Date | null; notifiedAt: Date | null; rebookedAt: Date | null;
+  /** When the time was let go (expired, released, paid-unbooked); the rebook offer's clock. */
+  endedAt: Date | null; createdAt: Date;
 };
 
 export function toHold(v: unknown): Hold {
@@ -149,6 +151,8 @@ export function toHold(v: unknown): Hold {
     lastCheckedAt: typeof r['last_checked_at'] === 'string' ? new Date(r['last_checked_at']) : null,
     notifiedAt: typeof r['notified_at'] === 'string' ? new Date(r['notified_at']) : null,
     rebookedAt: typeof r['rebooked_at'] === 'string' ? new Date(r['rebooked_at']) : null,
+    endedAt: typeof r['ended_at'] === 'string' ? new Date(r['ended_at']) : null,
+    createdAt: new Date(String(r['created_at'])),
   };
 }
 
@@ -206,7 +210,12 @@ export async function acquireHold(db: SupabaseClient, input: { tenantId: string;
   });
   if (error) {
     // The unique index is the second wall: a race the lock did not see is still "taken".
-    if ((error as { code?: string }).code === '23505') return { ok: true, acquired: { outcome: 'taken' } };
+    if ((error as { code?: string }).code === '23505') {
+      // Two turns of one customer at once hit the one-hold-per-customer wall: not "taken" (the
+      // time may well be free); the turn answers that it cannot hold now, and the other turn wins.
+      if (error.message.includes('booking_holds_one_held_per_customer')) return { ok: true, acquired: { outcome: 'no_session' } };
+      return { ok: true, acquired: { outcome: 'taken' } };
+    }
     return { ok: false, detail: `booking_acquire_hold: ${error.message}` };
   }
   const r = rec(data);
@@ -251,11 +260,20 @@ export async function markUnbooked(db: SupabaseClient, holdId: string, reason: s
   return { ok: true, outcome: String(rec(data)['outcome']) };
 }
 
+/** The five minutes start when the QR exists: the held time's end moved to the QR's. Only while held. */
+export async function setHoldExpiry(db: SupabaseClient, holdId: string, expiresAt: Date): Promise<Ok<object> | Fail> {
+  const { error } = await db.from('booking_holds').update({ expires_at: expiresAt.toISOString() }).eq('id', holdId).eq('state', 'held');
+  return error ? { ok: false, detail: `booking_holds update: ${error.message}` } : { ok: true };
+}
+
 /** Move a paid deposit whose time was taken to another free time (`booking_rebook_hold`). */
-export async function rebookHold(db: SupabaseClient, input: { holdId: string; calendarId: string; staffName: string; startsAt: Date; endsAt: Date }):
-  Promise<Ok<{ outcome: 'rebooked' | 'taken' | 'not_paid_unbooked' | 'invalid' }> | Fail> {
+export type RebookOutcome = 'rebooked' | 'taken' | 'not_paid_unbooked' | 'invalid' | 'offer_over' | 'calendar_busy';
+/** How long after a deposit lost its time the customer may still move it (`booking_rebook_hold`). */
+export const REBOOK_OFFER_MINUTES = 30;
+export async function rebookHold(db: SupabaseClient, input: { holdId: string; calendarId: string; staffName: string; level: string; startsAt: Date; endsAt: Date }):
+  Promise<Ok<{ outcome: RebookOutcome }> | Fail> {
   const { data, error } = await db.rpc('booking_rebook_hold', {
-    p_hold: input.holdId, p_calendar: input.calendarId, p_staff: input.staffName,
+    p_hold: input.holdId, p_calendar: input.calendarId, p_staff: input.staffName, p_level: input.level,
     p_starts: input.startsAt.toISOString(), p_ends: input.endsAt.toISOString(),
   });
   if (error) {
@@ -263,7 +281,7 @@ export async function rebookHold(db: SupabaseClient, input: { holdId: string; ca
     return { ok: false, detail: `booking_rebook_hold: ${error.message}` };
   }
   const o = String(rec(data)['outcome']);
-  if (o === 'rebooked' || o === 'taken' || o === 'not_paid_unbooked' || o === 'invalid') return { ok: true, outcome: o };
+  if (o === 'rebooked' || o === 'taken' || o === 'not_paid_unbooked' || o === 'invalid' || o === 'offer_over' || o === 'calendar_busy') return { ok: true, outcome: o };
   return { ok: false, detail: `booking_rebook_hold: unexpected answer ${o}` };
 }
 
@@ -452,10 +470,13 @@ export async function readHoursAndClosures(db: SupabaseClient, tenantId: string,
 }
 
 /** Close a booking session (best-effort by the callers; a session left open closes by idleness). */
-export async function closeSessionRow(db: SupabaseClient, sessionId: string, reason: string, at: Date): Promise<Ok<object> | Fail> {
-  const { error } = await db.from('booking_sessions')
+export async function closeSessionRow(db: SupabaseClient, sessionId: string, reason: string, at: Date, onlyAtStep?: string): Promise<Ok<object> | Fail> {
+  let q = db.from('booking_sessions')
     .update({ closed_at: at.toISOString(), close_reason: reason, updated_at: at.toISOString() })
     .eq('id', sessionId).is('closed_at', null);
+  // Only a session still where the caller left it: a rebook offer may have moved it on meanwhile.
+  if (onlyAtStep !== undefined) q = q.eq('step', onlyAtStep);
+  const { error } = await q;
   return error ? { ok: false, detail: `booking_sessions update: ${error.message}` } : { ok: true };
 }
 
