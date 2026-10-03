@@ -23,7 +23,9 @@
 -- fixed replies, topics, documents: re-run and read back on the local replica, 2026-10-03).
 --
 -- Wording: lines byte-identical to Яармаг's approved rows need no new approval; the lines
--- that differ are listed, exactly, in prompt/drafts/tara_park_od_wording.mn.txt.
+-- that differ are listed, exactly, in prompt/drafts/tara_park_od_wording.mn.txt, all of them
+-- approved by the founder on 2026-10-04 (still unsigned: her wording sheet is signed at go-live
+-- step 7, docs/tenants/tara-park-od.md).
 -- Nothing here is live: the tenant has never been published, so the canned-edit guard
 -- (0074/0075) is not engaged, and its channel stays in shadow with no token.
 begin;
@@ -113,8 +115,8 @@ select t.id, v.kind, v.body from tenants t,
 --    her two levels (no 1-р зэрэг hairdresser works at Парк Од; approved 2026-10-04).
 --    «Салбарууд» is symmetric (founder, 2026-10-04): `branch_count` is Яармаг's row byte for
 --    byte, and `yarmag_branch` mirrors Яармаг's `park_od_branch` (Яармаг's address, the shared
---    76001888 and Яармаг's Page; never 91005498 or Яармаг's map link). DRAFT wording: its lines.
---    `price_page_color` and `price_page_treatment_perm` (DRAFT wording) answer the two services
+--    76001888 and Яармаг's Page; never 91005498 or Яармаг's map link). Wording APPROVED 2026-10-04.
+--    `price_page_color` and `price_page_treatment_perm` (wording APPROVED 2026-10-04) answer the two services
 --    the price list has no price for (women's «Эмчилгээний хими», «өнгө гаргалт») with the
 --    website's price page, appended after whatever else the reply says. They land DISABLED:
 --    matrixecosalon.org still serves the old Matrix site, whose /services.html shows the old
@@ -192,8 +194,8 @@ select t.id, 'Будаг', 'Та бүтэн будуулах уу, эсвэл ү
 
 -- 7. Salon knowledge: Яармаг's six documents byte for byte (the same services and products),
 --    her own «Салбарууд», symmetric with Яармаг's (it names Яармаг: its address, the shared line,
---    its Page), and «Үсчдийн нэр», the Cyrillic spellings customers may type for her hairdressers
---    (the spellings are GUESSES for the founder to check). DRAFT wording of both:
+--    its Page), and «Үсчдийн нэр», the Cyrillic spellings customers may type for her hairdressers.
+--    Wording of both APPROVED by the founder on 2026-10-04, as written:
 --    prompt/drafts/tara_park_od_wording.mn.txt. The level document comes from her form (5.2).
 insert into knowledge_documents (tenant_id, title, body, source)
 select t.id, v.title, v.body, v.source from tenants t, (values
@@ -203,8 +205,8 @@ select t.id, v.title, v.body, v.source from tenants t, (values
  ('Будалтын хориглох заалт ба боломж', E'Хараар будсан үсийг хоёр удаагийн будалтаар бор өнгөтэй болгож болно. Бүтэн будалт, үс гэмтэхгүй.\nСорын өмнө сорилт хийж болно.\nГэмтсэн үсэнд эхлээд CICA хийж, дараа нь өнгөтэй сор хийнэ.\nЖирэмсэн үед OTG будаг хийхгүй. Гэхдээ өнгөлөгч будаг болно.\nӨнгөлөгч будаг нь үсний гадаргуун давхаргад ажиллаж, нар салхинаас хамгаална. Жирэмсэн болон харшилтай хүнд аюулгүй. 70 хувь тэжээл, 30 хувь будаг.', 'Tara Salon, 2026-09-07, эзний хариулт; хоёр салбарт ижил'),
  ('CICA — эмчилгээ, хими биш', E'CICA эмчилгээний хими гэсэн үйлчилгээ БАЙХГҮЙ. Эмчилгээний хими бол ургамлын гаралтай зөөлөн хими.\nCICA бол тусдаа сэргээх эмчилгээ.\nCICA нь үсний гэмтсэн давхаргад ажиллана.\nБудалт болон мелировканд тэжээллэг найрлага ордоггүй.', 'Tara Salon, 2026-09-07, эзний хариулт; хоёр салбарт ижил'),
  ('TARA Lumi – үүсгэлттэй будалт', E'- Үсний өнгийг зөөлөн, уусалттай харагдуулна\n- Нүүрний өнгө төрхөд тохируулан өнгө сонгоно\n- Үндэс ургах үед огцом ялгарахгүй, арчилгаа хялбар\n- Зэсэрсэн, жигд бус өнгийг илүү зөөлөн, цэвэрхэн харагдуулна\n- Үсэнд хэмжээс, гэрэл сүүдэр үүсгэж илүү өтгөн, амьд харагдуулна\n- Өөрт тань тохирсон өнгөний шийдлийг зөвлөгөөний дагуу сонгоно\nҮсний урт, өтгөн шингэн болон өмнөх будалтын байдлаас шалтгаалан үнэ өөрчлөгдөж болно.', 'Tara Salon, 2026-10-01, эзний тайлбар; хоёр салбарт ижил'),
- ('Салбарууд', E'Tara Salon хоёр салбартай: Яармаг салбар, Парк Од салбар.\nЭнэ хуудас бол Парк Од салбарын хуудас.\nBoloroo Парк Од салбарт ажилладаг.\nПарк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот.\nЯармаг салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун талд.\nХоёр салбарын нийтлэг утас: 76001888.\nХоёр салбарын үнэ ижил.\nЯармаг салбар өөрийн Фэйсбүүк хуудастай.', 'founder 2026-10-04 (draft)'),
- ('Үсчдийн нэр', E'Үсчдийн нэрийг латин үсгээр бичнэ: Boloroo, Saraa, Tomoo, Bulgaa, Enhuush, Chimegee, Tuchku.\nБолороо, Болор гэвэл Boloroo.\nСараа гэвэл Saraa.\nТомоо, Төмөө гэвэл Tomoo.\nБулгаа гэвэл Bulgaa.\nЭнхүүш гэвэл Enhuush.\nЧимэгээ гэвэл Chimegee.\nТучку, Түчкү гэвэл Tuchku.', 'founder 2026-10-04 (draft; Cyrillic spellings are guesses)')
+ ('Салбарууд', E'Tara Salon хоёр салбартай: Яармаг салбар, Парк Од салбар.\nЭнэ хуудас бол Парк Од салбарын хуудас.\nBoloroo Парк Од салбарт ажилладаг.\nПарк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот.\nЯармаг салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун талд.\nХоёр салбарын нийтлэг утас: 76001888.\nХоёр салбарын үнэ ижил.\nЯармаг салбар өөрийн Фэйсбүүк хуудастай.', 'founder 2026-10-04'),
+ ('Үсчдийн нэр', E'Үсчдийн нэрийг латин үсгээр бичнэ: Boloroo, Saraa, Tomoo, Bulgaa, Enhuush, Chimegee, Tuchku.\nБолороо, Болор гэвэл Boloroo.\nСараа гэвэл Saraa.\nТомоо, Төмөө гэвэл Tomoo.\nБулгаа гэвэл Bulgaa.\nЭнхүүш гэвэл Enhuush.\nЧимэгээ гэвэл Chimegee.\nТучку, Түчкү гэвэл Tuchku.', 'founder 2026-10-04')
 ) as v(title, body, source)
  where t.slug = 'tara-park-od';
 

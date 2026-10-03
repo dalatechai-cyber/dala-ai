@@ -1,3 +1,14 @@
+# Round 2026-10-04 (approvals): every file in docs/approvals/tara-2026-10-04/ approved
+
+Same branch, PR #284. The founder approved every file in `docs/approvals/tara-2026-10-04/` as
+written (2026-10-04). Moved from AWAITING to APPROVED, nothing applied, signed or live:
+`prompt/drafts/tara_stylist_names.mn.txt` (Otgonjargal's line with «Отгоо», «Otgonjargal» in the
+first line), `prompt/drafts/tara_park_od_wording.mn.txt` (sections 4 with `yarmag_branch` and
+Яармаг's Page link, 4b with every Cyrillic spelling, 6), the comments and `source` labels of the
+two SQL drafts, the tenant docs, and the approvals README (copies kept as the founder read them).
+Still open: the price-page rows stay DISABLED until the website shows both prices; signing the
+approved drafts is the founder's own step. Not wording, still to confirm: Парк Од's Page id.
+
 # Round 2026-10-04: Latin names everywhere, Otgonjargal, Парк Од per the approvals
 
 Same branch and worktree, PR #284. Founder's answers and approvals of 2026-10-04 (binding);
@@ -91,9 +102,10 @@ nothing live, no production writes (SELECT-only reads), drafts only.
 
 ## Open items (for the founder)
 
-- Approve: Otgonjargal's line (+ «Отгоо» guess); Парк Од's «Салбарууд», `yarmag_branch`,
-  «Үсчдийн нэр» (guessed spellings), three FAQ questions, price-page sentence.
-- Confirm: Парк Од Page id; Яармаг's Page link 100067872726164; men's SPECIAL cut at Парк Од;
+- Approved as written on 2026-10-04 (round above): Otgonjargal's line (with «Отгоо»); Парк Од's
+  «Салбарууд», `yarmag_branch` (Яармаг's Page link 100067872726164 confirmed), «Үсчдийн нэр»
+  (every spelling), three FAQ questions, price-page sentence.
+- Confirm: Парк Од Page id; men's SPECIAL cut at Парк Од;
   how Boloroo hears of a hand-off; the salon's prices for «өнгө гаргалт» and women's
   «Эмчилгээний хими» on the website's price page (then switch on the price-page rows).
 - Nail refusal line still mentions nails (both branches).

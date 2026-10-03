@@ -1,5 +1,5 @@
 -- NOT APPLIED. Wording approved by the founder on 2026-10-04 (prompt/drafts/tara_stylist_names.mn.txt),
--- except the line «Отгонжаргал, Отгоо гэвэл Otgonjargal.» («Отгоо» is the lead's guess: check it).
+-- every line, «Отгонжаргал, Отгоо гэвэл Otgonjargal.» included (approved as written, 2026-10-04).
 -- Tara Salon — Яармаг (slug matrix-eco-salon): the hairdressers' short Latin names (founder,
 -- 2026-10-03), with their levels, and the old names customers type kept on the same person.
 -- Round 2 (founder, 2026-10-04): names are Latin EVERYWHERE, the roster the model reads
@@ -113,8 +113,8 @@ update knowledge_documents k
   from tenants t
  where t.slug = 'matrix-eco-salon' and k.tenant_id = t.id and k.title = 'Салбарууд';
 
--- The Cyrillic names customers type, as rows the model reads. Approved 2026-10-04, except the
--- last line's «Отгоо» (a guess). prompt/drafts/tara_stylist_names.mn.txt.
+-- The Cyrillic names customers type, as rows the model reads. Approved 2026-10-04, every line
+-- («Отгоо» included). prompt/drafts/tara_stylist_names.mn.txt.
 insert into knowledge_documents (tenant_id, title, body, source)
 select t.id, 'Үсчдийн нэр',
        E'Үсчдийн нэрийг латин үсгээр бичнэ: Oyunaa, Badamaa, Uyanga, Zaya, Chimgee, Anand, Otgonjargal.\n'

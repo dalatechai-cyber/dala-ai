@@ -92,7 +92,7 @@ website agrees (`config/stylists.js`: 1-р зэрэг, female, own calendar).
 
 Every `short_name` is cleared, so the roster reads «Oyunaa · Эмэгтэй үсчид · SPECIAL үсчин». The
 Cyrillic names (Оюунсүрэн, Оюунаа, Бадамцэцэг, Бадмаа, Уянга, Батзаяа, Заяа, Уранчимэг, Чимгээ,
-Ананд, Отгонжаргал and the guess «Отгоо») are in a new knowledge document «Үсчдийн нэр», and
+Ананд, Отгонжаргал and «Отгоо», approved 2026-10-04) are in a new knowledge document «Үсчдийн нэр», and
 «Салбарууд»'s line «Оюунаа Яармаг салбарт ажилладаг.» becomes «Oyunaa Яармаг салбарт ажилладаг.».
 The branch gate keeps searching Парк Од's rows for these Cyrillic names through
 `config/branch-groups.json` `staff_aliases` (the same list as «Үсчдийн нэр»: change both

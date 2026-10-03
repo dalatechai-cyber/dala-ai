@@ -2,7 +2,9 @@
 # APPROVED by the founder on 2026-10-04 with two changes, both made below: the roster the model
 # reads is purely Latin (Cyrillic only inside «Үсчдийн нэр», for recognition), and the level is
 # written «1-р зэргийн үсчин», never «1-р зэрэг үсчин». Отгонжаргал still works at Яармаг
-# (founder, 2026-10-04) and is shown as «Otgonjargal», her full name in Latin.
+# (founder, 2026-10-04) and is shown as «Otgonjargal», her full name in Latin. Her line
+# «Отгонжаргал, Отгоо гэвэл Otgonjargal.» and «Otgonjargal» in the first line were APPROVED by
+# the founder on 2026-10-04 as written («Отгоо» included): every line below is approved.
 # Applied by scripts/provision/tara-yarmag-stylist-names-2026-10-03.sql.
 # The founder's rule: hairdressers are shown everywhere by these Latin names, exactly as
 # written, also inside Mongolian sentences; Дали says «үсчин», never «стилист»; it never
@@ -23,7 +25,7 @@ Oyunaa Яармаг салбарт ажилладаг.
 Title:
 Үсчдийн нэр
 
-Body (approved 2026-10-04, except what is marked AWAITING below):
+Body (approved 2026-10-04, every line):
 Үсчдийн нэрийг латин үсгээр бичнэ: Oyunaa, Badamaa, Uyanga, Zaya, Chimgee, Anand, Otgonjargal.
 Оюунсүрэн, Оюунаа гэвэл Oyunaa.
 Бадамцэцэг, Бадмаа гэвэл Badamaa.
@@ -33,8 +35,8 @@ Body (approved 2026-10-04, except what is marked AWAITING below):
 Ананд гэвэл Anand.
 Отгонжаргал, Отгоо гэвэл Otgonjargal.
 
-AWAITING APPROVAL: the last line, and «Otgonjargal» added to the first line's list. «Отгоо»
-is the lead's GUESS at what customers call her; the founder confirms it or drops it.
+APPROVED 2026-10-04 (founder, as written): the last line, «Отгоо» included, and «Otgonjargal»
+added to the first line's list.
 
 ## The roster the model reads (data, not a sentence; listed so the founder sees it)
 

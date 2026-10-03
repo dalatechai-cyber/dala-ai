@@ -14,7 +14,7 @@ project waits for the steps at the end.
 | Address | Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот. Equals `config/branch-groups.json` `allow_addresses` byte for byte. No Google Maps listing yet, so no map link anywhere |
 | Phone | 76001888 only (the shared main line of both branches, `allow_phones`). Яармаг's 91005498 is never hers: the branch gate refuses it in her rows |
 | Hours | Monday–Saturday 10:00–20:00, Sunday 11:00–19:00 |
-| Hairdressers | Boloroo (SPECIAL, the owner), Saraa, Tomoo, Bulgaa, Enhuush, Chimegee, Tuchku (all Мастер; Tuchku the only man). Shown by these Latin names everywhere, the roster the model reads included; the Cyrillic spellings customers may type are only in the knowledge document «Үсчдийн нэр» (guesses, for the founder) |
+| Hairdressers | Boloroo (SPECIAL, the owner), Saraa, Tomoo, Bulgaa, Enhuush, Chimegee, Tuchku (all Мастер; Tuchku the only man). Shown by these Latin names everywhere, the roster the model reads included; the Cyrillic spellings customers may type are only in the knowledge document «Үсчдийн нэр» (approved by the founder as written, 2026-10-04) |
 | Hand-off chats | Answered by the owner, Boloroo (founder, 2026-10-04; form 2.3). Her `handoff` line is the founder's sentence «Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно уу.», as Яармаг's (PR #283). Nothing in the data routes alerts to Boloroo yet: the needs-person alert reaches the founder's Telegram, as for Яармаг |
 | Prices, services | Identical to Яармаг's 2026-10-01 list (31 services), and the same booking link https://www.matrixecosalon.org/ — except that she carries **no 1-р зэрэг price** (59 prices): she has no 1-р зэрэг hairdresser and never quotes or offers that level (founder, 2026-10-04). `config/branch-groups.json` `not_offered` lets the branch gate accept the missing row; every price she does carry must equal Яармаг's |
 | Deposit | 20,000₮ for every Парк Од level (SPECIAL and Мастер). Дали never says it is non-refundable |
@@ -92,11 +92,12 @@ real id.
 
 ## Open questions for the founder
 
-1. The Page id (above), and Яармаг's Page link her Дали gives
-   (https://www.facebook.com/profile.php?id=100067872726164, from the website's data).
-2. The wording still waiting: «Салбарууд», `yarmag_branch`, «Үсчдийн нэр» (its Cyrillic spellings
-   are guesses), the three FAQ questions, and the price-page sentence
-   (`prompt/drafts/tara_park_od_wording.mn.txt`).
+1. The Page id (above). Яармаг's Page link her Дали gives
+   (https://www.facebook.com/profile.php?id=100067872726164, from the website's data) was
+   confirmed by the founder on 2026-10-04.
+2. Wording: none waits. «Салбарууд», `yarmag_branch`, «Үсчдийн нэр» (every Cyrillic spelling as
+   written), the three FAQ questions and the price-page sentence were approved on 2026-10-04
+   (`prompt/drafts/tara_park_od_wording.mn.txt`); the price-page rows stay disabled (step 10).
 3. The shared price list's men's SPECIAL cut («Эрэгтэй тайралт» SPECIAL 89,000₮): her only man,
    Tuchku, is Мастер. If she should not quote it either, it is one more `not_offered` entry and
    one line out of her form (same mechanism as 1-р зэрэг).
@@ -121,9 +122,9 @@ real id.
    (billing, optional: `--billing-name … --billing-email bolotuyagongor@gmail.com`).
 6. **Apply** `scripts/provision/tara-park-od-after-onboarding.sql` (one SQL editor session).
    Re-running the onboarding command afterwards leaves its rows alone (checked on the replica).
-7. **Approve wording:** read `prompt/drafts/tara_park_od_wording.mn.txt`; re-run step 5's
-   command with `--apply` to get the wording sheet, which then holds all 18 canned lines (11
-   from the form, 7 from step 6); sign it (`--apply --sign-wording <id> --signed-by <name>`).
+7. **Sign wording** (approved 2026-10-04, `prompt/drafts/tara_park_od_wording.mn.txt`): re-run
+   step 5's command with `--apply` to get the wording sheet, which then holds all 18 canned lines
+   (11 from the form, 7 from step 6); the founder signs it (`--apply --sign-wording <id> --signed-by <name>`).
 8. **Client confirms** the summary (`--apply --client-confirmed "<name>" --confirmed-on <date> --summary <id>`).
    Both gates passed switches her reply cases on.
 9. **Check:** `node scripts/facts/branches.ts --group tara-salon` (clean), then

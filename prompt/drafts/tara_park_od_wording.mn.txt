@@ -5,7 +5,12 @@
 # Round 2 (founder's approvals of 2026-10-04): sections 1, 2 and 5 approved as drafted;
 # assistant_identity and booking_line are now Яармаг's approved lines byte for byte;
 # refusal_topic is not created; stylist_tier and the levels knowledge approved (SPECIAL and
-# Мастер only; she never quotes or offers 1-р зэрэг). What still waits is marked AWAITING.
+# Мастер only; she never quotes or offers 1-р зэрэг).
+# Round 3 (founder, 2026-10-04): sections 4 (with the fixed reply `yarmag_branch` and Яармаг's
+# Page link in it), 4b (every Cyrillic spelling) and 6 APPROVED as written. Nothing here waits
+# for approval any more; the price-page replies (section 6) stay DISABLED until the website
+# shows both prices. Signing is the founder's own step (her wording sheet, go-live step 7 in
+# docs/tenants/tara-park-od.md).
 #
 # Where they come from:
 #   [form]    written by scripts/onboard/tenant.ts from intake/tara-park-od.docx
@@ -64,7 +69,7 @@ missing row is not drift (every price she carries still equals Яармаг's; n
 So the 1-р зэрэг price is in nothing she reads: not the price list, not the roster, not a
 document, not a fixed reply. Proven on the local replica (compiled sections: no «1-р зэрэг»).
 
-## 4. «Салбарууд», symmetric (founder, 2026-10-04: each branch names the other) — AWAITING
+## 4. «Салбарууд», symmetric (founder, 2026-10-04: each branch names the other) — APPROVED 2026-10-04
 
 [after] knowledge «Салбарууд» (the model reads it)
 Tara Salon хоёр салбартай: Яармаг салбар, Парк Од салбар.
@@ -81,13 +86,14 @@ Boloroo Парк Од салбарт ажилладаг.
   kept (it was in the first draft) so the model never takes Яармаг's address for hers. No
   91005498 and no Яармаг map link: those are Яармаг's own.
 
-[after] fixed reply yarmag_branch (sent verbatim; mirrors Яармаг's approved `park_od_branch`)
+[after] fixed reply yarmag_branch (sent verbatim; mirrors Яармаг's approved `park_od_branch`) — APPROVED 2026-10-04
 Яармаг салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун талд
 Утас: 76001888
 Фэйсбүүк хуудас: https://www.facebook.com/profile.php?id=100067872726164
-  Яармаг's Page link is the website's (matrix_website data/branches.json): CONFIRM it is the
-  Page Яармаг's customers should be sent to. Fires on «Яармаг салбар хаана байдаг вэ?»,
-  «Яармаг салбарын утас?», «yarmag salbar haana bdag ve» (checked with the real matcher).
+  Яармаг's Page link is the website's (matrix_website data/branches.json); the founder confirmed
+  on 2026-10-04 that it is the Page Яармаг's customers should be sent to. Fires on «Яармаг
+  салбар хаана байдаг вэ?», «Яармаг салбарын утас?», «yarmag salbar haana bdag ve» (checked with
+  the real matcher).
 
 [after] fixed reply branch_count — Яармаг's approved row, byte for byte (no approval needed):
 Tara Salon хоёр салбартай: Яармаг салбар, Парк Од салбар.
@@ -95,7 +101,7 @@ Tara Salon хоёр салбартай: Яармаг салбар, Парк Од
 On the November move both rows above get the VIP Center address
 (scripts/provision/tara-yarmag-move-2026-11.sql updates both tenants).
 
-## 4b. «Үсчдийн нэр» (the model reads it) — AWAITING; the Cyrillic spellings are GUESSES
+## 4b. «Үсчдийн нэр» (the model reads it) — APPROVED 2026-10-04, every Cyrillic spelling as written
 
 [after] knowledge «Үсчдийн нэр»
 Үсчдийн нэрийг латин үсгээр бичнэ: Boloroo, Saraa, Tomoo, Bulgaa, Enhuush, Chimegee, Tuchku.
@@ -106,8 +112,9 @@ On the November move both rows above get the VIP Center address
 Энхүүш гэвэл Enhuush.
 Чимэгээ гэвэл Chimegee.
 Тучку, Түчкү гэвэл Tuchku.
-  Same shape as Яармаг's approved document. Every Cyrillic spelling is the lead's guess for the
-  founder to correct (Tomoo could be «Томоо» or «Төмөө»; Tuchku's is the least certain).
+  Same shape as Яармаг's approved document. The Cyrillic spellings were the lead's guesses; the
+  founder approved every one of them as written on 2026-10-04 (both «Томоо» and «Төмөө» for
+  Tomoo, both «Тучку» and «Түчкү» for Tuchku).
   «Чимгээ» is deliberately NOT here: it is Яармаг's Chimgee, so the two stay apart (Chimgee at
   Яармаг, Chimegee at Парк Од). Her roster is Latin only (no short names), as Яармаг's.
 
@@ -115,12 +122,12 @@ On the November move both rows above get the VIP Center address
 
 [form] deposit rule, rendered as «Урьдчилгаа төлбөр: SPECIAL болон Мастер үсчин: 20,000₮»
 
-## 6. The quality answers of 2026-10-04 — the same rows as Яармаг's in PR #283, byte for byte
+## 6. The quality answers of 2026-10-04 — the same rows as Яармаг's in PR #283, byte for byte — APPROVED 2026-10-04
 
 The answers are the founder's approved sentences. Each is a fixed reply (sent verbatim, no
 model: `deposit_deducted`, `loan_apps`, `dye_brand`, matchers as #283's) and an FAQ (so the
 model has it when a question has several parts). The FAQ QUESTIONS are #283's wording (model-read,
-never sent) — AWAITING with #283's.
+never sent) — APPROVED 2026-10-04 with #283's.
 
 [form] FAQ
 Q: Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдах уу?
@@ -136,7 +143,7 @@ A: Энэ талаар манай ажилтан танд хариулна. Та
 
 «Anything Дали doesn't know» is her `handoff` line (section 1), now the same sentence.
 
-[after] fixed replies price_page_color and price_page_treatment_perm — AWAITING (new sentence)
+[after] fixed replies price_page_color and price_page_treatment_perm — APPROVED 2026-10-04 (new sentence); they stay DISABLED until the website shows both prices
 Үнийн мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/services.html хуудаснаас үзнэ үү.
   The two services the price list has no price for: «өнгө гаргалт» (stems «өнгө гаргал»,
   «өнгө гаргуул», «ungu gargal», «ongo gargal» …) and women's «Эмчилгээний хими» (the words
