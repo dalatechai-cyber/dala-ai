@@ -81,7 +81,7 @@ exceptions. The founder approved the lines on 2026-10-02 with «Төлбөр б�
 
 Approved by the founder on 2026-10-02 (subject, heading, greeting, text, plain-text lines).
 
-## 2026-10-03: back to Ора after a pack is paid, unsigned
+## 2026-10-03: back to Ора after a pack is paid — APPROVED 2026-10-03, to be signed
 
 On the pay page of a paid Ора pack, once Ора has confirmed the pack, the page goes back to Ора
 by itself (`docs/billing.md`, «Back to Ора after paying»). One line while it does, and a button
@@ -92,3 +92,7 @@ redirect; the founder's test page shows them in English.
 |---|---|---|
 | `billing_page_return_ora` | Таныг Ора руу буцааж байна… | Grey line in its own card under the paid invoice |
 | `billing_page_return_ora_button` | Ора руу буцах | The blue button under it, linking to Ора |
+
+Both approved by the founder in chat on 2026-10-03, as drafted. Not signed in this branch: signing
+writes a seed migration, and its number is settled when this branch merges (the Tara booking
+branch holds 0082). Until signed, a live page shows neither line and does not redirect.
