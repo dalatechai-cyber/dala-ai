@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { runPayPageJob } from './jobs.ts';
+import { signLink } from './links.ts';
 import {
-  bypassAllowed, deliverOraEvent, eventForDelivery, ORA_TEST_PACK, oraPackOrder, oraSignatureValid, packPaidEvent, runOraPackInvoiceJob, signOra,
+  bypassAllowed, deliverOraEvent, eventForDelivery, ORA_TEST_PACK, oraPackCredited, oraPackOrder, oraReturnUrl, oraSignatureValid, packPaidEvent, runOraPackInvoiceJob, signOra,
 } from './ora.ts';
 
 const SECRET = 'ora-platform-secret-for-unit-tests-0000';
@@ -187,4 +189,67 @@ test('the Vercel bypass header goes to an https *.vercel.app preview only, never
   assert.deepEqual(headers, ['BYPASS', null, null, null]);
   assert.equal(bypassAllowed('http://x.vercel.app/a'), false);
   assert.equal(bypassAllowed('https://x.vercel.app.evil.com/a'), false);
+});
+
+test('the way back to Ора: the event address\'s origin with the order, for a pack only, https only', () => {
+  const key = `one_off:ora-pack-${'a1'.repeat(16)}`;
+  assert.equal(oraReturnUrl(key, 'https://ora.dalatech.online/api/billing/webhook'), `https://ora.dalatech.online/?pack=${ORDER}`);
+  assert.equal(oraReturnUrl(key, 'https://ora-git-x.vercel.app/api/billing/webhook?q=1#f'), `https://ora-git-x.vercel.app/?pack=${ORDER}`);
+  assert.equal(oraReturnUrl('monthly_fee:2026-10', 'https://ora.dalatech.online/api/billing/webhook'), null);
+  assert.equal(oraReturnUrl(key, undefined), null);
+  assert.equal(oraReturnUrl(key, 'http://ora.dalatech.online/api/billing/webhook'), null);
+  assert.equal(oraReturnUrl(key, 'https://user:pw@ora.dalatech.online/'), null);
+  assert.equal(oraReturnUrl(key, 'not a url'), null);
+});
+
+test('Ора has the pack only when its event was sent and Ора answered that it credited it', async () => {
+  const dbWith = (row: Record<string, unknown> | null, fail = false): SupabaseClient => {
+    const seen: string[] = [];
+    const q = {
+      select: () => q,
+      eq: (col: string, v: string) => { seen.push(`${col}=${v}`); return q; },
+      maybeSingle: async () => {
+        assert.deepEqual(seen, ['dedup_key=ora_pack_paid:inv-1']);
+        return fail ? { data: null, error: { code: 'PGRST000' } } : { data: row, error: null };
+      },
+    };
+    return { from: (t: string) => { assert.equal(t, 'billing_deliveries'); return q; } } as unknown as SupabaseClient;
+  };
+  assert.equal(await oraPackCredited(dbWith({ status: 'sent', provider_message_id: 'ora:credited' }), 'inv-1'), true);
+  assert.equal(await oraPackCredited(dbWith({ status: 'sent', provider_message_id: 'ora:duplicate' }), 'inv-1'), true);
+  assert.equal(await oraPackCredited(dbWith({ status: 'sent', provider_message_id: 'ora:over_limit' }), 'inv-1'), false);
+  assert.equal(await oraPackCredited(dbWith({ status: 'sent', provider_message_id: 'ora:already_paid' }), 'inv-1'), false);
+  assert.equal(await oraPackCredited(dbWith({ status: 'sent', provider_message_id: 'ora:ok' }), 'inv-1'), false, 'no outcome word');
+  assert.equal(await oraPackCredited(dbWith({ status: 'pending', provider_message_id: null }), 'inv-1'), false);
+  assert.equal(await oraPackCredited(dbWith(null), 'inv-1'), false);
+  assert.equal(await oraPackCredited(dbWith(null, true), 'inv-1'), false);
+});
+
+test('the pay page\'s poll: `ora_credited` only for a paid pack; any other invoice answers {status} and reads no delivery', async () => {
+  const INV = '11111111-2222-4333-8444-555555555555';
+  const token = signLink(ENV.BILLING_LINK_SECRET, { k: 'pay', id: INV, exp: 0 });
+  const row = (over: Record<string, unknown>) => ({
+    id: INV, account_id: ACCOUNT, period_key: `one_off:ora-pack-${'a1'.repeat(16)}`, invoice_no: 'TEST-202610-0009', kind: 'one_off',
+    lines: [], amount_mnt: 100, issued_on: '2026-10-02', due_on: '2026-10-02', is_test: true, status: 'paid', paid_sum_mnt: 100,
+    paid_at: NOW.toISOString(), created_at: NOW.toISOString(), ...over,
+  });
+  const poll = async (inv: Record<string, unknown>, delivery: Record<string, unknown> | null) => {
+    const tables: string[] = [];
+    const db = {
+      from: (t: string) => {
+        tables.push(t);
+        const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: t === 'billing_invoices' ? inv : delivery, error: null }) };
+        return q;
+      },
+    } as unknown as SupabaseClient;
+    const out = await withEnv({ ...ENV, ORA_WEBHOOK_URL: 'https://ora.example.com/api/billing/webhook' },
+      () => runPayPageJob({ db: () => db, now: NOW, token, stateOnly: true }));
+    assert.equal(out.status, 200);
+    return { body: JSON.parse(out.html) as Record<string, unknown>, tables };
+  };
+  const sent = { status: 'sent', provider_message_id: 'ora:credited' };
+  assert.deepEqual(await poll(row({}), sent), { body: { status: 'paid', ora_credited: true }, tables: ['billing_invoices', 'billing_deliveries'] });
+  assert.deepEqual((await poll(row({}), null)).body, { status: 'paid', ora_credited: false });
+  assert.deepEqual(await poll(row({ status: 'open', paid_sum_mnt: 0, paid_at: null }), sent), { body: { status: 'open' }, tables: ['billing_invoices'] });
+  assert.deepEqual(await poll(row({ period_key: 'monthly_fee:2026-10' }), sent), { body: { status: 'paid' }, tables: ['billing_invoices'] });
 });

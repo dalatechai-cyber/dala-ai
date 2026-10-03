@@ -22,7 +22,7 @@ import { issuerFromEnv, type Issuer } from './issuer.ts';
 import { WORDMARK_PATH } from './mail.ts';
 import { linksFor, parsePayRef, payRefMatches, verifyLink } from './links.ts';
 import { actionConfirmPage, actionDonePage, notFoundPage, PAY_CODE_KEYS, renderPayPage, type PageOutcome } from './page.ts';
-import { oraEventSender } from './ora.ts';
+import { ORA_RETURN_WINDOW_MS, oraEventSender, oraPackCredited, oraReturnUrl } from './ora.ts';
 import { quickQr } from './qpay.ts';
 import { sendBrevoEmail, sendFounderTelegram, sendResendEmail } from './send.ts';
 import { loadSignedWording } from './templates.ts';
@@ -146,7 +146,8 @@ export async function runQpayCallbackJob(input: { db: () => SupabaseClient; now:
  * The client's pay page (0068). GET shows the invoice and a live QPay code (made now, or the
  * one on screen if it has long enough left); POST is «Шинэ QR код авах»: a new code, then a
  * redirect back to GET, so a reload never re-posts. `?state=1` is the page's own poll: the
- * invoice's status from the database, nothing asked of QPay, nothing made.
+ * invoice's status from the database, nothing asked of QPay, nothing made; for a paid Ора
+ * pack, also whether Ора has confirmed it (`ora_credited`), the cue to go back to Ора.
  */
 export async function runPayPageJob(input: {
   db: () => SupabaseClient; now: Date; token: string; method?: 'GET' | 'POST'; stateOnly?: boolean;
@@ -176,7 +177,16 @@ export async function runPayPageJob(input: {
   // 0070: the modes partition the accounts. A live invoice is not served while billing runs
   // in test mode, and a TEST invoice is not served once billing is live.
   if ((mode === 'test' && !stored.isTest) || (mode === 'live' && stored.isTest)) return notFoundPage();
-  if (input.stateOnly === true) return { status: 200, html: JSON.stringify({ status: stored.status }), contentType: 'json' };
+  // A paid Ора pack: where the owner goes back to, and whether Ора has the pack yet.
+  const returnUrl = stored.status === 'paid' ? oraReturnUrl(stored.periodKey) : null;
+  // It goes back by itself only soon after the payment; opened later (the receipt), it stays.
+  const auto = stored.paidAt !== null && input.now.getTime() - stored.paidAt.getTime() <= ORA_RETURN_WINDOW_MS;
+  const oraReturn = async (): Promise<{ url: string; credited: boolean; auto: boolean } | null> =>
+    returnUrl === null ? null : { url: returnUrl, credited: await oraPackCredited(db, stored.id), auto };
+  if (input.stateOnly === true) {
+    const back = await oraReturn();
+    return { status: 200, html: JSON.stringify({ status: stored.status, ...(back === null ? {} : { ora_credited: back.credited }) }), contentType: 'json' };
+  }
 
   const { data: acc, error: accErr } = await db.from('billing_accounts')
     .select('id, tenant_id, display_name, email, is_test, contract_ref').eq('id', stored.accountId).maybeSingle();
@@ -192,7 +202,7 @@ export async function runPayPageJob(input: {
   if (stored.status !== 'open' && input.method !== 'POST') {
     const wording = await loadSignedWording(db);
     if (!wording.ok) return actionDonePage('DalaTech', 'Service temporarily unavailable.', 503);
-    return renderPayPage({ kind: 'settled', invoice: stored, account, ...extras }, wording.wording);
+    return renderPayPage({ kind: 'settled', invoice: stored, account, ...extras, oraReturn: await oraReturn() }, wording.wording);
   }
 
   // Billing off: no code can be made.
@@ -223,7 +233,11 @@ export async function runPayPageJob(input: {
       secondsLeft: (state.code.expiresAt.getTime() - state.now.getTime()) / 1000, ...extras,
     }, deps.signed);
   }
-  return renderPayPage({ kind: state.kind, invoice: state.invoice, account, ...extras }, deps.signed);
+  // Paid on this very visit: an Ора pack's event is usually not delivered yet, so the page
+  // asks until Ора confirms.
+  const paidNow = state.kind === 'settled' && state.invoice.status === 'paid' ? oraReturnUrl(state.invoice.periodKey) : null;
+  const back = paidNow === null ? null : { url: paidNow, credited: await oraPackCredited(db, state.invoice.id), auto: true };
+  return renderPayPage({ kind: state.kind, invoice: state.invoice, account, ...extras, oraReturn: back }, deps.signed);
 }
 
 /**

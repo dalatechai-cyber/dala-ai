@@ -281,7 +281,7 @@ test('DONE-TEST: every billing block exists on disk, is NFC, and renders with it
     assert.ok(r.ok, `${key}: ${r.ok ? '' : r.why}`);
     assert.doesNotMatch(r.ok ? r.text : '', /\{[^{}\s]+\}/u, `${key} left a placeholder`);
   }
-  assert.equal(Object.keys(BILLING_BLOCKS).length, 68);
+  assert.equal(Object.keys(BILLING_BLOCKS).length, 70);
 });
 
 // --- amounts --------------------------------------------------------------------------
@@ -741,4 +741,45 @@ test('every date a client reads is the Ulaanbaatar date, including just after mi
   const inv = renderMail({ kind: 'invoice', wording: blocks, invoice: invoice({ issuedOn: '2026-10-01', dueOn: '2026-10-05' }), account: { displayName: 'Матрикс ХХК', contractRef: null }, issuer: ISSUER, payUrl: PAY_URL, period: '2026 оны 10-р сарын', logoUrl: '' });
   assert.ok(inv.ok && inv.text.includes('Нэхэмжилсэн огноо: 2026.10.01') && inv.text.includes('2026.10.05'));
   assert.equal(billingToday(new Date('2026-09-27T16:30:00Z')), '2026-09-28', 'the day an invoice is issued on is the Ulaanbaatar day');
+});
+
+test('the pay page: a paid Ора pack goes back to Ора once Ора has it, with a button; nothing else does', () => {
+  const blocks = wordingOnDisk();
+  const url = `https://ora.example.com/?pack=ord_${'a1'.repeat(16)}`;
+  const paidInv = (over: Partial<Invoice> = {}): Invoice => invoice({ status: 'paid', paidSumMnt: 100, paidAt: NOW, ...over });
+  const signedAll = { source: 'signed' as const, blocks };
+  // Ора confirmed: the line, the button, and a timed go to the rendered address.
+  const credited = renderPayPage({ kind: 'settled', invoice: paidInv(), account, oraReturn: { url, credited: true, auto: true } }, signedAll);
+  assert.match(credited.html, /Таныг Ора руу буцааж байна…/);
+  assert.match(credited.html, new RegExp(`<a class="back" href="${url.replace(/[?.]/gu, '\\$&')}">Ора руу буцах</a>`));
+  assert.match(credited.html, /setTimeout\(go,2500\)/);
+  assert.doesNotMatch(credited.html, /\?state=1/);
+  // Not yet: it asks, at most 40 times, and goes only on `ora_credited`.
+  const waiting = renderPayPage({ kind: 'settled', invoice: paidInv(), account, oraReturn: { url, credited: false, auto: true } }, signedAll);
+  assert.match(waiting.html, /d\.ora_credited===true/);
+  assert.match(waiting.html, /\+\+n>40/);
+  assert.doesNotMatch(waiting.html, /setTimeout\(go/);
+  // A live page whose two lines are not signed: no section and no redirect (today's page).
+  const unsigned = new Map([...blocks].filter(([k]) => !k.startsWith('billing_page_return_ora')));
+  const live = renderPayPage({ kind: 'settled', invoice: paidInv(), account, oraReturn: { url, credited: true, auto: true } }, { source: 'signed', blocks: unsigned });
+  assert.equal(live.status, 200);
+  assert.doesNotMatch(live.html, /ora\.example\.com|location\.replace/);
+  // The founder's test invoice: English under the banner.
+  const test = renderPayPage({ kind: 'settled', invoice: paidInv({ isTest: true }), account, oraReturn: { url, credited: true, auto: true } }, { source: 'signed', blocks: unsigned });
+  assert.match(test.html, /Back to Ора/);
+  assert.match(test.html, /TEST — some of this page's Mongolian is not signed/);
+  // Not paid, not https, or a hostile address: never.
+  const open = renderPayPage({ kind: 'no_code', invoice: invoice({}), account, oraReturn: { url, credited: true, auto: true } }, signedAll);
+  assert.doesNotMatch(open.html, /ora\.example\.com/);
+  const other = renderPayPage({ kind: 'settled', invoice: invoice({ status: 'mismatch' }), account, oraReturn: { url, credited: true, auto: true } }, signedAll);
+  assert.doesNotMatch(other.html, /ora\.example\.com/);
+  for (const bad of ['http://ora.example.com/', 'javascript:alert(1)//https://']) {
+    assert.doesNotMatch(renderPayPage({ kind: 'settled', invoice: paidInv(), account, oraReturn: { url: bad, credited: true, auto: true } }, signedAll).html, /location\.replace/);
+  }
+  // Long after the payment (the receipt's link): the button only, no line, no redirect.
+  const later = renderPayPage({ kind: 'settled', invoice: paidInv(), account, oraReturn: { url, credited: true, auto: false } }, signedAll);
+  assert.match(later.html, /Ора руу буцах/);
+  assert.doesNotMatch(later.html, /location\.replace|Таныг Ора руу/);
+  const quoted = renderPayPage({ kind: 'settled', invoice: paidInv(), account, oraReturn: { url: 'https://o.example.com/"</script><script>alert(1)', credited: true, auto: true } }, signedAll);
+  assert.doesNotMatch(quoted.html, /<\/script><script>alert/);
 });
