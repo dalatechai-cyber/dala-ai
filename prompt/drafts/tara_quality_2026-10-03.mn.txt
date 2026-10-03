@@ -47,23 +47,27 @@
    (Tara's «service unavailable» line names nails, so this sentence replaces it here):
 Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.
 
-9. «Өнгө гаргалт». Never «we don't offer it». AWAITING approval of the final wording. The founder
+9. «Өнгө гаргалт». Never «we don't offer it». APPROVED 2026-10-04 with two changes: the header
+   «Манай өнгөний үйлчилгээний үнэ:» above the prices, and Яармаг's second number 91005498 (the
+   draft had carried the old 80905498, replaced by D-167 on 2026-10-01). Rows on. The founder
    decided (2026-10-04): women's colour services to women; men's only when the customer is a man;
    «Бүтэн цайруулалт» never to women (its only price is the men's). The rows are the price list's
-   own rows, byte for byte; the last line is Яармаг's approved phone line (Парк Од: her own).
+   own rows, byte for byte; the last line is Яармаг's approved phone line as D-167 left it (Парк Од: her own).
    Fires on «өнгө гаргал», «өнгө гаргуул», «ungu gargal» …
 
    9a. Anyone who does not say «эрэгтэй/eregtei» (fixed reply `colour_lift`):
+Манай өнгөний үйлчилгээний үнэ:
 Хэсэгчилсэн сор (эмэгтэй): 150,000₮
 Бүтэн сор: 210,000₮
 
-Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.
+Та 76001888 эсвэл 91005498 дугаараар холбогдоно уу.
 
    9b. A man: the message also has «эрэгтэй/eregtei» (fixed reply `colour_lift_men`):
+Манай өнгөний үйлчилгээний үнэ:
 Хэсэгчилсэн сор (эрэгтэй): 195,000₮
 Бүтэн цайруулалт (эрэгтэй): 450,000₮
 
-Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.
+Та 76001888 эсвэл 91005498 дугаараар холбогдоно уу.
 
 ## FAQ questions (the model reads them; never sent as written). Not customer wording, listed for completeness.
 

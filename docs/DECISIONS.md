@@ -11997,12 +11997,12 @@ both tenants. Supersedes D-176's price-page part.
 - «Өнгө гаргалт» (6+ chats a week): never told it is not offered. Women's colour rows to a woman or
   anyone who does not say «эрэгтэй» (`colour_lift`: Хэсэгчилсэн сор (эмэгтэй), Бүтэн сор); the men's
   rows only to a man (`colour_lift_men`: Хэсэгчилсэн сор (эрэгтэй), Бүтэн цайруулалт (эрэгтэй));
-  then the tenant's own `salon_phone` line. The rows are typed byte for byte as the price list
+  each under the header «Манай өнгөний үйлчилгээний үнэ:» and ending with the tenant's own
+  `salon_phone` line (Яармаг: 76001888 and 91005498, as D-167 left it). Approved 2026-10-04. The rows are typed byte for byte as the price list
   renders them, because `quote_services` cannot pick one gender's variant; the fact gate checks
   them at every publish.
 
-`treatment_perm_women` is provisioned enabled (approved); the two colour rows disabled and
-`seeded` until the founder approves their final wording
+All three rows are approved and provisioned enabled
 (`scripts/provision/tara-yarmag-colour-and-treatment-perm-2026-10-04.sql`; Парк Од's in
 `tara-park-od-after-onboarding.sql`).
 
