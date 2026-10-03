@@ -320,7 +320,14 @@ export function parsePrice(s: string): ParsedPrice | null {
 
 /**
  * A price cell that names tiers, one per line: «Мастер: 66,000₮» / «1-р зэрэг: 55,000₮».
- * Returns null when any line does not read — never the lines that did.
+ * One line may carry no tier («69,000₮» above «SPECIAL: 89,000₮»): that is the service's
+ * plain price, variant key ''. A live price list has this shape (Tara, 2026-10-01:
+ * «Эрэгтэй тайралт» 69,000₮ and SPECIAL 89,000₮), and a branch onboarded from its own form
+ * must be able to write it, or the branch gate sees drift. Beside tiers that line must be an
+ * EXACT price: «Үзлэгээр нэмэгдэж болно» or «…₮-аас» under a tier reads as a note about it,
+ * not as a second price, so the cell is refused and asked about (D-075: never a guessed price).
+ * Returns null when any line does not read — never the lines that did — and when two
+ * lines name the same tier (two plain lines included).
  */
 export function parsePriceCell(s: string): { variantKey: string; price: ParsedPrice }[] | null {
   const lines = tidy(s).split('\n').filter((l) => l !== '');
@@ -332,7 +339,12 @@ export function parsePriceCell(s: string): { variantKey: string; price: ParsedPr
   const out: { variantKey: string; price: ParsedPrice }[] = [];
   for (const l of lines) {
     const i = l.lastIndexOf(':');
-    if (i <= 0) return null;
+    if (i === -1) {
+      const p = parsePrice(l);
+      if (p === null || p.kind !== 'exact') return null;
+      out.push({ variantKey: '', price: p });
+      continue;
+    }
     const key = l.slice(0, i).trim();
     const p = parsePrice(l.slice(i + 1));
     if (key === '' || p === null) return null;

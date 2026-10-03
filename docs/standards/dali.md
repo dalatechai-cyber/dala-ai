@@ -413,6 +413,11 @@ Onboard Парк Од from **its own** filled questionnaire, never by copying Я
     node scripts/onboard/tenant.ts --form <Парк Од form> --slug tara-park-od \
       --facebook-page-id <Парк Од Page id> --display-name "Tara Salon — Парк Од"
 
+Her form is filled (2026-10-03): `intake/tara-park-od.docx`, with what the form cannot carry in
+`scripts/provision/tara-park-od-after-onboarding.sql`; proven on a local replica against
+Яармаг's rows with both gates clean. Steps and open questions: `docs/tenants/tara-park-od.md`.
+The table below predates it and is kept as the record of the 2026-09-29 proposal.
+
 The onboarding templates (`scripts/provision/templates/onboarding.mn.json`, approved as
 templates 2026-09-27) fill `{phones}` from the form's own answer, so `handoff`,
 `refusal_no_promotion`, `refusal_price_unlisted`, `refusal_staff_schedule` and `refusal_topic`

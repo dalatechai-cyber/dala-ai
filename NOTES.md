@@ -1,3 +1,79 @@
+# Round 2026-10-03: Парк Од tenant and new names
+
+Branch `claude/tara-park-od-tenant` (worktree `/home/user/dala-wt/parkod`). Founder away; the
+round's facts and limits: nothing live, no production writes (SELECT-only reads), drafts only.
+
+## Status
+
+- [x] Task A — Яармаг's hairdressers' Latin names: `scripts/provision/tara-yarmag-stylist-names-2026-10-03.sql`
+      + `-revert.sql`, wording `prompt/drafts/tara_stylist_names.mn.txt`. NOT applied. Replica:
+      applies, refuses a re-run, reverts byte-identical, re-applies.
+- [x] Task B — Парк Од dry run: `intake/tara-park-od.answers.json` → `intake/tara-park-od.docx`
+      (real client form), onboarding dry run + `--apply` on a LOCAL replica only, follow-up
+      `scripts/provision/tara-park-od-after-onboarding.sql` (NOT applied), wording
+      `prompt/drafts/tara_park_od_wording.mn.txt`.
+- [x] Task C — branch and facts gates, both tenants, on the replica: clean. Controls refused.
+- [x] Docs: `docs/tenants/tara-park-od.md` (facts, go-live steps), `docs/tenants/tara-yarmag.md`.
+- [x] Review (findings fixed, decision 12); `npm run check` green: 2,635 tests, 2,634 pass, 1 skipped
+      (needs the Matrix-Chatbot checkout), guards and typecheck clean.
+- [ ] Commit, push, draft PR, CI.
+
+## Decisions (and why)
+
+1. **Short name = the Cyrillic form customers type** (Oyunaa → «Оюунаа», Badamaa → «Бадмаа»,
+   Zaya → «Заяа», Chimgee → «Чимгээ», Anand → «Ананд», Uyanga → «Уянга»). That is 0019's design
+   (one roster line, both spellings) and matches real traffic: the stored messages show «oyunaa»
+   / «oyuna» 7×, «Оюунаа» 1×, «badmaa» 1×, no full old name. The full old names (Оюунсүрэн,
+   Бадамцэцэг, Батзаяа, Уранчимэг) go in a KB document «Үсчдийн нэр» (rows, not a
+   transliterator). Both are drafts the founder may trim.
+2. **Oyunaa = SPECIAL** (founder's explicit word), everyone else keeps dala-ai's level, which
+   agrees with the website's. No disagreement to hold. Chimgee had no dala-ai row: the website's
+   1-р зэрэг is used (the round facts list it as our data).
+3. **Switched off, not deleted:** Отгонжаргал (not in the founder's list) and the manicurist
+   Г. Мөнхзаяа («Маникюр баг», still ACTIVE on the project: manicure is off at Tara). Reversible.
+4. **No `set local dala.canned_edit` in Task A:** no canned row names a hairdresser, so no canned
+   row changes and the guard is not engaged. Loosening a guard that is not needed is worse.
+5. **Парк Од from her own form, with the real form file** (`fill.ts` into `dali-form-v2-blank.docx`).
+   `fill.ts` now adds table rows when answers outnumber them (31 services, 12 rows), as a client
+   does in Word.
+6. **`parsePriceCell` reads one untiered line beside tiers** («69,000₮» + «SPECIAL: 89,000₮»).
+   Яармаг's «Эрэгтэй тайралт» has exactly that shape; without it a branch onboarded from its own
+   form could never match the shared price list and the gate would hold her forever. Test added.
+7. **What the form cannot carry is a provision file of literal values**, not an INSERT…SELECT
+   from Яармаг (D-157: never copy a sibling's rows). Every identical row was checked equal to
+   Яармаг's live row by md5 on the replica; `address` and `salon_phone` carry her details.
+   Not given to her: `branch_count`, `park_od_branch` (naming Яармаг is the founder's call;
+   D-170 went one way), `tara_name`/`tara_rebrand` (she was never Matrix).
+8. **Gates run against a local replica, never the project.** PostgreSQL 16 on :5437 (data in
+   /tmp/parkod-pg, outside the scratchpad because the postgres user cannot enter it), PostgREST
+   12.2.3 on :3007, gateway on :54327. Яармаг's gate-relevant rows loaded from read-only reads
+   (KB, canned, fixed replies, FAQs, prices all md5-equal to the project).
+9. **`config/branch-groups.json` unchanged:** 76001888 is already shared, 91005498 is Яармаг's by
+   default (the control proved the gate refuses it in Парк Од's rows), and each branch's own
+   staff need no entry (`allow_names` would let a name into BOTH branches).
+10. **Page id 100067391025472 used as a placeholder** (from her profile link), marked CONFIRM.
+11. **Парк Од's level lines name only SPECIAL and Мастер** (fixed reply `stylist_tier`, form 5.2
+    document): she has no 1-р зэрэг hairdresser. Draft wording; the shared price list keeps its
+    1-р зэрэг rows (D-157), which stays an open question.
+12. **Independent review** (code-review skill acting as `.claude/agents/reviewer.md`: this
+    session has no subagent tool, so the reviewer agent could not be spawned directly). Fixed:
+    the untiered price line must be an EXACT price (a note «Үзлэгээр …» under a tier is refused,
+    not read as a price); the names file pins every column its revert writes back (NULLs
+    included) and the revert reads them back; the follow-up file refuses when its documents or
+    the «Будаг» question exist; `fill.ts` drops Word's paragraph ids from added rows (0 duplicates);
+    the real-tenant form test moved out of src/ to `scripts/onboard/intake.test.ts`; Парк Од's
+    `stylist_tier` (decision 11); a doc said deposit labels «match» the tiers (they correspond).
+    Not fixed, by rule: her hairdressers' Cyrillic spellings (never guessed; asked).
+
+## Open items (for the founder)
+
+- Approve `prompt/drafts/tara_stylist_names.mn.txt` and `prompt/drafts/tara_park_od_wording.mn.txt`.
+- Confirm Парк Од's Page id; who gets her new requests; her hairdressers' Cyrillic spellings;
+  whether her Page runs an away message; whether her Дали names Яармаг.
+- The shared price list has 1-р зэрэг and SPECIAL-men prices Парк Од cannot serve.
+- Nail refusal line (`refusal_service_unavailable`) still mentions nails, both branches.
+- Отгонжаргал: confirm she is gone.
+
 # NOTES — overnight session 2026-10-02 (resume point after a context reset)
 
 Branch: `claude/serene-johnson-gla2u7`. Brief: Part 1 Дали live-customer gaps (roadmap 6b),

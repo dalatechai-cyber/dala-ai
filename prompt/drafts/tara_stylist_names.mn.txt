@@ -1,0 +1,53 @@
+# DRAFT — not loaded. Tara Яармаг: the hairdressers' short Latin names (founder, 2026-10-03).
+# Applied by scripts/provision/tara-yarmag-stylist-names-2026-10-03.sql once approved.
+# The founder's rule: hairdressers are shown everywhere by these Latin names, exactly as
+# written, also inside Mongolian sentences; Дали says «үсчин», never «стилист»; it never
+# recommends a level. Only the lines below are new or changed.
+
+## Knowledge document «Салбарууд» (the model reads it) — ONE line changes
+
+Now:
+Оюунаа Яармаг салбарт ажилладаг.
+
+Proposed:
+Oyunaa Яармаг салбарт ажилладаг.
+
+(The other seven lines stay byte for byte.)
+
+## New knowledge document «Үсчдийн нэр» (the model reads it; no customer is sent it verbatim)
+
+Title:
+Үсчдийн нэр
+
+Body:
+Үсчдийн нэрийг латин үсгээр бичнэ: Oyunaa, Badamaa, Uyanga, Zaya, Chimgee, Anand.
+Оюунсүрэн, Оюунаа гэвэл Oyunaa.
+Бадамцэцэг, Бадмаа гэвэл Badamaa.
+Уянга гэвэл Uyanga.
+Батзаяа, Заяа гэвэл Zaya.
+Уранчимэг, Чимгээ гэвэл Chimgee.
+Ананд гэвэл Anand.
+
+Why: customers type the old names. Яармаг's stored messages (read-only count, 2026-10-03; 90-day retention) show
+«oyunaa»/«oyuna» 7 times, «Оюунаа» once, «badmaa» once; nobody typed a full old name, but
+the founder asked that «Оюунсүрэн», «Бадамцэцэг», «Батзаяа», «Уранчимэг» keep reaching the
+same person. These are rows the model reads (CLAUDE.md: Latin/Cyrillic as rows, never a
+transliterator). The founder may drop the document and keep only the roster's short names.
+
+## The roster the model reads (data, not a sentence; listed so the founder sees it)
+
+- Oyunaa (Оюунаа) · Эмэгтэй үсчид · SPECIAL үсчин
+- Badamaa (Бадмаа) · Эмэгтэй үсчид · Мастер үсчин
+- Chimgee (Чимгээ) · Эмэгтэй үсчид · 1-р зэрэг үсчин
+- Uyanga (Уянга) · Эмэгтэй үсчид · 1-р зэрэг үсчин
+- Zaya (Заяа) · Эмэгтэй үсчид · 1-р зэрэг үсчин
+- Anand (Ананд) · Эрэгтэй үсчид · Мастер үсчин
+
+The Cyrillic in brackets is each person's short_name (0019): the form customers type. The
+model is not told to write it; if the founder prefers the roster purely Latin, the short
+names can be cleared and «Үсчдийн нэр» alone carries the old names.
+
+## Not wording, for the record
+
+- Отгонжаргал and the manicurist (Г. Мөнхзаяа, «Маникюр баг») are switched off, not deleted.
+- No canned line, fixed reply, FAQ or reply case names a hairdresser, so nothing else changes.

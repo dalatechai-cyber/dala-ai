@@ -82,6 +82,25 @@ for (const tbl of all(tree, 'w:tbl')) {
       : head[0]?.startsWith('Нэр (') ? answers.tables.staff
         : head[0] === 'Асуулт' && head.length === 2 ? answers.tables.faqs : null;
   if (table !== null) {
+    // More answers than rows (a 31-service price list in a 12-row table): add rows the way a
+    // client does in Word, a copy of the table's last (empty) row. Never for the hours table,
+    // whose seven rows are the seven days.
+    if (head[0] !== 'Өдөр') {
+      const last = rows[rows.length - 1]!;
+      while (rows.length - 1 < table.length) {
+        const copy = structuredClone(last);
+        // Word's paragraph and text ids must be unique in a document; a copy drops them and
+        // Word assigns fresh ones (they are optional), rather than repairing duplicates.
+        const strip = (n: XNode): void => {
+          delete n.attrs['w14:paraId'];
+          delete n.attrs['w14:textId'];
+          for (const k of n.children) if (typeof k !== 'string') strip(k);
+        };
+        strip(copy);
+        tbl.children.splice(tbl.children.indexOf(rows[rows.length - 1]!) + 1, 0, copy);
+        rows.push(copy);
+      }
+    }
     table.forEach((values, i) => {
       const r = rows[i + 1];
       if (r === undefined) throw new Error(`table «${head[0]}» has only ${rows.length - 1} rows`);

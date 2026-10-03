@@ -129,6 +129,16 @@ test('prices: exact, range, from and tiers read; anything else is null, never a 
   assert.equal(parsePrice('асуугаарай'), null);
   assert.deepEqual(parsePriceCell('Мастер: 60,000₮\n1-р зэрэг: 45,000₮')?.map((v) => v.variantKey), ['Мастер', '1-р зэрэг']);
   assert.equal(parsePriceCell('Мастер: 60,000₮\nбусад'), null, 'one unreadable tier refuses the cell');
+  // A plain price beside a tier (Tara's «Эрэгтэй тайралт»: 69,000₮, SPECIAL 89,000₮).
+  assert.deepEqual(parsePriceCell('69,000₮\nSPECIAL: 89,000₮'), [
+    { variantKey: '', price: { kind: 'exact', min: '69000' } },
+    { variantKey: 'SPECIAL', price: { kind: 'exact', min: '89000' } },
+  ]);
+  assert.equal(parsePriceCell('69,000₮\n75,000₮'), null, 'two plain prices are two answers, not two tiers');
+  assert.equal(parsePriceCell('Угаалт орсон\nМастер: 60,000₮'), null, 'a note in the price cell is not a price');
+  assert.equal(parsePriceCell(': 60,000₮\nМастер: 70,000₮'), null, 'an empty tier name is not the plain price');
+  assert.equal(parsePriceCell('Мастер: 60,000₮\nҮзлэгээр нэмэгдэж болно'), null, 'a note under a tier is not an on-inspection price');
+  assert.equal(parsePriceCell('Мастер: 60,000₮\n45,000₮-аас'), null, 'beside tiers the plain line is an exact price or nothing');
 });
 
 test('times and durations', () => {

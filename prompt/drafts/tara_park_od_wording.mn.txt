@@ -1,0 +1,101 @@
+# DRAFT — not loaded. Tara Salon — Парк Од (slug tara-park-od): every customer-read or
+# model-read line of hers that is NOT byte-identical to a line the founder already approved
+# for Яармаг (compared 2026-10-03 against Яармаг's live rows, read read-only).
+#
+# Where they come from:
+#   [form]  written by scripts/onboard/tenant.ts from intake/tara-park-od.docx (the onboarding
+#           templates, approved as templates 2026-09-27; each tenant's lines are still signed
+#           on her wording sheet)
+#   [after] scripts/provision/tara-park-od-after-onboarding.sql
+# Every other line of hers is Яармаг's approved bytes (listed at the end).
+
+## 1. Only the phone changes («76001888 эсвэл 91005498» → «76001888»)
+
+[form] canned handoff
+Уучлаарай, би энэ асуултад хариулж чадахгүй байна. Манай ажилтан Танд туслахад бэлэн байна. Та 76001888 дугаараар холбогдоно уу.
+
+[form] canned refusal_no_promotion
+Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та 76001888 дугаараар лавлана уу.
+
+[form] canned refusal_price_unlisted
+Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 76001888 дугаараар холбогдож лавлана уу.
+
+[form] canned refusal_staff_schedule
+Үсчдийн ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та 76001888 дугаараар лавлана уу.
+
+[after] canned refusal_suitability
+Уучлаарай, энэ таны үсэнд тохирох эсэхийг би шийдэж өгөх боломжгүй. Манай мэргэжилтэн үсийг тань харж хэлнэ. Та 76001888 дугаараар холбогдоно уу.
+
+[after] fixed reply salon_phone
+Та 76001888 дугаараар холбогдоно уу.
+
+## 2. Her own address (and no map line: she has no Google Maps listing yet)
+
+[after] fixed reply address
+Хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот
+
+## 3. The onboarding template's words, where Яармаг's approved line says it differently
+
+[form] canned assistant_identity
+Би Tara Salon-ийн AI туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Өөр асуух зүйл байвал бичээрэй.
+  Яармаг's approved line: «Би Tara Salon-ы AI туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Хүссэн зүйлээ асуугаарай.»
+  («-ийн» after «Salon» is the template's suffix; the founder judges which is right.)
+
+[form] canned booking_line
+Цагаа онлайнаар захиалах бол: https://www.matrixecosalon.org/
+  Яармаг's approved line: «Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.»
+  (Her fixed reply `booking` already carries Яармаг's sentence byte for byte.)
+
+[form] canned refusal_topic — Яармаг has no such row (removed 2026-10-01, D-167). No rule of
+hers points at it (7.1–7.3 answered «Үгүй»), so it is never sent; the template writes it anyway.
+Уучлаарай, энэ талаар мэдээлэл өгөх боломжгүй. Та 76001888 дугаараар холбогдож лавлана уу.
+
+## 3b. Only her two levels (no 1-р зэрэг hairdresser works at Парк Од)
+
+[after] fixed reply stylist_tier (sent verbatim, no model)
+SPECIAL болон Мастер үсчний ялгаа нь зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.
+  Яармаг's approved line begins «SPECIAL, Мастер болон 1-р зэргийн үсчний ялгаа …»; only the
+  level names change. (The shared price list still carries 1-р зэрэг prices: open question.)
+
+[form] knowledge «Ажилтны зэрэг ба үнэ» (form 5.2), first line
+SPECIAL болон Мастер үсчний ялгаа нь зэрэглэл болон үнэд байдаг.
+  The other three lines are Яармаг's approved document byte for byte:
+  Салон зэрэглэлүүдийг хооронд нь харьцуулж дүгнэдэггүй. / Аль зэрэглэлийн үсчинд
+  үйлчлүүлэхээ үйлчлүүлэгч өөрөө сонгоно. / Зэрэглэл тус бүрийн үнэ үнийн жагсаалтад бий.
+  Its title «Ажилтны зэрэг ба үнэ» is the onboarding template's (Яармаг's reads «SPECIAL,
+  Мастер ба 1-р зэргийн үсчин»).
+
+## 4. New for her: the knowledge document «Салбарууд» (the model reads it)
+
+[after] knowledge «Салбарууд»
+Tara Salon хоёр салбартай.
+Энэ хуудас бол Парк Од салбарын хуудас.
+Boloroo Парк Од салбарт ажилладаг.
+Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот.
+Хоёр салбарын нийтлэг утас: 76001888.
+Хоёр салбарын үнэ ижил.
+  Made from Яармаг's approved «Салбарууд» with her details. It does NOT name Яармаг: the
+  founder's D-170 exception lets Яармаг name Парк Од, not the other way, and the branch gate
+  refuses «Яармаг» in her rows. If she should name Яармаг (its address, 91005498, its Page),
+  that is the founder's call and a config change (`allow_names` / `allow_addresses`).
+
+## 5. Model-read lines from her form that are not Яармаг's (facts the CLIENT confirms on the
+##    summary; listed so the founder sees every word)
+
+[form] deposit rule, rendered as «Урьдчилгаа төлбөр: SPECIAL болон Мастер үсчин: 20,000₮»
+  (Яармаг has three rows: «SPECIAL үсчин: 20,000₮», «Мастер үсчин: 20,000₮», «1-р зэргийн үсчин: 10,000₮».)
+
+
+## Byte-identical to Яармаг's approved rows (no new approval needed; listed for completeness)
+
+canned: comment_public_reply, handover_notice, refusal_health, refusal_off_topic,
+refusal_public_channel [form]; image_received, refusal_out_of_scope, refusal_service_unavailable,
+comment_private_reply, voice_received, handover_reclaim [after].
+fixed replies [after]: acknowledgement, assistant_maker, assistant_who, booking,
+correction_clarify, dye_prices, greeting, holiday_hours_note (76001888, the shared line),
+like_welcome, perm_types, photo_send, price_which_service, suitability_stylist,
+thanks, tomorrow_hours (stems and matchers checked equal by md5 on a local replica).
+FAQs [form]: both of Яармаг's. Knowledge [after]: Химийн хориглох заалт, Урамшуулал ба
+баримт, Химийн үйлчилгээний төрлүүд, Будалтын хориглох заалт ба боломж, CICA — эмчилгээ, хими
+биш, TARA Lumi – үүсгэлттэй будалт. Out-of-scope topics [after]: Яармаг's eleven.
+Not given to her: Яармаг's `branch_count`, `park_od_branch`, `tara_name`, `tara_rebrand`.

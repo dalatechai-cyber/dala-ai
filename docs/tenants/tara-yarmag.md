@@ -16,6 +16,7 @@ second copy nothing re-derives. Change these in the same change as the fact.
 | Address and map link | `contact_points` (`address`, `maps_url`); `deterministic_replies.address` (2026-09-30); `reply_cases` «Хаяг хаана вэ». Moving in November 2026: `scripts/provision/tara-yarmag-move-2026-11.sql` |
 | Парк Од's address, Page and the shared line (D-170) | KB «Салбарууд»; `deterministic_replies.park_od_branch`; `config/branch-groups.json` `allow_addresses` (must equal Парк Од's address row) |
 | Phone numbers 76001888, 91005498 (91005498 replaced 80905498 on 2026-10-01, D-167) | `contact_points` (`phone`); five `canned_responses` (`handoff`, `refusal_no_promotion`, `refusal_price_unlisted`, `refusal_staff_schedule`, `refusal_suitability`); `deterministic_replies.salon_phone` (Яармаг only); `deterministic_replies.holiday_hours_note` (76001888); `reply_cases` «Утас хэд вэ». 76001888 is the shared main line of both Tara branches (`config/branch-groups.json` `allow_phones`) |
+| Hairdressers' names and levels (2026-10-03: short Latin names) | `staff_members` (`name`, `short_name`, `tier`, `active`); KB «Салбарууд» (Oyunaa) and «Үсчдийн нэр» (the old Cyrillic names); `deposit_rules` labels («SPECIAL үсчин», «Мастер үсчин», «1-р зэргийн үсчин») correspond to the tiers (not byte-equal: the tier reads «1-р зэрэг үсчин»); the website's `config/stylists.js` (matrix_website) |
 | Prices (identical in both branches, D-157) | `services` and `service_variants`; `faqs` «Үс их хуурай…» (two treatment prices); `deterministic_replies.dye_prices` and `perm_types` name services in `quote_services`, and the two «usnii himi» `reply_cases` expect perm_types' rows |
 
 ## Rebrand checklist
@@ -59,6 +60,43 @@ branch keeps the name «Яармаг салбар» after the move (founder, 202
 
 Still open: the matcher word
 «хими»/«himi» points at Эмчилгээний хими (now the men's perm).
+
+Read 2026-10-03 (read-only): the price list, branches and stylist-level files above are
+already applied on the project (the level document is titled «SPECIAL, Мастер ба 1-р зэргийн
+үсчин», the fixed reply `park_od_branch` exists).
+
+## The hairdressers' new names (2026-10-03, NOT applied)
+
+The founder (2026-10-03): hairdressers are shown everywhere by short Latin names, exactly as
+written, also inside Mongolian sentences. `scripts/provision/tara-yarmag-stylist-names-2026-10-03.sql`
+(with its `-revert.sql`) waits for approval of `prompt/drafts/tara_stylist_names.mn.txt`:
+
+| Now (live rows, read 2026-10-03) | After | Level |
+|---|---|---|
+| Оюунсүрэн (Оюунаа), Мастер үсчин | **Oyunaa** (Оюунаа) | SPECIAL үсчин (founder: she is SPECIAL; the owner) |
+| Бадамцэцэг (Бадмаа) | **Badamaa** (Бадмаа) | Мастер үсчин, kept |
+| Уянга | **Uyanga** (Уянга) | 1-р зэрэг үсчин, kept |
+| Батзаяа | **Zaya** (Заяа) | 1-р зэрэг үсчин, kept |
+| Ананд, inactive | **Anand** (Ананд), switched on, «Эрэгтэй үсчид», the only man | Мастер үсчин, kept |
+| (no row) | **Chimgee** (Чимгээ; was Уранчимэг), added | 1-р зэрэг үсчин (the website's level; dala-ai had none) |
+| Отгонжаргал, active | switched off: not in the founder's list (flagged) | — |
+| Г. Мөнхзаяа, «Маникюр баг», active | switched off: manicure is off at Tara | — |
+
+The Cyrillic in brackets is each person's `short_name`, the form customers type (0019; the
+roster renders «Oyunaa (Оюунаа)»). The full old names (Оюунсүрэн, Бадамцэцэг, Батзаяа,
+Уранчимэг) are in a new knowledge document «Үсчдийн нэр», and «Салбарууд»'s line «Оюунаа Яармаг
+салбарт ажилладаг.» becomes «Oyunaa Яармаг салбарт ажилладаг.». No canned line, fixed reply,
+FAQ, reply case, comment rule, topic or service alias names a hairdresser (read 2026-10-03), so
+nothing else changes and the canned-edit guard is not engaged. Apply, then publish Яармаг at
+once (`node scripts/publish/tenant.ts --slug matrix-eco-salon`, dry run, then `--publish`).
+Proven on a local replica of her rows: it applies, refuses a second run, reverts to the bytes
+read, re-applies; the branch and facts gates are clean.
+
+Levels: dala-ai's rows agree with the website's for everyone kept (Бадамцэцэг Мастер; Батзаяа,
+Уянга 1-р зэрэг; Ананд Мастер); Оюунсүрэн moves from Мастер to SPECIAL on the founder's word.
+Found on the way, not changed: the canned `refusal_service_unavailable` («Манай салон одоогоор
+хумсны үйлчилгээ үзүүлэхгүй байна.») and the topic `nail_services` still answer nail questions
+by saying the salon does not offer them; whether that line stays is the founder's call.
 
 ## History
 
