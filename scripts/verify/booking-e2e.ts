@@ -1802,6 +1802,18 @@ await says(pg, 'Сараа');
 await says(pg, '88990018');
 check((pg.lastBody ?? '').includes('Boloroo (SPECIAL)') && (pg.lastBody ?? '').includes('20,000₮'), 'a girl with Boloroo (SPECIAL): 20,000₮');
 check(psql(`select count(*) from booking_holds where tenant_id = '${T2}' and deposit_mnt <> 20000 and not is_test`) === '0', 'no Парк Од hold carries anything but 20,000₮');
+// Typed names at Парк Од: her approved spellings (founder, 2026-10-04) pick her own hairdresser;
+// Яармаг's «Чимгээ» (Chimgee) is not hers and picks nobody (Парк Од's is Chimegee, «Чимэгээ»).
+const ptyped = newChat(undefined, PARK);
+await says(ptyped, 'Цаг авъя');
+await taps(ptyped, CHILD);
+await taps(ptyped, 'Охин');
+const ptypedStylist = () => psql(`select step || '/' || coalesce(data->>'stylist', 'none') from booking_sessions where conversation_id = '${ptyped.conversationId}' and closed_at is null`);
+await says(ptyped, 'Чимгээ');
+check(ptyped.lastBody === say(wording, 'booking_pick_from_list') && ptypedStylist() === 'stylist/none',
+  'at Парк Од, typed «Чимгээ» (Яармаг\'s Chimgee) picks nobody');
+await says(ptyped, 'Төмөө');
+check(ptypedStylist() === `when/s:${TEST_CALENDARS.tomoo}`, 'at Парк Од, typed «Төмөө» (an approved spelling) picks Tomoo');
 
 // (g) Minutes from the confirmed sheet, and Парк Од's own hours.
 const pt = newChat(undefined, PARK);

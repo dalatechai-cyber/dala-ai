@@ -21,7 +21,13 @@ new `booking_gender_child` «Хүүхэд» is part of that approval), `booking_
 цаг сонгоно уу.»), and `booking_time_free`
 («{date}, {time} сул байна. Энэ цагийг сонгох бол доорх товчийг дарна уу.»).
 
-**Round 2026-10-03 (two branches), awaiting approval:** `booking_ask_agreement` CHANGED: its
+**Approved by the founder on 2026-10-04, as written, still to be signed with the script above:**
+`booking_ask_agreement` (both rounds below), `booking_ask_variant`, and every button label in
+`config/booking/tara-salon.json` (group, family, short service and children's labels). Nothing in
+this folder or in those labels waits for approval any more; only signing is left (the founder's
+own step).
+
+**Round 2026-10-03 (two branches), APPROVED 2026-10-04:** `booking_ask_agreement` CHANGED: its
 «Нөхцөл: «{agreement}»» line is removed, because Дали must never say in chat that the deposit is
 non-refundable (the founder's rule; that sentence was the website's non-refundable tick-box text).
 It now reads «{service}, {stylist} / {date}, {time} / Урьдчилгаа төлбөр: {amount} / Зөвшөөрч байвал
@@ -29,15 +35,17 @@ It now reads «{service}, {stylist} / {date}, {time} / Урьдчилгаа тө
 for a price-list line sold by hair length or by level («Tara perm» → Богино / Дунд / Урт; «Тайралт
 том хүн» → SPECIAL / МАСТЕР / 1-р зэрэг). The service group, family and short button labels in
 `config/booking/tara-salon.json` (the price list's own words where they fit 20 characters) are
-drafts too. No other line changed; none says the deposit is non-refundable.
+approved with them (2026-10-04). No other line changed; none says the deposit is non-refundable.
 
-**Round 2026-10-04, awaiting approval:** `booking_ask_agreement` CHANGED again: after
+**Round 2026-10-04, APPROVED 2026-10-04:** `booking_ask_agreement` CHANGED again: after
 «Урьдчилгаа төлбөр: {amount}» it adds the founder's approved sentence «Урьдчилгаа төлбөр
 үйлчилгээний үнээс хасагдаж тооцогдоно.» (tara_quality item 1, Option A), because the deposit IS
 deducted from the service price and this summary is where the customer agrees to pay it. The
-sentence is approved; the block as a whole is still a draft. Nothing says the deposit is
-non-refundable. Stylist `aliases` in `config/booking/tara-salon.json` are typed-only (never
-shown): «Отгонжаргал» and the approved Яармаг «Үсчдийн нэр» spellings.
+sentence was approved first; the block as a whole was approved on 2026-10-04, as written. Nothing
+says the deposit is non-refundable. Stylist `aliases` in `config/booking/tara-salon.json` are
+typed-only (never shown): «Отгонжаргал» and the approved «Үсчдийн нэр» spellings of both branches,
+«Отгоо» (Яармаг) and Парк Од's (Болороо, Болор, Сараа, Томоо, Төмөө, Булгаа, Энхүүш, Чимэгээ,
+Тучку, Түчкү) included since the founder approved them on 2026-10-04.
 
 **Service placement (founder, 2026-10-04): APPROVED, not a pending decision.** «Гоёлын засалт
 /эрэгтэй/» is printed in the price list's women's section but is a men's styling, so the booking
@@ -48,7 +56,7 @@ offers it to men, in «Эрэгтэй засалт» (Anand at Яармаг, Tuc
 1-р зэрэг»), which fits Messenger's 20 characters; it replaces «{level} — аль ч үсчин». Should a
 level label ever make it too long, only that «any» button is left out, never cut. Tara's
 children's-service button labels in `config/booking/tara-salon.json` («Охин», «Эрэгтэй 0–13 нас»,
-«Эрэгтэй 14–18 нас») are drafts too.
+«Эрэгтэй 14–18 нас») are approved (founder, 2026-10-04, as written).
 
 Style: «та», short, no markdown, no emoji. Where Tara's website already says the same thing, its
 words are kept: «Уучлаарай, энэ цаг өөр хүнд захиалагдсан байна. Өөр цаг сонгоно уу.»

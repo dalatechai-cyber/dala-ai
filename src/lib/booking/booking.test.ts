@@ -10,7 +10,7 @@ import { extractInboundMessages } from '../meta/extract.ts';
 import { sendMessage, sendMessageParts } from '../meta/send.ts';
 import { localDayStart } from '../time/clock.ts';
 import { eventIdForHold, googleCalendar, isExpiredWebsiteHold, otherBlocking, withoutExpiredHolds, type CalendarEvent } from './calendar.ts';
-import { allServices, bookingEnvMode, customerMode, depositFor, parseBookingConfig, QUICK_REPLY_TITLE_MAX, stylistButton } from './config.ts';
+import { allServices, bookingEnvMode, choiceKey, customerMode, depositFor, parseBookingConfig, QUICK_REPLY_TITLE_MAX, stylistButton } from './config.ts';
 import { platformQpayLogin, qpayPortFor } from './live.ts';
 import { branchLabel } from './store.ts';
 import { callbackUrl, linkSecret, payUrl, publicOrigin, signHold, verifyHold } from './links.ts';
@@ -77,7 +77,21 @@ test('Tara\'s rules: the current price list with the 62 confirmed minutes, nothi
   assert.deepEqual(po.config.stylists.map((s) => `${s.label}:${s.level}:${s.gender}`), ['Boloroo:special:female', 'Saraa:master:female', 'Tomoo:master:female', 'Bulgaa:master:female', 'Enhuush:master:female', 'Chimegee:master:female', 'Tuchku:master:male']);
   // Every name a customer sees is Latin; Cyrillic only as a typed alias, never shown.
   for (const s of [...ya.config.stylists, ...po.config.stylists]) assert.match(`${s.name} ${s.label}`, /^[A-Za-z ]+$/u); // ascii-safe: proves the shown names are Latin only (Cyrillic must NOT match)
-  assert.deepEqual(ya.config.stylists.find((s) => s.label === 'Otgonjargal')?.aliases, ['Отгонжаргал', 'Otgonzargal']);
+  // Typed-only aliases: the founder's approved «Үсчдийн нэр» spellings (2026-10-04), «Отгоо» and
+  // Парк Од's included, exactly as approved (PR #284's drafts: file 2 and file 3 §4b).
+  type Typed = { stylists: { label: string; aliases: string[] }[] };
+  const aliasesOf = (c: Typed) => Object.fromEntries(c.stylists.map((s) => [s.label, s.aliases]));
+  assert.deepEqual(aliasesOf(ya.config)['Otgonjargal'], ['Отгонжаргал', 'Отгоо', 'Otgonzargal']);
+  assert.deepEqual(aliasesOf(po.config), {
+    Boloroo: ['Болороо', 'Болор'], Saraa: ['Сараа'], Tomoo: ['Томоо', 'Төмөө'], Bulgaa: ['Булгаа'],
+    Enhuush: ['Энхүүш'], Chimegee: ['Чимэгээ'], Tuchku: ['Тучку', 'Түчкү'],
+  });
+  // «No typed name picks two stylists» is checked per branch: each branch is its own tenant and
+  // config, so a typed name only ever picks within that branch. Across the branches no name or
+  // alias is shared either: «Чимгээ» is Яармаг's Chimgee, never Парк Од's Chimegee («Чимэгээ»).
+  const typedKeys = (c: Typed) => new Set(c.stylists.flatMap((s) => [s.label, ...s.aliases]).map(choiceKey));
+  const poKeys = typedKeys(po.config);
+  assert.deepEqual([...typedKeys(ya.config)].filter((k) => poKeys.has(k)), [], 'no typed name is in both branches');
   // Level words: «1-р зэргийн үсчин», never «1-р зэрэг үсчин», anywhere in the rules or the drafts.
   assert.ok(!/зэрэг үсчин/u.test(JSON.stringify(taraRules())));
   for (const [k, v] of draftWording().blocks) assert.ok(!/зэрэг үсчин/u.test(v), k);

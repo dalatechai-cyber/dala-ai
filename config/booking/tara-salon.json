@@ -1,5 +1,5 @@
 {
-  "_comment": "Tara Salon's in-chat booking rules, shared by both branches (D-157: one price list, one booking rule set), and each branch's own stylists and QPay source. DRAFT for the founder: the group labels, the short service button labels, the family labels and the children's labels are customer-visible Mongolian. Service names are the website's keys (matrix_website data/services.json) and the minutes are the 62 confirmed durations (data/serviceDurations.json, non-retired; founder 2026-10-03); scripts/booking/from-website.ts refuses unless both agree exactly. It merges this with the website's own calendar ids, its one QPay merchant and each branch's payout account (read from a matrix_website checkout at run time, never copied here) and prints one branch's booking_config row. Дали states no deposit terms in chat, so there is no agreement sentence (founder, 2026-10-03).",
+  "_comment": "Tara Salon's in-chat booking rules, shared by both branches (D-157: one price list, one booking rule set), and each branch's own stylists and QPay source. The group labels, the short service button labels, the family labels and the children's labels are customer-visible Mongolian, APPROVED by the founder as written (2026-10-04; still to be signed with the booking drafts). Service names are the website's keys (matrix_website data/services.json) and the minutes are the 62 confirmed durations (data/serviceDurations.json, non-retired; founder 2026-10-03); scripts/booking/from-website.ts refuses unless both agree exactly. It merges this with the website's own calendar ids, its one QPay merchant and each branch's payout account (read from a matrix_website checkout at run time, never copied here) and prints one branch's booking_config row. Дали states no deposit terms in chat, so there is no agreement sentence (founder, 2026-10-03).",
   "hold_minutes": 5,
   "slot_step_minutes": 60,
   "days_ahead": 7,
@@ -161,7 +161,7 @@
     { "name": "Эрэгтэй засалт — Тайралт хүүхэд /0–13 нас/", "label": "Эрэгтэй 0–13 нас", "minutes": 30, "gender": "male" },
     { "name": "Эрэгтэй засалт — Тайралт хүүхэд /14–18 нас/", "label": "Эрэгтэй 14–18 нас", "minutes": 45, "gender": "male" }
   ],
-  "_branches": "One block per branch tenant (config/branch-groups.json). `stylists`: the founder's confirmed list of 2026-10-03, short Latin names exactly as written; `website` is the key in matrix_website config/stylists.js whose calendar the branch books into (the same calendar as the website). A stylist the website has no calendar for is written \"not-connected\", and the whole branch stays off until every one is connected. `qpay`: both branches invoice under the SAME QPay merchant (the website create-payment handler's one, mcc 7230) on the SAME login (the platform's QPAY_*, terminal DALATECH_AI), exactly as Яармаг and Core Language do (founder, 2026-10-04: no merchant or login of Парк Од's own). The ONLY difference is the bank account a branch's deposits are paid into, named in every invoice's bank_accounts. \"website\": that account is the website's config/branches.js one (Яармаг, unchanged); \"operator\": it comes from the operator's environment under the website's own names (PARKOD_QPAY_BANK_CODE, PARKOD_QPAY_ACCOUNT_NUMBER, PARKOD_QPAY_ACCOUNT_NAME: her Khan Bank account) and the branch's qpay is \"not-connected\" until all three exist; an account equal to another branch's is refused. Otgonjargal (Отгонжаргал) is back (founder, 2026-10-04): Яармаг, 1-р зэрэг, female, the website's own calendar for her. `aliases`: the Cyrillic spellings a customer may TYPE at the stylist question (never shown): Яармаг's from the approved «Үсчдийн нэр» list (tara_stylist_names, 2026-10-04) plus «Отгонжаргал», and every former name the website still accepts for her (its `formerly`, e.g. «Batzaya»; from-website.ts refuses if one is missing); the lead's guess «Отгоо» and Парк Од's Cyrillic spellings (guesses, unchecked) are NOT here until the founder confirms them.",
+  "_branches": "One block per branch tenant (config/branch-groups.json). `stylists`: the founder's confirmed list of 2026-10-03, short Latin names exactly as written; `website` is the key in matrix_website config/stylists.js whose calendar the branch books into (the same calendar as the website). A stylist the website has no calendar for is written \"not-connected\", and the whole branch stays off until every one is connected. `qpay`: both branches invoice under the SAME QPay merchant (the website create-payment handler's one, mcc 7230) on the SAME login (the platform's QPAY_*, terminal DALATECH_AI), exactly as Яармаг and Core Language do (founder, 2026-10-04: no merchant or login of Парк Од's own). The ONLY difference is the bank account a branch's deposits are paid into, named in every invoice's bank_accounts. \"website\": that account is the website's config/branches.js one (Яармаг, unchanged); \"operator\": it comes from the operator's environment under the website's own names (PARKOD_QPAY_BANK_CODE, PARKOD_QPAY_ACCOUNT_NUMBER, PARKOD_QPAY_ACCOUNT_NAME: her Khan Bank account) and the branch's qpay is \"not-connected\" until all three exist; an account equal to another branch's is refused. Otgonjargal (Отгонжаргал) is back (founder, 2026-10-04): Яармаг, 1-р зэрэг, female, the website's own calendar for her. `aliases`: the Cyrillic spellings a customer may TYPE at the stylist question (never shown), exactly as the founder approved them on 2026-10-04 in each branch's «Үсчдийн нэр» (Яармаг: tara_stylist_names, «Отгонжаргал» and «Отгоо» included; Парк Од: tara_park_od_wording section 4b, byte for byte), and every former name the website still accepts for her (its `formerly`, e.g. «Batzaya»; from-website.ts refuses if one is missing). A typed name must pick exactly one stylist: the parser refuses an alias that names two stylists of the SAME branch config (each branch is its own tenant, so a typed name only ever picks within its branch); across branches none is shared either (a unit test: Яармаг's Chimgee «Чимгээ» is not Парк Од's Chimegee «Чимэгээ»).",
   "branches": {
     "matrix-eco-salon": {
       "branch_label": "Яармаг",
@@ -173,7 +173,7 @@
         { "name": "Uyanga", "level": "first", "gender": "female", "website": "Uyanga", "aliases": ["Уянга"] },
         { "name": "Zaya", "level": "first", "gender": "female", "website": "Zaya", "aliases": ["Батзаяа", "Заяа", "Batzaya"] },
         { "name": "Chimgee", "level": "first", "gender": "female", "website": "Chimgee", "aliases": ["Уранчимэг", "Чимгээ", "Uranchimeg"] },
-        { "name": "Otgonjargal", "level": "first", "gender": "female", "website": "Otgonjargal", "aliases": ["Отгонжаргал", "Otgonzargal"] },
+        { "name": "Otgonjargal", "level": "first", "gender": "female", "website": "Otgonjargal", "aliases": ["Отгонжаргал", "Отгоо", "Otgonzargal"] },
         { "name": "Anand", "level": "master", "gender": "male", "website": "Anand", "aliases": ["Ананд"] }
       ]
     },
@@ -183,13 +183,13 @@
       "qpay": "operator",
       "_qpay": "Same merchant and login as Яармаг (founder, 2026-10-04); only her own bank account differs (her Khan Bank account, PARKOD_QPAY_BANK_CODE / _ACCOUNT_NUMBER / _ACCOUNT_NAME). Proof before she goes live: a real 100₮ test lands in HER account.",
       "stylists": [
-        { "name": "Boloroo", "level": "special", "gender": "female", "website": "Boloroo" },
-        { "name": "Saraa", "level": "master", "gender": "female", "website": "Saraa" },
-        { "name": "Tomoo", "level": "master", "gender": "female", "website": "Tomoo" },
-        { "name": "Bulgaa", "level": "master", "gender": "female", "website": "Bulgaa" },
-        { "name": "Enhuush", "level": "master", "gender": "female", "website": "Enhuush" },
-        { "name": "Chimegee", "level": "master", "gender": "female", "website": "Chimegee" },
-        { "name": "Tuchku", "level": "master", "gender": "male", "website": "Tuchku" }
+        { "name": "Boloroo", "level": "special", "gender": "female", "website": "Boloroo", "aliases": ["Болороо", "Болор"] },
+        { "name": "Saraa", "level": "master", "gender": "female", "website": "Saraa", "aliases": ["Сараа"] },
+        { "name": "Tomoo", "level": "master", "gender": "female", "website": "Tomoo", "aliases": ["Томоо", "Төмөө"] },
+        { "name": "Bulgaa", "level": "master", "gender": "female", "website": "Bulgaa", "aliases": ["Булгаа"] },
+        { "name": "Enhuush", "level": "master", "gender": "female", "website": "Enhuush", "aliases": ["Энхүүш"] },
+        { "name": "Chimegee", "level": "master", "gender": "female", "website": "Chimegee", "aliases": ["Чимэгээ"] },
+        { "name": "Tuchku", "level": "master", "gender": "male", "website": "Tuchku", "aliases": ["Тучку", "Түчкү"] }
       ]
     }
   }

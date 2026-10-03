@@ -52,8 +52,9 @@ The people who ask are asking exactly the question a calendar answers.
    order, plus «Аль ч {level}» where two or more of a level may serve. No level is ever
    recommended. A name whose button would pass Messenger's 20 characters with its level is
    shown alone («Otgonjargal»). Typed instead of tapped, the Latin name alone («Uyanga») or a
-   Cyrillic spelling the rules list for her (`aliases`: «Отгонжаргал», «Бадмаа», from the
-   approved «Үсчдийн нэр» list) picks the same stylist; Cyrillic is never shown. The level sets the deposit: SPECIAL 20,000₮, Мастер 20,000₮, 1-р зэрэг 10,000₮
+   Cyrillic spelling the rules list for her (`aliases`: «Отгонжаргал», «Отгоо», «Бадмаа»,
+   «Төмөө» …, from each branch's approved «Үсчдийн нэр» list, 2026-10-04) picks the same stylist,
+   within her own branch only; Cyrillic is never shown. The level sets the deposit: SPECIAL 20,000₮, Мастер 20,000₮, 1-р зэрэг 10,000₮
    (only Яармаг has 1-р зэрэг, so every Парк Од deposit is 20,000₮).
 5. **When**: Дали asks «{service} — хэзээ, хэдэн цагт ирэх вэ?», with the days that still have
    a free start as buttons. The customer can tap a day or type it in words: «маргааш 2 цагт»,
@@ -73,7 +74,7 @@ The people who ask are asking exactly the question a calendar answers.
    terms**: the founder's rule is that Дали never says in chat that the deposit is non-refundable
    (the website's own tick box carries that). It says only the founder's approved line that the
    deposit is deducted from the service price («Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж
-   тооцогдоно.», 2026-10-04; the block itself is a draft). The hold records the summary the customer accepted,
+   тооцогдоно.», 2026-10-04; the block itself approved as written on 2026-10-04, to be signed). The hold records the summary the customer accepted,
    word for word, with the time, and writes it on the calendar event («Summary accepted: «…»»).
    Nothing is held and no QR exists before this tap.
 8. Дали holds the time and sends **one message with a «Төлбөр төлөх» button**: the summary and

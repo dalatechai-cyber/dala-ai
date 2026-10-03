@@ -1,3 +1,23 @@
+# NOTES — Round 4 (2026-10-04): the founder's wording approvals
+
+Same branch/worktree/PR (#285). Nothing live: no merge, no SQL on a real database, nothing signed
+(signing is the founder's step, `scripts/prompt/sign-drafts.ts --dir prompt/drafts/booking`).
+
+## Status
+- [x] Approved as written (founder, 2026-10-04), marked in `prompt/drafts/booking/README.md`, the
+      config's comments and the docs: `booking_ask_agreement`, `booking_ask_variant`, every button
+      label (group, family, short service, children's).
+- [x] Typed-only aliases now approved, added to `config/booking/tara-salon.json`: «Отгоо» for
+      Otgonjargal (Яармаг); Парк Од's «Үсчдийн нэр» spellings read byte for byte from PR #284's
+      `prompt/drafts/tara_park_od_wording.mn.txt` §4b (Boloroo: Болороо, Болор; Saraa: Сараа; Tomoo:
+      Томоо, Төмөө; Bulgaa: Булгаа; Enhuush: Энхүүш; Chimegee: Чимэгээ; Tuchku: Тучку, Түчкү).
+- [x] Duplicate check: the parser's «no alias names two stylists» runs per branch config (each
+      branch is its own tenant; a typed name only picks within its branch), which is the right
+      scope. A unit test pins the approved aliases and that no typed name is in both branches
+      (Chimgee «Чимгээ» at Яармаг vs Chimegee «Чимэгээ» at Парк Од); the e2e checks at Парк Од
+      that «Чимгээ» picks nobody and «Төмөө» picks Tomoo. R2-2 below is superseded.
+- [x] check green (2668 tests); e2e 262 local with the website (21 website), 241 CI-shaped.
+
 # NOTES — Round 3 (2026-10-04): founder's correction on Парк Од's QPay
 
 Same branch/worktree/PR (#285). Nothing live: no SQL on a real database, no Vercel/Supabase change.
@@ -77,7 +97,8 @@ R2-1. Her button is «Otgonjargal» alone: «Otgonjargal · 1-р зэрэг» is
 R2-2. Aliases are typed-only and per stylist in the rules file. Included: «Отгонжаргал» (founder) and
       Яармаг's approved «Үсчдийн нэр» spellings (Оюунсүрэн/Оюунаа, Бадамцэцэг/Бадмаа, Уянга, Батзаяа/Заяа,
       Уранчимэг/Чимгээ, Ананд). Left out: «Отгоо» (the lead's guess) and Парк Од's Cyrillic spellings
-      (guesses) — a wrong alias would book the wrong person, so only confirmed ones.
+      (guesses) — a wrong alias would book the wrong person, so only confirmed ones. (Round 4: the
+      founder approved both on 2026-10-04; they are in now.)
 R2-3. The Latin name alone also picks (typing «Uyanga» used to match nothing): same risk class, helps.
 R2-4. The deducted sentence goes ONLY in the summary before «Зөвшөөрч, захиалах» (where the customer
       agrees to pay), not in the pay message or the confirmation (no repetition). The approved wording
