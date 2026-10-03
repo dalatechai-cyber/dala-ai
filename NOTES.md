@@ -68,7 +68,13 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       what was delivered; expiry minutes never 0; the 5 min start when the QR exists (hold end moved to the
       QR's) and scheduling is bounded to 3 s; rebook SQL checks level and an old busy event; a 23505 on the
       per-customer index is not «taken». e2e section 18 (+11). e2e 188 locally.
-- [ ] Re-review + CI
+- [x] Re-review of 1a4662c: fixed: an undelivered rebook offer is retried each minute only until its 30-min
+      deadline, with one page per outcome (offered / not delivered yet: do not refund / none: yours); the level
+      checked in SQL is the target stylist's; calendar_failed paged per round; a QR whose hold end cannot be moved
+      is cancelled, never shown; the page's QPay check at expiry is throttled; a customer message that settles a
+      paid-but-taken hold gets only the offer (no second Дали reply); offer and plain line have separate keys.
+      e2e 191 locally.
+- [ ] Final review + CI
 
 ## Decisions (with reason)
 1. Deterministic flow, no model: C1/E2 stay true of the model; every line is a signed platform block.

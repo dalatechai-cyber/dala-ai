@@ -33,7 +33,7 @@ import { payUrl } from './links.ts';
 import { freeStarts, isFree, openDays, type Interval, type OpenDay } from './slots.ts';
 import {
   acquireHold, activeHolds, applyTurn, closeSessionRow, conversationMovedOn, endHold, markFollowedUp, rebookHold, openSession, readConfig, readHold, readHoursAndClosures,
-  outboundCreatedAt, readOpenSession, readTenantFacts, sessionHold, sessionsToFollowUp, setCalendarState, type Hold, type Session, type TenantFacts,
+  outboundCreatedAt, readOpenSession, readTenantFacts, REBOOK_OFFER_MINUTES, sessionHold, sessionsToFollowUp, setCalendarState, type Hold, type Session, type TenantFacts,
 } from './store.ts';
 import { hourOn, parseWhen, type Want } from './when.ts';
 import { missingBlocks, say } from './wording.ts';
@@ -645,6 +645,8 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
 export async function offerRebook(ports: BookingPorts, hold: Hold, facts: TenantFacts, config: BookingConfig, round: string):
   Promise<'sent' | 'already' | 'not_delivering' | 'failed' | 'no_offer'> {
   if (hold.notifiedAt !== null) return 'already';
+  // Past the half hour the founder was given (a retry after failed sends): nothing more is offered.
+  if (hold.endedAt !== null && ports.now().getTime() > hold.endedAt.getTime() + REBOOK_OFFER_MINUTES * 60_000) return 'no_offer';
   const level = config.levels.find((l) => l.label === hold.level);
   if (level === undefined || hold.conversationId === null) return 'no_offer';
   const now = ports.now();
@@ -695,7 +697,7 @@ export async function offerRebook(ports: BookingPorts, hold: Hold, facts: Tenant
     return 'failed';
   };
   const applied = await applyTurn(ports.db, {
-    tenantId: hold.tenantId, session, dedupKey: `booking:${hold.id}:paid_unbooked:${round}`, step: 'rebook',
+    tenantId: hold.tenantId, session, dedupKey: `booking:${hold.id}:paid_unbooked_offer:${round}`, step: 'rebook',
     data: { ...offer.data, offers: offer.offers, missed: false, offerStep: 'rebook' }, closeReason: null,
     body: marked(ports.wording, hold.isTest, offer.body),
   });
@@ -747,7 +749,10 @@ async function rebookTo(c: Ctx, data: Record<string, unknown>, start: Date): Pro
     const busy = await busyOn(ports, [s.calendarId], start, end);
     if (busy === null) return 'not_mine';
     if (!isFree(start, minutes, busy.get(s.calendarId) ?? [])) continue;
-    const move = () => rebookHold(ports.db, { holdId, calendarId: s.calendarId, staffName: s.label, level: String(data['rebookLevel']), startsAt: start, endsAt: end });
+    // The stylist's own level, compared in SQL with the deposit's: a stylist moved to another
+    // level since is never booked on the old deposit.
+    const sLevel = config.levels.find((l) => l.key === s.level)?.label ?? '';
+    const move = () => rebookHold(ports.db, { holdId, calendarId: s.calendarId, staffName: s.label, level: sLevel, startsAt: start, endsAt: end });
     let moved = await move();
     if (moved.ok && moved.outcome === 'calendar_busy') {
       // The old time's busy event is still in a calendar: removed first, so nothing is left behind.
@@ -815,7 +820,12 @@ async function duringPay(c: Ctx, session: Session): Promise<TurnResult> {
   }
   const r = await settleHold(c.ports, hold.id);
   if (r === 'booked') return { handled: true, outboundId: null, quickReplies: [], detail: 'settled: booked' };
-  if (r === 'already_booked' || r === 'paid_unbooked' || r === 'ended') return over(`settled_${r}`);
+  // Paid, but the time was taken: the offer of other times has just gone out and answers it.
+  if (r === 'paid_unbooked') {
+    await over('settled_paid_unbooked');
+    return { handled: true, outboundId: null, quickReplies: [], detail: 'settled: paid, time taken, offer sent' };
+  }
+  if (r === 'already_booked' || r === 'ended') return over(`settled_${r}`);
   if (r === 'unpaid' && c.now.getTime() >= hold.expiresAt.getTime()) {
     const e = await expireHold(c.ports, hold.id);
     if (e === 'expired') return { handled: true, outboundId: null, quickReplies: [], detail: 'expired on message' };

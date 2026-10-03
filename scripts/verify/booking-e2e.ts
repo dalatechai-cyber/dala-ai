@@ -25,7 +25,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'; // guard-ok: scripts/, not src/
 import { quickQr } from '../../src/lib/billing/qpay.ts';
-import { claim, markSent } from '../../src/lib/outbound/claim.ts';
+import { claim, markFailed, markSent } from '../../src/lib/outbound/claim.ts';
 import { usdToNano } from '../../src/lib/money.ts';
 import { localDayStart, tenantClock } from '../../src/lib/time/clock.ts';
 import { googleCalendar, eventIdForHold } from '../../src/lib/booking/calendar.ts';
@@ -120,6 +120,8 @@ const alerts: BookingAlert[] = [];
 /** Sweeps asked for at a hold's end (QStash in production). */
 const scheduled: { at: Date; key: string }[] = [];
 let clockShift = 0;
+/** Messenger refuses every send while set. */
+let failDeliver = false;
 const now = () => new Date(Date.now() + clockShift);
 
 const ports: BookingPorts = {
@@ -137,6 +139,10 @@ const ports: BookingPorts = {
   origin: ORIGIN,
   secret: SECRET,
   deliver: async (a: BookingDeliverArgs) => {
+    if (failDeliver) {
+      await markFailed(db, { id: a.outboundId, tenantId: a.tenantId, attempts: a.attempts, reason: 'test: Messenger down' });
+      return { outcome: 'failed', failure: 'transport', retryable: true, detail: 'test: Messenger down' } as never;
+    }
     sent.push({ outboundId: a.outboundId, psid: a.recipientId, body: a.body, quickReplies: a.quickReplies ?? [], ...(a.linkButtonTitle === undefined ? {} : { linkButtonTitle: a.linkButtonTitle }) });
     const m = await markSent(db, { id: a.outboundId, tenantId: a.tenantId, providerMessageId: `mid.out.${sent.length}`, unitCost: usdToNano(0), now: new Date() });
     if (!m.ok) throw new Error(`markSent: ${m.detail}`);
@@ -1140,9 +1146,10 @@ const D6 = dayLabel(wording, day6, new Date(), TZ);
 const typedDay6 = `${Number(day6.slice(5, 7))} сарын ${Number(day6.slice(8, 10))}-нд`;
 const POLICY = 'Энэ QR 5 минутын турш хүчинтэй. Энэ хугацаанд таны сонгосон цаг хадгалагдана.';
 /** From «when» to the QR, for one 1-hour service with Оюунаа at `hh` on day 6. */
-async function toQr(chat: Chat, hh: number, name: string, phone: string, first = 'Цаг авъя') {
+async function toQr(chat: Chat, hh: number, name: string, phone: string, first = 'Цаг авъя', day = day6) {
   await toWhen(chat, 'Оюунаа · Мастер', first);
-  if (chat.lastBody === say(wording, 'booking_ask_when', { service: 'Энгийн засалт' })) await says(chat, `${typedDay6} ${hh} цагт`);
+  const typed = `${Number(day.slice(5, 7))} сарын ${Number(day.slice(8, 10))}-нд`;
+  if (chat.lastBody === say(wording, 'booking_ask_when', { service: 'Энгийн засалт' })) await says(chat, `${typed} ${hh} цагт`);
   await taps(chat, `${String(hh).padStart(2, '0')}:00`);
   await says(chat, name);
   await says(chat, phone);
@@ -1270,18 +1277,20 @@ check(psql(`select count(*) from booking_holds where tenant_id = '${T}' and psid
 section('18. The review\'s cases for the five minutes and the rebook');
 // =====================================================================================
 /** A paid deposit whose time the website took after the five minutes: the customer gets the offer. */
-async function lateAndTaken(chat: Chat, hh: number, name: string, phone: string): Promise<{ hold: string; offer: Sent | undefined }> {
-  await toQr(chat, hh, name, phone);
+async function lateAndTaken(chat: Chat, hh: number, name: string, phone: string, failOffer = false, day = day6): Promise<{ hold: string; offer: Sent | undefined }> {
+  await toQr(chat, hh, name, phone, 'Цаг авъя', day);
   const h = holdOf(chat);
   const inv = invoicesOf(h)[0] as string;
   psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${h}'`);
   qpayFake.failCancel = true;
   await runSweep(ports);
   qpayFake.failCancel = false;
-  google.websiteBooks(TEST_CALENDARS.master1, ubAt(day6, hh), 60);
+  google.websiteBooks(TEST_CALENDARS.master1, ubAt(day, hh), 60);
   qpayFake.pay(inv);
   const before = sent.length;
+  failDeliver = failOffer;
   await runQpayCallback(ports, signHold(SECRET, 'callback', h));
+  failDeliver = false;
   return { hold: h, offer: pushedTo(chat, before)[0] };
 }
 const tap = (msg: Sent | undefined, title: string) => msg?.quickReplies.find((q) => q.title === title);
@@ -1362,6 +1371,32 @@ psql(`update booking_holds set expires_at = now() - interval '1 second' where id
 const pageR6 = await runPayPage(ports, { token: signHold(SECRET, 'pay', holdR6), method: 'GET', stateOnly: false });
 check(pageR6.html.includes(say(wording, 'booking_page_paid')) && holdState(holdR6) === 'booked',
   'the page opened just after the five minutes asks QPay first: «paid», and it is booked');
+
+// (7) The offer could not be delivered: retried every minute until it goes out, and you are told
+// not to refund before its deadline, then told again when it went out.
+// Day 6 is full by now: these two use day 5 (Оюунаа's day 5 is untouched).
+const day5b = tenantClock(new Date(Date.now() + 120 * 3600_000), TZ).date;
+const rv7 = newChat();
+const lr7 = await lateAndTaken(rv7, 14, 'Хүрээгүй', '99660007', true, day5b);
+const undelivered = alerts.find((a) => a.kind === 'booking.paid_unbooked' && a.dedupKey.includes(lr7.hold) && a.dedupKey.endsWith(':undelivered'));
+check(lr7.offer === undefined && undelivered !== undefined && undelivered.body.includes('Do not refund'),
+  'the offer could not be delivered: you are told not to refund yet, with the deadline');
+const beforeRv7 = sent.length;
+await runSweep(ports);
+const retried = pushedTo(rv7, beforeRv7);
+check(retried.length === 1 && retried[0]?.quickReplies.some((q) => q.payload.startsWith('bk:rebook:')) === true
+  && alerts.some((a) => a.kind === 'booking.paid_unbooked' && a.dedupKey.includes(lr7.hold) && a.dedupKey.endsWith(':offered')),
+  'the next sweep delivers it, and you are told it went out');
+
+// (8) Never delivered before the half hour ran out: no more offers; the customer and you are told.
+const rv8 = newChat();
+const lr8 = await lateAndTaken(rv8, 16, 'Хоцорсон2', '99660008', true, day5b);
+psql(`update booking_holds set ended_at = now() - interval '31 minutes' where id = '${lr8.hold}'`);
+const beforeRv8 = sent.length;
+await runSweep(ports);
+check(pushedTo(rv8, beforeRv8).filter((m) => m.body === say(wording, 'booking_paid_unbooked') && m.quickReplies.length === 0).length === 1
+  && alerts.some((a) => a.kind === 'booking.paid_unbooked' && a.dedupKey.includes(lr8.hold) && a.dedupKey.endsWith(':none')),
+  'past its half hour no times are offered any more: the customer is told a person will call, and the deposit is yours');
 
 // =====================================================================================
 section('13. Every customer message got at most one reply; nothing was confirmed unpaid');

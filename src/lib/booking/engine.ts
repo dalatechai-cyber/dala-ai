@@ -268,8 +268,13 @@ export async function createInvoice(ports: BookingPorts, hold: Hold, config: Boo
     return done;
   }
   const moved = await setHoldExpiry(ports.db, hold.id, qrExpiresAt);
-  if (moved.ok) hold.expiresAt = qrExpiresAt;
-  else ports.log('error', 'booking_hold_expiry_not_moved', { holdId: hold.id, detail: moved.detail });
+  if (!moved.ok) {
+    // The QR would outlive the held time: never shown, cancelled, and the turn says so.
+    await qpay.cancelInvoice(token.token, made.invoiceId);
+    await finishInvoice(ports.db, claimed.invoice.id, { state: 'cancelled' });
+    return { ok: false, detail: moved.detail };
+  }
+  hold.expiresAt = qrExpiresAt;
   return {
     ok: true,
     invoice: { ...claimed.invoice, state: 'open', qpayInvoiceId: made.invoiceId, qrImage: made.qrImage, qrText: made.qrText, urls: made.urls, qrExpiresAt },
@@ -405,13 +410,19 @@ async function tellPaidUnbooked(ports: BookingPorts, hold: Hold, facts: TenantFa
   const offered = facts === null ? 'no_offer' as const : await offerRebook(ports, hold, facts, config, round);
   const delivered = offered === 'sent' || offered === 'already';
   const until = new Date((hold.endedAt ?? ports.now()).getTime() + REBOOK_OFFER_MINUTES * 60_000);
-  const untilText = facts === null ? '' : ` (until ${tenantClock(until, facts.timezone).time} Ulaanbaatar time)`;
+  const untilText = facts === null ? '' : `${tenantClock(until, facts.timezone).time} Ulaanbaatar time`;
+  // One page per outcome of the round: «offered» (with the deadline), «offer not delivered yet»
+  // (retried every minute until the deadline; nothing to do before it), and «nothing offered»
+  // (yours now). A retry that gets through is a new page, so the founder always knows which.
+  const outcome = delivered ? 'offered' : offered === 'no_offer' ? 'none' : 'undelivered';
   await ports.alert({
-    tenantId: hold.tenantId, kind: 'booking.paid_unbooked', dedupKey: `booking.paid_unbooked:${hold.id}:${round}`,
+    tenantId: hold.tenantId, kind: 'booking.paid_unbooked', dedupKey: `booking.paid_unbooked:${hold.id}:${round}:${outcome}`,
     body: alertBody(hold, facts, '⚠️ A customer PAID the deposit in Messenger and has NO appointment.',
-      delivered
-        ? `${why}\nДали offered the customer the nearest free times${untilText}. A time they pick in that window is booked on this deposit and you get a second message. After it, the deposit is yours to refund in QPay or book by hand; a late tap no longer books.`
-        : `${why}\n${offered === 'no_offer' ? 'No free time could be offered in the chat.' : 'The offer of other times could not be delivered.'} Call the customer: book another time by hand, or refund the deposit in QPay.`),
+      outcome === 'offered'
+        ? `${why}\nДали offered the customer the nearest free times, until ${untilText}. A time they pick by then is booked on this deposit and you get a second message. After it, the deposit is yours to refund in QPay or book by hand; a late tap no longer books.`
+        : outcome === 'undelivered'
+          ? `${why}\nThe offer of other times could not be delivered yet; it is retried every minute until ${untilText}. Do not refund or book by hand before then: you get another message when it goes out, or when the time is up.`
+          : `${why}\nNo free time can be offered in the chat (none free, or the offer's time is up). Call the customer: book another time by hand, or refund the deposit in QPay.`),
   });
   if (offered !== 'no_offer') {
     await toldIf(ports, hold, offered);
@@ -513,7 +524,7 @@ export async function settleHold(ports: BookingPorts, holdId: string, opts: { mi
   const clash = await othersInWindow(ports, hold, facts.timezone);
   if (!clash.ok) {
     await ports.alert({
-      tenantId: hold.tenantId, kind: 'booking.calendar_failed', dedupKey: `booking.calendar_failed:${hold.id}`,
+      tenantId: hold.tenantId, kind: 'booking.calendar_failed', dedupKey: `booking.calendar_failed:${hold.id}:${hold.rebookedAt === null ? '0' : hold.rebookedAt.getTime()}`,
       body: alertBody(hold, facts, '⚠️ A deposit is PAID but the calendar cannot be read to book it. The platform keeps trying every minute.',
         `If this does not clear, book the time by hand. Detail: ${clash.detail}`),
     });
@@ -529,7 +540,7 @@ export async function settleHold(ports: BookingPorts, holdId: string, opts: { mi
   const written = await writeBooking(ports, hold, facts);
   if (!written.ok) {
     await ports.alert({
-      tenantId: hold.tenantId, kind: 'booking.calendar_failed', dedupKey: `booking.calendar_failed:${hold.id}`,
+      tenantId: hold.tenantId, kind: 'booking.calendar_failed', dedupKey: `booking.calendar_failed:${hold.id}:${hold.rebookedAt === null ? '0' : hold.rebookedAt.getTime()}`,
       body: alertBody(hold, facts, '⚠️ A deposit is PAID but the booking could not be written to the calendar. The platform keeps trying every minute.',
         `If this does not clear, book the time by hand. Detail: ${written.detail}`),
     });

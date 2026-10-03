@@ -40,7 +40,7 @@ export async function runPayPage(ports: BookingPorts, input: { token: string; me
   // The five minutes just ran out and nobody has looked yet: ask QPay before saying «ended»,
   // so a customer who paid in the last seconds sees «paid», never a prompt to pay again.
   if (read.hold.state === 'held' && ports.now().getTime() >= read.hold.expiresAt.getTime()) {
-    await settleHold(ports, holdId);
+    await settleHold(ports, holdId, { minCheckIntervalMs: POLL_CHECK_INTERVAL_MS });
     read = await readHold(ports.db, holdId);
     if (!read.ok || read.hold === null) return { status: 503, html: 'unavailable' };
   }
