@@ -364,19 +364,29 @@ export async function sessionsToFollowUp(db: SupabaseClient, now: Date, afterMin
 }
 
 /**
- * Did the customer write anything after `since` that the booking flow did not take (a photo, a
- * sticker, a message it stepped aside from)? `messages` holds the customer's side; the flow's
- * own sends are `outbound_messages`, and a message the flow took is stored before its session
- * moves on, so neither counts. A person's reply shows as `thread_control`, read separately.
- * `answered_by = 'human'` is included so a staff row written here one day is not missed.
+ * Has the conversation moved on since `since` (the offer of times) without the booking flow?
+ *
+ *  - a customer text the flow did not take: `messages` (stored before the flow's session moves
+ *    on, so a message the flow took is never newer than its offer);
+ *  - anything answered or sent there since: `outbound_messages`. A photo or a sticker never gets
+ *    a `messages` row (no text), but its answer (the image line, a handover notice) is a row
+ *    here. The flow's own reply is drafted in the same transaction that moves the session on, so
+ *    it is never newer than `since`.
+ *
+ * A person's reply in the Page Inbox shows as `thread_control`, read separately.
  */
 export async function conversationMovedOn(db: SupabaseClient, tenantId: string, conversationId: string, since: Date):
   Promise<Ok<{ moved: boolean }> | Fail> {
-  const { data, error } = await db.from('messages').select('id')
-    .eq('tenant_id', tenantId).eq('conversation_id', conversationId).gt('at', since.toISOString())
-    .or('direction.eq.inbound,answered_by.eq.human').limit(1);
-  if (error) return { ok: false, detail: `messages unreadable: ${error.message}` };
-  return { ok: true, moved: (data ?? []).length > 0 }; // ascii-safe: counts rows
+  // Postgres keeps microseconds and a Date only milliseconds: the reply written with the offer
+  // (same transaction, same `now()`) reads as newer than its own truncated time. Rounded up.
+  const at = new Date(since.getTime() + 1).toISOString();
+  const [m, o] = await Promise.all([
+    db.from('messages').select('id').eq('tenant_id', tenantId).eq('conversation_id', conversationId).gt('at', at).limit(1),
+    db.from('outbound_messages').select('id').eq('tenant_id', tenantId).eq('conversation_id', conversationId).gt('created_at', at).limit(1),
+  ]);
+  if (m.error) return { ok: false, detail: `messages unreadable: ${m.error.message}` };
+  if (o.error) return { ok: false, detail: `outbound_messages unreadable: ${o.error.message}` };
+  return { ok: true, moved: (m.data ?? []).length > 0 || (o.data ?? []).length > 0 }; // ascii-safe: counts rows
 }
 
 /** The follow-up went out (or was drafted); never again for this chat. A failure only logs: the reply's dedup key still holds. */

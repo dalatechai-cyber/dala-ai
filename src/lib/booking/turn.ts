@@ -61,6 +61,9 @@ export const SESSION_IDLE_MINUTES = 30;
 /** A customer silent this long on the offered times is asked once more (`followUps`). */
 export const FOLLOW_UP_MINUTES = 10;
 
+/** The longest one follow-up may take: the calendar read (10 s timeout) and the send. */
+const ONE_FOLLOW_UP_MS = 20_000;
+
 type Offer = { t: string; v: string };
 type Step = 'group' | 'service' | 'gender' | 'stylist' | 'when' | 'time' | 'name' | 'phone' | 'agree' | 'pay';
 type Reply = { step: Step; body: string; offers: Offer[]; data: Record<string, unknown>; close: string | null; linkButtonTitle?: string };
@@ -315,8 +318,10 @@ async function offerTimes(c: Ctx, data: Record<string, unknown>, want: Want, lea
     if (named !== undefined && named.starts.length > 0) pick = named;
     else {
       // Open that day and every start taken: full. Not among the open days at all (closed, a
-      // closure, past, or beyond how far ahead the tenant books): not bookable, never «full».
-      dayFull = say(w, named !== undefined ? 'booking_day_full' : 'booking_day_closed', { date: dayLabel(w, want.date, c.now, tz) });
+      // closure, past, or beyond how far ahead the tenant books), or today with nothing left
+      // that could still start: not bookable, never «full».
+      const over = named !== undefined && named.day.closesAt.getTime() <= c.now.getTime() + c.config.minLeadMinutes * 60_000;
+      dayFull = say(w, named !== undefined && !over ? 'booking_day_full' : 'booking_day_closed', { date: dayLabel(w, want.date, c.now, tz) });
       pick = open.find((d) => d.day.date > (want.date as string)) ?? open[0] as DayStarts;
     }
   } else if (want.hour !== null) {
@@ -549,15 +554,19 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
     const local = tenantClock(c.now, c.facts.timezone);
     const typed = parseWhen(c.input.respelled ?? c.input.text, { date: local.date, weekday: local.weekday })
       ?? (c.input.respelled === null ? null : parseWhen(c.input.text, { date: local.date, weekday: local.weekday }));
-    // A question with no hour in it («Өнөөдөр ажиллах уу?») is not an answer, and naming the
-    // day already on offer with no hour adds nothing: both count as a miss, so the flow still
-    // steps aside on the second one and the ordinary Дали answers. «Маргааш 2 цагт болох уу?»
-    // names an hour: it is the customer asking for that time.
+    // Naming the day already on offer with no hour adds nothing: a miss. A question with no hour
+    // («Маргааш болох уу?») gets that day's times but still counts as a miss, so a second
+    // non-answer lets the ordinary Дали answer. «Маргааш 2 цагт болох уу?» names an hour: it is
+    // the customer asking for that time.
     const question = /[?？]\s*$/u.test(c.input.text) || /(?<![\p{L}\p{N}])(?:уу|үү|юу|юү|вэ|бэ)[\s.!]*$/u.test(fold(c.input.text));
     const noHour = typed !== null && typed.hour === null;
     const sameDay = step === 'time' && noHour && typed?.date === data['date'];
-    if (typed !== null && !(question && noHour) && !sameDay) {
-      return offerTimes(c, data, step === 'time' && typed.date === null ? { ...typed, date: String(data['date']) } : typed);
+    if (typed !== null && !sameDay && !(question && noHour && data['missed'] === true)) {
+      const offer = await offerTimes(c, data, step === 'time' && typed.date === null ? { ...typed, date: String(data['date']) } : typed);
+      // «Маргааш болох уу?» is answered with tomorrow's times, but as a miss: if the next message
+      // is not a pick either, the flow steps aside, so a question is never answered by times for ever.
+      return question && noHour && offer.step === 'time' && offer.close === null
+        ? { ...offer, data: { ...offer.data, missed: true } } : offer;
     }
   }
 
@@ -770,8 +779,9 @@ export async function followUps(ports: BookingPorts, budgetMs = 30_000): Promise
     return out;
   }
   for (const session of due.sessions) {
-    // The rest wait for the next minute; a follow-up a minute late is still a follow-up.
-    if (Date.now() - started > budgetMs) break;
+    // The rest wait for the next minute; a follow-up a minute late is still a follow-up. One
+    // follow-up can take a calendar read and a send, so none starts without that much left.
+    if (budgetMs - (Date.now() - started) < ONE_FOLLOW_UP_MS) break;
     try {
       const r = await followUp(ports, session, now);
       out[r] += 1;
@@ -842,7 +852,12 @@ async function followUp(ports: BookingPorts, session: Session, now: Date): Promi
   if (applied.turn.outcome === 'stale') return 'skipped';
   // Drafted by an earlier run that stopped before marking: never sent now (its text named the
   // times of then, and the buttons would be today's).
-  if (applied.turn.outcome === 'exists') return skip('already drafted once');
+  if (applied.turn.outcome === 'exists') {
+    // Refused, so it is never sent and never read back as a turn the customer received.
+    const r = await markRefused(ports.db, { id: applied.turn.outboundId, tenantId: session.tenantId, reason: 'booking_follow_up: drafted by an earlier run', from: ['draft', 'failed'] });
+    if (!r.ok) ports.log('error', 'booking_follow_up_refuse_failed', { sessionId: session.id, detail: r.detail });
+    return skip('already drafted once');
+  }
   const marked2 = await markFollowedUp(ports.db, session.id, now);
   if (!marked2.ok) ports.log('error', 'booking_follow_up_mark_failed', { sessionId: session.id, detail: marked2.detail });
   const outboundId = applied.turn.outboundId;
@@ -850,7 +865,7 @@ async function followUp(ports: BookingPorts, session: Session, now: Date): Promi
 
   // Last look before sending: the customer may have answered in the moment since the draft.
   const refuse = async (why: string): Promise<'skipped'> => {
-    const r = await markRefused(ports.db, { id: outboundId, tenantId: session.tenantId, reason: `booking_follow_up: ${why}`, from: ['draft'] });
+    const r = await markRefused(ports.db, { id: outboundId, tenantId: session.tenantId, reason: `booking_follow_up: ${why}`, from: ['draft', 'failed'] });
     if (!r.ok) ports.log('error', 'booking_follow_up_refuse_failed', { sessionId: session.id, detail: r.detail });
     return 'skipped';
   };
@@ -863,8 +878,10 @@ async function followUp(ports: BookingPorts, session: Session, now: Date): Promi
 
   const sent = await deliverDrafted(ports, { tenantId: session.tenantId, channelId: session.channelId, psid: session.psid }, outboundId,
     { sessionId: session.id, event: 'follow_up' }, { quickReplies: quickReplies('time', offer.offers, say(ports.wording, 'booking_cancel')) });
-  if (sent === 'sent') return 'sent';
+  if (sent === 'sent' || sent === 'already') return sent === 'sent' ? 'sent' : 'skipped';
+  // A channel that does not deliver (shadow) keeps the draft as its record, as every reply does.
+  if (sent === 'not_delivering') return 'skipped';
   // Not sent now: never later. A follow-up resent by a retry an hour on would arrive out of place.
-  await refuse(`not delivered (${sent})`);
-  return sent === 'failed' ? 'failed' : 'skipped';
+  await refuse('not delivered');
+  return 'failed';
 }

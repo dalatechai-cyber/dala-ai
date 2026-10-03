@@ -85,3 +85,9 @@ test('BOOKING when: «цаг» is a whole word; half past and minutes', () => {
   assert.deepEqual(at('14 цагаас'), { date: null, at: 14 * 60 });
   assert.deepEqual(at('маргааш 50'), { date: '2026-10-03', at: null }, 'not an hour: the day still stands');
 });
+
+test('BOOKING when: «цагийн үед» and «цагаар» are a time; «цагийн дараа» is not', () => {
+  assert.deepEqual(at('маргааш 14 цагийн үед'), { date: '2026-10-03', at: 14 * 60 });
+  assert.deepEqual(at('маргааш 2 цагаар'), { date: '2026-10-03', at: 14 * 60 });
+  assert.equal(at('2 цагийн дараа'), null);
+});

@@ -865,6 +865,11 @@ const p5r = await says(p5, 'Үнэ хэд вэ?');
 check(!p5r.handled, 'a second miss: the flow steps aside and the ordinary Дали answers');
 
 // (f) Silent on the offered times: one follow-up, with the times read fresh; never twice.
+/** The customer has been quiet `minutes`: the chat's session, its replies and its messages all moved back that far. */
+const quietFor = (chat: Chat, minutes: number) => {
+  psql(`update booking_sessions set updated_at = updated_at - interval '${minutes} minutes' where conversation_id = '${chat.conversationId}' and closed_at is null`);
+  psql(`update outbound_messages set created_at = created_at - interval '${minutes} minutes' where conversation_id = '${chat.conversationId}'`);
+};
 for (const d of [0, 1, 2, 3, 4, 5, 6]) psql(`insert into business_hours (tenant_id, weekday, opens, closes, closed) values ('${T}', ${d}, '10:00', '20:00', false) on conflict do nothing`);
 const p6 = newChat();
 await toWhen(p6, 'Бадмаа · Мастер');
@@ -872,10 +877,10 @@ await says(p6, `${typedDay3} 12 цагт`);
 const oldButtons = p6.last !== null && p6.last.handled ? p6.last.quickReplies : [];
 const sessionP6 = () => psql(`select id from booking_sessions where conversation_id = '${p6.conversationId}' and closed_at is null`);
 const beforeP6 = sent.length;
-psql(`update booking_sessions set updated_at = now() - interval '9 minutes' where id = '${sessionP6()}'`);
+quietFor(p6, 9);
 await runSweep(ports);
 check(pushedTo(p6, beforeP6).length === 0, 'nine minutes quiet: no follow-up yet');
-psql(`update booking_sessions set updated_at = now() - interval '11 minutes' where id = '${sessionP6()}'`);
+quietFor(p6, 11);
 google.websiteBooks(TEST_CALENDARS.master2, ubAt(day3, 13), 60);
 const swept12 = await runSweep(ports);
 const follow = pushedTo(p6, beforeP6);
@@ -883,7 +888,7 @@ check(follow.length === 1 && (follow[0]?.body ?? '').startsWith(`${say(wording, 
   && (follow[0]?.quickReplies ?? []).some((q) => q.title === '12:00') && !(follow[0]?.quickReplies ?? []).some((q) => q.title === '13:00')
   && ((swept12.body['followUps'] as Record<string, number>)['sent'] === 1),
   'ten minutes quiet: «Цаг захиалах уу?» once, with the times read fresh (the website took 13:00 meanwhile)');
-psql(`update booking_sessions set updated_at = now() - interval '11 minutes' where id = '${sessionP6()}'`);
+quietFor(p6, 11);
 await runSweep(ports);
 check(pushedTo(p6, beforeP6).length === 1, 'never a second follow-up');
 // Old buttons. The customer moves to another day, then taps a button from the first day's list:
@@ -913,10 +918,17 @@ check((p6b.lastBody ?? '').startsWith(`${say(wording, 'booking_slot_taken')}\n`)
 const q1 = newChat();
 await toWhen(q1, 'Бадмаа · Мастер');
 await says(q1, `${typedDay3} 17 цагт`);
-await says(q1, 'Өнөөдөр ажиллах уу?');
-check(q1.lastBody === say(wording, 'booking_pick_from_list'), '«Өнөөдөр ажиллах уу?» at the times: asked once to pick');
-const q1r = await says(q1, 'Маргааш ажиллах уу?');
+await says(q1, `${typedDay3} ажиллах уу?`);
+check(q1.lastBody === say(wording, 'booking_pick_from_list'), 'at the times, asking about the day already shown adds nothing: asked once to pick');
+const q1r = await says(q1, 'Нөгөөдөр ажиллах уу?');
 check(!q1r.handled, 'a second question: the flow steps aside and the ordinary Дали answers');
+const q3 = newChat();
+await toWhen(q3, 'Бадмаа · Мастер');
+await says(q3, 'Нөгөөдөр болох уу?');
+check(q3.lastBody === say(wording, 'booking_ask_time', { date: dayLabel(wording, tenantClock(new Date(Date.now() + 48 * 3600_000), TZ).date, new Date(), TZ) }),
+  '«Нөгөөдөр болох уу?» at «when» is answered with that day\'s free times');
+const q3r = await says(q3, 'Өөр өдөр болох уу?');
+check(!q3r.handled, 'but it counted as a miss: a second non-answer lets the ordinary Дали answer');
 
 // A day that cannot be booked at all is not called «full».
 const far = tenantClock(new Date(Date.now() + 20 * 24 * 3600_000), TZ).date;
@@ -931,21 +943,28 @@ const h1 = newChat();
 await toWhen(h1, 'Бадмаа · Мастер');
 await says(h1, `${typedDay3} 18 цагт`);
 psql(`update conversations set thread_control = 'human', thread_control_at = now() where id = '${h1.conversationId}'`);
-psql(`update booking_sessions set updated_at = now() - interval '11 minutes' where conversation_id = '${h1.conversationId}' and closed_at is null`);
+quietFor(h1, 11);
 const h2 = newChat();
 await toWhen(h2, 'Бадмаа · Мастер');
 await says(h2, `${typedDay3} 19 цагт`);
-psql(`update booking_sessions set updated_at = now() - interval '11 minutes' where conversation_id = '${h2.conversationId}' and closed_at is null`);
-psql(`insert into messages (tenant_id, conversation_id, direction, external_id, body) values ('${T}', '${h2.conversationId}', 'inbound', 'mid.photo.${randomUUID()}', '')`);
+quietFor(h2, 11);
+// A photo gets no `messages` row (no text); its answer, the image line, is a reply row as reception writes it.
+psql(`insert into outbound_messages (tenant_id, channel_id, conversation_id, kind, body, dedup_key, state) values ('${T}', '${CH}', '${h2.conversationId}', 'reply', 'image line', 'in:mid.photo.${randomUUID()}', 'draft')`);
+const h3 = newChat();
+await toWhen(h3, 'Бадмаа · Мастер');
+await says(h3, `${typedDay3} 10 цагт`);
+quietFor(h3, 11);
+psql(`insert into messages (tenant_id, conversation_id, direction, external_id, body) values ('${T}', '${h3.conversationId}', 'inbound', 'mid.text.${randomUUID()}', 'Хаяг хаана вэ')`);
 const beforeH = sent.length;
 await runSweep(ports);
 check(pushedTo(h1, beforeH).length === 0 && psql(`select followed_up_at is not null from booking_sessions where conversation_id = '${h1.conversationId}' and closed_at is null`) === 't',
   'staff took the thread (an echo set it to human): no follow-up, and the chat is not looked at again');
-check(pushedTo(h2, beforeH).length === 0, 'the customer sent something the flow did not take (a photo): no follow-up');
+check(pushedTo(h2, beforeH).length === 0, 'the customer sent a photo and got the image line: no follow-up');
+check(pushedTo(h3, beforeH).length === 0, 'the customer wrote something the flow did not take: no follow-up');
 const p7 = newChat();
 await toWhen(p7, 'Бадмаа · Мастер');
 await says(p7, `${typedDay3} 18 цагт`);
-psql(`update booking_sessions set updated_at = now() - interval '31 minutes' where conversation_id = '${p7.conversationId}' and closed_at is null`);
+quietFor(p7, 31);
 const beforeP7 = sent.length;
 await runSweep(ports);
 check(pushedTo(p7, beforeP7).length === 0, 'a chat already idle (over 30 minutes) is not followed up');

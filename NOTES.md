@@ -39,7 +39,14 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       «өглөө» morning, «цагийн дараа» not a time, «хагас»/«минут», bad hour keeps the day; a question with no hour and
       the same day again count as misses; closed/beyond-window day says «боломжгүй», not «full»; off-grid hour gets
       the nearest times, not «taken». e2e 149 locally (141 in CI, 8 need MATRIX_WEBSITE).
-- [ ] CI on the fix push
+- [x] CI green on 5f467f6 (141 in CI; 8 website-code checks SKIPPED there by design).
+- [x] Re-review of 5f467f6: fixed its gaps: an hourless question at «when» is answered with times but counts as
+      a miss (so the flow still lets go); the follow-up also sees replies sent since the offer (a photo's image
+      line) via outbound_messages, comparing at microsecond-safe precision; failed/`exists` follow-up drafts are
+      refused (never sent late, never read back as a turn); shadow keeps its draft; budget stops before a
+      follow-up that could overrun; today after closing says «боломжгүй»; «цагийн үед»/«цагаар» read as a time.
+      e2e 152 locally.
+- [ ] CI on this push
 
 ## Decisions (with reason)
 1. Deterministic flow, no model: C1/E2 stay true of the model; every line is a signed platform block.
