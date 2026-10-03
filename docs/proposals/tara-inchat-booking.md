@@ -227,7 +227,10 @@ account or the same own login (checked in the database before every invoice; you
 `booking.merchant_shared`); or QPay itself refuses the merchant under that login. Each invoice
 row records the merchant, payout account and login it was made on (`booking_invoices`, 0082), and
 a payment is checked, or a QR cancelled, on THAT login, so changing a branch's row while a QR is
-out never strands a paid deposit. The website does
+out never strands a paid deposit. If that login is missing from the environment, nothing is read
+on any other login: you get one alert for the login (`booking.qpay_login_missing`, an episode that
+closes once it reads again). A tenant whose `booking_config` becomes unusable still has its
+payments read and recorded; only the booking waits until the row is fixed. The website does
 the same for Парк Од from `PARKOD_QPAY_MERCHANT_ID`, `PARKOD_QPAY_BANK_CODE`,
 `PARKOD_QPAY_ACCOUNT_NUMBER`, `PARKOD_QPAY_ACCOUNT_NAME`; `from-website.ts` reads her values under
 those same names from the operator's shell, so both sides carry the same values. QPay's own

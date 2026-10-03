@@ -17,7 +17,7 @@ draft PR #280 (`claude/happy-pasteur-4gp7gd`, 87a8875). Booking stays OFF for ev
       or account in another tenant's row, or QPay refuses it.
 - [x] Website hold contract (lead): `sh` prefix, holdExpiresAt/holdPlacedAt; expired `sh` free; earlier-
       placed wins; chat holds recognised by `dalaBookingState: 'hold'` only (lead's review finding).
-- [x] e2e 247 local (11 run the website's own code incl. its placeHold), 236 CI-shaped; unit + check green;
+- [x] e2e 251 local (11 run the website's own code incl. its placeHold), 240 CI-shaped; unit + check green;
       5 SQL suites + query columns, postgrest.ts, billing-e2e 118 pass locally (PG16 + PostgREST 12.2.3).
 - [x] Draft PR #285 (base claude/happy-pasteur-4gp7gd). CI green on 8287e82 (booking e2e 235 in CI).
 - [x] Independent review (remote reviewer session, Opus, read-only, ~$2.59 of session spend): 3 findings,
@@ -25,6 +25,12 @@ draft PR #280 (`claude/happy-pasteur-4gp7gd`, 87a8875). Booking stays OFF for ev
       that login, not the row's current one; (2) no tenant slug literals in src/ (tests name branches by
       their place in the rules file); (3) an own QPay login shared by two tenants is refused/flagged.
       The lead's finding (chat hold by dalaBookingState only) also fixed.
+- [x] Re-review of 35129b0 (relayed by the lead): 3 more, all fixed: settleHold reads and records payments
+      even when the tenant's config is unusable (only the booking waits; e2e proves it, then books after the
+      fix); collectPayments' unused config parameter dropped; a login missing from the environment while QRs
+      made on it are out raises ONE on_change alert per tenant and login (`booking.qpay_login_missing`),
+      closed when a token on that login is obtained again (e2e proves the alert, no secret in it, and the
+      booking once the login is back).
 
 ## Decisions (with reason)
 1. Rules file holds services WITH minutes (not only the website): CI can test the real list; from-website.ts

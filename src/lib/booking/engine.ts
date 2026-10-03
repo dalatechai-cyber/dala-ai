@@ -21,6 +21,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { QpayPort } from '../billing/qpay.ts';
 import { formatMnt } from '../billing/templates.ts';
 import type { DeliverOutcome } from '../outbound/deliver.ts';
+import { resolveOpenAlerts } from '../alerts/alert.ts';
 import { claim, draftOnce } from '../outbound/claim.ts';
 import type { QuickReply } from '../meta/send.ts';
 import { canDeliver } from '../channel/delivery.ts';
@@ -40,7 +41,11 @@ export type BookingDeliverArgs = {
   attempts: number; graphVersion: string; tokenChannelId?: string; quickReplies?: readonly QuickReply[]; linkButtonTitle?: string;
 };
 
-export type BookingAlert = { tenantId: string; kind: string; dedupKey: string; body: string };
+/**
+ * `repeat`: `once` (default) pages once per key; `on_change` opens an episode that stays silent
+ * while open and is closed when the condition is seen to have cleared (`resolveOpenAlerts`).
+ */
+export type BookingAlert = { tenantId: string; kind: string; dedupKey: string; body: string; repeat?: 'once' | 'on_change' };
 
 export type BookingPorts = {
   db: SupabaseClient;
@@ -308,19 +313,32 @@ export async function createInvoice(ports: BookingPorts, hold: Hold, config: Boo
  * check or a cancel sends no merchant or bank details, only the login's token; the merchant and
  * account here are the invoice's own, and the mcc is never sent. One token per login per call.
  */
-function invoiceSessions(ports: BookingPorts): (inv: Invoice) => Promise<{ ok: true; port: QpayPort; token: string } | { ok: false; detail: string }> {
+function invoiceSessions(ports: BookingPorts, hold: Hold): (inv: Invoice) => Promise<{ ok: true; port: QpayPort; token: string } | { ok: false; detail: string }> {
   const byLogin = new Map<string, Promise<{ ok: true; port: QpayPort; token: string } | { ok: false; detail: string }>>();
   return (inv) => {
     const key = inv.qpayLogin ?? '';
     let s = byLogin.get(key);
     if (s === undefined) {
       s = (async () => {
+        // One episode per tenant and login, not per invoice: the login is gone from the environment
+        // while QR codes made on it are out, so their payments cannot be read. Closed once it reads again.
+        const alertKey = `booking.qpay_login_missing:${hold.tenantId}:${inv.qpayLogin ?? 'platform'}`;
         const port = ports.qpayFor({
           merchantId: inv.merchantId, mccCode: '0000', login: inv.qpayLogin,
           bankAccounts: [{ bankCode: '-', accountNumber: inv.payoutAccount, accountName: '-' }],
         });
-        if (port === null) return { ok: false as const, detail: `QPay is not configured (the login invoice ${inv.id} was made on)` };
+        if (port === null) {
+          await ports.alert({
+            tenantId: hold.tenantId, kind: 'booking.qpay_login_missing', dedupKey: alertKey, repeat: 'on_change',
+            body: `⚠️ In-chat booking cannot read deposit payments: the QPay login ${inv.qpayLogin === null ? 'QPAY_USERNAME / QPAY_PASSWORD / QPAY_TERMINAL_ID' : `BOOKING_QPAY_${inv.qpayLogin}_USERNAME / _PASSWORD / _TERMINAL_ID`} that QR codes were made on is missing from the environment. Payments on them are not recorded until it is back; check the merchant app.`,
+          });
+          return { ok: false as const, detail: `QPay is not configured (the login invoice ${inv.id} was made on)` };
+        }
         const t = await port.token();
+        if (t.ok) {
+          const r = await resolveOpenAlerts(ports.db, { keyPrefix: alertKey, now: ports.now() });
+          if (r.ok && r.resolved.length > 0) ports.log('info', 'booking_qpay_login_back', { login: inv.qpayLogin ?? 'platform' });
+        }
         return t.ok ? { ok: true as const, port, token: t.token } : { ok: false as const, detail: t.detail };
       })();
       byLogin.set(key, s);
@@ -361,13 +379,13 @@ async function closeSession(ports: BookingPorts, hold: Hold, reason: string): Pr
  * Ask QPay about every invoice of this hold and record what it says. Returns the payments
  * recorded NOW (not seen before), or `undetermined` when any answer cannot be read.
  */
-async function collectPayments(ports: BookingPorts, hold: Hold, config: BookingConfig, facts: TenantFacts | null):
+async function collectPayments(ports: BookingPorts, hold: Hold, facts: TenantFacts | null):
   Promise<{ ok: true; fresh: { key: string; disposition: string; amount: number }[] } | { ok: false; detail: string }> {
   const invoices = await holdInvoices(ports.db, hold.id);
   if (!invoices.ok) return invoices;
   const asked = invoices.invoices.filter((i) => i.qpayInvoiceId !== null && i.state !== 'refused');
   if (asked.length === 0) return { ok: true, fresh: [] };
-  const session = invoiceSessions(ports);
+  const session = invoiceSessions(ports, hold);
   const fresh: { key: string; disposition: string; amount: number }[] = [];
   for (const inv of asked) {
     // Asked on the login the invoice was made on, whatever the tenant's row says now.
@@ -526,22 +544,22 @@ export async function settleHold(ports: BookingPorts, holdId: string, opts: { mi
   const cfg = await readConfig(ports.db, hold.tenantId);
   const factsRead = await readTenantFacts(ports.db, hold.tenantId);
   const facts = factsRead.ok ? factsRead.facts : null;
-  // Money first: even a hold whose tenant switched the flow off still records what was paid.
-  if (!cfg.ok || !cfg.present || !cfg.valid) {
+  // Money first: even a hold whose tenant's settings are missing or invalid has its payments read
+  // and recorded (each invoice on the login it was made on); only the booking waits for the fix.
+  const usable = cfg.ok && cfg.present && cfg.valid;
+  if (!usable) {
     ports.log('error', 'booking_config_unusable', { holdId, detail: cfg.ok ? (cfg.present ? (cfg as { detail: string }).detail : 'no row') : cfg.detail });
     await ports.alert({
       tenantId: hold.tenantId, kind: 'booking.config_unusable', dedupKey: `booking.config_unusable:${hold.tenantId}`,
-      body: alertBody(hold, facts, '⚠️ A Messenger booking cannot be checked: the tenant\'s booking settings are missing or invalid.',
-        'Fix booking_config for this tenant; until then this deposit is not read from QPay.'),
+      body: alertBody(hold, facts, '⚠️ A Messenger booking cannot be completed: the tenant\'s booking settings are missing or invalid.',
+        'Its payments are still read from QPay and recorded; the booking and the customer\'s confirmation wait until booking_config is fixed.'),
     });
-    return 'unavailable';
   }
-  const config = cfg.config;
 
   // The pay page polls every few seconds; QPay is asked at most once per interval per hold.
   const recently = opts.minCheckIntervalMs !== undefined && hold.lastCheckedAt !== null
     && ports.now().getTime() - hold.lastCheckedAt.getTime() < opts.minCheckIntervalMs;
-  const paid = recently ? { ok: true as const, fresh: [] } : await collectPayments(ports, hold, config, facts);
+  const paid = recently ? { ok: true as const, fresh: [] } : await collectPayments(ports, hold, facts);
   if (!paid.ok) {
     ports.log('warn', 'booking_payments_undetermined', { holdId, detail: paid.detail });
     return 'undetermined';
@@ -569,6 +587,9 @@ export async function settleHold(ports: BookingPorts, holdId: string, opts: { mi
     }
   }
 
+  // Recorded; nothing is booked or rebooked on settings that cannot be read.
+  if (!cfg.ok || !cfg.present || !cfg.valid) return 'unavailable';
+  const config = cfg.config;
   const again = await readHold(ports.db, holdId);
   if (!again.ok || again.hold === null) return 'unavailable';
   hold = again.hold;
@@ -666,7 +687,7 @@ async function cancelInvoices(ports: BookingPorts, hold: Hold): Promise<void> {
   const paidIds = new Set((paidRows ?? []).map((r) => String((r as Record<string, unknown>)['invoice_id'])));
   const open = inv.invoices.filter((i) => i.state === 'open' && i.qpayInvoiceId !== null && !paidIds.has(i.id));
   if (open.length === 0) return;
-  const session = invoiceSessions(ports);
+  const session = invoiceSessions(ports, hold);
   for (const i of open) {
     // Cancelled on the login it was made on.
     const s = await session(i);

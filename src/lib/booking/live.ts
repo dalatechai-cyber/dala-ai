@@ -81,7 +81,7 @@ export async function liveBookingPorts(db: SupabaseClient, opts: { graphVersionD
     alert: async (a) => {
       try {
         const r = await raiseAlert(db, {
-          tenantId: a.tenantId, severity: 'critical', kind: a.kind, dedupKey: a.dedupKey, body: a.body, route: 'now', repeat: 'once',
+          tenantId: a.tenantId, severity: 'critical', kind: a.kind, dedupKey: a.dedupKey, body: a.body, route: 'now', repeat: a.repeat ?? 'once',
         });
         if (r.outcome === 'failed' || r.outcome === 'recorded_undelivered') console.error('[booking] alert_undelivered', { kind: a.kind, ...r });
       } catch (e) {

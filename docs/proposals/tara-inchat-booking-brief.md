@@ -26,7 +26,7 @@ A deterministic flow (no model, every line a signed block): who it is for, servi
 
 ## Built and proven
 
-Draft PR https://github.com/dalatechai-cyber/dala-ai/pull/280, off for every tenant; the two-branch round is a draft PR stacked on it. End-to-end 247 checks (2026-10-03) over real PostgreSQL and PostgREST with faithful QPay and Google fakes, 11 of them running Tara's own website code (including its own hold) against the same calendar; 236 in CI, which has no website checkout. Seven independent review rounds, every finding fixed. Migration `0082_booking` is **not applied** (checked on the project 2026-10-03: latest is `0081_ora_billing`, no booking tables or functions; main has no other 0082).
+Draft PR https://github.com/dalatechai-cyber/dala-ai/pull/280, off for every tenant; the two-branch round is a draft PR stacked on it. End-to-end 251 checks (2026-10-03) over real PostgreSQL and PostgREST with faithful QPay and Google fakes, 11 of them running Tara's own website code (including its own hold) against the same calendar; 240 in CI, which has no website checkout. Seven independent review rounds, every finding fixed. Migration `0082_booking` is **not applied** (checked on the project 2026-10-03: latest is `0081_ora_billing`, no booking tables or functions; main has no other 0082).
 
 ## Still missing
 

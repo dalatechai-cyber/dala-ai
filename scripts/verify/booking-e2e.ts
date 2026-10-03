@@ -1678,6 +1678,26 @@ qpayFake.pay(invoicesOf(holdOf(pl2))[0] as string);
 await runQpayCallback(ports, signHold(SECRET, 'callback', holdOf(pl2)));
 check(holdState(holdOf(pl2)) === 'booked' && psql(`select qpay_login || '/' || merchant_id from booking_invoices where hold_id = '${holdOf(pl2)}'`) === `PARKOD/${PARK_Q.merchant_id}`,
   'paid after the row changed: QPay is asked on the login the invoice was made on (recorded on it), and it is booked');
+// Her login taken out of the environment while a QR made on it is out: the payment cannot be read;
+// one alert for the login (an episode, not one per invoice); back in: read and booked.
+setPark(taraConfig(BRANCH_2, { qpay: { ...PARK_Q, login: 'PARKOD' } }));
+const pl5 = newChat(undefined, PARK);
+await parkSummary(pl5, 'Bulgaa · Мастер', '16:00', '88990019');
+await taps(pl5, AGREE);
+const holdPl5 = holdOf(pl5);
+const savedLogin = ['USERNAME', 'PASSWORD', 'TERMINAL_ID'].map((k) => [k, process.env[`BOOKING_QPAY_PARKOD_${k}`]] as const);
+for (const [k] of savedLogin) delete process.env[`BOOKING_QPAY_PARKOD_${k}`];
+qpayFake.pay(invoicesOf(holdPl5)[0] as string);
+await runQpayCallback(ports, signHold(SECRET, 'callback', holdPl5));
+await runQpayCallback(ports, signHold(SECRET, 'callback', holdPl5));
+const loginAlerts = alerts.filter((al) => al.kind === 'booking.qpay_login_missing' && al.dedupKey === `booking.qpay_login_missing:${T2}:PARKOD`);
+check(holdState(holdPl5) === 'held' && psql(`select count(*) from booking_payments where hold_id = '${holdPl5}'`) === '0'
+  && loginAlerts.length === 1 && loginAlerts[0]?.repeat === 'on_change' && !(loginAlerts[0]?.body ?? '').includes('parkod-pass'),
+  'the login her QR was made on is gone from the environment: nothing recorded (never read on another login), one alert episode for that login, no secret in it');
+for (const [k, v] of savedLogin) process.env[`BOOKING_QPAY_PARKOD_${k}`] = v;
+await runQpayCallback(ports, signHold(SECRET, 'callback', holdPl5));
+check(holdState(holdPl5) === 'booked', 'the login back: the payment is read and the time booked');
+setPark(taraConfig(BRANCH_2));
 delete process.env['BOOKING_QPAY_PARKOD_USERNAME'];
 delete process.env['BOOKING_QPAY_PARKOD_PASSWORD'];
 delete process.env['BOOKING_QPAY_PARKOD_TERMINAL_ID'];
@@ -1695,6 +1715,22 @@ for (const [what, q] of [['merchant id', { ...PARK_Q, merchant_id: YA_Q.merchant
     `Парк Од's row with Яармаг's ${what}: refused before QPay is asked, and you are paged`);
 }
 setPark(taraConfig(BRANCH_2));
+
+// Her settings broken while a QR is out: the payment is still read and recorded (money first);
+// only the booking waits, and it is made once the settings are fixed.
+const pu = newChat(undefined, PARK);
+await parkSummary(pu, 'Saraa · Мастер', '17:00', '88990020');
+await taps(pu, AGREE);
+const holdPu = holdOf(pu);
+psql(`update booking_config set config = config - 'levels' where tenant_id = '${T2}'`);
+qpayFake.pay(invoicesOf(holdPu)[0] as string);
+await runQpayCallback(ports, signHold(SECRET, 'callback', holdPu));
+check(holdState(holdPu) === 'paid' && psql(`select count(*) from booking_payments where hold_id = '${holdPu}'`) === '1'
+  && alerts.some((al) => al.kind === 'booking.config_unusable' && al.tenantId === T2),
+  'settings unusable: the payment is still read and recorded (paid), nothing booked on them, and you are paged');
+setPark(taraConfig(BRANCH_2));
+await runSweep(ports);
+check(holdState(holdPu) === 'booked', 'settings fixed: the next sweep books it');
 
 // (f) Who it is for, at Парк Од: a man and a boy book only Tuchku; a girl the women; every deposit 20,000₮.
 const pm = newChat(undefined, PARK);
