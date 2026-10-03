@@ -30,7 +30,7 @@ import { eventIdForHold, type CalendarPort, type NewEvent } from './calendar.ts'
 import type { BookingConfig, QpayMerchant } from './config.ts';
 import { callbackUrl, payUrl } from './links.ts';
 import {
-  endHold, finishInvoice, claimInvoice, setHoldExpiry, REBOOK_OFFER_MINUTES, holdInvoices, markBooked, markUnbooked, readConfig, readHold, readTenantFacts,
+  endHold, finishInvoice, claimInvoice, setHoldExpiry, REBOOK_OFFER_MINUTES, outboundExists, holdInvoices, markBooked, markUnbooked, readConfig, readHold, readTenantFacts,
   recordPayment, setCalendarState, holdsToSweep, holdsWithOpenInvoices, markChecked, markNotified, closeSessionRow, logEvent, type Hold, type Invoice, type TenantFacts,
 } from './store.ts';
 import { say, type BookingWording } from './wording.ts';
@@ -259,6 +259,15 @@ export async function createInvoice(ports: BookingPorts, hold: Hold, config: Boo
   // The five minutes start now that the QR exists, and end for both at one instant: the held
   // time's end moves to the QR's (a turn's calendar and QPay calls never eat into them).
   const qrExpiresAt = new Date(ports.now().getTime() + config.holdMinutes * 60_000);
+  // The held time's end first: a QR row is marked `open` (and so shown) only once the hold
+  // lasts exactly as long. Not moved: the QR is cancelled and its row never opens.
+  const moved = await setHoldExpiry(ports.db, hold.id, qrExpiresAt);
+  if (!moved.ok) {
+    await qpay.cancelInvoice(token.token, made.invoiceId);
+    await finishInvoice(ports.db, claimed.invoice.id, { state: 'unknown', qpayInvoiceId: made.invoiceId });
+    return { ok: false, detail: moved.detail };
+  }
+  hold.expiresAt = qrExpiresAt;
   const done = await finishInvoice(ports.db, claimed.invoice.id, {
     state: 'open', qpayInvoiceId: made.invoiceId, qrImage: made.qrImage, qrText: made.qrText, urls: made.urls, qrExpiresAt,
   });
@@ -267,14 +276,6 @@ export async function createInvoice(ports: BookingPorts, hold: Hold, config: Boo
     await qpay.cancelInvoice(token.token, made.invoiceId);
     return done;
   }
-  const moved = await setHoldExpiry(ports.db, hold.id, qrExpiresAt);
-  if (!moved.ok) {
-    // The QR would outlive the held time: never shown, cancelled, and the turn says so.
-    await qpay.cancelInvoice(token.token, made.invoiceId);
-    await finishInvoice(ports.db, claimed.invoice.id, { state: 'cancelled' });
-    return { ok: false, detail: moved.detail };
-  }
-  hold.expiresAt = qrExpiresAt;
   return {
     ok: true,
     invoice: { ...claimed.invoice, state: 'open', qpayInvoiceId: made.invoiceId, qrImage: made.qrImage, qrText: made.qrText, urls: made.urls, qrExpiresAt },
@@ -405,16 +406,30 @@ async function tellPaidUnbooked(ports: BookingPorts, hold: Hold, facts: TenantFa
   // A rebooked deposit that lost its time again is a new round: told and paged again, never
   // swallowed by the first round's keys.
   const round = hold.rebookedAt === null ? '0' : String(hold.rebookedAt.getTime());
+  // This round was told already (the page always goes before the mark): a second callback, a
+  // retry, a customer's message never pages again, so a «refund it» is never followed by «offered».
+  if (hold.notifiedAt !== null) return;
+  // A round whose plain line («a person will call») was already drafted stays plain: an offer
+  // after it could book a deposit the founder was told to refund.
+  const plainKey = `booking:${hold.id}:paid_unbooked:${round}`;
+  const plainDrafted = await outboundExists(ports.db, hold.tenantId, plainKey);
+  if (plainDrafted === null) {
+    // Unreadable: nothing said, nothing paged; untold, so the sweep asks again next minute.
+    ports.log('error', 'booking_paid_unbooked_unreadable', { holdId: hold.id });
+    return;
+  }
   // turn.ts imports this module; imported here on use so neither loads the other half-made.
   const { offerRebook } = await import('./turn.ts');
-  const offered = facts === null ? 'no_offer' as const : await offerRebook(ports, hold, facts, config, round);
+  const offered = facts === null || plainDrafted ? 'no_offer' as const : await offerRebook(ports, hold, facts, config, round);
   const delivered = offered === 'sent' || offered === 'already';
   const until = new Date((hold.endedAt ?? ports.now()).getTime() + REBOOK_OFFER_MINUTES * 60_000);
   const untilText = facts === null ? '' : `${tenantClock(until, facts.timezone).time} Ulaanbaatar time`;
   // One page per outcome of the round: «offered» (with the deadline), «offer not delivered yet»
   // (retried every minute until the deadline; nothing to do before it), and «nothing offered»
   // (yours now). A retry that gets through is a new page, so the founder always knows which.
-  const outcome = delivered ? 'offered' : offered === 'no_offer' ? 'none' : 'undelivered';
+  // Only a send that failed is retried (`toldIf` leaves it untold); a channel that does not
+  // deliver is told nothing ever, so it is «none»: the deposit is the founder's now.
+  const outcome = delivered ? 'offered' : offered === 'failed' ? 'undelivered' : 'none';
   await ports.alert({
     tenantId: hold.tenantId, kind: 'booking.paid_unbooked', dedupKey: `booking.paid_unbooked:${hold.id}:${round}:${outcome}`,
     body: alertBody(hold, facts, '⚠️ A customer PAID the deposit in Messenger and has NO appointment.',

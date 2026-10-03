@@ -74,7 +74,11 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       is cancelled, never shown; the page's QPay check at expiry is throttled; a customer message that settles a
       paid-but-taken hold gets only the offer (no second Дали reply); offer and plain line have separate keys.
       e2e 191 locally.
-- [ ] Final review + CI
+- [x] Review of cf2dba2: fixed its 4: a told round never pages again (no «offered» after «refund it»); a channel
+      that does not deliver is «none», not «wait»; an unreadable read refuses and retries (never «nothing free»),
+      and a round whose plain line was drafted is never offered after; the hold's end is moved before the QR row
+      opens. e2e 193 locally.
+- [ ] CI on this push
 
 ## Decisions (with reason)
 1. Deterministic flow, no model: C1/E2 stay true of the model; every line is a signed platform block.

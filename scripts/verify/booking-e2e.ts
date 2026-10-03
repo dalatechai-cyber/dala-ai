@@ -1394,9 +1394,38 @@ const lr8 = await lateAndTaken(rv8, 16, 'Хоцорсон2', '99660008', true, d
 psql(`update booking_holds set ended_at = now() - interval '31 minutes' where id = '${lr8.hold}'`);
 const beforeRv8 = sent.length;
 await runSweep(ports);
-check(pushedTo(rv8, beforeRv8).filter((m) => m.body === say(wording, 'booking_paid_unbooked') && m.quickReplies.length === 0).length === 1
+check(pushedTo(rv8, beforeRv8).length === 1
+  && pushedTo(rv8, beforeRv8).filter((m) => m.body === say(wording, 'booking_paid_unbooked') && m.quickReplies.length === 0).length === 1
   && alerts.some((a) => a.kind === 'booking.paid_unbooked' && a.dedupKey.includes(lr8.hold) && a.dedupKey.endsWith(':none')),
   'past its half hour no times are offered any more: the customer is told a person will call, and the deposit is yours');
+
+// (9) After «refund it», a second QPay callback (a retry, a second payment) pages nothing more:
+// never an «offered» after a «none».
+const pagesRv8 = alerts.filter((a) => a.dedupKey.includes(lr8.hold)).length;
+await runQpayCallback(ports, signHold(SECRET, 'callback', lr8.hold));
+await runSweep(ports);
+check(alerts.filter((a) => a.dedupKey.includes(lr8.hold)).length === pagesRv8
+  && !alerts.some((a) => a.dedupKey.includes(lr8.hold) && a.dedupKey.endsWith(':offered')),
+  'after «refund it», another callback and another sweep page nothing: never «offered» after «none»');
+
+// (10) A channel that does not deliver (switched to shadow meanwhile): «none», the deposit is yours.
+const rv10 = newChat();
+await toQr(rv10, 18, 'Сүүдэр', '99660010', 'Цаг авъя', day5b);
+const holdRv10 = holdOf(rv10);
+const invRv10 = invoicesOf(holdRv10)[0] as string;
+psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdRv10}'`);
+qpayFake.failCancel = true;
+await runSweep(ports);
+qpayFake.failCancel = false;
+google.websiteBooks(TEST_CALENDARS.master1, ubAt(day5b, 18), 60);
+qpayFake.pay(invRv10);
+psql(`update tenant_channels set delivery_mode = 'shadow' where id = '${CH}'`);
+await runQpayCallback(ports, signHold(SECRET, 'callback', holdRv10));
+psql(`update tenant_channels set delivery_mode = 'live' where id = '${CH}'`);
+check(holdState(holdRv10) === 'paid_unbooked'
+  && alerts.some((a) => a.dedupKey.includes(holdRv10) && a.dedupKey.endsWith(':none'))
+  && !alerts.some((a) => a.dedupKey.includes(holdRv10) && a.dedupKey.endsWith(':undelivered')),
+  'the channel does not deliver: you are told the deposit is yours to refund or book, never «wait for a retry» that cannot come');
 
 // =====================================================================================
 section('13. Every customer message got at most one reply; nothing was confirmed unpaid');

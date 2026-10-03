@@ -653,7 +653,8 @@ export async function offerRebook(ports: BookingPorts, hold: Hold, facts: Tenant
   const tz = facts.timezone;
   const local = tenantClock(now, tz);
   const hc = await readHoursAndClosures(ports.db, hold.tenantId, local.date);
-  if (!hc.ok) return 'no_offer';
+  // An error is not «nothing free»: refused, and retried by the sweep.
+  if (!hc.ok) return 'failed';
   const c: Ctx = {
     ports, config, facts, now,
     input: {

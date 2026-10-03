@@ -433,6 +433,13 @@ export async function conversationMovedOn(db: SupabaseClient, tenantId: string, 
   return { ok: true, moved: any(m.data) || any(o.data) || any(d.data) };
 }
 
+/** Is there an outbound reply with this key? Null when it cannot be read. */
+export async function outboundExists(db: SupabaseClient, tenantId: string, dedupKey: string): Promise<boolean | null> {
+  const { data, error } = await db.from('outbound_messages').select('id').eq('tenant_id', tenantId).eq('kind', 'reply').eq('dedup_key', dedupKey).limit(1);
+  if (error) return null;
+  return (data ?? []).length > 0; // ascii-safe: counts rows
+}
+
 /** When an outbound row was drafted. */
 export async function outboundCreatedAt(db: SupabaseClient, tenantId: string, id: string): Promise<Ok<{ at: Date }> | Fail> {
   const { data, error } = await db.from('outbound_messages').select('created_at').eq('tenant_id', tenantId).eq('id', id).maybeSingle();
