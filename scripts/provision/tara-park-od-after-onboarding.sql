@@ -116,13 +116,15 @@ select t.id, v.kind, v.body from tenants t,
 --    «Салбарууд» is symmetric (founder, 2026-10-04): `branch_count` is Яармаг's row byte for
 --    byte, and `yarmag_branch` mirrors Яармаг's `park_od_branch` (Яармаг's address, the shared
 --    76001888 and Яармаг's Page; never 91005498 or Яармаг's map link). Wording APPROVED 2026-10-04.
---    `treatment_perm_women` and `colour_lift` (D-177, founder 2026-10-04: women's «Эмчилгээний хими»
---    and «өнгө гаргалт» are not Tara services; no price page): Яармаг's rows byte for byte (PR #283,
---    tara-yarmag-colour-and-treatment-perm-2026-10-04.sql) except `colour_lift`'s body, which is
---    her own `salon_phone` line. They land DISABLED and `seeded`: the wording awaits the founder's
---    approval (docs/approvals/tara-2026-10-04/08-colour-and-treatment-perm.mn.txt). `colour_lift`
---    quotes Хэсэгчилсэн сор, Бүтэн сор and Бүтэн цайруулалт from the price list (no typed price)
---    and never says the service is not offered.
+--    D-177 (founder 2026-10-04: women's «Эмчилгээний хими» and «өнгө гаргалт» are not Tara
+--    services; no price page), Яармаг's rows byte for byte (PR #283,
+--    tara-yarmag-colour-and-treatment-perm-2026-10-04.sql) except the colour rows' last line, her
+--    own `salon_phone` line. `treatment_perm_women` (APPROVED 2026-10-04) lands enabled.
+--    `colour_lift` (women's colour rows, to anyone who does not say «эрэгтэй») and
+--    `colour_lift_men` (the men's rows, «Бүтэн цайруулалт» included, only with «эрэгтэй») land
+--    DISABLED and `seeded` until the founder approves their final wording
+--    (docs/approvals/tara-2026-10-04/08-colour-and-treatment-perm.mn.txt). The rows are the price
+--    list's own, typed byte for byte; the fact gate checks them at publish.
 --    `deposit_deducted`, `loan_apps` and `dye_brand` are the founder's approved answers of
 --    2026-10-04, byte for byte as Яармаг's in PR #283 (tara-yarmag-answers-2026-10-04.sql: body,
 --    matcher, placement); the same three answers are FAQs in her form. `dye_brand` serves the
@@ -146,8 +148,9 @@ select t.id, v.* from tenants t, (values
  ('loan_apps', 'Одоогоор зээлийн аппаар төлбөр авдаггүй.', true, 'tenant_confirmed', 'matcher', 'replace', '{}'::text[], '{}'::text[], '{}'::text[], '{"mode": "contains_stem", "stems": ["зээл", "zeel", "storepay", "сторпэй", "lendmn", "pocketzero"]}'::jsonb, false),
  ('perm_types', 'Та аль химийг хийлгэх вэ?', true, 'tenant_confirmed', 'covers_message', 'replace', '{himi,хими,химий}'::text[], '{usnii,vsnii,usni,үсний,us,vs,үс,bish,биш,hed,хэд,hedve,hedbe,heden,хэдэн,hedeer,хэдээр,une,үнэ,vne,uniin,үнийн,vniin,ve,вэ,be,бэ,we,bnu,bna,bnuu,байна,бна,уу,uu,үү,vv,hiilgeh,хийлгэх,hiih,хийх,hiilgemeer,хийлгэмээр,yamar,ymar,ямар,medeelel,мэдээлэл,sain,сайн,bol,бол,ni,нь,bgaa,байгаа,bga,bi,би,gesen,гэсэн,gsn,gesn}'::text[], '{"Tara perm","Усан хими","Афро хими","Hippie & Jerry curl","Сэттинг хими","Шулуун хими","Эмчилгээний хими"}'::text[], NULL::jsonb, false),
  ('photo_send', 'Тийм, зургаа явуулаарай. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.', true, 'tenant_confirmed', 'covers_message', 'replace', '{зураг,зург,zurag,zurg,фото,foto}'::text[], '{явуулж,явуулах,явуулъя,явуулья,явуулбал,явуулчих,явуулмаар,yavuulj,yavuulah,yavuulya,yavuulbal,ywuulj,ywuulah,yvuulj,илгээж,илгээх,илгээе,ilgeej,ilgeeh,ilgeey,болох,болно,bolox,boloh,bolh,bolno,уу,үү,uu,vv,юу,yu,би,bi,танд,tand,та,ta,нарт,nart,сайн,байна,бна,бнуу,sain,bna,bnu,bnuu,sn,руу,ruu}'::text[], '{}'::text[], NULL::jsonb, false),
- ('colour_lift', 'Та 76001888 дугаараар холбогдоно уу.', false, 'seeded', 'contains_stem', 'replace', '{"өнгө гаргал","өнгө гаргуул","өнгөө гаргуул","ungu gargal","ungu gargul","ongo gargal","ongo gargul","vngv gargal"}'::text[], '{}'::text[], array['Хэсэгчилсэн сор', 'Бүтэн сор', 'Бүтэн цайруулалт']::text[], NULL::jsonb, false),
- ('treatment_perm_women', 'Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.', false, 'seeded', 'matcher', 'replace', '{}'::text[], '{}'::text[], '{}'::text[], '{"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["эмчилгээний", "emchilgeenii", "emchilgeeni", "emchilgenii"]}, {"mode": "contains_stem", "stems": ["хими", "himi"]}, {"mode": "contains_stem", "stems": ["эмэгтэй", "emegtei", "emegtey"]}]}'::jsonb, false),
+ ('colour_lift', E'Хэсэгчилсэн сор (эмэгтэй): 150,000₮\nБүтэн сор: 210,000₮\n\nТа 76001888 дугаараар холбогдоно уу.', false, 'seeded', 'matcher', 'replace', '{}'::text[], '{}'::text[], '{}'::text[], '{"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["өнгө гаргал", "өнгө гаргуул", "өнгөө гаргуул", "ungu gargal", "ungu gargul", "ongo gargal", "ongo gargul", "vngv gargal"]}, {"mode": "not", "matcher": {"mode": "contains_stem", "stems": ["эрэгтэй", "eregtei", "eregtey"]}}]}'::jsonb, false),
+ ('colour_lift_men', E'Хэсэгчилсэн сор (эрэгтэй): 195,000₮\nБүтэн цайруулалт (эрэгтэй): 450,000₮\n\nТа 76001888 дугаараар холбогдоно уу.', false, 'seeded', 'matcher', 'replace', '{}'::text[], '{}'::text[], '{}'::text[], '{"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["өнгө гаргал", "өнгө гаргуул", "өнгөө гаргуул", "ungu gargal", "ungu gargul", "ongo gargal", "ongo gargul", "vngv gargal"]}, {"mode": "contains_stem", "stems": ["эрэгтэй", "eregtei", "eregtey"]}]}'::jsonb, false),
+ ('treatment_perm_women', 'Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.', true, 'tenant_confirmed', 'matcher', 'replace', '{}'::text[], '{}'::text[], '{}'::text[], '{"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["эмчилгээний", "emchilgeenii", "emchilgeeni", "emchilgenii"]}, {"mode": "contains_stem", "stems": ["хими", "himi"]}, {"mode": "contains_stem", "stems": ["эмэгтэй", "emegtei", "emegtey"]}]}'::jsonb, false),
  ('price_which_service', 'Та ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.', true, 'tenant_confirmed', 'covers_message', 'replace', '{үнэ,үнийн,үнэтэй,vne,une,vniin,uniin,unetei,vnetei}'::text[], '{мэдээлэл,авья,авъя,авий,авах,хэд,хэдэн,ямар,танайх,уу,үү,вэ,бэ,ве,юу,сайн,байна,бна,бну,бнуу,medeelel,awii,avii,awya,avya,awah,avah,hed,hedve,hedbe,heden,yamar,ymar,tanaih,uu,vv,we,ve,be,yu,sain,bna,bnu,bnuu,sn,hi,hello}'::text[], '{}'::text[], NULL::jsonb, true),
  ('salon_phone', 'Та 76001888 дугаараар холбогдоно уу.', true, 'tenant_confirmed', 'covers_message', 'replace', '{утас,утсаа,утсыг,утасны,дугаар,utas,utsaa,utsiig,utasnii,dugaar}'::text[], '{холбогдох,салбарын,парк,од,салоны,танайх,өгөөч,өгөөрэй,хэд,уу,үү,вэ,бэ,ве,юу,сайн,байна,бна,бну,бнуу,holbogdoh,salbariin,park,od,salonii,tanaih,ogooch,ogoorei,hed,hedve,hedbe,uu,vv,we,ve,be,yu,sain,bna,bnu,bnuu,sn,hi,hello,танай,tanai}'::text[], '{}'::text[], NULL::jsonb, false),
  ('stylist_tier', 'SPECIAL болон Мастер үсчний ялгаа нь зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.', true, 'tenant_confirmed', 'covers_message', 'replace', '{мастер,мастр,master,mastr,special,спешл,спешиал}'::text[], '{үсчин,үсчинд,үсчний,үсчид,үсчнүүд,орвол,орох,орж,дээр,дээрээ,юу,үү,уу,илүү,сайн,бол,нь,1,р,1р,зэрэг,зэргийн,зэргээс,зэрэглэл,зэрэглэлийн,ялгаа,ялгаатай,ямар,аль,чадвартай,туршлагатай,болон,эсвэл,ба,би,вэ,бэ,юм,биз,uschin,us4in,vs4in,vschin,uschind,us4ind,vs4ind,orvol,oroh,orj,deer,yu,uu,vv,ilvv,iluu,ilvu,sain,bol,ni,zereg,zergiin,zergees,yalgaa,yalgaatai,yamar,al,esvel,eswel,ba,bi,ve,we,be,yum,biz}'::text[], '{}'::text[], NULL::jsonb, false),
@@ -212,8 +215,8 @@ select t.id, v.title, v.body, v.source from tenants t, (values
 
 -- 8. Reply cases, the same as Яармаг's in PR #283, INACTIVE: the production build runs every
 --    tenant's active cases, and she has no snapshot until her first publish. Switch them on with
---    her publish (go-live step 10, docs/tenants/tara-park-od.md); the five D-177 cases only with
---    step 9 below.
+--    her publish (go-live step 10, docs/tenants/tara-park-od.md), the seven D-177 cases with
+--    them (step 9 below switches on the colour rows).
 insert into reply_cases (tenant_id, customer_message, expected_body, must_include, must_not_include, note, active)
 select t.id, v.msg, v.exp, v.inc::text[], v.exc::text[], v.note, false
   from tenants t, (values
@@ -231,13 +234,17 @@ select t.id, v.msg, v.exp, v.inc::text[], v.exc::text[], v.note, false
    'answers 2026-10-04 (model): the deposit AMOUNT is not answered with the deduction line'),
   ('цагийн хуваарь', null, '{}', '{"зээлийн аппаар"}',
    'answers 2026-10-04 (model): «хуваарь» is not a loan question'),
-  ('ungu gargalt hed ve', null, '{"Хэсэгчилсэн сор","Бүтэн сор","Бүтэн цайруулалт","150,000₮","210,000₮","76001888"}', '{"хийдэггүй","үзүүлэхгүй","боломжгүй","хийхгүй"}',
-   'D-177: «өнгө гаргалт» gets the related colour rows and the phone line, never «not offered» (founder 2026-10-04)'),
-  ('Өнгө гаргуулмаар байна, үнэ хэд вэ', null, '{"Хэсэгчилсэн сор","Бүтэн сор","76001888"}', '{"хийдэггүй","үзүүлэхгүй","боломжгүй","хийхгүй"}',
-   'D-177: «өнгө гаргалт», Cyrillic'),
-  ('emegtei emchilgeenii himi hed ve', null, '{"Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна."}', '{"189,000₮","хумс"}',
-   'D-177: women''s «Эмчилгээний хими» is not offered (founder 2026-10-04); never the men''s price, never the nail line'),
-  ('Эмэгтэй эмчилгээний хими хийдэг үү', null, '{"Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна."}', '{"189,000₮","хумс"}',
+  ('ungu gargalt hed ve', E'Хэсэгчилсэн сор (эмэгтэй): 150,000₮\nБүтэн сор: 210,000₮\n\nТа 76001888 дугаараар холбогдоно уу.', '{}', '{"эрэгтэй","Бүтэн цайруулалт","хийдэггүй","үзүүлэхгүй","боломжгүй","хийхгүй"}',
+   'D-177: «өнгө гаргалт», no gender given: the women''s colour rows and the phone line, never «not offered»'),
+  ('Өнгө гаргуулмаар байна, үнэ хэд вэ', E'Хэсэгчилсэн сор (эмэгтэй): 150,000₮\nБүтэн сор: 210,000₮\n\nТа 76001888 дугаараар холбогдоно уу.', '{}', '{"эрэгтэй","Бүтэн цайруулалт","хийдэггүй","үзүүлэхгүй","боломжгүй","хийхгүй"}',
+   'D-177: «өнгө гаргалт», Cyrillic, women''s rows'),
+  ('eregtei hun ungu gargalt hed ve', E'Хэсэгчилсэн сор (эрэгтэй): 195,000₮\nБүтэн цайруулалт (эрэгтэй): 450,000₮\n\nТа 76001888 дугаараар холбогдоно уу.', '{}', '{"эмэгтэй","Бүтэн сор","хийдэггүй","үзүүлэхгүй","боломжгүй","хийхгүй"}',
+   'D-177: «өнгө гаргалт» from a man: the men''s rows only (founder 2026-10-04)'),
+  ('Эрэгтэй хүн өнгө гаргуулж болох уу', E'Хэсэгчилсэн сор (эрэгтэй): 195,000₮\nБүтэн цайруулалт (эрэгтэй): 450,000₮\n\nТа 76001888 дугаараар холбогдоно уу.', '{}', '{"эмэгтэй","Бүтэн сор","хийдэггүй","үзүүлэхгүй","боломжгүй","хийхгүй"}',
+   'D-177: «өнгө гаргалт» from a man, Cyrillic'),
+  ('emegtei emchilgeenii himi hed ve', 'Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.', '{}', '{}',
+   'D-177: women''s «Эмчилгээний хими» is not offered (founder 2026-10-04, approved line)'),
+  ('Эмэгтэй эмчилгээний хими хийдэг үү', 'Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.', '{}', '{}',
    'D-177: women''s «Эмчилгээний хими», Cyrillic'),
   ('eregtei emchilgeenii himi hed ve', null, '{"189,000₮"}', '{"үзүүлэхгүй"}',
    'D-177: men''s «Эмчилгээний хими» stays as it is (189,000₮)')
@@ -250,14 +257,14 @@ do $$
 declare t uuid;
 begin
   select id into strict t from tenants where slug = 'tara-park-od';
-  if (select count(*) from deterministic_replies where tenant_id = t) <> 25 then raise exception 'read-back: 25 fixed replies expected'; end if;
+  if (select count(*) from deterministic_replies where tenant_id = t) <> 26 then raise exception 'read-back: 26 fixed replies expected'; end if;
   if (select count(*) from reply_cases where tenant_id = t and not active
-        and (note like 'answers 2026-10-04%' or note like 'D-177:%')) <> 12 then
-    raise exception 'read-back: twelve inactive reply cases expected';
+        and (note like 'answers 2026-10-04%' or note like 'D-177:%')) <> 14 then
+    raise exception 'read-back: fourteen inactive reply cases expected';
   end if;
   if (select count(*) from deterministic_replies where tenant_id = t and not enabled) <> 2
-     or exists (select 1 from deterministic_replies where tenant_id = t and intent in ('treatment_perm_women', 'colour_lift') and (enabled or provenance <> 'seeded')) then
-    raise exception 'read-back: the two D-177 rows must land disabled and seeded';
+     or exists (select 1 from deterministic_replies where tenant_id = t and intent in ('colour_lift', 'colour_lift_men') and (enabled or provenance <> 'seeded')) then
+    raise exception 'read-back: the two colour rows must land disabled and seeded';
   end if;
   if exists (select 1 from deterministic_replies d where d.tenant_id = t and d.body like '%91005498%')
      or exists (select 1 from knowledge_documents k where k.tenant_id = t and k.body like '%91005498%') then
@@ -281,7 +288,7 @@ commit;
 --
 -- begin;
 -- update deterministic_replies d set enabled = true, provenance = 'tenant_confirmed' from tenants t
---  where t.slug = 'tara-park-od' and d.tenant_id = t.id and d.intent in ('treatment_perm_women', 'colour_lift');
+--  where t.slug = 'tara-park-od' and d.tenant_id = t.id and d.intent in ('colour_lift', 'colour_lift_men');
 -- update reply_cases r set active = true from tenants t
 --  where t.slug = 'tara-park-od' and r.tenant_id = t.id and r.note like 'D-177:%';
 -- commit;

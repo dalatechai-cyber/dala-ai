@@ -91,8 +91,8 @@ nothing live, no production writes (SELECT-only reads), drafts only.
     (via `--wording`, so onboarding writes it); `deposit_deducted`, `loan_apps`, `dye_brand` fixed
     replies with #283's matchers; the FAQ question for the deposit is #283's wording; #283's seven
     answer cases, inactive until her publish. (The price-page rows and cases were replaced on
-    2026-10-04 by D-177's `treatment_perm_women` and `colour_lift`, disabled, with five inactive
-    cases; no `price_page` contact.) No migration in #284.
+    2026-10-04 by D-177's `treatment_perm_women` (approved, on), `colour_lift` and `colour_lift_men`
+    (disabled until approval), with seven cases; no `price_page` contact.) No migration in #284.
 25. **Re-review** (same reviewer, on the fixes): six findings, all fixed — the recorded wording key
     is compared (`--wording-changed` for a meant change); a signed `null` line refuses before
     anything is written; a configured alias missing from its branch's rows is named (whole word,

@@ -1,42 +1,54 @@
-# AWAITING the founder's approval. New 2026-10-04, after the review (D-177).
-# Source: dala-ai#283 prompt/drafts/tara_quality_2026-10-03.mn.txt items 8 and 9 (Яармаг),
-#         dala-ai#284 scripts/provision/tara-park-od-after-onboarding.sql (Парк Од).
-# Your decision: women's «Эмчилгээний хими» and «өнгө гаргалт» are not services Tara offers.
-# The price-page replies and «Үнийн хуудас» are dropped in both tenants. Rows are written,
-# DISABLED, and switch on only after you approve this file.
+# Tara Salon, both branches — D-177 (2026-10-04)
+# Your decisions: women's «Эмчилгээний хими» and «өнгө гаргалт» are not services Tara offers; the
+# price-page replies and «Үнийн хуудас» are dropped in both tenants.
+# Rows: dala-ai#283 scripts/provision/tara-yarmag-colour-and-treatment-perm-2026-10-04.sql (Яармаг),
+#       dala-ai#284 scripts/provision/tara-park-od-after-onboarding.sql (Парк Од). Not applied.
 
-==== 1. A woman asks for «Эмчилгээний хими» (fixed reply treatment_perm_women, both tenants)
+==== 1. A woman asks for «Эмчилгээний хими» — APPROVED 2026-10-04, as written
 
-Fires only when the message has «эмчилгээний», «хими» and «эмэгтэй» (Cyrillic or Latin).
-Men's «Эмчилгээний хими» (189,000₮) is unchanged.
-
-You asked for the approved «service unavailable» line. Tara's line is about NAILS:
-  «Манай салон одоогоор хумсны үйлчилгээ үзүүлэхгүй байна.»
-Sent here, it would tell a woman asking about a perm that we do not do nails. So this is the
-same sentence with the service changed. New wording: approve or correct.
+Fixed reply treatment_perm_women, both branches. Fires only when the message has «эмчилгээний»,
+«хими» and «эмэгтэй» (Cyrillic or Latin). Men's «Эмчилгээний хими» (189,000₮) is unchanged.
 
 Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.
 
-==== 2. «Өнгө гаргалт» (fixed reply colour_lift, both tenants)
+==== 2. «Өнгө гаргалт» — AWAITING your approval of this final wording
 
-Never «we don't offer it». The reply is the related colour rows, read from the price list when
-it is sent (no price is typed anywhere), then the branch's own approved phone line, byte for
-byte. No new sentence; please approve the composition. Roughly what a customer sees (the exact
-layout and order come from the price list):
+Never «we don't offer it». Fires on «өнгө гаргал», «өнгө гаргуул», «өнгөө гаргуул», «ungu gargal»,
+«ongo gargal» and the like. Your decision: women's colour services to women, men's only when the
+customer is a man, «Бүтэн цайруулалт» never to women (its only price is the men's).
+
+The price rows are the price list's own, exactly as Дали shows prices. The last line is each
+branch's approved phone line, unchanged. No new sentence.
+
+2a. Anyone who does not say «эрэгтэй/eregtei» (fixed reply colour_lift).
+
+Яармаг:
+Хэсэгчилсэн сор (эмэгтэй): 150,000₮
+Бүтэн сор: 210,000₮
+
+Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.
+
+Парк Од:
+Хэсэгчилсэн сор (эмэгтэй): 150,000₮
+Бүтэн сор: 210,000₮
+
+Та 76001888 дугаараар холбогдоно уу.
+
+2b. A man: the message also has «эрэгтэй/eregtei» (fixed reply colour_lift_men).
 
 Яармаг:
 Хэсэгчилсэн сор (эрэгтэй): 195,000₮
-Хэсэгчилсэн сор (эмэгтэй): 150,000₮
-Бүтэн сор: 210,000₮
 Бүтэн цайруулалт (эрэгтэй): 450,000₮
 
 Та 76001888 эсвэл 80905498 дугаараар холбогдоно уу.
 
-Парк Од: the same rows, then
+Парк Од:
+Хэсэгчилсэн сор (эрэгтэй): 195,000₮
+Бүтэн цайруулалт (эрэгтэй): 450,000₮
+
 Та 76001888 дугаараар холбогдоно уу.
 
-Questions:
-(a) «Бүтэн цайруулалт» is on the list for men only (450,000₮). Keep it, or drop it so a woman
-    is not shown a men's price?
-(b) Add «Өнгөлөгч будаг» (toner, 160,000–210,000₮ by hair length)? It is a colour service but
-    not a lightening one, so it is left out.
+Notes:
+- A man who does not write «эрэгтэй» gets 2a. Дали cannot know a customer's gender otherwise.
+- If a price on the list changes, these rows must change too; the publish check stops until they
+  match.

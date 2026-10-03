@@ -143,14 +143,21 @@ A: Энэ талаар манай ажилтан танд хариулна. Та
 
 «Anything Дали doesn't know» is her `handoff` line (section 1), now the same sentence.
 
-[after] fixed replies treatment_perm_women and colour_lift — AWAITING approval (D-177, 2026-10-04); they land DISABLED
+[after] fixed replies treatment_perm_women (APPROVED 2026-10-04), colour_lift and colour_lift_men (AWAITING approval, land DISABLED) — D-177
   The price-page rows (price_page_color, price_page_treatment_perm) are DROPPED: the founder
   decided on 2026-10-04 that women's «Эмчилгээний хими» and «өнгө гаргалт» are not services Tara
-  offers. Same rows as Яармаг's (#283), wording in docs/approvals/tara-2026-10-04/08-…:
+  offers. Same rows as Яармаг's (#283) except the last line; wording in docs/approvals/tara-2026-10-04/08-…:
 treatment_perm_women (needs «эмэгтэй/emegtei»; men's «Эмчилгээний хими» unchanged):
 Манай салон одоогоор эмэгтэй эмчилгээний химийн үйлчилгээ үзүүлэхгүй байна.
-colour_lift: Хэсэгчилсэн сор, Бүтэн сор, Бүтэн цайруулалт from the price list, then her own
-salon_phone line:
+colour_lift (anyone who does not say «эрэгтэй»):
+Хэсэгчилсэн сор (эмэгтэй): 150,000₮
+Бүтэн сор: 210,000₮
+
+Та 76001888 дугаараар холбогдоно уу.
+colour_lift_men (with «эрэгтэй/eregtei»):
+Хэсэгчилсэн сор (эрэгтэй): 195,000₮
+Бүтэн цайруулалт (эрэгтэй): 450,000₮
+
 Та 76001888 дугаараар холбогдоно уу.
 
 ## Byte-identical to Яармаг's approved rows (no new approval needed; listed for completeness)

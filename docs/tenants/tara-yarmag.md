@@ -120,9 +120,10 @@ compare FAQs or fixed replies across branches, so "the same bytes" is by convent
   тооцогдоно.», `loan_apps` «Одоогоор зээлийн аппаар төлбөр авдаггүй.», `dye_brand` (the hand-off
   sentence); FAQ questions «Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдах уу?», «Зээлийн аппаар
   төлбөр төлж болох уу?», «Ямар брэндийн будаг хэрэглэдэг вэ?»; the same seven reply cases.
-- fixed replies `treatment_perm_women` (women's «Эмчилгээний хими» is not offered) and
-  `colour_lift` («өнгө гаргалт»: the colour rows from the price list, then her phone line), landing
-  disabled and `seeded` until the founder approves their wording (D-177, #283's
+- fixed replies `treatment_perm_women` (women's «Эмчилгээний хими» is not offered; approved, on),
+  `colour_lift` («өнгө гаргалт»: the women's colour rows, then her phone line) and `colour_lift_men`
+  (the men's rows, only with «эрэгтэй»); the two colour rows land disabled and `seeded` until the
+  founder approves their wording (D-177, #283's
   `tara-yarmag-colour-and-treatment-perm-2026-10-04.sql`). The earlier price-page rows and the
   `price_page` contact are dropped: neither service is offered (founder, 2026-10-04).
 
