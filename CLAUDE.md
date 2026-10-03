@@ -364,3 +364,14 @@ fast-ACK plus durable QStash hand-off, raw-body signature verification, per-PSID
 conversation keys, pinned Mongolian sentences. **Do not port its defects**
 (`docs/architecture/00-research-notes.md`): a module-scope prompt cache, `/me/messages`
 (posts as whoever owns the token), and a `|| process.env.PAGE_ACCESS_TOKEN` fallback.
+
+## Guardrails (committed hooks)
+
+`.claude/settings.json` runs `.claude/hooks/guardrails.cjs` before every shell command, file
+write and MCP call, in local and cloud sessions alike. It **asks** a person before
+`supabase db push` (and the Supabase MCP's `apply_migration` / `merge_branch`), `npm audit fix
+--force`, merging into or pushing to `main`, and any Vercel Production change (CLI or MCP); it
+**refuses** writing the banned number (the one `check-no-banned-number.mjs` guards) into any
+file, in any spelling. Tests: `.claude/hooks/guardrails.test.cjs`, run by
+`scripts/guards/guardrailsHook.test.ts` in `npm test`. Never weaken or bypass it without the
+founder.

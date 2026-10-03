@@ -22,5 +22,19 @@
   },
   "env": {
     "CAVEMAN_DEFAULT_MODE": "full"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guardrails.cjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
   }
 }
