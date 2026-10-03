@@ -109,6 +109,42 @@ test('the blocked number is never written into a file', () => {
   assert.equal(run({ tool_name: 'Write', tool_input: { file_path: '/tmp/a.txt', content: 'phone 76001888' } }), 'allow');
 });
 
+test('review cases: quoted targets, launchers, flags with values, and remote resets', () => {
+  const feature = repoOn('claude/feature');
+  const main = repoOn('main');
+  assert.equal(bash('git push origin "HEAD:main"', feature), 'ask');
+  assert.equal(bash("git push origin 'main'", feature), 'ask');
+  assert.equal(bash('npx supabase@latest db push'), 'ask');
+  assert.equal(bash('supabase --workdir x db push'), 'ask');
+  assert.equal(bash('npm audit fix -f'), 'ask');
+  assert.equal(bash('supabase db reset --linked'), 'ask');
+  assert.equal(bash('supabase db reset'), 'allow', 'a local reset is fine');
+  assert.equal(bash('vercel redeploy https://x.vercel.app'), 'ask');
+  assert.equal(bash('vercel alias set dpl_1 tarasalon.org'), 'ask');
+  assert.equal(bash('vercel alias ls'), 'allow');
+  assert.equal(bash('bash -c "git push origin main"', feature), 'ask');
+  assert.equal(bash(`cd ${main} && git push`, feature), 'ask', 'cd changes which branch a bare push sends');
+  assert.equal(bash(`git -C ${main} push`, feature), 'ask');
+  assert.equal(run({ tool_name: 'mcp__Vercel__assign_alias', tool_input: {} }), 'ask');
+  assert.equal(run({ tool_name: 'mcp__supabase__execute_sql', tool_input: { query: 'alter table t add column x int' } }), 'ask');
+  assert.equal(run({ tool_name: 'mcp__supabase__execute_sql', tool_input: { query: 'select updated_at from t' } }), 'allow');
+});
+
+test('review cases: no false alarms from messages, quotes and /dev/null', () => {
+  const feature = repoOn('claude/feature');
+  const main = repoOn('main');
+  assert.equal(bash('git commit -m "fix push to main branch"', feature), 'allow');
+  assert.equal(bash('git commit -m "merge notes"', main), 'allow');
+  assert.equal(bash('git push origin HEAD:claude/feature', main), 'allow', 'from main to a feature branch');
+  assert.equal(bash('git checkout -b claude/new main && git merge origin/main', feature), 'allow');
+  assert.equal(bash(`grep -rl ${N} . >/dev/null && echo found`), 'allow');
+  assert.equal(bash(`rg -c ${N} | awk -F: '$2>1'`), 'allow');
+  assert.equal(bash(`grep ${N} a.txt 2>&1 | head`), 'allow');
+  assert.equal(bash(`python3 -c "import pathlib; pathlib.Path('a').write_text('${N}')"`), 'deny');
+  assert.equal(run({ tool_name: 'MultiEdit', tool_input: { file_path: '/tmp/a.txt', edits: [{ old_string: N, new_string: '' }] } }), 'allow', 'removing it with MultiEdit');
+  assert.equal(run({ tool_name: 'mcp__Google_Drive__update_file', tool_input: { fileId: 'x', content: N } }), 'deny');
+});
+
 test('ordinary work passes, and unreadable input never blocks', () => {
   assert.equal(bash('npm test'), 'allow');
   assert.equal(run({ tool_name: 'Read', tool_input: { file_path: '/tmp/x' } }), 'allow');
