@@ -17,7 +17,8 @@ nothing live, no production writes (SELECT-only reads), drafts only.
 - [x] Replica (fresh `dala_r2` from Яармаг's snapshot): onboarding dry run, apply, follow-up SQL,
       re-apply unchanged, both gates and both publish dry runs clean, controls caught, move +
       revert byte-identical. Details: docs/tenants/tara-park-od.md.
-- [x] `npm run check`, review, commit, push, PR body, CI (see below).
+- [x] `npm run check` (2,640 tests, 2,639 pass, 1 pre-existing skip), review + re-review, commit
+      a86b5da, pushed, PR #284 body updated, CI `verify` green on a86b5da (every step read). Not merged.
 
 ## Decisions (and why)
 
