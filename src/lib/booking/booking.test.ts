@@ -38,8 +38,11 @@ const cfg = () => {
 
 test('a complete config parses; its timing defaults are the website\'s', () => {
   const c = cfg();
-  assert.equal(c.holdMinutes, 10);
-  assert.equal(c.qrMinutes, 5);
+  const bare = { ...testConfig() };
+  delete bare['hold_minutes'];
+  const d = parseBookingConfig(bare);
+  assert.ok(d.ok && d.config.holdMinutes === 5, 'with nothing set, the hold (and its QR) is five minutes');
+  assert.equal(c.holdMinutes, 5, 'the time is held exactly as long as the website\'s QR: five minutes');
   assert.equal(c.slotStepMinutes, 60);
   assert.equal(c.testDepositMnt, 100);
   assert.equal(c.levels.find((l) => l.key === 'master')?.depositMnt, 20000);
@@ -71,7 +74,7 @@ test('a config missing anything that touches money or a calendar is refused, nev
   const long = parseBookingConfig(testConfig({ stylists: [{ name: 'Отгонжаргал', level: 'first', gender: 'female', calendar_id: 'c' }] }));
   assert.ok(long.ok && stylistButton(long.config.stylists[0] as never, long.config.levels[1] as never) === 'Отгонжаргал',
     'a name too long to carry its level shows the name alone');
-  refuse({ qr_minutes: 20, hold_minutes: 10 }, /qr_minutes/);
+  refuse({ qr_minutes: 5 }, /qr_minutes/);
 });
 
 test('off anywhere is off; test anywhere is testers only; a tester in live gets the test deposit', () => {

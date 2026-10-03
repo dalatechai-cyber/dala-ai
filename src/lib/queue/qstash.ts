@@ -78,6 +78,28 @@ export async function enqueueReception(payload: {
 }
 
 /**
+ * Ask for one booking sweep at `at` (a hold's end), so its time is released then and the
+ * customer told, rather than at the next minute's sweep. QStash keeps it and delivers it once
+ * after `at`; the minute schedule stays as the fallback, so a failed publish only costs a minute.
+ */
+export async function scheduleBookingSweep(at: Date, key: string): Promise<EnqueueResult> {
+  try {
+    const client = new Client({ token: required('QSTASH_TOKEN') });
+    const res = await client.publishJSON({
+      url: `${required('WORKER_PUBLIC_URL')}/api/workers/booking`,
+      body: { reason: 'hold_end', key },
+      // A second after the end, so the hold is due when the sweep reads it.
+      notBefore: Math.ceil(at.getTime() / 1000) + 1,
+      deduplicationId: deduplicationIdFor('booking-sweep', key),
+      retries: 3,
+    });
+    return { ok: true, messageId: res.messageId, deduplicated: res.deduplicated === true };
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
  * Verify a QStash callback signature.
  *
  * Both the current and next signing keys are accepted, because Upstash rotates them and a

@@ -10,6 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { raiseAlert } from '../alerts/alert.ts';
 import { quickQr } from '../billing/qpay.ts';
 import { deliverOutbound } from '../outbound/deliver.ts';
+import { scheduleBookingSweep } from '../queue/qstash.ts';
 import { buildDeliverDeps } from '../outbound/deliverDeps.ts';
 import { googleCalendar } from './calendar.ts';
 import { bookingEnvMode, type QpayMerchant } from './config.ts';
@@ -60,6 +61,10 @@ export async function liveBookingPorts(db: SupabaseClient, opts: { graphVersionD
       a,
     ),
     graphVersionDefault: opts.graphVersionDefault ?? (() => env('META_GRAPH_VERSION')),
+    scheduleSweep: async (at, key) => {
+      const r = await scheduleBookingSweep(at, key);
+      if (!r.ok) console.error(JSON.stringify({ level: 'error', event: 'booking.sweep_not_scheduled', detail: r.detail }));
+    },
     alert: async (a) => {
       try {
         const r = await raiseAlert(db, {

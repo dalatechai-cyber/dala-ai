@@ -55,6 +55,12 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
       leftover-draft path both ways and «өнөөдөр» when nothing can still start. e2e 156 locally.
       Not done (noted): quality_flags has no index for the follow-up's read (fine at today's volume).
 - [x] CI green on d236bab (148 in CI). Done; PR body updated.
+- [x] Founder follow-up (2026-10-03): QR = hold = exactly 5 min; scheduled sweep at the hold's end (QStash
+      notBefore) + minute fallback; expiry message with «Цаг сонгох» (bk:start); late payment free -> booked,
+      taken -> nearest free times (same stylist first) + rebook on the same deposit (booking_rebook_hold) + alerts;
+      one held per customer (unique index + customer_has_hold -> release old, then hold new); pay page has no
+      «new QR» once it runs out. e2e section 17 (+21). e2e 177 locally.
+- [ ] Review + CI
 
 ## Decisions (with reason)
 1. Deterministic flow, no model: C1/E2 stay true of the model; every line is a signed platform block.
@@ -98,6 +104,15 @@ Previous session's notes moved to `docs/notes-2026-10-02-overnight.md`.
     (scripts/booking/from-website.ts), so both sides use the same calendar per stylist by construction.
     Section 16 swaps in test ids; it cannot catch a hand-edited mismatch later. Re-run from-website.ts
     after any website stylist change.
+25. Hold = QR = 5 min (founder): `hold_minutes` default 5, `qr_minutes` removed (refused if set). No
+    renewal that stretches it; «new QR» shows only if QPay refused the first while the hold runs.
+26. Release on time without polling: each hold schedules one sweep at its end (QStash `notBefore`); the
+    minute schedule stays as the fallback (a failed publish costs at most a minute).
+27. Late payment, time taken: offer the same stylist's nearest free times first (a «16:00 taken» line next
+    to a «16:00» button for another stylist reads wrong), else any stylist of the same level (same
+    deposit). A tap books on the paid deposit; founder paged at once and again on rebook.
+28. «A new QR replaces the old hold»: starting a new booking while a QR is out closes the paying chat but
+    keeps the time held until the NEW QR is made (or the 5 min end); then the old hold is released.
 21. The website side is unchanged (brief: no website edits). Its gap stays the change request: it holds
     nothing while its own QR is open, so a chat customer can take that time first; the website then refuses
     its paid booking and alerts (proven with its own code, e2e section 16). Never a double booking.

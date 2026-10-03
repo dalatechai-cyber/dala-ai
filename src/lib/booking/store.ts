@@ -128,7 +128,7 @@ export type Hold = {
   calendarId: string; staffName: string; level: string; service: string; minutes: number; startsAt: Date; endsAt: Date;
   depositMnt: number; customerName: string; customerPhone: string; gender: 'female' | 'male' | null; agreedAt: Date; agreementText: string;
   state: HoldState; expiresAt: Date; calendarEventId: string | null; calendarState: 'none' | 'held' | 'booked' | 'deleted';
-  paidAt: Date | null; late: boolean; lastCheckedAt: Date | null; notifiedAt: Date | null;
+  paidAt: Date | null; late: boolean; lastCheckedAt: Date | null; notifiedAt: Date | null; rebookedAt: Date | null;
 };
 
 export function toHold(v: unknown): Hold {
@@ -148,6 +148,7 @@ export function toHold(v: unknown): Hold {
     paidAt: typeof r['paid_at'] === 'string' ? new Date(r['paid_at']) : null, late: r['late'] === true,
     lastCheckedAt: typeof r['last_checked_at'] === 'string' ? new Date(r['last_checked_at']) : null,
     notifiedAt: typeof r['notified_at'] === 'string' ? new Date(r['notified_at']) : null,
+    rebookedAt: typeof r['rebooked_at'] === 'string' ? new Date(r['rebooked_at']) : null,
   };
 }
 
@@ -188,6 +189,8 @@ export type AcquireOutcome =
   | { outcome: 'held'; hold: Hold }
   | { outcome: 'taken' }
   | { outcome: 'session_has_hold'; holdId: string }
+  /** The customer's hold from an earlier booking chat: released by the caller, then asked again. */
+  | { outcome: 'customer_has_hold'; holdId: string }
   | { outcome: 'no_session' };
 
 export async function acquireHold(db: SupabaseClient, input: { tenantId: string; sessionId: string; hold: HoldInput; expiresAt: Date }): Promise<Ok<{ acquired: AcquireOutcome }> | Fail> {
@@ -211,6 +214,7 @@ export async function acquireHold(db: SupabaseClient, input: { tenantId: string;
     case 'held': return { ok: true, acquired: { outcome: 'held', hold: toHold(r['hold']) } };
     case 'taken': return { ok: true, acquired: { outcome: 'taken' } };
     case 'session_has_hold': return { ok: true, acquired: { outcome: 'session_has_hold', holdId: String(r['hold_id']) } };
+    case 'customer_has_hold': return { ok: true, acquired: { outcome: 'customer_has_hold', holdId: String(r['hold_id']) } };
     case 'no_session': return { ok: true, acquired: { outcome: 'no_session' } };
     default: return { ok: false, detail: `booking_acquire_hold: unexpected answer ${String(r['outcome'])}` };
   }
@@ -245,6 +249,22 @@ export async function markUnbooked(db: SupabaseClient, holdId: string, reason: s
   const { data, error } = await db.rpc('booking_mark_unbooked', { p_hold: holdId, p_reason: reason });
   if (error) return { ok: false, detail: `booking_mark_unbooked: ${error.message}` };
   return { ok: true, outcome: String(rec(data)['outcome']) };
+}
+
+/** Move a paid deposit whose time was taken to another free time (`booking_rebook_hold`). */
+export async function rebookHold(db: SupabaseClient, input: { holdId: string; calendarId: string; staffName: string; startsAt: Date; endsAt: Date }):
+  Promise<Ok<{ outcome: 'rebooked' | 'taken' | 'not_paid_unbooked' | 'invalid' }> | Fail> {
+  const { data, error } = await db.rpc('booking_rebook_hold', {
+    p_hold: input.holdId, p_calendar: input.calendarId, p_staff: input.staffName,
+    p_starts: input.startsAt.toISOString(), p_ends: input.endsAt.toISOString(),
+  });
+  if (error) {
+    if ((error as { code?: string }).code === '23505') return { ok: true, outcome: 'taken' };
+    return { ok: false, detail: `booking_rebook_hold: ${error.message}` };
+  }
+  const o = String(rec(data)['outcome']);
+  if (o === 'rebooked' || o === 'taken' || o === 'not_paid_unbooked' || o === 'invalid') return { ok: true, outcome: o };
+  return { ok: false, detail: `booking_rebook_hold: unexpected answer ${o}` };
 }
 
 /** Our calendar event's state, after a write to Google. Bookkeeping, never a decision. */

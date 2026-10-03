@@ -91,7 +91,7 @@ if (missing.length > 0) die(`website services missing from the groups: ${missing
 
 const config = {
   test_sender_ids: tester === undefined ? [] : [tester],
-  hold_minutes: rules['hold_minutes'], qr_minutes: rules['qr_minutes'], slot_step_minutes: rules['slot_step_minutes'],
+  hold_minutes: rules['hold_minutes'], slot_step_minutes: rules['slot_step_minutes'],
   days_ahead: rules['days_ahead'], min_lead_minutes: rules['min_lead_minutes'], gender_rule: rules['gender_rule'],
   test_deposit_mnt: rules['test_deposit_mnt'],
   agreement_text: DEPOSIT_TERMS_TEXT,

@@ -38,5 +38,9 @@ button's title in Messenger).
 
 Buttons (Meta allows 20 characters): `booking_gender_female`, `booking_gender_male`,
 `booking_any_of_level`, `booking_day_today`, `booking_day_tomorrow`, `booking_agree` («Зөвшөөрч, захиалах», 18),
-`booking_cancel`. `booking_follow_up` («Цаг захиалах уу?») goes out once, ten minutes after a customer
+`booking_cancel`, `booking_choose_again` («Цаг сонгох», under the «time released» line).
+`booking_pay` carries the founder's own line «Энэ QR {minutes} минутын турш хүчинтэй. Энэ хугацаанд
+таны сонгосон цаг хадгалагдана.» (`{minutes}` is the hold, 5). `booking_paid_unbooked_offer` (`{date}`
+`{time}`) is said when a late payment's time was taken, above the nearest free times; a tapped time is
+booked on that deposit. `booking_follow_up` («Цаг захиалах уу?») goes out once, ten minutes after a customer
 went quiet on the offered times, above the times read fresh. `booking_test_prefix` starts every message of a test booking («ТЕСТ — …»).

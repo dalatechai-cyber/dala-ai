@@ -117,6 +117,8 @@ const wording = draftWording();
 type Sent = { outboundId: string; psid: string; body: string; quickReplies: readonly QuickReply[]; linkButtonTitle?: string };
 const sent: Sent[] = [];
 const alerts: BookingAlert[] = [];
+/** Sweeps asked for at a hold's end (QStash in production). */
+const scheduled: { at: Date; key: string }[] = [];
 let clockShift = 0;
 const now = () => new Date(Date.now() + clockShift);
 
@@ -141,6 +143,7 @@ const ports: BookingPorts = {
     return { outcome: 'sent', providerMessageId: `mid.out.${sent.length}` };
   },
   graphVersionDefault: () => 'v21.0',
+  scheduleSweep: async (at, key) => { scheduled.push({ at, key }); },
   alert: async (a) => { if (!alerts.some((x) => x.dedupKey === a.dedupKey)) alerts.push(a); },
   log: (level, event, fields) => { if (process.env['BOOKING_E2E_LOG'] === '1' || level === 'error') process.stdout.write(`      [${level}] ${event} ${JSON.stringify(fields ?? {})}\n`); },
 };
@@ -1128,6 +1131,140 @@ if (WEBSITE === null) {
     `the chat and the website offer exactly the same times that day (${webSide.join(', ')})`);
   server.close();
 }
+
+// =====================================================================================
+section('17. The QR and the held time: exactly five minutes, everywhere');
+// =====================================================================================
+const day6 = tenantClock(new Date(Date.now() + 144 * 3600_000), TZ).date;
+const D6 = dayLabel(wording, day6, new Date(), TZ);
+const typedDay6 = `${Number(day6.slice(5, 7))} сарын ${Number(day6.slice(8, 10))}-нд`;
+const POLICY = 'Энэ QR 5 минутын турш хүчинтэй. Энэ хугацаанд таны сонгосон цаг хадгалагдана.';
+/** From «when» to the QR, for one 1-hour service with Оюунаа at `hh` on day 6. */
+async function toQr(chat: Chat, hh: number, name: string, phone: string, first = 'Цаг авъя') {
+  await toWhen(chat, 'Оюунаа · Мастер', first);
+  if (chat.lastBody === say(wording, 'booking_ask_when', { service: 'Энгийн засалт' })) await says(chat, `${typedDay6} ${hh} цагт`);
+  await taps(chat, `${String(hh).padStart(2, '0')}:00`);
+  await says(chat, name);
+  await says(chat, phone);
+  await taps(chat, AGREE);
+}
+
+// (a) The QR is made and the time held for exactly five minutes, said in the message.
+const t1 = newChat();
+const scheduledBefore = scheduled.length;
+await toQr(t1, 12, 'Тав', '99550001');
+const holdT1 = holdOf(t1);
+const heldFor = Number(psql(`select extract(epoch from expires_at - created_at) from booking_holds where id = '${holdT1}'`));
+const qrEnds = psql(`select qr_expires_at = h.expires_at from booking_invoices i join booking_holds h on h.id = i.hold_id where i.hold_id = '${holdT1}'`);
+check(holdState(holdT1) === 'held' && Math.abs(heldFor - 300) < 5 && qrEnds === 't',
+  'the QR is made: the time is held for five minutes, and the QR ends at the same instant');
+check((t1.lastBody ?? '').includes(POLICY), `Дали says it: «${POLICY}»`);
+const expiry = new Date(psql(`select to_char(expires_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') from booking_holds where id = '${holdT1}'`));
+check(scheduled.length === scheduledBefore + 1 && scheduled[scheduled.length - 1]?.key === holdT1
+  && Math.abs((scheduled[scheduled.length - 1]?.at.getTime() ?? 0) - expiry.getTime()) < 1000,
+  'a sweep is scheduled for the moment the five minutes end (QStash), so the time is released on time, not at the next minute');
+
+// (b) During those five minutes the time is taken everywhere.
+const t2 = newChat();
+await toWhen(t2, 'Оюунаа · Мастер');
+await says(t2, `${typedDay6} 12 цагт`);
+check(t2.lastBody === say(wording, 'booking_time_not_free', { date: D6, time: '12:00' }) && !titles(t2).includes('12:00'),
+  'another Messenger customer asking for 12:00 is told it is taken, and is not offered it');
+check(!(await websiteOffers(TEST_CALENDARS.master1, day6, 60)).includes('12:00'), 'the website\'s free/busy sees 12:00 busy (section 16 runs the website\'s own code)');
+
+// (c) Not paid in five minutes: released, and told once, with a button to choose again.
+psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdT1}'`);
+const beforeT1 = sent.length;
+await runSweep(ports);
+const releasedMsg = pushedTo(t1, beforeT1);
+check(holdState(holdT1) === 'expired' && google.live(TEST_CALENDARS.master1).every((e) => e.id !== eventIdForHold(holdT1)),
+  'five minutes unpaid: the hold ends and the calendar event is removed');
+check((await websiteOffers(TEST_CALENDARS.master1, day6, 60)).includes('12:00'), 'and 12:00 is free again to the website');
+check(releasedMsg.length === 1 && (releasedMsg[0]?.body ?? '').startsWith('Уучлаарай, 5 минутын дотор')
+  && JSON.stringify((releasedMsg[0]?.quickReplies ?? []).map((q) => q.title)) === JSON.stringify([say(wording, 'booking_choose_again')]),
+  'the customer is told once, politely, with a «Цаг сонгох» button');
+await runSweep(ports);
+check(pushedTo(t1, beforeT1).length === 1, 'never twice');
+await says(t1, say(wording, 'booking_choose_again'), releasedMsg[0]?.quickReplies[0]?.payload);
+check(t1.lastBody === say(wording, 'booking_ask_service_group'), 'tapping «Цаг сонгох» starts a new booking');
+await says(t2, '12:00');
+check(t2.lastBody === say(wording, 'booking_time_free', { date: D6, time: '12:00' }) && titles(t2).includes('12:00'),
+  'and the other customer, asking again, is told 12:00 is free now');
+
+// (d) A late payment, the time still free: booked.
+const t3 = newChat();
+await toQr(t3, 14, 'Хоцорсон', '99550003');
+const holdT3 = holdOf(t3);
+const invT3 = invoicesOf(holdT3)[0] as string;
+psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdT3}'`);
+qpayFake.failCancel = true; // the QR could not be cancelled, so it can still be paid
+await runSweep(ports);
+qpayFake.failCancel = false;
+check(holdState(holdT3) === 'expired', 'set-up: expired, its QR still payable');
+qpayFake.pay(invT3);
+const beforeT3 = sent.length;
+await runQpayCallback(ports, signHold(SECRET, 'callback', holdT3));
+check(holdState(holdT3) === 'booked' && pushedTo(t3, beforeT3).filter((m) => m.body.includes('баталгаажлаа')).length === 1
+  && alerts.some((a) => a.kind === 'booking.late_booked' && a.dedupKey.endsWith(holdT3)),
+  'paid after the five minutes, the time still free: booked, confirmed once, and you are told');
+
+// (e) A late payment, the time taken meanwhile: the nearest free times, booked on the same money.
+const t4 = newChat();
+await toQr(t4, 16, 'Азгүй', '99550004');
+const holdT4 = holdOf(t4);
+const invT4 = invoicesOf(holdT4)[0] as string;
+psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdT4}'`);
+qpayFake.failCancel = true;
+await runSweep(ports);
+qpayFake.failCancel = false;
+google.websiteBooks(TEST_CALENDARS.master1, ubAt(day6, 16), 60);
+qpayFake.pay(invT4);
+const beforeT4 = sent.length;
+await runQpayCallback(ports, signHold(SECRET, 'callback', holdT4));
+const offerMsg = pushedTo(t4, beforeT4);
+const offered = (offerMsg[0]?.quickReplies ?? []).map((q) => q.title);
+check(holdState(holdT4) === 'paid_unbooked' && offerMsg.length === 1
+  && (offerMsg[0]?.body ?? '').startsWith(say(wording, 'booking_paid_unbooked_offer', { date: D6, time: '16:00' }))
+  && offered.includes('17:00') && offered.includes('15:00') && !offered.includes('16:00'),
+  'paid after the five minutes, the website took 16:00 meanwhile: Дали says so and offers the nearest free times');
+const pageT4 = alerts.find((a) => a.kind === 'booking.paid_unbooked' && a.dedupKey.endsWith(holdT4));
+check(pageT4 !== undefined && pageT4.body.includes('99550004') && pageT4.body.includes('refund'),
+  'you are paged at once on Telegram with the customer\'s name, phone and amount, to refund or rebook');
+const q17 = offerMsg[0]?.quickReplies.find((q) => q.title === '17:00');
+const beforePick = sent.length;
+await says(t4, '17:00', q17?.payload);
+check(holdState(holdT4) === 'booked' && psql(`select to_char(starts_at at time zone 'Asia/Ulaanbaatar', 'HH24:MI') from booking_holds where id = '${holdT4}'`) === '17:00'
+  && pushedTo(t4, beforePick).filter((m) => m.body.includes('баталгаажлаа') && m.body.includes('17:00')).length === 1,
+  'the customer taps 17:00: booked on the deposit already paid, confirmed once');
+check(psql(`select count(*) from booking_payments where hold_id = '${holdT4}'`) === '1' && invoicesOf(holdT4).length === 1
+  && google.live(TEST_CALENDARS.master1).filter((e) => e.id === eventIdForHold(holdT4) && e.start.getTime() === ubAt(day6, 17).getTime()).length === 1
+  && alerts.some((a) => a.kind === 'booking.rebooked' && a.dedupKey.endsWith(holdT4)),
+  'one payment, no new QR, one calendar event at 17:00, and you are told it was rebooked (nothing to refund)');
+
+// (f) One hold per customer: a new QR replaces the old hold.
+const t5 = newChat();
+await toQr(t5, 10, 'Нэг хүн', '99550005');
+const holdT5a = holdOf(t5);
+const invT5a = invoicesOf(holdT5a)[0] as string;
+check(holdState(holdT5a) === 'held', 'set-up: the customer holds 10:00');
+await says(t5, 'Өөр цаг авъя');
+check(t5.lastBody === say(wording, 'booking_ask_service_group') && holdState(holdT5a) === 'held',
+  'they start a new booking while the QR is out: a new chat begins; the old time stays held until a new QR is made');
+await taps(t5, 'Засалт');
+await taps(t5, 'Энгийн засалт');
+await taps(t5, FEMALE);
+await taps(t5, 'Оюунаа · Мастер');
+await says(t5, `${typedDay6} 11 цагт`);
+await taps(t5, '11:00');
+await says(t5, 'Нэг хүн');
+await says(t5, '99550005');
+await taps(t5, AGREE);
+const holdT5b = holdOf(t5);
+check(holdT5b !== holdT5a && holdState(holdT5b) === 'held' && holdState(holdT5a) === 'released'
+  && qpayFake.invoices.get(invT5a)?.status === 'CANCELLED' && google.live(TEST_CALENDARS.master1).every((e) => e.id !== eventIdForHold(holdT5a)),
+  'the new QR replaces the old hold: 10:00 is released, its QR cancelled, its calendar event removed');
+check(psql(`select count(*) from booking_holds where tenant_id = '${T}' and psid = '${t5.psid}' and state = 'held'`) === '1',
+  'one held time per customer, never two');
 
 // =====================================================================================
 section('13. Every customer message got at most one reply; nothing was confirmed unpaid');

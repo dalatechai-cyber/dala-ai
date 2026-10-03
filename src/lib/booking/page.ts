@@ -1,7 +1,9 @@
 /**
  * The deposit page a customer opens from «Төлбөр төлөх» in Messenger: the QPay QR, one button
  * per bank app (on a phone, one tap opens the app with the payment filled in), and the
- * five-minute countdown with «Шинэ QR код авах», exactly as Tara's website shows them.
+ * five-minute countdown, as Tara's website shows them. The QR and the held time end together, so
+ * there is no «new QR» once it runs out: the page says the time has ended. «Шинэ QR код авах»
+ * shows only when a hold still running has no usable QR (QPay refused the first).
  *
  * Under the tenant's own name, not DalaTech's: the customer is paying the salon. No web font,
  * no third-party request but QPay's own bank logos. Every word is a signed block; a page whose
@@ -79,7 +81,8 @@ function script(template: string | null, secondsLeft: number): string {
     + `var c=document.getElementById('qr-countdown'),live=document.getElementById('qr-live'),gone=document.getElementById('qr-expired');`
     + `function f(s){return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}`
     + `function tick(){var s=Math.max(0,Math.floor((end-Date.now())/1000));if(c)c.textContent=t.replace('{time}',f(s));`
-    + `if(s<=0){clearInterval(i);if(live)live.style.display='none';if(gone)gone.style.display='block';}}`
+    // The QR and the held time end together: at zero the page reloads and says the time has ended.
+    + `if(s<=0){clearInterval(i);if(live)live.style.display='none';if(gone)gone.style.display='block';setTimeout(function(){location.replace(location.pathname);},1500);}}`
     + `var i=setInterval(tick,1000);tick();`;
   return `<script>(function(){${tick}`
     + `function poll(){if(document.hidden)return;fetch(location.pathname+'?state=1',{cache:'no-store'}).then(function(r){return r.ok?r.json():null;})`
@@ -106,7 +109,8 @@ export function renderBookingPage(view: PageView, w: BookingWording): PageOutcom
         + `<p class="countdown" id="qr-countdown">${esc(valid)}</p>`
         + (banks.length > 0 ? `<p class="muted">${esc(say(w, 'billing_page_banks'))}</p><div class="banks">${banks.map((u) =>
           `<a href="${esc(u.link)}">${u.logo.startsWith('https://') ? `<img alt="" src="${esc(u.logo)}">` : ''}<span>${esc(u.name)}</span></a>`).join('')}</div>` : '')
-        + `</div><div id="qr-expired" style="display:none"><p class="note">${esc(say(w, 'billing_page_qr_expired'))}</p>${renew}</div>`;
+        // No «new QR» here: the QR ends with the held time, and a new code cannot hold it longer.
+        + `</div><div id="qr-expired" style="display:none"><p class="note">${esc(say(w, 'booking_page_ended'))}</p></div>`;
       js = script(say(w, 'billing_page_qr_valid', { time: '{time}' }), view.secondsLeft);
     } else if (view.kind === 'code' || view.kind === 'renew') {
       pay = `<div id="qr-expired"><p class="note">${esc(say(w, 'billing_page_qr_expired'))}</p>${renew}</div>`;

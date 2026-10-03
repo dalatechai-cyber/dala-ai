@@ -60,13 +60,20 @@ The people who ask are asking exactly the question a calendar answers.
 8. Дали holds the time and sends **one message with a «Төлбөр төлөх» button**: the summary and
    the deposit (Мастер 20,000₮, 1-р зэрэг 10,000₮: Tara's rule, see "Rules reused"). The
    button opens a page with the QPay QR and one button per bank app; on a phone one tap opens
-   the bank app with the payment filled in. The QR is valid five minutes with a countdown and
-   «new QR» while the hold lasts (10 minutes).
+   the bank app with the payment filled in. **The QR and the held time last exactly five
+   minutes, together** (the website's own QR countdown), and the message says so: «Энэ QR 5
+   минутын турш хүчинтэй. Энэ хугацаанд таны сонгосон цаг хадгалагдана.» During those five
+   minutes the time is taken everywhere: in the database (no other chat can hold it) and as a busy
+   event in the stylist's calendar (the website stops offering it). There is no «new QR» that
+   would stretch the five minutes; a sweep is scheduled for the exact moment they end (QStash
+   `notBefore`), so the time comes free on time, not at the next minute.
 9. **The moment QPay confirms the payment**, the booking is written into the stylist's
    calendar and Дали sends the confirmation: service, stylist, date, time, the branch and its
    address.
-10. Not paid in time: the hold is released, the QPay invoice cancelled, and Дали says so once,
-    politely, offering to start again.
+10. Not paid in five minutes: the time is released, the QPay invoice cancelled, the calendar event
+    removed, and Дали says so once, politely, with a «Цаг сонгох» button that starts a new booking.
+    **One hold per customer:** a customer who starts a new booking while a QR is out keeps the
+    old time only until the new QR is made; the new QR replaces the old hold (QPay asked first).
 11. **Quiet on the offered times**: ten minutes after the times were offered with no answer,
     Дали asks once «Цаг захиалах уу?» with the times read fresh from the calendar (a time the
     website took meanwhile is gone). Never twice, and never once the chat has idled out (30
@@ -111,12 +118,15 @@ hold (the normal Дали answers it); after the hold the payment still complete
   payment (two QRs both paid, or paid twice) is recorded as `excess` and **paged at once** for a
   refund; it never makes a second event.
 - **Late payment.** After a release the slot is tried again (same lock, same calendar check).
-  Free: booked and confirmed. Taken: `paid_unbooked`, an immediate alert («paid, no time:
-  refund or rebook») with the customer's phone, and one line to the customer that a person will
-  call. Never silent.
+  Free: booked, confirmed, and you are told. Taken: `paid_unbooked`, and at once (a) Дали tells
+  the customer the time was taken and offers the nearest free times (the same stylist first, else
+  any of the same level, so the same deposit); a time they tap is booked on the money already
+  paid (`booking_rebook_hold`: one payment, no new QR) and confirmed; and (b) you are paged on
+  Telegram with name, phone and amount, to refund or rebook, and paged again if they rebooked
+  themselves. With nothing free to offer, the line says a person will call. Never silent.
 - **Every trigger is the same function**: QPay's callback, the pay page's poll, the customer
-  writing again, and the sweep (`/api/workers/booking`, every minute) all call `settleHold`,
-  which is idempotent.
+  writing again, the sweep scheduled for each hold's end, and the minute sweep (the fallback) all
+  call `settleHold`, which is idempotent.
 
 ## Website vs chat (what the website does not do)
 
@@ -190,7 +200,8 @@ Nothing below has been done. Each step is yours: wording, credentials, a migrati
      tell Claude: the code then needs a per-tenant QPay login, which is not built.
    - `BOOKING_MODE=test`. Preflight refuses the deploy if anything above is missing.
 4. **QStash.** Add one schedule: every minute, POST `https://api.dalatech.online/api/workers/booking`,
-   empty body. It releases unpaid holds and books late payments. With `BOOKING_MODE` unset it
+   empty body. It is the fallback (each hold's end is also scheduled by itself, through the same
+   `QSTASH_TOKEN`); it releases unpaid holds and books late payments. With `BOOKING_MODE` unset it
    answers "disabled".
 5. **The row.** Run `node scripts/booking/from-website.ts --website <matrix_website checkout>
    --rules config/booking/tara-salon.json --slug matrix-eco-salon --stylists "Оюунсүрэн=Оюунаа,Бадамцэцэг=Бадмаа,Батзаяа,Уянга,Отгонжаргал"
@@ -204,7 +215,8 @@ Nothing below has been done. Each step is yours: wording, credentials, a migrati
      event in that stylist's Google Calendar; one row in `booking_payments`; the 100₮ in Tara's
      QPay merchant app.
    - Then delete the calendar event, and refund the 100₮ if you want it back.
-   - Also try «Цуцлах» once, and once let 10 minutes pass: the time must come free again.
+   - Also try «Цуцлах» once, and once let the 5 minutes pass: the time must come free again, the
+     website must offer it again, and Дали must say so with «Цаг сонгох».
 7. **Live.** Set `update booking_config set mode = 'live' …` for the tenant, and `BOOKING_MODE=live`
    in Vercel, then redeploy. Every customer on Tara Яармаг's live Page can then book in chat;
    every other tenant stays off (no row). To stop: set the row's `mode = 'off'`. That takes effect

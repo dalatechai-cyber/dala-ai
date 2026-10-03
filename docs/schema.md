@@ -290,10 +290,12 @@ chosen; one open per conversation; `followed_up_at` marks the one «Цаг за�
 advisory lock), `booking_invoices` (QPay invoices per hold, claimed before QPay is asked),
 `booking_payments` (append-only, unique on QPay's payment id, with what the money did:
 `applied`, `excess`, `short`, `late_booked`, `late_unbooked`) and `booking_events` (append-only
-audit). Seven functions: `booking_open_session`, `booking_apply_turn` (the session moves and the
+audit). Eight functions: `booking_open_session`, `booking_apply_turn` (the session moves and the
 reply is drafted in one transaction; writes `outbound_messages` `kind = 'reply'`),
-`booking_acquire_hold`, `booking_end_hold`, `booking_record_payment`, `booking_mark_booked`,
-`booking_mark_unbooked`. Server-owned, RLS forced, nothing granted to `anon`/`authenticated`. No
+`booking_acquire_hold` (one held time per customer: `booking_holds_one_held_per_customer`),
+`booking_end_hold`, `booking_record_payment`, `booking_mark_booked`, `booking_mark_unbooked`,
+`booking_rebook_hold` (a paid deposit whose time was taken moved to a free time the customer
+picked; `rebooked_at`). Server-owned, RLS forced, nothing granted to `anon`/`authenticated`. No
 existing row or table changes. A hold row is written by `booking_acquire_hold` only; writing one
 by hand skips the overlap check.
 

@@ -39,8 +39,8 @@ export type QpayMerchant = {
 
 export type BookingConfig = {
   testSenderIds: string[];
+  /** How long a time is held after its QR is made, and how long that QR is valid: one clock. */
   holdMinutes: number;
-  qrMinutes: number;
   slotStepMinutes: number;
   daysAhead: number;
   minLeadMinutes: number;
@@ -89,17 +89,18 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
   }
   const knob = (key: string, dflt: number, min: number, max: number): number | null =>
     raw[key] === undefined ? dflt : int(raw[key], min, max);
-  const holdMinutes = knob('hold_minutes', 10, 5, 30);
-  const qrMinutes = knob('qr_minutes', 5, 1, 30);
+  // One clock for the time and its QR: the hold lasts exactly as long as the QR is valid (the
+  // website's five minutes), so a customer is never shown a QR for a time already let go.
+  if (raw['qr_minutes'] !== undefined) return fail('qr_minutes is gone: the QR lasts exactly as long as the hold (hold_minutes)');
+  const holdMinutes = knob('hold_minutes', 5, 1, 30);
   const slotStepMinutes = knob('slot_step_minutes', 60, 15, 240);
   const daysAhead = knob('days_ahead', 7, 1, 30);
   const minLeadMinutes = knob('min_lead_minutes', 0, 0, 24 * 60);
   const testDepositMnt = knob('test_deposit_mnt', 100, 1, 1000);
-  for (const [k, v] of Object.entries({ hold_minutes: holdMinutes, qr_minutes: qrMinutes, slot_step_minutes: slotStepMinutes,
+  for (const [k, v] of Object.entries({ hold_minutes: holdMinutes, slot_step_minutes: slotStepMinutes,
     days_ahead: daysAhead, min_lead_minutes: minLeadMinutes, test_deposit_mnt: testDepositMnt })) {
     if (v === null) return fail(`${k} is out of range`);
   }
-  if ((qrMinutes as number) > (holdMinutes as number)) return fail('qr_minutes cannot exceed hold_minutes');
 
   const genderRule = raw['gender_rule'] === undefined ? true : raw['gender_rule'];
   if (typeof genderRule !== 'boolean') return fail('gender_rule must be true or false');
@@ -211,7 +212,6 @@ export function parseBookingConfig(raw: unknown): ConfigOutcome {
     config: {
       testSenderIds: (testSenderIds as string[]).map((s) => s.trim()),
       holdMinutes: holdMinutes as number,
-      qrMinutes: qrMinutes as number,
       slotStepMinutes: slotStepMinutes as number,
       daysAhead: daysAhead as number,
       minLeadMinutes: minLeadMinutes as number,

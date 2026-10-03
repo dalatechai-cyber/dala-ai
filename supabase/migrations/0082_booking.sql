@@ -104,6 +104,9 @@ create table booking_holds (
   -- Set once the customer (and, for paid_unbooked, the founder) has been told the outcome.
   -- A booked or paid_unbooked hold without it is swept until it is told.
   notified_at      timestamptz,
+  -- A paid deposit whose time was taken, moved by the customer to another free time
+  -- (`booking_rebook_hold`): the same money, one booking.
+  rebooked_at      timestamptz,
   version          integer not null default 0,
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now(),
@@ -115,6 +118,9 @@ create table booking_holds (
 -- The second wall: one active hold per calendar and start, whatever wrote it.
 create unique index booking_holds_active_start on booking_holds (calendar_id, starts_at)
   where state in ('held', 'paid', 'booked');
+-- One held time per customer: a new QR replaces the customer's old hold (booking_acquire_hold
+-- reports it, the platform releases it, then holds the new time).
+create unique index booking_holds_one_held_per_customer on booking_holds (tenant_id, psid) where state = 'held';
 create index booking_holds_calendar_window on booking_holds (calendar_id, starts_at, ends_at)
   where state in ('held', 'paid', 'booked');
 create index booking_holds_due on booking_holds (expires_at) where state in ('held', 'paid');
@@ -314,10 +320,16 @@ begin
   if sess.id is null or sess.closed_at is not null then
     return jsonb_build_object('outcome', 'no_session');
   end if;
-  -- One live hold per session: a customer who goes back and picks again releases the first.
+  -- One live hold per session: a redelivered message picks its own hold up again.
   if exists (select 1 from booking_holds where session_id = p_session and state = 'held') then
     return jsonb_build_object('outcome', 'session_has_hold',
       'hold_id', (select id from booking_holds where session_id = p_session and state = 'held' limit 1));
+  end if;
+  -- One live hold per customer: a hold from their earlier booking chat is replaced, never kept
+  -- beside the new one. The platform releases it (QPay asked first) and asks again.
+  if exists (select 1 from booking_holds where tenant_id = p_tenant and psid = sess.psid and state = 'held') then
+    return jsonb_build_object('outcome', 'customer_has_hold',
+      'hold_id', (select id from booking_holds where tenant_id = p_tenant and psid = sess.psid and state = 'held' limit 1));
   end if;
 
   perform pg_advisory_xact_lock(hashtextextended('booking:' || cal, 0));
@@ -503,6 +515,48 @@ begin
 end
 $$;
 
+-- A paid deposit whose time was taken (paid_unbooked), moved to another free time the customer
+-- picked: the hold takes the new stylist and time and is `paid` again, so the ordinary booking
+-- path writes it. Same length (same service), never in the past, never over another hold.
+create or replace function public.booking_rebook_hold(
+  p_hold uuid, p_calendar text, p_staff text, p_starts timestamptz, p_ends timestamptz)
+returns jsonb
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  h     booking_holds%rowtype;
+  clash uuid;
+begin
+  select * into h from booking_holds where id = p_hold for update;
+  if h.id is null then raise exception 'no hold %', p_hold; end if;
+  if h.state <> 'paid_unbooked' then
+    return jsonb_build_object('outcome', 'not_paid_unbooked', 'state', h.state);
+  end if;
+  if p_starts <= now() or p_ends - p_starts <> make_interval(mins => h.minutes) then
+    return jsonb_build_object('outcome', 'invalid');
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended('booking:' || p_calendar, 0));
+  select id into clash from booking_holds
+   where calendar_id = p_calendar and id <> h.id and state in ('held', 'paid', 'booked')
+     and tstzrange(starts_at, ends_at, '[)') && tstzrange(p_starts, p_ends, '[)')
+   limit 1;
+  if clash is not null then
+    return jsonb_build_object('outcome', 'taken');
+  end if;
+  update booking_holds
+     set calendar_id = p_calendar, staff_name = p_staff, starts_at = p_starts, ends_at = p_ends,
+         state = 'paid', calendar_state = 'none', calendar_event_id = null, notified_at = null,
+         ended_at = null, ended_reason = null, rebooked_at = now(), version = version + 1, updated_at = now()
+   where id = p_hold;
+  insert into booking_events (tenant_id, hold_id, session_id, kind, detail)
+  values (h.tenant_id, h.id, h.session_id, 'hold.rebooked',
+          jsonb_build_object('from_calendar', h.calendar_id, 'from_starts_at', h.starts_at,
+                             'to_calendar', p_calendar, 'to_starts_at', p_starts));
+  return jsonb_build_object('outcome', 'rebooked');
+end
+$$;
+
 do $$
 declare f text;
 begin
@@ -513,7 +567,8 @@ begin
     'booking_end_hold(uuid, text, text)',
     'booking_record_payment(uuid, uuid, text, bigint, timestamptz, text)',
     'booking_mark_booked(uuid, text)',
-    'booking_mark_unbooked(uuid, text)'
+    'booking_mark_unbooked(uuid, text)',
+    'booking_rebook_hold(uuid, text, text, timestamptz, timestamptz)'
   ]
   loop
     execute format('revoke all on function public.%s from public, anon, authenticated', f);

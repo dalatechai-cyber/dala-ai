@@ -26,11 +26,13 @@ import {
   allServices, bookingEnvMode, customerMode, depositFor, entryFires, stylistButton,
   type BookingConfig, type Gender, type Stylist,
 } from './config.ts';
-import { bookingEvent, currentInvoice, dayLabel, deliverDrafted, expireHold, marked, settleHold, stylistLabel, timeLabel, type BookingPorts } from './engine.ts';
+import {
+  bookingEvent, currentInvoice, dayLabel, deliverDrafted, expireHold, marked, settleHold, START, stylistLabel, timeLabel, type BookingPorts,
+} from './engine.ts';
 import { payUrl } from './links.ts';
 import { freeStarts, isFree, openDays, type Interval, type OpenDay } from './slots.ts';
 import {
-  acquireHold, activeHolds, applyTurn, closeSessionRow, conversationMovedOn, endHold, markFollowedUp, openSession, readConfig, readHold, readHoursAndClosures,
+  acquireHold, activeHolds, applyTurn, closeSessionRow, conversationMovedOn, endHold, markFollowedUp, rebookHold, openSession, readConfig, readHold, readHoursAndClosures,
   outboundCreatedAt, readOpenSession, readTenantFacts, sessionHold, sessionsToFollowUp, setCalendarState, type Hold, type Session, type TenantFacts,
 } from './store.ts';
 import { hourOn, parseWhen, type Want } from './when.ts';
@@ -65,7 +67,7 @@ export const FOLLOW_UP_MINUTES = 10;
 const ONE_FOLLOW_UP_MS = 20_000;
 
 type Offer = { t: string; v: string };
-type Step = 'group' | 'service' | 'gender' | 'stylist' | 'when' | 'time' | 'name' | 'phone' | 'agree' | 'pay';
+type Step = 'group' | 'service' | 'gender' | 'stylist' | 'when' | 'time' | 'name' | 'phone' | 'agree' | 'pay' | 'rebook';
 type Reply = { step: Step; body: string; offers: Offer[]; data: Record<string, unknown>; close: string | null; linkButtonTitle?: string };
 
 const CANCEL = 'bk:cancel';
@@ -448,7 +450,7 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
       const busy = await busyOn(ports, [s.calendarId], start, end);
       if (busy === null) return unavailableReply(c, data);
       if (!isFree(start, minutes, busy.get(s.calendarId) ?? [])) continue;
-      const got = await acquireHold(ports.db, {
+      const take = () => acquireHold(ports.db, {
         tenantId: session.tenantId, sessionId: session.id, expiresAt: new Date(c.now.getTime() + config.holdMinutes * 60_000),
         hold: {
           calendarId: s.calendarId, staffName: s.label, level: level.label, service: String(data['service']), minutes,
@@ -456,7 +458,17 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
           gender, agreedAt: c.now, agreementText: config.agreementText,
         },
       });
+      let got = await take();
       if (!got.ok) return unavailableReply(c, data);
+      if (got.acquired.outcome === 'customer_has_hold') {
+        // One hold per customer: the new QR replaces the time they held in an earlier booking
+        // chat. Released the usual way (QPay asked first: a payment on it books it instead), then
+        // the new time is taken.
+        const old = await expireHold(ports, got.acquired.holdId, 'released', 'replaced by the customer\'s new QR');
+        if (old === 'unavailable' || old === 'not_due') return unavailableReply(c, data);
+        got = await take();
+        if (!got.ok || got.acquired.outcome === 'customer_has_hold') return unavailableReply(c, data);
+      }
       if (got.acquired.outcome === 'taken') continue;
       if (got.acquired.outcome === 'no_session') return unavailableReply(c, data);
       let candidate: Hold;
@@ -486,6 +498,12 @@ async function holdAndInvoice(c: Ctx, session: Session, data: Record<string, unk
     await expireHold(ports, hold.id, 'released', `QPay invoice not made: ${inv.detail}`);
     return unavailableReply(c, data);
   }
+  // The end of the five minutes, on time: the time is released and the customer told then.
+  try {
+    await ports.scheduleSweep?.(hold.expiresAt, hold.id);
+  } catch (e) {
+    ports.log('error', 'booking_sweep_not_scheduled', { holdId: hold.id, error: e instanceof Error ? e.message : 'error' });
+  }
   const date = tenantClock(hold.startsAt, facts.timezone).date;
   const body = say(w, 'booking_pay', {
     service: hold.service,
@@ -512,6 +530,7 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
   if (choice === 'cancel') {
     return { step, body: say(w, 'booking_cancelled'), offers: [], data, close: 'cancelled' };
   }
+  if (step === 'rebook') return rebookTurn(c, data, choice);
 
   // An old button. A day: that day's times. A time: that time if it is still free (it is what
   // the customer saw and tapped), else «taken» with the nearest free times on that day.
@@ -605,6 +624,133 @@ async function next(c: Ctx, session: Session): Promise<Reply | 'not_mine'> {
     default:
       return 'not_mine';
   }
+}
+
+// ---------------------------------------------------------------------------
+// A paid deposit whose time was taken: the nearest free times, booked on the same money
+// ---------------------------------------------------------------------------
+
+/**
+ * The customer's deposit arrived after its time was gone (late, and someone else has it). Дали
+ * says so and offers the nearest free times for the same service and level (so the same
+ * deposit); a time the customer taps is booked on that deposit (`rebookTo`). The founder is paged
+ * either way (`engine.ts`), to refund if the customer picks nothing. `no_offer`: nothing free,
+ * or the customer is in another booking chat: the plain paid-unbooked line is sent instead.
+ */
+export async function offerRebook(ports: BookingPorts, hold: Hold, facts: TenantFacts, config: BookingConfig):
+  Promise<'sent' | 'already' | 'not_delivering' | 'failed' | 'no_offer'> {
+  if (hold.notifiedAt !== null) return 'already';
+  const level = config.levels.find((l) => l.label === hold.level);
+  if (level === undefined || hold.conversationId === null) return 'no_offer';
+  const now = ports.now();
+  const tz = facts.timezone;
+  const local = tenantClock(now, tz);
+  const hc = await readHoursAndClosures(ports.db, hold.tenantId, local.date);
+  if (!hc.ok) return 'no_offer';
+  const open = await readOpenSession(ports.db, hold.tenantId, hold.conversationId);
+  if (!open.ok) return 'failed';
+  let session = open.session;
+  if (session !== null && session.id !== hold.sessionId && session.step !== 'rebook') return 'no_offer';
+  if (session === null) {
+    const opened = await openSession(ports.db, {
+      tenantId: hold.tenantId, conversationId: hold.conversationId, channelId: hold.channelId, psid: hold.psid,
+      isTest: hold.isTest, step: 'start', data: {},
+    });
+    if (!opened.ok) return 'failed';
+    session = opened.session;
+  }
+  const c: Ctx = {
+    ports, config, facts, now,
+    input: {
+      tenantId: hold.tenantId, channelId: hold.channelId, conversationId: hold.conversationId, psid: hold.psid,
+      mid: '', text: '', respelled: null, hours: hc.hours, closures: hc.closures,
+    },
+  };
+  const base: Record<string, unknown> = {
+    service: hold.service, minutes: hold.minutes, gender: hold.gender,
+    name: hold.customerName, phone: hold.customerPhone, rebookHold: hold.id, preferCalendar: hold.calendarId,
+  };
+  const heldDate = tenantClock(hold.startsAt, tz).date;
+  const [h, m] = tenantClock(hold.startsAt, tz).time.split(':').map(Number) as [number, number];
+  // Around the time they paid for: that day (or today, if it has passed), that hour as it was.
+  const want: Want = { date: heldDate < local.date ? local.date : heldDate, hour: h, minute: m, afternoon: false, morning: true };
+  const lead = say(ports.wording, 'booking_paid_unbooked_offer', { date: dayLabel(ports.wording, heldDate, now, tz), time: timeLabel(hold.startsAt, tz) });
+  // The same stylist first («16:00 is taken» next to a «16:00» button for someone else reads
+  // wrong); any stylist of the same level (the same deposit) only when she has nothing free.
+  const usable = (r: Reply) => r.step === 'time' && r.close === null && r.offers.length > 0;
+  let offer = await offerTimes(c, { ...base, stylist: `s:${hold.calendarId}` }, want, lead);
+  if (!usable(offer)) offer = await offerTimes(c, { ...base, stylist: `any:${level.key}` }, want, lead);
+  if (!usable(offer)) return 'no_offer';
+  const applied = await applyTurn(ports.db, {
+    tenantId: hold.tenantId, session, dedupKey: `booking:${hold.id}:paid_unbooked`, step: 'rebook',
+    data: { ...offer.data, offers: offer.offers, missed: false, offerStep: 'rebook' }, closeReason: null,
+    body: marked(ports.wording, hold.isTest, offer.body),
+  });
+  if (!applied.ok || applied.turn.outcome === 'stale') return 'failed';
+  if (applied.turn.outboundId === null) return 'failed';
+  return deliverDrafted(ports, { tenantId: hold.tenantId, channelId: hold.channelId, psid: hold.psid }, applied.turn.outboundId,
+    { holdId: hold.id, event: 'paid_unbooked_offer' },
+    { quickReplies: quickReplies('rebook', offer.offers, say(ports.wording, 'booking_cancel')) });
+}
+
+/** A message in the rebook chat: a time tapped (or typed), another day asked, or nothing of the sort. */
+async function rebookTurn(c: Ctx, data: Record<string, unknown>, choice: Offer | 'cancel' | { stale: string } | null): Promise<Reply | 'not_mine'> {
+  const w = c.ports.wording;
+  const asRebook = (r: Reply): Reply => (r.step === 'time' ? { ...r, step: 'rebook' } : r);
+  if (choice !== null && choice !== 'cancel' && !('stale' in choice)) return rebookTo(c, data, new Date(choice.v));
+  if (choice !== null && choice !== 'cancel' && 'stale' in choice && !Number.isNaN(new Date(choice.stale).getTime())) {
+    return rebookTo(c, data, new Date(choice.stale));
+  }
+  const local = tenantClock(c.now, c.facts.timezone);
+  const typed = parseWhen(c.input.respelled ?? c.input.text, { date: local.date, weekday: local.weekday });
+  if (typed !== null && !(typed.hour === null && typed.date === data['date'])) {
+    const r = asRebook(await offerTimes(c, data, typed.date === null ? { ...typed, date: String(data['date']) } : typed));
+    return r.step === 'rebook' && r.close === null ? r : 'not_mine';
+  }
+  if (data['missed'] === true) return 'not_mine';
+  const offers = Array.isArray(data['offers']) ? (data['offers'] as Offer[]) : [];
+  return { step: 'rebook', body: say(w, 'booking_pick_from_list'), offers, data: { ...data, missed: true }, close: null };
+}
+
+/**
+ * Book the paid deposit at `start`: the original stylist first, then any other of the same level.
+ * The hold moves (`booking_rebook_hold`), then the ordinary booking path writes the calendar and
+ * sends the confirmation. A time gone meanwhile: «taken», and the nearest free times again.
+ */
+async function rebookTo(c: Ctx, data: Record<string, unknown>, start: Date): Promise<Reply | 'not_mine'> {
+  const { ports, config } = c;
+  const w = ports.wording;
+  const holdId = String(data['rebookHold']);
+  const minutes = Number(data['minutes']);
+  const end = new Date(start.getTime() + minutes * 60_000);
+  const tz = c.facts.timezone;
+  const again = async (): Promise<Reply | 'not_mine'> => {
+    const r = await offerTimes(c, data, wantAround({ start: start.toISOString(), date: tenantClock(start, tz).date }, tz), say(w, 'booking_slot_taken'));
+    return r.step === 'time' && r.close === null ? { ...r, step: 'rebook' } : 'not_mine';
+  };
+  if (start.getTime() < c.now.getTime() + config.minLeadMinutes * 60_000) return again();
+  const prefer = String(data['preferCalendar'] ?? '');
+  const order = [...candidates(config, data)].sort((a, b) => Number(b.calendarId === prefer) - Number(a.calendarId === prefer));
+  for (const s of order) {
+    const busy = await busyOn(ports, [s.calendarId], start, end);
+    if (busy === null) return 'not_mine';
+    if (!isFree(start, minutes, busy.get(s.calendarId) ?? [])) continue;
+    const moved = await rebookHold(ports.db, { holdId, calendarId: s.calendarId, staffName: s.label, startsAt: start, endsAt: end });
+    if (!moved.ok) {
+      ports.log('error', 'booking_rebook_failed', { holdId, detail: moved.detail });
+      return 'not_mine';
+    }
+    // Already booked or ended meanwhile (another tap, a person): nothing more to say here.
+    if (moved.outcome === 'not_paid_unbooked') return { step: 'rebook', body: '', offers: [], data, close: 'rebooked' };
+    if (moved.outcome !== 'rebooked') continue;
+    const settled = await settleHold(ports, holdId);
+    // Booked: the confirmation went out by itself. Pending: the sweep writes it and confirms.
+    if (settled === 'booked' || settled === 'already_booked' || settled === 'calendar_pending') {
+      return { step: 'rebook', body: '', offers: [], data, close: 'rebooked' };
+    }
+    // The calendar had someone at that time after all (the hold is paid-unbooked again): try on.
+  }
+  return again();
 }
 
 /** A message while a payment is pending: settle, and let Дали answer anything else. */
@@ -715,12 +861,22 @@ export async function bookingTurn(ports: BookingPorts, input: TurnInput): Promis
       session = null;
     }
 
+    const subject = { text: input.text, attachments: [], respelled: input.respelled };
+    const startsAgain = input.quickReplyPayload === START
+      || (input.quickReplyPayload?.startsWith('bk:') !== true && entryFires(cfg.config, subject));
+
+    // A new booking asked for while a QR is out: the paying chat is closed and a new one starts.
+    // The held time stays held until it ends or the new QR replaces it (one hold per customer).
+    if (session !== null && session.step === 'pay' && startsAgain) {
+      const r = await closeSessionRow(ports.db, session.id, 'started_again', c.now);
+      if (!r.ok) return { handled: false, reason: 'session_close_failed' };
+      session = null;
+    }
+
     if (session === null) {
-      const subject = { text: input.text, attachments: [], respelled: input.respelled };
-      if (input.quickReplyPayload?.startsWith('bk:') !== true && !entryFires(cfg.config, subject)) {
-        return { handled: false, reason: 'not_a_booking_message' };
+      if (!startsAgain) {
+        return { handled: false, reason: input.quickReplyPayload?.startsWith('bk:') === true ? 'button_of_a_closed_booking' : 'not_a_booking_message' };
       }
-      if (input.quickReplyPayload?.startsWith('bk:') === true) return { handled: false, reason: 'button_of_a_closed_booking' };
       const opened = await openSession(ports.db, {
         tenantId: input.tenantId, conversationId: input.conversationId, channelId: input.channelId, psid: input.psid,
         isTest: who.isTest, step: 'start', data: {},

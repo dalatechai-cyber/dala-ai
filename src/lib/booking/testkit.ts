@@ -307,8 +307,7 @@ export const TEST_CALENDARS = {
 export function testConfig(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     test_sender_ids: ['psid-tester'],
-    hold_minutes: 10,
-    qr_minutes: 5,
+    hold_minutes: 5,
     slot_step_minutes: 60,
     days_ahead: 7,
     gender_rule: true,

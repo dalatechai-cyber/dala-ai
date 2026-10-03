@@ -1,7 +1,6 @@
 {
   "_comment": "Tara Salon's in-chat booking: the parts the website does not hold. DRAFT for the founder: the group labels and the short service labels are customer-visible Mongolian. scripts/booking/from-website.ts merges this with the website's own stylists, calendars, deposits, agreement, durations and QPay merchant (read from a matrix_website checkout, never copied here) and prints the booking_config row. The same file serves both branches (D-157: one price list, one booking rule set); each branch gets its own stylists and calendars from its own --stylists list.",
-  "hold_minutes": 10,
-  "qr_minutes": 5,
+  "hold_minutes": 5,
   "slot_step_minutes": 60,
   "days_ahead": 7,
   "min_lead_minutes": 0,
