@@ -387,24 +387,85 @@ test('DONE-TEST: A TENANT WITH NO TIMEZONE IS 503, NEVER A DEFAULTED CALENDAR', 
 // Freshness — §3.9 check 7, and the founder's 30 minutes
 // ---------------------------------------------------------------------------
 
-test('DONE-TEST: an hour-old message is persisted, flagged, and never answered', async () => {
-  const { fx, generated, delivered, flags, logs } = stubEffects({
-    tables: { webhook_events: { data: { raw_payload: payload({ ts: NOW.getTime() - 60 * 60_000 }) } } },
-  });
+const LATE_LINE = 'Утсаар холбогдоно уу.';
+/** An hour-old message on a live channel; every outbound read answers with the hand-off row. */
+const lateTables = (extra: Record<string, Reply | Reply[]> = {}) => ({
+  webhook_events: { data: { raw_payload: payload({ ts: NOW.getTime() - 60 * 60_000 }) } },
+  outbound_messages: { data: { id: 'om-late', body: LATE_LINE, attempts: 0, state: 'draft' }, error: null },
+  ...extra,
+});
+
+test('DONE-TEST: an hour-old message is persisted, flagged, never sent to the model — and gets the hand-off line, not silence', async () => {
+  const { fx, generated, delivered, flags, logs, ops, needsPerson, typed } = stubEffects({ tables: lateTables() });
   const r = await run(fx);
 
   assert.equal(r.status, 200);
   assert.equal(r.body['stale'], 1);
-  assert.equal(r.body['drafted'], 0);
   assert.equal(generated.length, 0, 'no model call');
-  assert.equal(delivered.length, 0, 'no send');
+  assert.ok(!ops.some((o) => o.table === 'spend_reservations'), 'nothing reserved');
+  assert.deepEqual(typed, [], 'no «typing…» for a fixed line');
   assert.ok(reasons(logs).includes('reply_too_late'));
+  // Founder, 2026-10-03: too late is never a reason for silence. The reviewed hand-off row's own
+  // bytes, under the reply's own key, and a person is told.
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0]?.body, LATE_LINE);
+  const draft = ops.find((o) => o.table === 'outbound_messages' && (o.op === 'insert' || o.op === 'upsert'));
+  assert.equal(draft?.patch?.['body'], LATE_LINE);
+  assert.equal(draft?.patch?.['dedup_key'], replyDedupKey(MID));
+  assert.deepEqual(needsPerson.map((a) => [a.reason, a.sent]), [['handoff', 'yes']]);
 
-  // Persisted first, and visible to the Quality layer as a question nobody answered.
-  assert.equal(flags.length, 1);
+  // Persisted first, and visible to the Quality layer as a question that was too late.
   assert.equal(flags[0]?.code, 'reply_too_late');
   assert.equal(flags[0]?.tenantId, TENANT, 'quality_flags.tenant_id is NOT NULL');
   assert.match(flags[0]?.detail ?? '', /60 minutes old/);
+  assert.ok(flags.some((f) => f.code === 'too_late_handoff' && /sent/u.test(f.detail ?? '')));
+});
+
+test('too late: NO hand-off line on a shadow channel, past Meta\'s 24 hours, or to a like', async () => {
+  const shadow = stubEffects({ tables: lateTables({
+    tenant_channels: { data: { external_id: '100000000000001', delivery_mode: 'shadow', graph_version_override: null } },
+  }) });
+  await run(shadow.fx);
+  assert.equal(shadow.delivered.length, 0, 'shadow: the Page answers, as before');
+
+  const dayOld = stubEffects({ tables: lateTables({
+    webhook_events: { data: { raw_payload: payload({ ts: NOW.getTime() - 25 * 60 * 60_000 }) } },
+  }) });
+  const r = await run(dayOld.fx);
+  assert.equal(r.body['stale'], 1);
+  assert.equal(dayOld.delivered.length, 0, 'past Meta\'s 24-hour window nothing may be sent');
+  assert.equal(dayOld.needsPerson.length, 0);
+});
+
+test('too late: NO line when the customer wrote again, or a person already replied', async () => {
+  const newer = stubEffects({ tables: lateTables({
+    messages: [{ data: { id: 'msg-1' }, error: null }, { data: { at: '2026-09-04T11:00:00.000Z' }, error: null }, { data: [{ id: 'msg-9' }], error: null }],
+  }) });
+  await run(newer.fx);
+  assert.equal(newer.delivered.length, 0, 'the newer message is the one to answer');
+  assert.ok(newer.logs.some((l) => l.event === 'too_late_no_handoff' && (l as { fields?: Record<string, unknown> }).fields?.['reason'] === 'newer_message'));
+
+  const person = stubEffects({ tables: lateTables({
+    'webhook_events:contains': { data: [STAFF_ECHO], error: null },
+    tenant_channels: { data: { ...LIVE_WITH_APP }, error: null },
+  }) });
+  await run(person.fx);
+  assert.equal(person.delivered.length, 0, 'a person already answered');
+  assert.ok(person.logs.some((l) => l.event === 'too_late_no_handoff' && (l as { fields?: Record<string, unknown> }).fields?.['reason'] === 'person_replied'));
+});
+
+test('too late: the line is said once per conversation per day', async () => {
+  const { fx, delivered, logs } = stubEffects({ tables: lateTables({
+    messages: [{ data: { id: 'msg-1' }, error: null }, { data: { at: '2026-09-04T11:00:00.000Z' }, error: null }, { data: [], error: null }],
+    outbound_messages: [
+      { data: [], error: null },                                                   // a reply sent after it: none
+      { data: [{ id: 'om-earlier' }], error: null },                               // said today: yes
+      { data: { id: 'om-late', body: LATE_LINE, attempts: 0, state: 'draft' }, error: null },
+    ],
+  }) });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.ok(logs.some((l) => l.event === 'too_late_handoff_already_said'));
 });
 
 test('the customer message is stored BEFORE the freshness refusal', async () => {
@@ -1270,6 +1331,8 @@ test('a live channel shows the bubble, once, before the reply', async () => {
 });
 
 test('DONE-TEST: A MESSAGE THAT WILL NEVER BE ANSWERED SHOWS NO BUBBLE', async () => {
+  // Since 2026-10-03 an hour-old message gets the hand-off line (above), still with no bubble;
+  // a day-old one gets nothing at all, which is the case this test keeps.
   // A bubble is a PROMISE of a reply, so it belongs below every exit that ends in silence.
   //
   // The first version of this feature sat above the freshness check, the history read and
@@ -1278,7 +1341,7 @@ test('DONE-TEST: A MESSAGE THAT WILL NEVER BE ANSWERED SHOWS NO BUBBLE', async (
   // was added to soften. Same shape as the guard whose trigger moved out from under it:
   // the code was right where it was written and wrong where it ran.
   const { fx, typed, delivered, logs } = stubEffects({
-    tables: { webhook_events: { data: { raw_payload: payload({ ts: NOW.getTime() - 60 * 60_000 }) } } },
+    tables: { webhook_events: { data: { raw_payload: payload({ ts: NOW.getTime() - 25 * 60 * 60_000 }) } } },
   });
   await run(fx);
   assert.ok(reasons(logs).includes('reply_too_late'), 'precondition: the message is stale');
@@ -1744,12 +1807,27 @@ test('in SHADOW a stored draft is never sent by a redelivery', async () => {
   assert.equal(delivered.length, 0);
 });
 
-test('a stored reply past the reply age limit is not re-sent, and says so', async () => {
-  const { fx, delivered, flags } = resumeWith('failed', {
-    tables: { webhook_events: { data: { raw_payload: payload({ ts: NOW.getTime() - 3 * 60 * 60_000 }) } } },
+test('a stored reply past the reply age limit is refused for good, and the hand-off line goes instead', async () => {
+  const { fx, delivered, flags, ops } = stubEffects({
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ ts: NOW.getTime() - 3 * 60 * 60_000 }) } },
+      messages: [...DUPLICATE_INBOUND, { data: { at: MSG_AT }, error: null }, { data: [], error: null }],
+      outbound_messages: [
+        { data: { id: 'om-7', state: 'failed' }, error: null },                      // findReplyFor
+        { data: { id: 'om-7', body: STORED, attempts: 1 }, error: null },           // claim the stale row
+        { data: null, error: null },                                                 // refuse it
+        { data: [], error: null },                                                   // a reply sent after it: none
+        { data: [], error: null },                                                   // said today: no
+        { data: { id: 'om-line', body: LATE_LINE, attempts: 0, state: 'draft' }, error: null },
+      ],
+    },
   });
   await run(fx);
-  assert.equal(delivered.length, 0);
+  assert.ok(ops.some((o) => o.op === 'update' && o.patch?.['refused_reason'] === 'reply_too_late'), 'the stale stored reply is refused');
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0]?.body, LATE_LINE, 'never the stale stored reply');
+  const draft = ops.find((o) => o.table === 'outbound_messages' && (o.op === 'insert' || o.op === 'upsert'));
+  assert.equal(draft?.patch?.['dedup_key'], `${replyDedupKey(MID)}:handoff`, 'its own key: the reply\'s key is the refused row');
   assert.ok(flags.some((f) => f.code === 'reply_too_late'));
 });
 

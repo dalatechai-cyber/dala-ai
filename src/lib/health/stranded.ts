@@ -53,6 +53,10 @@
  * the original collapses to one message, and past QStash's dedup window the worker still
  * refuses to answer an event that already has a reply.
  *
+ * **Older than the limit, on a live channel, inside Meta's 24 hours → re-publish** (founder,
+ * 2026-10-03): the worker sends the tenant's hand-off line rather than leave the customer
+ * with silence. Everything below applies to the rest.
+ *
  * **Older than the limit → expire.** `tenants.max_reply_age_minutes` is the same knob
  * `worker/freshness.ts` refuses on: past it no reply would be sent anyway, so re-publishing
  * would only spend a model call to produce a `reply_too_late`. The row is marked
@@ -78,6 +82,7 @@ import { quietRoute, raiseAlert } from '../alerts/alert.ts';
 import { markEventState, QUEUED_STATES, UNQUEUED_STATES } from '../webhook/events.ts';
 import type { EnqueueResult } from '../queue/qstash.ts';
 import { DEFAULT_REPLY_AGE_LIMIT_MINUTES, replyAgeLimitMinutes } from '../worker/freshness.ts';
+import { CATCH_UP_WINDOW_MINUTES } from '../channel/catchup.ts';
 import { DRAFT_LOST_KIND, draftLostDedupKey, routeUnansweredAlert, turnsOf } from './answered.ts';
 
 /**
@@ -322,7 +327,15 @@ export async function sweepStrandedEvents(db: SupabaseClient, input: SweepInput)
     // ── Still answerable: re-publish ────────────────────────────────────────────────
     // A routed event without a channel cannot be turned back into a job, so it waits for
     // the expiry arm rather than being dropped here.
-    if (ageMinutes < limitMinutes && channelId !== null) {
+    //
+    // Past the reply-age limit but inside Meta's 24-hour window, on a LIVE channel, it is
+    // re-published too (founder, 2026-10-03: too late is never a reason for silence): the
+    // worker stores it, finds it too late for an answer and sends the tenant's reviewed
+    // hand-off line instead — no model, nothing spent, never twice a day, and not at all if
+    // the customer wrote again or anyone already replied (`worker/reception.ts`).
+    const live = channelId !== null && channels.get(channelId)?.mode === 'live';
+    const owedLine = live && ageMinutes < CATCH_UP_WINDOW_MINUTES;
+    if ((ageMinutes < limitMinutes || owedLine) && channelId !== null) {
       const again = await input.enqueue({ provider, dedupKey, eventId, tenantId, channelId });
       // Three outcomes, not two. A deduplicated publish returns `ok` and queues NOTHING —
       // QStash still holds the original message under the same id — so reading it as a

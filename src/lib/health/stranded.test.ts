@@ -113,6 +113,36 @@ test('a refused re-publish leaves the row untouched, so the next run tries again
   assert.match(String(writes.find((w) => w.table === 'alerts')?.patch['body']), /REFUSED: qstash 500/);
 });
 
+test('DONE-TEST (founder, 2026-10-03): past the limit but inside 24h on a LIVE channel it is RE-PUBLISHED, so the worker sends the hand-off line', async () => {
+  const q = queue();
+  const { db } = stub({
+    webhook_events: { data: [{ ...EVENT, received_at: minutesAgo(90) }], error: null },
+    tenants: TENANT_30,
+    tenant_channels: { data: [{ id: EVENT.channel_id, delivery_mode: 'live', meta_app_id: null }], error: null },
+    alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.ok(r.ok);
+  assert.equal(r.swept[0]?.action, 'requeued');
+  assert.equal(q.jobs.length, 1, 'queued: the worker finds it too late and serves the reviewed line, no model');
+});
+
+test('past 24h, or on a channel that is not live, a late event is still EXPIRED', async () => {
+  for (const [age, mode] of [[25 * 60, 'live'], [90, 'shadow'], [90, 'off']] as const) {
+    const q = queue();
+    const { db } = stub({
+      webhook_events: [{ data: [{ ...EVENT, received_at: minutesAgo(age) }], error: null }, { data: null, error: null }],
+      tenants: TENANT_30,
+      tenant_channels: { data: [{ id: EVENT.channel_id, delivery_mode: mode, meta_app_id: null }], error: null },
+      alerts: ALERT_OK,
+    });
+    const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+    assert.ok(r.ok);
+    assert.equal(r.swept[0]?.action, 'expired', `${age} min, ${mode}`);
+    assert.deepEqual(q.jobs, []);
+  }
+});
+
 test('DONE-TEST: past the reply-age limit it is EXPIRED, never re-published', async () => {
   // Re-publishing here would spend a model call to produce a `reply_too_late`.
   const q = queue();

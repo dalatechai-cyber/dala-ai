@@ -11844,3 +11844,39 @@ one run per change (D-151) and nothing more.
 
 **Live at the end of 2026-10-01:** DalaTech seq 14, Tara Яармаг seq 19; `tara-yarmag-move-2026-11.sql`
 prepared and not applied (docs/STATUS.md).
+
+## D-175 — Too late is never a reason for silence (2026-10-03, founder)
+
+**The problem.** A reply older than the tenant's `max_reply_age_minutes` is dropped
+(`worker/freshness.ts`, `reply_too_late`). Until now the customer then got nothing at all. In
+Tara Яармаг's 30 days to 2026-10-02, two booking asks were dropped this way (the `canned_stale`
+outage of 21–24 Sep retried them past 15 minutes; D-163 has since stopped that cause). Any other
+delay that ends past the limit (a slow model, a QStash backlog, a worker outage) did the same.
+
+**Decided (founder, 2026-10-03).** Any reply dropped as too late, for any reason, sends the
+tenant's approved hand-off line instead, so no customer is left with silence.
+
+**Built (`worker/reception.ts`, `health/stranded.ts`).**
+- A message found too late is still stored and flagged `reply_too_late`; then, on a delivering
+  channel (`live`, or a listed tester), not to a like, and inside Meta's 24-hour window (past it
+  nothing may be sent), the reviewed `handoff` row's published bytes are sent through the same
+  `serveHandoff` as D-160 (cap) and D-163 (`canned_stale`): no model, nothing reserved or spent,
+  at most once per conversation per Ulaanbaatar day, a person told (`conversation.needs_person`),
+  flagged `too_late_handoff`.
+- Not sent when the customer is no longer waiting on that message: a newer message of theirs is
+  in the conversation (that one is answered, or gets the line itself), one of our replies was
+  sent after it, or a person replied since. An unreadable check sends (a repeat is better than
+  silence; the once-a-day rule bounds it).
+- A stored reply whose send failed and whose redelivery came too late is refused for good
+  (`reply_too_late`) and the line goes under its own key (`<reply key>:handoff`), never the stale
+  reply.
+- The hourly stranded sweep re-publishes an event past the limit when its channel is `live` and
+  it is under 24 hours old, instead of expiring it, so the worker can send the line. Older, or on
+  a channel that is not live: expired and paged, as before.
+- Shadow channels are unchanged: nothing is sent, the Page answers.
+
+**Verified.** Unit tests (`reception.test.ts`, `stranded.test.ts`): the line on an hour-old
+message with no model, no reservation and no bubble; none on shadow, past 24 h, after a newer
+message, after a person's reply, or a second time the same day; a stale stored reply refused and
+replaced by the line under its own key; the sweep re-publishing a live event inside 24 h and
+expiring the rest. `npm run check` green. Not verified live: needs the founder's go.
