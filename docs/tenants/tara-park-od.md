@@ -21,7 +21,7 @@ project waits for the steps at the end.
 | Children | Served: girls with a female hairdresser, boys with Tuchku; the hairdresser's level deposit |
 | Manicure, pedicure | Absent: no service, price or staff of hers offers them |
 | Reports and invoices | bolotuyagongor@gmail.com (billing record, `--billing-email`; not written by this round) |
-| Booking account | tarasalon.parkod@gmail.com (exists, founder 2026-10-04); one Gmail per hairdresser, each sharing her calendar with it («make changes to events»), as booking@matrixecosalon.org does for Яармаг. No calendar ids yet |
+| Booking account | tarasalon.parkod@gmail.com (exists, founder 2026-10-04); the seven hairdressers' calendars live inside it, shared with the website's service account («make changes to events»), Ulaanbaatar time; ids in the website's `PARKOD_CALENDAR_*` (2026-10-04) |
 | Reply style | At most one emoji (`reply_style {"max_emoji":1}`), polite «та», never recommends a level |
 | Staff takeover | As Яармаг: 30-minute cool-down, the reviewed `handover_reclaim` and `handover_notice` lines, no media alert |
 | The other branch | Her Дали names Яармаг (founder, 2026-10-04: «Салбарууд» symmetric): Яармаг's address, the shared 76001888 and Яармаг's Page, in KB «Салбарууд» and the fixed reply `yarmag_branch`; never 91005498 or Яармаг's map link. On Яармаг's November move both rows change with it (`tara-yarmag-move-2026-11.sql`) |
