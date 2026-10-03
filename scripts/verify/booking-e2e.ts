@@ -1294,6 +1294,9 @@ async function lateAndTaken(chat: Chat, hh: number, name: string, phone: string,
   return { hold: h, offer: pushedTo(chat, before)[0] };
 }
 const tap = (msg: Sent | undefined, title: string) => msg?.quickReplies.find((q) => q.title === title);
+// Day 6 fills up over sections 17 and 18 (how full depends on the hour the run starts): the cases
+// that need a time of their own use day 5, where Оюунаа is untouched.
+const day5b = tenantClock(new Date(Date.now() + 120 * 3600_000), TZ).date;
 
 // (1) Rebooked, then the new time is lost too before it is written: told and paged again.
 const rv1 = newChat();
@@ -1364,7 +1367,7 @@ check(rv5.lastBody === say(wording, 'booking_ask_service_group')
 
 // (6) Paid in the last seconds, the page opened just after: «paid», never «ended».
 const rv6 = newChat();
-await toQr(rv6, 11, 'Сүүлчийн', '99660006');
+await toQr(rv6, 10, 'Сүүлчийн', '99660006', 'Цаг авъя', day5b);
 const holdR6 = holdOf(rv6);
 qpayFake.pay(invoicesOf(holdR6)[0] as string);
 psql(`update booking_holds set expires_at = now() - interval '1 second' where id = '${holdR6}'`);
@@ -1374,8 +1377,6 @@ check(pageR6.html.includes(say(wording, 'booking_page_paid')) && holdState(holdR
 
 // (7) The offer could not be delivered: retried every minute until it goes out, and you are told
 // not to refund before its deadline, then told again when it went out.
-// Day 6 is full by now: these two use day 5 (Оюунаа's day 5 is untouched).
-const day5b = tenantClock(new Date(Date.now() + 120 * 3600_000), TZ).date;
 const rv7 = newChat();
 const lr7 = await lateAndTaken(rv7, 14, 'Хүрээгүй', '99660007', true, day5b);
 const undelivered = alerts.find((a) => a.kind === 'booking.paid_unbooked' && a.dedupKey.includes(lr7.hold) && a.dedupKey.endsWith(':undelivered'));
