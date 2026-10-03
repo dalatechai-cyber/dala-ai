@@ -351,8 +351,21 @@ word the rows use); only the founder adds one. `allow_phones` lists the brand's 
 (`tara-salon`: 76001888): every branch may hold one in its contact rows and say it in its rows.
 Every other phone stays one branch's own; only the founder adds one. `allow_addresses` lists
 another branch's address every branch may give (with its branch name in `allow_names`): since
-D-170 Яармаг's Дали names Парк Од, her address, the shared line and her Page, the one exception
-the founder made to "each Page gives only its own branch's details".
+D-170 Яармаг's Дали names Парк Од, her address, the shared line and her Page, and since
+2026-10-04 the other way round too («Салбарууд» symmetric, founder): Парк Од names Яармаг's
+address, 76001888 and Яармаг's Page, never 91005498 or Яармаг's map link. Яармаг's VIP Center
+address is listed ahead of its November move, so the move file (which updates both tenants)
+needs no config change on the day. `not_offered` lists, per branch, the price variants that
+branch does not offer at all (founder, 2026-10-04: Парк Од has no 1-р зэрэг hairdresser and
+never quotes that level): that branch carries no row for them and the drift check accepts the
+missing row, every price it does carry must still equal its siblings', and a row for a variant
+it says it does not offer is drift; an entry is a variant everywhere or {"service", "variant"}.
+`other_branch_in` names the only rows (by source label: «KB «Салбарууд»», «fixed reply
+park_od_branch» …) where the other branch's name and allowed address may appear; anywhere else
+they are a leak as if never allowed. `staff_aliases` lists, per branch, the other names its
+staff are called by (Tara: the Cyrillic names in each branch's KB «Үсчдийн нэр», since its
+rosters are Latin only and no `short_name` carries them); the gate searches the other branch's
+rows for them as for a short name.
 
 ### The branch gate (GATE)
 
@@ -385,7 +398,7 @@ branch in the same session (publish prints the siblings to publish). The first b
 publish refuses until the other branch's rows agree.
 
 **What the gate does not catch** (CONVENTION, read by a person): a partial address (a
-landmark without the full address row); a staff nickname that is in no `short_name`; a name
+landmark without the full address row); a staff nickname that is in no `short_name` and no `staff_aliases` entry (Tara's Cyrillic names are in `staff_aliases`, copied from each «Үсчдийн нэр»: change both together); a name
 of three letters or fewer; a name of five letters or fewer with a case ending outside the
 checker's list; another branch's Facebook, Instagram, website or e-mail contact; another
 branch's hours; a disabled fixed reply; and wording that describes the other branch without
@@ -411,10 +424,12 @@ own questionnaire gets its own numbers in every templated line and passes with n
 Onboard Парк Од from **its own** filled questionnaire, never by copying Яармаг's rows:
 
     node scripts/onboard/tenant.ts --form <Парк Од form> --slug tara-park-od \
+      --wording intake/tara-park-od.wording.json \
       --facebook-page-id <Парк Од Page id> --display-name "Tara Salon — Парк Од"
 
-Her form is filled (2026-10-03): `intake/tara-park-od.docx`, with what the form cannot carry in
-`scripts/provision/tara-park-od-after-onboarding.sql`; proven on a local replica against
+Her form is filled (2026-10-03, round 2 2026-10-04): `intake/tara-park-od.docx`, her own
+wording for templated sentences in `intake/tara-park-od.wording.json` (`--wording`, every run),
+with what the form cannot carry in `scripts/provision/tara-park-od-after-onboarding.sql`; proven on a local replica against
 Яармаг's rows with both gates clean. Steps and open questions: `docs/tenants/tara-park-od.md`.
 The table below predates it and is kept as the record of the 2026-09-29 proposal.
 

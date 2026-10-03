@@ -67,6 +67,8 @@ export type WordingLine = {
   alreadyApprovedBytes: boolean;
   /** The date the founder approved the TEMPLATE this line was filled from, if they have. */
   templateApproved: string | null;
+  /** The client's own wording (`--wording`), not a template's text. */
+  own?: boolean;
 };
 
 export type StaffRow = {
@@ -111,6 +113,13 @@ export type PlanOptions = {
   facebookPageId?: string;
   /** The Instagram account id, when the operator has it. */
   instagramId?: string;
+  /**
+   * The client's own wording for a templated sentence, by kind (`--wording <file>`): a line the
+   * founder already approved for this client replaces the template's text, and `null` means the
+   * client has no such line at all, so none is written. Only kinds the templates know; the
+   * caller refuses any other. Every line is still written UNREVIEWED and signed on the sheet.
+   */
+  ownWording?: Readonly<Record<string, string | null>>;
 };
 
 const tidy = (s: string): string => nfc(s).replace(/[ \t ]+/g, ' ').replace(/ *\n */g, '\n').trim();
@@ -421,6 +430,15 @@ export function planFromForm(a: FormAnswers, o: PlanOptions): OnboardPlan {
   for (const kind of kinds) {
     const tpl = o.templates.sentences[kind]!;
     const str = (k: string) => (typeof tpl[k] === 'string' ? tpl[k] as string : null);
+    const own = o.ownWording === undefined || !Object.hasOwn(o.ownWording, kind) ? undefined : o.ownWording[kind];
+    if (own === null) continue;
+    if (own !== undefined) {
+      const body = tidy(own);
+      if (body === '') continue;
+      sentences[kind] = body;
+      wording.push({ kind, body, template: `${kind}.own`, derivedFrom: 'the client\'s own approved wording (--wording)', alreadyApprovedBytes: false, templateApproved: null, own: true });
+      continue;
+    }
     const key = kind === 'booking_line'
       ? (bookingUrl !== null ? 'link' : 'phone')
       : (str(vertical.value) !== null ? vertical.value : 'default');

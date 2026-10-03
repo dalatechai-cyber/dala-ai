@@ -15,14 +15,16 @@ second copy nothing re-derives. Change these in the same change as the fact.
 | Booking domain `matrixecosalon.org` | `tenant_booking.booking_url`; `canned_responses.booking_line`; `deterministic_replies.booking` (2026-09-30) |
 | Address and map link | `contact_points` (`address`, `maps_url`); `deterministic_replies.address` (2026-09-30); `reply_cases` «Хаяг хаана вэ». Moving in November 2026: `scripts/provision/tara-yarmag-move-2026-11.sql` |
 | Парк Од's address, Page and the shared line (D-170) | KB «Салбарууд»; `deterministic_replies.park_od_branch`; `config/branch-groups.json` `allow_addresses` (must equal Парк Од's address row) |
+| Яармаг's own address as Парк Од gives it (symmetric, 2026-10-04) | Парк Од's KB «Салбарууд» and `deterministic_replies.yarmag_branch`; `allow_addresses` (lists the current address and the VIP Center one). The move file changes both tenants |
 | Phone numbers 76001888, 91005498 (91005498 replaced 80905498 on 2026-10-01, D-167) | `contact_points` (`phone`); five `canned_responses` (`handoff`, `refusal_no_promotion`, `refusal_price_unlisted`, `refusal_staff_schedule`, `refusal_suitability`); `deterministic_replies.salon_phone` (Яармаг only); `deterministic_replies.holiday_hours_note` (76001888); `reply_cases` «Утас хэд вэ». 76001888 is the shared main line of both Tara branches (`config/branch-groups.json` `allow_phones`) |
-| Hairdressers' names and levels (2026-10-03: short Latin names) | `staff_members` (`name`, `short_name`, `tier`, `active`); KB «Салбарууд» (Oyunaa) and «Үсчдийн нэр» (the old Cyrillic names); `deposit_rules` labels («SPECIAL үсчин», «Мастер үсчин», «1-р зэргийн үсчин») correspond to the tiers (not byte-equal: the tier reads «1-р зэрэг үсчин»); the website's `config/stylists.js` (matrix_website) |
+| Hairdressers' names and levels (2026-10-03: short Latin names; 2026-10-04: Latin everywhere) | `staff_members` (`name`, `tier`, `active`; `short_name` empty, so the roster is Latin only); KB «Салбарууд» (Oyunaa) and «Үсчдийн нэр» (the Cyrillic names customers type); `deposit_rules` labels («SPECIAL үсчин», «Мастер үсчин», «1-р зэргийн үсчин») equal the tiers; the website's `config/stylists.js` (matrix_website) |
 | Prices (identical in both branches, D-157) | `services` and `service_variants`; `faqs` «Үс их хуурай…» (two treatment prices); `deterministic_replies.dye_prices` and `perm_types` name services in `quote_services`, and the two «usnii himi» `reply_cases` expect perm_types' rows |
 
 ## Rebrand checklist
 
-- [ ] **The day the new Tara domain goes live** (founder, 2026-09-30): replace
-  `matrixecosalon.org` in the three places in the first row above, in one SQL transaction
+- [ ] **The day the new Tara domain goes live** (tarasalon.org, bought at Namecheap; founder
+  2026-10-04): replace `matrixecosalon.org` in the three places in the first row above, and in
+  every Парк Од row that carries it (docs/tenants/tara-park-od.md «Domain»), in one SQL transaction
   (`set local dala.canned_edit = 'republish'` for the `booking_line` row, D-163), then publish
   Tara at once (`scripts/publish/tenant.ts --slug matrix-eco-salon`). Check
   `config/external-fact-copies.json` for copies outside this repo.
@@ -65,38 +67,65 @@ Read 2026-10-03 (read-only): the price list, branches and stylist-level files ab
 already applied on the project (the level document is titled «SPECIAL, Мастер ба 1-р зэргийн
 үсчин», the fixed reply `park_od_branch` exists).
 
-## The hairdressers' new names (2026-10-03, NOT applied)
+## The hairdressers' new names (2026-10-03; round 2 2026-10-04; NOT applied)
 
 The founder (2026-10-03): hairdressers are shown everywhere by short Latin names, exactly as
-written, also inside Mongolian sentences. `scripts/provision/tara-yarmag-stylist-names-2026-10-03.sql`
-(with its `-revert.sql`) waits for approval of `prompt/drafts/tara_stylist_names.mn.txt`:
+written, also inside Mongolian sentences. Approved 2026-10-04 with two changes: Latin in the
+roster the model reads too (Cyrillic only in «Үсчдийн нэр»), and «1-р зэргийн үсчин», never
+«1-р зэрэг үсчин». `scripts/provision/tara-yarmag-stylist-names-2026-10-03.sql` (with its
+`-revert.sql`):
 
-| Now (live rows, read 2026-10-03) | After | Level |
+| Now (live rows, read 2026-10-03 and 2026-10-04) | After | Level |
 |---|---|---|
-| Оюунсүрэн (Оюунаа), Мастер үсчин | **Oyunaa** (Оюунаа) | SPECIAL үсчин (founder: she is SPECIAL; the owner) |
-| Бадамцэцэг (Бадмаа) | **Badamaa** (Бадмаа) | Мастер үсчин, kept |
-| Уянга | **Uyanga** (Уянга) | 1-р зэрэг үсчин, kept |
-| Батзаяа | **Zaya** (Заяа) | 1-р зэрэг үсчин, kept |
-| Ананд, inactive | **Anand** (Ананд), switched on, «Эрэгтэй үсчид», the only man | Мастер үсчин, kept |
-| (no row) | **Chimgee** (Чимгээ; was Уранчимэг), added | 1-р зэрэг үсчин (the website's level; dala-ai had none) |
-| Отгонжаргал, active | switched off: not in the founder's list (flagged) | — |
+| Оюунсүрэн (Оюунаа), Мастер үсчин | **Oyunaa** | SPECIAL үсчин (founder: she is SPECIAL; the owner) |
+| Бадамцэцэг (Бадмаа) | **Badamaa** | Мастер үсчин, kept |
+| Уянга | **Uyanga** | 1-р зэргийн үсчин (the level kept; the wording fixed) |
+| Батзаяа | **Zaya** | 1-р зэргийн үсчин |
+| Ананд, inactive | **Anand**, switched on, «Эрэгтэй үсчид», the only man | Мастер үсчин, kept |
+| (no row) | **Chimgee** (was Уранчимэг), added | 1-р зэргийн үсчин (the website's level; dala-ai had none) |
+| Отгонжаргал, active | **Otgonjargal**, stays on and bookable (founder 2026-10-04: she still works at Яармаг) | 1-р зэргийн үсчин (deposit 10,000₮) |
 | Г. Мөнхзаяа, «Маникюр баг», active | switched off: manicure is off at Tara | — |
 
-The Cyrillic in brackets is each person's `short_name`, the form customers type (0019; the
-roster renders «Oyunaa (Оюунаа)»). The full old names (Оюунсүрэн, Бадамцэцэг, Батзаяа,
-Уранчимэг) are in a new knowledge document «Үсчдийн нэр», and «Салбарууд»'s line «Оюунаа Яармаг
-салбарт ажилладаг.» becomes «Oyunaa Яармаг салбарт ажилладаг.». No canned line, fixed reply,
-FAQ, reply case, comment rule, topic or service alias names a hairdresser (read 2026-10-03), so
-nothing else changes and the canned-edit guard is not engaged. Apply, then publish Яармаг at
-once (`node scripts/publish/tenant.ts --slug matrix-eco-salon`, dry run, then `--publish`).
-Proven on a local replica of her rows: it applies, refuses a second run, reverts to the bytes
-read, re-applies; the branch and facts gates are clean.
+Otgonjargal in our data (read-only, 2026-10-04): «Эмэгтэй үсчид», «1-р зэрэг үсчин», active,
+selectable; no manicure group. So she is a hair stylist and stays bookable with her level. The
+website agrees (`config/stylists.js`: 1-р зэрэг, female, own calendar).
 
-Levels: dala-ai's rows agree with the website's for everyone kept (Бадамцэцэг Мастер; Батзаяа,
-Уянга 1-р зэрэг; Ананд Мастер); Оюунсүрэн moves from Мастер to SPECIAL on the founder's word.
+Every `short_name` is cleared, so the roster reads «Oyunaa · Эмэгтэй үсчид · SPECIAL үсчин». The
+Cyrillic names (Оюунсүрэн, Оюунаа, Бадамцэцэг, Бадмаа, Уянга, Батзаяа, Заяа, Уранчимэг, Чимгээ,
+Ананд, Отгонжаргал and the guess «Отгоо») are in a new knowledge document «Үсчдийн нэр», and
+«Салбарууд»'s line «Оюунаа Яармаг салбарт ажилладаг.» becomes «Oyunaa Яармаг салбарт ажилладаг.».
+The branch gate keeps searching Парк Од's rows for these Cyrillic names through
+`config/branch-groups.json` `staff_aliases` (the same list as «Үсчдийн нэр»: change both
+together); a pasted «Оюунсүрэн, Оюунаа гэвэл Oyunaa» in her rows is a LEAK (control, 2026-10-04). No canned line, fixed reply, FAQ, reply case, comment
+rule, topic or service alias names a hairdresser, so nothing else changes and the canned-edit
+guard is not engaged. Apply, then publish Яармаг at once (`node scripts/publish/tenant.ts --slug
+matrix-eco-salon`, dry run, then `--publish`). Proven on a local replica of her rows (2026-10-04):
+it applies, refuses a second run, reverts to the bytes read, re-applies; the compiled roster is
+exactly the seven Latin lines; the branch and facts gates are clean with Парк Од beside her.
+
 Found on the way, not changed: the canned `refusal_service_unavailable` («Манай салон одоогоор
 хумсны үйлчилгээ үзүүлэхгүй байна.») and the topic `nail_services` still answer nail questions
 by saying the salon does not offer them; whether that line stays is the founder's call.
+
+## Quality answers of 2026-10-04 (PR #283 for Яармаг, PR #284 for Парк Од, the same bytes)
+
+The founder approved three answers, the hand-off sentence and a price-page pointer for both
+branches. Яармаг's rows are #283's `tara-yarmag-answers-2026-10-04.sql` and
+`tara-yarmag-price-page-2026-10-04.sql`; Парк Од's are the same bytes from her own files (her form's
+FAQs, her `--wording` handoff, `tara-park-od-after-onboarding.sql`). The facts gate does not
+compare FAQs or fixed replies across branches, so "the same bytes" is by convention:
+
+- `handoff` «Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно уу.»
+- fixed replies + FAQs: `deposit_deducted` «Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж
+  тооцогдоно.», `loan_apps` «Одоогоор зээлийн аппаар төлбөр авдаггүй.», `dye_brand` (the hand-off
+  sentence); FAQ questions «Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдах уу?», «Зээлийн аппаар
+  төлбөр төлж болох уу?», «Ямар брэндийн будаг хэрэглэдэг вэ?»; the same seven reply cases.
+- fixed replies `price_page_color` and `price_page_treatment_perm`, placement `append`, landing
+  disabled, body «Үнийн мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/services.html
+  хуудаснаас үзнэ үү.», with the link declared by a `price_page` contact (0083) in the go-live
+  step. Switch on only when that
+  page shows the new price list with both prices (today matrixecosalon.org is still the old
+  Matrix site, and the new site's list has no «өнгө гаргалт» and no women's «Эмчилгээний хими»).
 
 ## History
 

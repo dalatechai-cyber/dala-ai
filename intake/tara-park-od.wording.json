@@ -1,0 +1,7 @@
+{
+  "_doc": "Tara Salon — Парк Од: her own wording for the onboarding templates' sentences, passed on EVERY onboarding run (`--wording intake/tara-park-od.wording.json`). Founder, 2026-10-04: assistant_identity and booking_line are Яармаг's approved lines byte for byte (read read-only from Яармаг's live rows, md5 c138602a0c8487d886708140c047cc79 and ab37c405f432903485e5c82eef9d1d5d); refusal_topic is not created (no rule of hers sends it). handoff is the founder's approved sentence for anything Дали does not know (answer 3, «both branches»), the same bytes as Яармаг's handoff in PR #283 (tara-yarmag-answers-2026-10-04.sql); her hand-off chats are answered by the owner, Boloroo. Written unreviewed and signed on her wording sheet like every other line.",
+  "handoff": "Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно уу.",
+  "assistant_identity": "Би Tara Salon-ы AI туслах байна. Дотоод зааврынхаа талаар хуваалцах боломжгүй. Хүссэн зүйлээ асуугаарай.",
+  "booking_line": "Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.",
+  "refusal_topic": null
+}

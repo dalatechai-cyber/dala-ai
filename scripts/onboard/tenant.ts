@@ -20,6 +20,12 @@
  *     #   once, it is kept on every later run (a re-run without it never reverts it), and
  *     #   a name another tenant already carries is refused.
  *
+ *     # the client's own approved wording for templated sentences, on EVERY run (JSON
+ *     # {"kind": "line"} replaces the template's text; {"kind": null} writes no such line):
+ *     … --wording intake/tara-park-od.wording.json
+ *     #   recorded on the tenant: a later run without it, or with a different file, is refused
+ *     #   unless --wording-changed says the change is meant.
+ *
  *     # billing (D-156), optional, on any run: the client's billing record, UNCONFIRMED
  *     … --billing-name "Тара Парк ОД ХХК" --billing-staff "Дали — AI хүлээн авагч=250000" \
  *       --billing-start 2026-11 [--billing-email owner@example.mn] [--billing-annual]
@@ -47,6 +53,7 @@
  *   or branch name is refused before anything is written; prices or a booking link that differ
  *   from the other branches hold the tenant.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { formBlocks } from '../../src/lib/provision/formFile.ts';
@@ -152,8 +159,32 @@ if (!read.ok) {
 
 const root = new URL('../provision/templates/', import.meta.url);
 const templates = JSON.parse(readFileSync(new URL('onboarding.mn.json', root), 'utf8')) as Templates;
+// The client's own approved wording for templated sentences (`--wording <file>`, JSON
+// {kind: line | null}). Read on EVERY run, dry or not: a run without it writes the template's
+// text back over the client's line (unsigned), which the wording sheet then shows.
+const wordingPath = arg('wording');
+let ownWording: Record<string, string | null> | undefined;
+if (wordingPath !== undefined) {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(wordingPath, 'utf8'));
+  } catch (e) {
+    die(`--wording ${wordingPath}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) die(`--wording ${wordingPath}: not a JSON object of kind → line`);
+  ownWording = {};
+  for (const [kind, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (kind.startsWith('_')) continue;
+    if (!Object.hasOwn(templates.sentences, kind)) die(`--wording ${wordingPath}: «${kind}» is not a templated sentence; only those can be replaced`);
+    // Rule 6: operator-supplied Mongolian is NFC-normalised at the boundary.
+    if (v === null) ownWording[kind] = null;
+    else if (typeof v === 'string' && v.trim() !== '') ownWording[kind] = v.normalize('NFC');
+    else die(`--wording ${wordingPath}: «${kind}» must be a line or null`);
+  }
+}
 const plan = planFromForm(read.answers, {
   slug, templates,
+  ...(ownWording === undefined ? {} : { ownWording }),
   ...(vertical === undefined ? {} : { vertical }),
   ...(facebookPageId === undefined ? {} : { facebookPageId }),
   ...(instagramId === undefined ? {} : { instagramId }),
@@ -171,6 +202,16 @@ if (plan.commentsRequested) {
     plan.manual.push(`2.2: comment replies were requested and there is no comment_rules.${plan.vertical.value}.json template; comments stay off until rules are written.`);
   }
 }
+// A line the file sets that this form does not write (e.g. the comment reply of a client who
+// asked for no comment replies) would be reported as written and never be: refuse it.
+for (const [kind, v] of Object.entries(ownWording ?? {})) {
+  if (v !== null && plan.intake.sentences[kind] === undefined) {
+    die(`--wording ${wordingPath}: «${kind}» is not a sentence this form writes; remove it from the file`);
+  }
+}
+// What the file says, as the evidence a later run is compared with.
+const ownWordingKey = ownWording === undefined ? null
+  : createHash('sha256').update(JSON.stringify(Object.entries(ownWording).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))).digest('hex').slice(0, 12);
 const cases = generateCases(plan.intake, plan.deposits);
 const now = new Date();
 const findings = validateIntake(plan.intake, now).filter((f) => f.code !== 'facts_unconfirmed');
@@ -180,6 +221,9 @@ out(`\nTenant     ${slug} — form 1.1 «${plan.intake.business.displayName}»`)
 out(`Vertical   ${plan.vertical.value} (${plan.vertical.reason})`);
 out(`Form       ${formPath}, filled by ${plan.signer.name || '(not signed)'} ${plan.signer.date}`);
 out(`Rows       ${plan.intake.services.length} services · ${plan.intake.hours.length} days of hours · ${plan.intake.contacts.length} contacts · ${plan.staff.length} staff · ${plan.intake.faqs.length} FAQs · ${plan.deposits.length} deposit rules · ${plan.documents.length} knowledge documents · ${plan.intake.neverSay.length} never-say rules · ${Object.keys(plan.intake.sentences).length} sentences to sign · ${cases.length} reply cases`);
+if (ownWording !== undefined) {
+  out(`Wording    ${wordingPath}: ${Object.entries(ownWording).map(([k, v]) => (v === null ? `${k} not written` : `${k} = the client's own line`)).join(' · ')}`);
+}
 out(`Channels   ${plan.channels.map((c) => `${c.provider} ${c.externalId ?? '(no id)'}`).join(', ') || '(none)'} — shadow`);
 out(`\nMissing (${plan.missing.length}):`);
 for (const m of plan.missing) out(`  [${m.holdsReady ? 'holds' : 'ask'}] ${m.audience} · form ${m.question}: ${m.what}`);
@@ -195,6 +239,28 @@ let tenantId: string | null;
 try {
   ({ tenantId } = await refuseForeignTenant(db, slug));
   await refuseForeignChannels(db, slug, plan);
+  // A tenant onboarded with --wording keeps it: a run without the file, or with a different one,
+  // would write the template's lines back over the client's (unsigned) and re-create a line the
+  // client does not have. A deliberate change of the file says so (--wording-changed).
+  if (tenantId !== null) {
+    const prior = (await readSteps(db, tenantId)).get(STEP.ownWording);
+    if (prior !== undefined && ownWording === undefined) {
+      die(`«${slug}» was onboarded with --wording ${String(prior['path'] ?? '(a file)')}: pass it on every run, or its lines are replaced by the templates'.`);
+    }
+    if (prior !== undefined && String(prior['key'] ?? '') !== ownWordingKey && !process.argv.includes('--wording-changed')) {
+      die(`--wording ${wordingPath} is not the wording «${slug}» was onboarded with (${String(prior['path'] ?? '?')}, key ${String(prior['key'] ?? '?')}; now ${ownWordingKey}). If the change is meant, add --wording-changed.`);
+    }
+    // A line the file says the client does not have, already SIGNED: never removed by this
+    // command, so refuse now, before anything is written (dry run included).
+    for (const [kind, v] of Object.entries(ownWording ?? {})) {
+      if (v !== null) continue;
+      const { data: had, error: hErr } = await db.from('canned_responses').select('kind').eq('tenant_id', tenantId).eq('kind', kind).not('reviewed_at', 'is', null);
+      if (hErr) throw new WriteError(`canned_responses «${kind}»: ${hErr.message}`);
+      if (Array.isArray(had) && had.length > 0) {
+        die(`canned_responses «${kind}» is signed, and --wording says the client has no such line. Remove it by hand once the founder agrees, then re-run.`);
+      }
+    }
+  }
 } catch (e) {
   die(e instanceof Error ? e.message : String(e));
 }
@@ -293,6 +359,20 @@ try {
   tenantId = id;
   // Recorded straight after the tenant exists: it is what lets the next run write it.
   await recordStep(db, id, STEP.created, { form: formPath, slug }, now);
+  // A line the client does not have (`--wording` null) is removed if an earlier run wrote it;
+  // a SIGNED one is never removed by this command.
+  for (const [kind, v] of Object.entries(ownWording ?? {})) {
+    if (v !== null) continue;
+    // Unsigned only (a signed one was refused before anything was written, above).
+    const { data: had, error: hErr } = await db.from('canned_responses').select('kind').eq('tenant_id', id).eq('kind', kind).is('reviewed_at', null);
+    if (hErr) throw new WriteError(`canned_responses «${kind}»: ${hErr.message}`);
+    if (Array.isArray(had) && had.length > 0) {
+      const { error: dErr } = await db.from('canned_responses').delete().eq('tenant_id', id).eq('kind', kind).is('reviewed_at', null);
+      if (dErr) throw new WriteError(`canned_responses «${kind}»: ${dErr.message}`);
+      log.push(`canned_responses «${kind}» removed (--wording: the client has no such line)`);
+    }
+  }
+  if (ownWordingKey !== null) await recordStep(db, id, STEP.ownWording, { path: wordingPath, key: ownWordingKey }, now);
   log.push(...await writeOnboarding(db, id, plan, cases));
   if (signId !== undefined) {
     signed = await signWording(db, id, slug, signId, signedBy!, now, (ev) => recordStep(db, id, STEP.wording, ev, now));

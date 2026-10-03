@@ -33,6 +33,8 @@ export const STEP = {
   created: 'onboard_command',
   wording: 'wording_signed',
   facts: 'facts_confirmed',
+  /** The `--wording` file this tenant was onboarded with: every later run must pass it again. */
+  ownWording: 'own_wording',
 } as const;
 
 /**

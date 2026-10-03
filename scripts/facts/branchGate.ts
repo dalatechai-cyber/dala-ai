@@ -14,13 +14,21 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { branchLabel, foreignDetails, renderBranchFindings, sharedDrift, type BranchFinding, type BranchSide } from '../../src/lib/facts/branches.ts';
+import { branchLabel, foreignDetails, renderBranchFindings, sharedDrift, type BranchFinding, type BranchSide, type NotOffered } from '../../src/lib/facts/branches.ts';
 import { loadBranchSide } from '../../src/lib/facts/branchRows.ts';
 import type { OnboardPlan } from '../../src/lib/provision/plan.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
-export type BranchGroup = { name: string; tenants: string[]; allowNames: string[]; allowPhones?: string[]; allowAddresses?: string[] };
+export type BranchGroup = {
+  name: string; tenants: string[]; allowNames: string[]; allowPhones?: string[]; allowAddresses?: string[];
+  /** Per slug: price variants that branch does not offer (no row), e.g. a level it has no staff for. */
+  notOffered?: NotOffered;
+  /** Where the other branch's name and allowed address may appear (text sources); null = anywhere. */
+  otherBranchIn?: string[] | null;
+  /** Per slug: other names that branch's staff are called by (the KB «Үсчдийн нэр»), searched like short names. */
+  staffAliases?: Record<string, string[]>;
+};
 
 /** Every group in the config. Throws on a malformed file or a slug in two groups: never a guess. */
 export function branchGroups(text = readFileSync(join(ROOT, 'config/branch-groups.json'), 'utf8')): BranchGroup[] {
@@ -48,6 +56,42 @@ export function branchGroups(text = readFileSync(join(ROOT, 'config/branch-group
     if (!Array.isArray(addresses) || !addresses.every((s) => typeof s === 'string' && s.trim() !== '')) {
       throw new Error(`config/branch-groups.json: group ${name}: "allow_addresses" must be a list of addresses`);
     }
+    // Per branch, the price variants it does not offer: that branch carries no row for them and
+    // the drift check does not ask it to. An entry is a variant name (every service) or
+    // {"service", "variant"} (that service only). Every slug must be one of this group's tenants,
+    // and an empty variant would be every unvariated price, so both refuse.
+    const perSlug = (key: string, item: (v: unknown) => boolean, what: string): Record<string, unknown[]> => {
+      const raw = g[key] ?? {};
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new Error(`config/branch-groups.json: group ${name}: "${key}" must map a slug to a list of ${what}`);
+      }
+      for (const [slug, list] of Object.entries(raw as Record<string, unknown>)) {
+        if (!(tenants as string[]).includes(slug)) {
+          throw new Error(`config/branch-groups.json: group ${name}: "${key}" names ${slug}, which is not one of its tenants`);
+        }
+        if (!Array.isArray(list) || list.length === 0 || !list.every(item)) {
+          throw new Error(`config/branch-groups.json: group ${name}: "${key}" for ${slug} must be a list of ${what}`);
+        }
+      }
+      return raw as Record<string, unknown[]>;
+    };
+    const text = (v: unknown): v is string => typeof v === 'string' && v.trim() !== '';
+    const omitRaw = perSlug('not_offered', (v) => text(v) || (v !== null && typeof v === 'object' && !Array.isArray(v)
+      && text((v as Record<string, unknown>)['service']) && text((v as Record<string, unknown>)['variant'])
+      && Object.keys(v as object).every((k) => k === 'service' || k === 'variant')), 'variants (a name, or {"service", "variant"})');
+    const notOffered: Record<string, { service: string | null; variant: string }[]> = {};
+    for (const [slug, list] of Object.entries(omitRaw)) {
+      notOffered[slug] = list.map((v) => (typeof v === 'string'
+        ? { service: null, variant: v.normalize('NFC').trim() }
+        : { service: String((v as Record<string, unknown>)['service']).normalize('NFC').trim(), variant: String((v as Record<string, unknown>)['variant']).normalize('NFC').trim() }));
+    }
+    const aliasRaw = perSlug('staff_aliases', text, 'names');
+    const staffAliases: Record<string, string[]> = {};
+    for (const [slug, list] of Object.entries(aliasRaw)) staffAliases[slug] = (list as string[]).map((n) => n.normalize('NFC').trim());
+    const inRaw = g['other_branch_in'];
+    if (inRaw !== undefined && (!Array.isArray(inRaw) || inRaw.length === 0 || !inRaw.every(text))) {
+      throw new Error(`config/branch-groups.json: group ${name}: "other_branch_in" must be a list of row sources`);
+    }
     for (const s of tenants as string[]) {
       const other = seen.get(s);
       if (other !== undefined) throw new Error(`config/branch-groups.json: ${s} is in both ${other} and ${name}`);
@@ -57,6 +101,9 @@ export function branchGroups(text = readFileSync(join(ROOT, 'config/branch-group
       name, tenants: [...new Set(tenants as string[])], allowNames: (allow as string[]).map((n) => n.normalize('NFC')),
       allowPhones: phones as string[],
       allowAddresses: (addresses as string[]).map((a) => a.normalize('NFC')),
+      notOffered,
+      otherBranchIn: inRaw === undefined ? null : (inRaw as string[]).map((x) => x.normalize('NFC')),
+      staffAliases,
     });
   }
   return groups;
@@ -150,8 +197,26 @@ export async function branchGate(
     const sib = await loadBranchSide(db, { tenantId: String((data as Record<string, unknown>)['id']), slug: other });
     if (!sib.ok) { unchecked.push(`${slug} branches: ${other}: ${sib.detail}`); continue; }
     if (own === null) continue;
-    findings.push(...foreignDetails(own, sib.side, group.allowNames, group.allowPhones ?? [], group.allowAddresses ?? []));
-    const drift = sharedDrift(own, sib.side);
+    // Each branch's staff aliases (the Cyrillic names in its «Үсчдийн нэр») count as its staff's
+    // names, so the other branch's rows are searched for them as for a short name.
+    const aliased = (side: BranchSide): BranchSide => ({
+      ...side, staff: [...side.staff, ...(group.staffAliases?.[side.slug] ?? []).map((n) => ({ name: n, shortName: null }))],
+    });
+    // The alias list is a copy of what that branch's own rows say. One its rows no longer carry
+    // (a spelling corrected in the document, not in the config) is named, never refused: a live
+    // branch's publish must not stop on a list the founder is still settling.
+    for (const side of [own, sib.side]) {
+      const said = side.texts.map((t) => t.text.normalize('NFC').toLowerCase()).join('\n');
+      for (const a of group.staffAliases?.[side.slug] ?? []) {
+        // Whole word, so «Болор» is not found inside «Болороо» (rule 6: no unanchored matching).
+        const word = new RegExp(`(?<![\\p{L}\\p{N}])${a.toLowerCase().replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}(?![\\p{L}\\p{N}])`, 'u');
+        if (!word.test(said)) {
+          notes.push(`branches: staff_aliases: «${a}» is in none of ${side.slug}'s rows; bring config/branch-groups.json in line with its «Үсчдийн нэр».`);
+        }
+      }
+    }
+    findings.push(...foreignDetails(aliased(own), aliased(sib.side), group.allowNames, group.allowPhones ?? [], group.allowAddresses ?? [], group.otherBranchIn ?? null));
+    const drift = sharedDrift(own, sib.side, group.notOffered ?? {});
     if ((data as Record<string, unknown>)['live_revision_id'] == null) {
       pending.push(...drift);
       if (drift.length > 0) notes.push(`branches: ${other} has never been published, so its ${drift.length} difference(s) do not refuse this run; its own first publish will.`);

@@ -1,30 +1,43 @@
--- NOT APPLIED. WAITS FOR THE FOUNDER'S APPROVAL OF THE WORDING (prompt/drafts/tara_stylist_names.mn.txt).
--- Tara Salon — Яармаг (slug matrix-eco-salon): the hairdressers' new short Latin names
--- (founder, 2026-10-03; round facts «Stylists are shown EVERYWHERE by these short names in
--- Latin letters»), with their levels, and the old names customers type kept on the same person.
+-- NOT APPLIED. Wording approved by the founder on 2026-10-04 (prompt/drafts/tara_stylist_names.mn.txt),
+-- except the line «Отгонжаргал, Отгоо гэвэл Otgonjargal.» («Отгоо» is the lead's guess: check it).
+-- Tara Salon — Яармаг (slug matrix-eco-salon): the hairdressers' short Latin names (founder,
+-- 2026-10-03), with their levels, and the old names customers type kept on the same person.
+-- Round 2 (founder, 2026-10-04): names are Latin EVERYWHERE, the roster the model reads
+-- included, so every short_name is cleared (the roster renders «Name (short)» from it) and the
+-- Cyrillic forms live only in the knowledge document «Үсчдийн нэр»; the level is written
+-- «1-р зэргийн үсчин», never «1-р зэрэг үсчин»; Отгонжаргал still works at Яармаг and stays
+-- bookable as «Otgonjargal», her full name in Latin.
 --
--- What it does, each against the rows read read-only on 2026-10-03 (the DO block refuses
--- anything else):
---   staff_members  Оюунсүрэн  -> Oyunaa  (short «Оюунаа», unchanged), Мастер -> SPECIAL үсчин (founder)
---                  Бадамцэцэг -> Badamaa (short «Бадмаа», unchanged), Мастер үсчин (kept)
---                  Уянга      -> Uyanga  (short «Уянга»), 1-р зэрэг үсчин (kept)
---                  Батзаяа    -> Zaya    (short «Заяа»),  1-р зэрэг үсчин (kept)
---                  Ананд      -> Anand   (short «Ананд»), Мастер үсчин (kept); switched ON
---                                (was inactive; founder 2026-10-03: in the Яармаг list, the only man)
---                  Chimgee    ADDED      (short «Чимгээ»; was Уранчимэг), 1-р зэрэг үсчин
---                                (the website's level; dala-ai had no row for her)
---                  Отгонжаргал switched OFF: not in the founder's confirmed list (flagged)
+-- What it does, each against the rows read read-only on 2026-10-03 and again on 2026-10-04
+-- (identical; the DO block refuses anything else):
+--   staff_members  Оюунсүрэн   -> Oyunaa,      Мастер -> SPECIAL үсчин (founder)
+--                  Бадамцэцэг  -> Badamaa,     Мастер үсчин (kept)
+--                  Уянга       -> Uyanga,      1-р зэрэг үсчин -> 1-р зэргийн үсчин (wording only)
+--                  Батзаяа     -> Zaya,        1-р зэрэг үсчин -> 1-р зэргийн үсчин (wording only)
+--                  Ананд       -> Anand,       Мастер үсчин (kept); switched ON (was inactive;
+--                                 founder 2026-10-03: in the Яармаг list, the only man)
+--                  Отгонжаргал -> Otgonjargal, 1-р зэрэг үсчин -> 1-р зэргийн үсчин; stays ON
+--                                 (founder 2026-10-04; our data: «Эмэгтэй үсчид», 1-р зэрэг,
+--                                 active and selectable, so a hair stylist, deposit 10,000₮)
+--                  Chimgee     ADDED (was Уранчимэг), 1-р зэргийн үсчин (the website's level;
+--                                 dala-ai had no row for her)
+--                  every short_name of these seven: NULL (Оюунаа, Бадмаа move to «Үсчдийн нэр»)
 --                  Г. Мөнхзаяа (Маникюр баг) switched OFF: manicure is off at Tara (founder rule)
 --   knowledge      «Салбарууд»: «Оюунаа Яармаг салбарт ажилладаг.» -> «Oyunaa Яармаг салбарт ажилладаг.»
---                  «Үсчдийн нэр» ADDED: the old Cyrillic names, so a customer who types
---                  «Оюунсүрэн» or «Уранчимэг» is matched to the same person (rows, not a
---                  transliterator: CLAUDE.md, D-067). The short names customers actually type
---                  («Оюунаа», «Бадмаа» …) are each person's short_name, which the roster
---                  renders «Oyunaa (Оюунаа)» (0019).
+--                  «Үсчдийн нэр» ADDED: the Cyrillic names customers type, each mapped to the
+--                  Latin name (rows, not a transliterator: CLAUDE.md, D-067).
+--
+-- The tier is only text the roster prints (`prompt/tenant.ts` staffLines); nothing matches on
+-- it, and the deposit rule labels already read «1-р зэргийн үсчин». Price variants keep their
+-- key «1-р зэрэг»: those are price rows shared with Парк Од, and prices do not change here.
 --
 -- No canned_responses row names a hairdresser (read 2026-10-03), so this file changes none
 -- and the canned-edit guard (0074/0075, D-163) is not engaged. Fixed replies, FAQs, reply
 -- cases, comment rules, out-of-scope topics and service aliases name no hairdresser either.
+--
+-- Clearing the short names would cost the branch gate its search for «Оюунаа» and the other
+-- Cyrillic names in Парк Од's rows; config/branch-groups.json `staff_aliases` gives them back
+-- (the same names as «Үсчдийн нэр» below: change both together).
 --
 -- Apply in one SQL editor session, then publish Яармаг AT ONCE (the roster and the knowledge
 -- reach customers only through the compiled prompt):
@@ -53,7 +66,7 @@ begin
        and s.customer_selectable = v.sel) <> 7 then
     raise exception 'staff_members are not the rows read on 2026-10-03 (or this file is applied)';
   end if;
-  if exists (select 1 from staff_members where tenant_id = t and name in ('Oyunaa', 'Badamaa', 'Uyanga', 'Zaya', 'Chimgee', 'Anand', 'Уранчимэг')) then
+  if exists (select 1 from staff_members where tenant_id = t and name in ('Oyunaa', 'Badamaa', 'Uyanga', 'Zaya', 'Chimgee', 'Anand', 'Otgonjargal', 'Уранчимэг')) then
     raise exception 'a new name is already in staff_members (this file is applied, or someone added it)';
   end if;
   if not exists (select 1 from knowledge_documents where tenant_id = t and title = 'Салбарууд'
@@ -65,31 +78,33 @@ begin
   end if;
 end $$;
 
--- The names and levels. Rows are addressed by id AND tenant, so nothing of another tenant moves.
-update staff_members s set name = v.name, short_name = v.short_name, tier = v.tier
+-- The names and levels, every short_name cleared. Rows are addressed by id AND tenant, so
+-- nothing of another tenant moves.
+update staff_members s set name = v.name, short_name = null, tier = v.tier
   from tenants t,
-       (values ('db1ea5f3-fea5-4732-817f-e129ffcb09bb'::uuid, 'Oyunaa',  'Оюунаа', 'SPECIAL үсчин'),
-               ('31d9b688-b198-4459-b37f-8848a5b2a50b'::uuid, 'Badamaa', 'Бадмаа', 'Мастер үсчин'),
-               ('40558cdc-d511-4b9d-98c4-e308e3a448aa'::uuid, 'Uyanga',  'Уянга',  '1-р зэрэг үсчин'),
-               ('2b4b2be6-1b87-451d-a14d-8b25930ba86e'::uuid, 'Zaya',    'Заяа',   '1-р зэрэг үсчин')) as v(id, name, short_name, tier)
+       (values ('db1ea5f3-fea5-4732-817f-e129ffcb09bb'::uuid, 'Oyunaa',      'SPECIAL үсчин'),
+               ('31d9b688-b198-4459-b37f-8848a5b2a50b'::uuid, 'Badamaa',     'Мастер үсчин'),
+               ('40558cdc-d511-4b9d-98c4-e308e3a448aa'::uuid, 'Uyanga',      '1-р зэргийн үсчин'),
+               ('2b4b2be6-1b87-451d-a14d-8b25930ba86e'::uuid, 'Zaya',        '1-р зэргийн үсчин'),
+               ('780cb42d-3a2b-462e-b042-660820e5524e'::uuid, 'Otgonjargal', '1-р зэргийн үсчин')) as v(id, name, tier)
  where t.slug = 'matrix-eco-salon' and s.tenant_id = t.id and s.id = v.id;
 
 -- Anand: back on, selectable like every other active hairdresser. Group «Эрэгтэй үсчид» kept.
-update staff_members s set name = 'Anand', short_name = 'Ананд', active = true, customer_selectable = true
+update staff_members s set name = 'Anand', short_name = null, active = true, customer_selectable = true
   from tenants t
  where t.slug = 'matrix-eco-salon' and s.tenant_id = t.id and s.id = '3aea826a-3aa3-4285-902e-50c64f7b2120';
 
 -- Chimgee (was Уранчимэг): new row, shaped like the other women's rows.
 insert into staff_members (tenant_id, name, short_name, group_name, tier, customer_selectable, affects_price, active)
-select t.id, 'Chimgee', 'Чимгээ', 'Эмэгтэй үсчид', '1-р зэрэг үсчин', true, false, true
+select t.id, 'Chimgee', null, 'Эмэгтэй үсчид', '1-р зэргийн үсчин', true, false, true
   from tenants t where t.slug = 'matrix-eco-salon';
 
--- Not shown: Отгонжаргал (not in the founder's list) and the manicurist (manicure is off).
--- Switched off, never deleted: the rows stay for the revert and the history.
+-- Not shown: the manicurist (manicure is off). Switched off, never deleted: the row stays for
+-- the revert and the history.
 update staff_members s set active = false, customer_selectable = false
   from tenants t
  where t.slug = 'matrix-eco-salon' and s.tenant_id = t.id
-   and s.id in ('780cb42d-3a2b-462e-b042-660820e5524e', 'd4f2451a-5ae6-4e9b-8ba2-cfb3a133e7df');
+   and s.id = 'd4f2451a-5ae6-4e9b-8ba2-cfb3a133e7df';
 
 -- «Салбарууд»: only the hairdresser's name changes; every other line is the approved text.
 update knowledge_documents k
@@ -98,29 +113,41 @@ update knowledge_documents k
   from tenants t
  where t.slug = 'matrix-eco-salon' and k.tenant_id = t.id and k.title = 'Салбарууд';
 
--- The old names, as rows the model reads. DRAFT wording (prompt/drafts/tara_stylist_names.mn.txt).
+-- The Cyrillic names customers type, as rows the model reads. Approved 2026-10-04, except the
+-- last line's «Отгоо» (a guess). prompt/drafts/tara_stylist_names.mn.txt.
 insert into knowledge_documents (tenant_id, title, body, source)
 select t.id, 'Үсчдийн нэр',
-       E'Үсчдийн нэрийг латин үсгээр бичнэ: Oyunaa, Badamaa, Uyanga, Zaya, Chimgee, Anand.\n'
+       E'Үсчдийн нэрийг латин үсгээр бичнэ: Oyunaa, Badamaa, Uyanga, Zaya, Chimgee, Anand, Otgonjargal.\n'
        || E'Оюунсүрэн, Оюунаа гэвэл Oyunaa.\n'
        || E'Бадамцэцэг, Бадмаа гэвэл Badamaa.\n'
        || E'Уянга гэвэл Uyanga.\n'
        || E'Батзаяа, Заяа гэвэл Zaya.\n'
        || E'Уранчимэг, Чимгээ гэвэл Chimgee.\n'
-       || 'Ананд гэвэл Anand.',
-       'founder 2026-10-03'
+       || E'Ананд гэвэл Anand.\n'
+       || 'Отгонжаргал, Отгоо гэвэл Otgonjargal.',
+       'founder 2026-10-04'
   from tenants t where t.slug = 'matrix-eco-salon';
 
--- Read back inside the transaction: six active hairdressers, the two switched off, one new document.
+-- Read back inside the transaction: seven active hairdressers by Latin names only, the
+-- manicurist off, the level wording, one new document.
 do $$
 declare t uuid;
 begin
   select id into strict t from tenants where slug = 'matrix-eco-salon';
-  if (select count(*) from staff_members where tenant_id = t and active and name in ('Oyunaa', 'Badamaa', 'Uyanga', 'Zaya', 'Chimgee', 'Anand')) <> 6 then
-    raise exception 'read-back: six active hairdressers expected';
+  if (select count(*) from staff_members where tenant_id = t and active and customer_selectable
+        and name in ('Oyunaa', 'Badamaa', 'Uyanga', 'Zaya', 'Chimgee', 'Anand', 'Otgonjargal')) <> 7
+     or (select count(*) from staff_members where tenant_id = t and active) <> 7 then
+    raise exception 'read-back: exactly seven active hairdressers expected';
   end if;
-  if exists (select 1 from staff_members where tenant_id = t and active and name in ('Отгонжаргал', 'Г. Мөнхзаяа')) then
-    raise exception 'read-back: Отгонжаргал and the manicurist must be off';
+  if exists (select 1 from staff_members where tenant_id = t and active and (short_name is not null or name ~ '[А-Яа-яӨөҮүЁё]')) then
+    raise exception 'read-back: the roster is Latin only (no Cyrillic name, no short_name)';
+  end if;
+  if exists (select 1 from staff_members where tenant_id = t and active and tier = '1-р зэрэг үсчин')
+     or (select tier from staff_members where tenant_id = t and name = 'Otgonjargal') <> '1-р зэргийн үсчин' then
+    raise exception 'read-back: the level reads «1-р зэргийн үсчин»';
+  end if;
+  if exists (select 1 from staff_members where tenant_id = t and active and name = 'Г. Мөнхзаяа') then
+    raise exception 'read-back: the manicurist must be off';
   end if;
   if (select tier from staff_members where tenant_id = t and name = 'Oyunaa') <> 'SPECIAL үсчин' then
     raise exception 'read-back: Oyunaa is SPECIAL';

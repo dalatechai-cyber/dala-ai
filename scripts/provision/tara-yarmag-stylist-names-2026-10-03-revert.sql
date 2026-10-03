@@ -7,8 +7,8 @@ do $$
 declare t uuid;
 begin
   select id into strict t from tenants where slug = 'matrix-eco-salon';
-  if (select count(*) from staff_members where tenant_id = t and name in ('Oyunaa', 'Badamaa', 'Uyanga', 'Zaya', 'Chimgee', 'Anand')) <> 6 then
-    raise exception 'tara-yarmag-stylist-names-2026-10-03.sql is not applied (six new names expected)';
+  if (select count(*) from staff_members where tenant_id = t and name in ('Oyunaa', 'Badamaa', 'Uyanga', 'Zaya', 'Chimgee', 'Anand', 'Otgonjargal')) <> 7 then
+    raise exception 'tara-yarmag-stylist-names-2026-10-03.sql is not applied (seven new names expected)';
   end if;
 end $$;
 

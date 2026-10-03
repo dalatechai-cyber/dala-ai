@@ -204,6 +204,22 @@ test('sentences are drafted from templates, with the client\'s phones, and no em
   assert.ok(p.wording.every((w) => w.templateApproved === '2026-09-27'));
 });
 
+test('the client\'s own wording replaces a template line, and null writes no line at all', () => {
+  const own = 'Би Цэцэглэг Салоны AI туслах байна. Хүссэн зүйлээ асуугаарай.';
+  const p = planFromForm(read(SAMPLE), {
+    slug: 'tsetsegleg-demo', templates, facebookPageId: '990000000000001',
+    ownWording: { assistant_identity: own.normalize('NFD'), refusal_topic: null },
+  });
+  assert.equal(p.intake.sentences['assistant_identity'], own, 'NFC, byte for byte');
+  assert.equal(p.intake.sentences['refusal_topic'], undefined);
+  assert.equal(p.wording.some((w) => w.kind === 'refusal_topic'), false);
+  const line = p.wording.find((w) => w.kind === 'assistant_identity');
+  assert.equal(line?.own, true);
+  assert.equal(line?.alreadyApprovedBytes, false, 'never claimed approved: the founder still signs it on the sheet');
+  // Every other line is still the template's.
+  assert.deepEqual(Object.keys(p.intake.sentences).filter((k) => p.intake.sentences[k] !== sample().intake.sentences[k]), ['assistant_identity']);
+});
+
 test('a business outside the known verticals gets the neutral lines and an operator question', () => {
   const a = read(SAMPLE);
   const p = planFromForm({ ...a, text: { ...a.text, '1.2': 'Авто угаалга' } }, { slug: 'x', templates });

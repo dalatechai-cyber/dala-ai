@@ -20,6 +20,16 @@ test('a malformed config or a slug in two groups is refused, never guessed', () 
   assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "allow_phones": ["76001888, 91005498"]}}'), /allow_phones/u);
   assert.deepEqual(branchGroups('{"a": {"tenants": ["x", "y"], "allow_phones": ["+976 7600-1888"]}}')[0]?.allowPhones, ['+976 7600-1888']);
   assert.equal(branchGroupOf('q', branchGroups('{"_doc": "", "a": {"tenants": ["x", "y"]}}')), null);
+  assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "not_offered": ["1-р зэрэг"]}}'), /not_offered/u);
+  assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "not_offered": {"z": ["1-р зэрэг"]}}}'), /names z, which is not one of its tenants/u);
+  assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "not_offered": {"y": [""]}}}'), /not_offered/u);
+  assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "not_offered": {"y": []}}}'), /not_offered/u);
+  assert.deepEqual(branchGroups('{"a": {"tenants": ["x", "y"], "not_offered": {"y": [" 1-р зэрэг ", {"service": "Эрэгтэй тайралт", "variant": "SPECIAL"}]}}}')[0]?.notOffered,
+    { y: [{ service: null, variant: '1-р зэрэг' }, { service: 'Эрэгтэй тайралт', variant: 'SPECIAL' }] });
+  assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "not_offered": {"y": [{"variant": "SPECIAL"}]}}}'), /not_offered/u);
+  assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "other_branch_in": []}}'), /other_branch_in/u);
+  assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "staff_aliases": {"y": "Оюунаа"}}}'), /staff_aliases/u);
+  assert.equal(branchGroups('{"a": {"tenants": ["x", "y"]}}')[0]?.otherBranchIn, null);
 });
 
 // A fake PostgREST over fictional rows: `from(table).select(...).eq(col, v)...` resolves to the
@@ -96,6 +106,18 @@ test('a clean branch passes against a provisioned sibling', async () => {
   const db = fakeDb({ ...east, tenants: [...east.tenants, { id: 'w', slug: 'demo-west' }], ...westRows('Та 7711-2233 дугаараар холбогдоно уу.', 25000) });
   const r = await branchGate(db, { slug: 'demo-west', tenantId: 'w', groups });
   assert.deepEqual([r.leaks, r.drift, r.unchecked], [[], [], []]);
+});
+
+test('a sibling\'s staff alias (its «Үсчдийн нэр» name) in this branch\'s rows is a leak, as a short name is', async () => {
+  const db = fakeDb({ ...east, tenants: [...east.tenants, { id: 'w', slug: 'demo-west' }], ...westRows('Та 7711-2233 дугаараар холбогдоно уу. Цэцгээ хүлээж байна.', 25000) });
+  const plain = await branchGate(db, { slug: 'demo-west', tenantId: 'w', groups });
+  assert.deepEqual(plain.leaks, [], 'without the alias, «Цэцгээ» is nobody');
+  const withAlias = [{ ...groups[0]!, staffAliases: { 'demo-east': ['Цэцгээ'] } }];
+  const r = await branchGate(db, { slug: 'demo-west', tenantId: 'w', groups: withAlias });
+  assert.deepEqual(r.leaks, ["demo-west branches: canned handoff: names demo-east's staff member «Цэцгээ»"]);
+  // East's own rows never say «Цэцгээ»: the list is named as out of line, and nothing refuses.
+  assert.match(r.text, /«Цэцгээ» is in none of demo-east's rows/u);
+  assert.deepEqual(r.unchecked, []);
 });
 
 test('a sibling that cannot be read is UNCHECKED, never clean', async () => {
