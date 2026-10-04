@@ -1,3 +1,21 @@
+# Round 2026-10-04 (phones): no shared line (D-178)
+
+Founder, final: Яармаг 76001888 and 91005498; Парк Од's ONLY number is 99076874; 76001888 is not
+shared. Drafts only; nothing applied or published.
+
+- Парк Од: form 1.6, wording `handoff`, every line of `tara-park-od-after-onboarding.sql` (hand-off,
+  refusals via the form, `salon_phone`, `holiday_hours_note`, dye brand, colour rows, cases) give
+  99076874; `yarmag_branch` and her «Салбарууд» give Яармаг's 76001888 and 91005498. Her handoff md5
+  guard and the read-back follow. `intake/tara-park-od.docx` rebuilt with `fixtures/fill.ts`.
+- Яармаг: new `tara-yarmag-branch-phones-2026-10-04.sql` (+ revert): «Салбарууд» and
+  `park_od_branch` (+ its 3 Page cases). Runs after the stylist-names file, before the publish.
+- Gate: `allow_phones` [] and new `say_phones` (other branch's own numbers, only in
+  `other_branch_in` rows). Unit tests, and a Tara-shaped test over the shipped config.
+- Checked on a local PostgreSQL 16 + PostgREST replica: Яармаг's chain (names → answers → phones →
+  photo → reel → colour), second runs refused, reverts byte-identical; Парк Од onboarded from the
+  rebuilt form with `--wording`, then the after-onboarding file (second run refused); the branch
+  gate clean for both tenants.
+
 # NOTES — Round 5 (2026-10-04): the booking wording signed
 
 # Round 2026-10-04 (b): the founder's approvals of items 4–7; the reel line wired

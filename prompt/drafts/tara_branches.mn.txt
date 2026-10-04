@@ -1,7 +1,7 @@
 # APPROVED by the founder 2026-10-01 (with «Хоёр салбарын үнэ ижил.» added). Not loaded: Tara Яармаг's Дали on Tara's two branches (D-170), for the founder.
 # Applied by scripts/provision/tara-branches-2026-10-01.sql once approved, then a publish.
 # Facts (founder, 2026-10-01): Парк Од is open at Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл,
-# 4 давхар, 405 тоот; 76001888 is both branches' shared line; Парк Од's own Facebook Page is
+# 4 давхар, 405 тоот; 76001888 is both branches' shared line (CORRECTED 2026-10-04, D-178: see §3 at the end); Парк Од's own Facebook Page is
 # https://www.facebook.com/profile.php?id=100067391025472; neither branch has a Google Maps
 # listing (so no map link is given).
 
@@ -37,3 +37,15 @@ Answers a message about Парк Од and nothing else («Парк Од салб
 Фэйсбүүк хуудас: https://www.facebook.com/profile.php?id=100067391025472
 
 (Same shape as Яармаг's approved address reply «Хаяг: …\nБайршлын холбоос: …».)
+
+## 3. Phone correction (founder, 2026-10-04, final, D-178) — AWAITING APPROVAL of the new lines
+# Яармаг's numbers are 76001888 and 91005498; Парк Од's ONLY number is 99076874; no line is
+# shared. Applied by scripts/provision/tara-yarmag-branch-phones-2026-10-04.sql (after the
+# stylist-names file), then a publish. Every other line above stays.
+
+«Салбарууд»: the line «Хоёр салбарын нийтлэг утас: 76001888.» becomes these two lines:
+Яармаг салбарын утас: 76001888, 91005498.
+Парк Од салбарын утас: 99076874.
+
+park_od_branch: «Утас: 76001888» becomes:
+Утас: 99076874

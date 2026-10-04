@@ -21,7 +21,7 @@ import type { OnboardPlan } from '../../src/lib/provision/plan.ts';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 export type BranchGroup = {
-  name: string; tenants: string[]; allowNames: string[]; allowPhones?: string[]; allowAddresses?: string[];
+  name: string; tenants: string[]; allowNames: string[]; allowPhones?: string[]; sayPhones?: string[]; allowAddresses?: string[];
   /** Per slug: price variants that branch does not offer (no row), e.g. a level it has no staff for. */
   notOffered?: NotOffered;
   /** Where the other branch's name and allowed address may appear (text sources); null = anywhere. */
@@ -51,6 +51,15 @@ export function branchGroups(text = readFileSync(join(ROOT, 'config/branch-group
     // two, would exempt something nobody meant to share.
     if (!Array.isArray(phones) || !phones.every((s) => typeof s === 'string' && /^(?:\+?976)?[0-9]{8}$/u.test(s.replace(/[\p{Zs}\p{Pd}]/gu, '')))) {
       throw new Error(`config/branch-groups.json: group ${name}: "allow_phones" must be a list of single phone numbers`);
+    }
+    // Another branch's own numbers, sayable only in the `other_branch_in` rows: one number each,
+    // and refused without `other_branch_in` (unscoped, it would excuse the number everywhere).
+    const sayPhones = g['say_phones'] ?? [];
+    if (!Array.isArray(sayPhones) || !sayPhones.every((s) => typeof s === 'string' && /^(?:\+?976)?[0-9]{8}$/u.test(s.replace(/[\p{Zs}\p{Pd}]/gu, '')))) {
+      throw new Error(`config/branch-groups.json: group ${name}: "say_phones" must be a list of single phone numbers`);
+    }
+    if (sayPhones.length > 0 && g['other_branch_in'] === undefined) {
+      throw new Error(`config/branch-groups.json: group ${name}: "say_phones" needs "other_branch_in" (the rows where they may be said)`);
     }
     const addresses = g['allow_addresses'] ?? [];
     if (!Array.isArray(addresses) || !addresses.every((s) => typeof s === 'string' && s.trim() !== '')) {
@@ -100,6 +109,7 @@ export function branchGroups(text = readFileSync(join(ROOT, 'config/branch-group
     groups.push({
       name, tenants: [...new Set(tenants as string[])], allowNames: (allow as string[]).map((n) => n.normalize('NFC')),
       allowPhones: phones as string[],
+      sayPhones: sayPhones as string[],
       allowAddresses: (addresses as string[]).map((a) => a.normalize('NFC')),
       notOffered,
       otherBranchIn: inRaw === undefined ? null : (inRaw as string[]).map((x) => x.normalize('NFC')),
@@ -215,7 +225,7 @@ export async function branchGate(
         }
       }
     }
-    findings.push(...foreignDetails(aliased(own), aliased(sib.side), group.allowNames, group.allowPhones ?? [], group.allowAddresses ?? [], group.otherBranchIn ?? null));
+    findings.push(...foreignDetails(aliased(own), aliased(sib.side), group.allowNames, group.allowPhones ?? [], group.allowAddresses ?? [], group.otherBranchIn ?? null, group.sayPhones ?? []));
     const drift = sharedDrift(own, sib.side, group.notOffered ?? {});
     if ((data as Record<string, unknown>)['live_revision_id'] == null) {
       pending.push(...drift);

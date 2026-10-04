@@ -166,10 +166,15 @@ function detailsOf(side: BranchSide): Details {
  * appear only in texts from these sources (e.g. «KB «Салбарууд»», «fixed reply park_od_branch»);
  * anywhere else they are a leak as if never allowed, so a copy-pasted «this is the X branch's
  * page» in an FAQ is still caught. Staff names in `allowNames` are not narrowed.
+ * `sayPhones`: another branch's own numbers that this branch may SAY, and only in the
+ * `otherBranchIn` rows (founder, 2026-10-04: Tara has no shared line, so each branch's
+ * «Салбарууд» gives the other branch's own numbers). Never held in a contact row, never said
+ * anywhere else, and nothing at all without `otherBranchIn`.
  */
 export function foreignDetails(
   own: BranchSide, sibling: BranchSide, allowNames: readonly string[] = [], allowPhones: readonly string[] = [],
   allowAddresses: readonly string[] = [], otherBranchIn: readonly string[] | null = null,
+  sayPhones: readonly string[] = [],
 ): BranchFinding[] {
   const mine = detailsOf(own);
   const theirs = detailsOf(sibling);
@@ -178,6 +183,7 @@ export function foreignDetails(
   const sayable = new Set(allowAddresses.map((a) => flat(a)));
   // With and without Mongolia's 976, as `phonesOf` reads a contact row.
   const shared = new Set(allowPhones.flatMap((p) => phonesOf(p)).flatMap((p) => (p.length === 8 ? [p, `976${p}`] : [p])));
+  const sayablePhones = new Set(sayPhones.flatMap((p) => phonesOf(p)).flatMap((p) => (p.length === 8 ? [p, `976${p}`] : [p])));
   for (const p of shared) theirs.phones.delete(p);
   const allowed = new Set(allowNames.map((n) => staffKey(n)?.toLowerCase()).filter((k): k is string => k !== undefined));
   allowNames.forEach((n) => allowed.add(nfc(n).toLowerCase()));
@@ -215,8 +221,12 @@ export function foreignDetails(
     const text = nfc(t.text);
     // Outside the named sources, the other branch's name and address are not exempt.
     const exempt = scoped === null || scoped.has(nfc(t.source));
+    // The other branch's own number only where the founder named the rows (never unscoped).
+    const named = scoped !== null && scoped.has(nfc(t.source));
     const runs = digitRuns(text);
-    for (const p of phones) if (runs.some((r) => r.includes(p))) leak(t.source, `carries ${sibling.slug}'s phone ${p}`);
+    for (const p of phones) {
+      if (runs.some((r) => r.includes(p)) && !(named && sayablePhones.has(p))) leak(t.source, `carries ${sibling.slug}'s phone ${p}`);
+    }
     const inText = new Set(linksIn(text));
     for (const l of links) if (inText.has(l)) leak(t.source, `carries ${sibling.slug}'s map link ${l}`);
     const lower = flat(text);

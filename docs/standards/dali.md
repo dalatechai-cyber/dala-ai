@@ -339,9 +339,10 @@ destructive-migration review. Branch protection and required checks on GitHub: *
 **The rule (founder, 2026-09-29, final):** one Дали engine; one tenant per branch, each with
 its own Facebook Page: «Tara Salon — Яармаг» (`matrix-eco-salon`, live) and «Tara Salon —
 Парк Од» (`tara-park-od`, not provisioned). Prices and the booking link are the same for both
-and kept in sync. Phone numbers, map links, addresses and hairdressers are per branch, except
-76001888, the shared main line of both branches (founder, 2026-10-01, D-167). Each Page gives
-only its own branch's details. D-125's "branches inside one tenant" (migration
+and kept in sync. Phone numbers, map links, addresses and hairdressers are per branch; Tara has
+no shared line (founder, 2026-10-04, final, D-178): Яармаг 76001888 and 91005498, Парк Од
+99076874 only. Each Page gives only its own branch's details, except where it names the other
+branch (below). D-125's "branches inside one tenant" (migration
 0047, applied, zero rows) stays built and **dormant**; it is not used for Tara.
 
 **Which tenants are branches of one brand** is configuration, not code:
@@ -349,12 +350,14 @@ only its own branch's details. D-125's "branches inside one tenant" (migration
 `tara-park-od`). A slug may be in one group only. `allow_names` lists names that may appear in
 every branch's rows (a person who really works at both, or a name that is also an ordinary
 word the rows use); only the founder adds one. `allow_phones` lists the brand's shared lines
-(`tara-salon`: 76001888): every branch may hold one in its contact rows and say it in its rows.
-Every other phone stays one branch's own; only the founder adds one. `allow_addresses` lists
+(`tara-salon`: none since D-178): every branch may hold one in its contact rows and say it in its
+rows. Every other phone stays one branch's own; only the founder adds one. `say_phones` lists
+another branch's own numbers a branch may SAY, only in its `other_branch_in` rows, never hold
+(`tara-salon`: 76001888, 91005498, 99076874; D-178). `allow_addresses` lists
 another branch's address every branch may give (with its branch name in `allow_names`): since
-D-170 Яармаг's Дали names Парк Од, her address, the shared line and her Page, and since
-2026-10-04 the other way round too («Салбарууд» symmetric, founder): Парк Од names Яармаг's
-address, 76001888 and Яармаг's Page, never 91005498 or Яармаг's map link. Яармаг's VIP Center
+D-170 Яармаг's Дали names Парк Од, her address, her number 99076874 (D-178) and her Page, and
+since 2026-10-04 the other way round too («Салбарууд» symmetric, founder): Парк Од names
+Яармаг's address, 76001888 and 91005498 (D-178) and Яармаг's Page, never Яармаг's map link. Яармаг's VIP Center
 address is listed ahead of its November move, so the move file (which updates both tenants)
 needs no config change on the day. `not_offered` lists, per branch, the price variants that
 branch does not offer at all (founder, 2026-10-04: Парк Од has no 1-р зэрэг hairdresser and
@@ -409,7 +412,7 @@ that name is not searched for.
 ### Evidence (live, read-only, 2026-09-29)
 
 Since 2026-10-01 (D-167, once applied and published): 91005498 replaces 80905498, 76001888 is
-shared and allowed in both branches, and `refusal_topic` (the children's line) is gone, so five
+shared and allowed in both branches (superseded 2026-10-04 by D-178: 76001888 is Яармаг's only), and `refusal_topic` (the children's line) is gone, so five
 canned lines, `salon_phone` and `holiday_hours_note` carry phones. As read on 2026-09-29:
 
 **Seven** of Яармаг's rows carry its phone numbers (76001888, 80905498): six canned lines,
