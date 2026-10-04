@@ -1841,18 +1841,28 @@ const lastBlend = tomorrowSunday ? '14:00' : '15:00';
 check(titles(pt).includes(lastBlend) && !titles(pt).some((t) => t > lastBlend && /^\d{2}:\d{2}$/u.test(t))
   && psql(`select data->>'minutes' from booking_sessions where conversation_id = '${pt.conversationId}' and closed_at is null`) === '300',
   `TARA BLEND long is 300 minutes: the last start offered is ${lastBlend}, five hours before closing`);
-const sunday = [1, 2, 3, 4, 5, 6].map((n) => tenantClock(new Date(Date.now() + n * 24 * 3600_000), TZ)).find((d) => d.weekday === 0);
-if (sunday !== undefined) {
+// Every day, not only on days that have a Sunday 1–6 days ahead: on a Sunday the next one is 7
+// days away, past the 7 days offered (today and six), and this check used to be skipped silently.
+// Then the chat runs one day later on the engine's clock, so the coming Sunday is six days ahead.
+clockShift = tenantClock(new Date(), TZ).weekday === 0 ? 24 * 3600_000 : 0;
+const sunday = [1, 2, 3, 4, 5, 6].map((n) => tenantClock(new Date(now().getTime() + n * 24 * 3600_000), TZ)).find((d) => d.weekday === 0);
+check(sunday !== undefined, 'a Sunday is among the days offered');
+{
   const ps = newChat(undefined, PARK);
+  // On the shifted clock the session's last write (the database's real time) would read as a
+  // day idle; as in section 14 (d), it is kept as fresh as the customer's typing.
+  const fresh = (): void => {
+    if (clockShift !== 0) psql(`update booking_sessions set updated_at = '${new Date(now().getTime() - 60_000).toISOString()}' where conversation_id = '${ps.conversationId}' and closed_at is null`);
+  };
   await says(ps, 'Цаг авъя');
-  await taps(ps, FEMALE);
-  await taps(ps, 'Үйлчилгээ');
-  await taps(ps, 'Хуйх цэвэрлэгээ');
-  await taps(ps, 'Chimegee · Мастер');
-  await taps(ps, dayLabel(wording, sunday.date, new Date(), TZ));
+  for (const title of [FEMALE, 'Үйлчилгээ', 'Хуйх цэвэрлэгээ', 'Chimegee · Мастер', dayLabel(wording, sunday?.date ?? '', now(), TZ)]) {
+    fresh();
+    await taps(ps, title);
+  }
   const times = titles(ps).filter((t) => /^\d{2}:\d{2}$/u.test(t));
   check(times[0] === '11:00' && times[times.length - 1] === '18:00', 'Парк Од on Sunday: 11:00–19:00 (a 60-minute service from 11:00 to 18:00)');
 }
+clockShift = 0;
 
 // =====================================================================================
 section('21. Website holds (`sh…`, its 5-minute QR) and chat holds (`dh…`) on one calendar');
