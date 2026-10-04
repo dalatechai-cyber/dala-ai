@@ -47,6 +47,9 @@
  *    question just sent already asks what it needs.
  *  - Other words («ийм будаг хийж болох уу?»): `handoff`, as before. Whether it can be done is
  *    the stylist's to say, and the model cannot see the photo.
+ *  - A crossed text naming ONE listed service by name or alias («Tara perm урт», sent 13 s after
+ *    the question): `answer`. It is the answer to the question, typed fast; the 30 s crossing
+ *    window must not turn it into a caption. A kind alone («ийм будаг») still goes to staff.
  *  - A text answering the question: `answer` when it names a service or fires any fixed reply
  *    or gate topic (the customer moved on: «хаяг хаана вэ?»), otherwise `handoff`. One
  *    question, then a person (the founder's "after one question").
@@ -170,6 +173,13 @@ export type PhotoPriceInput = {
   /** The words name a listed service (its name, an alias or its kind). */
   namesService: boolean;
   /**
+   * The words name exactly ONE listed service, by its name or an alias («Tara perm урт»), not
+   * only a kind («ийм будаг»). A text that crossed the question and says this much is the answer
+   * to it, typed fast, and is priced from the rows (founder, 2026-10-04: «Tara perm урт» 13 s
+   * after the question was handed to staff).
+   */
+  namesOneService: boolean;
+  /**
    * Which of the tenant's fixed replies the words fire: `content` (an answer: the dye rows, the
    * address, the deposit), `smalltalk` (a whole-message row: a greeting, thanks, «ок»), or none.
    */
@@ -204,6 +214,10 @@ export function photoPriceStep(s: PhotoPriceInput): PhotoPriceStep {
       // the question already asks what it needs, as for a second photo alone. Later: a person.
       return crossed || s.questionState === 'burst' ? 'wait' : 'handoff';
     }
+    // A text that crossed the question naming one listed service («Tara perm урт»): the answer
+    // to the question, typed within the crossing window. Priced from the rows, as it would be a
+    // few seconds later. Not a caption on the picture itself, and not a kind alone.
+    if (crossed && s.media === null && s.namesOneService) return 'answer';
     // Other words («ийм будаг хийж болох уу?»): whether it can be done is the stylist's.
     return 'handoff';
   }

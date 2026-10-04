@@ -22,6 +22,23 @@ past the wall clock, as 2026-10-14 will be): all 118 checks pass. The longer-ter
 for the whole e2e (pass `now` into the code-making function instead of SQL `now()`), so no step
 mixes the wall clock with fixed dates.
 
+# Round 2026-10-04 (Дали fixes): photo answer, deposit for online booking, level after deposits (D-179)
+
+Drafts only; nothing applied or published.
+
+- Code: a text that crosses the photo question (30 s) and names ONE listed service is priced, not
+  handed off (`reception/photoPrice.ts`); matcher member `after_reply` (`gate/match.ts`).
+  Deploy before the SQL.
+- Яармаг: `tara-yarmag-deposit-and-level-2026-10-04.sql` (+ revert): `deposit_required` (wording
+  awaits approval, `prompt/drafts/tara_deposit_required.mn.txt`), `stylist_tier_after_deposits`,
+  FAQ 15, seventeen reply cases (three «Tara perm урт» after the photo question reach the model).
+- Парк Од: the same two rows, her own `stylist_tier` body, seventeen inactive cases in
+  `tara-park-od-after-onboarding.sql`; the FAQ in her form (docx rebuilt). Her online booking opens
+  Monday 2026-10-05; her rows go live with her publish, after that.
+- Local replica (Яармаг's chain + this file, then Парк Од onboarded): apply, second run refused,
+  revert byte-identical, second revert refused; fact and branch gates clean; Яармаг 29/29
+  deterministic cases pass (13 model cases left to the founder's --with-model dry run).
+
 # Round 2026-10-04 (phones): no shared line (D-178)
 
 Founder, final: Яармаг 76001888 and 91005498; Парк Од's ONLY number is 99076874; 76001888 is not

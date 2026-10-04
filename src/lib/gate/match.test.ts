@@ -557,3 +557,34 @@ test('in_reply reads the reply about to be sent, and never fires where there is 
   assert.equal(matcherFires({ text: 'эхо', attachments: [], reply: 'Дали' }, parsed.spec), false, 'the customer\'s words are not the reply');
   assert.equal(parseMatcher({ mode: 'in_reply' }).ok, false, 'a member is required');
 });
+
+test('after_reply reads the reply the customer is answering, only beside their own words (founder, 2026-10-04)', () => {
+  const deposits = 'Урьдчилгаа төлбөр — 1-р зэргийн үсчин: 10,000₮\nУрьдчилгаа төлбөр — Мастер үсчин: 20,000₮';
+  const raw = {
+    mode: 'all_of', matchers: [
+      { mode: 'after_reply', matcher: { mode: 'all_of', matchers: [
+        { mode: 'contains_stem', stems: ['урьдчилгаа'] }, { mode: 'contains_stem', stems: ['мастер', 'special'] }] } },
+      { mode: 'has_word', words: ['аль', 'al'] },
+    ],
+  };
+  const parsed = parseMatcher(raw);
+  assert.ok(parsed.ok, JSON.stringify(parsed));
+  if (!parsed.ok) return;
+  const at = (text: string, previousReply: string | null) => matcherFires({ text, attachments: [], previousReply }, parsed.spec);
+  assert.equal(at('Аль нь илүү юм', deposits), true);
+  assert.equal(at('al ni deer ve', deposits), true);
+  assert.equal(at('Аль нь илүү юм', 'Манай өнгөний үйлчилгээний үнэ: …'), false, 'after another reply: not this row');
+  assert.equal(at('Аль нь илүү юм', null), false, 'no earlier reply');
+  assert.equal(at('Сайн байна уу', deposits), false, 'the customer\'s words still decide');
+  // The reply about to be sent is not the earlier one.
+  assert.equal(matcherFires({ text: 'Аль нь илүү юм', attachments: [], reply: deposits }, parsed.spec), false);
+
+  assert.equal(parseMatcher({ mode: 'after_reply', matcher: { mode: 'has_word', words: ['аль'] } }).ok, false, 'bare: every message after it');
+  assert.equal(parseMatcher({ mode: 'after_reply' }).ok, false, 'a member is required');
+  assert.equal(parseMatcher({ mode: 'all_of', matchers: [
+    { mode: 'after_reply', matcher: { mode: 'contains_stem', stems: ['урьдчилгаа'] } },
+    { mode: 'not', matcher: { mode: 'contains_stem', stems: ['салбар'] } }] }).ok, false, 'only negated words beside it');
+  assert.equal(parseMatcher({ mode: 'all_of', matchers: [
+    { mode: 'after_reply', matcher: { mode: 'contains_stem', stems: ['урьдчилгаа'] } },
+    { mode: 'in_reply', matcher: { mode: 'contains_stem', stems: ['мастер'] } }] }).ok, false, 'replies only, no customer words');
+});

@@ -415,6 +415,16 @@ function namesAService(texts: readonly (string | null)[], input: ReceptionInput)
 }
 
 /**
+ * Do the words name exactly one listed service, by its name or an alias (`matchService`'s
+ * `unique`)? A kind alone («будаг») names a family, not one service. D-176's crossed answer.
+ */
+function namesOneService(texts: readonly (string | null)[], input: ReceptionInput): boolean {
+  const entries = entriesFrom(input.serviceNames.map((s) => ({ id: s.name, name: s.name })),
+    input.serviceAliases.map((a) => ({ serviceId: a.name, alias: a.alias })));
+  return texts.some((t) => t !== null && t.trim() !== '' && matchService(t, entries).verdict === 'unique');
+}
+
+/**
  * The price-list rows that mention a word of the customer's message, whole services at a
  * time, or null.
  *
@@ -718,7 +728,12 @@ async function receive(
   //    It runs AFTER the review gate on purpose: a deterministic reply is still a
   //    customer-visible sentence, and an unreviewed one must not ship just because no
   //    model was involved in choosing it.
-  const matchOpts = { hasAttachment: input.customerAttachments.length > 0, attachments: input.customerAttachments, topics: matched.matchedTopics, respelled };
+  // The bot's last reply: what the customer is answering (`after_reply` rows read it).
+  const previousReply = [...input.history].reverse().find((h) => h.role === 'assistant')?.content ?? null;
+  const matchOpts = {
+    hasAttachment: input.customerAttachments.length > 0, attachments: input.customerAttachments, topics: matched.matchedTopics, respelled,
+    previousReply,
+  };
   // A PHOTO OR A REEL AND «HOW MUCH?» (D-176). For a tenant with the reviewed question row for
   // what was sent (the photo's, the reel's), its words are read as words: «будаг хэд вэ» beside a
   // photo is the dye question, and a fixed reply that skips any message carrying a picture would
@@ -760,7 +775,6 @@ async function receive(
   // The set row this message matched, as it will be served (quoted prices rendered).
   const shortcutBody = shortcut.hit === null ? null : composeQuoted(shortcut.hit, input.serviceNames);
   const bookingRow = canned(input.canned, 'booking_line');
-  const previousReply = [...input.history].reverse().find((h) => h.role === 'assistant')?.content ?? null;
   // Prices, the address, phone numbers, hours and deposits come from the data, never from
   // the model's wording (founder, 2026-09-24; `guard/facts.ts`). Checked HERE, where every
   // draft passes, so no path the model's text can take reaches a customer unchecked.
@@ -1020,6 +1034,7 @@ async function receive(
     previousReply,
     questionState: input.photoQuestionState ?? 'answering',
     namesService: namesAService([words, wordsRespelled], input),
+    namesOneService: namesOneService([words, wordsRespelled], input),
     // A whole-message row is small talk (a greeting, thanks, «ок»); any other row is an answer.
     fixedReply: shortcut.hit === null ? null
       : input.deterministic.find((r) => r.intent === shortcut.hit?.intent)?.matchMode === 'whole_message' ? 'smalltalk' : 'content',

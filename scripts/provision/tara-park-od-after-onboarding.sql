@@ -131,6 +131,11 @@ select t.id, v.kind, v.body from tenants t,
 --    2026-10-04, byte for byte as Яармаг's in PR #283 (tara-yarmag-answers-2026-10-04.sql: body,
 --    matcher, placement); the same three answers are FAQs in her form. `dye_brand` serves the
 --    hand-off sentence, so (with #283's code deployed) a person is told.
+--    `deposit_required` (NEW WORDING, approval pending: prompt/drafts/tara_deposit_required.mn.txt)
+--    and `stylist_tier_after_deposits` (her approved `stylist_tier` body after the deposit list,
+--    needs the code with `after_reply`): Яармаг's rows of 2026-10-04
+--    (tara-yarmag-deposit-and-level-2026-10-04.sql), her own `stylist_tier` body. The booking link
+--    in `deposit_required` is on her domain-move list (docs/tenants/tara-park-od.md «Domain»).
 --    Not written: `park_od_branch` (it is her own branch), `tara_name` / `tara_rebrand`
 --    (Парк Од was never Matrix).
 insert into deterministic_replies (tenant_id, intent, body, enabled, provenance, match_mode, placement, stems, cover_words, quote_services, matcher, requires_empty_history)
@@ -156,6 +161,8 @@ select t.id, v.* from tenants t, (values
  ('price_which_service', 'Та ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.', true, 'tenant_confirmed', 'covers_message', 'replace', '{үнэ,үнийн,үнэтэй,vne,une,vniin,uniin,unetei,vnetei}'::text[], '{мэдээлэл,авья,авъя,авий,авах,хэд,хэдэн,ямар,танайх,уу,үү,вэ,бэ,ве,юу,сайн,байна,бна,бну,бнуу,medeelel,awii,avii,awya,avya,awah,avah,hed,hedve,hedbe,heden,yamar,ymar,tanaih,uu,vv,we,ve,be,yu,sain,bna,bnu,bnuu,sn,hi,hello}'::text[], '{}'::text[], NULL::jsonb, true),
  ('salon_phone', 'Та 99076874 дугаараар холбогдоно уу.', true, 'tenant_confirmed', 'covers_message', 'replace', '{утас,утсаа,утсыг,утасны,дугаар,utas,utsaa,utsiig,utasnii,dugaar}'::text[], '{холбогдох,салбарын,парк,од,салоны,танайх,өгөөч,өгөөрэй,хэд,уу,үү,вэ,бэ,ве,юу,сайн,байна,бна,бну,бнуу,holbogdoh,salbariin,park,od,salonii,tanaih,ogooch,ogoorei,hed,hedve,hedbe,uu,vv,we,ve,be,yu,sain,bna,bnu,bnuu,sn,hi,hello,танай,tanai}'::text[], '{}'::text[], NULL::jsonb, false),
  ('stylist_tier', 'SPECIAL болон Мастер үсчний ялгаа нь зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.', true, 'tenant_confirmed', 'covers_message', 'replace', '{мастер,мастр,master,mastr,special,спешл,спешиал}'::text[], '{үсчин,үсчинд,үсчний,үсчид,үсчнүүд,орвол,орох,орж,дээр,дээрээ,юу,үү,уу,илүү,сайн,бол,нь,1,р,1р,зэрэг,зэргийн,зэргээс,зэрэглэл,зэрэглэлийн,ялгаа,ялгаатай,ямар,аль,чадвартай,туршлагатай,болон,эсвэл,ба,би,вэ,бэ,юм,биз,uschin,us4in,vs4in,vschin,uschind,us4ind,vs4ind,orvol,oroh,orj,deer,yu,uu,vv,ilvv,iluu,ilvu,sain,bol,ni,zereg,zergiin,zergees,yalgaa,yalgaatai,yamar,al,esvel,eswel,ba,bi,ve,we,be,yum,biz}'::text[], '{}'::text[], NULL::jsonb, false),
+ ('deposit_required', 'Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно. Цагаа эндээс захиална уу: https://www.matrixecosalon.org/', true, 'tenant_confirmed', 'matcher', 'replace', '{}'::text[], '{}'::text[], '{}'::text[], '{"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["урьдчил", "урьчил", "урдчил", "uridchil", "urichil", "urdchil", "uridchl"]}, {"mode": "contains_stem", "stems": ["заавал", "zaaval", "zaawal", "эхлээд", "ehleed", "exleed", "урьдчилгаагүй", "урдчилгаагүй", "uridchilgaagui", "urdchilgaagui", "uridchilgaagvi", "төлөхгүй", "tuluhgui", "tulhgui", "tulukhgui", "хийхгүй", "hiihgui", "ёстой", "yostoi", "yostoy", "шаардлагатай", "shaardlagatai", "шаарддаг", "shaarddag"]}, {"mode": "not", "matcher": {"mode": "contains_stem", "stems": ["хасагд", "хасах", "хасна", "хасаад", "хасаж", "hasagd", "hasah", "hasna", "hasaad", "hasaj", "xasagd", "тооцогд", "тооцох", "тооцно", "тооцож", "tootsogd", "tootsoh", "tootsno", "tootsoj", "үнэнд", "unend", "vnend"]}}, {"mode": "not", "matcher": {"mode": "contains_stem", "stems": ["буцаа", "butsaa", "буцааг", "butsaag"]}}, {"mode": "not", "matcher": {"mode": "has_word", "words": ["хэд", "хэдэн", "хэдээр", "hed", "heden", "hedeer", "hedve", "hedbe"]}}]}'::jsonb, false),
+ ('stylist_tier_after_deposits', 'SPECIAL болон Мастер үсчний ялгаа нь зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.', true, 'tenant_confirmed', 'matcher', 'replace', '{}'::text[], '{}'::text[], '{}'::text[], '{"mode": "all_of", "matchers": [{"mode": "after_reply", "matcher": {"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["урьдчилгаа"]}, {"mode": "contains_stem", "stems": ["мастер", "special"]}]}}, {"mode": "has_word", "words": ["аль", "al", "ali", "ялгаа", "ялгаатай", "yalgaa", "yalgaatai", "yalgaatay"]}, {"mode": "not", "matcher": {"mode": "contains_stem", "stems": ["салбар", "salbar", "хаяг", "hayag", "хаана", "haana", "өдөр", "udur", "odor", "будаг", "budag", "хими", "himi", "засалт", "zasalt", "тайралт", "tairalt", "үйлчилгээ", "uilchilgee", "үнэтэй", "unetei"]}}, {"mode": "not", "matcher": {"mode": "has_word", "words": ["цаг", "цагаа", "tsag", "tsagaa", "хэд", "hed", "үнэ", "une"]}}]}'::jsonb, false),
  ('suitability_stylist', 'Үсэнд тань аль нь тохирохыг манай үсчин зөвлөж өгнө.', true, 'tenant_confirmed', 'on_topic', 'append', '{suitability_lat_buda,suitability_lat_himi,suitability_lat_orh,suitability_lat_songo,suitability_lat_ungu,suitability_lat_vsend,suitability_mn_himi,suitability_mn_orh,suitability_mn_ungu}'::text[], '{}'::text[], '{}'::text[], NULL::jsonb, false),
  ('thanks', 'Зүгээр ээ 😊 Өөр асуух зүйл байвал бичээрэй.', true, 'tenant_confirmed', 'whole_message', 'replace', '{баярлалаа,"их баярлалаа","за баярлалаа","баярлалаа танд","танд баярлалаа","маш их баярлалаа",bayarlalaa,bayrlalaa,bayarllaa,bayrllaa,"ih bayarlalaa","za bayarlalaa","mash ih bayarlalaa",thanks,"thank you","thanks a lot",thx,"ok thanks"}'::text[], '{}'::text[], '{}'::text[], NULL::jsonb, false),
  ('yarmag_branch', E'Яармаг салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун талд\nУтас: 76001888, 91005498\nФэйсбүүк хуудас: https://www.facebook.com/profile.php?id=100067872726164', true, 'tenant_confirmed', 'covers_message', 'replace', '{яармаг,ярмаг,yarmag,yaarmag}'::text[], '{салбар,салбарын,салбарт,salbar,salbariin,хаана,хаяг,хаягаа,байдаг,байрладаг,бдаг,утас,утсаа,дугаар,фэйсбүүк,фэйсбүүкийн,хуудас,хуудсаа,haana,hayag,hayg,baidag,bdag,bairladag,utas,utsaa,dugaar,facebook,fb,page,танай,танайх,вэ,бэ,ве,уу,үү,юу,сайн,байна,бна,бну,өгөөч,өгөөрэй,tanai,tanaih,ve,we,be,uu,vv,yu,sain,bna,bnu,ogooch,ogoorei}'::text[], '{}'::text[], NULL::jsonb, false),
@@ -254,12 +261,62 @@ select t.id, v.msg, v.exp, v.inc::text[], v.exc::text[], v.note, false
  where t.slug = 'tara-park-od'
    and not exists (select 1 from reply_cases r where r.tenant_id = t.id and r.customer_message = v.msg);
 
+-- 8b. Reply cases of 2026-10-04 (deposit and level), INACTIVE like those above. The three
+--     «Tara perm урт» cases follow her image line (she has no photo-question row: D-176 is
+--     Яармаг's; her photo still goes to staff), and check the words after it are priced.
+insert into reply_cases (tenant_id, history, customer_message, expected_body, must_include, must_not_include, note, active)
+select t.id, case when v.before is null then '[]'::jsonb
+                  else jsonb_build_array(jsonb_build_object('role', 'user', 'content', v.asked),
+                                         jsonb_build_object('role', 'assistant', 'content', v.before)) end,
+       v.msg, v.exp, v.inc::text[], v.exc::text[], v.note, false
+  from tenants t, (values
+  ('Сайн байна уу', 'Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.', 'Tara perm урт', null, '{"290,000₮"}', '{"ажилтан үзээд","Таны илгээсэн зураг"}',
+   'deposit and level 2026-10-04: «Tara perm урт» after her image line gets the price'),
+  ('Сайн байна уу', 'Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.', 'Tara perm, урт', null, '{"290,000₮"}', '{"ажилтан үзээд","Таны илгээсэн зураг"}',
+   'deposit and level 2026-10-04: «Tara perm, урт» after her image line gets the price'),
+  ('Сайн байна уу', 'Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.', 'tara perm urt', null, '{"290,000₮"}', '{"ажилтан үзээд","Таны илгээсэн зураг"}',
+   'deposit and level 2026-10-04: «tara perm urt», Latin, after her image line gets the price'),
+  (null, null, 'Заавал эхлээд урьдчилгаа хийх үү?', 'Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно. Цагаа эндээс захиална уу: https://www.matrixecosalon.org/', '{}', '{}',
+   'deposit and level 2026-10-04 (exact): the deposit is for online booking (founder)'),
+  (null, null, 'Асуулт буруу явуулчлаа заавал эхлээд урьдчилгаа хийхүү', 'Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно. Цагаа эндээс захиална уу: https://www.matrixecosalon.org/', '{}', '{}',
+   'deposit and level 2026-10-04 (exact): the live phrasing of 03:51 UTC (Яармаг)'),
+  (null, null, 'Урьдчилгаа заавал төлөх ёстой юу', 'Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно. Цагаа эндээс захиална уу: https://www.matrixecosalon.org/', '{}', '{}',
+   'deposit and level 2026-10-04 (exact): «ёстой»'),
+  (null, null, 'Урьдчилгаагүй цаг авч болох уу', 'Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно. Цагаа эндээс захиална уу: https://www.matrixecosalon.org/', '{}', '{}',
+   'deposit and level 2026-10-04 (exact): «урьдчилгаагүй»'),
+  (null, null, 'uridchilgaa zaaval tuluh uu', 'Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно. Цагаа эндээс захиална уу: https://www.matrixecosalon.org/', '{}', '{}',
+   'deposit and level 2026-10-04 (exact): Latin'),
+  (null, null, 'zaaval ehleed urdchilgaa hiih yostoi yu', 'Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно. Цагаа эндээс захиална уу: https://www.matrixecosalon.org/', '{}', '{}',
+   'deposit and level 2026-10-04 (exact): Latin, «urdchilgaa»'),
+  (null, null, 'Урьдчилгаа төлбөр буцаагддаг уу', null, '{}', '{"Онлайнаар цаг захиалахад"}',
+   'deposit and level 2026-10-04 (control): a refund question is not this row'),
+  (null, null, 'Заавал урьдчилгаа хэд вэ', null, '{}', '{"Онлайнаар цаг захиалахад"}',
+   'deposit and level 2026-10-04 (control): the amount is not this row'),
+  (null, null, 'Хими хийлгэвэл заавал будах уу', null, '{}', '{"Онлайнаар цаг захиалахад"}',
+   'deposit and level 2026-10-04 (control): «заавал» without the deposit'),
+  ('Saraa-д цаг авч болох уу?', E'Урьдчилгаа төлбөр — SPECIAL үсчин: 20,000₮\nУрьдчилгаа төлбөр — Мастер үсчин: 20,000₮', 'Аль нь илүү юм', 'SPECIAL болон Мастер үсчний ялгаа нь зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.', '{}', '{}',
+   'deposit and level 2026-10-04 (exact): «Аль нь илүү юм» after the deposit list'),
+  ('Saraa-д цаг авч болох уу?', E'Урьдчилгаа төлбөр — SPECIAL үсчин: 20,000₮\nУрьдчилгаа төлбөр — Мастер үсчин: 20,000₮', 'al ni deer ve', 'SPECIAL болон Мастер үсчний ялгаа нь зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.', '{}', '{}',
+   'deposit and level 2026-10-04 (exact): Latin, after the deposit list'),
+  ('Saraa-д цаг авч болох уу?', E'Урьдчилгаа төлбөр — SPECIAL үсчин: 20,000₮\nУрьдчилгаа төлбөр — Мастер үсчин: 20,000₮', 'Ялгаа нь юу вэ', 'SPECIAL болон Мастер үсчний ялгаа нь зэрэглэл болон үнэд байдаг. Аль зэрэглэлийн үсчинд үйлчлүүлэхээ та өөрөө сонгоно. Ямар үйлчилгээ авахаа хэлбэл үнийг нь хэлье.', '{}', '{}',
+   'deposit and level 2026-10-04 (exact): «ялгаа» after the deposit list'),
+  ('Saraa-д цаг авч болох уу?', E'Урьдчилгаа төлбөр — SPECIAL үсчин: 20,000₮\nУрьдчилгаа төлбөр — Мастер үсчин: 20,000₮', 'Аль салбар нь ойр вэ', null, '{}', '{"зэрэглэл болон үнэд"}',
+   'deposit and level 2026-10-04 (control): a branch question after the deposit list is not this row'),
+  ('ungu gargalt hed ve', E'Манай өнгөний үйлчилгээний үнэ:\nХэсэгчилсэн сор (эмэгтэй): 150,000₮\nБүтэн сор: 210,000₮', 'Аль нь илүү юм', null, '{}', '{"зэрэглэл болон үнэд"}',
+   'deposit and level 2026-10-04 (control): «Аль нь илүү юм» after the colour rows is not about levels')
+  ) as v(asked, before, msg, exp, inc, exc, note)
+ where t.slug = 'tara-park-od'
+   and not exists (select 1 from reply_cases r where r.tenant_id = t.id and r.note like 'deposit and level 2026-10-04%');
+
 -- Read back.
 do $$
 declare t uuid;
 begin
   select id into strict t from tenants where slug = 'tara-park-od';
-  if (select count(*) from deterministic_replies where tenant_id = t) <> 26 then raise exception 'read-back: 26 fixed replies expected'; end if;
+  if (select count(*) from deterministic_replies where tenant_id = t) <> 28 then raise exception 'read-back: 28 fixed replies expected'; end if;
+  if (select count(*) from reply_cases where tenant_id = t and not active and note like 'deposit and level 2026-10-04%') <> 17 then
+    raise exception 'read-back: seventeen inactive deposit-and-level reply cases expected';
+  end if;
   if (select count(*) from reply_cases where tenant_id = t and not active
         and (note like 'answers 2026-10-04%' or note like 'D-177:%')) <> 14 then
     raise exception 'read-back: fourteen inactive reply cases expected';

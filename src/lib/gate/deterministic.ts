@@ -168,6 +168,8 @@ export function matchDeterministic(
     respelled?: string | null;
     /** The reply about to be sent, for a row whose matcher reads it (`in_reply`). */
     reply?: string | null;
+    /** The bot's previous reply, for a row whose matcher reads it (`after_reply`). */
+    previousReply?: string | null;
   } = { hasAttachment: false },
 ): DeterministicOutcome {
   const texts = opts.respelled === undefined || opts.respelled === null ? [text] : [text, opts.respelled];
@@ -210,7 +212,7 @@ export function matchDeterministic(
         skipped.push({ intent: rule.intent, reason: 'bad_matcher' });
         return null;
       }
-      return matcherFires({ text, attachments: opts.attachments ?? [], respelled: opts.respelled ?? null, reply: opts.reply ?? null }, rule.matcher);
+      return matcherFires({ text, attachments: opts.attachments ?? [], respelled: opts.respelled ?? null, reply: opts.reply ?? null, previousReply: opts.previousReply ?? null }, rule.matcher);
     }
     // `contains_stem` and `covers_message` carry the gate matcher's over-matching risk on
     // their stems, so they carry its floor. A rule below it is SKIPPED rather than refusing

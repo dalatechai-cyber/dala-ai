@@ -12,7 +12,7 @@ second copy nothing re-derives. Change these in the same change as the fact.
 | Fact | Where it is typed |
 |---|---|
 | Welcome line (greeting) | `deterministic_replies.greeting` and its copy `like_welcome` (D-168): change both together |
-| Booking domain `matrixecosalon.org` | `tenant_booking.booking_url`; `canned_responses.booking_line`; `deterministic_replies.booking` (2026-09-30) |
+| Booking domain `matrixecosalon.org` | `tenant_booking.booking_url`; `canned_responses.booking_line`; `deterministic_replies.booking` (2026-09-30); `deterministic_replies.deposit_required` and FAQ 15 «Заавал эхлээд урьдчилгаа төлөх үү?» (2026-10-04, D-179) |
 | Address and map link | `contact_points` (`address`, `maps_url`); `deterministic_replies.address` (2026-09-30); `reply_cases` «Хаяг хаана вэ». Moving in November 2026: `scripts/provision/tara-yarmag-move-2026-11.sql` |
 | Парк Од's address, Page and the shared line (D-170) | KB «Салбарууд»; `deterministic_replies.park_od_branch`; `config/branch-groups.json` `allow_addresses` (must equal Парк Од's address row) |
 | Яармаг's own address as Парк Од gives it (symmetric, 2026-10-04) | Парк Од's KB «Салбарууд» and `deterministic_replies.yarmag_branch`; `allow_addresses` (lists the current address and the VIP Center one). The move file changes both tenants |
@@ -23,7 +23,7 @@ second copy nothing re-derives. Change these in the same change as the fact.
 ## Rebrand checklist
 
 - [ ] **The day the new Tara domain goes live** (tarasalon.org, bought at Namecheap; founder
-  2026-10-04): replace `matrixecosalon.org` in the three places in the first row above, and in
+  2026-10-04): replace `matrixecosalon.org` in the places in the first row above, and in
   every Парк Од row that carries it (docs/tenants/tara-park-od.md «Domain»), in one SQL transaction
   (`set local dala.canned_edit = 'republish'` for the `booking_line` row, D-163), then publish
   Tara at once (`scripts/publish/tenant.ts --slug matrix-eco-salon`). Check

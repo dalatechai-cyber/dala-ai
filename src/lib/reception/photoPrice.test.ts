@@ -9,7 +9,7 @@ import {
 const Q = 'Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.';
 const base: PhotoPriceInput = {
   question: Q, reelQuestion: null, media: null, previousReply: null, questionState: 'answering',
-  namesService: false, fixedReply: null, gateTopic: false, asksPrice: false, hasWords: true,
+  namesService: false, namesOneService: false, fixedReply: null, gateTopic: false, asksPrice: false, hasWords: true,
 };
 const step = (over: Partial<PhotoPriceInput>) => photoPriceStep({ ...base, ...over });
 
@@ -58,6 +58,19 @@ test('DONE-TEST: A PRICE ASK WRITTEN WITH THE PHOTO, BEFORE THE QUESTION ARRIVED
   assert.equal(step({ ...crossed, asksPrice: true, namesService: true }), 'answer', 'a caption pricing a service is answered');
   assert.equal(step({ ...crossed, fixedReply: 'content' }), 'answer', 'review: «хаяг хаана вэ?» typed with the photo gets the address');
   assert.equal(step({ ...crossed }), 'handoff', '«ийм болгож болох уу» typed with the photo');
+  assert.equal(step({ ...crossed, namesService: true }), 'handoff', '«ийм будаг хийж болох уу?»: a kind, not one service');
+});
+
+test('DONE-TEST (founder 2026-10-04): «TARA PERM УРТ» 13 S AFTER THE QUESTION IS THE ANSWER, NOT A CAPTION: PRICED, NOT STAFF', () => {
+  const crossed = { previousReply: Q, questionState: 'crossed' as const };
+  assert.equal(step({ ...crossed, namesService: true, namesOneService: true }), 'answer');
+  // Inside the burst window and after it, as before.
+  assert.equal(step({ previousReply: Q, questionState: 'burst', namesService: true, namesOneService: true }), 'answer');
+  assert.equal(step({ previousReply: Q, namesService: true, namesOneService: true }), 'answer');
+  // A caption on the picture itself is still the stylist's: the picture may show something else.
+  assert.equal(step({ media: 'photo', namesService: true, namesOneService: true }), 'handoff');
+  // With no question asked, nothing changes.
+  assert.equal(step({ namesService: true, namesOneService: true }), 'off');
 });
 
 test('DONE-TEST: THE ANSWER TO THE QUESTION GETS ITS PRICE; AN ANSWER NAMING NOTHING GOES TO STAFF', () => {

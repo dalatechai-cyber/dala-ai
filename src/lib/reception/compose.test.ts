@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { SECTION_LABELS } from '../prompt/tenant.ts';
 import { handleReception, type ReceptionDeps, type ReceptionInput } from './handle.ts';
 import type { CallOutcome, ReceptionRequest } from '../model/reception.ts';
-import type { GateRule } from '../gate/match.ts';
+import { parseMatcher, type GateRule } from '../gate/match.ts';
 import type { DeterministicRule } from '../gate/deterministic.ts';
 import type { TenantGuardView } from '../guard/outbound.ts';
 
@@ -767,6 +767,56 @@ test('DONE-TEST (D-176): «HED VE» TYPED WITH THE PHOTO, CROSSING THE QUESTION,
   assert.deepEqual(r, { kind: 'dropped', reason: 'photo_question_pending' });
   assert.equal(t.drafts.length, 0);
   assert.equal(t.requests.length, 0);
+});
+
+test('DONE-TEST (founder 2026-10-04): «TARA PERM УРТ» 13 S AFTER THE PHOTO QUESTION IS PRICED, NOT HANDED TO STAFF', async () => {
+  // Live, Tara Яармаг: the question at 06:02:54, «Tara perm урт» at 06:03:07, inside the 30 s
+  // crossing window, so it was read as a caption and handed off. One listed service named: priced.
+  const PERM = 'Tara perm (урт): 290,000₮';
+  const withPerm = [...SERVICES, { name: 'Tara perm', prices: ['220000', '250000', '290000'],
+    rows: ['Tara perm (богино): 220,000₮', 'Tara perm (дунд): 250,000₮', PERM] }];
+  for (const message of ['Tara perm урт', 'Tara perm, урт', 'tara perm urt']) {
+    for (const photoQuestionState of ['crossed', 'burst', 'answering'] as const) {
+      const t = run(PERM);
+      const r = await handleReception(t.deps, {
+        ...base, serviceNames: withPerm, canned: WITH_PHOTO_Q, customerMessage: message, history: AFTER_Q, photoQuestionState,
+      });
+      assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined, `${message} ${photoQuestionState}`);
+      assert.ok(!t.flags.includes('photo_price_handoff'), `${message} ${photoQuestionState}`);
+      assert.equal(t.requests.length, 1, `${message} ${photoQuestionState}`);
+    }
+  }
+  // A kind alone, crossing the question, is still the stylist's («can it be done like this?»).
+  const kind = run('never called');
+  const k = await handleReception(kind.deps, {
+    ...base, serviceNames: withPerm, canned: WITH_PHOTO_Q, customerMessage: 'Ийм будаг хийж болох уу?', history: AFTER_Q, photoQuestionState: 'crossed',
+  });
+  assert.equal(k.kind === 'drafted' && k.mediaHandoff, true, JSON.stringify(k));
+});
+
+test('DONE-TEST (founder 2026-10-04): «АЛЬ НЬ ИЛҮҮ ЮМ» RIGHT AFTER THE DEPOSIT LIST GETS THE LEVEL ROW, NO MODEL', async () => {
+  const LEVEL = 'SPECIAL, Мастер болон 1-р зэргийн үсчний ялгаа нь зэрэглэл болон үнэд байдаг.';
+  const raw = { mode: 'all_of', matchers: [
+    { mode: 'after_reply', matcher: { mode: 'all_of', matchers: [
+      { mode: 'contains_stem', stems: ['урьдчилгаа'] }, { mode: 'contains_stem', stems: ['мастер', 'special'] }] } },
+    { mode: 'has_word', words: ['аль', 'al', 'ялгаа'] }] };
+  const parsed = parseMatcher(raw);
+  assert.ok(parsed.ok);
+  if (!parsed.ok) return;
+  const AFTER: DeterministicRule = {
+    ...confirmed, intent: 'stylist_tier_after_deposits', body: LEVEL, matchMode: 'matcher', stems: [], coverWords: [],
+    matcher: parsed.spec, placement: 'replace', quoteServices: [],
+  };
+  const deposits = [{ role: 'user' as const, content: 'Цаг авч болох уу?' }, { role: 'assistant' as const, content: SERVED_DEPOSITS.join('\n') }];
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, deterministic: [...base.deterministic, AFTER], customerMessage: 'Аль нь илүү юм', history: deposits });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic', JSON.stringify(r));
+  assert.deepEqual(t.drafts.map((x) => x.body), [LEVEL]);
+  assert.equal(t.requests.length, 0);
+  // The same words with no deposit list before them are not this row.
+  const cold = run('Аль нь гэж юуг хэлж байна вэ?');
+  await handleReception(cold.deps, { ...base, deterministic: [...base.deterministic, AFTER], customerMessage: 'Аль нь илүү юм' });
+  assert.equal(cold.requests.length, 1);
 });
 
 test('D-176: without the question row a photo price ask is handed off exactly as before', async () => {
