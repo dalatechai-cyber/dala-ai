@@ -1,3 +1,88 @@
+# HAND-OFF — read this first (written 2026-10-04, end of the Tara session)
+
+A new session remembers nothing. Start here, then read, in this order: `CLAUDE.md` (the rules of
+this repo), `docs/tenants/tara-yarmag.md` and `docs/tenants/tara-park-od.md`, `docs/DECISIONS.md`
+D-177 to D-180 (the end of the file), and matrix_website's `NOTES.md` hand-off and
+`docs/LAUNCH_DAY_TARA.md` (sections B, C and D are this repo's launch steps). The dated sections
+below this hand-off are the round log: true on the day each was written.
+
+## Live today (main `caf810b`, api.dalatech.online)
+
+- Дали answers for Tara Яармаг (tenant `matrix-eco-salon`) on Messenger. Its last published
+  revision is 2026-10-04 06:43 UTC.
+- D-179 code is deployed (#289). Яармаг's two D-179 rows (`deposit_required`,
+  `stylist_tier_after_deposits`) are in the Production database, but the last publish is older
+  than them. So the publish (dry run, `--with-model`, `--publish`, as in LAUNCH_DAY_TARA.md B4)
+  and the Messenger tests look not done yet. Ask the founder before treating D-179 as live.
+- `/book/[token]` answers a calm 503 page instead of a crash (#291, D-180). Live-checked
+  2026-10-04 with `/book/launchcheck`: wording (c), no QR, one info line in the log.
+- The billing and booking e2e tests no longer depend on today's date (#290).
+
+## Switched off, and how each is switched on
+
+- **In-chat booking:** `BOOKING_MODE` is off and `SUPABASE_SECRET_BOOKING` is not set in
+  Production. It turns on through `test` (only `test_sender_ids`), then `live`, plus each
+  tenant's booking row (LAUNCH_DAY_TARA.md section D). The founder sets every Production
+  variable; migrations or SQL only on the founder's go. While off, a deposit already paid is
+  still booked or the founder alerted (`bookingSettlePortsFromEnv`).
+- **Парк Од's Дали** (tenant `tara-park-od`): not in the Production database. Ready to onboard
+  once the founder is admin of her Page: `intake/tara-park-od.answers.json` (+ `.docx`), then
+  `scripts/provision/tara-park-od-after-onboarding.sql` (section C).
+- **Monthly billing for the Tara branches:** not started; waits for the founder's start date.
+
+## Known weak spots
+
+- D-180: the website-booking status hook (`WebsiteBookingStatus`, `src/lib/booking/jobs.ts`)
+  always answers «not known», so every known branch gets wording (b). Wordings (a) and (b) have
+  never been seen on a deployed page; only (c) has.
+- The founder's «payment could not be settled» alert is de-duplicated in memory, per instance:
+  two instances can each send one.
+- That QPay calls the callback again after a non-2xx answer is assumed, never confirmed.
+- Claude sessions cannot list Vercel variables (403). The fake-clock CI harness used for #290
+  lived in `/tmp` and is gone; the method is described in «Billing e2e: ONE CLOCK» below.
+- No customer had written since the #291 deploy when this was written: replies on `caf810b` were
+  not yet seen live (nothing was unanswered).
+
+## What comes next, in the founder's order
+
+1. **Monday 2026-10-05:** the founder switches Парк Од's website booking on (matrix_website,
+   Vercel). The new session confirms it on the live site. Whenever a branch's website booking is
+   switched on or off, its D-180 per-branch setting here must follow, once that setting exists.
+   It does not exist yet, so nothing changes in this repo on Monday.
+2. **Part 2: Парк Од's Дали**, as soon as the founder is admin of her Page (section C).
+3. **In-chat booking:** test mode, then live (section D). Build D-180's per-branch setting here,
+   as a row with the branch's other booking settings, default not open. Look at wordings (a) and
+   (b) on a deployed page for the first time.
+4. **The domain tarasalon.org** (matrix_website `docs/DOMAIN_MOVE.md`). Дали's replies and
+   `tenant_booking.booking_url` still name www.matrixecosalon.org.
+5. **Monthly billing for both branches**, once the founder gives the start date.
+6. **Яармаг's move in November** (new address in her Дали data, as well as on the website).
+
+## Never without the founder's go
+
+- Merging, or pushing to `main`.
+- Any Vercel Production change: variables (including `BOOKING_MODE` and `BILLING_MODE`),
+  Redeploy, promote, rollback, alias.
+- `supabase db push`: never, not even with a go. Migrations and data-changing SQL on Production
+  only on an explicit go, one file at a time, with a read-back. Read-only SQL is fine.
+- Paid model runs of any kind: `publish/tenant.ts --with-model`, bake-offs, eval runs.
+- `--publish` of any tenant; messages to a live Page or Messenger.
+- Calling the QPay callback on Production (it sends the founder a false alert); real payments.
+- Writing customer-facing Mongolian text without approval: propose it in `prompt/drafts/`.
+  Never invent prices, levels, names or rules; Дали never says the deposit is non-refundable.
+  Never print or log a secret value.
+
+## Left as found (not this session's)
+
+Draft PR #281 (`claude/ora-pay-return`, Ора, opened before this session) and older `claude/*`
+branches from earlier sessions. This session's own branches are all merged into `main`; Claude
+sessions here cannot delete branches (403), so they remain and are safe to delete:
+`claude/billing-e2e-clock`, `-one-clock`, `booking-off-calm`, `tara-dali-fixes-2026-10-04`,
+`tara-dali-quality-oct3`, `tara-park-od-tenant`, `tara-phones-2026-10-04`,
+`tara-inchat-booking-two-branch`, `guardrails-hooks`, and this hand-off's branch once merged.
+
+---
+
 # Booking pages while in-chat booking cannot run (2026-10-04)
 
 Production's error log, 2026-10-04 03:33 UTC: `MissingEnvError: SUPABASE_SECRET_BOOKING is not set`
