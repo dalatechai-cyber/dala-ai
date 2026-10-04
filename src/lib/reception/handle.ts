@@ -23,7 +23,7 @@
  * a stale event, an unparseable matcher, an unreviewed canned line, and a tenant with no
  * knowledge base at all. The cheapest refusals are first, and none of them costs a token.
  */
-import { isMediaMessage, MEDIA_HANDOFF_KIND } from '../handover/media.ts';
+import { isMediaMessage, MEDIA_HANDOFF_KIND, unseenMediaOf } from '../handover/media.ts';
 import { complaintFires } from '../handover/needsPerson.ts';
 import type { CallOutcome, ReceptionRequest, TerminalReason } from '../model/reception.ts';
 import { isStale } from '../model/reception.ts';
@@ -46,10 +46,15 @@ import { capEmoji, stylePriceRows, type ReplyStyle } from './style.ts';
 import { withoutOwnSite } from '../website/ownSite.ts';
 import { SECTION_LABELS, depositRow } from '../prompt/tenant.ts';
 import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '../services/match.ts';
-import { containsStem, findStem } from '../mn/match.ts';
+import { containsStem, findStem, hasWord } from '../mn/match.ts';
 import { IMAGE_REPLY_KIND } from '../inbound/imageReply.ts';
+import {
+  asksPrice, hasWords, isPhotoQuestion, PHOTO_PRICE_QUESTION_KIND, photoPriceStep, questionFor, REEL_PRICE_QUESTION_KIND,
+  type PhotoQuestionState,
+} from './photoPrice.ts';
+import { maskUrls } from '../mn/extract.ts';
 import { isLike, likeIsOwedReply } from '../inbound/like.ts';
-import { checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
+import { EMBEDDED_CERTAIN_SHARE, checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
 import { priceLineReport } from '../quality/priceLines.ts';
@@ -254,6 +259,16 @@ export type ReceptionInput = {
    * the week, as before.
    */
   days?: { today: number; tomorrow: number; closed?: readonly number[] } | null;
+  /**
+   * D-176. Where the conversation stands with the bot's photo or reel question, measured by the
+   * Messenger worker from the question's own row (`inbound/photoQuestion.ts`): `crossed` (this
+   * message was written before the question arrived: a photo and «хэд вэ?» typed together arrive
+   * as two messages and the photo is answered first), `burst` (sent within the last 10 minutes),
+   * `answering` (within the last hour), `stale`. Read only when the history ends on the question.
+   * Absent reads as `answering`: the website never asks the question (`noInbox`), and the reply
+   * cases carry the question in their history.
+   */
+  photoQuestionState?: PhotoQuestionState;
 };
 
 export type ReceptionOutcome =
@@ -261,9 +276,10 @@ export type ReceptionOutcome =
   | {
     kind: 'drafted'; outboundId: string; answeredBy: AnsweredBy; refusal?: string;
     /**
-     * The reply hands the customer to a person: the handoff line, or the callback line served
-     * in its place (`generalLine`). Never set for a row the customer's words asked for, such
-     * as a callback request (`deterministic`). The website alerts on it (`noInbox`).
+     * The reply hands the customer to a person: the handoff line (whoever served its bytes: since
+     * D-176 a fixed reply or FAQ may carry them), or the callback line served in its place
+     * (`generalLine`). Never set for a callback line the customer's words asked for
+     * (`deterministic`). The website alerts on it (`noInbox`).
      */
     handedOff?: true;
     /** A photo, video or media link answered with the handover notice: the worker hands the thread to staff. */
@@ -377,6 +393,25 @@ function rowsNamedByCustomer(message: string, input: ReceptionInput): string | n
       : [];
   const rows = input.serviceNames.filter((s) => names.includes(s.name)).flatMap((s) => [...s.rows]);
   return rows.length === 0 ? null : rows.join('\n');
+}
+
+/**
+ * Do the customer's words name a listed service (D-176)? Its name or one of its
+ * `service_aliases` in full (`matchService`: unique, a family or an ambiguity all name one), or
+ * a service's KIND, its last word («хими», «будаг», «тайралт»), as a stem. Each text in turn:
+ * the message, then its Latin-respelled form. Decides only whether the rows can answer a photo's
+ * price question; it chooses no row.
+ */
+function namesAService(texts: readonly (string | null)[], input: ReceptionInput): boolean {
+  const entries = entriesFrom(input.serviceNames.map((s) => ({ id: s.name, name: s.name })),
+    input.serviceAliases.map((a) => ({ serviceId: a.name, alias: a.alias })));
+  const heads = input.serviceNames.map((s) => headOf(s.name)).filter((h) => h !== '');
+  return texts.some((t) => {
+    if (t === null || t.trim() === '') return false;
+    const m = matchService(t, entries);
+    if (m.verdict === 'unique' || m.verdict === 'family' || m.verdict === 'ambiguous') return true;
+    return heads.some((h) => containsStem(t, h));
+  });
 }
 
 /**
@@ -684,7 +719,28 @@ async function receive(
   //    customer-visible sentence, and an unreviewed one must not ship just because no
   //    model was involved in choosing it.
   const matchOpts = { hasAttachment: input.customerAttachments.length > 0, attachments: input.customerAttachments, topics: matched.matchedTopics, respelled };
-  const shortcut = matchDeterministic(input.customerMessage, input.deterministic, input.historyState, matchOpts);
+  // A PHOTO OR A REEL AND «HOW MUCH?» (D-176). For a tenant with the reviewed question row for
+  // what was sent (the photo's, the reel's), its words are read as words: «будаг хэд вэ» beside a
+  // photo is the dye question, and a fixed reply that skips any message carrying a picture would
+  // leave it to the model. A shared post, or a photo beside a video, stays D-152's hand-off
+  // (`unseenMediaOf`); so does a kind the tenant has no row for. Never on the website: it has no
+  // inbox to hand off to and no question timing (only the Messenger worker measures it), and a
+  // pasted video link there keeps today's path.
+  const photoQuestion = input.noInbox ? null : canned(input.canned, PHOTO_PRICE_QUESTION_KIND);
+  const reelQuestion = input.noInbox ? null : canned(input.canned, REEL_PRICE_QUESTION_KIND);
+  const unseen = unseenMediaOf({ text: input.customerMessage, attachments: input.customerAttachments, sentPhoto: input.customerSentPhoto });
+  const mediaQuestion = questionFor(unseen, { photo: photoQuestion, reel: reelQuestion });
+  // The words are read with links masked: a reel link's host, handle or slug
+  // («facebook.com/share/r/…», «tiktok.com/@une…») is not the customer naming a fixed reply's
+  // topic, asking a price or naming a service. Everywhere else the message is read as before.
+  const anyQuestion = photoQuestion !== null || reelQuestion !== null;
+  const words = anyQuestion ? maskUrls(input.customerMessage) : input.customerMessage;
+  const wordsRespelled = words === input.customerMessage ? respelled : matchingText(words, input.spellings);
+  const shortcutText = mediaQuestion !== null ? words : input.customerMessage;
+  const shortcutOpts = mediaQuestion !== null
+    ? { ...matchOpts, hasAttachment: false, attachments: [], respelled: wordsRespelled }
+    : matchOpts;
+  const shortcut = matchDeterministic(shortcutText, input.deterministic, input.historyState, shortcutOpts);
   // A like (D-168) is answered by a fixed reply or not at all: never by the model, and never
   // twice in a row, so a customer tapping like after our answer to their like gets silence.
   // The worker decides this before the spend guard and the bubble (`likeIsOwedReply`); this is
@@ -825,7 +881,10 @@ async function receive(
       // served as the general line. Compared whole, so a reply that merely quotes one inside
       // an answer is not one. With no inbox (the website), the handoff row's promise that a
       // colleague will answer is replaced by the callback line, which asks for a number.
-      if (x.answeredBy === 'canned') {
+      // The handoff row's bytes are a hand-off whoever served them (D-176): a fixed reply or an
+      // FAQ may carry the tenant's own «our staff will answer» sentence, and a person must be told.
+      // The callback line only when the platform chose it, never a callback the customer asked for.
+      {
         const said = x.body.trim();
         const handoffRow = canned(input.canned, 'handoff')?.trim() ?? null;
         const callback = typeof input.fallbackLine === 'string' && input.fallbackLine.trim() !== ''
@@ -833,7 +892,7 @@ async function receive(
         if (handoffRow !== null && said === handoffRow) {
           state.handedOff = true;
           if (input.noInbox && callback !== null) x = { ...x, body: callback };
-        } else if (callback !== null && said === callback) {
+        } else if (x.answeredBy === 'canned' && callback !== null && said === callback) {
           state.handedOff = true;
         }
       }
@@ -848,8 +907,8 @@ async function receive(
       // (founder, 2026-09-26: a reply naming a coming-soon staff member says so) are `onReply`
       // below. A row that never reads the reply fires the same on both passes (same message,
       // same options), so nothing else changes.
-      const withReply = matchDeterministic(input.customerMessage, input.deterministic, input.historyState,
-        { ...matchOpts, reply: x.body }).appends;
+      const withReply = matchDeterministic(shortcutText, input.deterministic, input.historyState,
+        { ...shortcutOpts, reply: x.body }).appends;
       const own = (x.answeredBy === 'canned' ? appends.filter((a) => a.onTopic !== true) : appends)
         .filter((a) => withReply.some((b) => b.intent === a.intent));
       // Not on the tenant's own set answer (founder, 2026-09-26): the approved price overview
@@ -949,11 +1008,65 @@ async function receive(
       : { kind: 'retry', detail: drafted.detail };
   }
 
+  // A PHOTO OR A REEL AND «HOW MUCH?» (founder, 2026-10-04, D-176, `reception/photoPrice.ts`):
+  // Дали asks which service and the hair length (the tenant's reviewed question row for what was
+  // sent), answers the price from the rows once the customer says, and hands the chat to staff
+  // only after one question that brought nothing the rows know. Inert for a tenant without the
+  // rows. The words are read with links masked (above).
+  const photoStep = photoPriceStep({
+    question: photoQuestion,
+    reelQuestion,
+    media: unseen,
+    previousReply,
+    questionState: input.photoQuestionState ?? 'answering',
+    namesService: namesAService([words, wordsRespelled], input),
+    // A whole-message row is small talk (a greeting, thanks, «ок»); any other row is an answer.
+    fixedReply: shortcut.hit === null ? null
+      : input.deterministic.find((r) => r.intent === shortcut.hit?.intent)?.matchMode === 'whole_message' ? 'smalltalk' : 'content',
+    gateTopic: matched.matchedTopics.length > 0,
+    asksPrice: asksPrice(words) || (wordsRespelled !== null && asksPrice(wordsRespelled)),
+    hasWords: hasWords(input.customerMessage),
+  });
+  // Which question this turn is about, for the flags only: the reel's for a video, or for a text
+  // after the reel question; otherwise the photo's.
+  const about = unseen === 'video' || (unseen === null && reelQuestion !== null && isPhotoQuestion(previousReply, reelQuestion))
+    ? 'reel' : 'photo';
+  if (photoStep === 'wait') {
+    await deps.release();
+    await deps.flag({ code: `${about}_question_pending`, detail: 'a price ask written with the picture before the question arrived, or a second picture soon after it; the question answers it' });
+    return { kind: 'dropped', reason: 'photo_question_pending' };
+  }
+  if (photoStep === 'ask' && mediaQuestion !== null) {
+    await deps.release();
+    await deps.flag(unseen === 'video'
+      ? { code: REEL_PRICE_QUESTION_KIND, detail: 'a video or reel with a price ask or no words: asked which service and the hair length' }
+      : { code: PHOTO_PRICE_QUESTION_KIND, detail: 'a photo with a price ask or no words: asked which service and the hair length' });
+    // Its exact bytes, as the worker sends it: nothing appended (no sales line, no append row),
+    // because the next turn recognises the question by an exact comparison.
+    const drafted = await deps.draft({ body: mediaQuestion, answeredBy: 'canned' });
+    return drafted.ok
+      ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned' }
+      : { kind: 'retry', detail: drafted.detail };
+  }
+  if (photoStep === 'handoff') {
+    const notice = canned(input.canned, MEDIA_HANDOFF_KIND);
+    if (notice !== null) {
+      await deps.release();
+      await deps.flag({ code: `${about}_price_handoff`, detail: `after the ${about} question, nothing the rows know: handed to staff` });
+      const drafted = await d.draft({ body: notice, answeredBy: 'canned' });
+      return drafted.ok
+        ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned', mediaHandoff: true }
+        : { kind: 'retry', detail: drafted.detail };
+    }
+  }
+
   // A PHOTO, A VIDEO OR A LINK TO ONE is a person's to answer (founder, 2026-09-27): the
   // tenant's reviewed «a staff member will look» line, and the worker hands the thread to
   // the staff once it is sent (`handover/media.ts`). Before the image line, which it
   // replaces for a tenant that has both. No row keeps today's behaviour.
-  if (isMediaMessage({ text: input.customerMessage, attachments: input.customerAttachments, sentPhoto: input.customerSentPhoto })) {
+  // A photo or reel whose words name a service (`photoStep === 'answer'`) is answered from the rows below.
+  if (photoStep !== 'answer'
+    && isMediaMessage({ text: input.customerMessage, attachments: input.customerAttachments, sentPhoto: input.customerSentPhoto })) {
     const notice = canned(input.canned, MEDIA_HANDOFF_KIND);
     if (notice !== null) {
       await deps.release();
@@ -972,7 +1085,7 @@ async function receive(
   // like this*, is a question about the picture. `customerSentPhoto` excludes stickers, so a
   // thumbs-up with a word beside it is not a photograph (D-070). A tenant with no reviewed
   // image line keeps today's behaviour: the model answers the words.
-  if (input.customerSentPhoto) {
+  if (input.customerSentPhoto && photoStep !== 'answer') {
     const imageLine = canned(input.canned, IMAGE_REPLY_KIND);
     if (imageLine !== null) {
       await deps.release();
@@ -1303,7 +1416,16 @@ async function receive(
     // надад байхгүй» scored 0.754 of the PRICE refusal because both share a frame and a
     // phone sentence, and the customer was told a holiday question had no price. The
     // tenant's handoff line is true for any question; a topic's refusal is true for one.
-    const unsure = pinned.kind === 'paraphrase' && pinned.embedded === true && pinned.canonicalKind !== 'handoff';
+    //
+    // An adaptation holding EMBEDDED_CERTAIN_SHARE of the row as one unbroken run is not
+    // unsure: it is the row with a word changed (see the constant for why the figure keeps two
+    // refusals that share a frame apart). Tara, live: «Tsag awch ochih uu» (2026-10-01) and
+    // «unuudur hiilgeh tsag bga yu» (2026-10-03) carried the booking line at 0.992 and 0.984
+    // inside a longer reply, and a customer asking to book was served «I cannot answer this
+    // question». «Manikur hiilgewel» (2026-09-30) carried the no-nails line at 0.982 and got
+    // the same. The 0.754 holiday reply this rule was built for still gets the general line.
+    const unsure = pinned.kind === 'paraphrase' && pinned.embedded === true && pinned.canonicalKind !== 'handoff'
+      && pinned.similarity < EMBEDDED_CERTAIN_SHARE;
     const general = unsure ? generalLine(input)?.body ?? null : null;
     const servedBody = general ?? pinned.canonical;
     if (pinned.kind === 'paraphrase') {
@@ -1560,6 +1682,37 @@ async function receive(
       if (rowsOnly !== '') {
         await deps.flag({ code: 'set_question_stray', detail: `${stray.intent}'s question under ${presentation.quoted.map((q) => q.name).join(', ')}`, attempted: capped.text });
         const served = await d.draft({ body: rowsOnly, answeredBy: 'deterministic' });
+        return served.ok
+          ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
+          : { kind: 'retry', detail: served.detail };
+      }
+    }
+    // The set's question with NO price, to a customer who ASKED a price. Tara, live
+    // 2026-09-29 to 2026-10-03: «Us budahad hed gdg ve?», «ene budalt hed ve», «Үс будхад хэд
+    // байдаг бол» and more were answered by the model with the colour question alone, so a
+    // customer who asked what dyeing costs was asked a question back and given no price
+    // (dali.md A4/E10). The tenant's own answer to that question is its set row — the rows,
+    // then the question (founder, 2026-09-24: *"…then my question, also when served from
+    // data"*) — and that is what is served. Only when the customer's words ask a price
+    // (`ASKS_PRICE`): «I want a perm» answered «which perm?» is a fair question, not a price
+    // list. Not on a suitability turn (its own composition below adds the rows the customer
+    // named), not when every row is already in the conversation (the question is then a fair
+    // follow-up), and never on a turn where a refusal rule blocks prices.
+    if (presentation.quoted.length === 0 && !matched.refusedTopicBlocksPrice && matched.grounded === null
+        && asksPrice(input.customerMessage)) {
+      const reply = fold(capped.text);
+      const asked = setRows(input.deterministic).find((r) => r.body.trim() !== '' && reply.includes(fold(r.body.trim())));
+      const setBody = asked === undefined ? null : composeQuoted(asked, input.serviceNames);
+      const said = input.history.filter((h) => h.role === 'assistant').map((h) => fold(h.content));
+      const rows = asked === undefined ? []
+        : asked.quoteServices.flatMap((n) => input.serviceNames.find((s) => s.name === n)?.rows ?? []);
+      // Rows are looked for as the price list writes them. That holds while the tenant's
+      // `reply_style` sets no price header or line template (Tara: none, read 2026-10-03); a
+      // tenant that restyles its rows would see them served again after a restyled showing.
+      const shown = rows.length > 0 && rows.every((row) => said.some((t) => t.includes(fold(row))));
+      if (asked !== undefined && setBody !== null && !shown) {
+        await deps.flag({ code: 'set_question_unpriced', detail: `${asked.intent}'s question with no price; served the row`, attempted: capped.text });
+        const served = await d.draft({ body: setBody, answeredBy: 'deterministic' });
         return served.ok
           ? { kind: 'drafted', outboundId: served.id, answeredBy: 'deterministic' }
           : { kind: 'retry', detail: served.detail };

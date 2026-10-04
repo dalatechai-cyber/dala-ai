@@ -113,6 +113,53 @@ test('a refused re-publish leaves the row untouched, so the next run tries again
   assert.match(String(writes.find((w) => w.table === 'alerts')?.patch['body']), /REFUSED: qstash 500/);
 });
 
+const textEntry = (m: Record<string, unknown> = { mid: 'm_late', text: 'Цаг авъя' }) => ({
+  id: '863503883522801', time: NOW.getTime(),
+  messaging: [{ sender: { id: 'psid-1' }, recipient: { id: '863503883522801' }, timestamp: NOW.getTime() - 90 * 60_000, message: m }],
+});
+const LIVE = { data: [{ id: EVENT.channel_id, delivery_mode: 'live', meta_app_id: null }], error: null };
+
+test('DONE-TEST (founder, 2026-10-03): a late TEXT event on a LIVE channel inside 24h is RE-PUBLISHED, and still pages at once', async () => {
+  const q = queue();
+  const { db, writes } = stub({
+    webhook_events: { data: [{ ...EVENT, received_at: minutesAgo(90), raw_payload: textEntry() }], error: null },
+    tenants: TENANT_30,
+    tenant_channels: LIVE,
+    alerts: ALERT_OK,
+  });
+  const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+  assert.ok(r.ok);
+  assert.equal(r.swept[0]?.action, 'requeued');
+  assert.equal(q.jobs.length, 1, 'queued: the worker finds it too late and serves the reviewed line, no model');
+  const alert = writes.find((w) => w.table === 'alerts');
+  assert.equal(alert?.patch['route'], 'now', 'not answered in time: the founder is told at once, as before');
+  assert.match(String(alert?.patch['body']), /NOT answered in time/);
+});
+
+test('a late event is still EXPIRED past 24h, off a live channel, or when it is not plain customer text', async () => {
+  const cases: [number, string, unknown][] = [
+    [25 * 60, 'live', textEntry()],
+    [90, 'shadow', textEntry()],
+    [90, 'off', textEntry()],
+    [90, 'live', textEntry({ mid: 'm_photo', attachments: [{ type: 'image', payload: { url: 'https://x' } }] })],
+    [90, 'live', textEntry({ mid: 'm_echo', is_echo: true, text: 'Сайн байна уу', app_id: 1 })],
+    [90, 'live', undefined],
+  ];
+  for (const [age, mode, payload] of cases) {
+    const q = queue();
+    const { db } = stub({
+      webhook_events: [{ data: [{ ...EVENT, received_at: minutesAgo(age), raw_payload: payload }], error: null }, { data: null, error: null }],
+      tenants: TENANT_30,
+      tenant_channels: { data: [{ id: EVENT.channel_id, delivery_mode: mode, meta_app_id: null }], error: null },
+      alerts: ALERT_OK,
+    });
+    const r = await sweepStrandedEvents(db, { now: NOW, enqueue: q.enqueue });
+    assert.ok(r.ok);
+    assert.equal(r.swept[0]?.action, 'expired', `${age} min, ${mode}, ${JSON.stringify(payload)?.slice(0, 60)}`);
+    assert.deepEqual(q.jobs, []);
+  }
+});
+
 test('DONE-TEST: past the reply-age limit it is EXPIRED, never re-published', async () => {
   // Re-publishing here would spend a model call to produce a `reply_too_late`.
   const q = queue();

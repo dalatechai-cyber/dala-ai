@@ -148,10 +148,13 @@ export function generateCases(
     add({
       id: 'media_link',
       message: MEDIA_PROBE,
-      expectedBody: d.sentences['handover_notice'],
+      // A tenant with the reel question asks it instead (D-176): the probe is a video link.
+      expectedBody: d.sentences['reel_price_question'] ?? d.sentences['handover_notice'],
       mustInclude: [],
       mustNotInclude: [],
-      why: 'a video link gets the reviewed media line and nothing else (D-152) — answered with no model',
+      why: d.sentences['reel_price_question'] !== undefined
+        ? 'a video link gets the reviewed reel question and nothing else (D-176) — answered with no model'
+        : 'a video link gets the reviewed media line and nothing else (D-152) — answered with no model',
     });
   }
 

@@ -60,6 +60,27 @@ test('a photo or a video with no words is planned once per sender; a sticker nev
   assert.deepEqual(plans.map((p) => p.idx), [0]);
 });
 
+test('D-176: a plan says whether it is a photo, a video or reel, or mixed', async () => {
+  const { planMediaAlone, photoQuestionDedupKey, mediaAloneDedupKey } = await import('./media.ts');
+  const skip = (o: Record<string, unknown>) => ({
+    reason: 'no_text', idx: 0, externalId: 'm1', senderId: 'p1', recipientId: null, appId: null,
+    attachments: [], stickerIds: [], ...o,
+  });
+  const plans = planMediaAlone([
+    skip({ idx: 0, senderId: 'a', attachments: ['image'] }),
+    skip({ idx: 1, senderId: 'b', attachments: ['image', 'video'] }),
+    skip({ idx: 2, senderId: 'c', attachments: ['reel'] }),
+    skip({ idx: 3, senderId: 'd', attachments: ['video'] }),
+    skip({ idx: 4, senderId: 'e', attachments: ['ig_reel'] }),
+    skip({ idx: 5, senderId: 'f', attachments: ['share'] }),
+    skip({ idx: 6, senderId: 'g', attachments: ['reel', 'share'] }),
+  ] as never);
+  assert.deepEqual(plans.map((p) => [p.senderId, p.media]),
+    [['a', 'photo'], ['b', 'mixed'], ['c', 'video'], ['d', 'video'], ['e', 'video'], ['f', 'mixed'], ['g', 'mixed']]);
+  assert.equal(photoQuestionDedupKey(7, 1), 'pq:7:1');
+  assert.notEqual(photoQuestionDedupKey(7, 1), mediaAloneDedupKey(7, 1), 'the question and the notice never share a key');
+});
+
 /** Serves the tenants row; records every table touched. `alerts` answers an error, so no Telegram is attempted. */
 function alertDb(tenant: Record<string, unknown> | null) {
   const touched: string[] = [];
@@ -161,4 +182,28 @@ test('Instagram: a photo WITH words is parsed with its attachment, like Messenge
   assert.deepEqual(r.messages[0]?.attachments, ['image']);
   assert.deepEqual(r.messages[0]?.stickerIds, []);
   assert.equal(r.messages[0]?.text, 'энэ хэд вэ');
+});
+
+test('D-176 reel line: what a message carries that the bot cannot see', async () => {
+  const { unseenMediaOf, videoLinksIn, mediaLinksIn } = await import('./media.ts');
+  const of = (text: string, attachments: string[] = [], sentPhoto = false) => unseenMediaOf({ text, attachments, sentPhoto });
+  assert.equal(of('Ene budalt hed boloh be?'), null);
+  assert.equal(of('', [], true), 'photo');
+  assert.equal(of('', ['reel']), 'video');
+  assert.equal(of('https://www.facebook.com/share/r/1AbC/ hed ve'), 'video', 'Tara\'s webhook 979: the reel as text');
+  assert.equal(of('https://www.instagram.com/reel/Cxyz/'), 'video');
+  assert.equal(of('https://youtu.be/dQw4w9WgXcQ'), 'video');
+  assert.equal(of('https://www.tiktok.com/@salon/video/123'), 'video');
+  assert.equal(of('https://www.tiktok.com/@salon/photo/123'), 'mixed', 'review: a TikTok photo post is no video');
+  assert.equal(of('https://www.instagram.com/p/Cxyz/'), 'mixed', 'a post may be a photo: still staff');
+  assert.equal(of('https://pin.it/abc'), 'mixed');
+  assert.equal(of('https://www.facebook.com/share/p/1AbC/'), 'mixed');
+  assert.equal(of('', ['share']), 'mixed');
+  assert.equal(of('https://youtu.be/x https://www.instagram.com/p/C/'), 'mixed', 'a video beside a post');
+  assert.equal(of('', ['image', 'video'], true), 'mixed', 'a photo beside a video');
+  assert.equal(of('https://youtu.be/x', [], true), 'mixed', 'a photo beside a video link');
+  assert.equal(of('https://matrixecosalon.org/services.html', [], true), 'photo', 'a link that is no picture changes nothing');
+  for (const t of ['https://youtu.be/x', 'https://fb.watch/abc/', 'https://www.facebook.com/reel/123']) {
+    assert.deepEqual(videoLinksIn(t), mediaLinksIn(t), `${t} is a video link`);
+  }
 });

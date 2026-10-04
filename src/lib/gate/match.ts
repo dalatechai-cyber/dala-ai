@@ -604,6 +604,13 @@ export const MODEL_INVISIBLE_KINDS: readonly string[] = [
   // Дали G4. A voice message's line, served only by the reception worker. Listed while
   // `0072` registers the kind and no tenant has a row, for the reason above.
   'voice_received',
+  // D-176. The photo question, served by the platform (`reception/photoPrice.ts`, the
+  // reception worker), never by the model. Listed while `0083` registers the kind and no
+  // tenant has a row, for the reason above.
+  'photo_price_question',
+  // D-176. The reel question (a video, a reel or a link to one), served the same way. Listed
+  // while `0083` registers the kind and no tenant has a row, for the reason above.
+  'reel_price_question',
 ];
 
 /**

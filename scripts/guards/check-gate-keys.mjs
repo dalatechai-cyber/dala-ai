@@ -66,7 +66,8 @@ for (const dir of BLOCK_DIRS) {
 // original below — a copy that can go stale silently is the defect this whole file exists
 // to catch, and writing one inside it would be the joke telling itself.
 const INVISIBLE = ['image_received', 'comment_public_reply', 'comment_private_reply', 'handover_notice', 'handover_reclaim', 'clarify_branch',
-  'comment_cta_public_reply', 'comment_cta_private_reply', 'voice_received'];
+  'comment_cta_public_reply', 'comment_cta_private_reply', 'voice_received', 'photo_price_question',
+  'reel_price_question'];
 const MATCH_TS = 'src/lib/gate/match.ts';
 if (fs.existsSync(MATCH_TS)) {
   const src = fs.readFileSync(MATCH_TS, 'utf8');

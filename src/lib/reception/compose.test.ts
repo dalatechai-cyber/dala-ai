@@ -595,3 +595,368 @@ test('without a reviewed notice nothing changes: the photo line, and no handover
   assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined);
   assert.deepEqual(t.drafts.map((x) => x.body), [IMAGE]);
 });
+
+// ---- Tara, live 2026-09-29 to 2026-10-03 (quality round of 2026-10-03) -------------------------
+
+test('DONE-TEST (Tara, 2026-10-03): THE COLOUR QUESTION ALONE, WITH NO PRICE, IS SERVED AS THE SET ROW: ROWS, THEN THE QUESTION', async () => {
+  // «Us budahad hed gdg ve?» (2026-10-01) reached the model, which answered with the question
+  // alone: a customer who asked what dyeing costs got no price.
+  const t = run(`Будалтын төрөл олон тул тодруулъя: ${QUESTION.charAt(0).toLowerCase()}${QUESTION.slice(1)}`);
+  const r = await handleReception(t.deps, { ...base, customerMessage: 'Us budahad hed gdg ve?' });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.equal(t.drafts[0]?.body, `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${QUESTION}`);
+  assert.ok(t.flags.includes('set_question_unpriced'));
+});
+
+test('the colour question alone stands when the rows are already in the conversation', async () => {
+  const shown = `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${QUESTION}`;
+  const t = run(QUESTION);
+  await handleReception(t.deps, {
+    ...base, customerMessage: 'ene budalt hed ve',
+    history: [{ role: 'user', content: 'Будаг хэд вэ?' }, { role: 'assistant', content: shown }],
+  });
+  assert.deepEqual(t.drafts, [{ body: QUESTION, answeredBy: 'model' }]);
+  assert.equal(t.flags.includes('set_question_unpriced'), false);
+});
+
+test('the colour question alone gets no rows on a turn where a refusal rule blocks prices', async () => {
+  const BLOCK: GateRule = {
+    gate: 'Ш1', topicKey: 'keratin', matcher: { mode: 'contains_stem', stems: ['кератин'] },
+    quotePrice: false, deterministicShortcircuit: false, responseKind: 'refusal_price_unlisted',
+    provenance: 'tenant_confirmed', groundedOnly: false,
+  };
+  const t = run(QUESTION);
+  await handleReception(t.deps, { ...base, rules: [SUIT, BLOCK], customerMessage: 'кератин budah hed ve' });
+  assert.equal(t.requests.length, 1, 'the model was asked');
+  assert.equal(t.flags.includes('set_question_unpriced'), false);
+  assert.equal(t.drafts[0]?.body.includes('135,000₮'), false, String(t.drafts[0]?.body));
+});
+
+test('DONE-TEST (Tara, 2026-10-01 and 2026-10-03): THE BOOKING LINE ADAPTED INSIDE A REPLY AT 0.9+ IS SERVED, WITH THE DEPOSITS, NOT THE HANDOFF', async () => {
+  // «Tsag awch ochih uu» carried the booking line at 0.992 inside a longer reply and was
+  // served «I cannot answer this question». One word changed is the line, not a doubt.
+  const drifted = BOOKING.replace('боломжтой.', 'боломжтой шүү.');
+  const t = run(`Би өөрөө цаг захиалгыг баталгаажуулах боломжгүй байна, уучлаарай. ${drifted}`);
+  const r = await handleReception(t.deps, { ...base, customerMessage: 'Tsag awch ochih uu' });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
+  assert.equal(t.drafts[0]?.body, `${SERVED_DEPOSITS.join('\n')}\n\n${BOOKING}`);
+  assert.ok(t.flags.includes('canned_paraphrased'));
+});
+
+test('the colour question alone stands when the customer did not ask a price', async () => {
+  const t = run(QUESTION);
+  await handleReception(t.deps, { ...base, customerMessage: 'Будаг хийлгэмээр байна' });
+  assert.deepEqual(t.drafts, [{ body: QUESTION, answeredBy: 'model' }]);
+  assert.equal(t.flags.includes('set_question_unpriced'), false);
+});
+
+test('on a suitability turn a grounded answer keeps its own composition, not the set row', async () => {
+  // The salon's own words plus the colour question, both in the tenant's data: the grounded
+  // answer stands and the suitability step adds the rows the customer named after it.
+  const t = run(`${DOC} ${QUESTION}`);
+  await handleReception(t.deps, { ...base, promptStable: `${STABLE}\n${QUESTION}`, customerMessage: 'Хар өнгөтэй usend orohu hed ve' });
+  assert.equal(t.flags.includes('set_question_unpriced'), false, JSON.stringify(t.flags));
+  assert.ok(t.drafts[0]?.body.startsWith(DOC), String(t.drafts[0]?.body));
+});
+
+test('the colour question alone stands when every row was already shown, in any layout', async () => {
+  const t = run(QUESTION);
+  await handleReception(t.deps, {
+    ...base, customerMessage: 'ene budalt hed ve',
+    history: [{ role: 'user', content: 'Будаг хэд вэ?' }, { role: 'assistant', content: `Будгийн үнэ:\n${ROWS.long}\n${ROWS.root}\n${ROWS.mid}` }],
+  });
+  assert.deepEqual(t.drafts, [{ body: QUESTION, answeredBy: 'model' }]);
+});
+
+test('an adaptation inside a reply UNDER the certain share is still unsure and gets the general line', async () => {
+  const { checkPinnedLines, EMBEDDED_CERTAIN_SHARE, EMBEDDED_MIN_SHARE } = await import('../gate/pinned.ts');
+  const text = `Таны асуусан зүйлийн талаар тодруулахад хэцүү байна, дахин бичнэ үү. ${UNLISTED.replace('надад байхгүй', 'надад одоогоор байхгүй')}`;
+  const verdict = checkPinnedLines(text, CANNED);
+  assert.ok(verdict.kind === 'paraphrase' && verdict.embedded === true, JSON.stringify(verdict));
+  assert.ok(verdict.kind === 'paraphrase' && verdict.similarity >= EMBEDDED_MIN_SHARE && verdict.similarity < EMBEDDED_CERTAIN_SHARE, JSON.stringify(verdict));
+  const t = run(text);
+  await handleReception(t.deps, { ...base, customerMessage: 'энэ юу вэ' });
+  assert.equal(t.drafts[0]?.body, CANNED[0]?.body, 'the handoff line, not the price refusal');
+});
+
+test('price asks typed with w for в, and «үнийг», are price asks; «хэд» about a time or days is not', async () => {
+  for (const message of ['budalt hedwe', 'budah hdv', 'budalt une ni', 'будалтын үнийг хэлээч']) {
+    const t = run(QUESTION);
+    await handleReception(t.deps, { ...base, customerMessage: message });
+    assert.ok(t.flags.includes('set_question_unpriced'), message);
+  }
+  for (const message of ['Хэдэн цагт будуулж болох вэ', 'heden tsagt budah ve', 'Хэд хоногийн дараа будуулъя']) {
+    const t = run(QUESTION);
+    await handleReception(t.deps, { ...base, customerMessage: message });
+    assert.equal(t.flags.includes('set_question_unpriced'), false, message);
+  }
+});
+
+// ---- D-176 (founder, 2026-10-04): a photo and «how much?» is asked, then priced, not handed off ----
+
+const PHOTO_Q = 'Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.';
+const WITH_PHOTO_Q = [...WITH_NOTICE, { kind: 'photo_price_question', body: PHOTO_Q, reviewedAt: R }];
+const photo = { customerAttachments: ['image'], customerSentPhoto: true } as const;
+const AFTER_Q = [{ role: 'user' as const, content: 'Сайн байна уу' }, { role: 'assistant' as const, content: PHOTO_Q }];
+
+test('DONE-TEST (D-176): A PHOTO WITH «ENE HED VE» GETS THE QUESTION, NO MODEL, NO HAND-OFF', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'ene hed ve', ...photo });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned');
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined);
+  assert.deepEqual(t.drafts.map((x) => x.body), [PHOTO_Q]);
+  assert.equal(t.requests.length, 0);
+  assert.ok(t.flags.includes('photo_price_question'));
+});
+
+test('DONE-TEST (D-176): A PHOTO WITH «БУДАГ ХЭД ВЭ» GETS THE DYE ROWS FROM DATA, NOT THE NOTICE', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'Будаг хэд вэ', ...photo });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined);
+  assert.equal(t.drafts[0]?.body, `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${QUESTION}`);
+});
+
+test('D-176: a photo asking «can it be done like this?» still goes to staff', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'iim bolgoj bolhu', ...photo });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true);
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+});
+
+test('D-176: a reel with «hed ve» still goes to staff at a tenant with no reel row', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, {
+    ...base, canned: WITH_PHOTO_Q, customerMessage: 'hed ve', customerAttachments: ['reel'], customerSentPhoto: false,
+  });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true);
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+});
+
+test('DONE-TEST (D-176): THE ANSWER TO THE QUESTION GETS ITS PRICE FROM THE ROWS', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'Будаг хэд вэ', history: AFTER_Q });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.equal(t.drafts[0]?.body, `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${QUESTION}`);
+});
+
+test('D-176: an answer naming a service the model must price reaches the model, not staff', async () => {
+  const t = run(ROWS.bleach);
+  const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'tsairuulalt urt', history: AFTER_Q,
+    serviceAliases: [...ALIASES, { name: 'Цайруулалт', alias: 'tsairuul' }] });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined);
+  assert.equal(t.requests.length, 1);
+});
+
+test('DONE-TEST (D-176): AN ANSWER THAT NAMES NOTHING THE ROWS KNOW GOES TO STAFF, AFTER ONE QUESTION', async () => {
+  for (const message of ['энэ шиг', 'hed ve']) {
+    const t = run('never called');
+    const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: message, history: AFTER_Q });
+    assert.equal(r.kind === 'drafted' && r.mediaHandoff, true, message);
+    assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE], message);
+    assert.equal(t.requests.length, 0, message);
+    assert.ok(t.flags.includes('photo_price_handoff'), message);
+  }
+});
+
+test('DONE-TEST (D-176): «HED VE» TYPED WITH THE PHOTO, CROSSING THE QUESTION, GETS NOTHING MORE', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, {
+    ...base, canned: WITH_PHOTO_Q, customerMessage: 'hed ve', history: AFTER_Q, photoQuestionState: 'crossed',
+  });
+  assert.deepEqual(r, { kind: 'dropped', reason: 'photo_question_pending' });
+  assert.equal(t.drafts.length, 0);
+  assert.equal(t.requests.length, 0);
+});
+
+test('D-176: without the question row a photo price ask is handed off exactly as before', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_NOTICE, customerMessage: 'ene hed ve', ...photo });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true, JSON.stringify(r));
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+});
+
+test('D-176: an UNREVIEWED question row refuses every reply, as any unreviewed line does: insert it signed or not at all', async () => {
+  const unreviewed = [...WITH_NOTICE, { kind: 'photo_price_question', body: PHOTO_Q, reviewedAt: null }];
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: unreviewed, customerMessage: 'Сайн байна уу' });
+  assert.deepEqual(r, { kind: 'retry', detail: 'canned_response_unreviewed: photo_price_question' });
+});
+
+test('review (D-176): a photo asking whether a named colour can be done stays the stylist\'s', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'Ийм будаг хийж болох уу?', ...photo });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true);
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+  assert.equal(t.requests.length, 0, 'the model, which cannot see the photo, is never asked');
+});
+
+test('review (D-176): the question is sent as its exact bytes, with no append row after it', async () => {
+  const t = run('never called');
+  await handleReception(t.deps, { ...base, canned: WITH_PHOTO_Q, customerMessage: 'tara hed ve', ...photo });
+  assert.deepEqual(t.drafts.map((x) => x.body), [PHOTO_Q]);
+});
+
+test('review (D-176): a question from more than an hour ago is not being answered: the message goes on as usual', async () => {
+  const t = run('Сайн байна уу.');
+  const r = await handleReception(t.deps, {
+    ...base, canned: WITH_PHOTO_Q, customerMessage: 'энэ шиг', history: AFTER_Q, photoQuestionState: 'stale',
+  });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined);
+  assert.equal(t.requests.length, 1);
+});
+
+test('review (D-176): a fixed reply carrying the hand-off line\'s bytes is a hand-off, so a person is told', async () => {
+  const handoff = CANNED[0]?.body ?? '';
+  const BRAND: DeterministicRule = {
+    ...confirmed, intent: 'dye_brand', body: handoff, matchMode: 'matcher', stems: [], coverWords: [],
+    matcher: { mode: 'contains_stem', stems: ['брэнд'] }, placement: 'replace', quoteServices: [],
+  };
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, deterministic: [...base.deterministic, BRAND], customerMessage: 'ямар брэнд' });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.equal(r.kind === 'drafted' && r.handedOff, true);
+});
+
+// ---- D-176, the reel line (founder, 2026-10-04): a video, a reel or a link to one, wired like a photo ----
+
+const REEL_Q = 'Уучлаарай, би бичлэг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.';
+const WITH_REEL_Q = [...WITH_PHOTO_Q, { kind: 'reel_price_question', body: REEL_Q, reviewedAt: R }];
+const reelShared = { customerAttachments: ['reel'], customerSentPhoto: false } as const;
+const AFTER_REEL_Q = [{ role: 'user' as const, content: 'Сайн байна уу' }, { role: 'assistant' as const, content: REEL_Q }];
+
+test('DONE-TEST (D-176 reel): A SHARED REEL WITH «HED VE», OR ONLY A GREETING, GETS THE REEL QUESTION; NO MODEL, NO HAND-OFF', async () => {
+  const GREETING: DeterministicRule = {
+    ...confirmed, intent: 'greeting', body: 'Сайн байна уу!', matchMode: 'whole_message',
+    stems: ['сайн байна уу'], coverWords: [], placement: 'replace', quoteServices: [],
+  };
+  for (const [message, extra] of [
+    ['hed ve', reelShared],
+    ['Сайн байна уу', reelShared],
+    ['https://www.facebook.com/share/r/1AbCdEf/', {}],
+    ['https://www.facebook.com/share/r/1AbCdEf/ Ene budalt hed boloh be?', {}],
+    ['https://www.tiktok.com/@une.hair/video/7300000000000000000', {}],
+  ] as const) {
+    const t = run('never called');
+    const r = await handleReception(t.deps, {
+      ...base, deterministic: [...base.deterministic, GREETING], canned: WITH_REEL_Q, customerMessage: message, ...extra,
+    });
+    assert.equal(r.kind === 'drafted' && r.answeredBy, 'canned', message);
+    assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined, message);
+    assert.deepEqual(t.drafts.map((x) => x.body), [REEL_Q], message);
+    assert.equal(t.requests.length, 0, message);
+    assert.ok(t.flags.includes('reel_price_question'), message);
+  }
+});
+
+test('DONE-TEST (D-176 reel): A REEL WHOSE PRICE ASK NAMES A SERVICE IS PRICED FROM THE ROWS', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: WITH_REEL_Q, customerMessage: 'Будаг хэд вэ', ...reelShared });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'deterministic');
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, undefined);
+  assert.equal(t.drafts[0]?.body, `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${QUESTION}`);
+});
+
+test('DONE-TEST (D-176 reel): THE ANSWER TO THE REEL QUESTION IS PRICED; ONE NAMING NOTHING GOES TO STAFF', async () => {
+  const priced = run('never called');
+  const r1 = await handleReception(priced.deps, { ...base, canned: WITH_REEL_Q, customerMessage: 'Будаг хэд вэ', history: AFTER_REEL_Q });
+  assert.equal(r1.kind === 'drafted' && r1.answeredBy, 'deterministic');
+  for (const message of ['энэ шиг', 'hed ve']) {
+    const t = run('never called');
+    const r = await handleReception(t.deps, { ...base, canned: WITH_REEL_Q, customerMessage: message, history: AFTER_REEL_Q });
+    assert.equal(r.kind === 'drafted' && r.mediaHandoff, true, message);
+    assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE], message);
+    assert.ok(t.flags.includes('reel_price_handoff'), message);
+  }
+});
+
+test('DONE-TEST (D-176 reel): A SECOND REEL LINK MINUTES AFTER THE QUESTION GETS NOTHING MORE; 10 TO 60 MINUTES LATER, STAFF', async () => {
+  const soon = run('never called');
+  const r1 = await handleReception(soon.deps, {
+    ...base, canned: WITH_REEL_Q, customerMessage: 'https://www.instagram.com/reel/Cxyz/', history: AFTER_REEL_Q, photoQuestionState: 'burst',
+  });
+  assert.deepEqual(r1, { kind: 'dropped', reason: 'photo_question_pending' });
+  assert.ok(soon.flags.includes('reel_question_pending'));
+  const later = run('never called');
+  const r2 = await handleReception(later.deps, {
+    ...base, canned: WITH_REEL_Q, customerMessage: 'https://www.instagram.com/reel/Cxyz/', history: AFTER_REEL_Q, photoQuestionState: 'answering',
+  });
+  assert.equal(r2.kind === 'drafted' && r2.mediaHandoff, true);
+  assert.deepEqual(later.drafts.map((x) => x.body), [NOTICE]);
+  // A text answering inside the burst window is an answer as usual, not held back.
+  const text = run('never called');
+  const r3 = await handleReception(text.deps, {
+    ...base, canned: WITH_REEL_Q, customerMessage: 'Будаг хэд вэ', history: AFTER_REEL_Q, photoQuestionState: 'burst',
+  });
+  assert.equal(r3.kind === 'drafted' && r3.answeredBy, 'deterministic');
+});
+
+test('D-176 reel: never on the website (no inbox, no question timing): a pasted reel link keeps today\'s path', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, noInbox: true, canned: WITH_REEL_Q, customerMessage: 'https://youtu.be/dQw4w9WgXcQ hed ve' });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true);
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+});
+
+test('D-176 reel: «hed ve» typed with the reel, crossing the question, gets nothing more', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, {
+    ...base, canned: WITH_REEL_Q, customerMessage: 'hed ve', history: AFTER_REEL_Q, photoQuestionState: 'crossed',
+  });
+  assert.deepEqual(r, { kind: 'dropped', reason: 'photo_question_pending' });
+});
+
+test('D-176 reel: a shared post, a photo link or a photo beside a reel still goes to staff', async () => {
+  for (const [message, extra] of [
+    ['hed ve', { customerAttachments: ['share'], customerSentPhoto: false }],
+    ['https://www.instagram.com/p/Cxyz/ hed ve', {}],
+    ['hed ve', { customerAttachments: ['image', 'reel'], customerSentPhoto: true }],
+  ] as const) {
+    const t = run('never called');
+    const r = await handleReception(t.deps, { ...base, canned: WITH_REEL_Q, customerMessage: message, ...extra });
+    assert.equal(r.kind === 'drafted' && r.mediaHandoff, true, message);
+    assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE], message);
+  }
+});
+
+test('D-176 reel: a photo still gets the photo line at a tenant with both rows', async () => {
+  const t = run('never called');
+  await handleReception(t.deps, { ...base, canned: WITH_REEL_Q, customerMessage: 'ene hed ve', ...photo });
+  assert.deepEqual(t.drafts.map((x) => x.body), [PHOTO_Q]);
+});
+
+test('D-176 reel: with only the reel row, a photo is handed off exactly as before', async () => {
+  const onlyReel = [...WITH_NOTICE, { kind: 'reel_price_question', body: REEL_Q, reviewedAt: R }];
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: onlyReel, customerMessage: 'ene hed ve', ...photo });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true);
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+});
+
+test('D-176 reel: an UNREVIEWED reel row refuses every reply: insert it signed or not at all', async () => {
+  const unreviewed = [...WITH_NOTICE, { kind: 'reel_price_question', body: REEL_Q, reviewedAt: null }];
+  const t = run('never called');
+  const r = await handleReception(t.deps, { ...base, canned: unreviewed, customerMessage: 'Сайн байна уу' });
+  assert.deepEqual(r, { kind: 'retry', detail: 'canned_response_unreviewed: reel_price_question' });
+});
+
+test('review (D-176 reel): a link\'s handle is not the customer\'s words: «like this» beside a reel is the stylist\'s', async () => {
+  const t = run('never called');
+  const r = await handleReception(t.deps, {
+    ...base, canned: WITH_REEL_Q, customerMessage: 'Энэ шиг болгомоор байна https://www.tiktok.com/@une.hair/video/7300000000000000000',
+  });
+  assert.equal(r.kind === 'drafted' && r.mediaHandoff, true, '«une» in the handle is no price ask');
+  assert.deepEqual(t.drafts.map((x) => x.body), [NOTICE]);
+});
+
+test('review (D-176 reel): a reel link\'s host fires no fixed reply: the link alone is asked the reel question', async () => {
+  const PAGE: DeterministicRule = {
+    ...confirmed, intent: 'facebook_page', body: 'Манай пэйж: facebook.com/tara', matchMode: 'contains_stem',
+    stems: ['facebook'], coverWords: [], placement: 'replace', quoteServices: [],
+  };
+  const t = run('never called');
+  await handleReception(t.deps, {
+    ...base, deterministic: [...base.deterministic, PAGE], canned: WITH_REEL_Q, customerMessage: 'https://www.facebook.com/share/r/1AbCdEf/',
+  });
+  assert.deepEqual(t.drafts.map((x) => x.body), [REEL_Q]);
+});
