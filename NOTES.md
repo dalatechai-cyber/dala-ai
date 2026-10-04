@@ -8,12 +8,13 @@ below this hand-off are the round log: true on the day each was written.
 
 ## Live today (main `caf810b`, api.dalatech.online)
 
-- Дали answers for Tara Яармаг (tenant `matrix-eco-salon`) on Messenger. Its last published
-  revision is 2026-10-04 06:43 UTC.
-- D-179 code is deployed (#289). Яармаг's two D-179 rows (`deposit_required`,
-  `stylist_tier_after_deposits`) are in the Production database, but the last publish is older
-  than them. So the publish (dry run, `--with-model`, `--publish`, as in LAUNCH_DAY_TARA.md B4)
-  and the Messenger tests look not done yet. Ask the founder before treating D-179 as live.
+- Дали answers for Tara Яармаг (tenant `matrix-eco-salon`) on Messenger. The published revision
+  is seq 21, published by the founder at 2026-10-04 06:43 UTC (78/78 reply cases).
+- D-179 is LIVE for Яармаг: the code (#289), her SQL (both fixed replies, FAQ 15 and the 17
+  reply cases) and the publish. Proof: at 06:45 UTC Дали sent the approved
+  `deposit_required` and `stylist_tier_after_deposits` answers on Messenger (the founder's
+  tests), and both texts are identical to the rows in Production today. Парк Од's copies go
+  live only with her own onboarding.
 - `/book/[token]` answers a calm 503 page instead of a crash (#291, D-180). Live-checked
   2026-10-04 with `/book/launchcheck`: wording (c), no QR, one info line in the log.
 - The billing and booking e2e tests no longer depend on today's date (#290).
