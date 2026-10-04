@@ -12026,3 +12026,27 @@ shared with Парк Од.
   the other branch's own numbers only in its `other_branch_in` rows, never hold them in a contact
   row and never say them anywhere else (`src/lib/facts/branches.ts` `foreignDetails`).
 
+
+## D-179 — Three Дали fixes for Tara: a fast answer to the photo question, the deposit is for online booking, «which is better?» after the deposit list (2026-10-04, founder)
+
+- **The photo question's crossing window must not swallow an answer.** Live, Яармаг: the photo
+  question at 06:02:54 UTC, «Tara perm урт» at 06:03:07, inside the 30 s window in which a text
+  counts as written WITH the photo (`crossed`, D-176). A crossed text with no price word went to
+  staff even when it named a service. Now a crossed text naming exactly ONE listed service by
+  name or alias (`matchService` `unique`) is the answer and is priced from the rows, as it would
+  be 31 s later. A kind alone («ийм будаг хийж болох уу?») and a caption on the picture itself
+  still go to staff (`reception/photoPrice.ts`, `namesOneService`). The matcher was never the
+  cause: «Tara perm урт», «Tara perm, урт» and «tara perm urt» all match «Tara perm».
+- **`deposit_required`** (wording APPROVED by the founder on 2026-10-04 as written, both branches;
+  `prompt/drafts/tara_deposit_required.mn.txt`): the deposit is required only for online
+  booking, and Tara wants customers to book online, so the reply never invites a phone call. Its
+  link is the tenant's booking link, read from `tenant_booking.booking_url` when the file runs,
+  and the row and its FAQ are on each branch's domain-move list. Not a deduction question
+  (`deposit_deducted`), a refund question or the amount.
+- **`after_reply`**, a matcher member read on the bot's PREVIOUS reply (`gate/match.ts`), so a
+  row can answer what the customer says to a reply. Only inside `all_of`, beside a member that
+  reads the customer's own words (`parseMatcher` refuses it bare or beside replies only). First
+  use: `stylist_tier_after_deposits`, `stylist_tier`'s approved body when the previous reply was
+  the deposit list and the customer asks «аль нь» / «ялгаа» (live, 03:49 UTC: «Аль нь илүү юм»
+  got the hand-off line). No new wording. Code before rows: the code before this one skips the
+  row as a bad matcher.

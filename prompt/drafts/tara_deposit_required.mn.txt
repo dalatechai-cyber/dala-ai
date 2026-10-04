@@ -1,0 +1,21 @@
+# Tara — «Заавал эхлээд урьдчилгаа хийх үү?» (both branches). APPROVED by the founder on 2026-10-04, exactly as written below.
+#
+# The founder's fact (2026-10-04): the deposit is required only for online booking. Tara wants
+# customers to book online, so the reply does not invite a phone call. The wording below is the
+# founder's own, as sent on 2026-10-04; nothing was added or changed. The link is each branch's
+# booking link (today https://www.matrixecosalon.org/ for both), so it changes with the
+# tarasalon.org move.
+#
+# Where it is used: the fixed reply `deposit_required` and the FAQ «Заавал эхлээд урьдчилгаа
+# төлөх үү?» (Яармаг: tara-yarmag-deposit-and-level-2026-10-04.sql; Парк Од:
+# tara-park-od-after-onboarding.sql and her form, intake/tara-park-od.answers.json).
+#
+# Answers (Cyrillic and Latin): «Заавал эхлээд урьдчилгаа хийх үү?», «Урьдчилгаа заавал төлөх
+# ёстой юу», «Урьдчилгаагүй цаг авч болох уу», «uridchilgaa zaaval tuluh uu», «zaaval ehleed
+# urdchilgaa hiih yostoi yu». Not: «Урьдчилгаа төлбөр буцаагддаг уу» (refund), «Заавал урьдчилгаа
+# хэд вэ» (amount), «Урьдчилгаа үнээс хасагдах уу» (deposit_deducted).
+#
+# Парк Од: her online booking opens on Monday 2026-10-05. Her row goes live only with her own
+# publish, after that.
+
+Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно. Цагаа эндээс захиална уу: https://www.matrixecosalon.org/

@@ -110,7 +110,16 @@ export type MatcherSpec =
    * `append` row is ever evaluated with a reply (`MatchSubject.reply`); everywhere else
    * there is none yet, and this never fires.
    */
-  | { mode: 'in_reply'; matcher: MatcherSpec };
+  | { mode: 'in_reply'; matcher: MatcherSpec }
+  /**
+   * The member fires on the bot's PREVIOUS reply in this conversation, the one the customer is
+   * answering (founder, 2026-10-04: «Аль нь илүү юм» right after the deposit list asks which
+   * LEVEL is better, and names none). Only admissible inside `all_of` beside a member that reads
+   * the customer's own words: on its own it would answer every message after that reply. Absent
+   * or null where there is no earlier reply (the first message, the comment surface), and it
+   * then does not fire.
+   */
+  | { mode: 'after_reply'; matcher: MatcherSpec };
 
 /** How deep `all_of` / `not` may nest. Deeper than this is a rule nobody can review. */
 export const MAX_MATCHER_DEPTH = 3;
@@ -149,6 +158,11 @@ export type MatchSubject = {
    * fire.
    */
   reply?: string | null;
+  /**
+   * The bot's previous reply in the conversation, for an `after_reply` member. Absent or null
+   * when there is none, and `after_reply` then does not fire.
+   */
+  previousReply?: string | null;
 };
 
 export type GateRule = {
@@ -196,6 +210,9 @@ export type ParseResult = { ok: true; spec: MatcherSpec } | { ok: false; detail:
  */
 export function parseMatcher(raw: unknown): ParseResult {
   const parsed = parseMatcherAt(raw, 0);
+  if (parsed.ok && parsed.spec.mode === 'after_reply') {
+    return { ok: false, detail: 'a bare "after_reply" fires on every message after that reply; use it inside all_of with the customer\'s words' };
+  }
   if (parsed.ok && parsed.spec.mode === 'not') {
     return { ok: false, detail: 'a bare "not" fires on almost every message; use it inside all_of' };
   }
@@ -288,6 +305,13 @@ function parseMatcherAt(raw: unknown, depth: number): ParseResult {
     return { ok: true, spec: { mode: 'in_reply', matcher: inner.spec } };
   }
 
+  if (mode === 'after_reply') {
+    if (depth >= MAX_MATCHER_DEPTH) return { ok: false, detail: `matchers nest deeper than ${MAX_MATCHER_DEPTH}` };
+    const inner = parseMatcherAt(o['matcher'], depth + 1);
+    if (!inner.ok) return { ok: false, detail: `after_reply: ${inner.detail}` };
+    return { ok: true, spec: { mode: 'after_reply', matcher: inner.spec } };
+  }
+
   if (mode === 'all_of' || mode === 'not') {
     if (depth >= MAX_MATCHER_DEPTH) return { ok: false, detail: `matchers nest deeper than ${MAX_MATCHER_DEPTH}` };
     if (mode === 'not') {
@@ -308,6 +332,12 @@ function parseMatcherAt(raw: unknown, depth: number): ParseResult {
     // All members negative is a bare "not" with extra steps.
     if (specs.every((sp) => sp.mode === 'not')) {
       return { ok: false, detail: 'all_of needs at least one positive member; only "not" members fire on almost everything' };
+    }
+    // An earlier reply says what the customer is answering, never what they asked: beside it
+    // there must be a member that reads their own words.
+    if (specs.some((sp) => sp.mode === 'after_reply')
+      && !specs.some((sp) => sp.mode !== 'not' && sp.mode !== 'after_reply' && sp.mode !== 'in_reply')) {
+      return { ok: false, detail: 'all_of with after_reply needs a member that reads the customer\'s own words' };
     }
     return { ok: true, spec: { mode: 'all_of', matchers: specs } };
   }
@@ -330,6 +360,7 @@ export function matcherTerms(spec: MatcherSpec): string[] {
     case 'all_of': return spec.matchers.flatMap(matcherTerms);
     case 'not': return matcherTerms(spec.matcher);
     case 'in_reply': return matcherTerms(spec.matcher);
+    case 'after_reply': return matcherTerms(spec.matcher);
   }
 }
 
@@ -342,6 +373,11 @@ export function matcherFires(subject: MatchSubject, spec: MatcherSpec): boolean 
     const reply = subject.reply;
     return reply !== undefined && reply !== null && reply.trim() !== ''
       && matcherFires({ text: reply, attachments: [], respelled: null }, spec.matcher);
+  }
+  if (spec.mode === 'after_reply') {
+    const before = subject.previousReply;
+    return before !== undefined && before !== null && before.trim() !== ''
+      && matcherFires({ text: before, attachments: [], respelled: null }, spec.matcher);
   }
   const texts = subject.respelled === undefined || subject.respelled === null
     ? [subject.text] : [subject.text, subject.respelled];
