@@ -100,12 +100,22 @@ export type PortsBuilder = () => Promise<{ ok: true; ports: BookingPorts } | { o
 export type ContactSource = () => SupabaseClient | null;
 
 /**
+ * Whether a branch's website booking is KNOWN to be working, for line (a). There is no source
+ * for it yet (founder, 2026-10-04: until a source is decided, a branch gets line (b) unless it
+ * is known to be working; the options are in NOTES.md), so the default answers «not known».
+ */
+export type WebsiteBookingStatus = (tenantId: string) => Promise<boolean>;
+const NOT_KNOWN: WebsiteBookingStatus = async () => false;
+
+/**
  * The branch a pay link belongs to, for the «booking is not available» page. Only for a link
  * whose signature checks (`BOOKING_LINK_SECRET`) and only when the database can be read;
  * otherwise nobody, and the page names no phone. Never throws.
  */
-export async function pageContact(db: SupabaseClient | null, secret: string | null, token: string): Promise<PageContact> {
-  const nobody: PageContact = { tenantName: null, phones: [] };
+export async function pageContact(
+  db: SupabaseClient | null, secret: string | null, token: string, working: WebsiteBookingStatus = NOT_KNOWN,
+): Promise<PageContact> {
+  const nobody: PageContact = { tenantName: null, phones: [], bookingUrl: null, websiteBookingWorking: false };
   if (db === null || secret === null) return nobody;
   const holdId = verifyHold(secret, 'pay', token);
   if (holdId === null) return nobody;
@@ -113,7 +123,10 @@ export async function pageContact(db: SupabaseClient | null, secret: string | nu
     const read = await readHold(db, holdId);
     if (!read.ok || read.hold === null) return nobody;
     const c = await readTenantContact(db, read.hold.tenantId);
-    return c.ok ? { tenantName: c.tenantName === '' ? null : c.tenantName, phones: c.phones } : nobody;
+    if (!c.ok) return nobody;
+    let ok = false;
+    try { ok = (await working(read.hold.tenantId)) === true; } catch { ok = false; }
+    return { tenantName: c.tenantName === '' ? null : c.tenantName, phones: c.phones, bookingUrl: c.bookingUrl, websiteBookingWorking: ok };
   } catch {
     return nobody;
   }
@@ -127,6 +140,7 @@ function logUnavailable(event: string, detail: string): void {
 
 export async function payPageRoute(
   build: PortsBuilder, input: { token: string; method: 'GET' | 'POST'; stateOnly: boolean }, contactDb: ContactSource = () => null,
+  working: WebsiteBookingStatus = NOT_KNOWN,
 ): Promise<PageOutcome> {
   let built: Awaited<ReturnType<PortsBuilder>>;
   try {
@@ -141,7 +155,7 @@ export async function payPageRoute(
     if (built.detail !== 'threw') logUnavailable('booking.page_unavailable', built.detail);
     let db: SupabaseClient | null = null;
     try { db = contactDb(); } catch { db = null; }
-    return unavailablePage(await pageContact(db, linkSecret(), input.token), input.stateOnly);
+    return unavailablePage(await pageContact(db, linkSecret(), input.token, working), input.stateOnly);
   }
   const ports = built.ports;
   let page: PageOutcome;
@@ -153,23 +167,45 @@ export async function payPageRoute(
   }
   if (page.unavailable !== true) return page;
   ports.log('warn', 'page_unavailable', {});
-  return unavailablePage(await pageContact(ports.db, ports.secret, input.token), input.stateOnly);
+  return unavailablePage(await pageContact(ports.db, ports.secret, input.token, working), input.stateOnly);
 }
 
-export async function callbackRoute(build: PortsBuilder, token: string): Promise<{ status: number; body: Record<string, unknown> }> {
+/** A message to the founder that needs no database (Telegram); true when it went out. */
+export type FounderNotice = (text: string) => Promise<boolean>;
+/** Holds already reported by this instance: QPay may call more than once. */
+const reportedUnsettled = new Set<string>();
+
+export async function callbackRoute(build: PortsBuilder, token: string, notify: FounderNotice = async () => false): Promise<{ status: number; body: Record<string, unknown> }> {
   let built: Awaited<ReturnType<PortsBuilder>>;
   try {
     built = await build();
   } catch (e) {
     console.error(JSON.stringify({ level: 'error', event: 'booking.callback_build_threw', error: e instanceof Error ? e.message : 'error' }));
-    return { status: 503, body: { error: 'booking unavailable' } };
+    built = { ok: false, detail: 'threw' };
   }
-  // 503: QPay retries, and the sweep finds the payment anyway once the deployment is fixed.
-  if (!built.ok) {
-    logUnavailable('booking.callback_unavailable', built.detail);
-    return { status: 503, body: { error: 'booking unconfigured' } };
+  if (built.ok) return runQpayCallback(built.ports, token);
+  // QPay calls back when a deposit is PAID, and nothing here can book it or tell anyone through
+  // the database. 503 (QPay may retry; that is not documented, so nothing depends on it): the
+  // minute sweep books it or alerts once booking runs again, and the founder is told NOW, so a
+  // paid customer is never left with neither a booking nor a person who knows.
+  const secret = linkSecret();
+  const holdId = secret === null ? null : verifyHold(secret, 'callback', token);
+  if (secret !== null && holdId === null) return { status: 403, body: { error: 'bad token' } };
+  // Unverifiable (no secret): one notice per instance, whatever the token, so nobody on the
+  // internet can flood the founder's Telegram by inventing tokens.
+  const key = holdId ?? 'unverifiable';
+  console.error(JSON.stringify({ level: 'error', event: 'booking.callback_unsettled', detail: built.detail, holdId, verified: holdId !== null }));
+  if (!reportedUnsettled.has(key)) {
+    const sent = await notify([
+      '⚠️ QPay reported a Messenger booking deposit as PAID, but booking cannot run on the platform right now, so it is NOT a booking yet.',
+      `Why: ${built.detail}`,
+      `Hold: ${holdId ?? '(the link could not be checked: BOOKING_LINK_SECRET is not set)'}`,
+      'Find this payment in the QPay merchant app. Once booking runs again, the minute sweep books it or tells you; if it will not run again soon, book the customer by hand or refund.',
+    ].join('\n')).catch(() => false);
+    if (sent) reportedUnsettled.add(key);
+    else console.error(JSON.stringify({ level: 'error', event: 'booking.callback_unsettled_not_told', holdId }));
   }
-  return runQpayCallback(built.ports, token);
+  return { status: 503, body: { error: 'booking unavailable' } };
 }
 
 export async function sweepRoute(

@@ -1,17 +1,35 @@
 # Booking pages while in-chat booking cannot run (2026-10-04)
 
 Production's error log, 2026-10-04 03:33 UTC: `MissingEnvError: SUPABASE_SECRET_BOOKING is not set`
-on `/book/[token]` and `/api/booking/qpay`, each a 500. The routes built their ports with
-`supabaseBooking()`, which throws before `payPageRoute`'s own 503 ran; and that 503 was the
-bare word «unavailable», logged as an error. Now (`bookingPortsFromEnv`, `payPageRoute`):
-switched off, a setting unset, the database unreadable, or a throw all answer 503 with one calm
-Mongolian page and, when the link checks and the database answers, the branch's phones,
-tappable. No QR, no hold touched. Off is logged as info, a missing setting as warn; only a
-throw (a code fault) is an error. QPay's callback answers 503 (QPay retries); the sweep 200
-(off) or 503 (threw). The page's two lines are PROPOSED, awaiting approval
-(`prompt/drafts/booking/booking_page_unavailable.mn.txt`). With `SUPABASE_SECRET_BOOKING` unset
-the branch cannot be read, so the page names no phone (one key per surface: no other key is
-used).
+on `/book/[token]` and `/api/booking/qpay`, each a 500. Those two requests were the launch check
+of this session (`/book/launchcheck`, `?t=launchcheck`), not a customer: Production has no booking
+session, hold, invoice or payment. Cause: the routes built their ports with `supabaseBooking()`,
+which throws before `payPageRoute`'s own 503 ran (and that 503 was the bare word «unavailable»).
+
+Now:
+- Every way booking cannot run answers 503 with one calm page in the founder's approved words
+  (2026-10-04, three cases, `prompt/drafts/booking/booking_page_unavailable.mn.txt`): (a) the
+  branch's own booking link and phones, only when its website booking is KNOWN to work; (b) the
+  phones; (c) Messenger, when the branch is not known (no `SUPABASE_SECRET_BOOKING`, or a link that
+  does not check). No QR, no hold touched. Off logs info, a missing setting warn, a throw error.
+- Switched off stops NEW bookings only: QPay's callback and the sweep build their ports while
+  `BOOKING_MODE` is off (`bookingSettlePortsFromEnv`), so a deposit already paid is booked or the
+  founder alerted.
+- A QPay callback that cannot be settled at all (a setting missing) tells the founder on Telegram
+  at once (no database needed), once per hold per instance, and answers 503. Nothing depends on
+  QPay calling again: that QPay retries a non-2xx is assumed in this repo, never confirmed. Once
+  booking runs again, the minute sweep asks QPay about every held hold past its time and books it
+  or raises `paid_unbooked`.
+
+Open, for the founder — what tells the page that a branch's WEBSITE booking is working (line a)?
+Until decided, every branch gets (b). Options:
+1. Ask the website: `GET <booking_url origin>/api/branches` already returns `ready` per branch
+   (2026-10-04: yaarmag true, parkod false), computed from the website's own switch, hours,
+   hairdressers and QPay. Needs a stored mapping tenant → website branch id and a short timeout
+   (on failure: not known → b). Live and automatic; couples the pages to the website.
+2. A per-tenant flag the founder sets (e.g. on `tenant_booking`), flipped when the website switch is.
+   Simple and explicit; can drift from the website's real state.
+3. Both: the flag says which website branch, the website says whether it is ready.
 
 # Billing e2e: ONE CLOCK (2026-10-04) — replaces «MUST FIX BY 2026-10-13»
 

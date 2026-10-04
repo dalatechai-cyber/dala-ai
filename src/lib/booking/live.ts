@@ -51,9 +51,11 @@ export function qpayPortFor(m: QpayMerchant, fetchImpl?: typeof fetch, source?: 
   }, fetchImpl ?? fetch);
 }
 
-export async function liveBookingPorts(db: SupabaseClient, opts: { graphVersionDefault?: () => string } = {}):
+export async function liveBookingPorts(db: SupabaseClient, opts: { graphVersionDefault?: () => string; settleWhenOff?: boolean } = {}):
   Promise<{ ok: true; ports: BookingPorts } | { ok: false; detail: string }> {
-  if (bookingEnvMode() === 'off') return { ok: false, detail: 'BOOKING_MODE is off' };
+  // `settleWhenOff`: QPay's callback and the sweep finish deposits already taken even while new
+  // bookings are switched off; a paid customer is booked or the founder told, never left.
+  if (bookingEnvMode() === 'off' && opts.settleWhenOff !== true) return { ok: false, detail: 'BOOKING_MODE is off' };
   const secret = linkSecret();
   const origin = publicOrigin();
   const email = (process.env['GOOGLE_SERVICE_ACCOUNT_EMAIL'] ?? '').trim();
@@ -118,6 +120,16 @@ export async function bookingPortsFromEnv(): ReturnType<typeof liveBookingPorts>
   const db = supabaseBookingIfSet();
   if (db === null) return { ok: false, detail: 'booking is not configured: SUPABASE_SECRET_BOOKING' };
   return liveBookingPorts(db);
+}
+
+/**
+ * The same for QPay's callback and the sweep, which finish what was already paid: built while
+ * `BOOKING_MODE` is off too (off stops NEW bookings), as long as everything else is set.
+ */
+export async function bookingSettlePortsFromEnv(): ReturnType<typeof liveBookingPorts> {
+  const db = supabaseBookingIfSet();
+  if (db === null) return { ok: false, detail: 'booking is not configured: SUPABASE_SECRET_BOOKING' };
+  return liveBookingPorts(db, { settleWhenOff: true });
 }
 
 /**

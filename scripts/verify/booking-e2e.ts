@@ -1937,12 +1937,17 @@ section('22. In-chat booking switched off or not set up: a calm page with the br
   const holdsBefore = psql(`select string_agg(id || state, ',' order by id) from booking_holds`);
   for (const [detail, method] of [['BOOKING_MODE is off', 'GET'], ['booking is not configured: SUPABASE_SECRET_BOOKING', 'POST']] as const) {
     const off = await payPageRoute(async () => ({ ok: false, detail }), { token: signHold(SECRET, 'pay', holdB), method, stateOnly: false }, () => db);
-    check(off.status === 503 && off.redirect === undefined && off.html.includes('<a href="tel:+97676001888">76001888</a>')
+    check(off.status === 503 && off.redirect === undefined && off.html.includes('Онлайн захиалга одоогоор боломжгүй байна. Цаг захиалах бол <a href="tel:+97676001888">76001888</a>')
       && off.html.includes('tel:+97691005498') && !off.html.includes('data:image'),
       `${detail} (${method}): 503, the calm page with the branch's phones, no QR`);
   }
+  // (a) only when the branch's website booking is KNOWN to work: its own booking link, then the phones.
+  const site = await payPageRoute(async () => ({ ok: false, detail: 'BOOKING_MODE is off' }), { token: signHold(SECRET, 'pay', holdB), method: 'GET', stateOnly: false }, () => db, async () => true);
+  const siteUrl = psql(`select booking_url from tenant_booking where tenant_id = '${T}'`);
+  check(site.status === 503 && siteUrl.startsWith('https://') && site.html.includes(`Цагаа эндээс захиална уу: <a href="${siteUrl}">${siteUrl}</a> Эсвэл <a href="tel:+97676001888">76001888</a>`),
+    `website booking known to work: line (a), the branch's own booking link (${siteUrl}), then its phones`);
   const forged = await payPageRoute(async () => ({ ok: false, detail: 'BOOKING_MODE is off' }), { token: signHold('another-secret-that-is-long-enough-000', 'pay', holdB), method: 'GET', stateOnly: false }, () => db);
-  check(forged.status === 503 && !forged.html.includes('tel:'), 'a link that does not check names no phone');
+  check(forged.status === 503 && !forged.html.includes('href="tel:') && forged.html.includes('Messenger-ээр бичнэ үү'), 'a link that does not check names no phone: line (c)');
   check(psql('select count(*) from booking_invoices') === invoicesBefore && psql(`select string_agg(id || state, ',' order by id) from booking_holds`) === holdsBefore,
     'no QR made and no held time changed while booking cannot run');
   if (savedSecret === undefined) delete process.env['BOOKING_LINK_SECRET']; else process.env['BOOKING_LINK_SECRET'] = savedSecret;

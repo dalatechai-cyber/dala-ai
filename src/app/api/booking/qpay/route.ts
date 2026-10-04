@@ -4,15 +4,17 @@
  * make the platform look sooner. GET and POST, as billing's: QPay's method is not documented.
  */
 import { NextResponse } from 'next/server';
+import { sendTelegram } from '@/lib/alerts/alert';
 import { callbackRoute } from '@/lib/booking/jobs';
-import { bookingPortsFromEnv } from '@/lib/booking/live';
+import { bookingSettlePortsFromEnv } from '@/lib/booking/live';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 async function handle(request: Request): Promise<NextResponse> {
-  const result = await callbackRoute(bookingPortsFromEnv, new URL(request.url).searchParams.get('t') ?? '');
+  const result = await callbackRoute(bookingSettlePortsFromEnv, new URL(request.url).searchParams.get('t') ?? '',
+    async (text) => (await sendTelegram(text)).ok === true);
   return NextResponse.json(result.body, { status: result.status, headers: { 'cache-control': 'no-store' } });
 }
 

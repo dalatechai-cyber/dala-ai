@@ -6,14 +6,14 @@
 import { NextResponse } from 'next/server';
 import { verifyQStashSignature } from '@/lib/queue/qstash';
 import { sweepRoute } from '@/lib/booking/jobs';
-import { bookingPortsFromEnv } from '@/lib/booking/live';
+import { bookingSettlePortsFromEnv } from '@/lib/booking/live';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 export async function POST(request: Request): Promise<NextResponse> {
   const result = await sweepRoute(
-    bookingPortsFromEnv,
+    bookingSettlePortsFromEnv,
     (raw, signature) => verifyQStashSignature(raw, signature),
     await request.text(),
     request.headers.get('upstash-signature'),
