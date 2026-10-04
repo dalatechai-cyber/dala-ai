@@ -75,7 +75,11 @@ below this hand-off are the round log: true on the day each was written.
 ## Left as found (not this session's)
 
 Draft PR #281 (`claude/ora-pay-return`, Ора, opened before this session) and older `claude/*`
-branches from earlier sessions. This session's branches are all merged and deleted.
+branches from earlier sessions. This session's own branches are all merged into `main`; Claude
+sessions here cannot delete branches (403), so they remain and are safe to delete:
+`claude/billing-e2e-clock`, `-one-clock`, `booking-off-calm`, `tara-dali-fixes-2026-10-04`,
+`tara-dali-quality-oct3`, `tara-park-od-tenant`, `tara-phones-2026-10-04`,
+`tara-inchat-booking-two-branch`, `guardrails-hooks`, and this hand-off's branch once merged.
 
 ---
 
