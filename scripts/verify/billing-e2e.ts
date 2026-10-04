@@ -262,11 +262,12 @@ async function main(): Promise<void> {
 
   // --- the test client pays; QPay calls back ------------------------------------------------
   const testId = psql('select id from billing_invoices where is_test');
-  // The client opens the link to pay an hour before the callback, on the test's own clock. On
-  // the wall clock (as before), opening it stamps the code's last check with the real time, so
-  // once the real time passed the callback's fixed 2026-10-04 10:00 (Ulaanbaatar) the callback
-  // saw a code «checked in the future», skipped it, and this check went red on every run.
-  await openPage(testId, false, at('2026-10-04', 9));
+  // The client pays the code made when the page was first opened (above). The page is not opened
+  // again here: on the wall clock that stamps the code's last check with the real time, and once
+  // the real time passed this callback's fixed 2026-10-04 10:00 (Ulaanbaatar) the callback saw a
+  // code checked «after now», skipped it as checked too recently, and this check went red on every
+  // run. (Opening it on the test's clock is no help: a code is only made within ten minutes of the
+  // database's real time.) NOTES.md: the same shape at 2026-10-14 below must be fixed by 2026-10-13.
   const testQ = codeOf(testId);
   qpayInvoices.get(testQ)?.payments.push({ id: 'PAY-1', amount: 100, at: at('2026-10-04') });
   e0 = emails.length; t0 = telegrams.length;
