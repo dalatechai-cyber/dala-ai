@@ -171,6 +171,12 @@ export const CONTACT_KIND_LABELS: Readonly<Record<string, string>> = {
    * customer only through a republish, which the founder runs.
    */
   demo_url: 'Демо захиалгын холбоос',
+  /**
+   * The website's price page (`0083`, D-176): where a price the rows do not hold is pointed
+   * (founder, 2026-10-04). The label is a heading in the prefix, not a sentence; like every
+   * value here it reaches a customer only through a republish, which the founder runs. Listed
+   * for his approval in `prompt/drafts/tara_quality_2026-10-03.mn.txt`.
+   */
 };
 
 /** `tenant_booking.booking_url`, which is rendered into the same section. */

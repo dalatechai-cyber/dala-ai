@@ -265,6 +265,10 @@ test('reply cases ask for the figures as the platform renders them', () => {
   const media = cs.find((c) => c.id === 'media_link');
   assert.equal(media?.message, MEDIA_PROBE);
   assert.equal(media?.expectedBody, p.intake.sentences['handover_notice']);
+  // D-176: a tenant with the reel question asks it for the video probe instead of handing off.
+  const reelQ = 'Уучлаарай, би бичлэг харах боломжгүй.';
+  const withReel = generateCases({ ...p.intake, sentences: { ...p.intake.sentences, reel_price_question: reelQ } }, p.deposits);
+  assert.equal(withReel.find((c) => c.id === 'media_link')?.expectedBody, reelQ);
   for (const c of cs) {
     assert.ok(c.expectedBody !== null || c.mustInclude.length + c.mustNotInclude.length > 0, `${c.id} asserts something`);
   }

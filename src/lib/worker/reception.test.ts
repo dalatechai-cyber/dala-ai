@@ -2100,7 +2100,8 @@ test('DONE-TEST (founder, 2026-09-27): A VIDEO SENT ALONE GETS THE NOTICE, THE H
     alertMediaHandoff: async (a) => { alerts.push(a); },
     tables: {
       webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'video', payload: { url: 'https://x/v.mp4' } }] }) } },
-      canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
+      // The reads are the photo question, the reel question (D-176), then the notice.
+      canned_responses: [{ data: null, error: null }, { data: null, error: null }, { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null }],
       conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
       outbound_messages: { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
     },
@@ -2121,12 +2122,13 @@ test('DONE-TEST (founder, 2026-09-27): A VIDEO SENT ALONE GETS THE NOTICE, THE H
   );
 });
 
-test('a photo alone is handed off the same way when the tenant has the notice', async () => {
+test('a photo alone is handed off the same way when the tenant has the notice (and no photo question)', async () => {
   const { fx, delivered } = stubEffects({
     alertMediaHandoff: async () => {},
     tables: {
       webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'image', payload: { url: 'https://x/p.jpg' } }] }) } },
-      canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
+      // The reads are the photo question, the reel question (D-176): none. Then the notice.
+      canned_responses: [{ data: null, error: null }, { data: null, error: null }, { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null }],
       conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
       outbound_messages: { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
     },
@@ -2194,7 +2196,8 @@ test('a thread a person already holds is left to them: no notice over the staff 
     alertMediaHandoff: async () => {},
     tables: {
       webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'video', payload: { url: 'https://x/v.mp4' } }] }) } },
-      canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
+      // The reads are the photo question, the reel question (D-176), then the notice.
+      canned_responses: [{ data: null, error: null }, { data: null, error: null }, { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null }],
       conversations: { data: { id: 'conv-1', thread_control: 'human', thread_control_at: '2026-09-04T11:50:00Z' }, error: null },
     },
   });
@@ -2208,7 +2211,7 @@ test('an unreviewed notice is never sent, and says so', async () => {
     alertMediaHandoff: async () => {},
     tables: {
       webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'video', payload: { url: 'https://x/v.mp4' } }] }) } },
-      canned_responses: { data: { body: NOTICE, reviewed_at: null }, error: null },
+      canned_responses: [{ data: null, error: null }, { data: null, error: null }, { data: { body: NOTICE, reviewed_at: null }, error: null }],
     },
   });
   await run(fx);
@@ -2222,13 +2225,294 @@ test('a retryable send failure on a media-alone notice asks QStash to retry, nev
     deliver: async () => ({ outcome: 'failed', failure: 'rate_limited', retryable: true, detail: '613' }) as never,
     tables: {
       webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'video', payload: { url: 'https://x/v.mp4' } }] }) } },
-      canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
+      // The reads are the photo question, the reel question (D-176), then the notice.
+      canned_responses: [{ data: null, error: null }, { data: null, error: null }, { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null }],
       conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
       outbound_messages: { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
     },
   });
   const r = await run(fx);
   assert.equal(r.status, 503);
+});
+
+// ── D-176: a photo and «how much?» is asked which service and length, not handed off ─────
+
+const PHOTO_Q = 'Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.';
+const PHOTO_ALONE = { data: { raw_payload: payload({ text: '', attachments: [{ type: 'image', payload: { url: 'https://x/p.jpg' } }] }) } };
+
+test('DONE-TEST (founder, 2026-10-04): A PHOTO ALONE GETS THE PHOTO QUESTION, AND THE THREAD STAYS THE BOT\'S', async () => {
+  const alerts: unknown[] = [];
+  const { fx, delivered, flags, ops, generated } = stubEffects({
+    alertMediaHandoff: async (a) => { alerts.push(a); },
+    tables: {
+      webhook_events: PHOTO_ALONE,
+      canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: '2026-10-04' }, error: null }, { data: null, error: null }],
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      // The last reply read (none yet), then the draft.
+      outbound_messages: [{ data: [], error: null }, { data: { id: 'om-9', body: PHOTO_Q, attempts: 0, state: 'draft' }, error: null }],
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(generated.length, 0);
+  assert.deepEqual(delivered.map((d) => d.body), [PHOTO_Q]);
+  assert.ok(flags.some((f) => f.code === 'photo_price_question'));
+  assert.ok(!flags.some((f) => f.code === 'media_handoff'));
+  assert.equal(alerts.length, 0);
+  assert.ok(!ops.some((o) => o.table === 'conversations' && o.op === 'update' && o.patch?.['thread_control'] === 'human'),
+    'no hand-off: the customer\'s words must reach the bot');
+  const draft = ops.find((o) => o.table === 'outbound_messages' && o.op === 'insert');
+  assert.match(String(draft?.patch?.['dedup_key'] ?? ''), /^pq:/);
+});
+
+test('a second photo inside the burst window is not answered again', async () => {
+  const { fx, delivered, logs } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: PHOTO_ALONE,
+      canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: '2026-10-04' }, error: null }, { data: null, error: null }],
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: { data: [{ body: PHOTO_Q, created_at: new Date(NOW.getTime() - 60_000).toISOString() }], error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.ok(reasons(logs).includes('photo_alone_burst'));
+});
+
+test('a photo after a question that never got words goes to staff: the notice and the hand-off', async () => {
+  const { fx, delivered, ops } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: PHOTO_ALONE,
+      // The photo question, no reel question, then the notice.
+      canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: '2026-10-04' }, error: null }, { data: null, error: null }, { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null }],
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: [
+        { data: [{ body: PHOTO_Q, created_at: new Date(NOW.getTime() - 20 * 60_000).toISOString() }], error: null },
+        { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
+      ],
+    },
+  });
+  await run(fx);
+  assert.deepEqual(delivered.map((d) => d.body), [NOTICE]);
+  assert.ok(ops.some((o) => o.table === 'conversations' && o.op === 'update' && o.patch?.['thread_control'] === 'human'));
+});
+
+test('review (D-176): a redelivery of the same photo finds its own question and never hands off', async () => {
+  const { fx, delivered, ops } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: PHOTO_ALONE,
+      canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: '2026-10-04' }, error: null }, { data: null, error: null }],
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: [
+        { data: [{ body: PHOTO_Q, created_at: new Date(NOW.getTime() - 30 * 60_000).toISOString(), dedup_key: `pq:${EVENT_ID}:0` }], error: null },
+        { data: { id: 'om-9', body: PHOTO_Q, attempts: 1, state: 'failed' }, error: null },
+      ],
+    },
+  });
+  await run(fx);
+  assert.deepEqual(delivered.map((d) => d.body), [PHOTO_Q]);
+  assert.ok(!ops.some((o) => o.table === 'conversations' && o.op === 'update' && o.patch?.['thread_control'] === 'human'));
+});
+
+test('review (D-176): a photo days after an old question (or the old image line) is asked again, not handed off', async () => {
+  const { fx, delivered } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: PHOTO_ALONE,
+      canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: '2026-10-04' }, error: null }, { data: null, error: null }],
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: [
+        { data: [{ body: PHOTO_Q, created_at: new Date(NOW.getTime() - 3 * 86_400_000).toISOString() }], error: null },
+        { data: { id: 'om-9', body: PHOTO_Q, attempts: 0, state: 'draft' }, error: null },
+      ],
+    },
+  });
+  await run(fx);
+  assert.deepEqual(delivered.map((d) => d.body), [PHOTO_Q]);
+});
+
+test('a video alone is still handed off at a tenant with the photo question and no reel question', async () => {
+  const { fx, delivered } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'video', payload: { url: 'https://x/v.mp4' } }] }) } },
+      canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: '2026-10-04' }, error: null }, { data: null, error: null }, { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null }],
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.deepEqual(delivered.map((d) => d.body), [NOTICE]);
+});
+
+test('an unreviewed photo question changes nothing: the notice, as before', async () => {
+  const { fx, delivered } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: PHOTO_ALONE,
+      canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: null }, error: null }, { data: null, error: null }, { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null }],
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.deepEqual(delivered.map((d) => d.body), [NOTICE]);
+});
+
+test('a photo in a thread a person holds is left to them, with no question over them', async () => {
+  const { fx, delivered, logs } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: PHOTO_ALONE,
+      canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: '2026-10-04' }, error: null }, { data: null, error: null }],
+      conversations: { data: { id: 'conv-1', thread_control: 'human', thread_control_at: '2026-09-04T11:50:00Z' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.ok(reasons(logs).includes('photo_alone_person_has_thread'));
+});
+
+test('a retryable send failure on the photo question asks QStash to retry', async () => {
+  const { fx } = stubEffects({
+    alertMediaHandoff: async () => {},
+    deliver: async () => ({ outcome: 'failed', failure: 'rate_limited', retryable: true, detail: '613' }) as never,
+    tables: {
+      webhook_events: PHOTO_ALONE,
+      canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: '2026-10-04' }, error: null }, { data: null, error: null }],
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: [{ data: [], error: null }, { data: { id: 'om-9', body: PHOTO_Q, attempts: 0, state: 'draft' }, error: null }],
+    },
+  });
+  assert.equal((await run(fx)).status, 503);
+});
+
+// ── D-176, the reel line (founder, 2026-10-04): a reel or a video alone is asked, like a photo ─
+
+const REEL_Q = 'Уучлаарай, би бичлэг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.';
+const REEL_ALONE = { data: { raw_payload: payload({ text: '', attachments: [{ type: 'reel', payload: { url: 'https://x/r', reel_video_id: '1' } }] }) } };
+/** The reads: the photo question (none here), the reel question, then (when it comes to it) the notice. */
+const REEL_ROWS = [{ data: null, error: null }, { data: { body: REEL_Q, reviewed_at: '2026-10-04' }, error: null },
+  { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null }];
+
+test('DONE-TEST (founder, 2026-10-04): A REEL ALONE GETS THE REEL QUESTION, AND THE THREAD STAYS THE BOT\'S', async () => {
+  const alerts: unknown[] = [];
+  const { fx, delivered, flags, ops, generated } = stubEffects({
+    alertMediaHandoff: async (a) => { alerts.push(a); },
+    tables: {
+      webhook_events: REEL_ALONE,
+      canned_responses: REEL_ROWS,
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: [{ data: [], error: null }, { data: { id: 'om-9', body: REEL_Q, attempts: 0, state: 'draft' }, error: null }],
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(generated.length, 0);
+  assert.deepEqual(delivered.map((d) => d.body), [REEL_Q], 'the reel line, never the photo line or the notice');
+  assert.ok(flags.some((f) => f.code === 'reel_price_question'));
+  assert.ok(!flags.some((f) => f.code === 'media_handoff'));
+  assert.equal(alerts.length, 0);
+  assert.ok(!ops.some((o) => o.table === 'conversations' && o.op === 'update' && o.patch?.['thread_control'] === 'human'));
+  const draft = ops.find((o) => o.table === 'outbound_messages' && o.op === 'insert');
+  assert.match(String(draft?.patch?.['dedup_key'] ?? ''), /^pq:/);
+});
+
+test('a video alone gets the reel question too', async () => {
+  const { fx, delivered } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'video', payload: { url: 'https://x/v.mp4' } }] }) } },
+      canned_responses: REEL_ROWS,
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: [{ data: [], error: null }, { data: { id: 'om-9', body: REEL_Q, attempts: 0, state: 'draft' }, error: null }],
+    },
+  });
+  await run(fx);
+  assert.deepEqual(delivered.map((d) => d.body), [REEL_Q]);
+});
+
+test('DONE-TEST: ANOTHER REEL 10 TO 60 MINUTES AFTER THE REEL QUESTION GOES TO STAFF', async () => {
+  const { fx, delivered, ops } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: REEL_ALONE,
+      canned_responses: REEL_ROWS,
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: [
+        { data: [{ body: REEL_Q, created_at: new Date(NOW.getTime() - 20 * 60_000).toISOString() }], error: null },
+        { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
+      ],
+    },
+  });
+  await run(fx);
+  assert.deepEqual(delivered.map((d) => d.body), [NOTICE]);
+  assert.ok(ops.some((o) => o.table === 'conversations' && o.op === 'update' && o.patch?.['thread_control'] === 'human'));
+});
+
+test('a second reel inside the burst window is not answered again', async () => {
+  const { fx, delivered, logs } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: REEL_ALONE,
+      canned_responses: REEL_ROWS,
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: { data: [{ body: REEL_Q, created_at: new Date(NOW.getTime() - 60_000).toISOString() }], error: null },
+    },
+  });
+  await run(fx);
+  assert.equal(delivered.length, 0);
+  assert.ok(reasons(logs).includes('photo_alone_burst'));
+});
+
+test('a reel 20 minutes after the PHOTO question is a second picture after one question: staff', async () => {
+  const { fx, delivered } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: REEL_ALONE,
+      canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: '2026-10-04' }, error: null }, ...REEL_ROWS.slice(1)],
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: [
+        { data: [{ body: PHOTO_Q, created_at: new Date(NOW.getTime() - 20 * 60_000).toISOString() }], error: null },
+        { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
+      ],
+    },
+  });
+  await run(fx);
+  assert.deepEqual(delivered.map((d) => d.body), [NOTICE]);
+});
+
+test('a shared post alone is not a reel: still the notice and the hand-off (D-152)', async () => {
+  const { fx, delivered } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: { data: { raw_payload: payload({ text: '', attachments: [{ type: 'share', payload: { url: 'https://x/p' } }] }) } },
+      // No question is read for a shared post: the first read is the notice.
+      canned_responses: { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null },
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.deepEqual(delivered.map((d) => d.body), [NOTICE]);
+});
+
+test('an unreviewed reel question changes nothing: the notice, as before', async () => {
+  const { fx, delivered, logs } = stubEffects({
+    alertMediaHandoff: async () => {},
+    tables: {
+      webhook_events: REEL_ALONE,
+      canned_responses: [{ data: null, error: null }, { data: { body: REEL_Q, reviewed_at: null }, error: null }, REEL_ROWS[2]!],
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
+    },
+  });
+  await run(fx);
+  assert.deepEqual(delivered.map((d) => d.body), [NOTICE]);
+  assert.ok(reasons(logs).includes('reel_question_unreviewed'));
 });
 
 // ── Дали G4, F5, K4: a customer who needs a person is never left with nobody told ──────
