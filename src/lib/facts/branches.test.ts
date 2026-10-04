@@ -223,6 +223,24 @@ test('the other branch\'s name and address are exempt only in the rows named for
   assert.ok(got.some((f) => /address/u.test(f.detail)) && got.some((f) => /other_branch_in/u.test(f.detail)));
 });
 
+test('say_phones: the other branch\'s own number may be said only in the rows named for it, never held', () => {
+  // No shared line: west's «Салбарууд» gives east's own numbers; an FAQ that does is a leak.
+  const sayer = {
+    ...west,
+    texts: [
+      { source: 'KB «Салбарууд»', text: 'Зүүн салбарын утас: 99112233, 88114455.' },
+      { source: 'faq «Утас?»', text: 'Та 99112233 дугаараар холбогдоно уу.' },
+    ],
+  };
+  const say = ['99112233', '88114455'];
+  assert.deepEqual(foreignDetails(sayer, east, [], [], [], ['KB «Салбарууд»'], say).map((f) => `${f.source}: ${f.detail}`),
+    ["faq «Утас?»: carries demo-east's phone 99112233"], 'said in the named row: allowed; anywhere else: a leak');
+  assert.equal(foreignDetails(sayer, east, [], [], [], null, say).length, 3, 'unscoped, say_phones excuses nothing (two numbers in «Салбарууд», one in the FAQ)');
+  assert.equal(foreignDetails(sayer, east, [], [], [], ['KB «Салбарууд»']).length, 3, 'without say_phones every number is a leak');
+  const holder = { ...west, contacts: [...west.contacts.filter((c) => c.kind !== 'phone'), { kind: 'phone', value: '7711-2233, 99112233' }], texts: [] };
+  assert.deepEqual(foreignDetails(holder, east, [], [], [], ['KB «Салбарууд»'], say).map((f) => f.source), ['contact_points phone'], 'never held');
+});
+
 test('link keys drop the scheme, www and a trailing slash, and keep the path exactly', () => {
   assert.equal(linkKey('https://www.Demo-Brand.mn/Book/'), 'demo-brand.mn/Book');
   assert.equal(linkKey('maps.app.goo.gl/AbC'), 'maps.app.goo.gl/AbC');

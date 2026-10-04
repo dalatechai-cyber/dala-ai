@@ -12,10 +12,10 @@ project waits for the steps at the end.
 | Name customers see | «Tara Salon» (form 1.1); the label people read is «Tara Salon — Парк Од» (`--display-name`) |
 | Facebook Page | https://www.facebook.com/profile.php?id=100067391025472. **Page id: CONFIRM** (below) |
 | Address | Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот. Equals `config/branch-groups.json` `allow_addresses` byte for byte. No Google Maps listing yet, so no map link anywhere |
-| Phone | 76001888 only (the shared main line of both branches, `allow_phones`). Яармаг's 91005498 is never hers: the branch gate refuses it in her rows |
+| Phone | 99076874, her only number (founder, 2026-10-04, final). 76001888 and 91005498 are Яармаг's; no line is shared (`allow_phones` is empty). Her rows may give Яармаг's numbers only in KB «Салбарууд» and `yarmag_branch` (`say_phones` with `other_branch_in`); the branch gate refuses them anywhere else |
 | Hours | Monday–Saturday 10:00–20:00, Sunday 11:00–19:00 |
 | Hairdressers | Boloroo (SPECIAL, the owner), Saraa, Tomoo, Bulgaa, Enhuush, Chimegee, Tuchku (all Мастер; Tuchku the only man). Shown by these Latin names everywhere, the roster the model reads included; the Cyrillic spellings customers may type are only in the knowledge document «Үсчдийн нэр» (approved by the founder as written, 2026-10-04) |
-| Hand-off chats | Answered by the owner, Boloroo (founder, 2026-10-04; form 2.3). Her `handoff` line is the founder's sentence «Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно уу.», as Яармаг's (PR #283). Nothing in the data routes alerts to Boloroo yet: the needs-person alert reaches the founder's Telegram, as for Яармаг |
+| Hand-off chats | Answered by the owner, Boloroo (founder, 2026-10-04; form 2.3). Her `handoff` line is the founder's sentence «Энэ талаар манай ажилтан танд хариулна. Та 99076874 дугаараар холбогдоно уу.», Яармаг's sentence (PR #283) with her own number. Nothing in the data routes alerts to Boloroo yet: the needs-person alert reaches the founder's Telegram, as for Яармаг |
 | Prices, services | Identical to Яармаг's 2026-10-01 list (31 services), and the same booking link https://www.matrixecosalon.org/ — except that she carries **no 1-р зэрэг price** (59 prices): she has no 1-р зэрэг hairdresser and never quotes or offers that level (founder, 2026-10-04). `config/branch-groups.json` `not_offered` lets the branch gate accept the missing row; every price she does carry must equal Яармаг's |
 | Deposit | 20,000₮ for every Парк Од level (SPECIAL and Мастер). Дали never says it is non-refundable |
 | Children | Served: girls with a female hairdresser, boys with Tuchku; the hairdresser's level deposit |
@@ -24,7 +24,7 @@ project waits for the steps at the end.
 | Booking account | tarasalon.parkod@gmail.com (exists, founder 2026-10-04); the seven hairdressers' calendars live inside it, shared with the website's service account («make changes to events»), Ulaanbaatar time; ids in the website's `PARKOD_CALENDAR_*` (2026-10-04) |
 | Reply style | At most one emoji (`reply_style {"max_emoji":1}`), polite «та», never recommends a level |
 | Staff takeover | As Яармаг: 30-minute cool-down, the reviewed `handover_reclaim` and `handover_notice` lines, no media alert |
-| The other branch | Her Дали names Яармаг (founder, 2026-10-04: «Салбарууд» symmetric): Яармаг's address, the shared 76001888 and Яармаг's Page, in KB «Салбарууд» and the fixed reply `yarmag_branch`; never 91005498 or Яармаг's map link. On Яармаг's November move both rows change with it (`tara-yarmag-move-2026-11.sql`) |
+| The other branch | Her Дали names Яармаг (founder, 2026-10-04: «Салбарууд» symmetric): Яармаг's address, Яармаг's numbers 76001888 and 91005498, and Яармаг's Page, in KB «Салбарууд» and the fixed reply `yarmag_branch`; never Яармаг's map link. On Яармаг's November move both rows change with it (`tara-yarmag-move-2026-11.sql`) |
 | Domain | The site moves to **tarasalon.org** (Namecheap; founder 2026-10-04). Until the switch every live link stays on matrixecosalon.org; on the switch her booking link, booking line, fixed reply `booking`, products FAQ, website contact and the two price-page rows change with Яармаг's |
 
 ## What is prepared (round 2026-10-03, branch `claude/tara-park-od-tenant`)

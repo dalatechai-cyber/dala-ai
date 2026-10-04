@@ -1,12 +1,12 @@
 {
-  "_doc": "Tara Salon — Парк Од (slug tara-park-od): her OWN questionnaire, filled by DalaTech on 2026-10-03 from the founder's confirmed facts (round facts of 2026-10-03; docs/tenants/tara-park-od.md). Not filled by the salon: the salon's owner (Boloroo) confirms the facts on the client summary (gate 2). Built into the real form with `node scripts/onboard/fixtures/fill.ts intake/tara-park-od.answers.json intake/tara-park-od.docx`. Prices and services are Яармаг's 2026-10-01 list, identical in both branches (D-157; read read-only from Яармаг's rows on 2026-10-03), durations as Яармаг's rows carry them. 11.1's Page id 100067391025472 is the number in her Page link: CONFIRM it is the Page id before --apply on the project (docs/tenants/tara-park-od.md). Round 2 (founder, 2026-10-04): «Эмэгтэй тайралт» carries no 1-р зэрэг price (she has no 1-р зэрэг hairdresser; config/branch-groups.json `not_offered` lets the branch gate accept the missing row, every price she carries equals Яармаг's); 2.3 names Boloroo, who answers her hand-off chats; three FAQs carry the approved quality lines (deposit deducted, no loan apps, dye brand → staff and 76001888). Run with `--wording intake/tara-park-od.wording.json` every time. Blank on purpose (nobody has said; listed as missing, never guessed): 3.1 holidays, 10.3 brands, 11.2 Instagram, 11.3 another bot, 11.4/11.6 Page admins.",
+  "_doc": "Tara Salon — Парк Од (slug tara-park-od): her OWN questionnaire, filled by DalaTech on 2026-10-03 from the founder's confirmed facts (round facts of 2026-10-03; docs/tenants/tara-park-od.md). Not filled by the salon: the salon's owner (Boloroo) confirms the facts on the client summary (gate 2). Built into the real form with `node scripts/onboard/fixtures/fill.ts intake/tara-park-od.answers.json intake/tara-park-od.docx`. Prices and services are Яармаг's 2026-10-01 list, identical in both branches (D-157; read read-only from Яармаг's rows on 2026-10-03), durations as Яармаг's rows carry them. 11.1's Page id 100067391025472 is the number in her Page link: CONFIRM it is the Page id before --apply on the project (docs/tenants/tara-park-od.md). Round 2 (founder, 2026-10-04): «Эмэгтэй тайралт» carries no 1-р зэрэг price (she has no 1-р зэрэг hairdresser; config/branch-groups.json `not_offered` lets the branch gate accept the missing row, every price she carries equals Яармаг's); 2.3 names Boloroo, who answers her hand-off chats; three FAQs carry the approved quality lines (deposit deducted, no loan apps, dye brand → staff and 99076874). Run with `--wording intake/tara-park-od.wording.json` every time. Blank on purpose (nobody has said; listed as missing, never guessed): 3.1 holidays, 10.3 brands, 11.2 Instagram, 11.3 another bot, 11.4/11.6 Page admins.",
   "text": {
     "1.1": "Tara Salon",
     "1.2": "Үсчин, гоо сайхны салон",
     "1.3": "2",
     "1.4": "Парк Од салбар",
     "1.5": "Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот",
-    "1.6": "76001888",
+    "1.6": "99076874",
     "1.7": "https://www.matrixecosalon.org/products.html",
     "1.8": "https://www.matrixecosalon.org/",
     "2.3": "Boloroo (салбарын эзэн): хүлээлгэн өгсөн чатуудад тэр хариулна",
@@ -90,7 +90,7 @@
       ["Шампунь, маск зэрэг бүтээгдэхүүн зардаг уу?", "Бүтээгдэхүүний мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/products.html хуудаснаас үзнэ үү."],
       ["Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдах уу?", "Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно."],
       ["Зээлийн аппаар төлбөр төлж болох уу?", "Одоогоор зээлийн аппаар төлбөр авдаггүй."],
-      ["Ямар брэндийн будаг хэрэглэдэг вэ?", "Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно уу."]
+      ["Ямар брэндийн будаг хэрэглэдэг вэ?", "Энэ талаар манай ажилтан танд хариулна. Та 99076874 дугаараар холбогдоно уу."]
     ],
     "signer": ["DalaTech (founder's confirmed facts)", "", "2026-10-03", ""]
   }

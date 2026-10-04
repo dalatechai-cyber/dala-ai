@@ -1,5 +1,7 @@
 All files approved by the founder on 2026-10-04 (file 8, D-177, with two changes the same day).
 
+> **2026-10-04, phones (D-178, founder, final):** the copies below are kept as the founder read them. Since then Парк Од's number is 99076874 everywhere in her lines (not 76001888), and both «Салбарууд» and the other-branch replies give each branch's own numbers (Яармаг 76001888, 91005498; Парк Од 99076874). The source files carry the corrected lines.
+
 # Tara Salon — wording for the founder (2026-10-04)
 
 The founder approved files 1–7 **as written** on 2026-10-04; file 8 was added after and approved the same day. Approved is not live:

@@ -18,27 +18,28 @@
 #   [after]   scripts/provision/tara-park-od-after-onboarding.sql
 # Every other line of hers is Яармаг's approved bytes (listed at the end).
 
-## 1. Only the phone changes («76001888 эсвэл 91005498» → «76001888») — APPROVED 2026-10-04
+## 1. Only the phone changes («76001888 эсвэл 91005498» → «99076874») — APPROVED 2026-10-04;
+##    number corrected 2026-10-04 (founder, final: Парк Од's only number is 99076874)
 
 [wording] canned handoff — CHANGED 2026-10-04 to the founder's approved sentence for anything
-Дали does not know (answer 3, «both branches»), the same bytes as Яармаг's in PR #283:
-Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно уу.
+Дали does not know (answer 3, «both branches»), Яармаг's sentence in PR #283 with her own number:
+Энэ талаар манай ажилтан танд хариулна. Та 99076874 дугаараар холбогдоно уу.
   (Her hand-off chats are answered by the owner, Boloroo.)
 
 [form] canned refusal_no_promotion
-Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та 76001888 дугаараар лавлана уу.
+Шинэ хямдрал, урамшуулал зарлах эрх надад байхгүй. Та 99076874 дугаараар лавлана уу.
 
 [form] canned refusal_price_unlisted
-Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 76001888 дугаараар холбогдож лавлана уу.
+Уучлаарай, энэ үйлчилгээний үнийн мэдээлэл надад байхгүй байна. Та 99076874 дугаараар холбогдож лавлана уу.
 
 [form] canned refusal_staff_schedule
-Үсчдийн ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та 76001888 дугаараар лавлана уу.
+Үсчдийн ажлын хуваарь, ирцийн мэдээлэл надад байхгүй. Та 99076874 дугаараар лавлана уу.
 
 [after] canned refusal_suitability
-Уучлаарай, энэ таны үсэнд тохирох эсэхийг би шийдэж өгөх боломжгүй. Манай мэргэжилтэн үсийг тань харж хэлнэ. Та 76001888 дугаараар холбогдоно уу.
+Уучлаарай, энэ таны үсэнд тохирох эсэхийг би шийдэж өгөх боломжгүй. Манай мэргэжилтэн үсийг тань харж хэлнэ. Та 99076874 дугаараар холбогдоно уу.
 
 [after] fixed reply salon_phone
-Та 76001888 дугаараар холбогдоно уу.
+Та 99076874 дугаараар холбогдоно уу.
 
 ## 2. Her own address (no map line: she has no Google Maps listing yet) — APPROVED 2026-10-04
 
@@ -77,18 +78,21 @@ Tara Salon хоёр салбартай: Яармаг салбар, Парк Од
 Boloroo Парк Од салбарт ажилладаг.
 Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот.
 Яармаг салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун талд.
-Хоёр салбарын нийтлэг утас: 76001888.
+Яармаг салбарын утас: 76001888, 91005498.
+Парк Од салбарын утас: 99076874.
 Хоёр салбарын үнэ ижил.
 Яармаг салбар өөрийн Фэйсбүүк хуудастай.
   Яармаг's approved «Салбарууд» mirrored: lines 1, 6, 7 are its bytes; «Энэ хуудас бол …» and
   «… салбарт ажилладаг.» carry her branch and her owner; «Яармаг салбарын хаяг: …» and «Яармаг
   салбар өөрийн Фэйсбүүк хуудастай.» mirror Яармаг's two Парк Од lines. Her own address line is
   kept (it was in the first draft) so the model never takes Яармаг's address for hers. No
-  91005498 and no Яармаг map link: those are Яармаг's own.
+  Яармаг map link. Phones (founder, 2026-10-04, final; no shared line): the line «Хоёр салбарын
+  нийтлэг утас: 76001888.» became «Яармаг салбарын утас: 76001888, 91005498.» and «Парк Од
+  салбарын утас: 99076874.», the same two lines as Яармаг's «Салбарууд».
 
 [after] fixed reply yarmag_branch (sent verbatim; mirrors Яармаг's approved `park_od_branch`) — APPROVED 2026-10-04
 Яармаг салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун талд
-Утас: 76001888
+Утас: 76001888, 91005498
 Фэйсбүүк хуудас: https://www.facebook.com/profile.php?id=100067872726164
   Яармаг's Page link is the website's (matrix_website data/branches.json); the founder confirmed
   on 2026-10-04 that it is the Page Яармаг's customers should be sent to. Fires on «Яармаг
@@ -139,7 +143,7 @@ A: Одоогоор зээлийн аппаар төлбөр авдаггүй.
 
 [form] FAQ (dye brand: no brand line, the staff answer)
 Q: Ямар брэндийн будаг хэрэглэдэг вэ?
-A: Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно уу.
+A: Энэ талаар манай ажилтан танд хариулна. Та 99076874 дугаараар холбогдоно уу.
 
 «Anything Дали doesn't know» is her `handoff` line (section 1), now the same sentence.
 
@@ -154,13 +158,13 @@ colour_lift (anyone who does not say «эрэгтэй»):
 Хэсэгчилсэн сор (эмэгтэй): 150,000₮
 Бүтэн сор: 210,000₮
 
-Та 76001888 дугаараар холбогдоно уу.
+Та 99076874 дугаараар холбогдоно уу.
 colour_lift_men (with «эрэгтэй/eregtei»):
 Манай өнгөний үйлчилгээний үнэ:
 Хэсэгчилсэн сор (эрэгтэй): 195,000₮
 Бүтэн цайруулалт (эрэгтэй): 450,000₮
 
-Та 76001888 дугаараар холбогдоно уу.
+Та 99076874 дугаараар холбогдоно уу.
 
 ## Byte-identical to Яармаг's approved rows (no new approval needed; listed for completeness)
 
@@ -169,7 +173,7 @@ refusal_public_channel [form]; assistant_identity, booking_line [wording]; image
 refusal_out_of_scope, refusal_service_unavailable, comment_private_reply, voice_received,
 handover_reclaim [after].
 fixed replies [after]: acknowledgement, assistant_maker, assistant_who, booking, branch_count,
-correction_clarify, dye_prices, greeting, holiday_hours_note (76001888, the shared line),
+correction_clarify, dye_prices, greeting, holiday_hours_note (99076874, her own line),
 like_welcome, perm_types, photo_send, price_which_service, suitability_stylist, thanks,
 tomorrow_hours (stems and matchers checked equal by md5 on a local replica).
 FAQs [form]: both of Яармаг's. Knowledge [after]: Химийн хориглох заалт, Урамшуулал ба

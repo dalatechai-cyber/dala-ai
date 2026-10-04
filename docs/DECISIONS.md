@@ -12006,3 +12006,23 @@ All three rows are approved and provisioned enabled
 (`scripts/provision/tara-yarmag-colour-and-treatment-perm-2026-10-04.sql`; Парк Од's in
 `tara-park-od-after-onboarding.sql`).
 
+## D-178 — Tara has no shared phone line: Яармаг 76001888 and 91005498, Парк Од 99076874 only (2026-10-04, founder, final)
+
+Supersedes the «76001888 is the shared main line of both branches» of D-167 and D-170. The founder:
+Яармаг's numbers are 76001888 and 91005498; Парк Од's ONLY number is 99076874; 76001888 is not
+shared with Парк Од.
+
+- Парк Од (drafts, not applied): her form's phone (1.6), her hand-off, refusal, `salon_phone`,
+  `holiday_hours_note`, dye-brand and colour lines all give 99076874
+  (`intake/tara-park-od.*`, `tara-park-od-after-onboarding.sql`).
+- Each branch names the other with the other's OWN numbers, in «Салбарууд» («Яармаг салбарын
+  утас: 76001888, 91005498.» / «Парк Од салбарын утас: 99076874.», replacing «Хоёр салбарын
+  нийтлэг утас: 76001888.») and in its other-branch reply (`park_od_branch` «Утас: 99076874»;
+  `yarmag_branch` «Утас: 76001888, 91005498»). Парк Од now gives Яармаг's 91005498 there: the
+  numbers are mirrored as the founder asked; the new lines await his approval.
+- Яармаг: `tara-yarmag-branch-phones-2026-10-04.sql` (+ revert), after the stylist-names file and
+  before the publish.
+- Branch gate: `allow_phones` is empty for `tara-salon`; a new `say_phones` key lets a branch SAY
+  the other branch's own numbers only in its `other_branch_in` rows, never hold them in a contact
+  row and never say them anywhere else (`src/lib/facts/branches.ts` `foreignDetails`).
+

@@ -55,7 +55,9 @@ document naming all three levels wait for the founder's approval of
 D-170 (founder, 2026-10-01): Парк Од is open. `tara-branches-2026-10-01.sql` (wording approved
 2026-10-01, with «Хоёр салбарын үнэ ижил.»; ready to apply) makes «Салбарууд» say Tara has two
 branches with Парк Од's address and the shared line, and adds the fixed reply `park_od_branch`
-(address, 76001888, Парк Од's Facebook Page). `tara-yarmag-move-2026-11.sql` is ready for the day
+(address, 76001888, Парк Од's Facebook Page; D-178, 2026-10-04: her number is 99076874 and the
+«нийтлэг утас» line becomes each branch's own numbers, `tara-yarmag-branch-phones-2026-10-04.sql`,
+applied after the stylist-names file and before the publish). `tara-yarmag-move-2026-11.sql` is ready for the day
 Яармаг moves to Хан-Уул дүүрэг, 24-р хороо, Наадамчдын зам гудамж, VIP Center 2 давхар (date to
 come); it changes the address row and the fixed address reply and drops the map link. The
 branch keeps the name «Яармаг салбар» after the move (founder, 2026-10-01).

@@ -19,6 +19,9 @@ test('a malformed config or a slug in two groups is refused, never guessed', () 
   assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "allow_phones": ["7600"]}}'), /allow_phones/u);
   assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "allow_phones": ["76001888, 91005498"]}}'), /allow_phones/u);
   assert.deepEqual(branchGroups('{"a": {"tenants": ["x", "y"], "allow_phones": ["+976 7600-1888"]}}')[0]?.allowPhones, ['+976 7600-1888']);
+  assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "say_phones": ["7600"], "other_branch_in": ["KB «Салбарууд»"]}}'), /say_phones/u);
+  assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "say_phones": ["76001888"]}}'), /say_phones.*other_branch_in/u);
+  assert.deepEqual(branchGroups('{"a": {"tenants": ["x", "y"], "say_phones": ["99076874"], "other_branch_in": ["KB «Салбарууд»"]}}')[0]?.sayPhones, ['99076874']);
   assert.equal(branchGroupOf('q', branchGroups('{"_doc": "", "a": {"tenants": ["x", "y"]}}')), null);
   assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "not_offered": ["1-р зэрэг"]}}'), /not_offered/u);
   assert.throws(() => branchGroups('{"a": {"tenants": ["x", "y"], "not_offered": {"z": ["1-р зэрэг"]}}}'), /names z, which is not one of its tenants/u);
@@ -132,4 +135,34 @@ test('a sibling that cannot be read is UNCHECKED, never clean', async () => {
 test('a tenant in no group has nothing to compare', async () => {
   const r = await branchGate(fakeDb(east), { slug: 'solo', tenantId: 'x', groups });
   assert.deepEqual([r.group, r.unchecked], [null, []]);
+});
+
+test('Tara (founder, 2026-10-04, final): no shared line; each branch gives the other\'s own numbers only in «Салбарууд» and its other-branch reply', async () => {
+  const { foreignDetails } = await import('../../src/lib/facts/branches.ts');
+  const g = branchGroupOf('matrix-eco-salon');
+  assert.ok(g !== null && (g.allowPhones ?? []).length === 0, 'no shared line');
+  const side = (slug: string, phones: string, texts: { source: string; text: string }[]) => ({
+    slug, contacts: [{ kind: 'phone', value: phones }], staff: [], branchName: null, texts, prices: [], bookingUrl: null,
+  });
+  const yarmag = side('matrix-eco-salon', '76001888, 91005498', [
+    { source: 'canned handoff', text: 'Энэ талаар манай ажилтан танд хариулна. Та 76001888 дугаараар холбогдоно уу.' },
+    { source: 'KB «Салбарууд»', text: 'Яармаг салбарын утас: 76001888, 91005498.\nПарк Од салбарын утас: 99076874.' },
+    { source: 'fixed reply park_od_branch', text: 'Утас: 99076874' },
+  ]);
+  const parkod = side('tara-park-od', '99076874', [
+    { source: 'canned handoff', text: 'Энэ талаар манай ажилтан танд хариулна. Та 99076874 дугаараар холбогдоно уу.' },
+    { source: 'KB «Салбарууд»', text: 'Яармаг салбарын утас: 76001888, 91005498.\nПарк Од салбарын утас: 99076874.' },
+    { source: 'fixed reply yarmag_branch', text: 'Утас: 76001888, 91005498' },
+  ]);
+  const run = (own: typeof yarmag, sib: typeof yarmag) =>
+    foreignDetails(own, sib, g.allowNames, g.allowPhones ?? [], g.allowAddresses ?? [], g.otherBranchIn ?? null, g.sayPhones ?? []);
+  assert.deepEqual(run(yarmag, parkod), [], 'Яармаг as corrected passes');
+  assert.deepEqual(run(parkod, yarmag), [], 'Парк Од as corrected passes');
+  // The old shared line in her own hand-off, or her number in Яармаг's hand-off, is a leak.
+  const old = { ...parkod, texts: [{ source: 'canned handoff', text: 'Та 76001888 дугаараар холбогдоно уу.' }] };
+  assert.deepEqual(run(old, yarmag).map((f) => f.detail), ["carries matrix-eco-salon's phone 76001888"]);
+  const crossed = { ...yarmag, texts: [{ source: 'faq «Утас?»', text: 'Та 99076874 дугаараар холбогдоно уу.' }] };
+  assert.deepEqual(run(crossed, parkod).map((f) => f.detail), ["carries tara-park-od's phone 99076874"]);
+  // Holding the other branch's number in a contact row is never allowed.
+  assert.deepEqual(run(side('tara-park-od', '99076874, 76001888', []), yarmag).map((f) => f.source), ['contact_points phone']);
 });
