@@ -12037,7 +12037,7 @@ shared with Парк Од.
   be 31 s later. A kind alone («ийм будаг хийж болох уу?») and a caption on the picture itself
   still go to staff (`reception/photoPrice.ts`, `namesOneService`). The matcher was never the
   cause: «Tara perm урт», «Tara perm, урт» and «tara perm urt» all match «Tara perm».
-- **`deposit_required`** (wording awaiting the founder's approval,
+- **`deposit_required`** (wording APPROVED by the founder on 2026-10-04 as written, both branches;
   `prompt/drafts/tara_deposit_required.mn.txt`): the deposit is required only for online
   booking, and Tara wants customers to book online, so the reply never invites a phone call. Its
   link is the tenant's booking link, read from `tenant_booking.booking_url` when the file runs,

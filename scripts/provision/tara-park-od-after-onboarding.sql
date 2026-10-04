@@ -131,7 +131,7 @@ select t.id, v.kind, v.body from tenants t,
 --    2026-10-04, byte for byte as Яармаг's in PR #283 (tara-yarmag-answers-2026-10-04.sql: body,
 --    matcher, placement); the same three answers are FAQs in her form. `dye_brand` serves the
 --    hand-off sentence, so (with #283's code deployed) a person is told.
---    `deposit_required` (NEW WORDING, approval pending: prompt/drafts/tara_deposit_required.mn.txt)
+--    `deposit_required` (wording APPROVED 2026-10-04, both branches: prompt/drafts/tara_deposit_required.mn.txt)
 --    and `stylist_tier_after_deposits` (her approved `stylist_tier` body after the deposit list,
 --    needs the code with `after_reply`): Яармаг's rows of 2026-10-04
 --    (tara-yarmag-deposit-and-level-2026-10-04.sql), her own `stylist_tier` body. The booking link

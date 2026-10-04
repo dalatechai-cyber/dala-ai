@@ -30,7 +30,7 @@ Drafts only; nothing applied or published.
   handed off (`reception/photoPrice.ts`); matcher member `after_reply` (`gate/match.ts`).
   Deploy before the SQL.
 - Яармаг: `tara-yarmag-deposit-and-level-2026-10-04.sql` (+ revert): `deposit_required` (wording
-  awaits approval, `prompt/drafts/tara_deposit_required.mn.txt`), `stylist_tier_after_deposits`,
+  APPROVED 2026-10-04, `prompt/drafts/tara_deposit_required.mn.txt`), `stylist_tier_after_deposits`,
   FAQ 15, seventeen reply cases (three «Tara perm урт» after the photo question reach the model).
 - Парк Од: the same two rows, her own `stylist_tier` body, seventeen inactive cases in
   `tara-park-od-after-onboarding.sql`; the FAQ in her form (docx rebuilt). Her online booking opens

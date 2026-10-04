@@ -2,7 +2,8 @@
 -- reply cases for the photo-question fix. Парк Од gets the same rows in her own file
 -- (tara-park-od-after-onboarding.sql, D-157: never copied from this tenant's rows).
 --
--- 1. deposit_required (NEW WORDING, approval pending: prompt/drafts/tara_deposit_required.mn.txt).
+-- 1. deposit_required (wording APPROVED by the founder on 2026-10-04 as written, both branches:
+--    prompt/drafts/tara_deposit_required.mn.txt).
 --    The founder's fact: the deposit is required only for online booking. Tara wants customers
 --    to book online, so the reply never invites a phone call:
 --      «Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа
@@ -25,7 +26,7 @@
 -- ORDER (each step refuses or misfires if skipped):
 --   1. dala-ai's code with `after_reply` deployed to Production (READY). Before it, the code does
 --      not know `after_reply` and skips row 2 as a bad matcher (no harm, no answer).
---   2. The founder approves the wording of row 1.
+--   2. (Done: the founder approved row 1's wording on 2026-10-04.)
 --   3. This file, in one SQL editor run.
 --   4. Publish matrix-eco-salon: dry run, the --with-model dry run (the three photo cases reach
 --      the model), then --publish. The rows are read at request time; the FAQ is compiled.
