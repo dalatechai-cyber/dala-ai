@@ -21,15 +21,11 @@ Now:
   booking runs again, the minute sweep asks QPay about every held hold past its time and books it
   or raises `paid_unbooked`.
 
-Open, for the founder — what tells the page that a branch's WEBSITE booking is working (line a)?
-Until decided, every branch gets (b). Options:
-1. Ask the website: `GET <booking_url origin>/api/branches` already returns `ready` per branch
-   (2026-10-04: yaarmag true, parkod false), computed from the website's own switch, hours,
-   hairdressers and QPay. Needs a stored mapping tenant → website branch id and a short timeout
-   (on failure: not known → b). Live and automatic; couples the pages to the website.
-2. A per-tenant flag the founder sets (e.g. on `tenant_booking`), flipped when the website switch is.
-   Simple and explicit; can drift from the website's real state.
-3. Both: the flag says which website branch, the website says whether it is ready.
+DECIDED (founder, 2026-10-04, D-180) — what tells the page that a branch's WEBSITE booking is
+working (line a): a setting per branch, kept as a row with that branch's other booking settings,
+default NOT open (so the branch gets line b). Not built yet, and the pages never ask the website:
+it belongs to the in-chat booking setup, later. Until then every known branch gets (b); the hook
+is `WebsiteBookingStatus` in `src/lib/booking/jobs.ts` (today: always «not known»).
 
 # Billing e2e: ONE CLOCK (2026-10-04) — replaces «MUST FIX BY 2026-10-13»
 

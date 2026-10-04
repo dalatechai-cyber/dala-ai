@@ -12050,3 +12050,16 @@ shared with Парк Од.
   the deposit list and the customer asks «аль нь» / «ялгаа» (live, 03:49 UTC: «Аль нь илүү юм»
   got the hand-off line). No new wording. Code before rows: the code before this one skips the
   row as a bad matcher.
+
+## D-180 — Booking pages while in-chat booking cannot run; whether a branch's website booking is open is a per-branch setting (2026-10-04, founder)
+
+- Every way the deposit page cannot run (switched off, a setting missing, a read failing, a
+  throw) answers 503 with one calm page in the founder's approved words, three cases: (a) the
+  branch's own booking link (`tenant_booking.booking_url`) and its phones, only when its website
+  booking is known to be open; (b) its phones, tap-to-call; (c) Messenger, when the branch is not
+  known. No QR, no hold touched; switched off is not logged as an error.
+- Switched off stops NEW bookings only: QPay's callback and the sweep still finish deposits
+  already paid. A paid callback that cannot be settled tells the founder on Telegram at once.
+- Whether a branch's website booking is open is a setting per branch, a row with that branch's
+  other booking settings, default NOT open (line b). Not built yet, and the pages never ask the
+  website: it belongs to the in-chat booking setup. Until then every known branch gets (b).
