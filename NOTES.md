@@ -1,26 +1,31 @@
-# MUST FIX BY 2026-10-13: billing e2e goes red again on 2026-10-14 (02:00 UTC)
+# Billing e2e: ONE CLOCK (2026-10-04) — replaces «MUST FIX BY 2026-10-13»
 
-`scripts/verify/billing-e2e.ts`, step «a wrong amount: mismatch» («300,000₮ against 360,000₮ is a
-mismatch»), has the shape that turned `main` red on 2026-10-04 (fixed in #288): it opens the live
-invoice's pay page on the WALL clock, then runs QPay's callback at the FIXED 2026-10-14 10:00
-(Ulaanbaatar). Opening the page stamps the code's `checked_at` with the real time; once the real
-time passes the callback's fixed time, the callback reads that code as checked «after now», skips
-it (`CALLBACK_MIN_INTERVAL_S`), records no payment, and `verify` fails on every run after.
+The note that stood here predicted a red `verify` from 2026-10-14 at the «wrong amount» step. It was
+wrong: run on one fake clock (libfaketime for Postgres and node; PostgREST is a static binary, so a
+local proxy re-signed its tokens at real time) the unchanged test PASSED on 2026-10-15 — that
+page visit is the live invoice's first, makes a fresh code and checks nothing, so no «later»
+check stamp exists. What did fail was another step of the same shape: on 2026-11-01 (Ulaanbaatar)
+the real-time sections' billing tick is itself «the 1st» and sent October's ledger, so the
+scripted 1 November found nothing to send («the October ledger is e-mailed as CSV»).
 
-Why the obvious fix does not work: the page cannot be opened on the test's clock. A code is made
-only with an `expires_at` within ten minutes of the DATABASE's real `now()` («a QPay code lives
-minutes»), so a page opened at a fixed test time returns `unavailable`.
+The cause of both, and of #288: two clocks in one test. The scripted month was fixed calendar
+dates; the pay-page sections must run on the wall clock (a code is only made within minutes of
+the database's real `now()`); so their order changed as the calendar moved. Fix (test code only,
+`scripts/verify/billing-e2e.ts`): every date is placed relative to today. The scripted month is
+two months before today's (Ulaanbaatar), its next-month ledger and branded invoice included, and
+the real-time one-offs issued «late» are dated in last month. Same 118 checks, same assertions.
 
-The fix needed: the callback must not see a check stamp later than its own clock. Proven locally
-(2026-10-04): right after `await openPage(liveId);` add this line, with a comment saying why:
+Proven with the whole CI sequence (SQL suites, unit tests, secret round trip, PostgREST transport,
+billing and booking e2e) on 2026-10-15, the 1st of a month, the last day of a month and a year
+ahead, and billing e2e alone on sixteen dates (month starts and ends, the year's turn,
+2028-02-29).
 
-```ts
-psql(`update billing_qpay_codes set checked_at = null where invoice_id = '${liveId}'`);
-```
- Simulated with the payment and callback at 2026-10-04 03:00 (already
-past the wall clock, as 2026-10-14 will be): all 118 checks pass. The longer-term fix is one clock
-for the whole e2e (pass `now` into the code-making function instead of SQL `now()`), so no step
-mixes the wall clock with fixed dates.
+The same search found one more test whose result depended on the day: `booking-e2e.ts` checked
+Парк Од's Sunday hours only when a Sunday was 1–6 days ahead, so on every Sunday it skipped the
+check silently (245 checks instead of 246). Now it always runs: on a Sunday the chat runs one day
+later on the engine's clock. 247 checks on every day tried, Sundays included. No other test
+changed result on any date tried (unit tests 2,769 every time; SQL suites, secret round trip and
+PostgREST transport green).
 
 # Round 2026-10-04 (Дали fixes): photo answer, deposit for online booking, level after deposits (D-179)
 
