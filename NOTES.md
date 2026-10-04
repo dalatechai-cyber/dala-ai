@@ -12,9 +12,12 @@ only with an `expires_at` within ten minutes of the DATABASE's real `now()` («a
 minutes»), so a page opened at a fixed test time returns `unavailable`.
 
 The fix needed: the callback must not see a check stamp later than its own clock. Proven locally
-(2026-10-04): right after `await openPage(liveId);` add
-`psql(\`update billing_qpay_codes set checked_at = null where invoice_id = '${liveId}'\`);`
-with a comment saying why. Simulated with the payment and callback at 2026-10-04 03:00 (already
+(2026-10-04): right after `await openPage(liveId);` add this line, with a comment saying why:
+
+```ts
+psql(`update billing_qpay_codes set checked_at = null where invoice_id = '${liveId}'`);
+```
+ Simulated with the payment and callback at 2026-10-04 03:00 (already
 past the wall clock, as 2026-10-14 will be): all 118 checks pass. The longer-term fix is one clock
 for the whole e2e (pass `now` into the code-making function instead of SQL `now()`), so no step
 mixes the wall clock with fixed dates.
