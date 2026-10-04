@@ -41,7 +41,12 @@ import { draftImageReplies, planImageReplies, readImageLine } from '../inbound/i
 import { applyThreadControl, recordHandover, readThreadState } from '../handover/record.ts';
 import { personRepliedSince } from '../handover/presend.ts';
 import { humanHoldsThread } from '../handover/control.ts';
-import { isMediaMessage, mediaAloneDedupKey, planMediaAlone, readCannedLine, readHandoverNotice } from '../handover/media.ts';
+import { mediaAloneDedupKey, photoQuestionDedupKey, planMediaAlone, readCannedLine, readHandoverNotice, unseenMediaOf } from '../handover/media.ts';
+import {
+  PHOTO_PRICE_QUESTION_KIND, photoAloneStep, questionFor, REEL_PRICE_QUESTION_KIND, type PhotoQuestionState,
+} from '../reception/photoPrice.ts';
+import { photoQuestionState, readLastReply } from '../inbound/photoQuestion.ts';
+import { BURST_WINDOW_MS } from '../inbound/imageReply.ts';
 import { isApprovedLinesRefusal, publishedLine } from '../prompt/cannedDrift.ts';
 import { planVoiceAlone, voiceDedupKey, VOICE_REPLY_KIND, type NeedsPersonReason, type ReplySent } from '../handover/needsPerson.ts';
 import { CREDENTIAL_FAILURE_STATUS, clearCredentialFailure } from '../channel/recover.ts';
@@ -120,6 +125,8 @@ export type GenerateArgs = {
   promptVolatile: string;
   ctx: ReceptionContext;
   historyEmpty: boolean;
+  /** D-176: where the conversation stands with the bot's photo question; null when it does not end on it. */
+  photoQuestionState: PhotoQuestionState | null;
 };
 
 export type DeliverArgs = {
@@ -799,8 +806,121 @@ async function runReceptionDelivery(
     // Reception), then the same hand-off as a captioned one: the thread becomes `human` for
     // the takeover cooldown and the founder is alerted. A thread a person already holds is
     // left to them. A tenant without a reviewed notice falls through to the image line.
+    /**
+     * Draft, claim and send one reviewed line to a sender whose message had no words (the photo
+     * question, D-176; the media notice, D-152), under its own dedup key so a redelivery re-sends
+     * the stored row and never answers twice. A retryable failure (613, 5xx) is a 503: the lease
+     * is released and the row intact, so the redelivery re-claims and re-sends it. Never silence.
+     * `not_delivering`: drafted on a channel that sends nothing (shadow), as the mirror is.
+     */
+    const sendLineAlone = async (a: { senderId: string; conversationId: string; dedupKey: string; body: string; what: string }):
+      Promise<'sent' | 'not_sent' | 'not_delivering' | JobResult> => {
+      const drafted = await draftOnce(db, {
+        tenantId, kind: 'reply', dedupKey: a.dedupKey, body: a.body, channelId, conversationId: a.conversationId,
+      });
+      if (!drafted.ok) {
+        fx.log('error', `${a.what}_draft_failed`, { tenantId, detail: drafted.detail });
+        return unavailable(`worker.${a.what}_draft_failed`);
+      }
+      if (!(delivery.deliver || testSenders.has(a.senderId))) {
+        fx.log('info', 'not_delivering', { tenantId, channelId, detail: a.what });
+        return 'not_delivering';
+      }
+      const held = await claim(db, { id: drafted.row.id, tenantId, now });
+      if (held.outcome === 'unavailable') return unavailable('worker.claim_unavailable');
+      if (held.outcome !== 'claimed') return 'not_sent';
+      const delivered = await fx.deliver({
+        tenantId, channelId, pageId, recipientId: a.senderId, outboundId: held.id,
+        body: held.body, attempts: held.attempts, graphVersion,
+        ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
+        ...(maxTextBytes === undefined ? {} : { maxTextBytes }),
+      });
+      if (delivered.outcome === 'failed' && delivered.retryable) {
+        fx.log('warn', `${a.what}_send_retryable`, { tenantId, failure: delivered.failure });
+        return unavailable(`worker.send_${delivered.failure}`);
+      }
+      if (delivered.outcome !== 'sent') {
+        fx.log('error', `${a.what}_not_sent`, { tenantId, conversationId: a.conversationId, outcome: delivered.outcome });
+        return 'not_sent';
+      }
+      return 'sent';
+    };
+
     let mediaHandled = false;
-    const plannedMedia = planMediaAlone(skipped);
+    let plannedMedia = planMediaAlone(skipped);
+
+    // --- A photo or a reel with no words, for a tenant with its question (D-176). -----------
+    // (founder, 2026-10-04; `reception/photoPrice.ts`)
+    //
+    // The tenant's reviewed `photo_price_question` row (a photo) or `reel_price_question` row (a
+    // video or a reel) asks which service and the hair length, SENT here like the notice, and the
+    // thread stays the bot's so the answer gets its price from the rows. A second picture inside
+    // the burst window is not answered again; one after a question (either) that never got words
+    // goes on to the notice below (the hand-off). A thread a person holds is left to them. A kind
+    // the tenant has no reviewed row for, and a shared post, go on to the notice as before.
+    // Unreadable row: the notice path for that kind, as before D-176. Unreadable last reply: the
+    // question (a repeat is better than silence).
+    if (plannedMedia.some((p) => p.media !== 'mixed')) {
+      const readQuestion = async (kind: string, what: string): Promise<string | null> => {
+        const question = await readCannedLine(db, { tenantId, locale: settings.defaultLocale, kind });
+        if (!question.ok) {
+          fx.log('error', `${what}_unreadable`, { eventId, detail: question.detail });
+          return null;
+        }
+        if (question.line !== null && !question.line.reviewed) {
+          fx.log('info', `${what}_unreviewed`, { tenantId });
+          return null;
+        }
+        return question.line !== null && question.line.body.trim() !== '' ? question.line.body : null;
+      };
+      // Both rows, whatever was sent: either, as the last reply, is the question already asked.
+      const [photoRow, reelRow] = await Promise.all([
+        readQuestion(PHOTO_PRICE_QUESTION_KIND, 'photo_question'), readQuestion(REEL_PRICE_QUESTION_KIND, 'reel_question'),
+      ]);
+      const rows = { photo: photoRow, reel: reelRow };
+      const questions = [rows.photo, rows.reel].filter((q): q is string => q !== null);
+      const toNotice: typeof plannedMedia = [];
+      for (const plan of plannedMedia) {
+        const body = questionFor(plan.media, rows);
+        if (body === null) { toNotice.push(plan); continue; }
+        const contact = await ensureContact(db, { tenantId, channelId, externalId: plan.senderId, now });
+        if (!contact.ok) return unavailable('worker.photo_contact_failed');
+        const conv = await openConversation(db, { tenantId, contactId: contact.value.contactId, channelId, now });
+        if (!conv.ok) return unavailable('worker.photo_conversation_failed');
+        const conversationId = conv.value.conversationId;
+
+        const state = await readThreadState(db, { tenantId, conversationId });
+        if (state !== 'unreadable' && humanHoldsThread(state, cooldownMinutes, now).refuse) {
+          fx.log('info', 'photo_alone_person_has_thread', { tenantId, conversationId });
+          mediaHandled = true;
+          continue;
+        }
+        const last = await readLastReply(db, tenantId, conversationId);
+        if (last === 'unreadable') fx.log('error', 'photo_question_time_unreadable', { tenantId, conversationId });
+        const step = photoAloneStep({
+          questions, lastReply: last === 'unreadable' ? null : last,
+          ownKey: photoQuestionDedupKey(eventId, plan.idx), now, burstWindowMs: BURST_WINDOW_MS,
+        });
+        if (step === 'handoff') { toNotice.push(plan); continue; }
+        mediaHandled = true;
+        if (step === 'suppress') {
+          fx.log('info', 'photo_alone_burst', { tenantId, conversationId });
+          continue;
+        }
+        const video = plan.media === 'video';
+        const sent = await sendLineAlone({
+          senderId: plan.senderId, conversationId, dedupKey: photoQuestionDedupKey(eventId, plan.idx), body,
+          what: video ? 'reel_question' : 'photo_question',
+        });
+        if (typeof sent !== 'string') return sent;
+        if (sent !== 'sent') continue;
+        await fx.flagQuality(video
+          ? { tenantId, conversationId, code: REEL_PRICE_QUESTION_KIND, detail: 'video or reel with no text: asked which service and the hair length' }
+          : { tenantId, conversationId, code: PHOTO_PRICE_QUESTION_KIND, detail: 'photo with no text: asked which service and the hair length' });
+      }
+      plannedMedia = toNotice;
+    }
+
     if (plannedMedia.length > 0) {
       const notice = await readHandoverNotice(db, { tenantId, locale: settings.defaultLocale });
       if (!notice.ok) {
@@ -821,37 +941,11 @@ async function runReceptionDelivery(
             fx.log('info', 'media_alone_person_has_thread', { tenantId, conversationId });
             continue;
           }
-          const drafted = await draftOnce(db, {
-            tenantId, kind: 'reply', dedupKey: mediaAloneDedupKey(eventId, plan.idx),
-            body: notice.line.body, channelId, conversationId,
+          const sent = await sendLineAlone({
+            senderId: plan.senderId, conversationId, dedupKey: mediaAloneDedupKey(eventId, plan.idx), body: notice.line.body, what: 'media_alone',
           });
-          if (!drafted.ok) {
-            fx.log('error', 'media_alone_draft_failed', { tenantId, detail: drafted.detail });
-            return unavailable('worker.media_draft_failed');
-          }
-          if (!(delivery.deliver || testSenders.has(plan.senderId))) {
-            fx.log('info', 'not_delivering', { tenantId, channelId, detail: 'media alone' });
-            continue;
-          }
-          const held = await claim(db, { id: drafted.row.id, tenantId, now });
-          if (held.outcome === 'unavailable') return unavailable('worker.claim_unavailable');
-          if (held.outcome !== 'claimed') continue;
-          const delivered = await fx.deliver({
-            tenantId, channelId, pageId, recipientId: plan.senderId, outboundId: held.id,
-            body: held.body, attempts: held.attempts, graphVersion,
-            ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
-            ...(maxTextBytes === undefined ? {} : { maxTextBytes }),
-          });
-          if (delivered.outcome === 'failed' && delivered.retryable) {
-            // 613 or a 5xx: the lease is released and the stored row is intact, so the
-            // redelivery re-claims and re-sends it, as the reply path does. Never silence.
-            fx.log('warn', 'media_alone_send_retryable', { tenantId, failure: delivered.failure });
-            return unavailable(`worker.send_${delivered.failure}`);
-          }
-          if (delivered.outcome !== 'sent') {
-            fx.log('error', 'media_alone_not_sent', { tenantId, conversationId, outcome: delivered.outcome });
-            continue;
-          }
+          if (typeof sent !== 'string') return sent;
+          if (sent !== 'sent') continue;
           const handed = await applyThreadControl(db, { tenantId, conversationId, control: 'human', at: now, source: 'handover', refresh: true });
           if (!handed.ok) fx.log('error', 'media_handoff_control_failed', { tenantId, conversationId, detail: handed.detail });
           await fx.flagQuality({ tenantId, conversationId, code: 'media_handoff', detail: 'photo, video or shared reel or post with no text handed to staff' });
@@ -1053,6 +1147,11 @@ async function runReceptionDelivery(
    * message as "a person replied" and would have dropped the notice itself. One helper, so
    * the ordinary send and a resumed send cannot drift apart.
    */
+  // The notice, read at most once per job: every resumed send compares its bytes (D-176).
+  let noticeRead: ReturnType<typeof readHandoverNotice> | null = null;
+  const noticeOnce = (): ReturnType<typeof readHandoverNotice> =>
+    (noticeRead ??= readHandoverNotice(db, { tenantId, locale: settings.defaultLocale }));
+
   const handOffAfterNotice = async (a: { conversationId: string; externalId: string; text: string }): Promise<void> => {
     const handed = await applyThreadControl(db, { tenantId, conversationId: a.conversationId, control: 'human', at: now, source: 'handover', refresh: true });
     if (!handed.ok) fx.log('error', 'media_handoff_control_failed', { tenantId, conversationId: a.conversationId, detail: handed.detail });
@@ -1159,15 +1258,14 @@ async function runReceptionDelivery(
     });
     if (delivered.outcome === 'sent') {
       // A resumed media notice still hands the thread over: the first attempt returned
-      // before its hand-off, so this is the only place it can happen. Recognised exactly as
-      // the reply path chose it: a media message answered with the tenant's reviewed notice.
-      const sentPhoto = r.message.attachments.includes('image') && r.message.stickerIds.length === 0;
-      if (isMediaMessage({ text: r.message.text, attachments: r.message.attachments, sentPhoto })) {
-        const notice = await readHandoverNotice(db, { tenantId, locale: settings.defaultLocale });
-        if (!notice.ok) fx.log('error', 'handover_notice_unreadable', { eventId, detail: notice.detail });
-        else if (notice.line !== null && notice.line.body.trim() === held.body.trim()) {
-          await handOffAfterNotice({ conversationId: r.conversationId, externalId: r.message.externalId, text: r.message.text });
-        }
+      // before its hand-off, so this is the only place it can happen. Recognised by its bytes:
+      // the reply path serves the tenant's reviewed notice only as a hand-off, to a media
+      // message or, since D-176, to a text after the photo question that named nothing the
+      // rows know (`reception/photoPrice.ts`).
+      const notice = await noticeOnce();
+      if (!notice.ok) fx.log('error', 'handover_notice_unreadable', { eventId, detail: notice.detail });
+      else if (notice.line !== null && notice.line.body.trim() !== '' && notice.line.body.trim() === held.body.trim()) {
+        await handOffAfterNotice({ conversationId: r.conversationId, externalId: r.message.externalId, text: r.message.text });
       }
       return 'sent';
     }
@@ -1715,8 +1813,22 @@ async function runReceptionDelivery(
     // speed this same change bought. So the reply goes first; if its bubble had not landed
     // by then, `typing_off` follows once it does. A model reply takes seconds, so its bubble
     // has always landed and nothing extra is sent.
+    // D-176: where this conversation stands with the bot's photo question
+    // (`inbound/photoQuestion.ts`). Read only when the history ends on the question, so every
+    // other message costs nothing here. Measured before the bubble: a price ask that crossed the
+    // question gets no reply (`photo_question_pending`), so it must not be shown «typing…».
+    // Unreadable reads as `answering` (the text is then an answer, which at worst hands off).
+    const questionRead = await photoQuestionState(db, { tenantId, conversationId, canned: ctx.canned, priorTurns, eventAt, now });
+    if (questionRead === 'unreadable') fx.log('error', 'photo_question_time_unreadable', { tenantId, conversationId });
+    const photoQuestion: PhotoQuestionState | null = questionRead === 'unreadable' ? 'answering' : questionRead;
+    // A second picture inside the burst window may get nothing more either (`photoPriceStep`).
+    const secondPicture = photoQuestion === 'burst' && unseenMediaOf({
+      text: message.text, attachments: message.attachments,
+      sentPhoto: message.attachments.includes('image') && message.stickerIds.length === 0,
+    }) !== null;
+
     let typingSettled = false;
-    const typing: Promise<void> | null = deliverThis
+    const typing: Promise<void> | null = deliverThis && photoQuestion !== 'crossed' && !secondPicture
       ? fx.showTyping({ tenantId, channelId, recipientId: message.senderId, pageId, ...viaToken })
         .catch((e: unknown) => {
           fx.log('info', 'typing_indicator_failed', {
@@ -1743,6 +1855,7 @@ async function runReceptionDelivery(
       // the turns BEFORE this one — the inbound row was stored a moment ago, so a first
       // message leaves priorTurns empty.
       historyEmpty: priorTurns.length === 0,
+      photoQuestionState: photoQuestion,
     });
     // Lapped the instant the call returns, and deliberately BEFORE the outcome is
     // branched on. Its first form lapped below the `!delivery.deliver` early-continue, so

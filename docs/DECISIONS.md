@@ -11895,3 +11895,114 @@ live text event inside 24 h with an immediate page, and expiring the rest (past 
 a photo, an echo, no payload). The two new reads ran against a real local PostgREST (200). `npm
 run check` green. Reviewed independently (one blocker and two mediums found and fixed). Not
 verified live: needs the founder's go.
+
+## D-176 — A photo and «how much?» is answered by Дали, not handed to staff (2026-10-04, founder)
+
+**Decision (founder, 2026-10-04).** Photo + price questions: Дали answers them itself. It asks which
+service and the hair length, then gives the price from the rows, and hands off only when it truly
+cannot (a photo with no text and no recognisable service after one question). This reverses
+D-152's «the person who can see the photo answers the price» for this case. Why: on Tara Яармаг,
+2026-09-26 to 2026-10-03, the photo hand-off left 34 chats and 50 customer texts unanswered, 26
+of them never answered by a person (`docs/reports/2026-10-03-tara-dali-quality.md` §1).
+
+**Built** (`src/lib/reception/photoPrice.ts`, `src/lib/inbound/photoQuestion.ts`, `handle.ts`,
+`worker/reception.ts`, migration `0083`):
+- **A row is the switch.** Everything needs the tenant's reviewed `photo_price_question` row
+  (model-invisible kind). Without it, D-152 holds exactly. For Tara the row's bytes are her
+  approved `image_received` line («…Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар
+  хариулна.»), so no new sentence reaches a customer.
+- **Photos, and videos with their own line (addendum below).** The photo line says «зураг», so a
+  video, a reel or a link to one has its own row, `reel_price_question`; each row switches its own
+  kind on. A shared post, a link to a post, a photo, a story or a pin, and a photo beside a video
+  still go to staff.
+- **A photo with no words** (worker): the question, sent, and the thread stays the bot's. A second
+  photo inside the image burst window (10 min) gets nothing more; a photo 10 to 60 minutes after a
+  question that never got words goes to the notice and the hand-off as before; after an hour (or a
+  redelivery of the same event, which finds its own question by dedup key) it is asked again.
+- **A photo with words:** a fixed reply with an answer (the dye rows for «будаг хэд вэ», the
+  address) ⇒ served (a photo's words are read as words); a price ask naming a listed service ⇒
+  priced from the rows; a price ask naming none, no words, or only a greeting (a whole-message row)
+  ⇒ the question, once; other words («ийм будаг хийж болох уу?», even naming a service) ⇒ staff:
+  the model cannot see the photo.
+- **The answer to the question** (sent within the last hour, `PHOTO_QUESTION_ANSWER_WINDOW_MS`):
+  a service, any fixed reply or a gate topic ⇒ answered as usual; nothing the rows know ⇒ the
+  notice and the hand-off («after one question»). The question is sent as its exact bytes (nothing
+  appended), because it is recognised by an exact comparison.
+- **Crossing.** A photo and «хэд вэ?» typed together arrive as two messages and the photo is
+  answered first. A text whose Meta time is before the question's row + 30 s
+  (`PHOTO_QUESTION_CROSSING_MS`) is read as the photo's caption; a crossed price ask gets nothing
+  more (`photo_question_pending`, outcome `dropped`, and no «typing…» bubble is shown for it): the
+  question just sent already asks what it needs. Read only when the history ends on the question.
+- **The hand-off line's bytes are a hand-off whoever serves them**: a fixed reply or FAQ that
+  carries the tenant's `handoff` sentence (Tara's dye brand) marks the reply handed off, so a person
+  is told (F5), as when the platform serves the row.
+- A resumed notice hands off whenever its bytes are the notice (it is now also served to a text).
+
+**Not built / open.** Instagram and the website: the website receives no photos; Instagram shares
+the worker path, unproven on real traffic. An unreviewed `photo_price_question` row refuses every
+reply (as any unreviewed line does), so the row is inserted signed or not at all. Order: deploy,
+`0083`, then the row. Not verified live.
+
+**Addendum, the reel line (founder, 2026-10-04).** The founder approved as written «Уучлаарай, би
+бичлэг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.» and asked
+for it to be wired like the photo line. Why: the same silence after a hand-off; Tara's Page gets
+shared reels of a colour, text-less or with «…hed boloh be?» (webhooks 142, 144, 979; report §1).
+Built the same way:
+- **A row is the switch.** `reel_price_question` (model-invisible, registered by the same unapplied
+  migration `0083`, in `MODEL_INVISIBLE_KINDS`, the guard and the D-163 trigger's list). Without it
+  a reel goes to staff exactly as D-152. Tara's row is the approved line byte for byte
+  (`scripts/provision/tara-yarmag-reel-question-2026-10-04.sql`, revert beside it).
+- **What counts as a video** (`handover/media.ts`, `unseenMediaOf`): attachments `video`, `reel`,
+  `ig_reel`, and links whose path is always a video (fb.watch, Facebook `/share/r/`, `/share/v/`,
+  `/reel`, `/watch`, `/videos/`, Instagram `/reel/`, `/tv/`, TikTok, YouTube). `share`, Instagram
+  `/p/`, Facebook `/share/p/` and `/photo`, stories and pins may be a picture, and the line says
+  «бичлэг»: they stay D-152, as does a photo beside a video.
+- **Same steps as a photo**: no words, a price ask or only a greeting ⇒ the reel question once; a
+  price ask naming a service or an answering fixed reply ⇒ the rows; other words ⇒ staff; the
+  answer to the question ⇒ priced, or staff when it names nothing the rows know; another reel 10 to
+  60 minutes after the question ⇒ staff; inside 10 minutes ⇒ nothing more, whether it comes as an
+  attachment or as a pasted link (question state `burst`, measured like the photo burst; applies
+  to a second photo with «хэд вэ?» too); a crossed caption ⇒ nothing more.
+- **The two questions are one question.** Either, as the last reply within the hour, is "the
+  question": a reel after the photo question (or a photo after the reel question) goes on as a
+  second picture would. Same dedup key family (`pq:`), same crossing and answer windows.
+- **Links are masked when the words are read** for a picture's message (fixed replies, price ask,
+  service): a reel link's host or handle («facebook.com», «tiktok.com/@une…») is not the customer
+  naming a topic or asking a price.
+- **Never on the website** (`noInbox`): it has no inbox and no question timing; a pasted video
+  link there keeps today's path. Flags name the kind (`reel_price_question`, `reel_price_handoff`,
+  `reel_question_pending`).
+- Provisioning's video-link reply case (`MEDIA_PROBE`) expects the reel question for a tenant that
+  has the row; Tara's draft refuses to apply while any of her reply cases sends a video link and
+  expects the notice.
+
+**Also 2026-10-04, data for Tara Яармаг (drafts, not applied):** the hand-off line becomes the
+founder's sentence for «anything Дали doesn't know» («Энэ талаар манай ажилтан танд хариулна. Та
+76001888 дугаараар холбогдоно уу.»); fixed replies and FAQs for the deposit (deducted), loan apps
+(none) and the dye brand (that sentence); the price page for women's «Эмчилгээний хими» and
+«өнгө гаргалт», declared as a `price_page` contact («Үнийн хуудас», `0083`). Both lines approved
+2026-10-04; the price-page rows stay disabled until the website shows both prices (the founder is
+getting them from the salon) and the new site is live.
+
+## D-177 — Women's «Эмчилгээний хими» and «өнгө гаргалт» are not Tara services; no price page (2026-10-04, founder)
+
+**Decision.** The two prices the price-page rows pointed to are not services Tara offers. The
+price-page replies (`price_page_treatment_perm`, `price_page_color`), the «Үнийн хуудас» contact,
+the `price_page` contact kind (drafted in `0083`) and any website change for them are dropped, in
+both tenants. Supersedes D-176's price-page part.
+
+- Women's «Эмчилгээний хими»: told it is not offered (`treatment_perm_women`, a `matcher` row that
+  needs «эмэгтэй»), in a sentence the founder approved (Tara's `refusal_service_unavailable` line
+  names nails). Men's «Эмчилгээний хими» is unchanged.
+- «Өнгө гаргалт» (6+ chats a week): never told it is not offered. Women's colour rows to a woman or
+  anyone who does not say «эрэгтэй» (`colour_lift`: Хэсэгчилсэн сор (эмэгтэй), Бүтэн сор); the men's
+  rows only to a man (`colour_lift_men`: Хэсэгчилсэн сор (эрэгтэй), Бүтэн цайруулалт (эрэгтэй));
+  each under the header «Манай өнгөний үйлчилгээний үнэ:» and ending with the tenant's own
+  `salon_phone` line (Яармаг: 76001888 and 91005498, as D-167 left it). Approved 2026-10-04. The rows are typed byte for byte as the price list
+  renders them, because `quote_services` cannot pick one gender's variant; the fact gate checks
+  them at every publish.
+
+All three rows are approved and provisioned enabled
+(`scripts/provision/tara-yarmag-colour-and-treatment-perm-2026-10-04.sql`; Парк Од's in
+`tara-park-od-after-onboarding.sql`).
+

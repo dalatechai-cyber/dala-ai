@@ -280,6 +280,20 @@ partial, one of four tables.
 - **Billing of tenants' own customers** — `0065` invoices DalaTech's clients for DalaTech's
   fee. Nothing here bills a tenant's customers.
 
+### `0083_photo_reel_question`
+
+**Additive: two `canned_response_kinds` rows, one function redefined.**
+Registers `photo_price_question` (D-176): the reviewed question a customer who sends a photo is
+asked (which service, the hair length), served whole by the platform and never by the model
+(`reception/photoPrice.ts`), and `reel_price_question`, the same question for a video, a reel or
+a link to one (D-176 addendum). No row of either kind is inserted; a tenant without a reviewed
+one keeps D-152's hand-off for that kind. Both kinds are in `MODEL_INVISIBLE_KINDS`, so the code
+must be deployed before any tenant has a row. `ops.refuse_unpublished_canned_edit` (0074) is
+redefined with the same body and the new kinds in its invisible list (`check-gate-keys` holds the
+two lists equal).
+Not applied. (A `price_page` contact kind was drafted here and dropped, D-177.)
+Note: `0082` is taken by the in-chat booking branch (PR #285); renumber whichever merges second.
+
 ### `0081_ora_billing`
 
 **Additive; widens two CHECKs.** `billing_accounts.ora_account boolean not null default false`:
