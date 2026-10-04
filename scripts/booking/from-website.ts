@@ -1,0 +1,172 @@
+/**
+ * Build one branch's `booking_config` row from the brand's shared booking rules and the brand
+ * website's own data, so the chat and the website can never disagree on a service, its minutes,
+ * a stylist's calendar, level, gender or deposit, or the QPay merchant and the branch's payout
+ * account. Nothing is invented and nothing sensitive is copied into this repository: calendar ids,
+ * the merchant id and the payout account are read at run time and written only to the output file.
+ *
+ *     node scripts/booking/from-website.ts --website ../matrix_website --rules config/booking/tara-salon.json \
+ *       --slug matrix-eco-salon [--tester <your PSID>] --out /tmp/booking-matrix-eco-salon.sql
+ *     PARKOD_QPAY_BANK_CODE=… PARKOD_QPAY_ACCOUNT_NUMBER=… PARKOD_QPAY_ACCOUNT_NAME=… \
+ *       node scripts/booking/from-website.ts --website ../matrix_website --rules config/booking/tara-salon.json \
+ *       --slug tara-park-od --out /tmp/booking-tara-park-od.sql
+ *
+ * `--slug` picks the branch block of `--rules` (an argument: scripts name a tenant only so).
+ * Checked against the website, each a refusal:
+ *  - services: every service in the rules is a current (non-retired) entry of the website's
+ *    `data/serviceDurations.json` with the SAME minutes, and every current entry is in the rules
+ *    exactly once (the 62 confirmed durations, founder 2026-10-03);
+ *  - stylists: each is in the website's `config/stylists.js` under its `website` key, at this
+ *    branch, not retired, with the same gender and level, and the website's deposit for that level
+ *    equals the rules' (money: never picked, a disagreement stops the run);
+ *  - QPay: every branch invoices under the ONE merchant the website's create-payment handler holds
+ *    (`YAARMAG_MERCHANT_ID`, used for both branches) with its one mcc, on the platform's QPay login
+ *    (founder, 2026-10-04: Парк Од uses the founder's merchant and login exactly as Яармаг does).
+ *    Only the payout account is the branch's own: `"website"` reads it from the website's
+ *    `config/branches.js` (Яармаг, unchanged); `"operator"` asks the website's `qpayAccountFor` with
+ *    the operator's environment (the website's own names PARKOD_QPAY_BANK_CODE,
+ *    PARKOD_QPAY_ACCOUNT_NUMBER, PARKOD_QPAY_ACCOUNT_NAME), and is written `"not-connected"` until
+ *    all three are there and the website calls the account complete. An account equal to another
+ *    branch's (Яармаг's) is refused.
+ * A stylist the website has no calendar for is written `"not-connected"` (the branch stays off).
+ * Writes one SQL statement that upserts the row with mode 'off'. Touches no database.
+ */
+import { createRequire } from 'node:module';
+import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { allServices, choiceKey, NOT_CONNECTED, parseBookingConfig } from '../../src/lib/booking/config.ts';
+import { branchConfig, branchRules, type RawQpay } from '../../src/lib/booking/rules.ts';
+
+function die(m: string): never { process.stderr.write(`from-website: ${m}\n`); process.exit(2); }
+const arg = (n: string) => { const i = process.argv.indexOf(`--${n}`); return i === -1 ? undefined : process.argv[i + 1]; };
+
+const website = path.resolve(arg('website') ?? die('--website <matrix_website checkout> is required'));
+const rulesPath = arg('rules') ?? die('--rules <config/booking/*.json> is required');
+const slug = arg('slug') ?? die('--slug <tenant slug> is required');
+const out = arg('out') ?? die('--out <file.sql> is required');
+const tester = arg('tester');
+if (!/^[a-z0-9-]+$/u.test(slug)) die('a slug is lower-case letters, digits and dashes');
+if (process.argv.includes('--qpay-login')) die('--qpay-login is gone: every branch invoices on the platform\'s QPay login (founder, 2026-10-04)');
+
+const rules = JSON.parse(readFileSync(rulesPath, 'utf8')) as Record<string, unknown>;
+const branch = branchRules(rules, slug);
+if (!branch.ok) die(branch.detail);
+const b = branch.branch;
+
+const require = createRequire(import.meta.url);
+type WebStylist = { person?: string; calendarId: string | null; price: number; levelKey?: string; gender?: string; branch?: string; retired?: boolean; alias?: boolean };
+const { STYLIST_CONFIG } = require(path.join(website, 'config/stylists.js')) as { STYLIST_CONFIG: Record<string, WebStylist> };
+const { qpayAccountFor } = require(path.join(website, 'config/branches.js')) as {
+  qpayAccountFor: (branch: string) => {
+    merchantId: string | null; complete: boolean;
+    bankAccounts: { account_bank_code: string; account_number: string; account_name: string }[] | null;
+  } | null;
+};
+const durations = JSON.parse(readFileSync(path.join(website, 'data/serviceDurations.json'), 'utf8')) as {
+  services: { name: string; minutes: number; retired?: boolean }[];
+};
+const createPayment = readFileSync(path.join(website, 'api/qpay/create-payment.js'), 'utf8');
+
+// --- services and minutes: the rules and the website's current list, exactly ---------------
+const current = new Map(durations.services.filter((s) => s.retired !== true).map((s) => [s.name, s.minutes]));
+
+// --- stylists: the founder's list in the rules, checked against the website ---------------
+const levels = (rules['levels'] ?? []) as { key: string; deposit_mnt: number }[];
+const calendars = new Map<string, string | null>();
+for (const s of b.stylists) {
+  const w = STYLIST_CONFIG[s.website];
+  if (w === undefined || w.alias === true) die(`the website has no stylist ${s.website} (rules: ${s.name})`);
+  if (w.retired === true) die(`the website has ${s.website} retired`);
+  if (w.branch !== b.website_branch) die(`the website has ${s.website} at ${String(w.branch)}, the rules at ${b.website_branch}`);
+  if (w.gender !== s.gender) die(`DISAGREEMENT: ${s.name}'s gender is ${s.gender} in the rules, ${String(w.gender)} on the website (never picked)`);
+  if (w.levelKey !== s.level) die(`DISAGREEMENT: ${s.name}'s level is ${s.level} in the rules, ${String(w.levelKey)} on the website (never picked)`);
+  const deposit = levels.find((l) => l.key === s.level)?.deposit_mnt;
+  if (deposit !== w.price) die(`DISAGREEMENT: the ${s.level} deposit is ${String(deposit)}₮ in the rules, ${w.price}₮ on the website (never picked)`);
+  calendars.set(s.website, typeof w.calendarId === 'string' && w.calendarId.trim() !== '' ? w.calendarId.trim() : null);
+  // Every former name the website still accepts for her is one a customer may type in chat too.
+  const typed = new Set([s.name, ...(s.aliases ?? [])].map(choiceKey));
+  const formerly = Object.entries(STYLIST_CONFIG).filter(([, x]) => x.alias === true && x.person === w.person).map(([k]) => k);
+  const untyped = formerly.filter((k) => !typed.has(choiceKey(k)));
+  if (untyped.length > 0) die(`the website accepts ${untyped.join(', ')} for ${s.name}; add them to her aliases in the rules`);
+}
+// Every hairdresser the website books at this branch is in the rules: none bookable on the website
+// and missing in chat (Otgonjargal was, 2026-10-03), none silently added either.
+const inRules = new Set(b.stylists.map((s) => STYLIST_CONFIG[s.website]?.person));
+const missingPeople = [...new Set(Object.values(STYLIST_CONFIG)
+  .filter((x) => x.branch === b.website_branch && x.retired !== true && x.alias !== true && typeof x.person === 'string')
+  .map((x) => x.person as string))].filter((p) => !inRules.has(p));
+if (missingPeople.length > 0) die(`the website books ${missingPeople.join(', ')} at ${b.website_branch}, the rules do not: add or ask the founder (never picked)`);
+
+// --- QPay: the website's one merchant, and this branch's own payout account ---------------
+const mcc = [...new Set([...createPayment.matchAll(/mcc_code:\s*["'](\d{4})["']/gu)].map((m) => m[1] as string))];
+if (mcc.length !== 1) die(`expected exactly one mcc_code in api/qpay/create-payment.js, found ${mcc.length}`);
+// The handler invoices every branch under one merchant constant (`YAARMAG_MERCHANT_ID = "…"`, the
+// name kept from before Парк Од). More than one merchant id there is a change this script does not
+// understand: stop, never pick.
+const merchantIds = [...new Set([...createPayment.matchAll(/[A-Z]+_MERCHANT_ID\s*=\s*["']([0-9a-f-]{36})["']/gu)].map((m) => m[1] as string))];
+if (merchantIds.length !== 1) die(`expected exactly one merchant id in api/qpay/create-payment.js, found ${merchantIds.length}`);
+const merchantId = merchantIds[0] as string;
+/** A branch's QPay: the one merchant and mcc, and its own account if the website calls it complete. */
+const qpayOf = (websiteBranch: string): RawQpay | null => {
+  const acct = qpayAccountFor(websiteBranch);
+  if (acct === null || acct.complete !== true) return null;
+  // The website's row never names its own merchant (both handlers keep theirs); if it ever does,
+  // it must be the handler's one.
+  if (acct.merchantId !== null && acct.merchantId !== undefined && acct.merchantId !== merchantId) {
+    die(`the website names merchant …${acct.merchantId.slice(-4)} for ${websiteBranch}, its handler …${merchantId.slice(-4)}`);
+  }
+  const bank = acct.bankAccounts?.[0];
+  if (bank === undefined) return null;
+  return {
+    merchant_id: merchantId, mcc_code: mcc[0] as string,
+    bank_accounts: [{ bank_code: bank.account_bank_code, account_number: bank.account_number, account_name: bank.account_name }],
+  };
+};
+const qpay = qpayOf(b.website_branch);
+if (b.qpay === 'website' && qpay === null) die(`the website holds no complete QPay account for ${b.website_branch}`);
+// Never another branch's money: compare the payout account with every other branch the rules name.
+// (The merchant is the same for all of them by design; the account is what must differ.)
+const others = Object.entries((rules['branches'] ?? {}) as Record<string, { website_branch: string; qpay: string }>)
+  .filter(([k]) => k !== slug).map(([, o]) => qpayOf(o.website_branch)).filter((x): x is RawQpay => x !== null);
+for (const o of others) {
+  if (qpay !== null && o.bank_accounts[0]?.account_number === qpay.bank_accounts[0]?.account_number) {
+    die('this branch\'s QPay payout account is another branch\'s: each branch is paid into its own');
+  }
+}
+
+const built = branchConfig(rules, slug, {
+  calendarFor: (w) => calendars.get(w) ?? null,
+  qpay: qpay ?? NOT_CONNECTED,
+  ...(tester === undefined ? {} : { testSenderIds: [tester] }),
+});
+if (!built.ok) die(built.detail);
+const parsed = parseBookingConfig(built.config);
+if (!parsed.ok) die(`the platform would refuse this config: ${parsed.detail}`);
+const p = parsed.config;
+
+const mine = allServices(p);
+for (const s of mine) {
+  const m = current.get(s.name);
+  if (m === undefined) die(`the rules book «${s.name}», which is not on the website's current list`);
+  if (m !== s.minutes) die(`DISAGREEMENT: «${s.name}» is ${s.minutes} min in the rules, ${m} on the website`);
+}
+const missing = [...current.keys()].filter((n) => !mine.some((s) => s.name === n));
+if (missing.length > 0) die(`website services missing from the rules: ${missing.join(', ')}`);
+
+const json = JSON.stringify(built.config);
+if (json.includes('$cfg$')) die('the config contains the SQL quote tag');
+writeFileSync(out, `-- booking_config for ${slug}, built ${new Date().toISOString()} from ${website}. Mode OFF.\n`
+  + `insert into booking_config (tenant_id, mode, config, updated_by)\nselect id, 'off', $cfg$${json}$cfg$::jsonb, 'from-website'\n`
+  + `from tenants where slug = '${slug}'\non conflict (tenant_id) do update set config = excluded.config, updated_at = now(), updated_by = excluded.updated_by;\n`,
+{ mode: 0o600 });
+
+process.stdout.write([
+  `booking_config for ${slug} (mode off) written to ${out}`,
+  `  levels: ${p.levels.map((l) => `${l.label} ${l.depositMnt}₮`).join(', ')}`,
+  `  stylists: ${p.stylists.map((s) => `${s.label} (${s.level}, ${s.gender}${s.calendarId === null ? ', NOT CONNECTED' : ''})`).join(', ')}`,
+  `  services: ${mine.length} (${p.serviceGroups.map((g) => `${g.label} ${g.services.length}`).join(', ')}, children ${p.childServices.length})`,
+  `  QPay: ${p.qpay === null ? 'NOT CONNECTED (payout account)' : `merchant …${p.qpay.merchantId.slice(-4)} (the website's, every branch), mcc ${p.qpay.mccCode}, bank ${p.qpay.bankAccounts[0]?.bankCode ?? '?'}, account withheld, login the platform's (QPAY_*)`}`,
+  `  ${p.notConnected.length === 0 ? 'connected: the row can be switched to test' : `OFF until connected: ${p.notConnected.join(', ')}`}`,
+  `  testers: ${p.testSenderIds.length}`,
+  '',
+].join('\n'));

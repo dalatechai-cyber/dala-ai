@@ -163,6 +163,17 @@ jobs:
           PGRST_JWT_SECRET: dala-ci-postgrest-secret-at-least-32-chars
         run: node scripts/verify/billing-e2e.ts dala_ci
 
+      - name: In-chat booking, end to end over real PostgREST (docs/proposals/tara-inchat-booking.md)
+        # The turn engine, the settlement, the pay page, the QPay callback and the sweep with
+        # 0082's plpgsql, over supabase-js and PostgREST; the real QPay and Google Calendar
+        # clients against faithful fakes of their wire. Choose → pay → confirmed once; unpaid →
+        # released; late and double payments; two chats and the website racing for one time.
+        # Writes its own tenant; reaches nothing but localhost.
+        env:
+          PGRST_URL: http://127.0.0.1:3001
+          PGRST_JWT_SECRET: dala-ci-postgrest-secret-at-least-32-chars
+        run: node scripts/verify/booking-e2e.ts dala_ci
+
       - name: Build
         run: npx next build
 

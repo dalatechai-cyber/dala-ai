@@ -95,9 +95,11 @@ test('the boundary gate is L0 and in wire order; the other two families are not 
   // `layer is null` means "customer-visible Mongolian something OTHER than the prompt
   // compiler renders". Both families here are read by name, never by layer, so a wrong
   // layer would put a status-page string into every tenant's system prompt.
-  // The billing family (D-156) is checked by prefix below, so signing it changes nothing here.
-  const notSections = blocks.filter((b) => b.layer === null && !b.blockKey.startsWith('billing_')).map((b) => b.blockKey).sort();
-  for (const b of blocks.filter((x) => x.blockKey.startsWith('billing_'))) assert.equal(b.layer, null, b.blockKey);
+  // The billing family (D-156) and the in-chat booking family are checked by prefix below,
+  // so signing more of either changes nothing here.
+  const byName = (k: string) => k.startsWith('billing_') || k.startsWith('booking_');
+  const notSections = blocks.filter((b) => b.layer === null && !byName(b.blockKey)).map((b) => b.blockKey).sort();
+  for (const b of blocks.filter((x) => byName(x.blockKey))) assert.equal(b.layer, null, b.blockKey);
   assert.deepEqual(notSections, [
     'comment_public_reply',
     'data_deletion_code_label', 'data_deletion_intro', 'data_deletion_not_found',
@@ -206,4 +208,14 @@ test('DONE-TEST: a billing block is never a prompt section, signed or not', asyn
   const { BILLING_BLOCK_KEYS } = await import('../../src/lib/billing/templates.ts');
   for (const key of BILLING_BLOCK_KEYS) assert.equal(layerFor(key), null, key);
   assert.equal(layerFor('sh2_price'), 'L0');
+});
+
+test('DONE-TEST: an in-chat booking block is never a prompt section, signed or not', async () => {
+  // Signing them as L0 would compile the customer's booking lines into every tenant's prompt
+  // and move every live tenant's gate prefix (found signing set c787decc1f0a).
+  const { layerFor } = await import('./generate-seed.ts');
+  const { BOOKING_BLOCK_KEYS } = await import('../../src/lib/booking/wording.ts');
+  for (const key of BOOKING_BLOCK_KEYS) assert.equal(layerFor(key), null, key);
+  // The gate's own booking section is a prompt section and stays one.
+  assert.equal(layerFor('sh3_booking'), 'L0');
 });

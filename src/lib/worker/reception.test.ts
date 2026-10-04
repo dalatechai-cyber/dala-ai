@@ -3147,3 +3147,70 @@ test('a job carrying both a catch-up and a reclaim is ours published wrong, and 
   assert.equal(r.body['dropped'], 'job_conflicting_modes');
   assert.equal(delivered.length, 0);
 });
+
+// ---------------------------------------------------------------------------
+// In-chat booking (docs/proposals/tara-inchat-booking.md): the worker's side of the hook.
+// ---------------------------------------------------------------------------
+
+const PAGE_CHANNEL: Reply = {
+  data: { external_id: '100000000000001', delivery_mode: 'live', graph_version_override: null, provider: 'facebook_page' },
+  error: null,
+};
+
+test('BOOKING: a step the flow handles is sent with its buttons, and the model is never called', async () => {
+  const asked: Parameters<NonNullable<WorkerEffects['bookingTurn']>>[0][] = [];
+  const { fx, generated, delivered } = stubEffects({
+    tables: { tenant_channels: PAGE_CHANNEL },
+    bookingTurn: async (input) => {
+      asked.push(input);
+      return { handled: true, outboundId: 'om-1', quickReplies: [{ title: 'Маргааш', payload: 'bk:day:1' }], linkButtonTitle: 'Төлбөр төлөх', detail: 'day -> time' };
+    },
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(generated.length, 0, 'no model call');
+  assert.equal(asked[0]?.mid, MID);
+  assert.equal(asked[0]?.psid, PSID);
+  assert.equal(asked[0]?.text, 'Сайн байна уу, үнэ хэд вэ?');
+  assert.equal(delivered.length, 1);
+  assert.deepEqual(delivered[0]?.quickReplies, [{ title: 'Маргааш', payload: 'bk:day:1' }]);
+  assert.equal(delivered[0]?.linkButtonTitle, 'Төлбөр төлөх');
+  assert.equal(r.body['sent'], 1);
+});
+
+test('BOOKING: a message the flow does not take goes down the ordinary path unchanged', async () => {
+  const { fx, generated, delivered, logs } = stubEffects({
+    tables: { tenant_channels: PAGE_CHANNEL },
+    bookingTurn: async () => ({ handled: false, reason: 'not_a_booking_message' }),
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 200);
+  assert.equal(generated.length, 1);
+  assert.equal(delivered.length, 1);
+  assert.equal(delivered[0]?.quickReplies, undefined);
+  assert.ok(logs.some((l) => l.event === 'booking_not_handled'));
+});
+
+test('BOOKING: never asked where the message is not delivered, or with no booking effect at all', async () => {
+  let asked = 0;
+  const shadow = stubEffects({
+    tables: { tenant_channels: { data: { ...(PAGE_CHANNEL.data as Record<string, unknown>), delivery_mode: 'shadow' }, error: null } },
+    bookingTurn: async () => { asked += 1; return { handled: false, reason: 'x' }; },
+  });
+  await run(shadow.fx);
+  assert.equal(asked, 0, 'a shadow channel never enters the booking flow');
+  const none = stubEffects({ tables: { tenant_channels: PAGE_CHANNEL } });
+  const r = await run(none.fx);
+  assert.equal(r.status, 200);
+  assert.equal(none.generated.length, 1, 'no effect: the ordinary path, as before');
+});
+
+test('BOOKING: a handled step whose send fails retryably is 503, so the stored reply is re-sent', async () => {
+  const { fx } = stubEffects({
+    tables: { tenant_channels: PAGE_CHANNEL },
+    bookingTurn: async () => ({ handled: true, outboundId: 'om-1', quickReplies: [], detail: 'x' }),
+    deliver: async () => ({ outcome: 'failed', failure: 'rate_limited', retryable: true, detail: '613' }),
+  });
+  const r = await run(fx);
+  assert.equal(r.status, 503);
+});

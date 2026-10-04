@@ -84,6 +84,9 @@ export type SendOutcome =
  */
 const SENDER_ACTION_TIMEOUT_MS = 3_000;
 
+/** One Messenger quick reply: what the button says and what comes back when it is tapped. */
+export type QuickReply = { title: string; payload: string };
+
 export type SendInput = {
   /** The channel's `external_id`. The literal `me` is refused. */
   pageId: string;
@@ -102,6 +105,13 @@ export type SendInput = {
    * Absent or empty: a plain text message, as always.
    */
   buttons?: readonly LinkButton[];
+  /**
+   * Messenger quick replies under the message (in-chat booking only). Absent or empty: the
+   * message is byte-identical to before. Meta allows at most 13, each title 20 characters.
+   */
+  quickReplies?: readonly QuickReply[];
+  /** With `linkButtons`: every link button's title, in place of the address's host. */
+  linkButtonTitle?: string;
   token: string;
   graphVersion: string;
   timeoutMs?: number;
@@ -238,18 +248,23 @@ export async function sendMessage(input: SendInput): Promise<SendOutcome> {
           // the eligibility gate before this is reached; Meta checks it again.
           messaging_type: 'RESPONSE',
           recipient: { id: input.recipientId },
-          message: input.buttons !== undefined && input.buttons.length > 0 // ascii-safe: an array's element count, not a string length
-            ? {
-              attachment: {
-                type: 'template',
-                payload: {
-                  template_type: 'button',
-                  text: input.text,
-                  buttons: input.buttons.map((b) => ({ type: 'web_url', url: b.url, title: b.title })),
+          message: {
+            ...(input.buttons !== undefined && input.buttons.length > 0 // ascii-safe: an array's element count, not a string length
+              ? {
+                attachment: {
+                  type: 'template',
+                  payload: {
+                    template_type: 'button',
+                    text: input.text,
+                    buttons: input.buttons.map((b) => ({ type: 'web_url', url: b.url, title: b.title })),
+                  },
                 },
-              },
-            }
-            : { text: input.text },
+              }
+              : { text: input.text }),
+            ...(input.quickReplies !== undefined && input.quickReplies.length > 0 // ascii-safe: an array's element count
+              ? { quick_replies: input.quickReplies.map((q) => ({ content_type: 'text', title: q.title, payload: q.payload })) }
+              : {}),
+          },
         }),
       signal: controller.signal,
       // Belt and braces with the shared clients' policy: nothing here is cacheable, and a
@@ -462,12 +477,14 @@ const codePoints = (t: string): number => [...t].length;
  * for any indeterminate send. The last part carries `lastButtons` when given.
  */
 async function sendInOrder(
-  one: SendInput, texts: readonly string[], lastButtons?: readonly LinkButton[],
+  one: SendInput, texts: readonly string[], lastButtons?: readonly LinkButton[], lastQuickReplies?: readonly QuickReply[],
 ): Promise<SendOutcome> {
   let first: SendOutcome | null = null;
   for (const [i, text] of texts.entries()) {
-    const buttons = i === texts.length - 1 && lastButtons !== undefined ? { buttons: lastButtons } : {};
-    const sent = await sendMessage({ ...one, text, ...buttons });
+    const isLast = i === texts.length - 1;
+    const buttons = isLast && lastButtons !== undefined ? { buttons: lastButtons } : {};
+    const quick = isLast && lastQuickReplies !== undefined ? { quickReplies: lastQuickReplies } : {};
+    const sent = await sendMessage({ ...one, text, ...buttons, ...quick });
     if (i === 0) {
       first = sent;
       if (sent.outcome !== 'sent') return sent;
@@ -493,22 +510,26 @@ async function sendInOrder(
 export async function sendMessageParts(
   input: SendInput & { maxBytes?: number; linkButtons?: boolean },
 ): Promise<SendOutcome> {
-  const { maxBytes, linkButtons, ...one } = input;
+  const { maxBytes, linkButtons, linkButtonTitle, quickReplies, ...one } = input;
   if (one.recipientCommentId !== undefined) return sendMessage(one);
   const plainParts = (text: string) => (maxBytes === undefined ? [text] : splitForLimit(text, maxBytes));
+  // Quick replies ride on the LAST part only: Meta shows them under the latest message.
+  const last = quickReplies === undefined || quickReplies.length === 0 ? undefined : quickReplies; // ascii-safe: element count
 
-  const card = linkButtons === true ? linkButtonMessage(one.text) : null;
-  if (card === null) return sendInOrder(one, plainParts(one.text));
+  const found = linkButtons === true ? linkButtonMessage(one.text) : null;
+  const card = found === null || linkButtonTitle === undefined ? found
+    : { ...found, buttons: found.buttons.map((b) => ({ ...b, title: linkButtonTitle })) };
+  if (card === null) return sendInOrder(one, plainParts(one.text), undefined, last);
 
   // Text parts first, the template last: its text must fit both the channel's byte limit
   // and the template's 640 characters.
   const parts = plainParts(card.text);
   const tail = splitForLimit(parts.pop() as string, BUTTON_TEMPLATE_MAX_TEXT_CHARS, codePoints);
   const texts = [...parts, ...tail];
-  const sent = await sendInOrder(one, texts, card.buttons);
+  const sent = await sendInOrder(one, texts, card.buttons, last);
   const refusedShape = sent.outcome === 'failed' && !sent.retryable
     && (sent.failure === 'unknown' || sent.failure === 'recipient_unreachable');
   if (!refusedShape) return sent;
   // Nothing was delivered (a failure after the first part is `indeterminate`, not here).
-  return sendInOrder(one, plainParts(one.text));
+  return sendInOrder(one, plainParts(one.text), undefined, last);
 }

@@ -37,6 +37,7 @@ import { alertCeilingReached } from '@/lib/spend/ceilingAlert';
 import { raiseDeliveryExhausted } from '@/lib/worker/exhaustedAlert';
 import { servicesFromPrefix, sectionRows, faqAnswersFromPrefix } from '@/lib/quality/serviceNames';
 import { salesShadowEffect } from '@/lib/sales/shadow';
+import { bookingTurnEffect } from '@/lib/booking/live';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -46,6 +47,8 @@ function effects(now: Date): WorkerEffects {
   return {
     db,
     now,
+    // In-chat booking: nothing at all unless BOOKING_MODE is set (`booking/live.ts`).
+    ...bookingTurnEffect(db),
     verifySignature: (raw, signature) => verifyQStashSignature(raw, signature),
     graphVersionDefault: () => required('META_GRAPH_VERSION'),
 

@@ -69,6 +69,9 @@ import type { DeliverOutcome } from '../outbound/deliver.ts';
 import type { Reservation } from '../spend/reserve.ts';
 import type { LoadTimings, ReceptionContext } from '../reception/load.ts';
 import type { ExhaustedInput } from './exhaustedAlert.ts';
+import type { QuickReply } from '../meta/send.ts';
+import type { TurnInput as BookingTurnInput, TurnResult as BookingTurnResult } from '../booking/turn.ts';
+import { matchingText } from '../mn/chat.ts';
 
 /**
  * The surface this worker answers on.
@@ -142,6 +145,9 @@ export type DeliverArgs = {
   tokenChannelId?: string;
   /** The channel's text limit in UTF-8 bytes, when it has one (Instagram: 1000, D-141). */
   maxTextBytes?: number;
+  /** In-chat booking only: quick replies and the pay button's title. Never stored. */
+  quickReplies?: readonly QuickReply[];
+  linkButtonTitle?: string;
 };
 
 /**
@@ -237,6 +243,13 @@ export type WorkerEffects = {
   alertNeedsPerson: (args: {
     tenantId: string; conversationId: string; reason: NeedsPersonReason; provider: string; sent: ReplySent; thread?: NeedsPersonThread;
   }) => Promise<boolean>;
+  /**
+   * In-chat booking (`booking/turn.ts`, design `docs/proposals/tara-inchat-booking.md`). Absent:
+   * the flow does not exist for this job, which is every deployment without `BOOKING_MODE`.
+   * Asked only for a Messenger message the job would deliver; `handled: false` means the
+   * ordinary path answers it exactly as before. Must never reject (the binding catches).
+   */
+  bookingTurn?: (input: BookingTurnInput) => Promise<BookingTurnResult>;
 };
 
 export type SalesShadowArgs = {
@@ -1605,6 +1618,46 @@ async function runReceptionDelivery(
       };
     }
     const { ctx, promptVolatile } = ready;
+
+    // In-chat booking: before the spend guard and the model, so a booking step costs no
+    // reservation and no model call. Messenger only, and only where this message is delivered.
+    if (fx.bookingTurn !== undefined && provider === 'facebook_page' && deliverThis && catchUpMid === null) {
+      const booking = await fx.bookingTurn({
+        tenantId, channelId, conversationId, psid: message.senderId, mid: message.externalId, text: message.text,
+        ...(message.quickReplyPayload === undefined ? {} : { quickReplyPayload: message.quickReplyPayload }),
+        respelled: matchingText(message.text, ctx.spellings), hours: ctx.hours, closures: ctx.closures,
+      });
+      if (booking.handled) {
+        fx.log('info', 'booking_turn', { tenantId, conversationId, detail: booking.detail });
+        if (booking.outboundId !== null) {
+          drafted.push(booking.outboundId);
+          const traced = await traceAnswer(db, {
+            tenantId, messageId: stored.value.messageId, answeredBy: 'deterministic',
+            revisionId: ctx.revisionId, promptHash: ctx.contentHash,
+          });
+          if (!traced.ok) fx.log('error', 'trace_failed', { tenantId, conversationId, detail: traced.detail ?? '' });
+          const held = await claim(db, { id: booking.outboundId, tenantId, now });
+          if (held.outcome === 'unavailable') return unavailable('worker.claim_unavailable');
+          if (held.outcome === 'claimed') {
+            const delivered = await fx.deliver({
+              tenantId, channelId, pageId, recipientId: message.senderId, outboundId: held.id,
+              body: held.body, attempts: held.attempts, graphVersion,
+              ...(tokenChannelId === undefined ? {} : { tokenChannelId }),
+              ...(booking.quickReplies.length === 0 ? {} : { quickReplies: booking.quickReplies }), // ascii-safe: element count
+              ...(booking.linkButtonTitle === undefined ? {} : { linkButtonTitle: booking.linkButtonTitle }),
+            });
+            if (delivered.outcome === 'sent') sent.push(held.id);
+            else if (delivered.outcome === 'failed' && delivered.retryable) {
+              // The redelivery re-sends the stored body (without its buttons; it reads alone).
+              fx.log('warn', 'send_retryable', { outboundId: held.id, failure: delivered.failure, booking: true });
+              return unavailable(`worker.send_${delivered.failure}`);
+            } else fx.log('error', 'booking_reply_not_sent', { outboundId: held.id, outcome: delivered.outcome });
+          }
+        }
+        continue;
+      }
+      fx.log('info', 'booking_not_handled', { tenantId, reason: booking.reason });
+    }
 
     /**
      * Serve the tenant's own reviewed hand-off line when the reply path cannot answer: a daily
