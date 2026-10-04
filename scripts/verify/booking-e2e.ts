@@ -30,7 +30,7 @@ import { usdToNano } from '../../src/lib/money.ts';
 import { localDayStart, tenantClock } from '../../src/lib/time/clock.ts';
 import { googleCalendar, eventIdForHold } from '../../src/lib/booking/calendar.ts';
 import type { BookingAlert, BookingPorts, BookingDeliverArgs } from '../../src/lib/booking/engine.ts';
-import { runPayPage, runQpayCallback, runSweep } from '../../src/lib/booking/jobs.ts';
+import { payPageRoute, runPayPage, runQpayCallback, runSweep } from '../../src/lib/booking/jobs.ts';
 import { signHold } from '../../src/lib/booking/links.ts';
 import { dayLabel } from '../../src/lib/booking/engine.ts';
 import { bookingTurn, type TurnResult } from '../../src/lib/booking/turn.ts';
@@ -1924,6 +1924,34 @@ check(holdState(holdOf(hq4)) === 'held' && invoicesOf(holdOf(hq4)).length === 1,
 const allIds = [...google.calendars.values()].flatMap((m) => [...m.keys()]).filter((id) => id.startsWith('dh'));
 check(allIds.length > 0 && allIds.every((id) => /^dh[0-9a-f]{32}$/u.test(id) && /^[0-9a-v]+$/u.test(id)),
   `every event id Messenger wrote is \`dh\` + 32 hex: valid base32hex, never a website \`sh\`/\`qb\` id (${allIds.length} ids)`);
+
+section('22. In-chat booking switched off or not set up: a calm page with the branch\'s phone (founder, 2026-10-04)');
+// =====================================================================================
+// The pay page of a hold made above, opened while the ports cannot be built: over the real
+// PostgREST, the branch's phone is found through the hold, and nothing is made or changed.
+{
+  psql(`insert into contact_points (tenant_id, kind, value) values ('${T}', 'phone', '76001888, 91005498')`);
+  const savedSecret = process.env['BOOKING_LINK_SECRET'];
+  process.env['BOOKING_LINK_SECRET'] = SECRET;
+  const invoicesBefore = psql('select count(*) from booking_invoices');
+  const holdsBefore = psql(`select string_agg(id || state, ',' order by id) from booking_holds`);
+  for (const [detail, method] of [['BOOKING_MODE is off', 'GET'], ['booking is not configured: SUPABASE_SECRET_BOOKING', 'POST']] as const) {
+    const off = await payPageRoute(async () => ({ ok: false, detail }), { token: signHold(SECRET, 'pay', holdB), method, stateOnly: false }, () => db);
+    check(off.status === 503 && off.redirect === undefined && off.html.includes('Онлайн захиалга одоогоор боломжгүй байна. Цаг захиалах бол <a href="tel:+97676001888">76001888</a>')
+      && off.html.includes('tel:+97691005498') && !off.html.includes('data:image'),
+      `${detail} (${method}): 503, the calm page with the branch's phones, no QR`);
+  }
+  // (a) only when the branch's website booking is KNOWN to work: its own booking link, then the phones.
+  const site = await payPageRoute(async () => ({ ok: false, detail: 'BOOKING_MODE is off' }), { token: signHold(SECRET, 'pay', holdB), method: 'GET', stateOnly: false }, () => db, async () => true);
+  const siteUrl = psql(`select booking_url from tenant_booking where tenant_id = '${T}'`);
+  check(site.status === 503 && siteUrl.startsWith('https://') && site.html.includes(`Цагаа эндээс захиална уу: <a href="${siteUrl}">${siteUrl}</a> Эсвэл <a href="tel:+97676001888">76001888</a>`),
+    `website booking known to work: line (a), the branch's own booking link (${siteUrl}), then its phones`);
+  const forged = await payPageRoute(async () => ({ ok: false, detail: 'BOOKING_MODE is off' }), { token: signHold('another-secret-that-is-long-enough-000', 'pay', holdB), method: 'GET', stateOnly: false }, () => db);
+  check(forged.status === 503 && !forged.html.includes('href="tel:') && forged.html.includes('Messenger-ээр бичнэ үү'), 'a link that does not check names no phone: line (c)');
+  check(psql('select count(*) from booking_invoices') === invoicesBefore && psql(`select string_agg(id || state, ',' order by id) from booking_holds`) === holdsBefore,
+    'no QR made and no held time changed while booking cannot run');
+  if (savedSecret === undefined) delete process.env['BOOKING_LINK_SECRET']; else process.env['BOOKING_LINK_SECRET'] = savedSecret;
+}
 
 section('13. Every customer message got at most one reply; nothing was confirmed unpaid');
 // =====================================================================================

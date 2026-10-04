@@ -64,6 +64,30 @@ export function branchLabel(displayName: string): string {
   return (parts.length > 1 ? parts[parts.length - 1] as string : displayName).trim();
 }
 
+/**
+ * The branch's name, phone numbers and booking link, for the page that says booking cannot run right now.
+ * Phone rows may hold several numbers («76001888, 91005498»); each 8-digit number is kept once.
+ */
+export async function readTenantContact(db: SupabaseClient, tenantId: string): Promise<Ok<{ tenantName: string; phones: string[]; bookingUrl: string | null }> | Fail> {
+  const [t, cp, bk] = await Promise.all([
+    db.from('tenants').select('display_name').eq('id', tenantId).maybeSingle(),
+    db.from('contact_points').select('value').eq('tenant_id', tenantId).eq('kind', 'phone'),
+    db.from('tenant_booking').select('booking_url').eq('tenant_id', tenantId).maybeSingle(),
+  ]);
+  if (t.error || t.data === null) return { ok: false, detail: `tenant unreadable: ${t.error?.message ?? 'no row'}` };
+  if (cp.error) return { ok: false, detail: `contact_points unreadable: ${cp.error.message}` };
+  const phones = (Array.isArray(cp.data) ? cp.data : [])
+    .flatMap((r) => String(rec(r)['value'] ?? '').split(/[,;]/u))
+    .map((v) => v.replace(/\s+/gu, '').replace(/^\+?976/u, ''))
+    .filter((v) => /^\d{8}$/u.test(v));
+  // The branch's own approved booking link (on its domain-move list); unreadable reads as none.
+  const url = bk.error ? null : rec(bk.data)['booking_url'];
+  return {
+    ok: true, tenantName: String(rec(t.data)['display_name'] ?? ''), phones: [...new Set(phones)],
+    bookingUrl: typeof url === 'string' && url.trim() !== '' ? url.trim() : null,
+  };
+}
+
 export async function readTenantFacts(db: SupabaseClient, tenantId: string): Promise<Ok<{ facts: TenantFacts }> | Fail> {
   const [t, cp, bk] = await Promise.all([
     db.from('tenants').select('timezone, display_name').eq('id', tenantId).maybeSingle(),

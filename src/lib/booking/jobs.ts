@@ -2,12 +2,13 @@
  * The three public entry points around a hold, as plain functions over `BookingPorts` so a
  * test reaches every branch without Next.js: the pay page, QPay's callback, and the sweep.
  */
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { tenantClock } from '../time/clock.ts';
 import { currentInvoice, dayLabel, settleHold, stylistLabel, sweep, timeLabel, type BookingPorts } from './engine.ts';
-import { verifyHold } from './links.ts';
+import { linkSecret, verifyHold } from './links.ts';
 import { followUps } from './turn.ts';
-import { notFoundPage, renderBookingPage, type PageOutcome, type PageSummary } from './page.ts';
-import { holdInvoices, readConfig, readHold, readTenantFacts, type Hold } from './store.ts';
+import { notFoundPage, renderBookingPage, UNAVAILABLE, unavailablePage, type PageContact, type PageOutcome, type PageSummary } from './page.ts';
+import { holdInvoices, readConfig, readHold, readTenantContact, readTenantFacts, type Hold } from './store.ts';
 
 /** New QR codes per hold. The website has no cap; this one stops a page reloaded in a loop from making invoices. */
 export const CODES_PER_HOLD = 6;
@@ -35,26 +36,26 @@ export async function runPayPage(ports: BookingPorts, input: { token: string; me
     return { status: 200, contentType: 'json', html: JSON.stringify({ state, settled }) };
   }
   let read = await readHold(ports.db, holdId);
-  if (!read.ok) return { status: 503, html: 'unavailable' };
+  if (!read.ok) return UNAVAILABLE;
   if (read.hold === null) return notFoundPage();
   // The five minutes just ran out and nobody has looked yet: ask QPay before saying «ended»,
   // so a customer who paid in the last seconds sees «paid», never a prompt to pay again.
   if (read.hold.state === 'held' && ports.now().getTime() >= read.hold.expiresAt.getTime()) {
     await settleHold(ports, holdId, { minCheckIntervalMs: POLL_CHECK_INTERVAL_MS });
     read = await readHold(ports.db, holdId);
-    if (!read.ok || read.hold === null) return { status: 503, html: 'unavailable' };
+    if (!read.ok || read.hold === null) return UNAVAILABLE;
   }
   const hold = read.hold;
   const facts = await readTenantFacts(ports.db, hold.tenantId);
-  if (!facts.ok) return { status: 503, html: 'unavailable' };
+  if (!facts.ok) return UNAVAILABLE;
   const summary = summaryOf(ports, hold, facts.facts.displayName, facts.facts.timezone);
   if (hold.state === 'paid' || hold.state === 'booked' || hold.state === 'paid_unbooked') return renderBookingPage({ kind: 'paid', summary }, ports.wording);
   if (hold.state !== 'held' || ports.now().getTime() >= hold.expiresAt.getTime()) return renderBookingPage({ kind: 'ended', summary }, ports.wording);
 
   const cfg = await readConfig(ports.db, hold.tenantId);
-  if (!cfg.ok || !cfg.present || !cfg.valid) return { status: 503, html: 'unavailable' };
+  if (!cfg.ok || !cfg.present || !cfg.valid) return UNAVAILABLE;
   const list = await holdInvoices(ports.db, hold.id);
-  if (!list.ok) return { status: 503, html: 'unavailable' };
+  if (!list.ok) return UNAVAILABLE;
   const live = list.invoices.filter((i) => i.state === 'open' && i.qrExpiresAt !== null && i.qrExpiresAt.getTime() > ports.now().getTime());
   const newest = live[live.length - 1];
 
@@ -95,28 +96,129 @@ export async function runSweep(ports: BookingPorts): Promise<{ status: number; b
 // ---------------------------------------------------------------------------
 
 export type PortsBuilder = () => Promise<{ ok: true; ports: BookingPorts } | { ok: false; detail: string }>;
+/** The booking database the route can read when the ports could not be built, or null. */
+export type ContactSource = () => SupabaseClient | null;
 
-export async function payPageRoute(build: PortsBuilder, input: { token: string; method: 'GET' | 'POST'; stateOnly: boolean }): Promise<PageOutcome> {
-  const built = await build();
-  if (!built.ok) {
-    console.error(JSON.stringify({ level: 'error', event: 'booking.page_unconfigured', detail: built.detail }));
-    return { status: 503, html: 'unavailable' };
+/**
+ * Whether a branch's website booking is KNOWN to be working, for line (a). There is no source
+ * for it yet (founder, 2026-10-04: until a source is decided, a branch gets line (b) unless it
+ * is known to be working; the options are in NOTES.md), so the default answers «not known».
+ */
+export type WebsiteBookingStatus = (tenantId: string) => Promise<boolean>;
+const NOT_KNOWN: WebsiteBookingStatus = async () => false;
+
+/**
+ * The branch a pay link belongs to, for the «booking is not available» page. Only for a link
+ * whose signature checks (`BOOKING_LINK_SECRET`) and only when the database can be read;
+ * otherwise nobody, and the page names no phone. Never throws.
+ */
+export async function pageContact(
+  db: SupabaseClient | null, secret: string | null, token: string, working: WebsiteBookingStatus = NOT_KNOWN,
+): Promise<PageContact> {
+  const nobody: PageContact = { tenantName: null, phones: [], bookingUrl: null, websiteBookingWorking: false };
+  if (db === null || secret === null) return nobody;
+  const holdId = verifyHold(secret, 'pay', token);
+  if (holdId === null) return nobody;
+  try {
+    const read = await readHold(db, holdId);
+    if (!read.ok || read.hold === null) return nobody;
+    const c = await readTenantContact(db, read.hold.tenantId);
+    if (!c.ok) return nobody;
+    let ok = false;
+    try { ok = (await working(read.hold.tenantId)) === true; } catch { ok = false; }
+    return { tenantName: c.tenantName === '' ? null : c.tenantName, phones: c.phones, bookingUrl: c.bookingUrl, websiteBookingWorking: ok };
+  } catch {
+    return nobody;
   }
-  return runPayPage(built.ports, input);
 }
 
-export async function callbackRoute(build: PortsBuilder, token: string): Promise<{ status: number; body: Record<string, unknown> }> {
-  const built = await build();
-  // 503: QPay retries, and the sweep finds the payment anyway once the deployment is fixed.
-  if (!built.ok) return { status: 503, body: { error: 'booking unconfigured' } };
-  return runQpayCallback(built.ports, token);
+/** Booking that cannot run is not a fault: switched off is expected (info), a missing setting is a setup step (warn). */
+function logUnavailable(event: string, detail: string): void {
+  if (detail === 'BOOKING_MODE is off') console.info(JSON.stringify({ level: 'info', event, detail }));
+  else console.warn(JSON.stringify({ level: 'warn', event, detail }));
+}
+
+export async function payPageRoute(
+  build: PortsBuilder, input: { token: string; method: 'GET' | 'POST'; stateOnly: boolean }, contactDb: ContactSource = () => null,
+  working: WebsiteBookingStatus = NOT_KNOWN,
+): Promise<PageOutcome> {
+  let built: Awaited<ReturnType<PortsBuilder>>;
+  try {
+    built = await build();
+  } catch (e) {
+    // A throw is a fault in the code, not a setting: logged as an error, and the customer still
+    // sees the calm page.
+    console.error(JSON.stringify({ level: 'error', event: 'booking.page_build_threw', error: e instanceof Error ? e.message : 'error' }));
+    built = { ok: false, detail: 'threw' };
+  }
+  if (!built.ok) {
+    if (built.detail !== 'threw') logUnavailable('booking.page_unavailable', built.detail);
+    let db: SupabaseClient | null = null;
+    try { db = contactDb(); } catch { db = null; }
+    return unavailablePage(await pageContact(db, linkSecret(), input.token, working), input.stateOnly);
+  }
+  const ports = built.ports;
+  let page: PageOutcome;
+  try {
+    page = await runPayPage(ports, input);
+  } catch (e) {
+    console.error(JSON.stringify({ level: 'error', event: 'booking.page_threw', error: e instanceof Error ? e.message : 'error' }));
+    page = UNAVAILABLE;
+  }
+  if (page.unavailable !== true) return page;
+  ports.log('warn', 'page_unavailable', {});
+  return unavailablePage(await pageContact(ports.db, ports.secret, input.token, working), input.stateOnly);
+}
+
+/** A message to the founder that needs no database (Telegram); true when it went out. */
+export type FounderNotice = (text: string) => Promise<boolean>;
+/** Holds already reported by this instance: QPay may call more than once. */
+const reportedUnsettled = new Set<string>();
+
+export async function callbackRoute(build: PortsBuilder, token: string, notify: FounderNotice = async () => false): Promise<{ status: number; body: Record<string, unknown> }> {
+  let built: Awaited<ReturnType<PortsBuilder>>;
+  try {
+    built = await build();
+  } catch (e) {
+    console.error(JSON.stringify({ level: 'error', event: 'booking.callback_build_threw', error: e instanceof Error ? e.message : 'error' }));
+    built = { ok: false, detail: 'threw' };
+  }
+  if (built.ok) return runQpayCallback(built.ports, token);
+  // QPay calls back when a deposit is PAID, and nothing here can book it or tell anyone through
+  // the database. 503 (QPay may retry; that is not documented, so nothing depends on it): the
+  // minute sweep books it or alerts once booking runs again, and the founder is told NOW, so a
+  // paid customer is never left with neither a booking nor a person who knows.
+  const secret = linkSecret();
+  const holdId = secret === null ? null : verifyHold(secret, 'callback', token);
+  if (secret !== null && holdId === null) return { status: 403, body: { error: 'bad token' } };
+  // Unverifiable (no secret): one notice per instance, whatever the token, so nobody on the
+  // internet can flood the founder's Telegram by inventing tokens.
+  const key = holdId ?? 'unverifiable';
+  console.error(JSON.stringify({ level: 'error', event: 'booking.callback_unsettled', detail: built.detail, holdId, verified: holdId !== null }));
+  if (!reportedUnsettled.has(key)) {
+    const sent = await notify([
+      '⚠️ QPay reported a Messenger booking deposit as PAID, but booking cannot run on the platform right now, so it is NOT a booking yet.',
+      `Why: ${built.detail}`,
+      `Hold: ${holdId ?? '(the link could not be checked: BOOKING_LINK_SECRET is not set)'}`,
+      'Find this payment in the QPay merchant app. Once booking runs again, the minute sweep books it or tells you; if it will not run again soon, book the customer by hand or refund.',
+    ].join('\n')).catch(() => false);
+    if (sent) reportedUnsettled.add(key);
+    else console.error(JSON.stringify({ level: 'error', event: 'booking.callback_unsettled_not_told', holdId }));
+  }
+  return { status: 503, body: { error: 'booking unavailable' } };
 }
 
 export async function sweepRoute(
   build: PortsBuilder, verify: (raw: string, signature: string | null) => Promise<boolean>, raw: string, signature: string | null,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   if (!(await verify(raw, signature))) return { status: 401, body: { error: 'bad signature' } };
-  const built = await build();
+  let built: Awaited<ReturnType<PortsBuilder>>;
+  try {
+    built = await build();
+  } catch (e) {
+    console.error(JSON.stringify({ level: 'error', event: 'booking.sweep_build_threw', error: e instanceof Error ? e.message : 'error' }));
+    return { status: 503, body: { error: 'booking unavailable' } };
+  }
   // 200, not 503: an unconfigured deployment is not a failure QStash can retry away.
   if (!built.ok) return { status: 200, body: { disabled: built.detail } };
   return runSweep(built.ports);

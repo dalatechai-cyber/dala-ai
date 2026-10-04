@@ -1,3 +1,32 @@
+# Booking pages while in-chat booking cannot run (2026-10-04)
+
+Production's error log, 2026-10-04 03:33 UTC: `MissingEnvError: SUPABASE_SECRET_BOOKING is not set`
+on `/book/[token]` and `/api/booking/qpay`, each a 500. Those two requests were the launch check
+of this session (`/book/launchcheck`, `?t=launchcheck`), not a customer: Production has no booking
+session, hold, invoice or payment. Cause: the routes built their ports with `supabaseBooking()`,
+which throws before `payPageRoute`'s own 503 ran (and that 503 was the bare word «unavailable»).
+
+Now:
+- Every way booking cannot run answers 503 with one calm page in the founder's approved words
+  (2026-10-04, three cases, `prompt/drafts/booking/booking_page_unavailable.mn.txt`): (a) the
+  branch's own booking link and phones, only when its website booking is KNOWN to work; (b) the
+  phones; (c) Messenger, when the branch is not known (no `SUPABASE_SECRET_BOOKING`, or a link that
+  does not check). No QR, no hold touched. Off logs info, a missing setting warn, a throw error.
+- Switched off stops NEW bookings only: QPay's callback and the sweep build their ports while
+  `BOOKING_MODE` is off (`bookingSettlePortsFromEnv`), so a deposit already paid is booked or the
+  founder alerted.
+- A QPay callback that cannot be settled at all (a setting missing) tells the founder on Telegram
+  at once (no database needed), once per hold per instance, and answers 503. Nothing depends on
+  QPay calling again: that QPay retries a non-2xx is assumed in this repo, never confirmed. Once
+  booking runs again, the minute sweep asks QPay about every held hold past its time and books it
+  or raises `paid_unbooked`.
+
+DECIDED (founder, 2026-10-04, D-180) — what tells the page that a branch's WEBSITE booking is
+working (line a): a setting per branch, kept as a row with that branch's other booking settings,
+default NOT open (so the branch gets line b). Not built yet, and the pages never ask the website:
+it belongs to the in-chat booking setup, later. Until then every known branch gets (b); the hook
+is `WebsiteBookingStatus` in `src/lib/booking/jobs.ts` (today: always «not known»).
+
 # Billing e2e: ONE CLOCK (2026-10-04) — replaces «MUST FIX BY 2026-10-13»
 
 The note that stood here predicted a red `verify` from 2026-10-14 at the «wrong amount» step. It was

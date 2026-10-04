@@ -1,0 +1,15 @@
+# APPROVED by the founder on 2026-10-04, three cases, word for word. Not a signed block: this
+# page must answer when the database cannot be read, so its words live in
+# src/lib/booking/page.ts (PAGE_UNAVAILABLE_WEBSITE, PAGE_UNAVAILABLE_PHONE,
+# PAGE_UNAVAILABLE_NO_PHONE). Shown on the deposit page when in-chat booking cannot run.
+# {booking_url} is the branch's own approved booking link (tenant_booking.booking_url, on its
+# domain-move list); {phone} is the branch's numbers, each tap-to-call.
+#
+# (a) The branch is known and its website booking is KNOWN to be working (no source yet: see NOTES.md):
+Энэ холбоосоор одоогоор цаг захиалах боломжгүй байна. Цагаа эндээс захиална уу: {booking_url} Эсвэл {phone} дугаарт залгана уу.
+#
+# (b) The branch is known; its website booking is not available, or not known to be working:
+Онлайн захиалга одоогоор боломжгүй байна. Цаг захиалах бол {phone} дугаарт залгана уу.
+#
+# (c) The branch is not known:
+Онлайн захиалга одоогоор боломжгүй байна. Цаг захиалах бол Messenger-ээр бичнэ үү.

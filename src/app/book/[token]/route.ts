@@ -4,9 +4,9 @@
  * a decision: `@/lib/booking/jobs`.
  */
 import { NextResponse } from 'next/server';
-import { supabaseBooking } from '@/lib/supabase/clients';
+import { supabaseBookingIfSet } from '@/lib/supabase/clients';
 import { payPageRoute } from '@/lib/booking/jobs';
-import { liveBookingPorts } from '@/lib/booking/live';
+import { bookingPortsFromEnv } from '@/lib/booking/live';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,9 +23,11 @@ const HTML = {
 async function respond(request: Request, context: { params: Promise<{ token: string }> }, method: 'GET' | 'POST'): Promise<NextResponse> {
   const { token } = await context.params;
   const url = new URL(request.url);
-  const page = await payPageRoute(() => liveBookingPorts(supabaseBooking()), {
-    token: decodeURIComponent(token), method, stateOnly: method === 'GET' && url.searchParams.get('state') === '1',
-  });
+  let raw = token;
+  try { raw = decodeURIComponent(token); } catch { /* a malformed escape: verified as given, so a 404 */ }
+  const page = await payPageRoute(bookingPortsFromEnv, {
+    token: raw, method, stateOnly: method === 'GET' && url.searchParams.get('state') === '1',
+  }, supabaseBookingIfSet);
   if (page.redirect === true) {
     return new NextResponse(null, { status: 303, headers: { location: url.pathname, 'cache-control': 'no-store' } }) as NextResponse;
   }

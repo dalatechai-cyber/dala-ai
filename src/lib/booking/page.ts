@@ -13,7 +13,14 @@ import { esc } from '../billing/page.ts';
 import { formatMnt } from '../billing/templates.ts';
 import { say, WordingError, type BookingWording } from './wording.ts';
 
-export type PageOutcome = { status: number; html: string; contentType?: 'json'; redirect?: true };
+/**
+ * `unavailable`: booking cannot run right now (switched off, not set up, or a read failed). The
+ * route turns it into `unavailablePage`, with the branch's phone when it can be found.
+ */
+export type PageOutcome = { status: number; html: string; contentType?: 'json'; redirect?: true; unavailable?: true };
+
+/** Booking cannot run: answered by the route with `unavailablePage`. */
+export const UNAVAILABLE: PageOutcome = { status: 503, html: '', unavailable: true };
 
 export type PageSummary = { tenantName: string; service: string; stylist: string; when: string; amountMnt: number; isTest: boolean };
 
@@ -43,6 +50,8 @@ h2{margin:0 0 6px;font-size:17px;font-weight:800;text-align:center}
 .banks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}
 .banks a{display:flex;align-items:center;gap:8px;padding:10px;border:1px solid #E5E7EB;border-radius:10px;text-decoration:none;color:#111827;font-size:14px;min-height:48px}
 .banks img{width:28px;height:28px;border-radius:6px;flex:none}
+.note a{color:#1D4ED8;font-weight:700;overflow-wrap:anywhere}
+.note a[href^="tel:"]{white-space:nowrap}
 .test{background:#FFF4D6;color:#7A5200;padding:10px 12px;border-radius:10px;font-size:14px;margin-bottom:12px;font-weight:600}`;
 
 function doc(title: string, brand: string, body: string): string {
@@ -129,9 +138,64 @@ export function renderBookingPage(view: PageView, w: BookingWording): PageOutcom
     }
     return { status: 200, html: doc(title, s.tenantName, `${head}<div class="card">${pay}</div>${js}`) };
   } catch (e) {
-    if (e instanceof WordingError) return { status: 503, html: doc('—', '—', '<div class="card"><p>Service temporarily unavailable.</p></div>') };
+    if (e instanceof WordingError) return UNAVAILABLE;
     throw e;
   }
+}
+
+/**
+ * The page a customer sees when booking cannot run (in-chat booking switched off, a setting
+ * missing, the database unreadable): no QR, no held time, nothing that looks broken, and how
+ * to book instead. Its words cannot be read from `prompt_blocks`, because this page must also
+ * answer when the database cannot be reached; so they live here.
+ *
+ * APPROVED by the founder on 2026-10-04, three cases, word for word
+ * (prompt/drafts/booking/booking_page_unavailable.mn.txt). The title is the signed
+ * `booking_page_title`, word for word.
+ */
+export const PAGE_UNAVAILABLE_TITLE = 'Урьдчилгаа төлбөр';
+/** (a) The branch is known and its website booking is known to be working. */
+export const PAGE_UNAVAILABLE_WEBSITE = 'Энэ холбоосоор одоогоор цаг захиалах боломжгүй байна. Цагаа эндээс захиална уу: {booking_url} Эсвэл {phone} дугаарт залгана уу.';
+/** (b) The branch is known; its website booking is not, or not known to be, working. */
+export const PAGE_UNAVAILABLE_PHONE = 'Онлайн захиалга одоогоор боломжгүй байна. Цаг захиалах бол {phone} дугаарт залгана уу.';
+/** (c) The branch is not known. */
+export const PAGE_UNAVAILABLE_NO_PHONE = 'Онлайн захиалга одоогоор боломжгүй байна. Цаг захиалах бол Messenger-ээр бичнэ үү.';
+
+/**
+ * Who the link belongs to, when that could be found: the branch's name, its phone numbers, its
+ * own booking link (`tenant_booking.booking_url`) and whether that website booking is KNOWN to
+ * be working. Never «probably»: a customer is not sent to a website booking that is switched off.
+ */
+export type PageContact = { tenantName: string | null; phones: string[]; bookingUrl: string | null; websiteBookingWorking: boolean };
+
+/** Fill `{name}` slots: text escaped, the given HTML (links) as is. */
+function fill(template: string, html: Record<string, string>): string {
+  return template.split(/(\{[a-z_]+\})/u).map((part) => {
+    const m = /^\{([a-z_]+)\}$/u.exec(part);
+    return m !== null && m[1] !== undefined && m[1] in html ? html[m[1]] as string : esc(part);
+  }).join('');
+}
+
+/** Which of the three lines, and its HTML, for this contact. */
+export function unavailableLine(contact: PageContact): { kind: 'website' | 'phone' | 'none'; html: string } {
+  const phones = contact.phones.filter((p) => /^\d{8}$/u.test(p));
+  if (phones.length === 0) return { kind: 'none', html: esc(PAGE_UNAVAILABLE_NO_PHONE) };
+  const phone = phones.map((p) => `<a href="tel:+976${p}">${p}</a>`).join(', ');
+  const url = contact.bookingUrl;
+  if (contact.websiteBookingWorking && url !== null && /^https:\/\/[^\s"<>]+$/u.test(url)) {
+    return { kind: 'website', html: fill(PAGE_UNAVAILABLE_WEBSITE, { booking_url: `<a href="${esc(url)}">${esc(url)}</a>`, phone }) };
+  }
+  return { kind: 'phone', html: fill(PAGE_UNAVAILABLE_PHONE, { phone }) };
+}
+
+/** 503 with the calm page (the poll gets JSON); numbers are tap-to-call, the link opens. */
+export function unavailablePage(contact: PageContact, stateOnly = false): PageOutcome {
+  if (stateOnly) return { status: 503, contentType: 'json', html: '{"state":"unavailable"}' };
+  const { html } = unavailableLine(contact);
+  return {
+    status: 503,
+    html: doc(PAGE_UNAVAILABLE_TITLE, contact.tenantName ?? '', `<div class="card"><p class="eyebrow">${esc(PAGE_UNAVAILABLE_TITLE)}</p><p class="note">${html}</p></div>`),
+  };
 }
 
 export function notFoundPage(): PageOutcome {
