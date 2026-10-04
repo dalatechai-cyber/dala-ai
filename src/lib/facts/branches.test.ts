@@ -174,6 +174,55 @@ test('prices and the booking link that differ are named service by service', () 
   assert.match(renderBranchFindings('demo-west', 'demo', got), /0 row\(s\) with another branch's details, 3 shared fact\(s\) that differ/u);
 });
 
+test('a branch may leave out a variant it does not offer, and only that one', () => {
+  const lvl = (variant: string, min: number) => ({ service: 'Эмэгтэй тайралт', variant, kind: 'exact', min, max: null });
+  const full = { ...east, prices: [lvl('Мастер', 99000), lvl('1-р зэрэг', 66000)] };
+  const lean = { ...west, bookingUrl: east.bookingUrl, prices: [lvl('Мастер', 99000)] };
+  const omit = { 'demo-west': [{ service: null, variant: '1-р зэрэг' }] };
+  // Without the configuration the missing row is drift, both ways round.
+  assert.equal(sharedDrift(lean, full).length, 1);
+  // With it, nothing differs, from either side.
+  assert.deepEqual(sharedDrift(lean, full, omit), []);
+  assert.deepEqual(sharedDrift(full, lean, omit), []);
+  // Every price it does carry still has to agree: a changed Мастер price is drift.
+  const cheaper = { ...lean, prices: [lvl('Мастер', 88000)] };
+  assert.deepEqual(sharedDrift(cheaper, full, omit).map((f) => f.source), ['price «Эмэгтэй тайралт» (Мастер)']);
+  // A row for the variant it says it does not offer is drift, even at the sibling's price.
+  const said = sharedDrift(full, { ...full, slug: 'demo-west' }, omit);
+  assert.equal(said.length, 1);
+  assert.match(said[0]!.detail, /demo-west carries 66,000₮ for «1-р зэрэг», which it does not offer/u);
+  // The OTHER branch is not excused: east missing the row west has is still drift.
+  assert.equal(sharedDrift({ ...east, prices: [] }, { ...west, bookingUrl: east.bookingUrl, prices: [lvl('Мастер', 99000)] }, omit).length, 1);
+});
+
+test('a service-scoped omission leaves the same variant of every other service compared', () => {
+  const row = (service: string, variant: string, min: number) => ({ service, variant, kind: 'exact', min, max: null });
+  const full = { ...east, prices: [row('Эрэгтэй тайралт', 'SPECIAL', 89000), row('Эмэгтэй тайралт', 'SPECIAL', 120000)] };
+  const lean = { ...west, bookingUrl: east.bookingUrl, prices: [row('Эмэгтэй тайралт', 'SPECIAL', 120000)] };
+  const omit = { 'demo-west': [{ service: 'Эрэгтэй тайралт', variant: 'SPECIAL' }] };
+  assert.deepEqual(sharedDrift(lean, full, omit), []);
+  // The women's SPECIAL row is NOT excused: missing it is still drift.
+  assert.equal(sharedDrift({ ...lean, prices: [] }, full, omit).length, 1);
+});
+
+test('the other branch\'s name and address are exempt only in the rows named for it', () => {
+  const sayer = {
+    ...west, branchName: 'Баруун',
+    texts: [
+      { source: 'KB «Салбарууд»', text: 'Зүүн салбарын хаяг: Баянзүрх дүүрэг, Нарны хорооллын 3-р байр.' },
+      { source: 'faq «Хаяг?»', text: 'Энэ хуудас бол Зүүн салбарын хуудас. Баянзүрх дүүрэг, Нарны хорооллын 3-р байр.' },
+    ],
+  };
+  const named = { ...east, branchName: 'Зүүн' };
+  const allowAddr = ['Баянзүрх дүүрэг, Нарны хорооллын 3-р байр'];
+  // Allowed everywhere (no scope): nothing.
+  assert.deepEqual(foreignDetails(sayer, named, ['Зүүн'], [], allowAddr), []);
+  // Scoped to «Салбарууд»: the FAQ's name and address are leaks, the document's are not.
+  const got = foreignDetails(sayer, named, ['Зүүн'], [], allowAddr, ['KB «Салбарууд»']);
+  assert.deepEqual(got.map((f) => f.source), ['faq «Хаяг?»', 'faq «Хаяг?»']);
+  assert.ok(got.some((f) => /address/u.test(f.detail)) && got.some((f) => /other_branch_in/u.test(f.detail)));
+});
+
 test('link keys drop the scheme, www and a trailing slash, and keep the path exactly', () => {
   assert.equal(linkKey('https://www.Demo-Brand.mn/Book/'), 'demo-brand.mn/Book');
   assert.equal(linkKey('maps.app.goo.gl/AbC'), 'maps.app.goo.gl/AbC');

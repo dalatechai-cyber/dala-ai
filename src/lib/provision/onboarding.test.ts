@@ -129,6 +129,16 @@ test('prices: exact, range, from and tiers read; anything else is null, never a 
   assert.equal(parsePrice('асуугаарай'), null);
   assert.deepEqual(parsePriceCell('Мастер: 60,000₮\n1-р зэрэг: 45,000₮')?.map((v) => v.variantKey), ['Мастер', '1-р зэрэг']);
   assert.equal(parsePriceCell('Мастер: 60,000₮\nбусад'), null, 'one unreadable tier refuses the cell');
+  // A plain price beside a tier (Tara's «Эрэгтэй тайралт»: 69,000₮, SPECIAL 89,000₮).
+  assert.deepEqual(parsePriceCell('69,000₮\nSPECIAL: 89,000₮'), [
+    { variantKey: '', price: { kind: 'exact', min: '69000' } },
+    { variantKey: 'SPECIAL', price: { kind: 'exact', min: '89000' } },
+  ]);
+  assert.equal(parsePriceCell('69,000₮\n75,000₮'), null, 'two plain prices are two answers, not two tiers');
+  assert.equal(parsePriceCell('Угаалт орсон\nМастер: 60,000₮'), null, 'a note in the price cell is not a price');
+  assert.equal(parsePriceCell(': 60,000₮\nМастер: 70,000₮'), null, 'an empty tier name is not the plain price');
+  assert.equal(parsePriceCell('Мастер: 60,000₮\nҮзлэгээр нэмэгдэж болно'), null, 'a note under a tier is not an on-inspection price');
+  assert.equal(parsePriceCell('Мастер: 60,000₮\n45,000₮-аас'), null, 'beside tiers the plain line is an exact price or nothing');
 });
 
 test('times and durations', () => {
@@ -192,6 +202,22 @@ test('sentences are drafted from templates, with the client\'s phones, and no em
   assert.equal(p.intake.sentences['image_received'], undefined);
   assert.ok(p.intake.sentences['handover_notice'] !== undefined);
   assert.ok(p.wording.every((w) => w.templateApproved === '2026-09-27'));
+});
+
+test('the client\'s own wording replaces a template line, and null writes no line at all', () => {
+  const own = 'Би Цэцэглэг Салоны AI туслах байна. Хүссэн зүйлээ асуугаарай.';
+  const p = planFromForm(read(SAMPLE), {
+    slug: 'tsetsegleg-demo', templates, facebookPageId: '990000000000001',
+    ownWording: { assistant_identity: own.normalize('NFD'), refusal_topic: null },
+  });
+  assert.equal(p.intake.sentences['assistant_identity'], own, 'NFC, byte for byte');
+  assert.equal(p.intake.sentences['refusal_topic'], undefined);
+  assert.equal(p.wording.some((w) => w.kind === 'refusal_topic'), false);
+  const line = p.wording.find((w) => w.kind === 'assistant_identity');
+  assert.equal(line?.own, true);
+  assert.equal(line?.alreadyApprovedBytes, false, 'never claimed approved: the founder still signs it on the sheet');
+  // Every other line is still the template's.
+  assert.deepEqual(Object.keys(p.intake.sentences).filter((k) => p.intake.sentences[k] !== sample().intake.sentences[k]), ['assistant_identity']);
 });
 
 test('a business outside the known verticals gets the neutral lines and an operator question', () => {

@@ -1,0 +1,60 @@
+# DRAFT — not loaded. Tara Яармаг: the hairdressers' short Latin names (founder, 2026-10-03).
+# APPROVED by the founder on 2026-10-04 with two changes, both made below: the roster the model
+# reads is purely Latin (Cyrillic only inside «Үсчдийн нэр», for recognition), and the level is
+# written «1-р зэргийн үсчин», never «1-р зэрэг үсчин». Отгонжаргал still works at Яармаг
+# (founder, 2026-10-04) and is shown as «Otgonjargal», her full name in Latin. Her line
+# «Отгонжаргал, Отгоо гэвэл Otgonjargal.» and «Otgonjargal» in the first line were APPROVED by
+# the founder on 2026-10-04 as written («Отгоо» included): every line below is approved.
+# Applied by scripts/provision/tara-yarmag-stylist-names-2026-10-03.sql.
+# The founder's rule: hairdressers are shown everywhere by these Latin names, exactly as
+# written, also inside Mongolian sentences; Дали says «үсчин», never «стилист»; it never
+# recommends a level. Only the lines below are new or changed.
+
+## Knowledge document «Салбарууд» (the model reads it) — ONE line changes (approved)
+
+Now:
+Оюунаа Яармаг салбарт ажилладаг.
+
+Approved:
+Oyunaa Яармаг салбарт ажилладаг.
+
+(The other seven lines stay byte for byte.)
+
+## New knowledge document «Үсчдийн нэр» (the model reads it; no customer is sent it verbatim)
+
+Title:
+Үсчдийн нэр
+
+Body (approved 2026-10-04, every line):
+Үсчдийн нэрийг латин үсгээр бичнэ: Oyunaa, Badamaa, Uyanga, Zaya, Chimgee, Anand, Otgonjargal.
+Оюунсүрэн, Оюунаа гэвэл Oyunaa.
+Бадамцэцэг, Бадмаа гэвэл Badamaa.
+Уянга гэвэл Uyanga.
+Батзаяа, Заяа гэвэл Zaya.
+Уранчимэг, Чимгээ гэвэл Chimgee.
+Ананд гэвэл Anand.
+Отгонжаргал, Отгоо гэвэл Otgonjargal.
+
+APPROVED 2026-10-04 (founder, as written): the last line, «Отгоо» included, and «Otgonjargal»
+added to the first line's list.
+
+## The roster the model reads (data, not a sentence; listed so the founder sees it)
+
+- Oyunaa · Эмэгтэй үсчид · SPECIAL үсчин
+- Badamaa · Эмэгтэй үсчид · Мастер үсчин
+- Chimgee · Эмэгтэй үсчид · 1-р зэргийн үсчин
+- Otgonjargal · Эмэгтэй үсчид · 1-р зэргийн үсчин
+- Uyanga · Эмэгтэй үсчид · 1-р зэргийн үсчин
+- Zaya · Эмэгтэй үсчид · 1-р зэргийн үсчин
+- Anand · Эрэгтэй үсчид · Мастер үсчин
+
+Purely Latin: every short_name is cleared (the roster printed «Oyunaa (Оюунаа)» from it).
+Rendered on a local replica with the compiler (2026-10-04): exactly these seven lines.
+
+## Not wording, for the record
+
+- Otgonjargal: our data (read-only, 2026-10-04) has her as «Эмэгтэй үсчид», «1-р зэрэг үсчин»,
+  active and selectable, so a hair stylist: she stays bookable, deposit 10,000₮ (the
+  «1-р зэргийн үсчин» deposit rule). The website agrees (config/stylists.js: 1-р зэрэг, female).
+- The manicurist (Г. Мөнхзаяа, «Маникюр баг») is switched off, not deleted.
+- No canned line, fixed reply, FAQ or reply case names a hairdresser, so nothing else changes.

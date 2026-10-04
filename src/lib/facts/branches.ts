@@ -162,11 +162,14 @@ function detailsOf(side: BranchSide): Details {
  * the founder lets every branch give (D-170: Яармаг's Дали names Парк Од's address), matched
  * whole as the address row reads. `allowPhones`: the brand's shared lines, from
  * the same configuration, which every branch may hold and say; every other phone stays one
- * branch's own.
+ * branch's own. `otherBranchIn`: when given, the other branch's NAME and its allowed ADDRESS may
+ * appear only in texts from these sources (e.g. «KB «Салбарууд»», «fixed reply park_od_branch»);
+ * anywhere else they are a leak as if never allowed, so a copy-pasted «this is the X branch's
+ * page» in an FAQ is still caught. Staff names in `allowNames` are not narrowed.
  */
 export function foreignDetails(
   own: BranchSide, sibling: BranchSide, allowNames: readonly string[] = [], allowPhones: readonly string[] = [],
-  allowAddresses: readonly string[] = [],
+  allowAddresses: readonly string[] = [], otherBranchIn: readonly string[] | null = null,
 ): BranchFinding[] {
   const mine = detailsOf(own);
   const theirs = detailsOf(sibling);
@@ -195,25 +198,34 @@ export function foreignDetails(
   const phones = [...theirs.phones].filter((p) => !mine.phones.has(p));
   const links = [...theirs.links].filter((l) => !mine.links.has(l));
   const addresses = [...theirs.addresses].filter((a) => !mine.addresses.has(a) && !sayable.has(a));
+  // The same without the founder's exemption, for a text outside `otherBranchIn`.
+  const anyAddress = [...theirs.addresses].filter((a) => !mine.addresses.has(a));
+  const scoped = otherBranchIn === null ? null : new Set(otherBranchIn.map((x) => nfc(x)));
   // A name this branch's own staff also answer to says nothing about which branch is meant.
   const names = [...theirs.called].filter(([k]) => !mine.called.has(k) && !allowed.has(k) && [...k].length >= MIN_TEXT_NAME_CHARS);
   const patterns = names.map(([k, name]) => ({ what: `staff member «${name}»${k === name.toLowerCase() ? '' : ` («${k}»)`}`, re: headPattern(k) }));
   // The other branch's name, unless it is also this branch's or allowed («Brand — Branch» is how
   // an operator names a branch; a copied «this Page is the X branch's» is the case it catches).
   const branch = theirs.branch;
-  if (branch !== null && branch.toLowerCase() !== mine.branch?.toLowerCase() && !allowed.has(branch.toLowerCase())) {
-    patterns.push({ what: `branch name «${branch}»`, re: headPattern(branch) });
-  }
+  const otherBranch = branch !== null && branch.toLowerCase() !== mine.branch?.toLowerCase()
+    ? { what: `branch name «${branch}»`, re: headPattern(branch), allowed: allowed.has(branch.toLowerCase()) }
+    : null;
+  if (otherBranch !== null && !otherBranch.allowed) patterns.push(otherBranch);
   for (const t of own.texts) {
     const text = nfc(t.text);
+    // Outside the named sources, the other branch's name and address are not exempt.
+    const exempt = scoped === null || scoped.has(nfc(t.source));
     const runs = digitRuns(text);
     for (const p of phones) if (runs.some((r) => r.includes(p))) leak(t.source, `carries ${sibling.slug}'s phone ${p}`);
     const inText = new Set(linksIn(text));
     for (const l of links) if (inText.has(l)) leak(t.source, `carries ${sibling.slug}'s map link ${l}`);
     const lower = flat(text);
-    for (const a of addresses) if (containsWhole(lower, a)) leak(t.source, `carries ${sibling.slug}'s address «${a}»`);
+    for (const a of exempt ? addresses : anyAddress) if (containsWhole(lower, a)) leak(t.source, `carries ${sibling.slug}'s address «${a}»`);
     const low = text.toLowerCase();
     for (const { what, re } of patterns) if (re.test(low)) leak(t.source, `names ${sibling.slug}'s ${what}`);
+    if (otherBranch !== null && otherBranch.allowed && !exempt && otherBranch.re.test(low)) {
+      leak(t.source, `names ${sibling.slug}'s ${otherBranch.what} outside the rows allowed to (config/branch-groups.json other_branch_in)`);
+    }
   }
   return out;
 }
@@ -237,17 +249,46 @@ function priceText(p: BranchPrice): string {
 
 const byCodePoint = (x: string, y: string): number => (x < y ? -1 : x > y ? 1 : 0);
 
-/** A shared fact that differs between two branches (`drift`): a price row or the booking link. */
-export function sharedDrift(a: BranchSide, b: BranchSide): BranchFinding[] {
+/**
+ * A shared fact that differs between two branches (`drift`): a price row or the booking link.
+ *
+ * `notOffered`: per slug, the price variants that branch does not offer at all (a level it has
+ * no hairdresser for), from the group's configuration. That branch carries NO row for such a
+ * variant, and its missing row is not drift; every price it does carry must still equal the
+ * sibling's, so no price changes. A row it DOES carry for a variant it says it does not offer is
+ * drift too: the configuration and the rows disagree, and the row would quote a level the branch
+ * cannot serve.
+ */
+export type NotOffered = Readonly<Record<string, readonly { service: string | null; variant: string }[]>>;
+
+export function sharedDrift(a: BranchSide, b: BranchSide, notOffered: NotOffered = {}): BranchFinding[] {
   const key = (p: BranchPrice) => `${nfc(p.service).trim()}\u0000${nfc(p.variant).trim()}`;
   const label = (k: string) => { const [s, v] = k.split('\u0000'); return v === '' ? `«${s}»` : `«${s}» (${v})`; };
   const index = (side: BranchSide) => new Map(side.prices.map((p) => [key(p), priceText(p)]));
+  // A variant everywhere («1-р зэрэг»: a level the branch has no hairdresser for), or one
+  // service's variant only (service named); `service: null` means every service.
+  const omitted = (side: BranchSide) => {
+    const list = (notOffered[side.slug] ?? []).filter((o) => nfc(o.variant).trim() !== '');
+    return { has: (k: string) => { const [svc, v] = k.split('\u0000'); return list.some((o) => nfc(o.variant).trim() === v && (o.service === null || nfc(o.service).trim() === svc)); } };
+  };
   const pa = index(a);
   const pb = index(b);
+  const oa = omitted(a);
+  const ob = omitted(b);
   const out: BranchFinding[] = [];
   for (const k of [...new Set([...pa.keys(), ...pb.keys()])].sort(byCodePoint)) {
     const x = pa.get(k);
     const y = pb.get(k);
+    const variant = k.split('\u0000')[1] ?? '';
+    const wrongRow = (side: BranchSide, has: string | undefined, omits: { has: (k: string) => boolean }) => {
+      if (has !== undefined && omits.has(k)) {
+        out.push({ kind: 'drift', source: `price ${label(k)}`, detail: `${side.slug} carries ${has} for «${variant}», which it does not offer (config/branch-groups.json not_offered)` });
+      }
+    };
+    wrongRow(a, x, oa);
+    wrongRow(b, y, ob);
+    // The branch that does not offer the variant has no row for it: nothing to compare.
+    if ((x === undefined && oa.has(k)) || (y === undefined && ob.has(k))) continue;
     if (x === y) continue;
     out.push({
       kind: 'drift', source: `price ${label(k)}`,

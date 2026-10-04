@@ -339,7 +339,12 @@ export function wordingSheet(w: Wording, plan: OnboardPlan, id: string, slug: st
   const pending = w.lines.filter((l) => !l.signed).length;
   L.push(`# Wording sheet — ${plan.intake.business.displayName} (\`${slug}\`)`, '');
   L.push(`Sheet id: **\`${id}\`** · ${pending} lines awaiting your signature · ${w.lines.length - pending} already signed.`, '');
-  L.push('Every line is sent to customers exactly as it appears in its box, once signed. None is the client\'s own data: each was filled from a template in `scripts/provision/templates/onboarding.mn.json`. «Same bytes as approved» means the founder already approved these exact words for a live tenant. The id covers every line and every model-visible text below; any change afterwards changes it.', '');
+  const own = plan.wording.filter((x) => x.own === true).map((x) => `\`${x.kind}\``);
+  L.push('Every line is sent to customers exactly as it appears in its box, once signed. '
+    + (own.length === 0
+      ? 'None is the client\'s own data: each was filled from a template in `scripts/provision/templates/onboarding.mn.json`.'
+      : `${own.join(', ')} ${own.length === 1 ? 'is' : 'are'} the client's own wording (\`--wording\`); every other line from this form was filled from a template in \`scripts/provision/templates/onboarding.mn.json\`, and a line «not from this form» was written by a provision file.`)
+    + ' «Same bytes as approved» means the founder already approved these exact words for a live tenant. The id covers every line and every model-visible text below; any change afterwards changes it.', '');
   for (const l of w.lines) {
     const origin = plan.wording.find((x) => x.kind === l.kind);
     L.push(`## \`${l.kind}\`${l.signed ? ' — signed' : ''}`, '');
