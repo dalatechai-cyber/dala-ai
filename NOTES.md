@@ -1,3 +1,27 @@
+# MUST FIX BY 2026-10-13: billing e2e goes red again on 2026-10-14 (02:00 UTC)
+
+`scripts/verify/billing-e2e.ts`, step «a wrong amount: mismatch» («300,000₮ against 360,000₮ is a
+mismatch»), has the shape that turned `main` red on 2026-10-04 (fixed in #288): it opens the live
+invoice's pay page on the WALL clock, then runs QPay's callback at the FIXED 2026-10-14 10:00
+(Ulaanbaatar). Opening the page stamps the code's `checked_at` with the real time; once the real
+time passes the callback's fixed time, the callback reads that code as checked «after now», skips
+it (`CALLBACK_MIN_INTERVAL_S`), records no payment, and `verify` fails on every run after.
+
+Why the obvious fix does not work: the page cannot be opened on the test's clock. A code is made
+only with an `expires_at` within ten minutes of the DATABASE's real `now()` («a QPay code lives
+minutes»), so a page opened at a fixed test time returns `unavailable`.
+
+The fix needed: the callback must not see a check stamp later than its own clock. Proven locally
+(2026-10-04): right after `await openPage(liveId);` add this line, with a comment saying why:
+
+```ts
+psql(`update billing_qpay_codes set checked_at = null where invoice_id = '${liveId}'`);
+```
+ Simulated with the payment and callback at 2026-10-04 03:00 (already
+past the wall clock, as 2026-10-14 will be): all 118 checks pass. The longer-term fix is one clock
+for the whole e2e (pass `now` into the code-making function instead of SQL `now()`), so no step
+mixes the wall clock with fixed dates.
+
 # Round 2026-10-04 (phones): no shared line (D-178)
 
 Founder, final: Яармаг 76001888 and 91005498; Парк Од's ONLY number is 99076874; 76001888 is not
