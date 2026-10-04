@@ -9,6 +9,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { raiseAlert } from '../alerts/alert.ts';
+import { supabaseBookingIfSet } from '../supabase/clients.ts';
 import { quickQr, type QpayPort } from '../billing/qpay.ts';
 import { deliverOutbound } from '../outbound/deliver.ts';
 import { scheduleBookingSweep } from '../queue/qstash.ts';
@@ -105,6 +106,18 @@ export async function liveBookingPorts(db: SupabaseClient, opts: { graphVersionD
     },
   };
   return { ok: true, ports };
+}
+
+/**
+ * The booking pages' ports (pay page, QPay's callback, the sweep) from this deployment's
+ * environment. A missing setting is an answer, never a throw: in-chat booking switched off
+ * (`BOOKING_MODE`), its database key unset, or anything `liveBookingPorts` needs.
+ */
+export async function bookingPortsFromEnv(): ReturnType<typeof liveBookingPorts> {
+  if (bookingEnvMode() === 'off') return { ok: false, detail: 'BOOKING_MODE is off' };
+  const db = supabaseBookingIfSet();
+  if (db === null) return { ok: false, detail: 'booking is not configured: SUPABASE_SECRET_BOOKING' };
+  return liveBookingPorts(db);
 }
 
 /**

@@ -95,6 +95,16 @@ export function supabaseBooking(): SupabaseClient {
 }
 
 /**
+ * The booking client, or null while its key (or the project URL) is not set. For the booking
+ * pages only: they must answer a customer calmly while in-chat booking is not set up, where
+ * `supabaseBooking()` would throw and the page would be a 500.
+ */
+export function supabaseBookingIfSet(): SupabaseClient | null {
+  if ((process.env['SUPABASE_SECRET_BOOKING'] ?? '') === '' || (process.env['NEXT_PUBLIC_SUPABASE_URL'] ?? '') === '') return null;
+  return supabaseBooking();
+}
+
+/**
  * For `scripts/publish/tenant.ts`, the operator command that compiles and publishes a
  * tenant's configuration.
  *

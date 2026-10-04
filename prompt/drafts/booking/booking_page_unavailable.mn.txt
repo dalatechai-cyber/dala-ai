@@ -1,0 +1,13 @@
+# PROPOSED — awaiting the founder's approval (2026-10-04). Not a signed block: this page must
+# answer when the database cannot be read, so its words live in src/lib/booking/page.ts
+# (PAGE_UNAVAILABLE_PHONE, PAGE_UNAVAILABLE_NO_PHONE). Shown on the deposit page when in-chat
+# booking is switched off or not set up. {phone} is the branch's numbers, each tappable.
+#
+# With the branch's phone (the link checks and the database answers):
+Онлайн захиалга одоогоор боломжгүй байна. Цаг захиалах бол {phone} дугаарт залгана уу.
+#
+# When the branch cannot be told (no database key, or a link that does not check):
+Онлайн захиалга одоогоор боломжгүй байна. Цаг захиалах бол Messenger-ээр бичнэ үү.
+#
+# Closest approved line, not used: the website's «Онлайн захиалга удахгүй нээгдэнэ.» («opens
+# soon»): right before launch, wrong for an outage afterwards.

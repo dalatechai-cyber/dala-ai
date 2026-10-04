@@ -1,3 +1,18 @@
+# Booking pages while in-chat booking cannot run (2026-10-04)
+
+Production's error log, 2026-10-04 03:33 UTC: `MissingEnvError: SUPABASE_SECRET_BOOKING is not set`
+on `/book/[token]` and `/api/booking/qpay`, each a 500. The routes built their ports with
+`supabaseBooking()`, which throws before `payPageRoute`'s own 503 ran; and that 503 was the
+bare word «unavailable», logged as an error. Now (`bookingPortsFromEnv`, `payPageRoute`):
+switched off, a setting unset, the database unreadable, or a throw all answer 503 with one calm
+Mongolian page and, when the link checks and the database answers, the branch's phones,
+tappable. No QR, no hold touched. Off is logged as info, a missing setting as warn; only a
+throw (a code fault) is an error. QPay's callback answers 503 (QPay retries); the sweep 200
+(off) or 503 (threw). The page's two lines are PROPOSED, awaiting approval
+(`prompt/drafts/booking/booking_page_unavailable.mn.txt`). With `SUPABASE_SECRET_BOOKING` unset
+the branch cannot be read, so the page names no phone (one key per surface: no other key is
+used).
+
 # Billing e2e: ONE CLOCK (2026-10-04) — replaces «MUST FIX BY 2026-10-13»
 
 The note that stood here predicted a red `verify` from 2026-10-14 at the «wrong amount» step. It was
