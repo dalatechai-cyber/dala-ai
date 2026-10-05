@@ -212,7 +212,7 @@ for (const [kind, v] of Object.entries(ownWording ?? {})) {
 // What the file says, as the evidence a later run is compared with.
 const ownWordingKey = ownWording === undefined ? null
   : createHash('sha256').update(JSON.stringify(Object.entries(ownWording).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))).digest('hex').slice(0, 12);
-const cases = generateCases(plan.intake, plan.deposits);
+let cases = generateCases(plan.intake, plan.deposits);
 const now = new Date();
 const findings = validateIntake(plan.intake, now).filter((f) => f.code !== 'facts_unconfirmed');
 const blockers = findings.filter((f) => f.severity === 'blocker');
@@ -249,6 +249,16 @@ try {
     }
     if (prior !== undefined && String(prior['key'] ?? '') !== ownWordingKey && !process.argv.includes('--wording-changed')) {
       die(`--wording ${wordingPath} is not the wording «${slug}» was onboarded with (${String(prior['path'] ?? '?')}, key ${String(prior['key'] ?? '?')}; now ${ownWordingKey}). If the change is meant, add --wording-changed.`);
+    }
+    // A reel question written by a provision file (no form writes one) is what a video link
+    // gets; the generated media case must expect it, or it fails the tenant's publish.
+    const { data: reel, error: rErr } = await db.from('canned_responses').select('body')
+      .eq('tenant_id', tenantId).eq('kind', 'reel_price_question');
+    if (rErr) throw new WriteError(`canned_responses «reel_price_question»: ${rErr.message}`);
+    const reelRows = Array.isArray(reel) ? reel as { body: unknown }[] : [];
+    if (reelRows.length > 1) throw new WriteError('canned_responses: more than one «reel_price_question» line');
+    if (reelRows.length === 1 && typeof reelRows[0]!.body === 'string') {
+      cases = generateCases(plan.intake, plan.deposits, { reelPriceQuestion: reelRows[0]!.body });
     }
     // A line the file says the client does not have, already SIGNED: never removed by this
     // command, so refuse now, before anything is written (dry run included).

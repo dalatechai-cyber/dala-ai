@@ -269,6 +269,13 @@ test('reply cases ask for the figures as the platform renders them', () => {
   const reelQ = 'Уучлаарай, би бичлэг харах боломжгүй.';
   const withReel = generateCases({ ...p.intake, sentences: { ...p.intake.sentences, reel_price_question: reelQ } }, p.deposits);
   assert.equal(withReel.find((c) => c.id === 'media_link')?.expectedBody, reelQ);
+  // No form writes the reel question: a provision file does, and onboarding reads it back from
+  // the tenant's rows (2026-10-05, Парк Од: the case expected the media line and failed her publish).
+  const held = generateCases(p.intake, p.deposits, { reelPriceQuestion: reelQ });
+  assert.equal(held.find((c) => c.id === 'media_link')?.expectedBody, reelQ);
+  assert.match(held.find((c) => c.id === 'media_link')?.why ?? '', /reel question/);
+  assert.equal(generateCases(p.intake, p.deposits, {}).find((c) => c.id === 'media_link')?.expectedBody,
+    p.intake.sentences['handover_notice']);
   for (const c of cs) {
     assert.ok(c.expectedBody !== null || c.mustInclude.length + c.mustNotInclude.length > 0, `${c.id} asserts something`);
   }
