@@ -138,6 +138,24 @@ the pack once per event id. Code: `src/lib/billing/ora.ts`.
   and you are told why; 5xx or no answer retried with the usual backoff. A wrong amount
   (`mismatch`), a withdrawn invoice or a payment that never happened sends nothing.
 
+- **Back to Ора after paying (2026-10-03, not live).** On a paid pack, the pay page sends the
+  owner back to Ора by itself, but only once Ора has answered that it credited the pack
+  (`ora_pack_paid` sent, outcome not `over_limit`/`already_paid`), so Ора shows «added» on
+  arrival, never «waiting». Until then the page asks the database every 3 s for up to two
+  minutes (the real test: the event went about 4 s after payment), then stops and leaves its
+  «Ора руу буцах» button. The address is the origin of `ORA_WEBHOOK_URL` plus
+  `/?pack=<order>`: never from a request, so the page cannot be made to send anyone elsewhere,
+  and it always returns to the deployment that received the event. Ора treats `pack` only as
+  a cue to look up its own order. The two lines are unsigned drafts
+  (`prompt/drafts/billing/README.md`); a live page shows no button and does not redirect until
+  they are signed, a test page shows them in English. Ора's half opens the pay page in the
+  same tab and opens the pack dialog on `?pack=` (ora repo, branch `claude/pack-return`).
+  It goes back by itself only within 15 minutes of the payment; the same page opened later
+  (the receipt's link) stays put and shows only the button. «Credited» means Ора answered
+  `credited` or `duplicate`; no other answer sends anyone back. While `ORA_WEBHOOK_URL` is
+  Ора's protected preview, an owner not signed in on that preview lands on its login and the
+  dialog does not open (the pack is credited all the same).
+
 Environment (Production), all three or none (preflight refuses half):
 `ORA_PLATFORM_SECRET` (the same value as Ора's), `ORA_WEBHOOK_URL` (Ора's
 `/api/billing/webhook`, the preview's while testing), `ORA_BILLING_WEBHOOK_SECRET_TEST` (the

@@ -54,6 +54,9 @@ export const BILLING_BLOCKS = {
   billing_page_qr_renew: { required: [], optional: [] },
   // Past the hourly cap on new codes (a link opened again and again): a draft of its own.
   billing_page_qr_wait: { required: [], optional: [] },
+  // A paid Ора pack: the line while the page goes back to Ора, and the button for it.
+  billing_page_return_ora: { required: [], optional: [] },
+  billing_page_return_ora_button: { required: [], optional: [] },
   // 0070: the branded e-mail, the PDF invoice and the pay page's new parts. Each piece is its
   // own block so the layout (table, button, bank box) is the platform's and the words are
   // the founder's. `{phone}` etc. are the issuer's settings (`issuer.ts`).
