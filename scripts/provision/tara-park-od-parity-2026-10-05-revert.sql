@@ -2,6 +2,9 @@
 -- Removes exactly what that file added and puts her channel's comment settings back to the
 -- onboarding defaults (comments off). Refuses after her publish: a published tenant's
 -- canned lines are write-guarded (0074/0075) and change through a republish, not this file.
+-- AFTER IT, re-run the onboarding command with --apply (and --wording): its generated
+-- video-link case still expects the reel question this file deletes, and the re-run puts it
+-- back to the media line; without that her publish dry run fails that one case.
 begin;
 
 do $$

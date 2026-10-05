@@ -123,6 +123,13 @@ with tests; production untouched; at most $1 of model runs.
   (edge log). The parity script drops that one filter locally and says why.
 - **Meta, read only:** facebook.com and graph.facebook.com are blocked here, so her Page ID is not
   confirmed; Яармаг's profile-link number differs from her Page ID, so hers may too (runbook B1.4).
+- **Independent review (Opus reviewer):** caught five unquoted price lists in the parity cases
+  (`'{20,000}'` is two items, «20» and «000», so the deposit cases could never pass the paid run);
+  fixed, with a read-back refusing any bare 1–3 digit item. Also fixed: comment replies now go
+  through the harness's leak check, which reads Cyrillic staff aliases, Page links and spaced or
+  +976 phones; explicit locale; CICA aliases `seeded`; runbook B11 finds the founder's PSID by a
+  unique word and has him comment from his personal profile. Whole rehearsal re-run after the
+  fixes: same results; planted leaks (a spaced phone, «Оюунаа» in a comment line) caught.
 - **Open for the founder:** her Page ID; the men's SPECIAL cut she would quote though Tuchku is
   Мастер; Boloroo is not alerted (the founder's Telegram is); the KEK for sealing must be the one
   Яармаг's token was sealed with.

@@ -11,7 +11,9 @@
 --      question. UNREVIEWED here: they are two more lines on her wording sheet (step «sign»).
 --   2. service aliases: Яармаг has 64 on the 31 services both branches share (cica, budah,
 --      sor, blend, lumi, хүүхэд …); her form gave none, so «Tara perm»-style words matched but
---      every Latin or short name did not. Literal values, the same service names.
+--      every Latin or short name did not. Literal values, the same service names, all
+--      `seeded` here (two are `tenant_confirmed` for Яармаг; Парк Од confirmed none). «sor» /
+--      «сор» carry Яармаг's known «сорри» → «Сор» collision (CLAUDE.md): kept for parity.
 --   3. Latin spellings: Яармаг's 92 settled spellings (budag=будаг, himi=хими, une=үнэ …),
 --      learned from Яармаг's customers' messages. Only the word pairs are written; the evidence
 --      (customers' messages) is not copied, and «oyuna»/«oyunaa» (Яармаг's hairdresser) are
@@ -68,8 +70,8 @@ begin
 end $$;
 
 -- 1. The photo and reel questions (Яармаг's approved bytes; signed on her wording sheet).
-insert into canned_responses (tenant_id, kind, body)
-select t.id, v.kind, v.body from tenants t, (values
+insert into canned_responses (tenant_id, kind, locale, body)
+select t.id, v.kind, t.default_locale, v.body from tenants t, (values
   ('photo_price_question', 'Уучлаарай, би зураг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.'),
   ('reel_price_question', 'Уучлаарай, би бичлэг харах боломжгүй. Хүссэн үйлчилгээ, үсний урт, өнгөө бичвэл баяртайгаар хариулна.')
 ) as v(kind, body)
@@ -79,8 +81,8 @@ select t.id, v.kind, v.body from tenants t, (values
 insert into service_aliases (tenant_id, service_id, alias, provenance)
 select s.tenant_id, s.id, v.alias, v.provenance
   from (values
-  ('CICA үсний гүний эмчилгээ', 'CICA нөхөн сэргээх', 'tenant_confirmed'),
-  ('CICA үсний гүний эмчилгээ', 'CICA эмчилгээ', 'tenant_confirmed'),
+  ('CICA үсний гүний эмчилгээ', 'CICA нөхөн сэргээх', 'seeded'),
+  ('CICA үсний гүний эмчилгээ', 'CICA эмчилгээ', 'seeded'),
   ('CICA үсний гүний эмчилгээ', 'cica', 'seeded'),
   ('CICA үсний гүний эмчилгээ', 'цика', 'seeded'),
   ('Down perm', 'down perm', 'seeded'),
@@ -249,7 +251,7 @@ select t.id, v.latin, v.cyrillic, 'settled', v.candidates::text[], now()
 -- 4. Never-say rules (Яармаг's five, byte for byte; evidence stays empty as in hers).
 insert into forbidden_phrasings (tenant_id, scope, phrase, rationale, observed_at, gate, stems)
 select t.id, 'tenant', v.phrase, v.rationale, now(), 'Ш2', v.stems::text[] from tenants t, (values
-  ('зургаа … салбар', 'Founder 2026-09-24: Tara Salon has one branch; the bot must never say six. Keyed to Ш2, always on.', '{зургаа,салбар}'),
+  ('зургаа … салбар', 'Founder 2026-09-24 (Яармаг''s rule): the bot must never say six branches; Tara has two since 2026-10-01. Keyed to Ш2, always on.', '{зургаа,салбар}'),
   ('мастер … илүү', 'Founder 2026-09-24: never say a Мастер stylist is better (t02). Keyed to Ш2, always on.', '{мастер,илүү}'),
   ('мастер … туршлага', 'Founder 2026-09-24: never say a Мастер stylist is better (t02). Keyed to Ш2, always on.', '{мастер,туршлага}'),
   ('туршлага … илүү', 'Founder 2026-09-24: never say a Мастер stylist is better (t02). Keyed to Ш2, always on.', '{туршлага,илүү}'),
@@ -345,11 +347,11 @@ select t.id,
      '{"Маргааш (","Баярын өдрийн цагийг 99076874 дугаараас лавлана уу."}', '{"үнийн мэдээлэл",Даваа:,76001888,91005498}',
      'tomorrow is a public holiday: tomorrow''s hours and her holiday line with 99076874 (model case)'),
     -- children and deposits (Яармаг: D-167, D-168, D-169)
-    ('[]', '8 настай хүүгийн үс тайралт хэд вэ?', 'model', null, '{33,000}', '{}', 'a boy of 8: the children''s haircut price (model case)'),
-    ('[]', 'Охины үс тайралт хэд вэ?', 'model', null, '{44,000}', '{}', 'a girl''s haircut (model case)'),
-    ('[]', '15 настай хүүгийн үс тайралт хэд вэ?', 'model', null, '{44,000}', '{}', 'a boy of 15 (model case)'),
-    ('[]', 'SPECIAL үсчинд урьдчилгаа хэд вэ?', 'model', null, '{20,000}', '{байхгүй,10,000}', 'SPECIAL deposit is 20,000₮ (model case)'),
-    ('[]', 'Мастер үсчинд урьдчилгаа хэд вэ?', 'model', null, '{20,000}', '{байхгүй,10,000}', 'Мастер deposit is 20,000₮; no 10,000₮ level at Парк Од (model case)'),
+    ('[]', '8 настай хүүгийн үс тайралт хэд вэ?', 'model', null, '{"33,000"}', '{}', 'a boy of 8: the children''s haircut price (model case)'),
+    ('[]', 'Охины үс тайралт хэд вэ?', 'model', null, '{"44,000"}', '{}', 'a girl''s haircut (model case)'),
+    ('[]', '15 настай хүүгийн үс тайралт хэд вэ?', 'model', null, '{"44,000"}', '{}', 'a boy of 15 (model case)'),
+    ('[]', 'SPECIAL үсчинд урьдчилгаа хэд вэ?', 'model', null, '{"20,000"}', '{байхгүй,"10,000"}', 'SPECIAL deposit is 20,000₮ (model case)'),
+    ('[]', 'Мастер үсчинд урьдчилгаа хэд вэ?', 'model', null, '{"20,000"}', '{байхгүй,"10,000"}', 'Мастер deposit is 20,000₮; no 10,000₮ level at Парк Од (model case)'),
     ('[]', 'SPECIAL үсчин', 'det', 'stylist_tier', '{}', '{}', 'the level reply names her two levels only'),
     -- branches, address and phone (Яармаг: D-170, mirrored: she names Яармаг)
     ('[]', 'Танай хэдэн салбартай вэ?', 'det', 'branch_count', '{}', '{}', 'two branches, branch_count'),
@@ -403,6 +405,17 @@ begin
   if exists (select 1 from reply_cases where tenant_id = t and note like 'parity 2026-10-05%'
              and expected_body is null and cardinality(must_include) = 0 and cardinality(must_not_include) = 0) then
     raise exception 'read-back: a parity case has nothing to check';
+  end if;
+  -- a price list split at its commas ('{20,000}' is {20,000} = «20» and «000») can never pass
+  if exists (select 1 from reply_cases r, unnest(r.must_include || r.must_not_include) e
+             where r.tenant_id = t and r.note like 'parity 2026-10-05%' and e ~ '^[0-9]{1,3}$') then
+    raise exception 'read-back: a parity case lists a bare 1-3 digit number (an unquoted price)';
+  end if;
+  -- every «@det:» / «@canned:» in a history found her row
+  if exists (select 1 from reply_cases where tenant_id = t and note like 'parity 2026-10-05%'
+             and (history @> '[null]'::jsonb or history::text like '%@det:%' or history::text like '%@canned:%'
+                  or exists (select 1 from jsonb_array_elements(history) e where e->'content' = 'null'::jsonb))) then
+    raise exception 'read-back: a history names a row she does not have';
   end if;
   -- nothing of Яармаг's branch in what her new rows say
   if exists (select 1 from reply_cases where tenant_id = t and note like 'parity 2026-10-05%'

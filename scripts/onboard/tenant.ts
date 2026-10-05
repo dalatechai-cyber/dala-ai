@@ -252,8 +252,10 @@ try {
     }
     // A reel question written by a provision file (no form writes one) is what a video link
     // gets; the generated media case must expect it, or it fails the tenant's publish.
+    const { data: loc, error: lErr } = await db.from('tenants').select('default_locale').eq('id', tenantId).single();
+    if (lErr) throw new WriteError(`tenants «default_locale»: ${lErr.message}`);
     const { data: reel, error: rErr } = await db.from('canned_responses').select('body')
-      .eq('tenant_id', tenantId).eq('kind', 'reel_price_question');
+      .eq('tenant_id', tenantId).eq('kind', 'reel_price_question').eq('locale', String((loc as Record<string, unknown>)['default_locale']));
     if (rErr) throw new WriteError(`canned_responses «reel_price_question»: ${rErr.message}`);
     const reelRows = Array.isArray(reel) ? reel as { body: unknown }[] : [];
     if (reelRows.length > 1) throw new WriteError('canned_responses: more than one «reel_price_question» line');

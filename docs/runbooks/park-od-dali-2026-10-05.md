@@ -106,7 +106,8 @@ partner assignment, no App Review (see «Meta» at the end).
 2. SQL editor: `scripts/provision/tara-park-od-parity-2026-10-05.sql` (what Яармаг has that the
    form does not give her: the photo and reel questions, 64 service aliases, 92 Latin spellings,
    the five never-say rules, comments as Яармаг's in shadow, 46 more reply cases) → «Success».
-   *Undo (before B10 only):* `scripts/provision/tara-park-od-parity-2026-10-05-revert.sql`.
+   *Undo (before B10 only):* `scripts/provision/tara-park-od-parity-2026-10-05-revert.sql`, then
+   `onboard --apply` once (it puts the generated video-link case back to the media line).
 3. `onboard --apply` → *You should see:* `50 comment_rules (50 left enabled, the rest disabled)`,
    `36 reply_cases, inactive (0 added, 1 changed, 0 retired)` (the video-link case now expects her
    reel question), `Wording    20 lines await the founder — sheet <SHEET>`,
@@ -230,15 +231,17 @@ Her channel is still in shadow: customers get nothing yet.
 
 ### B11. Test from your own phone while customers still get nothing (shadow + you)
 
-1. From your phone, message **her** Page: «Сайн байна уу». No reply (shadow). Then SQL editor:
+1. From your **personal** Messenger, message **her** Page one unusual word, e.g. «туршилт4821».
+   No reply (shadow). Then SQL editor (a real customer may have written in the meantime, so
+   find yours by that word, not by time):
 
    ```sql
-   select external_id, first_seen_at from contacts
-    where tenant_id = (select id from tenants where slug = 'tara-park-od')
-    order by first_seen_at desc limit 3;
+   select c.external_id, m.at from messages m join conversations v on v.id = m.conversation_id
+     join contacts c on c.id = v.contact_id
+    where m.tenant_id = (select id from tenants where slug = 'tara-park-od') and m.body = 'туршилт4821';
    ```
 
-   Your PSID is the newest row. Then:
+   That `external_id` is your PSID on her Page. Then:
 
    ```sql
    update tenant_channels set test_sender_ids = array['<your PSID>']
@@ -249,7 +252,9 @@ Her channel is still in shadow: customers get nothing yet.
 2. Send the messages in «Messages to send» below, in order. Each reply must match.
    `select last_ok_at from tenant_secrets where tenant_id = (select id from tenants where slug = 'tara-park-od');`
    advancing proves Production opened her token.
-3. Comments: comment «Үнэ хэд вэ?» on one of her posts. Nothing happens yet. Then:
+3. Comments, from your **personal profile** (not as the Page: a comment by the Page is the
+   Page's own and is never answered): comment «Үнэ хэд вэ?» on one of her posts. Nothing happens
+   yet. Then:
 
    ```sql
    select comment_from_id from outbound_messages
@@ -259,8 +264,9 @@ Her channel is still in shadow: customers get nothing yet.
     where tenant_id = (select id from tenants where slug = 'tara-park-od') and provider = 'facebook_page';
    ```
 
-   Then the comments in «Comments to post» below, **each on a different post** (Дали answers one
-   person once per post).
+   Then the comments in «Comments to post» below, **each on a different post, and none on the
+   post you just used** (Дали answers one person once per post, and the shadow draft there may
+   already count).
 
 ### B12. Live
 
@@ -331,7 +337,9 @@ address and «Утас: 99076874» (unchanged since 2026-10-04).
 - **What her Page needs:** DALA_AI granted her Page through your login (B1.1–2); her Page token
   (B1.4); the Page-level subscription `messages,feed,message_echoes` (B4.6). The app-level webhook
   (object `page`, fields `messages` and `feed`) and `META_APP_SECRETS` / `META_VERIFY_TOKENS`
-  already serve Яармаг through DALA_AI and need nothing for a second Page. Her channel uses
+  already serve Яармаг through DALA_AI (her channel's `meta_app_id` reads 1562862634970492 in
+  Production today; CLAUDE.md's older line about the `dalatech` app predates the 2026-09-24
+  cutover, D-118) and need nothing for a second Page. Her channel uses
   Яармаг's callback slug (`dalatech`) and DALA_AI's app id, set by the parity file.
 - **Meta's approval:** none expected. `pages_messaging` is at Advanced Access on DALA_AI; the
   comment permissions were granted «no review required» on DALA_AI (D-106). Both readings are

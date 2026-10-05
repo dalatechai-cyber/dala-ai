@@ -21,9 +21,11 @@
  * same cases, and that no reply of one branch carries the other branch's phone numbers,
  * address or hairdressers outside the one row that names the other branch on purpose.
  * Exit 0 only when every check passes. Written for Парк Од's onboarding (2026-10-05); the
- * slugs are arguments, never literals in the logic.
+ * slugs are arguments, never literals in the logic. Not covered: two workers racing for one
+ * reply (the claim's lease condition is dropped locally, below), Graph's own behaviour.
  */
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js'; // guard-ok: scripts/, not src/ (a local replica client with one rewrite, below)
 import { handleMetaEntry, type MetaEntry } from '../../src/lib/webhook/entry.ts';
 import { runReceptionJob, type WorkerEffects } from '../../src/lib/worker/reception.ts';
@@ -299,20 +301,51 @@ const a = await loadTenant(SLUG_A);
 const b = await loadTenant(SLUG_B);
 const branchName = (t: Tenant): string => BRANCH[t.slug]!;
 // What one branch must never say about the other outside the row that names it on purpose.
-async function foreignTokens(t: Tenant): Promise<string[]> {
+// Its phones, address, map link and Page link (as the other branch's own row about it types
+// them), its active hairdressers' names, and the Cyrillic names customers call them by
+// (config/branch-groups.json `staff_aliases`, the branch gate's own list). Branch NAMES are not
+// tokens: both branches' `branch_count` names both on purpose.
+const groups = JSON.parse(readFileSync(new URL('../../config/branch-groups.json', import.meta.url), 'utf8')) as Record<string, unknown>;
+const aliasesOf = (slug: string): string[] => {
+  for (const g of Object.values(groups)) {
+    const a = (g as { staff_aliases?: Record<string, string[]> })?.staff_aliases?.[slug];
+    if (Array.isArray(a)) return a;
+  }
+  return [];
+};
+async function foreignTokens(t: Tenant, other: Tenant): Promise<string[]> {
   const cp = await db.from('contact_points').select('kind, value').eq('tenant_id', t.id);
   const st = await db.from('staff_members').select('name').eq('tenant_id', t.id).eq('active', true);
+  if (cp.error || st.error) throw new Error(`${t.slug}: contact or staff rows unreadable`);
   const out: string[] = [];
   for (const r of cp.data ?? []) {
     if (r['kind'] === 'phone') out.push(...String(r['value']).split(/[,\s]+/).filter((p) => /^\d{8}$/.test(p)));
     if (r['kind'] === 'address' || r['kind'] === 'maps_url') out.push(String(r['value']));
   }
+  // t's Page link, as the other branch's row about t gives it.
+  const page = /https:\/\/www\.facebook\.com\/\S+/u.exec(other.det.get(otherBranchIntent(other)) ?? '')?.[0];
+  if (page !== undefined) out.push(page);
   for (const r of st.data ?? []) out.push(String(r['name']));
-  return out;
+  out.push(...aliasesOf(t.slug));
+  return out.filter((x) => x.trim() !== '').map((x) => x.normalize('NFC').toLowerCase());
 }
-const foreignOfA = await foreignTokens(a);
-const foreignOfB = await foreignTokens(b);
+/** A reply as the leak check reads it: NFC, lower case, a phone's spaces and +976 folded away. */
+const folded = (body: string): string => body.normalize('NFC').toLowerCase()
+  .replace(/\+976\s*/gu, '').replace(/(?<=\d)[\s-](?=\d)/gu, '');
 const otherBranchIntent = (t: Tenant): string => (t.det.has('park_od_branch') ? 'park_od_branch' : 'yarmag_branch');
+const foreignOfA = await foreignTokens(a, b);
+const foreignOfB = await foreignTokens(b, a);
+
+// No reply of a branch carries the other branch's details, except the one row that names it.
+function leakCheck(t: Tenant, label: string, bodies: readonly string[]): void {
+  const foreign = t === a ? foreignOfB : foreignOfA;
+  const allowedOther = t.det.get(otherBranchIntent(t));
+  for (const body of bodies) {
+    if (body === allowedOther) continue;
+    const f = folded(body);
+    for (const tok of foreign) if (f.includes(tok)) fail(`${label}: reply carries the other branch's «${tok}»`);
+  }
+}
 
 let failures = 0;
 const fail = (s: string) => { failures++; console.log(`  FAIL ${s}`); };
@@ -350,6 +383,7 @@ for (const sc of SCENARIOS) {
       const priv = privateReplies.slice(before.priv).filter((r) => r.tenantId === t.id);
       const comp = complaints.slice(before.comp).filter((r) => r.tenantId === t.id);
       results[t.slug] = [`public:${pub.length} private:${priv.length} escalated:${comp.length}`];
+      leakCheck(t, label, [...pub, ...priv].map((r) => r.body));
       if (exp.comment === 'reply') {
         if (pub.length !== 1 || pub[0]!.body !== t.canned.get('comment_public_reply')) fail(`${label}: expected the public reply line, got ${JSON.stringify(pub.map((p) => p.body))}`);
         if (priv.length !== 1 || priv[0]!.body !== t.canned.get('comment_private_reply')) fail(`${label}: expected the private reply line, got ${JSON.stringify(priv.map((p) => p.body))}`);
@@ -386,13 +420,7 @@ for (const sc of SCENARIOS) {
       // line, then its own body; anything else must be the row's bytes exactly.
       fail(`${label}: expected ${JSON.stringify(want.slice(0, 80))}, got ${JSON.stringify(last?.slice(0, 80))}`);
     }
-    // No reply of this branch carries the other branch's details, except the row that names it.
-    const foreign = t === a ? foreignOfB : foreignOfA;
-    const allowedOther = t.det.get(otherBranchIntent(t));
-    for (const body of mine) {
-      if (body === allowedOther) continue;
-      for (const tok of foreign) if (tok !== '' && body.includes(tok)) fail(`${label}: reply carries the other branch's «${tok}»`);
-    }
+    leakCheck(t, label, mine);
   }));
   if (usedModel[a.slug] !== usedModel[b.slug]) fail(`${sc.name}: one branch asked the model and the other did not`);
   console.log(`${sc.name}: ${a.slug} ${JSON.stringify(results[a.slug]?.map((s) => s.slice(0, 60)))} | ${b.slug} ${JSON.stringify(results[b.slug]?.map((s) => s.slice(0, 60)))}`);
