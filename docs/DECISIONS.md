@@ -12063,3 +12063,42 @@ shared with Парк Од.
 - Whether a branch's website booking is open is a setting per branch, a row with that branch's
   other booking settings, default NOT open (line b). Not built yet, and the pages never ask the
   website: it belongs to the in-chat booking setup. Until then every known branch gets (b).
+
+## D-181 — A price question that names a service, or the deposit, always gets its price, whatever the model wrote (2026-10-08; takes effect when the founder merges it)
+
+- **What happened.** Парк Од's first paid run (runbook B9, 2026-10-08, $0.33) failed 5 of 115
+  cases: «Хүүхдийн тайралт хэд вэ?», «TARA BLEND хэд вэ?», «TARA Lumi хэд вэ?» and «Бүтэн будалт хэд
+  вэ?» got replies carrying none of the named service's prices, and «Урьдчилгаа төлбөр хэд вэ»
+  carried «хасагдаж тооцогдоно». The replies were never stored (the dry run keeps them in memory),
+  so what the model wrote is not known.
+- **Not her rows.** On a replica equal to Production (checked table by table), her price rows,
+  aliases and price-list section are Яармаг's; the model receives byte-identical volatile input in
+  both branches; and the same model text gets the same reply in both. The only replies that fail
+  those four cases are ones with no price for the named service: a question back («Таны үс ямар
+  урттай вэ?»), the colour set's question (which `set_question_unpriced` answers with the women's
+  dye rows, not the men's «Бүтэн будалт» 88,000₮), or a hand-off. Яармаг is exposed the same way: it
+  answered «Tara lumi» with a question and no price on 2026-10-01 (an earlier revision), and every
+  length on 2026-10-05 and 2026-10-07; it had no case asking these exact questions.
+- **The rule** (`handle.ts`, the draft step every reply passes): after a model call whose own text
+  carried no listed price, a price question that names a service (`matchService` over names and
+  `service_aliases`, `unique` or `family`) gets that service's price-list rows ahead of whatever is
+  served, which is kept byte for byte (`named_service_unpriced`). The deposit likewise: a price
+  question carrying «урьдчилгаа» whose reply states no deposit amount gets the deposit rows first
+  (`deposit_unpriced`). Neither when every row is already in the conversation, when a refusal rule
+  blocks prices, or before the model (a fixed reply is the tenant's own answer). A reply that is
+  the hand-off, the general line or «no price for this» becomes the rows alone (it would contradict
+  them); a hand-off is still recorded, so a person is still told. Past the one-message cap, the rows
+  alone. Judged by amount, so a tenant whose `reply_style` restyles rows (DalaTech) is not shown
+  them twice; the deposit is read as «урьдчил» or «урдчил». No new wording:
+  the rows are the price list's own lines.
+- **Why only a priceless reply.** «usan himi hed ve» names Эмчилгээний хими through the alias
+  «himi» and was answered with Усан хими's price: that reply answered the price question, and
+  adding another service would answer a question nobody asked.
+- **Proven without the model** (local replica, both branches, every case of both): with a stub
+  that answers every case with a question alone, and with one that answers with the deduction
+  sentence alone, no case that passed before fails, and her 31 generated price cases, both
+  men's-cut cases (SPECIAL still excluded) and the deposit case pass.
+- **The deposit case is corrected, not loosened.** Its note says «the deposit AMOUNT is not
+  answered with the deduction line»; it was written as «must not contain хасагдаж тооцогдоно»,
+  which also fails the amount followed by the founder's own approved sentence. It now requires the
+  amount (20,000₮ for Парк Од; 10,000₮ and 20,000₮ for Яармаг's case 162, proposed, not applied).

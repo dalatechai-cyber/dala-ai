@@ -34,6 +34,10 @@ const EQUIVALENT: Record<string, { file: string; marker: string } | { none: stri
   'tara-yarmag-deposit-and-level-2026-10-04.sql': { file: AFTER, marker: 'deposit and level 2026-10-04 (exact)' },
   'tara-yarmag-photo-question-2026-10-04.sql': { file: PARITY, marker: "@canned:photo_price_question\"}]', 'hed ve', 'canned', 'handover_notice'" },
   'tara-yarmag-reel-question-2026-10-04.sql': { file: PARITY, marker: "'https://www.facebook.com/share/r/1AbCdEfGh/', 'canned', 'reel_price_question'" },
+  // A proposal (2026-10-08, awaiting the founder's go): case 162 corrected as her case is, and four
+  // price twins whose Парк Од originals are her onboarding cases (`generateCases`, «onboard:price_N»);
+  // the marker proves the deposit half only.
+  'tara-yarmag-price-twins-2026-10-08.sql': { file: 'tara-park-od-deposit-case-2026-10-08.sql', marker: `set must_include = '{"20,000₮"}'::text[]` },
 };
 
 test('every Яармаг file of reply cases has a Парк Од equivalent, or a reason', () => {

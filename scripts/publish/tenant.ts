@@ -59,7 +59,7 @@ import { loadLiveSnapshot, publishNeeded, type LoadOutcome } from '../../src/lib
 import { supabasePublish } from '../../src/lib/supabase/clients.ts';
 import { SECTION_LABELS } from '../../src/lib/prompt/tenant.ts';
 import { CLARIFY_BRANCH_KIND, branchNamesFromPrefix } from '../../src/lib/branches/branches.ts';
-import { caseModelSeat, gateTenant, renderGate } from '../../src/lib/replycases/run.ts';
+import { caseModelSeat, gateTenant, renderGate, renderReplies } from '../../src/lib/replycases/run.ts';
 import { callReception, type CallOutcome } from '../../src/lib/model/reception.ts';
 import { priceCall, type CacheMode } from '../../src/lib/spend/settle.ts';
 import { factGate } from '../facts/gate.ts';
@@ -367,6 +367,16 @@ const gate = await gateTenant(db, {
 });
 const verdict = renderGate([gate]);
 process.stdout.write(`\n${verdict.text}\n`);
+// WHAT EACH CASE WAS ANSWERED (founder, 2026-10-08: Парк Од's first model run printed only
+// pass or fail, and a paid run whose replies cannot be read has to be paid for again). Every
+// case that did not pass, always, verbatim, with its flags; every case with
+// `REPLY_GATE_PRINT=1`, as `scripts/replycases/gate.ts` does. This prints to the operator's
+// own terminal, never a build log, so it is on by default here and off there.
+if (gate.ok) {
+  const all = process.env['REPLY_GATE_PRINT'] === '1';
+  const shown = renderReplies([{ ...gate, results: gate.results.filter((r) => all || r.outcome === 'wrong' || r.outcome === 'unchecked') }]);
+  if (shown !== '') process.stdout.write(`\n${all ? 'EVERY REPLY' : 'THE REPLIES THAT DID NOT PASS'}\n${shown}`);
+}
 
 // What the model run cost (D-151: the report says it). Priced from `model_prices` at the
 // tenant's cache mode, as the worker settles a live reply; a call that cannot be priced is

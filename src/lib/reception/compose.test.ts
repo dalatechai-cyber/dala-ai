@@ -1010,3 +1010,132 @@ test('review (D-176 reel): a reel link\'s host fires no fixed reply: the link al
   });
   assert.deepEqual(t.drafts.map((x) => x.body), [REEL_Q]);
 });
+
+// ---- Парк Од's B9 (founder, 2026-10-08): a price question that named a service, or the deposit,
+// ---- and got a reply with no price for it
+
+const LENGTH_Q = 'Таны үс ямар урттай вэ?';
+
+test('DONE-TEST (Парк Од B9, 2026-10-08): A NAMED SERVICE ASKED ITS PRICE AND ANSWERED WITH A QUESTION ALONE GETS ITS ROWS FIRST', async () => {
+  const t = run(LENGTH_Q);
+  const r = await handleReception(t.deps, { ...base, customerMessage: 'Оффис колор хэд вэ?' });
+  assert.equal(r.kind === 'drafted' && r.answeredBy, 'model');
+  assert.equal(t.drafts[0]?.body, `${ROWS.office}\n\n${LENGTH_Q}`);
+  assert.ok(t.flags.includes('named_service_unpriced'));
+});
+
+test('a named service is read through its aliases too', async () => {
+  const t = run(LENGTH_Q);
+  await handleReception(t.deps, { ...base, customerMessage: 'Цайруулах үнэ хэд вэ' });
+  assert.equal(t.drafts[0]?.body, `${ROWS.bleach}\n\n${LENGTH_Q}`);
+});
+
+test('no rows are added when the customer did not ask a price, or named no one service', async () => {
+  for (const customerMessage of ['Оффис колор хийлгэмээр байна', 'Тайралт хэд вэ?']) {
+    const t = run(LENGTH_Q);
+    await handleReception(t.deps, { ...base, customerMessage });
+    assert.deepEqual(t.drafts, [{ body: LENGTH_Q, answeredBy: 'model' }], customerMessage);
+    assert.equal(t.flags.includes('named_service_unpriced'), false, customerMessage);
+  }
+});
+
+test('no rows are added when the reply priced anything, or the rows were already shown', async () => {
+  // «usan himi»: the alias «himi» names Эмчилгээний хими, and the reply priced Усан хими. The
+  // price question was answered; the other service would answer a question nobody asked.
+  const priced = run(`${ROWS.usan} байна.`);
+  await handleReception(priced.deps, { ...base, customerMessage: 'usan himi hed ve' });
+  assert.equal(priced.drafts[0]?.body, `${ROWS.usan} байна.`);
+  const shown = run(LENGTH_Q);
+  await handleReception(shown.deps, {
+    ...base, customerMessage: 'Оффис колор хэд вэ?',
+    history: [{ role: 'user', content: 'Оффис колор' }, { role: 'assistant', content: ROWS.office }],
+  });
+  assert.deepEqual(shown.drafts, [{ body: LENGTH_Q, answeredBy: 'model' }]);
+});
+
+test('no rows are added on a turn where a refusal rule blocks prices, or when the model was never asked', async () => {
+  const BLOCK: GateRule = {
+    gate: 'Ш1', topicKey: 'keratin', matcher: { mode: 'contains_stem', stems: ['кератин'] },
+    quotePrice: false, deterministicShortcircuit: false, responseKind: 'refusal_price_unlisted',
+    provenance: 'tenant_confirmed', groundedOnly: false,
+  };
+  const blocked = run(LENGTH_Q);
+  await handleReception(blocked.deps, { ...base, rules: [SUIT, BLOCK], customerMessage: 'кератин оффис колор хэд вэ' });
+  assert.equal(blocked.flags.includes('named_service_unpriced'), false);
+  assert.equal(blocked.drafts[0]?.body.includes(ROWS.office), false, String(blocked.drafts[0]?.body));
+  // A fixed reply answers before the model: the tenant's own answer stands as it wrote it.
+  const fixed = run('never called');
+  await handleReception(fixed.deps, { ...base, customerMessage: 'Үс будуулахад хэд вэ?' });
+  assert.equal(fixed.requests.length, 0);
+  assert.equal(fixed.drafts[0]?.body, `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${QUESTION}`);
+});
+
+test('a hand-off after a named price question is the rows alone, and a person is still told', async () => {
+  const drafts: { body: string; answeredBy: string }[] = [];
+  const flags: string[] = [];
+  const deps: ReceptionDeps = {
+    callModel: async () => ({ kind: 'terminal', reason: 'refusal', detail: 'stub' }),
+    draft: async (x) => { drafts.push(x); return { ok: true, id: 'o' }; },
+    markCalled: async () => true, settle: async () => ({ ok: true }), release: async () => {},
+    flag: async (f) => { flags.push(f.code); }, observe: async () => {},
+  };
+  const r = await handleReception(deps, { ...base, customerMessage: 'Оффис колор хэд вэ?' });
+  assert.equal(r.kind === 'drafted' && r.handedOff, true, 'a person is still told');
+  // «the price, then I cannot answer this question» contradicts itself (review, 2026-10-08).
+  assert.deepEqual(drafts[0], { body: ROWS.office, answeredBy: 'deterministic' });
+  assert.ok(flags.includes('named_service_unpriced'));
+});
+
+test('rows that would pass the one-message cap are served alone', async () => {
+  // Within the cap on its own, past it with the row in front.
+  const long = `${'Тийм. '.repeat(310)}${LENGTH_Q}`;
+  assert.ok([...long].length <= 1900 && [...`${ROWS.office}\n\n${long}`].length > 1900);
+  const t = run(long);
+  await handleReception(t.deps, { ...base, customerMessage: 'Оффис колор хэд вэ?' });
+  assert.deepEqual(t.drafts, [{ body: ROWS.office, answeredBy: 'deterministic' }]);
+});
+
+test('DONE-TEST (Парк Од B9, 2026-10-08): THE DEPOSIT ASKED AND ANSWERED WITH THE DEDUCTION SENTENCE ALONE GETS THE DEPOSIT ROWS FIRST', async () => {
+  const DEDUCTED = 'Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.';
+  const t = run(DEDUCTED);
+  await handleReception(t.deps, { ...base, customerMessage: 'Урьдчилгаа төлбөр хэд вэ' });
+  assert.equal(t.drafts[0]?.body, `${SERVED_DEPOSITS.join('\n')}\n\n${DEDUCTED}`);
+  assert.ok(t.flags.includes('deposit_unpriced'));
+});
+
+test('a deposit answer that states a deposit amount is left as written; a deposit not asked about gets none', async () => {
+  const answered = run(`${SERVED_DEPOSITS[0]}`);
+  await handleReception(answered.deps, { ...base, customerMessage: 'Мастер үсчинд урьдчилгаа хэд вэ' });
+  assert.deepEqual(answered.drafts, [{ body: SERVED_DEPOSITS[0], answeredBy: 'model' }]);
+  assert.equal(answered.flags.includes('deposit_unpriced'), false);
+  const notAsked = run(LENGTH_Q);
+  await handleReception(notAsked.deps, { ...base, customerMessage: 'Урьдчилгаа буцаадаг уу' });
+  assert.equal(notAsked.flags.includes('deposit_unpriced'), false);
+});
+
+test('a service named by its ALIAS and answered «no price for this» gets the rows alone, not both', async () => {
+  // Review, 2026-10-08: `price_unlisted_overridden` matches names only, so «Цайруулах» slipped
+  // past it and the customer got the row, then «…үнийн мэдээлэл надад байхгүй байна».
+  const t = run(UNLISTED);
+  await handleReception(t.deps, { ...base, customerMessage: 'Цайруулах үнэ хэд вэ' });
+  assert.deepEqual(t.drafts, [{ body: ROWS.bleach, answeredBy: 'deterministic' }]);
+});
+
+test('rows already shown in the tenant\'s own layout are not shown again', async () => {
+  // Judged by amount: DalaTech lays rows out as «💰 {option}: {price}», which the raw row never matches.
+  const t = run(LENGTH_Q);
+  await handleReception(t.deps, {
+    ...base, customerMessage: 'Оффис колор хэд вэ?',
+    history: [{ role: 'user', content: 'Оффис колор' }, { role: 'assistant', content: '💬 Оффис колор\n💰 380,000₮–460,000₮' }],
+  });
+  assert.deepEqual(t.drafts, [{ body: LENGTH_Q, answeredBy: 'model' }]);
+});
+
+test('the deposit is read in its short and soft-sign-less spellings too', async () => {
+  const DEDUCTED = 'Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.';
+  for (const customerMessage of ['урьдчилга хэд вэ', 'урдчилгаа хэд вэ']) {
+    const t = run(DEDUCTED);
+    await handleReception(t.deps, { ...base, customerMessage });
+    assert.equal(t.drafts[0]?.body, `${SERVED_DEPOSITS.join('\n')}\n\n${DEDUCTED}`, customerMessage);
+  }
+});

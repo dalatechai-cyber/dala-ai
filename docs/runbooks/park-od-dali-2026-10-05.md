@@ -221,6 +221,43 @@ ANTHROPIC_API_KEY="$(security find-generic-password -s dala-anthropic-publish-ma
 *You should see:* every case pass, `MODEL RUN COST … $0.xx` (expected about $0.20–0.40), `Dry run.`
 If a case fails, stop and send Claude the output; do not publish.
 
+### B9 again (added 2026-10-08, after the first B9 failed 5 of 115)
+
+What failed and why: D-181 in `docs/DECISIONS.md`. In short: four price questions got a reply with
+no price for the service they named, which Яармаг's Дали can do too (same price rows, same model
+input); the fix is in the code and covers both branches. The deposit case judged the wrong thing;
+one SQL file corrects it. In this order:
+
+1. **Merge** the dala-ai pull request «Парк Од B9: a named service's price is always given» (your
+   go). ⚠ Яармаг: this changes Яармаг's replies too, in two ways only: after a model reply with no
+   price, a price question that named a service gets that service's price rows first; and a price
+   question about the deposit whose reply states no deposit amount gets the deposit rows first. Wait
+   until Vercel shows the Production deployment of the merge commit **Ready**.
+2. **Mac:** `git checkout main && git pull && npm ci` (the publish script runs your checkout).
+3. **SQL editor:** paste `scripts/provision/tara-park-od-deposit-case-2026-10-08.sql`, Run →
+   «Success». It changes one reply case of hers and nothing she says.
+   *Undo:* `scripts/provision/tara-park-od-deposit-case-2026-10-08-revert.sql`.
+4. **B8 again** (Mac): `node scripts/publish/tenant.ts --slug tara-park-od` → exactly as in B8:
+   `content_hash    d867eed12db06ee8…`, `tara-park-od: 63/63 reply cases pass · 52 need the model
+   and were not run`, `facts: tara-park-od: every copy agrees with the rows.`, `Dry run.`
+5. **B9 again** (Mac), the only paid step, about $0.33 (at most $0.40):
+
+   ```
+   REPLY_GATE_PRINT=1 ANTHROPIC_API_KEY="$(security find-generic-password -s dala-anthropic-publish-mac -w)" \
+     node scripts/publish/tenant.ts --slug tara-park-od --with-model
+   ```
+
+   *You should see:* `tara-park-od: 115/115 reply cases pass`, `MODEL RUN COST … $0.3x`, `Dry run.`
+   `REPLY_GATE_PRINT=1` costs nothing extra: it prints every case's reply under `EVERY REPLY`, so
+   the five that failed can be read (search for `case 201`, `206`, `207`, `208`, `247`). A
+   `named_service_unpriced` or `deposit_unpriced` flag beside a reply means the model again gave no
+   price and the platform put the rows first. Without it, only failing cases' replies print.
+   If any case fails: stop, do not publish, and send Claude the `THE REPLIES THAT DID NOT PASS` block.
+
+Яармаг's side, only on your go and in no hurry: `scripts/provision/tara-yarmag-price-twins-2026-10-08.sql`
+gives Яармаг the same four price cases and the same deposit-case correction (undo: its
+`-revert.sql`). Reply cases only: no republish, nothing she says changes.
+
 ### B10. Publish (Mac) — only after A shows `"ready":true`
 
 `node scripts/publish/tenant.ts --slug tara-park-od --publish` → `PUBLISHED  seq 1  …`.

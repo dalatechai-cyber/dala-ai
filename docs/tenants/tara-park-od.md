@@ -1,7 +1,8 @@
-# Tara Salon — Парк Од (slug `tara-park-od`, ready to onboard: docs/runbooks/park-od-dali-2026-10-05.md)
+# Tara Salon — Парк Од (slug `tara-park-od`; in Production through runbook B8, 2026-10-08; B9 waits on D-181: docs/runbooks/park-od-dali-2026-10-05.md)
 
-A branch of Tara Salon and its own tenant (D-157). **Open since 2026-10-01 (founder). Nothing
-of hers is in the project's database.** Her questionnaire is filled and proven on a local
+A branch of Tara Salon and its own tenant (D-157). **Open since 2026-10-01 (founder). In the
+project's database since 2026-10-08 (founder: runbook B1 to B8 done; never published, channel in
+shadow).** Her questionnaire is filled and proven on a local
 replica (2026-10-03, again with the founder's round-2 answers on 2026-10-04); onboarding on the
 project waits for the steps at the end.
 
@@ -35,7 +36,7 @@ project waits for the steps at the end.
 | `intake/tara-park-od.answers.json` | Her questionnaire's answers, from the facts above, with Яармаг's approved wording where the form asks for words (FAQs, the level text), the three approved quality answers as FAQs, and 2.3 = Boloroo |
 | `intake/tara-park-od.wording.json` | Her own wording for templated sentences, passed with `--wording` on EVERY onboarding run (recorded on the tenant; a run without it, or with another file, is refused unless `--wording-changed`): the founder's `handoff` sentence and Яармаг's approved `assistant_identity` and `booking_line`, and no `refusal_topic` |
 | `intake/tara-park-od.docx` | The real client form (`dali-form-v2-blank.docx`) filled from it by `scripts/onboard/fixtures/fill.ts` |
-| `scripts/provision/tara-park-od-after-onboarding.sql` | What the form cannot carry: settings, hairdressers' groups, 7 canned lines, 28 fixed replies (the answers `deposit_deducted`, `loan_apps`, `dye_brand` as #283's; D-177's `treatment_perm_women`, `colour_lift` and `colour_lift_men`, all on), 31 reply cases (inactive; switched on before her publish dry run), 11 out-of-scope topics, the dye question, 8 knowledge documents,  Refuses to run unless onboarding used `--wording`, her rows carry no 1-р зэрэг price, and Яармаг's address is still the one it types. NOT applied |
+| `scripts/provision/tara-park-od-after-onboarding.sql` | What the form cannot carry: settings, hairdressers' groups, 7 canned lines, 28 fixed replies (the answers `deposit_deducted`, `loan_apps`, `dye_brand` as #283's; D-177's `treatment_perm_women`, `colour_lift` and `colour_lift_men`, all on), 31 reply cases (inactive; switched on before her publish dry run), 11 out-of-scope topics, the dye question, 8 knowledge documents,  Refuses to run unless onboarding used `--wording`, her rows carry no 1-р зэрэг price, and Яармаг's address is still the one it types. Applied by the founder in B3 (2026-10-08) |
 | `prompt/drafts/tara_park_od_wording.mn.txt` | Every line of hers that differs from Яармаг's approved bytes, exactly |
 
 **Proven on a local PostgreSQL 16 + PostgREST 12.2.3 replica** (never the project), 2026-10-04,
@@ -110,11 +111,16 @@ token (`GET me/accounts?fields=id,name,access_token`, step B1.4) and onboards wi
 ## Go-live steps (2026-10-05): the morning runbook
 
 **Follow [`docs/runbooks/park-od-dali-2026-10-05.md`](../runbooks/park-od-dali-2026-10-05.md).**
-It supersedes the list that stood here: the website booking switch first, then Meta, onboarding,
+
+The runbook supersedes the list that stood here: the website booking switch first, then Meta, onboarding,
 her two provision files, the signing, the token, the money, all her reply cases switched on
 BEFORE the publish dry run (safe: the production build runs no case of an unpublished tenant),
 the one paid run, the publish, a test from the founder's phone in shadow, then live. Every step
 was rehearsed on a local replica of Production's rows (2026-10-05).
+
+Status 2026-10-08 (founder): steps through B8 done (Page 108583528037449, which does not enter
+her content_hash: still `d867eed12db06ee8…`, checked on the replica). B9 failed 5 of 115; the
+cause, the fix and the rerun are D-181 and the runbook's «B9 again».
 
 What the round of 2026-10-05 added, because Яармаг's Дали has it and her form does not give it
 (`scripts/provision/tara-park-od-parity-2026-10-05.sql`, + revert): the photo and reel questions
