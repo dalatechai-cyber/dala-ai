@@ -423,11 +423,12 @@ function namedRowsMissing(texts: readonly (string | null)[], body: string, input
     names = m.verdict === 'unique' ? [m.match.name] : m.verdict === 'family' ? m.family.map((f) => f.name) : [];
     if (names.length > 0) break;
   }
-  const said = fold(body);
-  const before = input.history.filter((h) => h.role === 'assistant').map((h) => fold(h.content));
-  const missing = input.serviceNames.filter((s) => s.prices.length > 0 && s.rows.length > 0 && names.includes(s.name)
-    && !s.rows.some((r) => said.includes(fold(r)))
-    && !s.rows.every((r) => before.some((b) => b.includes(fold(r)))));
+  // By AMOUNT, not by row text: a tenant whose `reply_style` lays rows out under a template
+  // (DalaTech: «💰 {option}: {price}») shows them in a form the raw row never matches.
+  const said = new Set(amounts(body));
+  const before = new Set(input.history.filter((h) => h.role === 'assistant').flatMap((h) => amounts(h.content)));
+  const missing = input.serviceNames.filter((s) => s.rows.length > 0 && names.includes(s.name)
+    && s.prices.some(() => true) && !s.prices.some((p) => said.has(p)) && !s.prices.every((p) => before.has(p)));
   return missing.length === 0 ? null : { names: missing.map((s) => s.name), rows: missing.flatMap((s) => [...s.rows]).join('\n') };
 }
 
@@ -442,14 +443,24 @@ function namedRowsMissing(texts: readonly (string | null)[], body: string, input
  * stem). Answered means ANY deposit amount is in the reply: a reply naming the one the
  * customer's stylist level needs is left as written.
  */
+/**
+ * «урьдчилгаа» as a stem short enough for «урьдчилга», «урьдчилгааг», and typed without «ь»
+ * («урдчилгаа»): the heading word's first seven code points, and the same without the soft sign.
+ */
+const DEPOSIT_STEMS: readonly string[] = (() => {
+  const stem = [...DEPOSIT_WORD].slice(0, 7).join('');
+  return [...new Set([stem, stem.replace('ь', '')])];
+})();
+
 function depositRowsMissing(texts: readonly (string | null)[], body: string, input: ReceptionInput): string | null {
   if (input.depositRows.length === 0) return null;
   const asked = texts.filter((t): t is string => t !== null && t.trim() !== '');
-  if (!asked.some((t) => asksPrice(t) && containsStem(t, DEPOSIT_WORD))) return null;
+  if (!asked.some((t) => asksPrice(t) && DEPOSIT_STEMS.some((st) => containsStem(t, st)))) return null;
   const said = new Set(amounts(body));
-  if (input.depositRows.some((r) => amounts(r).some((a) => said.has(a)))) return null;
-  const before = input.history.filter((h) => h.role === 'assistant').map((h) => fold(h.content));
-  if (input.depositRows.every((r) => before.some((b) => b.includes(fold(r))))) return null;
+  const owned = input.depositRows.flatMap((r) => amounts(r));
+  if (owned.some((a) => said.has(a))) return null;
+  const before = new Set(input.history.filter((h) => h.role === 'assistant').flatMap((h) => amounts(h.content)));
+  if (owned.every((a) => before.has(a))) return null;
   return input.depositRows.join('\n');
 }
 
@@ -976,8 +987,9 @@ async function receive(
       // short-circuit is the tenant's own answer, and a reply that priced something answered
       // the price question («usan himi hed ve» priced Усан хими while the alias «himi» named
       // Эмчилгээний хими; adding that service would answer a question nobody asked). The rows
-      // go first, then whatever was served, byte for byte: a clarifying question, the colour
-      // set, or a hand-off (already recorded above, so a person is still told). Never where a
+      // go first, then whatever was served, byte for byte: a clarifying question or the colour
+      // set. A hand-off, the general line or «no price for this» is replaced by the rows alone
+      // (a hand-off is already recorded above, so a person is still told). Never where a
       // refusal rule blocks prices. Too long for one message: the rows alone.
       // The deposit is the same rule (`depositRowsMissing`), and does not wait for a priceless
       // reply: a service's price beside it is not the deposit's.
@@ -986,9 +998,20 @@ async function receive(
         const deposits = depositRowsMissing([input.customerMessage, respelled], x.body, input);
         const lead = [named?.rows ?? null, deposits].filter((r): r is string => r !== null).join('\n\n');
         if (lead !== '') {
+          // A reply that says it cannot answer, or has no price for this, is contradicted by the
+          // rows: served the rows alone (`price_unlisted_overridden`'s move). Found in review: an
+          // ALIAS («Цайруулах») misses that override, which matches names only, and the customer
+          // got «Цайруулалт: 430,000₮–570,000₮» then «…үнийн мэдээлэл надад байхгүй байна.» A
+          // hand-off stays recorded above, so a person is still told.
+          const said = fold(x.body);
+          const general = generalLine(input)?.body.trim() ?? null;
+          const denies = ['handoff', 'refusal_price_unlisted'].some((k) => {
+            const row = canned(input.canned, k)?.trim() ?? '';
+            return row !== '' && said.includes(fold(row));
+          }) || (general !== null && general !== '' && said.includes(fold(general)));
           const composed = `${lead}\n\n${x.body.trim()}`;
-          const fits = [...composed].length <= MAX_REPLY_CHARS;
-          const how = fits ? 'the rows lead the reply' : 'served the rows alone';
+          const fits = !denies && [...composed].length <= MAX_REPLY_CHARS;
+          const how = fits ? 'the rows lead the reply' : denies ? 'served the rows alone, not a line saying it cannot answer' : 'served the rows alone';
           if (named !== null) {
             await deps.flag({ code: 'named_service_unpriced', detail: `the reply carried no price for ${named.names.join(', ')}; ${how}`, attempted: x.body });
           }

@@ -1070,7 +1070,7 @@ test('no rows are added on a turn where a refusal rule blocks prices, or when th
   assert.equal(fixed.drafts[0]?.body, `${ROWS.root}\n${ROWS.mid}\n${ROWS.long}\n\n${QUESTION}`);
 });
 
-test('a hand-off after a named price question keeps the hand-off, with the rows first', async () => {
+test('a hand-off after a named price question is the rows alone, and a person is still told', async () => {
   const drafts: { body: string; answeredBy: string }[] = [];
   const flags: string[] = [];
   const deps: ReceptionDeps = {
@@ -1081,7 +1081,8 @@ test('a hand-off after a named price question keeps the hand-off, with the rows 
   };
   const r = await handleReception(deps, { ...base, customerMessage: 'Оффис колор хэд вэ?' });
   assert.equal(r.kind === 'drafted' && r.handedOff, true, 'a person is still told');
-  assert.equal(drafts[0]?.body, `${ROWS.office}\n\n${CANNED[0]?.body}`);
+  // «the price, then I cannot answer this question» contradicts itself (review, 2026-10-08).
+  assert.deepEqual(drafts[0], { body: ROWS.office, answeredBy: 'deterministic' });
   assert.ok(flags.includes('named_service_unpriced'));
 });
 
@@ -1110,4 +1111,31 @@ test('a deposit answer that states a deposit amount is left as written; a deposi
   const notAsked = run(LENGTH_Q);
   await handleReception(notAsked.deps, { ...base, customerMessage: 'Урьдчилгаа буцаадаг уу' });
   assert.equal(notAsked.flags.includes('deposit_unpriced'), false);
+});
+
+test('a service named by its ALIAS and answered «no price for this» gets the rows alone, not both', async () => {
+  // Review, 2026-10-08: `price_unlisted_overridden` matches names only, so «Цайруулах» slipped
+  // past it and the customer got the row, then «…үнийн мэдээлэл надад байхгүй байна».
+  const t = run(UNLISTED);
+  await handleReception(t.deps, { ...base, customerMessage: 'Цайруулах үнэ хэд вэ' });
+  assert.deepEqual(t.drafts, [{ body: ROWS.bleach, answeredBy: 'deterministic' }]);
+});
+
+test('rows already shown in the tenant\'s own layout are not shown again', async () => {
+  // Judged by amount: DalaTech lays rows out as «💰 {option}: {price}», which the raw row never matches.
+  const t = run(LENGTH_Q);
+  await handleReception(t.deps, {
+    ...base, customerMessage: 'Оффис колор хэд вэ?',
+    history: [{ role: 'user', content: 'Оффис колор' }, { role: 'assistant', content: '💬 Оффис колор\n💰 380,000₮–460,000₮' }],
+  });
+  assert.deepEqual(t.drafts, [{ body: LENGTH_Q, answeredBy: 'model' }]);
+});
+
+test('the deposit is read in its short and soft-sign-less spellings too', async () => {
+  const DEDUCTED = 'Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно.';
+  for (const customerMessage of ['урьдчилга хэд вэ', 'урдчилгаа хэд вэ']) {
+    const t = run(DEDUCTED);
+    await handleReception(t.deps, { ...base, customerMessage });
+    assert.equal(t.drafts[0]?.body, `${SERVED_DEPOSITS.join('\n')}\n\n${DEDUCTED}`, customerMessage);
+  }
 });

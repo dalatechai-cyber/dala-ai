@@ -12085,8 +12085,11 @@ shared with Парк Од.
   served, which is kept byte for byte (`named_service_unpriced`). The deposit likewise: a price
   question carrying «урьдчилгаа» whose reply states no deposit amount gets the deposit rows first
   (`deposit_unpriced`). Neither when every row is already in the conversation, when a refusal rule
-  blocks prices, or before the model (a fixed reply is the tenant's own answer). A hand-off keeps
-  its hand-off: a person is still told. Past the one-message cap, the rows alone. No new wording:
+  blocks prices, or before the model (a fixed reply is the tenant's own answer). A reply that is
+  the hand-off, the general line or «no price for this» becomes the rows alone (it would contradict
+  them); a hand-off is still recorded, so a person is still told. Past the one-message cap, the rows
+  alone. Judged by amount, so a tenant whose `reply_style` restyles rows (DalaTech) is not shown
+  them twice; the deposit is read as «урьдчил» or «урдчил». No new wording:
   the rows are the price list's own lines.
 - **Why only a priceless reply.** «usan himi hed ve» names Эмчилгээний хими through the alias
   «himi» and was answered with Усан хими's price: that reply answered the price question, and
