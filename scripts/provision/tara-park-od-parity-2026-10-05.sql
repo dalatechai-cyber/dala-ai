@@ -28,7 +28,8 @@
 --   6. reply cases for every kind of message Яармаг's 78 cases cover and hers did not
 --      (greetings, thanks, «ok», likes, «who are you», «who made you», a correction, tomorrow's
 --      and holiday hours, prices by service, children's prices, deposits by level, the level
---      reply, branch, address and phone questions, the photo and reel questions), INACTIVE:
+--      reply, branch, address and phone questions, the photo and reel questions; and her
+--      men's cut, 69,000₮ only, founder 2026-10-08), INACTIVE:
 --      switched on with all her other cases before the publish dry run (docs/runbooks).
 --      Яармаг-only cases have no mirror: Matrix's rename (she was never Matrix) and the
 --      `park_od_branch` ones (her own branch); each mirrored case expects HER row's bytes.
@@ -352,6 +353,10 @@ select t.id,
     ('[]', '15 настай хүүгийн үс тайралт хэд вэ?', 'model', null, '{"44,000"}', '{}', 'a boy of 15 (model case)'),
     ('[]', 'SPECIAL үсчинд урьдчилгаа хэд вэ?', 'model', null, '{"20,000"}', '{байхгүй,"10,000"}', 'SPECIAL deposit is 20,000₮ (model case)'),
     ('[]', 'Мастер үсчинд урьдчилгаа хэд вэ?', 'model', null, '{"20,000"}', '{байхгүй,"10,000"}', 'Мастер deposit is 20,000₮; no 10,000₮ level at Парк Од (model case)'),
+    -- the men's cut (founder, 2026-10-08): her only men's hairdresser, Tuchku, is Мастер, so she
+    -- quotes «Эрэгтэй тайралт: 69,000₮» and never the SPECIAL men's cut (config not_offered)
+    ('[]', 'Эрэгтэй тайралт хэд вэ?', 'model', null, '{"69,000₮"}', '{SPECIAL}', 'men''s cut: 69,000₮ only, never the SPECIAL 89,000₮ (model case; «89,000» would also match a quoted 189,000₮)'),
+    ('[]', 'eregtei tairalt hed ve', 'model', null, '{"69,000₮"}', '{SPECIAL}', 'men''s cut, Latin: 69,000₮ only (model case)'),
     ('[]', 'SPECIAL үсчин', 'det', 'stylist_tier', '{}', '{}', 'the level reply names her two levels only'),
     -- branches, address and phone (Яармаг: D-170, mirrored: she names Яармаг)
     ('[]', 'Танай хэдэн салбартай вэ?', 'det', 'branch_count', '{}', '{}', 'two branches, branch_count'),
@@ -400,7 +405,7 @@ begin
     raise exception 'read-back: comment settings';
   end if;
   select count(*) into n from reply_cases where tenant_id = t and note like 'parity 2026-10-05%';
-  if n <> 46 then raise exception 'read-back: % parity cases, 46 expected', n; end if;
+  if n <> 48 then raise exception 'read-back: % parity cases, 48 expected', n; end if;
   -- every exact case resolved to one of her rows (a missing row would leave both empty and violate the check)
   if exists (select 1 from reply_cases where tenant_id = t and note like 'parity 2026-10-05%'
              and expected_body is null and cardinality(must_include) = 0 and cardinality(must_not_include) = 0) then

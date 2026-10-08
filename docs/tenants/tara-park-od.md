@@ -17,7 +17,7 @@ project waits for the steps at the end.
 | Online booking | Opens on the website on **Monday 2026-10-05** (founder, 2026-10-04: matrix_website `PARKOD_BOOKING=on`). Her Дали sends customers to book online (`booking`, `deposit_required`), so her rows go live only with her own publish, after that day |
 | Hairdressers | Boloroo (SPECIAL, the owner), Saraa, Tomoo, Bulgaa, Enhuush, Chimegee, Tuchku (all Мастер; Tuchku the only man). Shown by these Latin names everywhere, the roster the model reads included; the Cyrillic spellings customers may type are only in the knowledge document «Үсчдийн нэр» (approved by the founder as written, 2026-10-04) |
 | Hand-off chats | Answered by the owner, Boloroo (founder, 2026-10-04; form 2.3). Her `handoff` line is the founder's sentence «Энэ талаар манай ажилтан танд хариулна. Та 99076874 дугаараар холбогдоно уу.», Яармаг's sentence (PR #283) with her own number. Nothing in the data routes alerts to Boloroo yet: the needs-person alert reaches the founder's Telegram, as for Яармаг |
-| Prices, services | Identical to Яармаг's 2026-10-01 list (31 services), and the same booking link https://www.matrixecosalon.org/ — except that she carries **no 1-р зэрэг price** (59 prices): she has no 1-р зэрэг hairdresser and never quotes or offers that level (founder, 2026-10-04). `config/branch-groups.json` `not_offered` lets the branch gate accept the missing row; every price she does carry must equal Яармаг's |
+| Prices, services | Identical to Яармаг's 2026-10-01 list (31 services), and the same booking link https://www.matrixecosalon.org/ — except that she carries **no 1-р зэрэг price** and **no SPECIAL men's cut** (58 prices): she has no 1-р зэрэг hairdresser and never quotes or offers that level (founder, 2026-10-04), and her only men's hairdresser, Tuchku, is Мастер, so her men's cut is «Эрэгтэй тайралт: 69,000₮» only (founder, 2026-10-08). `config/branch-groups.json` `not_offered` lets the branch gate accept the missing row; every price she does carry must equal Яармаг's |
 | Deposit | 20,000₮ for every Парк Од level (SPECIAL and Мастер). Дали never says it is non-refundable |
 | Children | Served: girls with a female hairdresser, boys with Tuchku; the hairdresser's level deposit |
 | Manicure, pedicure | Absent: no service, price or staff of hers offers them |
@@ -98,9 +98,9 @@ token (`GET me/accounts?fields=id,name,access_token`, step B1.4) and onboards wi
 2. Wording: none waits. «Салбарууд», `yarmag_branch`, «Үсчдийн нэр» (every Cyrillic spelling as
    written), the three FAQ questions and the price-page sentence were approved on 2026-10-04
    (`prompt/drafts/tara_park_od_wording.mn.txt`); the price-page rows stay disabled (step 10).
-3. The shared price list's men's SPECIAL cut («Эрэгтэй тайралт» SPECIAL 89,000₮): her only man,
-   Tuchku, is Мастер. If she should not quote it either, it is one more `not_offered` entry and
-   one line out of her form (same mechanism as 1-р зэрэг).
+3. ~~The shared price list's men's SPECIAL cut~~ DECIDED (founder, 2026-10-08): she never quotes
+   it. `not_offered` {"service": "Эрэгтэй тайралт", "variant": "SPECIAL"} and the line removed from
+   her form; two model reply cases hold her to 69,000₮.
 4. Is another bot or a Meta away message running on her Page (form 11.3)? Яармаг's Page has one.
 5. How Boloroo is told about a hand-off (today the alert reaches the founder's Telegram only).
 6. Approve the D-177 wording (docs/approvals/tara-2026-10-04/08-colour-and-treatment-perm.mn.txt):
@@ -120,10 +120,9 @@ What the round of 2026-10-05 added, because Яармаг's Дали has it and h
 (`scripts/provision/tara-park-od-parity-2026-10-05.sql`, + revert): the photo and reel questions
 (Яармаг's approved bytes, signed on her sheet: 20 lines), 64 service aliases, 92 Latin spellings
 (word pairs only, no customer evidence), Яармаг's five never-say rules, comments as Яармаг's (the
-salon template's 50 rules on, both surfaces, 20 a post, starting in shadow), and 46 reply cases
-mirroring Яармаг's (113 in all). Her Reception entitlement and ceiling (Яармаг's figures) are a
+salon template's 50 rules on, both surfaces, 20 a post, starting in shadow), and 48 reply cases
+mirroring Яармаг's and her men's cut (115 in all). Her Reception entitlement and ceiling (Яармаг's figures) are a
 separate money file for the founder: `tara-park-od-entitlement-2026-10-05.sql`.
 
-Still open: the shared price list's men's SPECIAL cut («Эрэгтэй тайралт» SPECIAL 89,000₮) is
-quoted by her too although her only man, Tuchku, is Мастер (open question 3); hand-off and
-complaint alerts reach the founder's Telegram, not Boloroo (open question 5).
+Still open: hand-off and complaint alerts reach the founder's Telegram, not Boloroo (open
+question 5). Settled 2026-10-08: no SPECIAL men's cut at Парк Од (open question 3).

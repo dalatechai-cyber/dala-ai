@@ -105,20 +105,20 @@ partner assignment, no App Review (see «Meta» at the end).
    No rows returned».
 2. SQL editor: `scripts/provision/tara-park-od-parity-2026-10-05.sql` (what Яармаг has that the
    form does not give her: the photo and reel questions, 64 service aliases, 92 Latin spellings,
-   the five never-say rules, comments as Яармаг's in shadow, 46 more reply cases) → «Success».
+   the five never-say rules, comments as Яармаг's in shadow, 48 more reply cases) → «Success».
    *Undo (before B10 only):* `scripts/provision/tara-park-od-parity-2026-10-05-revert.sql`, then
    `onboard --apply` once (it puts the generated video-link case back to the media line).
 3. `onboard --apply` → *You should see:* `50 comment_rules (50 left enabled, the rest disabled)`,
    `36 reply_cases, inactive (0 added, 1 changed, 0 retired)` (the video-link case now expects her
    reel question), `Wording    20 lines await the founder — sheet <SHEET>`,
-   `Facts      65 rows await the client — summary <SUMMARY>`. (Rehearsal ids: sheet
-   `2ed4c7041aca`, summary `d9155727deea`; yours may differ if the Page ID differs.)
+   `Facts      64 rows await the client — summary <SUMMARY>`. (Rehearsal ids: sheet
+   `2ed4c7041aca`, summary `d81c5ab405ac`; yours may differ if the Page ID differs.)
 4. Read `onboarding/tara-park-od/wording-sheet.md`: 20 lines, every one approved by you on
    2026-10-04, or Яармаг's approved bytes (the photo and reel questions, items 4 and 7).
 5. `onboard --apply --sign-wording <SHEET> --signed-by Bilguun` → `signed 20 Mongolian lines`,
    `Wording    SIGNED`.
 6. `onboard --apply --client-confirmed "Болор" --confirmed-on 2026-10-05 --summary <SUMMARY>` →
-   `client confirmation recorded on 65 rows`, `both gates passed: 36 reply cases switched on`,
+   `client confirmation recorded on 64 rows`, `both gates passed: 36 reply cases switched on`,
    `Facts      CONFIRMED by the client`.
 
 ### B4. Seal her Page token (Mac) and connect the channel (SQL editor)
@@ -195,7 +195,7 @@ update reply_cases set active = true
  where tenant_id = (select id from tenants where slug = 'tara-park-od') and not active;
 ```
 
-*You should see:* `UPDATE 77` (113 cases in all; 36 were switched on in B3.6).
+*You should see:* `UPDATE 79` (115 cases in all; 36 were switched on in B3.6).
 
 ### B7. Branch gate (Mac)
 
@@ -207,11 +207,11 @@ and the same for tara-park-od; Яармаг `live snapshot: current on facebook_
 ### B8. Publish dry run (Mac)
 
 `node scripts/publish/tenant.ts --slug tara-park-od` → *You should see:*
-`content_hash    4d8c5c030c0a239b…` (if her Page ID is 100067391025472; another id gives another
-hash), `tara-park-od: 63/63 reply cases pass · 50 need the model and were not run`,
+`content_hash    d867eed12db06ee8…` (if her Page ID is 100067391025472; another id gives another
+hash), `tara-park-od: 63/63 reply cases pass · 52 need the model and were not run`,
 `facts: tara-park-od: every copy agrees with the rows.`, `Dry run. Nothing was written.`
 
-### B9. The one paid run (Mac) — her 50 model cases
+### B9. The one paid run (Mac) — her 52 model cases
 
 ```
 ANTHROPIC_API_KEY="$(security find-generic-password -s dala-anthropic-publish-mac -w)" \
@@ -360,9 +360,9 @@ address and «Утас: 99076874» (unchanged since 2026-10-04).
 - The whole of section B in this order (B1 and the real Page token simulated with a throwaway
   token and KEK), on a fresh copy: every step's output as written above. Re-runs refused; the
   parity revert works and then refuses a second time.
-- Her publish dry run: 63/63 reply cases pass, facts and branch gates clean. 50 model cases were
+- Her publish dry run: 63/63 reply cases pass, facts and branch gates clean. 52 model cases were
   NOT run (no model key in this environment; B9 runs them).
-- `scripts/verify/branch-parity.ts`: 39 kinds of message and comment sent to BOTH Pages through
+- `scripts/verify/branch-parity.ts`: 40 kinds of message and comment sent to BOTH Pages through
   the production webhook and worker path (model and Meta stubbed): every reply is that branch's
   own row, both branches behave the same, no reply carries the other branch's details. Passed with
   her channel in shadow plus a tester (B11) and live (B12). A planted leak (Яармаг's number in her

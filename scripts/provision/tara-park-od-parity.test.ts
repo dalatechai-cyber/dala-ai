@@ -83,3 +83,16 @@ test('nothing of Яармаг\'s branch in what her parity rows say', () => {
     assert.ok(!/76001888|91005498|Номин Хайпермаркет/.test(outsideLists), `Яармаг detail in: ${l.trim().slice(0, 120)}`);
   }
 });
+
+test('Парк Од never quotes the SPECIAL men\'s cut (founder, 2026-10-08: Tuchku is Мастер)', () => {
+  const groups = JSON.parse(readFileSync(new URL('../../config/branch-groups.json', import.meta.url), 'utf8')) as
+    Record<string, { not_offered?: Record<string, unknown[]> }>;
+  const off = groups['tara-salon']?.not_offered?.['tara-park-od'] ?? [];
+  assert.ok(off.some((v) => JSON.stringify(v) === JSON.stringify({ service: 'Эрэгтэй тайралт', variant: 'SPECIAL' })),
+    'config/branch-groups.json must mark her SPECIAL men\'s cut as not offered');
+  const answers = JSON.parse(readFileSync(new URL('../../intake/tara-park-od.answers.json', import.meta.url), 'utf8')) as unknown;
+  const row = JSON.stringify(answers).match(/\["Эрэгтэй тайралт","([^"]*)"/u)?.[1];
+  assert.equal(row, '69,000₮', 'her form carries only the 69,000₮ men\'s cut');
+  assert.ok(read(PARITY).includes("'Эрэгтэй тайралт хэд вэ?', 'model', null, '{\"69,000₮\"}', '{SPECIAL}'"),
+    'her reply case for the men\'s cut is in the parity file');
+});

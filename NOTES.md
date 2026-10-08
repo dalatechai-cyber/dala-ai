@@ -104,19 +104,19 @@ with tests; production untouched; at most $1 of model runs.
   no photo or reel question (her photos went straight to staff), 0 service aliases (Яармаг 64
   on the same services), 0 Latin spellings (92), no never-say rules (5), comments off with rules
   disabled. All in `scripts/provision/tara-park-od-parity-2026-10-05.sql` (+ revert), with 46
-  reply cases mirroring Яармаг's (her total 113). Choices: the two questions use Яармаг's
+  reply cases mirroring Яармаг's (her total 115 since 2026-10-08). Choices: the two questions use Яармаг's
   approved bytes and are signed on her sheet (20 lines); spellings without the customers'
   evidence and without «oyuna/oyunaa» (Яармаг's hairdresser); comments start in shadow.
 - **Bug found by the rehearsal, fixed:** onboarding's generated video-link case expected the media
   line even when a provision file gave the tenant a reel question, so her publish refused (62/63).
   `generateCases` takes the tenant's held reel question (`scripts/onboard/tenant.ts` reads it).
 - **Proof:** her publish dry run 63/63 exact cases, facts and branch gates clean;
-  `scripts/verify/branch-parity.ts` sends 39 kinds of message and comment to BOTH Pages through
+  `scripts/verify/branch-parity.ts` sends 40 kinds of message and comment to BOTH Pages through
   `handleMetaEntry` + `runReceptionJob` (model and Graph stubbed, real delivery bookkeeping):
   ALL PASS live, ALL PASS with her in shadow plus testers; planted leaks caught; Яармаг's config
   rows byte-identical throughout. `scripts/provision/tara-park-od-parity.test.ts` (CI) keeps her
   coverage in step with every Яармаг reply-case file.
-- **Not run:** her 50 model cases. This environment has no model key, so nothing was spent; the
+- **Not run:** her 52 model cases. This environment has no model key, so nothing was spent; the
   runbook's B9 runs them once (~$0.20–0.40).
 - **Local PostgREST quirk (not production):** `claim()`'s PATCH with `or=(lease_until…)` and a
   `select` answers 400 on every PostgREST binary tried (11.2.2 to 14.1); Production answers it 200
@@ -130,8 +130,13 @@ with tests; production untouched; at most $1 of model runs.
   +976 phones; explicit locale; CICA aliases `seeded`; runbook B11 finds the founder's PSID by a
   unique word and has him comment from his personal profile. Whole rehearsal re-run after the
   fixes: same results; planted leaks (a spaced phone, «Оюунаа» in a comment line) caught.
-- **Open for the founder:** her Page ID; the men's SPECIAL cut she would quote though Tuchku is
-  Мастер; Boloroo is not alerted (the founder's Telegram is); the KEK for sealing must be the one
+- **2026-10-08 (founder): no SPECIAL men's cut at Парк Од.** `config/branch-groups.json`
+  `not_offered` gains {"service": "Эрэгтэй тайралт", "variant": "SPECIAL"}, her form loses that line
+  (docx rebuilt), two model cases hold her to 69,000₮ and no «SPECIAL» (48 parity cases). Rehearsed again from a fresh
+  replica: her compiled price list has only «Эрэгтэй тайралт: 69,000₮» and 89,000 is no longer one
+  of her allowed numbers; 63/63 exact cases; gates and parity script (live and shadow) pass;
+  Яармаг's content_hash unchanged (6515…4fbd).
+- **Open for the founder:** her Page ID; Boloroo is not alerted (the founder's Telegram is); the KEK for sealing must be the one
   Яармаг's token was sealed with.
 
 ---

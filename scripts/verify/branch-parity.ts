@@ -287,6 +287,9 @@ const SCENARIOS: Scenario[] = [
   { name: 'asks for a person, Latin', steps: [{ text: 'huntei yrimaar bn' }], expect: same({ person: true }) },
   { name: "men's colour lift", steps: [{ text: 'eregtei hun ungu gargalt hed ve' }], expect: same({ det: 'colour_lift_men' }) },
   { name: "the other branch's phone", steps: [{ text: '__OTHER_BRANCH__ салбарын утас?' }], expect: same({ otherBranch: true }) },
+  // A men's-cut price reaches the model in both branches; what it may quote is the branch's own
+  // price list (Парк Од: «Эрэгтэй тайралт: 69,000₮» only, 2026-10-08) and its allowed numbers.
+  { name: "men's cut price", steps: [{ text: 'Эрэгтэй тайралт хэд вэ?' }], expect: same({ model: true }) },
   { name: 'a question the rows cannot answer', steps: [{ text: 'Та нар ямар шампунь зардаг вэ, хэдэн төрөл байгаа вэ?' }], expect: same({ model: true }) },
   // comments
   { name: 'comment: price question', steps: [], comment: 'Үнэ хэд вэ?', expect: same({ comment: 'reply' }) },
