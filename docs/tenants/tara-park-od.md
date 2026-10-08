@@ -1,4 +1,4 @@
-# Tara Salon — Парк Од (slug `tara-park-od`, prepared, not onboarded)
+# Tara Salon — Парк Од (slug `tara-park-od`, ready to onboard: docs/runbooks/park-od-dali-2026-10-05.md)
 
 A branch of Tara Salon and its own tenant (D-157). **Open since 2026-10-01 (founder). Nothing
 of hers is in the project's database.** Her questionnaire is filled and proven on a local
@@ -17,7 +17,7 @@ project waits for the steps at the end.
 | Online booking | Opens on the website on **Monday 2026-10-05** (founder, 2026-10-04: matrix_website `PARKOD_BOOKING=on`). Her Дали sends customers to book online (`booking`, `deposit_required`), so her rows go live only with her own publish, after that day |
 | Hairdressers | Boloroo (SPECIAL, the owner), Saraa, Tomoo, Bulgaa, Enhuush, Chimegee, Tuchku (all Мастер; Tuchku the only man). Shown by these Latin names everywhere, the roster the model reads included; the Cyrillic spellings customers may type are only in the knowledge document «Үсчдийн нэр» (approved by the founder as written, 2026-10-04) |
 | Hand-off chats | Answered by the owner, Boloroo (founder, 2026-10-04; form 2.3). Her `handoff` line is the founder's sentence «Энэ талаар манай ажилтан танд хариулна. Та 99076874 дугаараар холбогдоно уу.», Яармаг's sentence (PR #283) with her own number. Nothing in the data routes alerts to Boloroo yet: the needs-person alert reaches the founder's Telegram, as for Яармаг |
-| Prices, services | Identical to Яармаг's 2026-10-01 list (31 services), and the same booking link https://www.matrixecosalon.org/ — except that she carries **no 1-р зэрэг price** (59 prices): she has no 1-р зэрэг hairdresser and never quotes or offers that level (founder, 2026-10-04). `config/branch-groups.json` `not_offered` lets the branch gate accept the missing row; every price she does carry must equal Яармаг's |
+| Prices, services | Identical to Яармаг's 2026-10-01 list (31 services), and the same booking link https://www.matrixecosalon.org/ — except that she carries **no 1-р зэрэг price** and **no SPECIAL men's cut** (58 prices): she has no 1-р зэрэг hairdresser and never quotes or offers that level (founder, 2026-10-04), and her only men's hairdresser, Tuchku, is Мастер, so her men's cut is «Эрэгтэй тайралт: 69,000₮» only (founder, 2026-10-08). `config/branch-groups.json` `not_offered` lets the branch gate accept the missing row; every price she does carry must equal Яармаг's |
 | Deposit | 20,000₮ for every Парк Од level (SPECIAL and Мастер). Дали never says it is non-refundable |
 | Children | Served: girls with a female hairdresser, boys with Tuchku; the hairdresser's level deposit |
 | Manicure, pedicure | Absent: no service, price or staff of hers offers them |
@@ -35,7 +35,7 @@ project waits for the steps at the end.
 | `intake/tara-park-od.answers.json` | Her questionnaire's answers, from the facts above, with Яармаг's approved wording where the form asks for words (FAQs, the level text), the three approved quality answers as FAQs, and 2.3 = Boloroo |
 | `intake/tara-park-od.wording.json` | Her own wording for templated sentences, passed with `--wording` on EVERY onboarding run (recorded on the tenant; a run without it, or with another file, is refused unless `--wording-changed`): the founder's `handoff` sentence and Яармаг's approved `assistant_identity` and `booking_line`, and no `refusal_topic` |
 | `intake/tara-park-od.docx` | The real client form (`dali-form-v2-blank.docx`) filled from it by `scripts/onboard/fixtures/fill.ts` |
-| `scripts/provision/tara-park-od-after-onboarding.sql` | What the form cannot carry: settings, hairdressers' groups, 7 canned lines, 28 fixed replies (the answers `deposit_deducted`, `loan_apps`, `dye_brand` as #283's; D-177's `treatment_perm_women`, `colour_lift` and `colour_lift_men`, all on), 14 reply cases (inactive until her publish), 11 out-of-scope topics, the dye question, 8 knowledge documents,  Refuses to run unless onboarding used `--wording`, her rows carry no 1-р зэрэг price, and Яармаг's address is still the one it types. NOT applied |
+| `scripts/provision/tara-park-od-after-onboarding.sql` | What the form cannot carry: settings, hairdressers' groups, 7 canned lines, 28 fixed replies (the answers `deposit_deducted`, `loan_apps`, `dye_brand` as #283's; D-177's `treatment_perm_women`, `colour_lift` and `colour_lift_men`, all on), 31 reply cases (inactive; switched on before her publish dry run), 11 out-of-scope topics, the dye question, 8 knowledge documents,  Refuses to run unless onboarding used `--wording`, her rows carry no 1-р зэрэг price, and Яармаг's address is still the one it types. NOT applied |
 | `prompt/drafts/tara_park_od_wording.mn.txt` | Every line of hers that differs from Яармаг's approved bytes, exactly |
 
 **Proven on a local PostgreSQL 16 + PostgREST 12.2.3 replica** (never the project), 2026-10-04,
@@ -83,13 +83,12 @@ stylist-names draft applied:
 
 ## Page id
 
-`--facebook-page-id` takes the Page's numeric id. 100067391025472 is the number in her
-profile link; it is expected to be the Page id but cannot be checked here
-(`developers.facebook.com` is blocked). Until confirmed it is a placeholder. **The founder
-confirms it** in one of two ways: on the Page itself (Settings, Page transparency or About:
-«Page ID»), or with her Page token, `GET https://graph.facebook.com/v21.0/me?fields=id,name`
-(the `id` must be 100067391025472 and the `name` her Page's). If it differs, onboard with the
-real id.
+`--facebook-page-id` takes the Page's numeric id, the `entry.id` Meta's webhooks carry.
+100067391025472 is the number in her profile link and is **not confirmed** (2026-10-05: this
+environment cannot reach facebook.com or graph.facebook.com, and nothing of her Page has ever
+reached Production). For Яармаг the profile-link number (100067872726164) and the Page id
+(1520409424715591) differ, so hers may too. The morning runbook reads the real one with her Page
+token (`GET me/accounts?fields=id,name,access_token`, step B1.4) and onboards with it.
 
 ## Open questions for the founder
 
@@ -99,49 +98,31 @@ real id.
 2. Wording: none waits. «Салбарууд», `yarmag_branch`, «Үсчдийн нэр» (every Cyrillic spelling as
    written), the three FAQ questions and the price-page sentence were approved on 2026-10-04
    (`prompt/drafts/tara_park_od_wording.mn.txt`); the price-page rows stay disabled (step 10).
-3. The shared price list's men's SPECIAL cut («Эрэгтэй тайралт» SPECIAL 89,000₮): her only man,
-   Tuchku, is Мастер. If she should not quote it either, it is one more `not_offered` entry and
-   one line out of her form (same mechanism as 1-р зэрэг).
+3. ~~The shared price list's men's SPECIAL cut~~ DECIDED (founder, 2026-10-08): she never quotes
+   it. `not_offered` {"service": "Эрэгтэй тайралт", "variant": "SPECIAL"} and the line removed from
+   her form; two model reply cases hold her to 69,000₮.
 4. Is another bot or a Meta away message running on her Page (form 11.3)? Яармаг's Page has one.
 5. How Boloroo is told about a hand-off (today the alert reaches the founder's Telegram only).
 6. Approve the D-177 wording (docs/approvals/tara-2026-10-04/08-colour-and-treatment-perm.mn.txt):
    women's «Эмчилгээний хими» is not offered, «өнгө гаргалт» gets the colour rows. (The price page
    is dropped: the founder decided 2026-10-04 that neither is a Tara service.)
 
-## Go-live steps, in order (nothing is live until the last)
+## Go-live steps (2026-10-05): the morning runbook
 
-1. **Facts:** confirm the Page id; answer the open questions above.
-2. **Calendars:** DONE 2026-10-04. Seven calendars inside tarasalon.parkod@gmail.com, shared with
-   the website's service account («Make changes to events»), Ulaanbaatar time; the ids are the
-   website's `PARKOD_CALENDAR_*` (proven on the website preview: each hairdresser's free times
-   show and a test event lands in her own calendar).
-3. **QPay:** nothing to register (founder, 2026-10-04): she uses the founder's merchant and login
-   exactly as Яармаг; only her Khan Bank account differs (`PARKOD_QPAY_BANK_CODE`,
-   `PARKOD_QPAY_ACCOUNT_NUMBER`, `PARKOD_QPAY_ACCOUNT_NAME`). Proof: a real 100₮ in her account.
-4. **Page access:** a Page admin grants DalaTech access to her Page (form 11.5); the Page is
-   subscribed to the app; her Page token is sealed by hand (`scripts/kek/seal.ts`).
-5. **Onboard** (operator's machine, `SUPABASE_SECRET_PUBLISH`), dry run first, then `--apply`:
-   `node scripts/onboard/tenant.ts --form intake/tara-park-od.docx --slug tara-park-od --wording intake/tara-park-od.wording.json --facebook-page-id <confirmed id> --display-name "Tara Salon — Парк Од"`
-   (`--wording` on EVERY run of this command, the signing runs included: without it the
-   template's identity and booking lines are written back over hers, unsigned)
-   (billing, optional: `--billing-name … --billing-email bolotuyagongor@gmail.com`).
-6. **Apply** `scripts/provision/tara-park-od-after-onboarding.sql` (one SQL editor session).
-   Re-running the onboarding command afterwards leaves its rows alone (checked on the replica).
-7. **Sign wording** (approved 2026-10-04, `prompt/drafts/tara_park_od_wording.mn.txt`): re-run
-   step 5's command with `--apply` to get the wording sheet, which then holds all 18 canned lines
-   (11 from the form, 7 from step 6); the founder signs it (`--apply --sign-wording <id> --signed-by <name>`).
-8. **Client confirms** the summary (`--apply --client-confirmed "<name>" --confirmed-on <date> --summary <id>`).
-   Both gates passed switches her reply cases on.
-9. **Check:** `node scripts/facts/branches.ts --group tara-salon` (clean), then
-   `node scripts/publish/tenant.ts --slug tara-park-od` (dry run), then once `--with-model`
-   (the one paid pre-publish run, D-151, with the founder's go-ahead).
-10. **Publish:** `node scripts/publish/tenant.ts --slug tara-park-od --publish`, then switch on the
-    fourteen cases: `update reply_cases set active = true where tenant_id = <hers> and (note like 'answers 2026-10-04%' or note like 'D-177:%')`.
-    The three D-177 rows (approved 2026-10-04) land on with the file; nothing else to switch.
-11. **Switch on:** the Reception entitlement and budget (money: founder), read the shadow
-    replies, then move the channel to `live`.
+**Follow [`docs/runbooks/park-od-dali-2026-10-05.md`](../runbooks/park-od-dali-2026-10-05.md).**
+It supersedes the list that stood here: the website booking switch first, then Meta, onboarding,
+her two provision files, the signing, the token, the money, all her reply cases switched on
+BEFORE the publish dry run (safe: the production build runs no case of an unpublished tenant),
+the one paid run, the publish, a test from the founder's phone in shadow, then live. Every step
+was rehearsed on a local replica of Production's rows (2026-10-05).
 
-**Each branch's Дали names the other** (D-170, symmetric since 2026-10-04): address, the shared
-line and Page, from `allow_names` («Парк Од», «Яармаг») and `allow_addresses` (both addresses,
-and Яармаг's VIP Center address ahead of the move). Onboard her address row with exactly the
-listed text, or Яармаг's publish refuses.
+What the round of 2026-10-05 added, because Яармаг's Дали has it and her form does not give it
+(`scripts/provision/tara-park-od-parity-2026-10-05.sql`, + revert): the photo and reel questions
+(Яармаг's approved bytes, signed on her sheet: 20 lines), 64 service aliases, 92 Latin spellings
+(word pairs only, no customer evidence), Яармаг's five never-say rules, comments as Яармаг's (the
+salon template's 50 rules on, both surfaces, 20 a post, starting in shadow), and 48 reply cases
+mirroring Яармаг's and her men's cut (115 in all). Her Reception entitlement and ceiling (Яармаг's figures) are a
+separate money file for the founder: `tara-park-od-entitlement-2026-10-05.sql`.
+
+Still open: hand-off and complaint alerts reach the founder's Telegram, not Boloroo (open
+question 5). Settled 2026-10-08: no SPECIAL men's cut at Парк Од (open question 3).

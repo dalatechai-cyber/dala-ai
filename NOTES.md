@@ -1,10 +1,12 @@
-# HAND-OFF — read this first (written 2026-10-04, end of the Tara session)
+# HAND-OFF — read this first (updated 2026-10-05, overnight Парк Од session)
 
 A new session remembers nothing. Start here, then read, in this order: `CLAUDE.md` (the rules of
-this repo), `docs/tenants/tara-yarmag.md` and `docs/tenants/tara-park-od.md`, `docs/DECISIONS.md`
-D-177 to D-180 (the end of the file), and matrix_website's `NOTES.md` hand-off and
-`docs/LAUNCH_DAY_TARA.md` (sections B, C and D are this repo's launch steps). The dated sections
-below this hand-off are the round log: true on the day each was written.
+this repo), **`docs/runbooks/park-od-dali-2026-10-05.md` (the founder's morning runbook for
+Парк Од's Дали: every manual step, in order, with expected output and undo)**,
+`docs/tenants/tara-yarmag.md` and `docs/tenants/tara-park-od.md`, `docs/DECISIONS.md` D-177 to
+D-180 (the end of the file), and matrix_website's `NOTES.md` hand-off and
+`docs/LAUNCH_DAY_TARA.md`. The dated sections below this hand-off are the round log: true on the
+day each was written.
 
 ## Live today (main `caf810b`, api.dalatech.online)
 
@@ -26,9 +28,11 @@ below this hand-off are the round log: true on the day each was written.
   tenant's booking row (LAUNCH_DAY_TARA.md section D). The founder sets every Production
   variable; migrations or SQL only on the founder's go. While off, a deposit already paid is
   still booked or the founder alerted (`bookingSettlePortsFromEnv`).
-- **Парк Од's Дали** (tenant `tara-park-od`): not in the Production database. Ready to onboard
-  once the founder is admin of her Page: `intake/tara-park-od.answers.json` (+ `.docx`), then
-  `scripts/provision/tara-park-od-after-onboarding.sql` (section C).
+- **Парк Од's Дали** (tenant `tara-park-od`): not in the Production database. The founder is
+  admin of her Page (2026-10-05). Finished and rehearsed end to end on a local replica; the
+  founder runs `docs/runbooks/park-od-dali-2026-10-05.md` (website switch first, then Meta,
+  onboarding, `tara-park-od-after-onboarding.sql`, `tara-park-od-parity-2026-10-05.sql`, signing,
+  token, `tara-park-od-entitlement-2026-10-05.sql`, publish, phone test in shadow, live).
 - **Monthly billing for the Tara branches:** not started; waits for the founder's start date.
 
 ## Known weak spots
@@ -50,7 +54,9 @@ below this hand-off are the round log: true on the day each was written.
    Vercel). The new session confirms it on the live site. Whenever a branch's website booking is
    switched on or off, its D-180 per-branch setting here must follow, once that setting exists.
    It does not exist yet, so nothing changes in this repo on Monday.
-2. **Part 2: Парк Од's Дали**, as soon as the founder is admin of her Page (section C).
+2. **Part 2: Парк Од's Дали**: the founder runs the morning runbook (2026-10-05). Afterwards a
+   session confirms: her first customer replies, `tenant_secrets.last_ok_at` moving, Яармаг
+   unchanged (content_hash 651594a8…4fbd until her next change).
 3. **In-chat booking:** test mode, then live (section D). Build D-180's per-branch setting here,
    as a row with the branch's other booking settings, default not open. Look at wordings (a) and
    (b) on a deployed page for the first time.
@@ -81,6 +87,57 @@ sessions here cannot delete branches (403), so they remain and are safe to delet
 `claude/billing-e2e-clock`, `-one-clock`, `booking-off-calm`, `tara-dali-fixes-2026-10-04`,
 `tara-dali-quality-oct3`, `tara-park-od-tenant`, `tara-phones-2026-10-04`,
 `tara-inchat-booking-two-branch`, `guardrails-hooks`, and this hand-off's branch once merged.
+
+---
+
+# Round 2026-10-05 (overnight): Парк Од's Дали finished and proven; production untouched
+
+Founder's brief: he is admin of her Page; finish her Дали so only his steps remain; prove it
+with tests; production untouched; at most $1 of model runs.
+
+- **Production: read only.** SELECTs and log reads; no row, variable, Page or publish changed.
+- **Replica:** PostgreSQL 16 (+ pgvector) and PostgREST 12.2.3 in `/tmp/parkod`, every
+  migration, Яармаг's 26 config tables copied by SELECT and checked equal to Production (count
+  and md5, C collation). Яармаг's dry run there gives Production's live content_hash
+  `651594a8…4fbd`, 62/62.
+- **Gaps found by comparing the two tenants table by table** after onboarding her as written:
+  no photo or reel question (her photos went straight to staff), 0 service aliases (Яармаг 64
+  on the same services), 0 Latin spellings (92), no never-say rules (5), comments off with rules
+  disabled. All in `scripts/provision/tara-park-od-parity-2026-10-05.sql` (+ revert), with 46
+  reply cases mirroring Яармаг's (her total 115 since 2026-10-08). Choices: the two questions use Яармаг's
+  approved bytes and are signed on her sheet (20 lines); spellings without the customers'
+  evidence and without «oyuna/oyunaa» (Яармаг's hairdresser); comments start in shadow.
+- **Bug found by the rehearsal, fixed:** onboarding's generated video-link case expected the media
+  line even when a provision file gave the tenant a reel question, so her publish refused (62/63).
+  `generateCases` takes the tenant's held reel question (`scripts/onboard/tenant.ts` reads it).
+- **Proof:** her publish dry run 63/63 exact cases, facts and branch gates clean;
+  `scripts/verify/branch-parity.ts` sends 40 kinds of message and comment to BOTH Pages through
+  `handleMetaEntry` + `runReceptionJob` (model and Graph stubbed, real delivery bookkeeping):
+  ALL PASS live, ALL PASS with her in shadow plus testers; planted leaks caught; Яармаг's config
+  rows byte-identical throughout. `scripts/provision/tara-park-od-parity.test.ts` (CI) keeps her
+  coverage in step with every Яармаг reply-case file.
+- **Not run:** her 52 model cases. This environment has no model key, so nothing was spent; the
+  runbook's B9 runs them once (~$0.20–0.40).
+- **Local PostgREST quirk (not production):** `claim()`'s PATCH with `or=(lease_until…)` and a
+  `select` answers 400 on every PostgREST binary tried (11.2.2 to 14.1); Production answers it 200
+  (edge log). The parity script drops that one filter locally and says why.
+- **Meta, read only:** facebook.com and graph.facebook.com are blocked here, so her Page ID is not
+  confirmed; Яармаг's profile-link number differs from her Page ID, so hers may too (runbook B1.4).
+- **Independent review (Opus reviewer):** caught five unquoted price lists in the parity cases
+  (`'{20,000}'` is two items, «20» and «000», so the deposit cases could never pass the paid run);
+  fixed, with a read-back refusing any bare 1–3 digit item. Also fixed: comment replies now go
+  through the harness's leak check, which reads Cyrillic staff aliases, Page links and spaced or
+  +976 phones; explicit locale; CICA aliases `seeded`; runbook B11 finds the founder's PSID by a
+  unique word and has him comment from his personal profile. Whole rehearsal re-run after the
+  fixes: same results; planted leaks (a spaced phone, «Оюунаа» in a comment line) caught.
+- **2026-10-08 (founder): no SPECIAL men's cut at Парк Од.** `config/branch-groups.json`
+  `not_offered` gains {"service": "Эрэгтэй тайралт", "variant": "SPECIAL"}, her form loses that line
+  (docx rebuilt), two model cases hold her to 69,000₮ and no «SPECIAL» (48 parity cases). Rehearsed again from a fresh
+  replica: her compiled price list has only «Эрэгтэй тайралт: 69,000₮» and 89,000 is no longer one
+  of her allowed numbers; 63/63 exact cases; gates and parity script (live and shadow) pass;
+  Яармаг's content_hash unchanged (6515…4fbd).
+- **Open for the founder:** her Page ID; Boloroo is not alerted (the founder's Telegram is); the KEK for sealing must be the one
+  Яармаг's token was sealed with.
 
 ---
 

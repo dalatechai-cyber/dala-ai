@@ -62,6 +62,11 @@ export const MEDIA_PROBE = 'https://youtu.be/dQw4w9WgXcQ';
 export function generateCases(
   d: IntakeDocument,
   deposits: readonly { ruleText: string }[],
+  // Lines the tenant already holds that no form writes, read from its rows by the caller:
+  // a provision file's reel question (D-176) is what a video link gets, so the case must
+  // expect it (found rehearsing Парк Од's onboarding, 2026-10-05: the case expected the
+  // media line and failed her publish).
+  held: { reelPriceQuestion?: string } = {},
 ): GeneratedCase[] {
   const out: GeneratedCase[] = [];
   const add = (c: GeneratedCase) => out.push({ ...c, message: nfc(c.message) });
@@ -144,15 +149,16 @@ export function generateCases(
     });
   }
 
+  const reel = d.sentences['reel_price_question'] ?? held.reelPriceQuestion;
   if (d.sentences['handover_notice'] !== undefined && mediaLinksIn(MEDIA_PROBE).length > 0) {
     add({
       id: 'media_link',
       message: MEDIA_PROBE,
       // A tenant with the reel question asks it instead (D-176): the probe is a video link.
-      expectedBody: d.sentences['reel_price_question'] ?? d.sentences['handover_notice'],
+      expectedBody: reel ?? d.sentences['handover_notice'],
       mustInclude: [],
       mustNotInclude: [],
-      why: d.sentences['reel_price_question'] !== undefined
+      why: reel !== undefined
         ? 'a video link gets the reviewed reel question and nothing else (D-176) — answered with no model'
         : 'a video link gets the reviewed media line and nothing else (D-152) — answered with no model',
     });
