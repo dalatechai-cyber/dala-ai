@@ -44,7 +44,7 @@ import { leadThanksFor, salesLineFor, withoutSalesLines } from '../sales/live.ts
 import { publishedNumbers } from '../sales/phone.ts';
 import { capEmoji, stylePriceRows, type ReplyStyle } from './style.ts';
 import { withoutOwnSite } from '../website/ownSite.ts';
-import { SECTION_LABELS, depositRow } from '../prompt/tenant.ts';
+import { DEPOSIT_WORD, SECTION_LABELS, depositRow } from '../prompt/tenant.ts';
 import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '../services/match.ts';
 import { containsStem, findStem, hasWord } from '../mn/match.ts';
 import { IMAGE_REPLY_KIND } from '../inbound/imageReply.ts';
@@ -393,6 +393,64 @@ function rowsNamedByCustomer(message: string, input: ReceptionInput): string | n
       : [];
   const rows = input.serviceNames.filter((s) => names.includes(s.name)).flatMap((s) => [...s.rows]);
   return rows.length === 0 ? null : rows.join('\n');
+}
+
+/**
+ * The price-list rows a PRICE question named and the reply does not carry, or null.
+ *
+ * Парк Од's first model run (founder, 2026-10-08): «Хүүхдийн тайралт хэд вэ?», «TARA BLEND
+ * хэд вэ?», «TARA Lumi хэд вэ?» and «Бүтэн будалт хэд вэ?» each got a reply with none of the
+ * named service's prices. Her prefix and Яармаг's carry the same price rows, and the same
+ * model text gets the same reply in both branches, so this is the model, not her rows:
+ * Яармаг's own live answers to «Lumi» quote every length (2026-10-05, 2026-10-07) and, on an
+ * earlier revision, answered with a question and no price (2026-10-01). `set_question_unpriced` already serves the rows
+ * when that question is the colour set's; this is the same rule for any service the
+ * customer NAMED.
+ *
+ * Named means `matchService` over the names and `service_aliases`: `unique`, or `family`
+ * (D-102). An ambiguity or a vague term names nothing. A service counts as carried when ANY
+ * of its rows is in the reply («Lumi богино хэд вэ» answered with the short row alone is
+ * answered), and as already shown when every one of its rows is in an earlier reply.
+ */
+function namedRowsMissing(texts: readonly (string | null)[], body: string, input: ReceptionInput): { names: string[]; rows: string } | null {
+  const asked = texts.filter((t): t is string => t !== null && t.trim() !== '');
+  if (!asked.some((t) => asksPrice(t))) return null;
+  const entries = entriesFrom(input.serviceNames.map((s) => ({ id: s.name, name: s.name })),
+    input.serviceAliases.map((a) => ({ serviceId: a.name, alias: a.alias })));
+  let names: string[] = [];
+  for (const t of asked) {
+    const m = matchService(t, entries);
+    names = m.verdict === 'unique' ? [m.match.name] : m.verdict === 'family' ? m.family.map((f) => f.name) : [];
+    if (names.length > 0) break;
+  }
+  const said = fold(body);
+  const before = input.history.filter((h) => h.role === 'assistant').map((h) => fold(h.content));
+  const missing = input.serviceNames.filter((s) => s.prices.length > 0 && s.rows.length > 0 && names.includes(s.name)
+    && !s.rows.some((r) => said.includes(fold(r)))
+    && !s.rows.every((r) => before.some((b) => b.includes(fold(r)))));
+  return missing.length === 0 ? null : { names: missing.map((s) => s.name), rows: missing.flatMap((s) => [...s.rows]).join('\n') };
+}
+
+/**
+ * The deposit rows a PRICE question about the deposit did not get, or null.
+ *
+ * The same rule as `namedRowsMissing`, for the deposit (founder, 2026-10-08): Парк Од's
+ * «Урьдчилгаа төлбөр хэд вэ» case failed on her first model run, and a reply carrying the
+ * approved deduction sentence alone, «Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж
+ * тооцогдоно.», answers when the deposit is taken off and not how much it is. Asked means a
+ * price ask whose words carry «урьдчилгаа» (the platform's own deposits heading word, as a
+ * stem). Answered means ANY deposit amount is in the reply: a reply naming the one the
+ * customer's stylist level needs is left as written.
+ */
+function depositRowsMissing(texts: readonly (string | null)[], body: string, input: ReceptionInput): string | null {
+  if (input.depositRows.length === 0) return null;
+  const asked = texts.filter((t): t is string => t !== null && t.trim() !== '');
+  if (!asked.some((t) => asksPrice(t) && containsStem(t, DEPOSIT_WORD))) return null;
+  const said = new Set(amounts(body));
+  if (input.depositRows.some((r) => amounts(r).some((a) => said.has(a)))) return null;
+  const before = input.history.filter((h) => h.role === 'assistant').map((h) => fold(h.content));
+  if (input.depositRows.every((r) => before.some((b) => b.includes(fold(r))))) return null;
+  return input.depositRows.join('\n');
 }
 
 /**
@@ -827,6 +885,9 @@ async function receive(
   };
   // The numbers the tenant publishes are never a customer's lead (`sales/phone.ts`).
   const ownNumbers = publishedNumbers([input.promptStable, ...input.canned.map((c) => c.body)]);
+  // Set once the model has been asked: from then on every draft is an answer to its reply.
+  // `modelPriceless`: its own text carried no amount of any listed price (or no text at all).
+  const turn = { modelAsked: false, modelPriceless: false };
   const d: ReceptionDeps = {
     ...deps,
     draft: async (x0) => {
@@ -908,6 +969,33 @@ async function receive(
           if (input.noInbox && callback !== null) x = { ...x, body: callback };
         } else if (x.answeredBy === 'canned' && callback !== null && said === callback) {
           state.handedOff = true;
+        }
+      }
+      // THE PRICE OF WHAT THEY NAMED (founder, 2026-10-08; see `namedRowsMissing`). Only after
+      // the model was asked AND its own reply carried no listed price: a fixed reply or a
+      // short-circuit is the tenant's own answer, and a reply that priced something answered
+      // the price question («usan himi hed ve» priced Усан хими while the alias «himi» named
+      // Эмчилгээний хими; adding that service would answer a question nobody asked). The rows
+      // go first, then whatever was served, byte for byte: a clarifying question, the colour
+      // set, or a hand-off (already recorded above, so a person is still told). Never where a
+      // refusal rule blocks prices. Too long for one message: the rows alone.
+      // The deposit is the same rule (`depositRowsMissing`), and does not wait for a priceless
+      // reply: a service's price beside it is not the deposit's.
+      if (turn.modelAsked && !matched.refusedTopicBlocksPrice) {
+        const named = turn.modelPriceless ? namedRowsMissing([input.customerMessage, respelled], x.body, input) : null;
+        const deposits = depositRowsMissing([input.customerMessage, respelled], x.body, input);
+        const lead = [named?.rows ?? null, deposits].filter((r): r is string => r !== null).join('\n\n');
+        if (lead !== '') {
+          const composed = `${lead}\n\n${x.body.trim()}`;
+          const fits = [...composed].length <= MAX_REPLY_CHARS;
+          const how = fits ? 'the rows lead the reply' : 'served the rows alone';
+          if (named !== null) {
+            await deps.flag({ code: 'named_service_unpriced', detail: `the reply carried no price for ${named.names.join(', ')}; ${how}`, attempted: x.body });
+          }
+          if (deposits !== null) {
+            await deps.flag({ code: 'deposit_unpriced', detail: `a deposit price question got no deposit amount; ${how}`, attempted: x.body });
+          }
+          x = fits ? { ...x, body: composed } : { ...x, body: lead, answeredBy: 'deterministic' };
         }
       }
       // A topic append («the stylist decides») is not added to a reviewed line: the refusal
@@ -1205,6 +1293,7 @@ async function receive(
     ? perMessage
     : `${perMessage}\n${appendedNotice(appends.map((a) => a.body))}`;
 
+  turn.modelAsked = true;
   const result = await deps.callModel({
     modelId: input.modelId,
     promptStable: input.promptStable,
@@ -1219,6 +1308,9 @@ async function receive(
     customerMessage: input.customerMessage,
     timeoutMs: input.timeoutMs,
   });
+
+  turn.modelPriceless = result.kind !== 'ok'
+    || !amounts(result.text).some((a) => input.serviceNames.some((sv) => sv.prices.includes(a)));
 
   // ---- Settle first. The money is spent whatever happens next. ------------
 

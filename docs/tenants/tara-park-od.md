@@ -1,4 +1,4 @@
-# Tara Salon — Парк Од (slug `tara-park-od`, ready to onboard: docs/runbooks/park-od-dali-2026-10-05.md)
+# Tara Salon — Парк Од (slug `tara-park-od`; in Production through runbook B8, 2026-10-08; B9 waits on D-181: docs/runbooks/park-od-dali-2026-10-05.md)
 
 A branch of Tara Salon and its own tenant (D-157). **Open since 2026-10-01 (founder). Nothing
 of hers is in the project's database.** Her questionnaire is filled and proven on a local
@@ -110,6 +110,10 @@ token (`GET me/accounts?fields=id,name,access_token`, step B1.4) and onboards wi
 ## Go-live steps (2026-10-05): the morning runbook
 
 **Follow [`docs/runbooks/park-od-dali-2026-10-05.md`](../runbooks/park-od-dali-2026-10-05.md).**
+
+Status 2026-10-08: steps through B8 done by the founder (Page 108583528037449, which does not
+enter her content_hash: still `d867eed12db06ee8…`). B9 failed 5 of 115; the cause, the fix and the
+rerun are D-181 and the runbook's «B9 again».
 It supersedes the list that stood here: the website booking switch first, then Meta, onboarding,
 her two provision files, the signing, the token, the money, all her reply cases switched on
 BEFORE the publish dry run (safe: the production build runs no case of an unpublished tenant),

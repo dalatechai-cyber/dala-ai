@@ -861,8 +861,8 @@ export function depositRow(text: string): string {
   return `${DEPOSIT_ROW_LABEL} — ${t}`;
 }
 
-/** «урьдчилгаа»: the word that makes an amount a deposit. */
-const DEPOSIT_WORD = fold(SECTION_LABELS.deposits).split(' ')[0] ?? 'урьдчилгаа';
+/** «урьдчилгаа»: the word that makes an amount a deposit. Folded. */
+export const DEPOSIT_WORD = fold(SECTION_LABELS.deposits).split(' ')[0] ?? 'урьдчилгаа';
 
 /** «Урьдчилгаа төлбөр»: the section label in sentence case. */
 export const DEPOSIT_ROW_LABEL = ((): string => {

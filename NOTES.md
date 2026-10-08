@@ -8,6 +8,19 @@ D-180 (the end of the file), and matrix_website's `NOTES.md` hand-off and
 `docs/LAUNCH_DAY_TARA.md`. The dated sections below this hand-off are the round log: true on the
 day each was written.
 
+## Парк Од, 2026-10-08: onboarded through B8, B9 failed 5 of 115, fix waiting for the founder
+
+- Production has her up to and including B8: tenant `tara-park-od`, Page 108583528037449, token
+  sealed, wording signed, 115 cases active, never published, channel in shadow.
+- B9 (the paid run, $0.33) failed cases 201, 206, 207, 208 (a named service's price question got
+  no price for it) and 247 (deposit). Cause and fix: D-181. Not her rows: the same model text gets
+  the same reply in both branches, so Яармаг is exposed the same way.
+- Waiting for the founder: merge the PR (code rule `named_service_unpriced` / `deposit_unpriced`,
+  changes Яармаг's replies too, D-181), then the runbook's «B9 again» (one SQL file, B8, B9 with
+  `REPLY_GATE_PRINT=1`). Яармаг's matching reply cases are a proposal only:
+  `scripts/provision/tara-yarmag-price-twins-2026-10-08.sql`, on the founder's go.
+- `scripts/publish/tenant.ts` now prints every failing case's reply (all with `REPLY_GATE_PRINT=1`).
+
 ## Live today (main `caf810b`, api.dalatech.online)
 
 - Дали answers for Tara Яармаг (tenant `matrix-eco-salon`) on Messenger. The published revision
