@@ -15,12 +15,13 @@
 --   her row «Урьдчилгаа төлбөр: SPECIAL болон Мастер үсчин: 20,000₮» + the approved sentence: FAILED
 --   the old case, passes this one;
 --   the deduction sentence alone (no amount): failed the old case, FAILS this one too.
--- So the case now requires the amount, 20,000₮ (all her deposits, founder 2026-10-05), and no
+-- So the case now requires the amount, 20,000₮ (all her deposits: docs/tenants/tara-park-od.md), and no
 -- longer forbids the approved sentence. It is never looser on the amount: a reply without it fails.
 -- Яармаг's case 162 has the same flaw; the same change for her is proposed, not applied, in
 -- tara-yarmag-price-twins-2026-10-08.sql (your go).
 --
--- Run as ONE file in the SQL editor. Refuses a second run. Undo: the -revert.sql beside it.
+-- Run as ONE file in the SQL editor. Refuses a second run, and refuses (changing nothing) unless she
+-- has exactly 115 active cases afterwards, the count B6 left. Undo: the -revert.sql beside it.
 begin;
 
 do $$

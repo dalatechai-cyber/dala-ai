@@ -229,8 +229,9 @@ input); the fix is in the code and covers both branches. The deposit case judged
 one SQL file corrects it. In this order:
 
 1. **Merge** the dala-ai pull request «Парк Од B9: a named service's price is always given» (your
-   go). ⚠ Яармаг: this changes Яармаг's replies too, in one way only: after a model reply with no
-   price, a price question that named a service (or the deposit) gets those price rows first. Wait
+   go). ⚠ Яармаг: this changes Яармаг's replies too, in two ways only: after a model reply with no
+   price, a price question that named a service gets that service's price rows first; and a price
+   question about the deposit whose reply states no deposit amount gets the deposit rows first. Wait
    until Vercel shows the Production deployment of the merge commit **Ready**.
 2. **Mac:** `git checkout main && git pull && npm ci` (the publish script runs your checkout).
 3. **SQL editor:** paste `scripts/provision/tara-park-od-deposit-case-2026-10-08.sql`, Run →
