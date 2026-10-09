@@ -1,0 +1,43 @@
+# NOT SIGNED. Proposed 2026-10-09 (overnight session). Both Tara branches. D-184.
+#
+# What customers would read when they write a hairdresser's name alone, or ask to book her.
+# Nothing here is a new sentence: every line is the branch's own data or an approved line, put
+# together in this order. It reaches customers only after you sign this sheet AND run
+# scripts/provision/tara-both-stylist-and-child-2026-10-09.sql (it switches it on for both).
+#
+# Order of lines: (1) name — level, as in the hairdresser list; (2) only when the name is the
+# whole message: the price rows of her level («(SPECIAL)», «(Мастер)», «(1-р зэрэг)»), never
+# one for the other gender's customers; (3) her level's deposit row; (4) the approved booking line.
+#
+# ── Яармаг, «Оюунаа» (or «Oyunaa») ─────────────────────────────────────────────
+#   Oyunaa — SPECIAL үсчин
+#   Эмэгтэй тайралт (SPECIAL): 120,000₮
+#   Урьдчилгаа төлбөр — SPECIAL үсчин: 20,000₮
+#
+#   Та манай вэбсайтаар (https://www.tarasalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.
+#
+# ── Яармаг, «Оюунаад цаг авч болох уу?» ────────────────────────────────────────
+#   Oyunaa — SPECIAL үсчин
+#   Урьдчилгаа төлбөр — SPECIAL үсчин: 20,000₮
+#
+#   Та манай вэбсайтаар (https://www.tarasalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.
+#
+# ── Парк Од, «Boloroo» ─────────────────────────────────────────────────────────
+#   Boloroo — SPECIAL үсчин
+#   Эмэгтэй тайралт (SPECIAL): 120,000₮
+#   Урьдчилгаа төлбөр: SPECIAL болон Мастер үсчин: 20,000₮
+#
+#   Та манай вэбсайтаар (https://www.tarasalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.
+#
+# (The booking line shows the address of the day: matrixecosalon.org until the tarasalon SQL runs.)
+#
+# Questions for you, before signing:
+#   a. Is «Oyunaa — SPECIAL үсчин» (name, a dash, her level) right as the first line, or do you
+#      want a sentence there? A sentence would be new wording: write it here and Claude adds it.
+#   b. Парк Од's hairdressers have no Cyrillic spellings, so «Болороо» (Cyrillic) is not
+#      recognised, only «Boloroo». Send the Cyrillic spelling of each of her names if customers
+#      write them in Cyrillic (Яармаг has them for Oyunaa).
+#   c. Other questions about a named hairdresser («Оюунаа хэдэн цагаас ажилладаг вэ?») still go
+#      to the model, as today.
+#
+# SIGNED: ______________________  DATE: __________

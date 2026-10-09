@@ -383,6 +383,19 @@ export function checkFacts(
     const byName = bestHead > 0 ? priced.filter((r) => head(r) === bestHead) : priced;
     const best = Math.max(0, ...byName.map(score));
     let corroborated = narrowedByPartner ? priced : byName.filter((r) => best > 0 && score(r) === best);
+    // A SHORT name word is weak evidence when a long one is there too. «8 настай хүүгийн үс
+    // тайралт хэд вэ?» answered «… 33,000₮» tied «Хүүхдийн тайралт (эрэгтэй, 0–13 нас)» (by
+    // «тайралт») with «Үс оношлогоо, зөвлөгөө» (by «үс», which nearly every salon question
+    // carries), and both were served (2026-10-09, both Tara branches). Across DIFFERENT services
+    // tied on score, the ones corroborated by a word of four letters or more win; a tie of short
+    // words alone, or of long words, stays as before.
+    if (!narrowedByPartner && new Set(corroborated.map((r) => rowName(r.text))).size > 1) {
+      const strong = (r: FactRow): number => nameWords(r.text)
+        .filter((w) => [...w].length >= CORROBORATE_CP && stems.has(stemOf(w))).length;
+      if (corroborated.some((r) => strong(r) > 0) && corroborated.some((r) => strong(r) === 0)) {
+        corroborated = corroborated.filter((r) => strong(r) > 0);
+      }
+    }
     // One service's rows tied on its name are told apart by the variant the reply wrote:
     // «Вира сарын төлбөр 150,000₮» is the monthly row, not the setup row that shares the
     // amount. Nothing written about a variant keeps them all, as before.

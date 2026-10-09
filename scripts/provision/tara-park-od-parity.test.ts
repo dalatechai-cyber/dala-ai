@@ -40,6 +40,8 @@ const EQUIVALENT: Record<string, { file: string; marker: string } | { none: stri
   'tara-yarmag-price-twins-2026-10-08.sql': { file: 'tara-park-od-deposit-case-2026-10-08.sql', marker: `set must_include = '{"20,000₮"}'::text[]` },
   // One file for both branches (2026-10-09): the same cases, inserted for each.
   'tara-both-alerts-and-thanks-2026-10-09.sql': { file: 'tara-both-alerts-and-thanks-2026-10-09.sql', marker: "('bayrlala', 'Парк Од 2026-10-09 02:19" },
+  // One file for both branches (2026-10-09, D-184): Oyunaa's cases mirrored by Boloroo's.
+  'tara-both-stylist-and-child-2026-10-09.sql': { file: 'tara-both-stylist-and-child-2026-10-09.sql', marker: "('tara-park-od', 'Boloroo-d tsag avch boloh uu?'" },
 };
 
 test('every Яармаг file of reply cases has a Парк Од equivalent, or a reason', () => {
