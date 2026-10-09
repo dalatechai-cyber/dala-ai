@@ -53,3 +53,17 @@ test('every platform spelling is one lower-case Latin word to Cyrillic, with no 
     assert.ok(/^[\p{Script=Cyrillic} ]+$/u.test(s.cyrillic), s.cyrillic);
   }
 });
+
+test('DONE-TEST (founder, 2026-10-09): THANKS AS CUSTOMERS TYPE IT IS THANKS, BY ITS SHAPE', () => {
+  // Парк Од, 02:19:21: «bayrlala» reached the model, which answered «Тавтай морилно уу!».
+  // Яармаг's history: «Za bayrlaa», «zaa bayrlala», «ok bayrllaa», «bayrllaa».
+  for (const t of ['bayrlala', 'Za bayrlaa', 'zaa bayrlala', 'ok bayrllaa', 'bayrllaa', 'bairlalaa', 'Их баярлалаа 😊']) {
+    assert.equal(chatKind(t), 'thanks', t);
+    assert.equal(chatCanonical(t), 'баярлалаа', t);
+  }
+  // Not thanks: goodbye, a question beside the thanks, a sentence that goes on, a bare «ok», «Bairlal?» (where are you) and other forms of the verb.
+  for (const t of ['bayartai', 'Баярлалаа, хэд вэ?', 'ok mash ih bayrlalaa hiicheed heliy', 'баярлах болно', 'Bayrlalaa margaash ochno', 'bayr', 'Bairlal?', 'bairlal aa', 'bairluulah', 'баярлах', 'баярлаж', 'bayrlah', 'bayrluulna']) {
+    assert.notEqual(chatKind(t), 'thanks', t);
+  }
+  assert.equal(chatKind('ok'), 'ack');
+});

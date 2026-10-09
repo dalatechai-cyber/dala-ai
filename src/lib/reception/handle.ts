@@ -269,6 +269,8 @@ export type ReceptionInput = {
    * cases carry the question in their history.
    */
   photoQuestionState?: PhotoQuestionState;
+  /** A photo or reel question was asked earlier in the hour, and something else said since (`photoPriceStep`). */
+  photoQuestionEarlier?: boolean;
 };
 
 export type ReceptionOutcome =
@@ -1144,6 +1146,7 @@ async function receive(
     media: unseen,
     previousReply,
     questionState: input.photoQuestionState ?? 'answering',
+    askedEarlier: input.photoQuestionEarlier === true,
     namesService: namesAService([words, wordsRespelled], input),
     namesOneService: namesOneService([words, wordsRespelled], input),
     // A whole-message row is small talk (a greeting, thanks, «ок»); any other row is an answer.

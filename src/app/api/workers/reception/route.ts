@@ -82,6 +82,7 @@ function effects(now: Date): WorkerEffects {
           customerAttachments: a.customerAttachments,
           customerSentPhoto: a.customerSentPhoto,
           ...(a.photoQuestionState === null ? {} : { photoQuestionState: a.photoQuestionState }),
+          ...(a.photoQuestionEarlier === true ? { photoQuestionEarlier: true } : {}),
           history: a.history,
           eventAt: a.eventAt,
           now,

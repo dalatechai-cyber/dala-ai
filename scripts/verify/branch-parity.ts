@@ -24,6 +24,7 @@
  * slugs are arguments, never literals in the logic. Not covered: two workers racing for one
  * reply (the claim's lease condition is dropped locally, below), Graph's own behaviour.
  */
+import { raiseMediaHandoff } from '../../src/lib/handover/media.ts';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js'; // guard-ok: scripts/, not src/ (a local replica client with one rewrite, below)
@@ -123,6 +124,8 @@ const publicReplies: { tenantId: string; commentId: string; body: string }[] = [
 const privateReplies: { tenantId: string; commentId: string; body: string }[] = [];
 const complaints: { tenantId: string; commentId: string }[] = [];
 const needsPerson: { tenantId: string; reason: string }[] = [];
+/** Photo hand-off alerts, as the route raises them: only where the tenant's `media_handoff_alert` is on (D-153). */
+const mediaAlerts: { tenantId: string; conversationId: string }[] = [];
 let modelCalls = new Map<string, number>();
 const logs: string[] = [];
 
@@ -150,6 +153,7 @@ function effects(now: Date): WorkerEffects {
         customerAttachments: a.customerAttachments,
         customerSentPhoto: a.customerSentPhoto,
         ...(a.photoQuestionState === null ? {} : { photoQuestionState: a.photoQuestionState }),
+        ...(a.photoQuestionEarlier === true ? { photoQuestionEarlier: true } : {}),
         history: a.history, eventAt: a.eventAt, now,
         promptStable: a.ctx.promptStable, promptVolatile: a.promptVolatile,
         modelId: MODEL_REGISTRY.reception, cacheMode: a.ctx.cacheMode, timeoutMs: RECEPTION_UPSTREAM_TIMEOUT_MS,
@@ -194,7 +198,12 @@ function effects(now: Date): WorkerEffects {
     lookupComment: async () => ({ tagsPerson: false, postCreatedAt: new Date(Date.now() - 86_400_000), problems: [] }),
     alertComplaint: async (a) => { complaints.push({ tenantId: a.tenantId, commentId: a.commentId }); },
     alertCeilingReached: async () => 'stub',
-    alertMediaHandoff: async () => {},
+    // The route's own function (it writes the `alerts` row on the replica; with no Telegram
+    // variables it is recorded undelivered): `disabled` is the tenant's setting saying no.
+    alertMediaHandoff: async (a) => {
+      const outcome = await raiseMediaHandoff(db, a);
+      if (outcome.outcome !== 'disabled') mediaAlerts.push({ tenantId: a.tenantId, conversationId: a.conversationId });
+    },
     alertCannedStale: async () => 'stub',
     alertNeedsPerson: async (a) => { needsPerson.push({ tenantId: a.tenantId, reason: String(a.reason) }); return true; },
   } as WorkerEffects;
@@ -239,7 +248,11 @@ type Expect =
   | { det: string } | { canned: string } | { model: true } | { nothing: true }
   | { otherBranch: true } | { comment: 'reply' | 'escalate' | 'silent' } | { person: true }
   /** The reply carries this text (a price the platform renders from the rows). */
-  | { contains: string };
+  | { contains: string }
+  /** The hand-off notice is the last reply AND a person is told (the photo hand-off alert). */
+  | { notice: true }
+  /** The model was asked, gave no price, and the platform served the named service's rows (D-181). */
+  | { priced: string; never?: string };
 type Step = { text?: string; attachments?: unknown[]; waitMs?: number };
 type Scenario = { name: string; steps: Step[]; comment?: string; expect: (t: Tenant, other: Tenant) => Expect };
 
@@ -276,6 +289,15 @@ const SCENARIOS: Scenario[] = [
   // Яармаг's three «Tara perm урт» reply cases do), never the hand-off without asking.
   { name: 'photo, then a service at once', steps: [{ attachments: [IMG] }, { text: 'Tara perm урт' }],
     expect: same({ model: true }) },
+  // Парк Од, 2026-10-09 02:18 (founder's phone): the photo question, then «hedve» typed with the
+  // photo (crossed: nothing more), then «hedve» again after reading it: the notice, and a person told.
+  { name: 'photo, «hedve» twice (Парк Од 2026-10-09)', steps: [{ attachments: [IMG] }, { text: 'hedve', waitMs: 1_000 }, { text: 'hedve', waitMs: 18_000 }],
+    expect: same({ notice: true }) },
+  // The same day: the question, «Tara perm урт» answered, then a second photo: the notice, not the question again.
+  { name: 'photo, a service, photo again (Парк Од 2026-10-09)', steps: [{ attachments: [IMG] }, { text: 'Tara perm урт', waitMs: 2_000 }, { attachments: [IMG], waitMs: 3_000 }],
+    expect: same({ notice: true }) },
+  { name: 'thanks as typed (Парк Од 2026-10-09)', steps: [{ text: 'bayrlala' }], expect: same({ det: 'thanks' }) },
+  { name: 'thanks as typed (Яармаг)', steps: [{ text: 'zaa bayrlala' }], expect: same({ det: 'thanks' }) },
   { name: 'like after an answer', steps: [{ text: 'Хаяг хаана вэ' }, { waitMs: 2_000, attachments: [{ type: 'image', payload: { url: 'https://scontent.xx.fbcdn.net/like.png', sticker_id: Number(LIKE_STICKER_IDS[0]) } }] }],
     expect: same({ det: 'acknowledgement' }) },
   { name: 'reel link', steps: [{ text: 'https://www.facebook.com/share/r/1AbCdEfGh/' }], expect: same({ canned: 'reel_price_question' }) },
@@ -289,7 +311,10 @@ const SCENARIOS: Scenario[] = [
   { name: "the other branch's phone", steps: [{ text: '__OTHER_BRANCH__ салбарын утас?' }], expect: same({ otherBranch: true }) },
   // A men's-cut price reaches the model in both branches; what it may quote is the branch's own
   // price list (Парк Од: «Эрэгтэй тайралт: 69,000₮» only, 2026-10-08) and its allowed numbers.
-  { name: "men's cut price", steps: [{ text: 'Эрэгтэй тайралт хэд вэ?' }], expect: same({ model: true }) },
+  // Since D-181 a model reply with no price is answered with the named service's rows (here the
+  // stub model refuses): each branch's own, and Парк Од never the SPECIAL cut.
+  { name: "men's cut price", steps: [{ text: 'Эрэгтэй тайралт хэд вэ?' }],
+    expect: (t) => (t.slug === 'tara-park-od' ? { priced: '69,000₮', never: 'SPECIAL' } : { priced: '69,000₮' }) },
   { name: 'a question the rows cannot answer', steps: [{ text: 'Та нар ямар шампунь зардаг вэ, хэдэн төрөл байгаа вэ?' }], expect: same({ model: true }) },
   // comments
   { name: 'comment: price question', steps: [], comment: 'Үнэ хэд вэ?', expect: same({ comment: 'reply' }) },
@@ -359,7 +384,7 @@ for (const sc of SCENARIOS) {
   await Promise.all([a, b].map(async (t) => {
     const other = t === a ? b : a;
     const psid = `parity_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
-    const before = { sent: sent.length, pub: publicReplies.length, priv: privateReplies.length, comp: complaints.length, np: needsPerson.length };
+    const before = { sent: sent.length, pub: publicReplies.length, priv: privateReplies.length, comp: complaints.length, np: needsPerson.length, ma: mediaAlerts.length };
     modelCalls.set(t.id, 0);
     if (t.shadow) {
       const cur = await db.from('tenant_channels').select('test_sender_ids').eq('id', t.channelId).single();
@@ -406,6 +431,14 @@ for (const sc of SCENARIOS) {
     if ('contains' in exp) {
       if (!(last ?? '').includes(exp.contains)) fail(`${label}: expected a reply with «${exp.contains}», got ${JSON.stringify(last?.slice(0, 120))}`);
       if (usedModel[t.slug]) fail(`${label}: the model was asked for a price the rows carry`);
+    } else if ('priced' in exp) {
+      if (!usedModel[t.slug]) fail(`${label}: expected the model to be asked, it was not`);
+      if (!(last ?? '').includes(exp.priced)) fail(`${label}: expected the rows with «${exp.priced}», got ${JSON.stringify(last?.slice(0, 120))}`);
+      if (exp.never !== undefined && (last ?? '').includes(exp.never)) fail(`${label}: the reply carries «${exp.never}»`);
+    } else if ('notice' in exp) {
+      const told = mediaAlerts.slice(before.ma).filter((n) => n.tenantId === t.id);
+      if (last !== t.canned.get('handover_notice')) fail(`${label}: expected the hand-off notice, got ${JSON.stringify(last?.slice(0, 80))}`);
+      if (told.length === 0) fail(`${label}: expected a person told (the photo hand-off alert), none was raised`);
     } else if ('person' in exp) {
       // A person is asked for: the tenant's own hand-off line, and the founder is told.
       const told = needsPerson.slice(before.np).filter((n) => n.tenantId === t.id);

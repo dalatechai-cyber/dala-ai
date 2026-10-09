@@ -48,7 +48,7 @@
  *  - Other words («ийм будаг хийж болох уу?»): `handoff`, as before. Whether it can be done is
  *    the stylist's to say, and the model cannot see the photo.
  *  - A crossed text naming ONE listed service by name or alias («Tara perm урт», sent 13 s after
- *    the question): `answer`. It is the answer to the question, typed fast; the 30 s crossing
+ *    the question): `answer`. It is the answer to the question, typed fast; the 10 s crossing
  *    window must not turn it into a caption. A kind alone («ийм будаг») still goes to staff.
  *  - A text answering the question: `answer` when it names a service or fires any fixed reply
  *    or gate topic (the customer moved on: «хаяг хаана вэ?»), otherwise `handoff`. One
@@ -88,11 +88,20 @@ export const NOT_A_PRICE_ASK: readonly string[] = [
  * How long after the photo question a text still counts as written before it (`crossed`), from
  * Meta's time for the text to the question's row. A photo and «хэд вэ?» sent together arrive
  * seconds apart, and the question is sent about a second after the photo; a customer who began
- * typing before it arrived is not answering it. Thirty seconds covers that typing; a customer
- * who replies to the question inside it with only «хэд вэ?» gets nothing more for that message,
- * and their next one is answered or handed off.
+ * typing before it arrived is not answering it. The one measured crossing took 3.1 s (Парк Од,
+ * 2026-10-09 02:18:36.9 against the question's row at 02:18:33.8); the same customer's reply after
+ * reading the question came 21 s after it. Ten seconds covers the crossing with margin and no
+ * longer: a text inside it gets nothing more, so a wider window is a window of silence (D-182).
  */
-export const PHOTO_QUESTION_CROSSING_MS = 30_000;
+export const PHOTO_QUESTION_CROSSING_MS = 10_000;
+
+/**
+ * How close a second picture must be to the photo question, with nothing written between, to
+ * count as sent together with the first (it then gets nothing more). Measured on the server's
+ * clock: each picture is its own job, so it allows for a job that starts late. A later picture
+ * gets the hand-off notice and a person is told.
+ */
+export const PHOTO_BATCH_MS = 30_000;
 
 /** Do the customer's words ask what something costs? */
 export function asksPrice(text: string): boolean {
@@ -140,13 +149,14 @@ export type PhotoPriceStep =
 
 /**
  * Where the conversation stands with the question, as the Messenger worker measured it from the
- * question's own row: `crossed` (the customer wrote before it arrived), `burst` (it was sent within
- * the image burst window, 10 minutes: a second picture then is one sent together with the first),
- * `answering` (within `PHOTO_QUESTION_ANSWER_WINDOW_MS`), `stale` (older: no longer a question
- * being answered). `burst` is `answering` for everything but a second picture. Absent (every
- * other caller, and the reply cases) reads as `answering`.
+ * question's own row: `crossed` (the customer wrote before it arrived, and nothing else since:
+ * one message can cross it, never two), `answering` (within `PHOTO_QUESTION_ANSWER_WINDOW_MS`),
+ * `stale` (older: no longer a question being answered). Absent (every other caller, and the reply
+ * cases) reads as `answering`. There was a `burst` state (a second picture within 10 minutes got
+ * nothing); it went on 2026-10-09 (founder): a picture minutes after the question was sent after
+ * reading it, and silence then tells nobody.
  */
-export type PhotoQuestionState = 'crossed' | 'burst' | 'answering' | 'stale';
+export type PhotoQuestionState = 'crossed' | 'answering' | 'stale';
 
 /**
  * How long the question stays one the customer is answering. An answer to «which service and how
@@ -170,6 +180,13 @@ export type PhotoPriceInput = {
   previousReply: string | null;
   /** See `PhotoQuestionState`; meaningful only when `previousReply` is the question. */
   questionState: PhotoQuestionState;
+  /**
+   * A photo or reel question was asked earlier within `PHOTO_QUESTION_ANSWER_WINDOW_MS` and the
+   * bot has said something else since (a price answered, say). A picture now is not asked again:
+   * one question, then a person (founder, 2026-10-09: a second photo got the question twice).
+   * Absent reads as false.
+   */
+  askedEarlier?: boolean;
   /** The words name a listed service (its name, an alias or its kind). */
   namesService: boolean;
   /**
@@ -209,10 +226,10 @@ export function photoPriceStep(s: PhotoPriceInput): PhotoPriceStep {
     // words, a greeting), is asked once — and after that, a person.
     if (s.asksPrice || !s.hasWords || s.fixedReply === 'smalltalk') {
       if (s.asksPrice && s.namesService) return 'answer';
-      if (!asked) return 'ask';
-      // Crossed, or a second picture (a reel link pasted a minute later) inside the burst window:
-      // the question already asks what it needs, as for a second photo alone. Later: a person.
-      return crossed || s.questionState === 'burst' ? 'wait' : 'handoff';
+      if (!asked) return s.media !== null && s.askedEarlier === true ? 'handoff' : 'ask';
+      // Crossed: the question already asks what it needs, as for a second photo sent together.
+      // Anything after that: a person (the notice, and the alert where the tenant has it).
+      return crossed ? 'wait' : 'handoff';
     }
     // A text that crossed the question naming one listed service («Tara perm урт»): the answer
     // to the question, typed within the crossing window. Priced from the rows, as it would be a
@@ -239,18 +256,34 @@ export function photoPriceStep(s: PhotoPriceInput): PhotoPriceStep {
 export function photoAloneStep(input: {
   questions: readonly string[];
   lastReply: { body: string; at: Date; dedupKey?: string | null } | null;
+  /**
+   * The latest question in the hour (`readRecentMediaQuestion`), whether it is still the last
+   * reply, and whether the customer wrote since; null when none. Absent: read from `lastReply`
+   * alone, as before (the question is the last reply, nothing written since).
+   */
+  recent?: { at: Date; isLastReply: boolean; customerWroteSince: boolean; dedupKey?: string | null } | null;
   ownKey: string;
   now: Date;
-  burstWindowMs: number;
+  /** A second picture this soon after the question was sent together with the first. */
+  togetherMs: number;
 }): 'ask' | 'suppress' | 'handoff' {
   const last = input.lastReply;
-  if (last === null || !isMediaQuestion(last.body, input.questions)) return 'ask';
-  if (last.dedupKey === input.ownKey) return 'ask';
-  const age = input.now.getTime() - last.at.getTime();
+  // A redelivery of the same event finds its own question: asked again (an idempotent draft).
+  if (last !== null && last.dedupKey === input.ownKey && isMediaQuestion(last.body, input.questions)) return 'ask';
+  const recent = input.recent !== undefined ? input.recent
+    : last !== null && isMediaQuestion(last.body, input.questions) ? { at: last.at, isLastReply: true, customerWroteSince: false } : null;
+  if (recent === null) return 'ask';
+  // The same, when a reply drafted after it (a price for the words sent with this picture) hides
+  // the question from `lastReply`: the event's own question is never a reason to hand off.
+  if (recent.dedupKey === input.ownKey) return 'ask';
+  const age = input.now.getTime() - recent.at.getTime();
   if (Number.isNaN(age)) return 'ask';
-  // Several photos (or reels) sent together arrive as several messages: the question already answers them.
-  if (age < input.burstWindowMs) return 'suppress';
   // A question from another day (or Tara's older image line, the same bytes) was not this one.
   if (age >= PHOTO_QUESTION_ANSWER_WINDOW_MS) return 'ask';
+  // Several photos (or reels) sent together arrive as several messages seconds apart: the
+  // question already answers them. Only that: a picture after the customer wrote, after another
+  // reply, or later than «together» comes after the question was read, and goes to a person
+  // (founder, 2026-10-09: a second photo after «tara perm urt» was asked the question again).
+  if (recent.isLastReply && !recent.customerWroteSince && age < input.togetherMs) return 'suppress';
   return 'handoff';
 }

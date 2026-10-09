@@ -4,9 +4,22 @@ A new session remembers nothing. Start here, then read, in this order: `CLAUDE.m
 this repo), **`docs/runbooks/park-od-dali-2026-10-05.md` (the founder's morning runbook for
 Парк Од's Дали: every manual step, in order, with expected output and undo)**,
 `docs/tenants/tara-yarmag.md` and `docs/tenants/tara-park-od.md`, `docs/DECISIONS.md` D-177 to
-D-181 (the end of the file), and matrix_website's `NOTES.md` hand-off and
+D-182 (the end of the file), and matrix_website's `NOTES.md` hand-off and
 `docs/LAUNCH_DAY_TARA.md`. The dated sections below this hand-off are the round log: true on the
 day each was written.
+
+## 2026-10-09: no customer left in silence, thanks as typed, tarasalon.org (both branches) — waiting for the founder
+
+- Парк Од is published (seq 1) and in shadow; the founder (PSID 39001355749508562) is the only
+  tester. Яармаг is live. Both run the same code.
+- Found on Парк Од's Page (conversation 02e93f8a, 02:18 UTC): a second photo got the photo question
+  again; «hedve» twice after it got nothing and nobody was told; «bayrlala» went to the model
+  («Тавтай морилно уу!»). On Яармаг, 2026-09-25 to 2026-10-09: 60 photo hand-offs, none alerted
+  (`media_handoff_alert` off, D-153), no staff reply recorded; 64 follow-up messages unanswered.
+  Cause, rules and proof: D-182.
+- Waiting for the founder, in this order: `docs/runbooks/tara-2026-10-09.md` (merge, the alerts
+  SQL, a 100₮ booking through tarasalon.org, sign two sheets, the tarasalon SQL, dry runs, paid
+  checks under $1, publish both, phone tests, then Парк Од live).
 
 ## Парк Од, 2026-10-08: onboarded through B8, B9 failed 5 of 115, fix waiting for the founder
 

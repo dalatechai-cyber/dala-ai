@@ -12102,3 +12102,47 @@ shared with Парк Од.
   answered with the deduction line»; it was written as «must not contain хасагдаж тооцогдоно»,
   which also fails the amount followed by the founder's own approved sentence. It now requires the
   amount (20,000₮ for Парк Од; 10,000₮ and 20,000₮ for Яармаг's case 162, proposed, not applied).
+
+## D-182 — No customer is left in silence without a person told; thanks as typed is thanks; Tara's address is tarasalon.org (2026-10-09; takes effect when the founder merges it and runs the SQL)
+
+The founder's goal, 2026-10-09: «no customer on either branch is ever left in silence without a
+person being told; photo and reel follow-ups behave the way the approved wording promises; common
+spellings of thanks get the approved answer; both branches give tarasalon.org.» The website lives at
+https://www.tarasalon.org too (founder: both Tara domains are on the matrix-website project and the
+booking page works there; not reachable from a Claude session, checked by the founder's 100₮ test).
+
+- **What happened** (founder's phone, Парк Од in shadow, conversation 02e93f8a, 02:18–02:19 UTC):
+  a photo got the photo question; «tara perm urt» was priced; a second photo got the question
+  AGAIN; «hedve» (2.4 s after it) and «hedve» again (20 s after) got nothing, and nobody was told.
+  «bayrlala» reached the model, which answered «Тавтай морилно уу!».
+- **Why.** The second photo was compared with the last reply only (the price), so the question
+  was asked again. Both «hedve» fell inside the 30 s crossing window, and every message in it was
+  read as the photo's caption. And on Tara the media hand-off pages nobody: `media_handoff_alert`
+  was off (D-153). Яармаг, 2026-09-25 to 2026-10-09 (read from Production on 2026-10-09 by the
+  session that wrote this; the queries are not saved): 60 chats
+  handed to a person after a photo, none alerted, no staff reply recorded in any; 64 customer
+  messages then went unanswered inside the 30-minute hand-off window; 4 more were in the one chat a
+  person really took (2026-09-25); 1 («uniin medeelel», 2026-10-06) was absorbed by the reel
+  question's crossing window; 1 got the notice. Thanks: the platform's list (D-147) is closed, and
+  «bayrlala», «za bayrlaa», «zaa bayrlala», «ok bayrllaa» were not on it.
+- **The rules.** (1) One message can cross the photo or reel question, never two
+  (`inbound/photoQuestion.ts`), and the crossing window is 10 s, not 30 (the one measured crossing
+  took 3.1 s; the same customer's reply after reading came at 21 s): a text held as crossed gets
+  nothing more, so a wider window is a window of silence (review, 2026-10-09). (2) The 10-minute `burst` silence is gone: a second picture gets
+  nothing more only when sent together with the first (within 30 s of the question, nothing
+  written since); any later picture, or one after a question asked earlier in the hour with
+  something else said since, gets the notice and the hand-off (`photoPrice.ts`,
+  `readRecentMediaQuestion`). (3) Thanks by shape (`mn/chat.ts`): every word a thanks word
+  («баярл…», «bayarl…», «bayrl…», «bairl…» followed only by the letters of «-алаа» and ending
+  on «а»: «bairlal?», where are you, is not thanks; thanks/thx/ty) or one that sits beside one (ok, за,
+  их, маш, танд …). (4) Tara turns `media_handoff_alert` on for both branches (SQL, reversing D-153
+  for Tara), so every hand-off tells a person. No new wording anywhere.
+- **Proven without the model** on a replica equal to Production: `scripts/verify/branch-parity.ts`
+  (44 kinds of message, both Pages, the production webhook and worker path): the founder's two
+  sequences and both thanks spellings fail on today's code in both branches (8 scenario runs, 12
+  failed checks: the two photo sequences fail twice each, no notice and no person told) and pass
+  with this change (all 44). Unit and worker tests built from the same messages.
+- **tarasalon.org.** Every address Дали gives on both branches moves from matrixecosalon.org
+  (booking link, the signed booking line, `booking` and `deposit_required`, two FAQs, the website
+  contact, Яармаг's sales line, 13 reply cases): `tara-both-tarasalon-2026-10-09.sql`, after the
+  founder signs `prompt/drafts/tara_tarasalon_{yarmag,park_od}_2026-10-09.mn.txt`.
