@@ -185,11 +185,23 @@ export type TelegramOutcome = { ok: true; messageId: string } | { ok: false; det
  */
 export async function sendTelegram(text: string): Promise<TelegramOutcome> {
   try {
+    return await sendTelegramTo(required('TELEGRAM_ALERT_CHAT_ID'), text);
+  } catch (err) {
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * The same send to a chat named by the caller: a branch's own staff chat, read from that
+ * branch's `handoff_targets` row (`handover/staffNotify.ts`). Same bot, same bound, never throws.
+ */
+export async function sendTelegramTo(chatId: string, text: string): Promise<TelegramOutcome> {
+  try {
     const res = await fetch(`https://api.telegram.org/bot${required('TELEGRAM_BOT_TOKEN')}/sendMessage`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        chat_id: required('TELEGRAM_ALERT_CHAT_ID'),
+        chat_id: chatId,
         text,
         disable_web_page_preview: true,
       }),

@@ -12146,3 +12146,51 @@ booking page works there; not reachable from a Claude session, checked by the fo
   (booking link, the signed booking line, `booking` and `deposit_required`, two FAQs, the website
   contact, Яармаг's sales line, 13 reply cases): `tara-both-tarasalon-2026-10-09.sql`, after the
   founder signs `prompt/drafts/tara_tarasalon_{yarmag,park_od}_2026-10-09.mn.txt`.
+
+## D-183 — Each branch's own staff are told of a hand-off, in their own Telegram group, with a link to the chat (2026-10-09, overnight session; OFF until the founder adds a branch's target)
+
+The founder's goal, 2026-10-09: «when Дали hands a chat to a person, someone AT THAT BRANCH learns
+within minutes, with a link that opens that chat». Until now every hand-off alert reached only the
+founder's Telegram, and he is abroad.
+
+- **Correction to D-182's count.** D-182 says no staff reply was recorded in any of Яармаг's 60
+  photo hand-offs (2026-09-25 to 2026-10-09). That read the thread's source, which a staff reply
+  does not change once Дали has handed the chat over (`applyThreadControl` only refreshes the
+  time when control is already `human`). Read from the webhook events instead (echoes sent by
+  Meta's Page Inbox app, 263902037430900, to that customer after the notice): **11 of the 60 got a
+  staff reply; 49 did not.** The list of the 49 (time and a link) went to the founder outside the
+  repository: it holds customers' ids.
+- **The route: Telegram, per branch, as a row.** `handoff_targets` (0001: `tenant_id`, `kind`,
+  `destination`, `verified_at`, designed for exactly this in `docs/architecture/07-roles-seams.md`
+  and never built) gets one `telegram` row per branch, holding that branch's staff group's chat id.
+  No row, or `verified_at` null: nothing is sent (the default). The platform bot is reused
+  (`sendTelegramTo` beside `sendTelegram`, same token and 5 s bound). Rejected for now: the Page
+  inbox label (Meta's Contact Terms link is broken), a Messenger message to staff (24-hour window),
+  `pass_thread_control` (declined 2026-10-02), e-mail (no phone rings; a later second kind), SMS
+  (no provider). No migration: the tables exist on Production with service-role privileges.
+- **What is sent.** Branch name, a reason emoji, the Ulaanbaatar time, and on Messenger
+  `business.facebook.com/latest/inbox/all?asset_id=<Page>&selected_item_id=<PSID>&thread_type=FB_MESSAGE`.
+  No sentence (a staff line is an unsigned draft: `prompt/drafts/staff_handoff_alert.mn.txt`) and
+  never the customer's words. The link's form is the one Meta's own redirect produced for the
+  founder; that it takes the PSID is unverified (Meta is blocked from sessions): the runbook's
+  step 2 checks one before any branch is switched on.
+- **When.** On every media hand-off (whatever `media_handoff_alert` says: that switch is the
+  founder's) and every needs-person event, whether or not the founder's alert was a duplicate (its
+  per-day key must not hide a second request for a person from the branch), from the worker's
+  `after()`, so it never delays or fails a customer's reply. At most one DELIVERED ping per chat per
+  30 minutes, any reason (a refused or cut-off ping is retried on the next hand-off); a `handoffs`
+  row and a `staff_notifications` row record each. The `handoffs` rows stay `open`: they record
+  pings, and nothing yet marks a chat answered. Unreadable details still ping (a duplicate costs
+  nothing, a miss leaves a customer alone). A ping that fails, or an unreadable target table, is
+  logged `staff_notify_undelivered` and pages the founder once per branch per Ulaanbaatar day
+  (`staff.ping_undelivered`): a dead staff route must not look like a quiet one. `verified_at` means
+  «the founder confirmed this chat is that branch's staff group» (the template sets it).
+- **Open (founder):** the bot is shared with dalatech-app, which has a webhook on it; a staff member
+  replying to a ping reaches dalatech-app. Whether it ignores unknown chats decides whether staff
+  groups get this bot or their own (runbook step 3).
+- **Proven:** unit tests (`staffNotify.test.ts`: off, other branch's row, link, dedup, the
+  simultaneous media + needs-person pair, a refused ping not blocking the next, the founder's
+  daily alert on failure, failures); over real PostgREST on a Production-equal copy:
+  off without a row, one ping and `recent` for the second, both rows written; the SQL template
+  refuses the placeholder, a second target, and one chat id on two branches. Not proven: a real
+  Telegram send to a group, the link opening the chat (founder, runbook `docs/runbooks/staff-alerts.md`).

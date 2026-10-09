@@ -1,0 +1,27 @@
+# NOT SIGNED. Proposed 2026-10-09 (overnight session). Nothing loads this file.
+#
+# Where it would go: the Telegram message a BRANCH'S OWN STAFF get when Дали hands a chat to
+# a person (src/lib/handover/staffNotify.ts, D-183). Staff read it, never a customer.
+#
+# Today, until this is signed, the message has no sentence at all, only:
+#     🔔 Tara Salon — Яармаг
+#     📷 2026-10-09 14:32
+#     https://business.facebook.com/latest/inbox/all?asset_id=…&selected_item_id=…
+# (📷 photo/video/link, ⚠️ complaint, 🙋 asked for a person, 🎤 voice message, ⏰ Дали took the
+# chat back after staff went quiet.) That is understandable but bare. Once you sign one line
+# below, a later change adds it as the second line of the message; the customer's own words are
+# never included (Telegram keeps everything it is sent).
+#
+# Proposed (A, recommended): one line per reason, «та» register.
+#   📷  Үйлчлүүлэгч зураг, бичлэг эсвэл холбоос илгээсэн. Холбоосоор орж хариулна уу.
+#   ⚠️  Үйлчлүүлэгч гомдол бичсэн. Холбоосоор орж хариулна уу.
+#   🙋  Үйлчлүүлэгч ажилтантай ярихыг хүссэн. Холбоосоор орж хариулна уу.
+#   🎤  Үйлчлүүлэгч дуут зурвас илгээсэн. Холбоосоор орж хариулна уу.
+#   ⏰  Ажилтан хариулаагүй тул Дали чатыг буцааж авсан. Шаардлагатай бол холбоосоор орж хариулна уу.
+#
+# Proposed (B): one line for every reason.
+#   Үйлчлүүлэгч хүнтэй ярих шаардлагатай байна. Холбоосоор орж хариулна уу.
+#
+# Language observations are the founder's to make (CLAUDE.md); these are a starting point.
+#
+# SIGNED: ______________________  OPTION: ____  DATE: __________

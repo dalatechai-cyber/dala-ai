@@ -27,6 +27,7 @@ import { raiseCommentComplaint } from '@/lib/comments/complaint';
 import { raiseMediaHandoff } from '@/lib/handover/media';
 import { raiseNeedsPerson } from '@/lib/handover/needsPerson';
 import { labelFromRow, labelNeedsPerson } from '@/lib/handover/pageLabel';
+import { tellBranchStaff, type StaffHandoffReason } from '@/lib/handover/staffNotify';
 import { alertCannedStale } from '@/lib/prompt/cannedDrift';
 import { buildDeliverDeps } from '@/lib/outbound/deliverDeps';
 import { MODEL_REGISTRY, RECEPTION_UPSTREAM_TIMEOUT_MS } from '@/config/platform';
@@ -44,6 +45,10 @@ export const maxDuration = 60;
 
 function effects(now: Date): WorkerEffects {
   const db = supabaseWorker();
+  // The branch's own staff (D-183): inside `after()`, bounded, never throws (`staffNotify.ts`).
+  const staffPing = (tenantId: string, conversationId: string, reason: StaffHandoffReason): void => {
+    after(async () => { await tellBranchStaff(db, { tenantId, conversationId, reason, now }); });
+  };
   return {
     db,
     now,
@@ -210,6 +215,9 @@ function effects(now: Date): WorkerEffects {
       alertCeilingReached(db, { tenantId, timezone, channel, surface: 'reception', estimate: RECEPTION_REPLY_ESTIMATE, now }),
 
     alertMediaHandoff: async (input) => {
+      // The branch's own staff, when the branch has a Telegram target (off by default; after the
+      // response, never in the customer's way). Independent of the founder's alert switch (D-153).
+      staffPing(input.tenantId, input.conversationId, 'media');
       const outcome = await raiseMediaHandoff(db, input);
       // Switched off for this tenant (D-153): said, so "off" never reads as "never called".
       if (outcome.outcome === 'disabled') console.info('[worker] media_handoff_alert_disabled', { conversationId: input.conversationId });
@@ -221,6 +229,9 @@ function effects(now: Date): WorkerEffects {
     alertCannedStale: (input) => alertCannedStale(db, input),
 
     alertNeedsPerson: async (input) => {
+      // The branch's staff first and whatever the founder's alert does: its per-day dedup must not
+      // hide a second request for a person from the branch (the 30-minute window decides there).
+      staffPing(input.tenantId, input.conversationId, input.reason);
       // Never rejects: an alert that cannot be raised is logged, and the customer's reply
       // is already decided.
       try {
