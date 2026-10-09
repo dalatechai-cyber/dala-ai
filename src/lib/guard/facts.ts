@@ -387,11 +387,15 @@ export function checkFacts(
     // тайралт хэд вэ?» answered «… 33,000₮» tied «Хүүхдийн тайралт (эрэгтэй, 0–13 нас)» (by
     // «тайралт») with «Үс оношлогоо, зөвлөгөө» (by «үс», which nearly every salon question
     // carries), and both were served (2026-10-09, both Tara branches). Across DIFFERENT services
-    // tied on score, the ones corroborated by a word of four letters or more win; a tie of short
-    // words alone, or of long words, stays as before.
+    // tied on score, the ones corroborated by a word of four letters or more IN THE AMOUNT'S OWN
+    // CLAUSE win; a tie of short words alone, or of long words, stays as before. The clause, not
+    // the whole text: «Сор 210,000₮ байна. Будаг …» must keep «Бүтэн сор» even though «будаг» is
+    // long and elsewhere (review, 2026-10-09).
     if (!narrowedByPartner && new Set(corroborated.map((r) => rowName(r.text))).size > 1) {
+      const near = new Set(wordsOf(clauseAround(nameText, a.at, a.end))
+        .filter((w) => [...w].length >= CORROBORATE_CP).map(stemOf));
       const strong = (r: FactRow): number => nameWords(r.text)
-        .filter((w) => [...w].length >= CORROBORATE_CP && stems.has(stemOf(w))).length;
+        .filter((w) => [...w].length >= CORROBORATE_CP && near.has(stemOf(w))).length;
       if (corroborated.some((r) => strong(r) > 0) && corroborated.some((r) => strong(r) === 0)) {
         corroborated = corroborated.filter((r) => strong(r) > 0);
       }

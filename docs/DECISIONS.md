@@ -12157,7 +12157,8 @@ stubbed, and fixed the same way for both Tara branches.
   without the exact service name, `guard/facts.ts` serves the rows that own 33,000. Two do: the
   boy's cut (0–13) and the consultation, and the corroboration tied them, «тайралт» against «үс».
   Fix (`checkFacts`): across different services tied on score, a name word of four letters or more
-  beats a short one. Reproduced on both branches before, one row after; existing facts tests
+  IN THE AMOUNT'S OWN CLAUSE beats a short one (the clause, so «Сор 210,000₮ байна. Будаг …» still
+  keeps «Бүтэн сор»: review). Reproduced on both branches before, one row after; existing facts tests
   unchanged. The child's-cut reply cases gain `must_not_include «оношлогоо»` (model cases).
 - **A 👍 «appears not to be recorded».** The Messenger like (the thumbs-up button) does reach Дали:
   Яармаг got 39 in 30 days; the 11 since D-168 are all recorded as «👍 (like)» and answered; the 28
@@ -12170,8 +12171,11 @@ stubbed, and fixed the same way for both Tara branches.
   the first reaction lands in `webhook_events` and can be designed from (proposal: record it, never
   answer it — a reaction to Дали's reply is an «ок»).
 - **«Оюунаа» alone got «тодруулж бичнэ үү».** New `reception/stylistNamed.ts`: a message that names
-  exactly one person on the roster (Latin name, or a Cyrillic spelling from `spellings`, a suffix
-  allowed) and says nothing else, or asks to book and asks no price, is answered without the model:
+  exactly one person on the roster (Latin name, or a Cyrillic spelling from `spellings`, with one
+  known case ending at most: «saraas», «tomoohon» are not names) and says nothing else, or whose
+  every other word is a plain booking ask from a closed list (no past tense, cancel, change, «өөр»,
+  other people, services or payments) with no price word, and is not a complaint and fired no gate
+  or topic rule, is answered without the model:
   «{name} — {level}», (alone) her level's price rows (never the other gender's), her level's deposit
   row, the booking line. Only rows and approved lines; the arrangement is on the founder's sheet
   `prompt/drafts/tara_stylist_named_2026-10-09.mn.txt`, and it is OFF unless the tenant's
@@ -12179,7 +12183,8 @@ stubbed, and fixed the same way for both Tara branches.
   the reply cases).
 - **«Оюунаад цаг авч болох уу?» got all three deposit rows.** `withDeposits` adds every level's deposit
   above a booking line whenever one amount is missing; a reply about one named hairdresser that
-  states HER level's deposit now stays as written (`namedLevelDepositStated`). With the switch on the
+  states HER level's deposit row (its text, not only the amount; the name as a whole word) now stays
+  as written (`namedLevelDepositStated`). With the switch on the
   composed answer serves it directly; without, a model reply naming her and her 20,000₮ is no longer
   buried under the other levels.
 - **Parity.** Same code, each branch's own rows: Oyunaa's cases at Яармаг, Boloroo's at Парк Од (Latin

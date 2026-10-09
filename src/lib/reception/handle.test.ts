@@ -1452,3 +1452,33 @@ test('DONE-TEST (Дали F5): a complaint or a request for a person is marked f
     assert.equal(withRules.drafts.at(-1)?.body, without.drafts.at(-1)?.body, `the reply is unchanged: ${message}`);
   }
 });
+
+// D-184: a hairdresser named, through handleReception (review, 2026-10-09: the module test could not
+// see where the step runs, so a complaint naming a hairdresser got the booking answer).
+const ROSTERED = `${STABLE}\n=== ${SECTION_LABELS.staffList} ===\n- Oyunaa · Эмэгтэй үсчид · SPECIAL үсчин\n\n=== ${SECTION_LABELS.deposits} ===\n- SPECIAL үсчин: 20,000₮`;
+const NAMED_BOOKING = 'Та манай вэбсайтаар (https://x.test/) онлайнаар цаг захиалж болно.';
+const NAMED_ON = { ...base, promptStable: ROSTERED, spellings: [{ latin: 'oyunaa', cyrillic: 'оюунаа' }],
+  canned: [...CANNED, { kind: 'booking_line', body: NAMED_BOOKING, reviewedAt: REVIEWED }],
+  depositRows: ['SPECIAL үсчин: 20,000₮'], replyStyle: replyStyleOf({ stylist_named: true }) };
+
+test('DONE-TEST (D-184): «Оюунаад цаг авч болох уу?» is answered from rows, no model, her deposit only', async () => {
+  const { deps: d, calls, drafts } = deps();
+  await handleReception(d, { ...NAMED_ON, customerMessage: 'Оюунаад цаг авч болох уу?' });
+  assert.equal(calls.includes('callModel'), false);
+  assert.equal(drafts.at(-1)?.body, `Oyunaa — SPECIAL үсчин\nУрьдчилгаа төлбөр — SPECIAL үсчин: 20,000₮\n\n${NAMED_BOOKING}`);
+  assert.equal(calls.indexOf('release') < calls.indexOf('draft:deterministic'), true);
+});
+
+test('DONE-TEST (D-184): off by default, and never for a complaint, a past booking or anything not a plain ask', async () => {
+  const off = deps();
+  await handleReception(off.deps, { ...NAMED_ON, replyStyle: null, customerMessage: 'Оюунаад цаг авч болох уу?' });
+  assert.equal(off.calls.includes('callModel'), true, 'off');
+  const rules = [{ ruleKey: 'complaint', verdict: 'escalate' as const, matcher: { mode: 'contains_stem', stems: ['муу'] } }];
+  for (const message of ['Оюунаад цаг авсан чинь үсийг минь муу тайрсан', 'Оюунаад цаг авсан, баталгаа ирээгүй',
+    'Оюунаагаас өөр хүнд цаг авъя', 'Нөхөртөө Оюунаад цаг авч болох уу', 'Оюунаад цагаан будаг авч болох уу',
+    'Oyunaa-d zahialsan tsagaa oorchloh', 'Bi Oyunaa, margaash tsag avmaar baina']) {
+    const { deps: d, calls } = deps();
+    await handleReception(d, { ...NAMED_ON, complaintRules: rules, customerMessage: message });
+    assert.equal(calls.includes('callModel'), true, message);
+  }
+});

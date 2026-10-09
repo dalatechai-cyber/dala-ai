@@ -76,3 +76,13 @@ test('one row for two levels is found for either (Парк Од: «SPECIAL бо�
   assert.equal(levelDepositRow(ROSTER[0]!, rows), rows[0]);
   assert.equal(levelDepositRow(ROSTER[2]!, rows), null);
 });
+
+test('a name is a name only with a known ending: «saraas» (from the month), «tomoohon» (big) are not hairdressers', () => {
+  const roster = rosterFromPrefix('=== Б ===\n- Saraa · Эмэгтэй үсчид · Мастер үсчин\n- Tomoo · Эмэгтэй үсчид · Мастер үсчин', 'Б');
+  const input = (msg: string): StylistNamedInput => ({ ...base(msg), roster, spellings: [] });
+  for (const msg of ['Daraa saraas tsag avch boloh uu?', 'Ene saraa tsag avmaar baina', 'Tomoohon zahialga avna uu', 'Bi Saraa, margaash tsag avmaar baina']) {
+    assert.equal(stylistNamedReply(input(msg)), null, msg);
+  }
+  assert.equal(stylistNamedReply(input('Saraa-d tsag avmaar baina'))?.intent, 'booking');
+  assert.equal(stylistNamedReply(input('Saraagaas tsag avch boloh uu'))?.intent, 'booking');
+});

@@ -54,7 +54,7 @@ import {
 } from './photoPrice.ts';
 import { maskUrls } from '../mn/extract.ts';
 import { isLike, likeIsOwedReply } from '../inbound/like.ts';
-import { levelDepositRow, rosterFromPrefix, stylistNamedReply, type RosterRow } from './stylistNamed.ts';
+import { levelDepositRow, rosterFromPrefix, rosterNamedIn, stylistNamedReply, type RosterRow } from './stylistNamed.ts';
 import { EMBEDDED_CERTAIN_SHARE, checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
@@ -634,14 +634,11 @@ function withDeposits(
 
 /** Does `body` name exactly one hairdresser and carry every amount of her level's deposit row? */
 function namedLevelDepositStated(body: string, depositRows: readonly string[], roster: readonly RosterRow[]): boolean {
-  const said = fold(body);
-  const named = roster.filter((r) => [r.name, r.shortName].some((n) => n !== null && n !== '' && said.includes(fold(n))));
+  const named = rosterNamedIn(body, roster);
   if (named.length !== 1) return false;
   const row = levelDepositRow(named[0]!, depositRows);
-  if (row === null) return false;
-  const have = new Set(amounts(body));
-  const owed = amounts(row);
-  return owed.length > 0 && owed.every((a) => have.has(a));
+  // The row's own text, not only its amount: an amount alone may be any price.
+  return row !== null && fold(body).includes(fold(row));
 }
 
 /**
@@ -1288,7 +1285,9 @@ async function receive(
   //     services and deposit, and the booking line, all from rows (`stylistNamed.ts`). After
   //     every fixed reply and short-circuit, so a tenant's own row still wins; no model call.
   //     Off unless the tenant's `reply_style` says `stylist_named: true` (D-184).
-  if (input.replyStyle?.stylistNamed === true) {
+  //     Never for a complaint, or a message a gate or topic rule fired on: those keep their path.
+  if (input.replyStyle?.stylistNamed === true && matched.firedGates.length === 0 && matched.matchedTopics.length === 0
+    && !isComplaint(input.customerMessage, input.complaintRules, respelled)) {
     const named = stylistNamedReply({
       customerMessage: input.customerMessage, roster, spellings: input.spellings,
       serviceNames: input.serviceNames, depositRows: input.depositRows,

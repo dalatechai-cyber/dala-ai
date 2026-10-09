@@ -264,6 +264,10 @@ test('a long name word beats a short one across services: «8 настай хү�
   // A consultation question still gets the consultation: «оношлогоо» is the long word there.
   const c = checkFacts('Үс оношлогоо 33,000₮.', src, 'үс оношлогоо хэд вэ');
   assert.equal(c.restated && c.served, 'Үс оношлогоо, зөвлөгөө: 33,000₮');
+  // The long word must sit in the amount's own clause: «Сор 210,000₮ байна. Будаг …» keeps «Бүтэн сор».
+  const sor = factSourceFrom(['=== ҮНИЙН ЖАГСААЛТ ===', '- Бүтэн сор: 210,000₮', '- Энгийн будаг (урт): 210,000₮'].join('\n'), LABELS, []);
+  const s1 = checkFacts('Сор 210,000₮ байна. Будаг хийлгэж болно.', sor, 'Сор хэд вэ? будаг хийлгэж болох уу');
+  assert.ok(s1.restated && (s1.served ?? '').includes('Бүтэн сор: 210,000₮'), String(s1.restated && s1.served));
   // Unchanged where only one service is corroborated at all: «үс» alone names the consultation.
   const t = checkFacts('Үс 33,000₮.', src, 'үс хэд вэ');
   assert.equal(t.restated && t.served, 'Үс оношлогоо, зөвлөгөө: 33,000₮');
