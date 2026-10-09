@@ -9,7 +9,7 @@
 -- The same bytes on both branches. A fixed reply is read per message: no publish is needed for it,
 -- but publish both afterwards anyway if the dry run says the prefix changed.
 -- Expected after it (with tara-both-stylist-and-child-2026-10-09.sql applied first): reply gate
--- matrix-eco-salon 73/73 · 15 need the model, tara-park-od 74/74 · 51; prefixes unchanged
+-- matrix-eco-salon 73/73 · 19 need the model, tara-park-od 74/74 · 55 (92 and 129 active cases); prefixes unchanged
 -- («Nothing to publish»); branch gate clean on both (needs `say_links`; without it: LEAK).
 -- Refuses a second run. Undo: the -revert.sql beside it.
 begin;
@@ -37,7 +37,7 @@ select t.id, 'nearest_branch', 'Яармаг салбарын хаяг: Яарм
 Байршлын холбоос: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16
 Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот
 Та аль хэсгээс ирэх вэ?', true, 'matcher', '{}'::text[], false, 'tenant_confirmed', 'replace',
-       '{"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["салбар", "salbar"]}, {"mode": "has_word", "words": ["ойр", "ойрхон", "ойрын", "ойролцоо", "oir", "oirhon", "oirxon", "oirkhon", "oirolcoo"]}]}'::jsonb
+       '{"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["салбар", "salbar"]}, {"mode": "has_word", "words": ["ойр", "ойрхон", "ойрхонд", "ойрт", "ойрын", "ойролцоо", "oir", "oirhon", "oirhond", "oirxon", "oirkhon", "oirt", "oirolcoo"]}, {"mode": "not", "matcher": {"mode": "has_word", "words": ["цаг", "цагаа", "цагт", "tsag", "tsagaa", "tsagt", "зогсоол", "zogsool"]}}, {"mode": "not", "matcher": {"mode": "contains_stem", "stems": ["хугацаа", "hugatsaa", "нээх", "нээгд", "neeh", "neegd"]}}]}'::jsonb
   from tenants t where t.slug in ('matrix-eco-salon', 'tara-park-od');
 
 insert into reply_cases (tenant_id, customer_message, expected_body, note, active, channel)
@@ -53,6 +53,19 @@ select t.id, m.msg, 'Яармаг салбарын хаяг: Яармагийн 
   ) as m(msg, why)
  where t.slug in ('matrix-eco-salon', 'tara-park-od');
 
+-- «ойр…» also means «soon / earliest»: these are NOT this question (review, 2026-10-09). Model cases:
+-- whatever answers them, it is not the two-address reply.
+insert into reply_cases (tenant_id, customer_message, must_not_include, note, active, channel)
+select t.id, m.msg, ARRAY['Та аль хэсгээс ирэх вэ?'], 'nearest branch 2026-10-09 (control): ' || m.why, true, 'facebook_page'
+  from tenants t
+ cross join (values
+    ('Яармаг салбарт ойрын сул цаг хэзээ байна', 'the earliest free time'),
+    ('salbariin oir tsag bga yu', 'the earliest time, Latin'),
+    ('Ойрын хугацаанд шинэ салбар нээх үү', 'a new branch soon'),
+    ('Салбарын ойролцоо машин зогсоол байгаа юу', 'parking near the branch')
+  ) as m(msg, why)
+ where t.slug in ('matrix-eco-salon', 'tara-park-od');
+
 do $$
 begin
   if (select count(distinct d.body) from deterministic_replies d join tenants t on t.id = d.tenant_id
@@ -60,7 +73,7 @@ begin
      or (select count(*) from deterministic_replies d join tenants t on t.id = d.tenant_id
          where t.slug in ('matrix-eco-salon', 'tara-park-od') and d.intent = 'nearest_branch') <> 2
      or (select count(*) from reply_cases r join tenants t on t.id = r.tenant_id
-         where t.slug in ('matrix-eco-salon', 'tara-park-od') and r.note like 'nearest branch 2026-10-09%' and r.active) <> 6 then
+         where t.slug in ('matrix-eco-salon', 'tara-park-od') and r.note like 'nearest branch 2026-10-09%' and r.active) <> 14 then
     raise exception 'read-back failed';
   end if;
 end $$;

@@ -9,7 +9,7 @@
 --            tara-park-od → 67/67 · 52 need the model (82 and 119 active cases).
 --   after this file: 69/69 · 16 and 70/70 · 52 (85 and 122 active cases). Publish dry runs:
 --            «byte-identical … Nothing to publish» on both (ecaf14d1…, 49fd77f4…).
---   after tara-both-nearest-branch-2026-10-09.sql as well: 73/73 · 15 and 74/74 · 51 (88 and 125):
+--   after tara-both-nearest-branch-2026-10-09.sql as well: 73/73 · 19 and 74/74 · 55 (92 and 129):
 --            case 197 / 264 («Аль салбар нь ойр вэ» after the deposits) is then answered by the row.
 --
 -- 1. A hairdresser named alone or with a booking ask is answered from the rows: her name and level,

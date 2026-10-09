@@ -1,4 +1,4 @@
--- Revert tara-both-nearest-branch-2026-10-09.sql: the fixed reply and its six cases removed on both
+-- Revert tara-both-nearest-branch-2026-10-09.sql: the fixed reply and its fourteen cases removed on both
 -- branches (the question goes back to the model). Refuses when not applied.
 begin;
 

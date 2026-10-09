@@ -12202,7 +12202,9 @@ stubbed, and fixed the same way for both Tara branches.
   The branch gate refused another branch's Maps link everywhere; `say_links` in
   `config/branch-groups.json` now allows Яармаг's link in the `other_branch_in` rows only, like
   `say_phones` (and `fixed reply nearest_branch` joins `other_branch_in`). Proven on the copy: today's
-  code reports the leaks, this code passes; both gates 73/73 and 74/74.
+  code reports the leaks, this code passes; both gates 73/73 and 74/74 (19 and 55 model cases). The
+  matcher also requires no «цаг», «зогсоол», «хугацаа», «нээх»: «ойрын сул цаг» (earliest time), «ойрын
+  хугацаанд» (soon) and parking near a branch are not this question (review); four control cases hold that.
 - **Парк Од's Facebook link** (`profile.php?id=100067391025472`, in Яармаг's `park_od_branch`): not
   changed. It is the link the founder copied from her Page at onboarding; Page ID 108583528037449 is
   the Graph id, and Яармаг's own public link (`…100067872726164`) also differs from her Page id
