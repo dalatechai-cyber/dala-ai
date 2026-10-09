@@ -4,6 +4,14 @@
 -- the case counts that runbook expects). Without the code the six new cases reach the model and are
 -- only listed as «need the model» (checked on a replica). No wording changes, no publish needed.
 --
+-- Expected (replica equal to Production after Яармаг seq 22 and Парк Од seq 2, 2026-10-09 15:25 UTC):
+--   before:  `node scripts/replycases/gate.ts --slug matrix-eco-salon` → 66/66 · 16 need the model;
+--            tara-park-od → 67/67 · 52 need the model (82 and 119 active cases).
+--   after this file: 69/69 · 16 and 70/70 · 52 (85 and 122 active cases). Publish dry runs:
+--            «byte-identical … Nothing to publish» on both (ecaf14d1…, 49fd77f4…).
+--   after tara-both-nearest-branch-2026-10-09.sql as well: 73/73 · 15 and 74/74 · 51 (88 and 125):
+--            case 197 / 264 («Аль салбар нь ойр вэ» after the deposits) is then answered by the row.
+--
 -- 1. A hairdresser named alone or with a booking ask is answered from the rows: her name and level,
 --    (alone) her level's services, her level's deposit, the booking line. Яармаг with Oyunaa
 --    (Cyrillic «Оюунаа» through her spelling row, and Latin); Парк Од with Boloroo (Latin only:

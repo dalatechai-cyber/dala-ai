@@ -12194,3 +12194,18 @@ stubbed, and fixed the same way for both Tara branches.
 - **Not proven (model):** the child's-cut cases (129, 134, 289, 291) need the model; one run of each
   branch's model cases is about $0.15 (Яармаг, 16) and $0.35 (Парк Од, 52) by the runbook's figures,
   or about $0.16 for the four alone.
+- **Addendum (founder, 2026-10-09 afternoon): «Аль салбар нь ойр вэ».** It reached the model, which gave
+  Яармаг's address only. Now a fixed reply `nearest_branch`, the same bytes on both branches: both
+  addresses, Яармаг's Maps link (Парк Од has none yet), and one new question line (unsigned sheet
+  `prompt/drafts/tara_nearest_branch_2026-10-09.mn.txt`; SQL `tara-both-nearest-branch-2026-10-09.sql`).
+  The matcher is «салбар» (stem) with «ойр…» as whole words (three letters is below the stem floor).
+  The branch gate refused another branch's Maps link everywhere; `say_links` in
+  `config/branch-groups.json` now allows Яармаг's link in the `other_branch_in` rows only, like
+  `say_phones` (and `fixed reply nearest_branch` joins `other_branch_in`). Proven on the copy: today's
+  code reports the leaks, this code passes; both gates 73/73 and 74/74.
+- **Парк Од's Facebook link** (`profile.php?id=100067391025472`, in Яармаг's `park_od_branch`): not
+  changed. It is the link the founder copied from her Page at onboarding; Page ID 108583528037449 is
+  the Graph id, and Яармаг's own public link (`…100067872726164`) also differs from her Page id
+  (1520409424715591), as Meta's newer Pages show a profile id. Neither link could be opened from a
+  session (facebook.com 403). The founder's check: open both logged out; if `facebook.com/108583528037449`
+  is the one that opens her Page and the other does not, say so and the sheet follows.

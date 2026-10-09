@@ -241,6 +241,19 @@ test('say_phones: the other branch\'s own number may be said only in the rows na
   assert.deepEqual(foreignDetails(holder, east, [], [], [], ['KB «Салбарууд»'], say).map((f) => f.source), ['contact_points phone'], 'never held');
 });
 
+test('say_links: the other branch\'s map link may be given only in the rows named for it (D-184)', () => {
+  const link = east.contacts.find((c) => c.kind === 'maps_url')?.value ?? '';
+  assert.ok(link !== '', 'the east fixture has a map link');
+  const sayer = { ...west, texts: [
+    { source: 'fixed reply nearest_branch', text: `Байршлын холбоос: ${link}` },
+    { source: 'faq «Хаана?»', text: `Байршлын холбоос: ${link}` },
+  ] };
+  const got = (say: string[], scope: string[] | null) => foreignDetails(sayer, east, [], [], [], scope, [], say).map((f) => f.source);
+  assert.deepEqual(got([link], ['fixed reply nearest_branch']), ['faq «Хаана?»'], 'named row: allowed; anywhere else: a leak');
+  assert.deepEqual(got([link], null), ['fixed reply nearest_branch', 'faq «Хаана?»'], 'unscoped, say_links excuses nothing');
+  assert.deepEqual(got([], ['fixed reply nearest_branch']), ['fixed reply nearest_branch', 'faq «Хаана?»'], 'without say_links every link is a leak');
+});
+
 test('link keys drop the scheme, www and a trailing slash, and keep the path exactly', () => {
   assert.equal(linkKey('https://www.Demo-Brand.mn/Book/'), 'demo-brand.mn/Book');
   assert.equal(linkKey('maps.app.goo.gl/AbC'), 'maps.app.goo.gl/AbC');

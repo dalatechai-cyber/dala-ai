@@ -1,0 +1,18 @@
+# NOT SIGNED. Proposed 2026-10-09 (founder's request the same day). Both Tara branches, the same bytes.
+#
+# «Аль салбар нь ойр вэ» / «al salbar ni oir ve» / «Аль салбар нь ойрхон бэ?» today reach the model,
+# which answered with Яармаг's address only. Proposed fixed reply (no model), the same on both Pages:
+#
+#   Яармаг салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун талд
+#   Байршлын холбоос: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16
+#   Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот
+#   Та аль хэсгээс ирэх вэ?
+#
+# Lines 1–3 are the branches' own rows, as their address and Maps rows read on 2026-10-09 (Парк Од
+# has no Maps link yet; when she gets one, it is added below her address). Only line 4 is NEW
+# wording. Alternatives for line 4, if you prefer:
+#   B. Та хаанаас ирэх вэ?
+#   C. Та аль дүүргээс ирэх вэ?
+# Then scripts/provision/tara-both-nearest-branch-2026-10-09.sql inserts it (after #299 is deployed).
+#
+# SIGNED: ______________________  LINE 4: A / B / C  DATE: __________

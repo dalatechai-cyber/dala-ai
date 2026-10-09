@@ -174,7 +174,7 @@ function detailsOf(side: BranchSide): Details {
 export function foreignDetails(
   own: BranchSide, sibling: BranchSide, allowNames: readonly string[] = [], allowPhones: readonly string[] = [],
   allowAddresses: readonly string[] = [], otherBranchIn: readonly string[] | null = null,
-  sayPhones: readonly string[] = [],
+  sayPhones: readonly string[] = [], sayLinks: readonly string[] = [],
 ): BranchFinding[] {
   const mine = detailsOf(own);
   const theirs = detailsOf(sibling);
@@ -184,6 +184,8 @@ export function foreignDetails(
   // With and without Mongolia's 976, as `phonesOf` reads a contact row.
   const shared = new Set(allowPhones.flatMap((p) => phonesOf(p)).flatMap((p) => (p.length === 8 ? [p, `976${p}`] : [p])));
   const sayablePhones = new Set(sayPhones.flatMap((p) => phonesOf(p)).flatMap((p) => (p.length === 8 ? [p, `976${p}`] : [p])));
+  // The other branch's own map links, only in the `other_branch_in` rows (never unscoped).
+  const sayableLinks = new Set(sayLinks.map((l) => linkKey(l)).filter((k): k is string => k !== null));
   for (const p of shared) theirs.phones.delete(p);
   const allowed = new Set(allowNames.map((n) => staffKey(n)?.toLowerCase()).filter((k): k is string => k !== undefined));
   allowNames.forEach((n) => allowed.add(nfc(n).toLowerCase()));
@@ -228,7 +230,7 @@ export function foreignDetails(
       if (runs.some((r) => r.includes(p)) && !(named && sayablePhones.has(p))) leak(t.source, `carries ${sibling.slug}'s phone ${p}`);
     }
     const inText = new Set(linksIn(text));
-    for (const l of links) if (inText.has(l)) leak(t.source, `carries ${sibling.slug}'s map link ${l}`);
+    for (const l of links) if (inText.has(l) && !(named && sayableLinks.has(l))) leak(t.source, `carries ${sibling.slug}'s map link ${l}`);
     const lower = flat(text);
     for (const a of exempt ? addresses : anyAddress) if (containsWhole(lower, a)) leak(t.source, `carries ${sibling.slug}'s address «${a}»`);
     const low = text.toLowerCase();
