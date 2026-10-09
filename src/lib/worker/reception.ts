@@ -43,10 +43,9 @@ import { personRepliedSince } from '../handover/presend.ts';
 import { humanHoldsThread } from '../handover/control.ts';
 import { mediaAloneDedupKey, photoQuestionDedupKey, planMediaAlone, readCannedLine, readHandoverNotice, unseenMediaOf } from '../handover/media.ts';
 import {
-  PHOTO_PRICE_QUESTION_KIND, photoAloneStep, questionFor, REEL_PRICE_QUESTION_KIND, type PhotoQuestionState,
+  PHOTO_PRICE_QUESTION_KIND, PHOTO_QUESTION_CROSSING_MS, photoAloneStep, questionFor, REEL_PRICE_QUESTION_KIND, type PhotoQuestionState,
 } from '../reception/photoPrice.ts';
-import { photoQuestionState, readLastReply } from '../inbound/photoQuestion.ts';
-import { BURST_WINDOW_MS } from '../inbound/imageReply.ts';
+import { photoQuestionState, readLastReply, readRecentMediaQuestion } from '../inbound/photoQuestion.ts';
 import { isApprovedLinesRefusal, publishedLine } from '../prompt/cannedDrift.ts';
 import { planVoiceAlone, voiceDedupKey, VOICE_REPLY_KIND, type NeedsPersonReason, type ReplySent } from '../handover/needsPerson.ts';
 import { CREDENTIAL_FAILURE_STATUS, clearCredentialFailure } from '../channel/recover.ts';
@@ -130,6 +129,8 @@ export type GenerateArgs = {
   historyEmpty: boolean;
   /** D-176: where the conversation stands with the bot's photo question; null when it does not end on it. */
   photoQuestionState: PhotoQuestionState | null;
+  /** A picture with words, after a photo or reel question asked earlier in the hour (`readRecentMediaQuestion`). */
+  photoQuestionEarlier?: boolean;
 };
 
 export type DeliverArgs = {
@@ -910,9 +911,15 @@ async function runReceptionDelivery(
         }
         const last = await readLastReply(db, tenantId, conversationId);
         if (last === 'unreadable') fx.log('error', 'photo_question_time_unreadable', { tenantId, conversationId });
+        // The latest question in the hour, not only the last reply (founder, 2026-10-09).
+        // Unreadable: the last reply alone decides, as before.
+        const recent = last === 'unreadable' ? 'unreadable'
+          : await readRecentMediaQuestion(db, { tenantId, conversationId, questions, now });
+        if (recent === 'unreadable' && last !== 'unreadable') fx.log('error', 'photo_question_recent_unreadable', { tenantId, conversationId });
         const step = photoAloneStep({
           questions, lastReply: last === 'unreadable' ? null : last,
-          ownKey: photoQuestionDedupKey(eventId, plan.idx), now, burstWindowMs: BURST_WINDOW_MS,
+          ...(recent === 'unreadable' ? {} : { recent }),
+          ownKey: photoQuestionDedupKey(eventId, plan.idx), now, togetherMs: PHOTO_QUESTION_CROSSING_MS,
         });
         if (step === 'handoff') { toNotice.push(plan); continue; }
         mediaHandled = true;
@@ -1874,14 +1881,25 @@ async function runReceptionDelivery(
     const questionRead = await photoQuestionState(db, { tenantId, conversationId, canned: ctx.canned, priorTurns, eventAt, now });
     if (questionRead === 'unreadable') fx.log('error', 'photo_question_time_unreadable', { tenantId, conversationId });
     const photoQuestion: PhotoQuestionState | null = questionRead === 'unreadable' ? 'answering' : questionRead;
-    // A second picture inside the burst window may get nothing more either (`photoPriceStep`).
-    const secondPicture = photoQuestion === 'burst' && unseenMediaOf({
+    // A picture with words after a question asked earlier in the hour, with something else said
+    // since, goes to a person rather than being asked again (`photoPriceStep`, founder 2026-10-09).
+    const picture = unseenMediaOf({
       text: message.text, attachments: message.attachments,
       sentPhoto: message.attachments.includes('image') && message.stickerIds.length === 0,
     }) !== null;
+    let photoQuestionEarlier = false;
+    if (picture && photoQuestion === null) {
+      const questions = ctx.canned
+        .filter((c) => (c.kind === PHOTO_PRICE_QUESTION_KIND || c.kind === REEL_PRICE_QUESTION_KIND) && c.reviewedAt !== null)
+        .map((c) => c.body);
+      const recent = await readRecentMediaQuestion(db, { tenantId, conversationId, questions, now });
+      if (recent === 'unreadable') fx.log('error', 'photo_question_recent_unreadable', { tenantId, conversationId });
+      // Unreadable: asked again, as before (a repeat is better than silence).
+      photoQuestionEarlier = recent !== null && recent !== 'unreadable';
+    }
 
     let typingSettled = false;
-    const typing: Promise<void> | null = deliverThis && photoQuestion !== 'crossed' && !secondPicture
+    const typing: Promise<void> | null = deliverThis && photoQuestion !== 'crossed'
       ? fx.showTyping({ tenantId, channelId, recipientId: message.senderId, pageId, ...viaToken })
         .catch((e: unknown) => {
           fx.log('info', 'typing_indicator_failed', {
@@ -1909,6 +1927,7 @@ async function runReceptionDelivery(
       // message leaves priorTurns empty.
       historyEmpty: priorTurns.length === 0,
       photoQuestionState: photoQuestion,
+      photoQuestionEarlier,
     });
     // Lapped the instant the call returns, and deliberately BEFORE the outcome is
     // branched on. Its first form lapped below the `!delivery.deliver` early-continue, so

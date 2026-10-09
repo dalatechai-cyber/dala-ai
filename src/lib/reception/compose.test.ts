@@ -776,7 +776,7 @@ test('DONE-TEST (founder 2026-10-04): «TARA PERM УРТ» 13 S AFTER THE PHOTO 
   const withPerm = [...SERVICES, { name: 'Tara perm', prices: ['220000', '250000', '290000'],
     rows: ['Tara perm (богино): 220,000₮', 'Tara perm (дунд): 250,000₮', PERM] }];
   for (const message of ['Tara perm урт', 'Tara perm, урт', 'tara perm urt']) {
-    for (const photoQuestionState of ['crossed', 'burst', 'answering'] as const) {
+    for (const photoQuestionState of ['crossed', 'answering'] as const) {
       const t = run(PERM);
       const r = await handleReception(t.deps, {
         ...base, serviceNames: withPerm, canned: WITH_PHOTO_Q, customerMessage: message, history: AFTER_Q, photoQuestionState,
@@ -920,10 +920,10 @@ test('DONE-TEST (D-176 reel): THE ANSWER TO THE REEL QUESTION IS PRICED; ONE NAM
   }
 });
 
-test('DONE-TEST (D-176 reel): A SECOND REEL LINK MINUTES AFTER THE QUESTION GETS NOTHING MORE; 10 TO 60 MINUTES LATER, STAFF', async () => {
+test('DONE-TEST (D-176 reel, 2026-10-09): A SECOND REEL LINK SENT WITH THE FIRST GETS NOTHING MORE; ONE AFTER THAT, STAFF', async () => {
   const soon = run('never called');
   const r1 = await handleReception(soon.deps, {
-    ...base, canned: WITH_REEL_Q, customerMessage: 'https://www.instagram.com/reel/Cxyz/', history: AFTER_REEL_Q, photoQuestionState: 'burst',
+    ...base, canned: WITH_REEL_Q, customerMessage: 'https://www.instagram.com/reel/Cxyz/', history: AFTER_REEL_Q, photoQuestionState: 'crossed',
   });
   assert.deepEqual(r1, { kind: 'dropped', reason: 'photo_question_pending' });
   assert.ok(soon.flags.includes('reel_question_pending'));
@@ -933,10 +933,10 @@ test('DONE-TEST (D-176 reel): A SECOND REEL LINK MINUTES AFTER THE QUESTION GETS
   });
   assert.equal(r2.kind === 'drafted' && r2.mediaHandoff, true);
   assert.deepEqual(later.drafts.map((x) => x.body), [NOTICE]);
-  // A text answering inside the burst window is an answer as usual, not held back.
+  // A text answering a minute later is an answer as usual, not held back.
   const text = run('never called');
   const r3 = await handleReception(text.deps, {
-    ...base, canned: WITH_REEL_Q, customerMessage: 'Будаг хэд вэ', history: AFTER_REEL_Q, photoQuestionState: 'burst',
+    ...base, canned: WITH_REEL_Q, customerMessage: 'Будаг хэд вэ', history: AFTER_REEL_Q, photoQuestionState: 'answering',
   });
   assert.equal(r3.kind === 'drafted' && r3.answeredBy, 'deterministic');
 });

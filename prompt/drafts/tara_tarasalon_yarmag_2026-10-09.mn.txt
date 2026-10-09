@@ -1,0 +1,32 @@
+# Tara Salon — Яармаг (matrix-eco-salon): the website address in Дали's answers becomes tarasalon.org.
+# NOT SIGNED. Proposed 2026-10-09. Nothing is applied until the founder signs below; then
+# scripts/provision/tara-both-tarasalon-2026-10-09.sql writes exactly these bytes.
+#
+# The only change in every line is the address: «https://www.matrixecosalon.org/» becomes
+# «https://www.tarasalon.org/» (the same path after it). No other letter changes. The lines are
+# the ones in Production on 2026-10-09 (read that day), word for word.
+#
+# 1. The approved booking line (canned `booking_line`), and the fixed reply `booking`, which is the same sentence:
+#    BEFORE: Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.
+#    AFTER:  Та манай вэбсайтаар (https://www.tarasalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.
+#
+# 2. «Заавал эхлээд урьдчилгаа хийх үү?» (fixed reply `deposit_required` and its FAQ, the same sentence):
+#    BEFORE: Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно. Цагаа эндээс захиална уу: https://www.matrixecosalon.org/
+#    AFTER:  Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно. Цагаа эндээс захиална уу: https://www.tarasalon.org/
+#
+# 3. «Шампунь, маск зэрэг бүтээгдэхүүн зардаг уу?» (FAQ):
+#    BEFORE: Бүтээгдэхүүний мэдээллийг манай вэбсайтын https://www.matrixecosalon.org/products.html хуудаснаас үзнэ үү.
+#    AFTER:  Бүтээгдэхүүний мэдээллийг манай вэбсайтын https://www.tarasalon.org/products.html хуудаснаас үзнэ үү.
+#
+# 4. Facts, not sentences (shown in the price list's contact lines and as Messenger link buttons):
+#    booking link (tenant_booking.booking_url): https://www.matrixecosalon.org/  ->  https://www.tarasalon.org/
+#    website (contact_points.website):          https://www.matrixecosalon.org/products.html  ->  https://www.tarasalon.org/products.html
+#
+# 5. The sales follow-up line `sales_next_steps` booking (in shadow today: not sent to customers yet), and its link:
+#    BEFORE: Цаг захиалах бол: Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.
+#    AFTER:  Цаг захиалах бол: Та манай вэбсайтаар (https://www.tarasalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.
+#
+# Check before signing: https://www.tarasalon.org/ and https://www.tarasalon.org/products.html open on
+# your phone (this session's network cannot reach tarasalon.org, so it could not check them).
+#
+# SIGNED: ______________________  DATE: __________

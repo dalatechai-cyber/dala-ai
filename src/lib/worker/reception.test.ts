@@ -2265,19 +2265,68 @@ test('DONE-TEST (founder, 2026-10-04): A PHOTO ALONE GETS THE PHOTO QUESTION, AN
   assert.match(String(draft?.patch?.['dedup_key'] ?? ''), /^pq:/);
 });
 
-test('a second photo inside the burst window is not answered again', async () => {
+test('a second photo sent together with the first (seconds after the question) is not answered again', async () => {
   const { fx, delivered, logs } = stubEffects({
     alertMediaHandoff: async () => {},
     tables: {
       webhook_events: PHOTO_ALONE,
       canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: '2026-10-04' }, error: null }, { data: null, error: null }],
       conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
-      outbound_messages: { data: [{ body: PHOTO_Q, created_at: new Date(NOW.getTime() - 60_000).toISOString() }], error: null },
+      outbound_messages: { data: [{ body: PHOTO_Q, created_at: new Date(NOW.getTime() - 5_000).toISOString() }], error: null },
+      messages: { data: [], error: null },
     },
   });
   await run(fx);
   assert.equal(delivered.length, 0);
   assert.ok(reasons(logs).includes('photo_alone_burst'));
+});
+
+test('DONE-TEST (founder 2026-10-09): A SECOND PHOTO A MINUTE AFTER THE QUESTION IS THE NOTICE AND A PERSON TOLD, NEVER SILENCE', async () => {
+  const alerts: unknown[] = [];
+  const { fx, delivered, ops } = stubEffects({
+    alertMediaHandoff: async (a) => { alerts.push(a); },
+    tables: {
+      webhook_events: PHOTO_ALONE,
+      canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: '2026-10-04' }, error: null }, { data: null, error: null }, { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null }],
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: [
+        { data: [{ body: PHOTO_Q, created_at: new Date(NOW.getTime() - 60_000).toISOString() }], error: null },
+        { data: [{ body: PHOTO_Q, created_at: new Date(NOW.getTime() - 60_000).toISOString() }], error: null },
+        { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
+      ],
+      messages: { data: [], error: null },
+    },
+  });
+  await run(fx);
+  assert.deepEqual(delivered.map((d) => d.body), [NOTICE]);
+  assert.ok(ops.some((o) => o.table === 'conversations' && o.op === 'update' && o.patch?.['thread_control'] === 'human'));
+  assert.equal(alerts.length, 1, 'a person is told');
+});
+
+test('DONE-TEST (Парк Од, 2026-10-09 02:18:32): A PHOTO AFTER THE QUESTION AND A PRICED «tara perm urt» IS HANDED TO A PERSON, NOT ASKED AGAIN', async () => {
+  const alerts: unknown[] = [];
+  const PRICE = 'Tara perm (урт): 290,000₮';
+  const { fx, delivered } = stubEffects({
+    alertMediaHandoff: async (a) => { alerts.push(a); },
+    tables: {
+      webhook_events: PHOTO_ALONE,
+      canned_responses: [{ data: { body: PHOTO_Q, reviewed_at: '2026-10-04' }, error: null }, { data: null, error: null }, { data: { body: NOTICE, reviewed_at: '2026-09-27' }, error: null }],
+      conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
+      outbound_messages: [
+        // The last reply: the price, 9 s ago. Then the replies in the hour: the price, then the question.
+        { data: [{ body: PRICE, created_at: new Date(NOW.getTime() - 9_000).toISOString() }], error: null },
+        { data: [
+          { body: PRICE, created_at: new Date(NOW.getTime() - 9_000).toISOString() },
+          { body: PHOTO_Q, created_at: new Date(NOW.getTime() - 23_000).toISOString() },
+        ], error: null },
+        { data: { id: 'om-9', body: NOTICE, attempts: 0, state: 'draft' }, error: null },
+      ],
+      messages: { data: [{ id: 'tara-perm-urt' }], error: null },
+    },
+  });
+  await run(fx);
+  assert.deepEqual(delivered.map((d) => d.body), [NOTICE], 'the notice, not the photo question a second time');
+  assert.equal(alerts.length, 1);
 });
 
 test('a photo after a question that never got words goes to staff: the notice and the hand-off', async () => {
@@ -2453,14 +2502,15 @@ test('DONE-TEST: ANOTHER REEL 10 TO 60 MINUTES AFTER THE REEL QUESTION GOES TO S
   assert.ok(ops.some((o) => o.table === 'conversations' && o.op === 'update' && o.patch?.['thread_control'] === 'human'));
 });
 
-test('a second reel inside the burst window is not answered again', async () => {
+test('a second reel sent together with the first is not answered again', async () => {
   const { fx, delivered, logs } = stubEffects({
     alertMediaHandoff: async () => {},
     tables: {
       webhook_events: REEL_ALONE,
       canned_responses: REEL_ROWS,
       conversations: { data: { id: 'conv-1', thread_control: 'bot', thread_control_at: null }, error: null },
-      outbound_messages: { data: [{ body: REEL_Q, created_at: new Date(NOW.getTime() - 60_000).toISOString() }], error: null },
+      outbound_messages: { data: [{ body: REEL_Q, created_at: new Date(NOW.getTime() - 5_000).toISOString() }], error: null },
+      messages: { data: [], error: null },
     },
   });
   await run(fx);

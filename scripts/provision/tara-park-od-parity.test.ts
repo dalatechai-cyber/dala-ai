@@ -38,6 +38,8 @@ const EQUIVALENT: Record<string, { file: string; marker: string } | { none: stri
   // price twins whose Парк Од originals are her onboarding cases (`generateCases`, «onboard:price_N»);
   // the marker proves the deposit half only.
   'tara-yarmag-price-twins-2026-10-08.sql': { file: 'tara-park-od-deposit-case-2026-10-08.sql', marker: `set must_include = '{"20,000₮"}'::text[]` },
+  // One file for both branches (2026-10-09): the same cases, inserted for each.
+  'tara-both-alerts-and-thanks-2026-10-09.sql': { file: 'tara-both-alerts-and-thanks-2026-10-09.sql', marker: "where t.slug in ('matrix-eco-salon', 'tara-park-od');" },
 };
 
 test('every Яармаг file of reply cases has a Парк Од equivalent, or a reason', () => {
