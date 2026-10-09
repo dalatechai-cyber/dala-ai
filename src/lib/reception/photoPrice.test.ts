@@ -110,6 +110,11 @@ test('photo alone: ask, then nothing to a burst, then the hand-off; a stale ques
   assert.equal(go({ body: Q, at: ago(w + 1) }), 'handoff', 'later than together: after reading the question');
   assert.equal(go({ body: Q, at: ago(PHOTO_QUESTION_ANSWER_WINDOW_MS) }), 'ask', 'review: last week\'s question, or the old image line');
   assert.equal(go({ body: Q, at: ago(40 * 60_000), dedupKey: 'pq:9:0' }), 'ask', 'review: a redelivery finds its own question');
+  // Review: a redelivery whose own question is hidden behind the price it drafted after it.
+  assert.equal(photoAloneStep({ questions: [Q], lastReply: { body: 'Үнэ: 1₮', at: ago(1000) }, ownKey: 'pq:9:0', now, togetherMs: w,
+    recent: { at: ago(2000), isLastReply: false, customerWroteSince: true, dedupKey: 'pq:9:0' } }), 'ask');
+  assert.equal(photoAloneStep({ questions: [Q], lastReply: { body: 'Үнэ: 1₮', at: ago(1000) }, ownKey: 'pq:10:0', now, togetherMs: w,
+    recent: { at: ago(2000), isLastReply: false, customerWroteSince: true, dedupKey: 'pq:9:0' } }), 'handoff');
 });
 
 test('a price ask is whole words, and «хэдэн цагт» asks a time', () => {

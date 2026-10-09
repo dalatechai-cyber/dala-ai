@@ -53,6 +53,18 @@ begin
      and (r.expected_body like '%matrixecosalon%' or array_to_string(r.must_include, '|') like '%matrixecosalon%'
           or array_to_string(r.must_not_include, '|') like '%matrixecosalon%');
   if n <> 13 then raise exception 'reply_cases: expected 13 cases on the old address, found %', n; end if;
+  -- Nothing names the new address yet, so the revert can return exactly what this file wrote.
+  select count(*) into n from (
+    select b.tenant_id from tenant_booking b where b.booking_url like '%tarasalon.org%'
+    union all select c.tenant_id from contact_points c where c.value like '%tarasalon.org%'
+    union all select c.tenant_id from canned_responses c where c.body like '%tarasalon.org%'
+    union all select d.tenant_id from deterministic_replies d where d.body like '%tarasalon.org%'
+    union all select f.tenant_id from faqs f where f.answer like '%tarasalon.org%'
+    union all select s.tenant_id from sales_next_steps s where s.body like '%tarasalon.org%' or s.link like '%tarasalon.org%'
+    union all select r.tenant_id from reply_cases r where r.expected_body like '%tarasalon.org%'
+      or array_to_string(r.must_include, '|') like '%tarasalon.org%' or array_to_string(r.must_not_include, '|') like '%tarasalon.org%'
+  ) x where x.tenant_id in (select id from tenants where slug in ('matrix-eco-salon', 'tara-park-od'));
+  if n <> 0 then raise exception '% row(s) already name tarasalon.org: read them before applying', n; end if;
 end $$;
 
 update tenant_booking b set booking_url = 'https://www.tarasalon.org/'
@@ -89,8 +101,8 @@ update sales_next_steps s
 
 update reply_cases r
    set expected_body = replace(r.expected_body, 'https://www.matrixecosalon.org/', 'https://www.tarasalon.org/'),
-       must_include = array(select replace(x, 'https://www.matrixecosalon.org/', 'https://www.tarasalon.org/') from unnest(r.must_include) x),
-       must_not_include = array(select replace(x, 'https://www.matrixecosalon.org/', 'https://www.tarasalon.org/') from unnest(r.must_not_include) x)
+       must_include = array(select replace(x, 'https://www.matrixecosalon.org/', 'https://www.tarasalon.org/') from unnest(r.must_include) with ordinality u(x, i) order by i),
+       must_not_include = array(select replace(x, 'https://www.matrixecosalon.org/', 'https://www.tarasalon.org/') from unnest(r.must_not_include) with ordinality u(x, i) order by i)
   from tenants t where t.id = r.tenant_id and t.slug in ('matrix-eco-salon', 'tara-park-od')
    and (r.expected_body like '%https://www.matrixecosalon.org/%' or array_to_string(r.must_include, '|') like '%https://www.matrixecosalon.org/%'
         or array_to_string(r.must_not_include, '|') like '%https://www.matrixecosalon.org/%');
@@ -109,6 +121,7 @@ begin
     union all select k.tenant_id from knowledge_documents k where k.body like '%matrixecosalon%'
     union all select s.tenant_id from sales_next_steps s where s.body like '%matrixecosalon%' or s.link like '%matrixecosalon%' or s.web_body like '%matrixecosalon%'
     union all select r.tenant_id from reply_cases r where r.expected_body like '%matrixecosalon%' or array_to_string(r.must_include, '|') like '%matrixecosalon%'
+      or array_to_string(r.must_not_include, '|') like '%matrixecosalon%'
   ) x where x.tenant_id in (select id from tenants where slug in ('matrix-eco-salon', 'tara-park-od'));
   if n <> 0 then raise exception 'read-back: % row(s) still name matrixecosalon.org', n; end if;
   select count(*) into n from canned_responses c join tenants t on t.id = c.tenant_id

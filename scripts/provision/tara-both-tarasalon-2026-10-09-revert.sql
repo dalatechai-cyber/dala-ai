@@ -1,5 +1,7 @@
 -- Revert tara-both-tarasalon-2026-10-09.sql: every address back to https://www.matrixecosalon.org/
 -- on both branches, in one transaction, then publish BOTH. Refuses unless that file is applied.
+-- The texts come back exactly; the signing time of the booking line and Яармаг's sales line is
+-- now() (0075 forbids an unsigned live line), not the original one.
 begin;
 
 set local dala.canned_edit = 'republish';
@@ -46,8 +48,8 @@ update sales_next_steps s
 
 update reply_cases r
    set expected_body = replace(r.expected_body, 'https://www.tarasalon.org/', 'https://www.matrixecosalon.org/'),
-       must_include = array(select replace(x, 'https://www.tarasalon.org/', 'https://www.matrixecosalon.org/') from unnest(r.must_include) x),
-       must_not_include = array(select replace(x, 'https://www.tarasalon.org/', 'https://www.matrixecosalon.org/') from unnest(r.must_not_include) x)
+       must_include = array(select replace(x, 'https://www.tarasalon.org/', 'https://www.matrixecosalon.org/') from unnest(r.must_include) with ordinality u(x, i) order by i),
+       must_not_include = array(select replace(x, 'https://www.tarasalon.org/', 'https://www.matrixecosalon.org/') from unnest(r.must_not_include) with ordinality u(x, i) order by i)
   from tenants t where t.id = r.tenant_id and t.slug in ('matrix-eco-salon', 'tara-park-od')
    and (r.expected_body like '%https://www.tarasalon.org/%' or array_to_string(r.must_include, '|') like '%https://www.tarasalon.org/%'
         or array_to_string(r.must_not_include, '|') like '%https://www.tarasalon.org/%');
@@ -63,6 +65,7 @@ begin
     union all select f.tenant_id from faqs f where f.answer like '%tarasalon.org%'
     union all select s.tenant_id from sales_next_steps s where s.body like '%tarasalon.org%' or s.link like '%tarasalon.org%'
     union all select r.tenant_id from reply_cases r where r.expected_body like '%tarasalon.org%' or array_to_string(r.must_include, '|') like '%tarasalon.org%'
+      or array_to_string(r.must_not_include, '|') like '%tarasalon.org%'
   ) x where x.tenant_id in (select id from tenants where slug in ('matrix-eco-salon', 'tara-park-od'));
   if n <> 0 then raise exception 'read-back: % row(s) still name tarasalon.org', n; end if;
 end $$;

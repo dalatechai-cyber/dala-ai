@@ -10,7 +10,7 @@
 #    BEFORE: Та манай вэбсайтаар (https://www.matrixecosalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.
 #    AFTER:  Та манай вэбсайтаар (https://www.tarasalon.org/) онлайнаар цаг захиалж, урьдчилгаа төлбөрөө QPay-ээр төлөх боломжтой.
 #
-# 2. «Заавал эхлээд урьдчилгаа хийх үү?» (fixed reply `deposit_required` and its FAQ, the same sentence):
+# 2. The answer to «Заавал эхлээд урьдчилгаа хийх үү?» (fixed reply `deposit_required`, and the FAQ «Заавал эхлээд урьдчилгаа төлөх үү?»: the same sentence):
 #    BEFORE: Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно. Цагаа эндээс захиална уу: https://www.matrixecosalon.org/
 #    AFTER:  Онлайнаар цаг захиалахад урьдчилгаа төлбөр төлж, цагаа баталгаажуулна. Урьдчилгаа төлбөр үйлчилгээний үнээс хасагдаж тооцогдоно. Цагаа эндээс захиална уу: https://www.tarasalon.org/
 #
@@ -23,6 +23,9 @@
 #    website (contact_points.website):          https://www.matrixecosalon.org/products.html  ->  https://www.tarasalon.org/products.html
 #
 # 5. (Парк Од has no sales follow-up line.)
+#
+# Also changed, as test fixtures and not wording: the reply cases that expect the address
+# (Яармаг 185–190; Парк Од 232, 252–257) now expect https://www.tarasalon.org/.
 #
 # Check before signing: https://www.tarasalon.org/ and https://www.tarasalon.org/products.html open on
 # your phone (this session's network cannot reach tarasalon.org, so it could not check them).

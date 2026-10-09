@@ -43,7 +43,7 @@ import { personRepliedSince } from '../handover/presend.ts';
 import { humanHoldsThread } from '../handover/control.ts';
 import { mediaAloneDedupKey, photoQuestionDedupKey, planMediaAlone, readCannedLine, readHandoverNotice, unseenMediaOf } from '../handover/media.ts';
 import {
-  PHOTO_PRICE_QUESTION_KIND, PHOTO_QUESTION_CROSSING_MS, photoAloneStep, questionFor, REEL_PRICE_QUESTION_KIND, type PhotoQuestionState,
+  PHOTO_BATCH_MS, PHOTO_PRICE_QUESTION_KIND, photoAloneStep, questionFor, REEL_PRICE_QUESTION_KIND, type PhotoQuestionState,
 } from '../reception/photoPrice.ts';
 import { photoQuestionState, readLastReply, readRecentMediaQuestion } from '../inbound/photoQuestion.ts';
 import { isApprovedLinesRefusal, publishedLine } from '../prompt/cannedDrift.ts';
@@ -919,7 +919,7 @@ async function runReceptionDelivery(
         const step = photoAloneStep({
           questions, lastReply: last === 'unreadable' ? null : last,
           ...(recent === 'unreadable' ? {} : { recent }),
-          ownKey: photoQuestionDedupKey(eventId, plan.idx), now, togetherMs: PHOTO_QUESTION_CROSSING_MS,
+          ownKey: photoQuestionDedupKey(eventId, plan.idx), now, togetherMs: PHOTO_BATCH_MS,
         });
         if (step === 'handoff') { toNotice.push(plan); continue; }
         mediaHandled = true;

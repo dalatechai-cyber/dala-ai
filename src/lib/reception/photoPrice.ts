@@ -48,7 +48,7 @@
  *  - Other words («ийм будаг хийж болох уу?»): `handoff`, as before. Whether it can be done is
  *    the stylist's to say, and the model cannot see the photo.
  *  - A crossed text naming ONE listed service by name or alias («Tara perm урт», sent 13 s after
- *    the question): `answer`. It is the answer to the question, typed fast; the 30 s crossing
+ *    the question): `answer`. It is the answer to the question, typed fast; the 10 s crossing
  *    window must not turn it into a caption. A kind alone («ийм будаг») still goes to staff.
  *  - A text answering the question: `answer` when it names a service or fires any fixed reply
  *    or gate topic (the customer moved on: «хаяг хаана вэ?»), otherwise `handoff`. One
@@ -88,11 +88,20 @@ export const NOT_A_PRICE_ASK: readonly string[] = [
  * How long after the photo question a text still counts as written before it (`crossed`), from
  * Meta's time for the text to the question's row. A photo and «хэд вэ?» sent together arrive
  * seconds apart, and the question is sent about a second after the photo; a customer who began
- * typing before it arrived is not answering it. Thirty seconds covers that typing; a customer
- * who replies to the question inside it with only «хэд вэ?» gets nothing more for that message,
- * and their next one is answered or handed off.
+ * typing before it arrived is not answering it. The one measured crossing took 3.1 s (Парк Од,
+ * 2026-10-09 02:18:36.9 against the question's row at 02:18:33.8); the same customer's reply after
+ * reading the question came 21 s after it. Ten seconds covers the crossing with margin and no
+ * longer: a text inside it gets nothing more, so a wider window is a window of silence (D-182).
  */
-export const PHOTO_QUESTION_CROSSING_MS = 30_000;
+export const PHOTO_QUESTION_CROSSING_MS = 10_000;
+
+/**
+ * How close a second picture must be to the photo question, with nothing written between, to
+ * count as sent together with the first (it then gets nothing more). Measured on the server's
+ * clock: each picture is its own job, so it allows for a job that starts late. A later picture
+ * gets the hand-off notice and a person is told.
+ */
+export const PHOTO_BATCH_MS = 30_000;
 
 /** Do the customer's words ask what something costs? */
 export function asksPrice(text: string): boolean {
@@ -252,7 +261,7 @@ export function photoAloneStep(input: {
    * reply, and whether the customer wrote since; null when none. Absent: read from `lastReply`
    * alone, as before (the question is the last reply, nothing written since).
    */
-  recent?: { at: Date; isLastReply: boolean; customerWroteSince: boolean } | null;
+  recent?: { at: Date; isLastReply: boolean; customerWroteSince: boolean; dedupKey?: string | null } | null;
   ownKey: string;
   now: Date;
   /** A second picture this soon after the question was sent together with the first. */
@@ -264,6 +273,9 @@ export function photoAloneStep(input: {
   const recent = input.recent !== undefined ? input.recent
     : last !== null && isMediaQuestion(last.body, input.questions) ? { at: last.at, isLastReply: true, customerWroteSince: false } : null;
   if (recent === null) return 'ask';
+  // The same, when a reply drafted after it (a price for the words sent with this picture) hides
+  // the question from `lastReply`: the event's own question is never a reason to hand off.
+  if (recent.dedupKey === input.ownKey) return 'ask';
   const age = input.now.getTime() - recent.at.getTime();
   if (Number.isNaN(age)) return 'ask';
   // A question from another day (or Tara's older image line, the same bytes) was not this one.

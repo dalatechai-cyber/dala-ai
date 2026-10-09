@@ -102,7 +102,8 @@ const LOOKUP: ReadonlyMap<string, ChatKind> = new Map(
  * word or a word that sits beside one, and at least one is a thanks word. A thanks word begins
  * with the stem of «баярлалаа» as typed («баярл», «bayarl», «bayrl», «bairl»: «bayrlala»,
  * «bayrllaa», «баярлаа»), or is an English one. «bayartai» (goodbye) has no «l» there and is not
- * one; a question beside the thanks («баярлалаа, хэд вэ?») has a word that is neither.
+ * one; a question beside the thanks («баярлалаа, хэд вэ?») has a word that is neither; «bairlal?»
+ * (where are you) has the wrong ending.
  */
 const THANKS_STEMS: readonly string[] = ['баярл', 'bayarl', 'bayrl', 'bairl'];
 const THANKS_WORDS: ReadonlySet<string> = new Set(['thanks', 'thank', 'thx', 'tnx', 'ty']);
@@ -111,9 +112,20 @@ const BESIDE_THANKS: ReadonlySet<string> = new Set([
   'танд', 'tand', 'та', 'ta', 'you', 'a', 'lot', 'much', 'аа', 'aa', 'аан', 'aan',
 ]);
 
+// After the stem only the letters of «-алаа» may follow, ending on a vowel: «bairlal» («Байрлал?»,
+// where are you) and «bayrlah», «баярлаж» (other forms of the verb) are not thanks.
+const THANKS_TAIL: ReadonlySet<string> = new Set(['а', 'a', 'л', 'l']);
+const THANKS_TAIL_END: ReadonlySet<string> = new Set(['а', 'a']);
+
+function thanksTail(rest: string): boolean {
+  const chars = [...rest];
+  return chars.every((c) => THANKS_TAIL.has(c)) && (chars.length === 0 || THANKS_TAIL_END.has(chars[chars.length - 1] ?? ''));
+}
+
 function isThanksShape(key: string): boolean {
   const words = key.split(' ').filter((w) => w !== '');
-  const thanks = (w: string): boolean => THANKS_WORDS.has(w) || THANKS_STEMS.some((st) => w.startsWith(st));
+  const thanks = (w: string): boolean =>
+    THANKS_WORDS.has(w) || THANKS_STEMS.some((st) => w.startsWith(st) && thanksTail(w.slice(st.length)));
   return words.some(thanks) && words.every((w) => thanks(w) || BESIDE_THANKS.has(w));
 }
 

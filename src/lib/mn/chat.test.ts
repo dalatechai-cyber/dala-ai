@@ -61,8 +61,8 @@ test('DONE-TEST (founder, 2026-10-09): THANKS AS CUSTOMERS TYPE IT IS THANKS, BY
     assert.equal(chatKind(t), 'thanks', t);
     assert.equal(chatCanonical(t), 'баярлалаа', t);
   }
-  // Not thanks: goodbye, a question beside the thanks, a sentence that goes on, a bare «ok».
-  for (const t of ['bayartai', 'Баярлалаа, хэд вэ?', 'ok mash ih bayrlalaa hiicheed heliy', 'баярлах болно', 'Bayrlalaa margaash ochno', 'bayr']) {
+  // Not thanks: goodbye, a question beside the thanks, a sentence that goes on, a bare «ok», «Bairlal?» (where are you) and other forms of the verb.
+  for (const t of ['bayartai', 'Баярлалаа, хэд вэ?', 'ok mash ih bayrlalaa hiicheed heliy', 'баярлах болно', 'Bayrlalaa margaash ochno', 'bayr', 'Bairlal?', 'bairlal aa', 'bairluulah', 'баярлах', 'баярлаж', 'bayrlah', 'bayrluulna']) {
     assert.notEqual(chatKind(t), 'thanks', t);
   }
   assert.equal(chatKind('ok'), 'ack');

@@ -83,10 +83,10 @@ export async function photoQuestionState(
 export async function readRecentMediaQuestion(
   db: SupabaseClient,
   input: { tenantId: string; conversationId: string; questions: readonly string[]; now: Date },
-): Promise<{ at: Date; isLastReply: boolean; customerWroteSince: boolean } | null | 'unreadable'> {
+): Promise<{ at: Date; isLastReply: boolean; customerWroteSince: boolean; dedupKey: string | null } | null | 'unreadable'> {
   if (input.questions.length === 0) return null;
   const since = new Date(input.now.getTime() - PHOTO_QUESTION_ANSWER_WINDOW_MS).toISOString();
-  const { data, error } = await db.from('outbound_messages').select('body, created_at')
+  const { data, error } = await db.from('outbound_messages').select('body, created_at, dedup_key')
     .eq('tenant_id', input.tenantId).eq('conversation_id', input.conversationId).eq('kind', 'reply')
     .in('state', ['sent', 'draft', 'sending', 'indeterminate']).gte('created_at', since)
     .order('created_at', { ascending: false }).limit(20);
@@ -102,5 +102,6 @@ export async function readRecentMediaQuestion(
     .gt('at', at.toISOString()).limit(1);
   // Unreadable reads as written: the picture then goes to a person, never to silence.
   const customerWroteSince = wrote.error ? true : Array.isArray(wrote.data) && wrote.data.length > 0;
-  return { at, isLastReply: i === 0, customerWroteSince };
+  const key = rows[i]?.['dedup_key'];
+  return { at, isLastReply: i === 0, customerWroteSince, dedupKey: typeof key === 'string' ? key : null };
 }

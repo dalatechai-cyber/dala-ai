@@ -24,6 +24,7 @@
  * slugs are arguments, never literals in the logic. Not covered: two workers racing for one
  * reply (the claim's lease condition is dropped locally, below), Graph's own behaviour.
  */
+import { raiseMediaHandoff } from '../../src/lib/handover/media.ts';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js'; // guard-ok: scripts/, not src/ (a local replica client with one rewrite, below)
@@ -197,10 +198,11 @@ function effects(now: Date): WorkerEffects {
     lookupComment: async () => ({ tagsPerson: false, postCreatedAt: new Date(Date.now() - 86_400_000), problems: [] }),
     alertComplaint: async (a) => { complaints.push({ tenantId: a.tenantId, commentId: a.commentId }); },
     alertCeilingReached: async () => 'stub',
+    // The route's own function (it writes the `alerts` row on the replica; with no Telegram
+    // variables it is recorded undelivered): `disabled` is the tenant's setting saying no.
     alertMediaHandoff: async (a) => {
-      const { data, error } = await db.from('tenants').select('media_handoff_alert').eq('id', a.tenantId).maybeSingle();
-      // Unreadable alerts (D-153: a silent failure would hide the hand-off), exactly as `raiseMediaHandoff`.
-      if (error || (data as Record<string, unknown> | null)?.['media_handoff_alert'] !== false) mediaAlerts.push({ tenantId: a.tenantId, conversationId: a.conversationId });
+      const outcome = await raiseMediaHandoff(db, a);
+      if (outcome.outcome !== 'disabled') mediaAlerts.push({ tenantId: a.tenantId, conversationId: a.conversationId });
     },
     alertCannedStale: async () => 'stub',
     alertNeedsPerson: async (a) => { needsPerson.push({ tenantId: a.tenantId, reason: String(a.reason) }); return true; },
