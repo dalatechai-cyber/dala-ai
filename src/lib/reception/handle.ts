@@ -49,11 +49,12 @@ import { entriesFrom, matchService, termIsSpecific, termTokens, toTerm } from '.
 import { containsStem, findStem, hasWord } from '../mn/match.ts';
 import { IMAGE_REPLY_KIND } from '../inbound/imageReply.ts';
 import {
-  asksPrice, hasWords, isPhotoQuestion, PHOTO_PRICE_QUESTION_KIND, photoPriceStep, questionFor, REEL_PRICE_QUESTION_KIND,
+  ASKS_PRICE, asksPrice, hasWords, isPhotoQuestion, PHOTO_PRICE_QUESTION_KIND, photoPriceStep, questionFor, REEL_PRICE_QUESTION_KIND,
   type PhotoQuestionState,
 } from './photoPrice.ts';
 import { maskUrls } from '../mn/extract.ts';
 import { isLike, likeIsOwedReply } from '../inbound/like.ts';
+import { levelDepositRow, rosterFromPrefix, rosterNamedIn, stylistNamedReply, type RosterRow } from './stylistNamed.ts';
 import { EMBEDDED_CERTAIN_SHARE, checkPinnedLines, faqAdaptation } from '../gate/pinned.ts';
 import { outboundGuard, type TenantGuardView } from '../guard/outbound.ts';
 import { hasTenantData } from '../prompt/tenant.ts';
@@ -613,16 +614,31 @@ function amounts(text: string): string[] {
  * The rows are the compiled «УРЬДЧИЛГАА ТӨЛБӨР» section's own, verbatim; nothing is
  * reworded, and a reply that already states every deposit is left exactly as written.
  */
-function withDeposits(body: string, bookingLine: string | null, depositRows: readonly string[]): string {
+function withDeposits(
+  body: string, bookingLine: string | null, depositRows: readonly string[], roster: readonly RosterRow[] = [],
+): string {
   if (bookingLine === null || depositRows.length === 0) return body;
   const line = bookingLine.trim();
   const at = body.indexOf(line);
   if (at === -1) return body;
   const have = new Set(amounts(body));
   if (depositRows.every((r) => amounts(r).every((a) => have.has(a)))) return body;
+  // A reply about ONE named hairdresser that states her own level's deposit is complete: every
+  // level's deposit above it buries the one that applies (2026-10-09: «Оюунаад цаг авч болох
+  // уу?» got all three rows and not a word about Oyunaa).
+  if (namedLevelDepositStated(body, depositRows, roster)) return body;
   const before = body.slice(0, at).trimEnd();
   const block = depositRows.map((r) => r.trim()).join('\n');
   return `${before === '' ? '' : `${before}\n\n`}${block}\n\n${body.slice(at)}`;
+}
+
+/** Does `body` name exactly one hairdresser and carry every amount of her level's deposit row? */
+function namedLevelDepositStated(body: string, depositRows: readonly string[], roster: readonly RosterRow[]): boolean {
+  const named = rosterNamedIn(body, roster);
+  if (named.length !== 1) return false;
+  const row = levelDepositRow(named[0]!, depositRows);
+  // The row's own text, not only its amount: an amount alone may be any price.
+  return row !== null && fold(body).includes(fold(row));
 }
 
 /**
@@ -731,6 +747,8 @@ async function receive(
   // chat forms — «bnu», «sn bnuu», «bayrlalaa», «une hed ve» — are read the same way for every
   // tenant, under the tenant's own rows (`mn/chat.ts`, 2026-09-27).
   const respelled = matchingText(input.customerMessage, input.spellings);
+  // The roster as the prefix renders it: names, groups and levels (`stylistNamed.ts`).
+  const roster = rosterFromPrefix(input.promptStable, SECTION_LABELS.staffList);
   const matched = matchRules(
     { text: input.customerMessage, attachments: input.customerAttachments, respelled }, input.rules);
   if (!matched.ok) {
@@ -1067,7 +1085,7 @@ async function receive(
           refusal || isComplaint(input.customerMessage, input.complaintRules, respelled)) };
       }
       const body = stylePriceRows(
-        withAppended(withDeposits(x.body, bookingRow, input.depositRows), [...own, ...onReply]),
+        withAppended(withDeposits(x.body, bookingRow, input.depositRows, roster), [...own, ...onReply]),
         input.serviceNames, input.replyStyle);
       // A correction answered with the same reply is not sent (founder, 2026-09-24, live:
       // «us bish usnii himi» got «Буруу ойлголоо. Усан хими 132,000₮–154,000₮» — the same
@@ -1261,6 +1279,31 @@ async function receive(
     return drafted.ok
       ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'canned' }
       : { kind: 'retry', detail: drafted.detail };
+  }
+
+  // 5b. A hairdresser named alone, or with a booking ask (2026-10-09): who she is, her level's
+  //     services and deposit, and the booking line, all from rows (`stylistNamed.ts`). After
+  //     every fixed reply and short-circuit, so a tenant's own row still wins; no model call.
+  //     Off unless the tenant's `reply_style` says `stylist_named: true` (D-184).
+  //     Never for a complaint, or a message a gate or topic rule fired on: those keep their path.
+  if (input.replyStyle?.stylistNamed === true && matched.firedGates.length === 0 && matched.matchedTopics.length === 0
+    && !isComplaint(input.customerMessage, input.complaintRules, respelled)) {
+    const named = stylistNamedReply({
+      customerMessage: input.customerMessage, roster, spellings: input.spellings,
+      serviceNames: input.serviceNames, depositRows: input.depositRows,
+      bookingLine: canned(input.canned, 'booking_line'),
+      // Any price word, «цаг» or not: «Оюунаад цаг авах үнэ хэд вэ» is the price path's, and
+      // `asksPrice` reads every message with «цаг» as asking a time.
+      asksPrice: (t) => hasWord(t, ASKS_PRICE) || (respelled !== null && hasWord(respelled, ASKS_PRICE)),
+    });
+    if (named !== null) {
+      await deps.release();   // nothing was spent, so the hold goes straight back
+      await deps.flag({ code: 'stylist_named', detail: `${named.intent}: ${named.name}` });
+      const drafted = await d.draft({ body: named.body, answeredBy: 'deterministic' });
+      return drafted.ok
+        ? { kind: 'drafted', outboundId: drafted.id, answeredBy: 'deterministic' }
+        : { kind: 'retry', detail: drafted.detail };
+    }
   }
 
   // 6. NO FACTS, NO CALL. A tenant whose compiled prefix carries none of its own data

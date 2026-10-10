@@ -14,14 +14,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { branchLabel, foreignDetails, renderBranchFindings, sharedDrift, type BranchFinding, type BranchSide, type NotOffered } from '../../src/lib/facts/branches.ts';
+import { branchLabel, foreignDetails, linkKey, renderBranchFindings, sharedDrift, type BranchFinding, type BranchSide, type NotOffered } from '../../src/lib/facts/branches.ts';
 import { loadBranchSide } from '../../src/lib/facts/branchRows.ts';
 import type { OnboardPlan } from '../../src/lib/provision/plan.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 
 export type BranchGroup = {
-  name: string; tenants: string[]; allowNames: string[]; allowPhones?: string[]; sayPhones?: string[]; allowAddresses?: string[];
+  name: string; tenants: string[]; allowNames: string[]; allowPhones?: string[]; sayPhones?: string[]; sayLinks?: string[]; allowAddresses?: string[];
   /** Per slug: price variants that branch does not offer (no row), e.g. a level it has no staff for. */
   notOffered?: NotOffered;
   /** Where the other branch's name and allowed address may appear (text sources); null = anywhere. */
@@ -60,6 +60,15 @@ export function branchGroups(text = readFileSync(join(ROOT, 'config/branch-group
     }
     if (sayPhones.length > 0 && g['other_branch_in'] === undefined) {
       throw new Error(`config/branch-groups.json: group ${name}: "say_phones" needs "other_branch_in" (the rows where they may be said)`);
+    }
+    // Another branch's own map links, sayable only in the `other_branch_in` rows, like `say_phones`
+    // (founder, 2026-10-09: «which branch is nearer?» gives both branches' Maps links).
+    const sayLinks = g['say_links'] ?? [];
+    if (!Array.isArray(sayLinks) || !sayLinks.every((s) => typeof s === 'string' && linkKey(s) !== null)) {
+      throw new Error(`config/branch-groups.json: group ${name}: "say_links" must be a list of map links`);
+    }
+    if (sayLinks.length > 0 && g['other_branch_in'] === undefined) {
+      throw new Error(`config/branch-groups.json: group ${name}: "say_links" needs "other_branch_in" (the rows where they may be said)`);
     }
     const addresses = g['allow_addresses'] ?? [];
     if (!Array.isArray(addresses) || !addresses.every((s) => typeof s === 'string' && s.trim() !== '')) {
@@ -110,6 +119,7 @@ export function branchGroups(text = readFileSync(join(ROOT, 'config/branch-group
       name, tenants: [...new Set(tenants as string[])], allowNames: (allow as string[]).map((n) => n.normalize('NFC')),
       allowPhones: phones as string[],
       sayPhones: sayPhones as string[],
+      sayLinks: sayLinks as string[],
       allowAddresses: (addresses as string[]).map((a) => a.normalize('NFC')),
       notOffered,
       otherBranchIn: inRaw === undefined ? null : (inRaw as string[]).map((x) => x.normalize('NFC')),
@@ -225,7 +235,7 @@ export async function branchGate(
         }
       }
     }
-    findings.push(...foreignDetails(aliased(own), aliased(sib.side), group.allowNames, group.allowPhones ?? [], group.allowAddresses ?? [], group.otherBranchIn ?? null, group.sayPhones ?? []));
+    findings.push(...foreignDetails(aliased(own), aliased(sib.side), group.allowNames, group.allowPhones ?? [], group.allowAddresses ?? [], group.otherBranchIn ?? null, group.sayPhones ?? [], group.sayLinks ?? []));
     const drift = sharedDrift(own, sib.side, group.notOffered ?? {});
     if ((data as Record<string, unknown>)['live_revision_id'] == null) {
       pending.push(...drift);

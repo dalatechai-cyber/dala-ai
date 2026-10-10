@@ -251,3 +251,24 @@ test('DONE-TEST: ONLY THE PRICE SENTENCE IS REPLACED; THE MODEL\'S OTHER SENTENC
   // A point between digits is not a sentence break.
   assert.deepEqual(sentencesOf('Үнэ 1.5 сая. Тийм!\nБолно'), ['Үнэ 1.5 сая.', 'Тийм!', 'Болно']);
 });
+
+test('a long name word beats a short one across services: «8 настай хүүгийн үс тайралт» is not a consultation (2026-10-09)', () => {
+  const prefix = [
+    '=== ҮНИЙН ЖАГСААЛТ ===', '- Үс оношлогоо, зөвлөгөө: 33,000₮',
+    '- Хүүхдийн тайралт (эрэгтэй, 0–13 нас): 33,000₮', '- Хүүхдийн тайралт (эрэгтэй, 14–18 нас): 44,000₮',
+    '- Хүүхдийн тайралт (охин): 44,000₮',
+  ].join('\n');
+  const src = factSourceFrom(prefix, LABELS, []);
+  const r = checkFacts('8 настай хүүгийн үс тайралт 33,000₮ байна.', src, '8 настай хүүгийн үс тайралт хэд вэ?');
+  assert.equal(r.restated && r.served, 'Хүүхдийн тайралт (эрэгтэй, 0–13 нас): 33,000₮');
+  // A consultation question still gets the consultation: «оношлогоо» is the long word there.
+  const c = checkFacts('Үс оношлогоо 33,000₮.', src, 'үс оношлогоо хэд вэ');
+  assert.equal(c.restated && c.served, 'Үс оношлогоо, зөвлөгөө: 33,000₮');
+  // The long word must sit in the amount's own clause: «Сор 210,000₮ байна. Будаг …» keeps «Бүтэн сор».
+  const sor = factSourceFrom(['=== ҮНИЙН ЖАГСААЛТ ===', '- Бүтэн сор: 210,000₮', '- Энгийн будаг (урт): 210,000₮'].join('\n'), LABELS, []);
+  const s1 = checkFacts('Сор 210,000₮ байна. Будаг хийлгэж болно.', sor, 'Сор хэд вэ? будаг хийлгэж болох уу');
+  assert.ok(s1.restated && (s1.served ?? '').includes('Бүтэн сор: 210,000₮'), String(s1.restated && s1.served));
+  // Unchanged where only one service is corroborated at all: «үс» alone names the consultation.
+  const t = checkFacts('Үс 33,000₮.', src, 'үс хэд вэ');
+  assert.equal(t.restated && t.served, 'Үс оношлогоо, зөвлөгөө: 33,000₮');
+});

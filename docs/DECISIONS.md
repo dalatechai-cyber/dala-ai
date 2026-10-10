@@ -12146,3 +12146,68 @@ booking page works there; not reachable from a Claude session, checked by the fo
   (booking link, the signed booking line, `booking` and `deposit_required`, two FAQs, the website
   contact, Яармаг's sales line, 13 reply cases): `tara-both-tarasalon-2026-10-09.sql`, after the
   founder signs `prompt/drafts/tara_tarasalon_{yarmag,park_od}_2026-10-09.mn.txt`.
+
+## D-184 — A named hairdresser is answered from the rows; a child's cut is not a consultation; a hairdresser's own deposit is enough; a 👍 reaction never reaches Дали (2026-10-09, overnight session; the composed answer is OFF until the founder signs)
+
+Four flaws the founder listed, each reproduced on a local copy equal to Production with the model
+stubbed, and fixed the same way for both Tara branches.
+
+- **«8 настай хүүгийн үс тайралт хэд вэ?» also listed «Үс оношлогоо, зөвлөгөө».** No row matches
+  the message («хүүгийн» is not «хүүхдийн»), so the model answers; when it writes «… 33,000₮»
+  without the exact service name, `guard/facts.ts` serves the rows that own 33,000. Two do: the
+  boy's cut (0–13) and the consultation, and the corroboration tied them, «тайралт» against «үс».
+  Fix (`checkFacts`): across different services tied on score, a name word of four letters or more
+  IN THE AMOUNT'S OWN CLAUSE beats a short one (the clause, so «Сор 210,000₮ байна. Будаг …» still
+  keeps «Бүтэн сор»: review). Reproduced on both branches before, one row after; existing facts tests
+  unchanged. The child's-cut reply cases gain `must_not_include «оношлогоо»` (model cases).
+- **A 👍 «appears not to be recorded».** The Messenger like (the thumbs-up button) does reach Дали:
+  Яармаг got 39 in 30 days; the 11 since D-168 are all recorded as «👍 (like)» and answered; the 28
+  before D-168 were skipped by design then. Парк Од got none in 30 days, though her webhook records
+  every message, so the founder's 👍 there was a REACTION (pressing on a message), not the like
+  button. Meta delivers reactions only with the Page subscription field `message_reactions`; both
+  channels subscribe `messages`, `feed`, `message_echoes`, and 0 reaction events reached any tenant in
+  30 days. Not fixed here: subscribing is a Meta write (the founder's, both apps, D-043), and code
+  for a payload no one has seen would be built on a guess («a row proves itself»). Once subscribed,
+  the first reaction lands in `webhook_events` and can be designed from (proposal: record it, never
+  answer it — a reaction to Дали's reply is an «ок»).
+- **«Оюунаа» alone got «тодруулж бичнэ үү».** New `reception/stylistNamed.ts`: a message that names
+  exactly one person on the roster (Latin name, or a Cyrillic spelling from `spellings`, with one
+  known case ending at most: «saraas», «tomoohon» are not names) and says nothing else, or whose
+  every other word is a plain booking ask from a closed list (no past tense, cancel, change, «өөр»,
+  other people, services or payments) with no price word, and is not a complaint and fired no gate
+  or topic rule, is answered without the model:
+  «{name} — {level}», (alone) her level's price rows (never the other gender's), her level's deposit
+  row, the booking line. Only rows and approved lines; the arrangement is on the founder's sheet
+  `prompt/drafts/tara_stylist_named_2026-10-09.mn.txt`, and it is OFF unless the tenant's
+  `reply_style` has `stylist_named: true` (`tara-both-stylist-and-child-2026-10-09.sql` sets it with
+  the reply cases).
+- **«Оюунаад цаг авч болох уу?» got all three deposit rows.** `withDeposits` adds every level's deposit
+  above a booking line whenever one amount is missing; a reply about one named hairdresser that
+  states HER level's deposit row (its text, not only the amount; the name as a whole word) now stays
+  as written (`namedLevelDepositStated`). With the switch on the
+  composed answer serves it directly; without, a model reply naming her and her 20,000₮ is no longer
+  buried under the other levels.
+- **Parity.** Same code, each branch's own rows: Oyunaa's cases at Яармаг, Boloroo's at Парк Од (Latin
+  only: her hairdressers have no Cyrillic spellings, never guessed). Six new exact cases and four
+  child's-cut cases tightened, in one file for both branches. On the copy: Яармаг 69/69, Парк Од
+  70/70 (each +3), branch parity 44 × 2 ALL PASS; on today's code the new cases only reach the model.
+- **Not proven (model):** the child's-cut cases (129, 134, 289, 291) need the model; one run of each
+  branch's model cases is about $0.15 (Яармаг, 16) and $0.35 (Парк Од, 52) by the runbook's figures,
+  or about $0.16 for the four alone.
+- **Addendum (founder, 2026-10-09 afternoon): «Аль салбар нь ойр вэ».** It reached the model, which gave
+  Яармаг's address only. Now a fixed reply `nearest_branch`, the same bytes on both branches: both
+  addresses, Яармаг's Maps link (Парк Од has none yet), and one new question line (unsigned sheet
+  `prompt/drafts/tara_nearest_branch_2026-10-09.mn.txt`; SQL `tara-both-nearest-branch-2026-10-09.sql`).
+  The matcher is «салбар» (stem) with «ойр…» as whole words (three letters is below the stem floor).
+  The branch gate refused another branch's Maps link everywhere; `say_links` in
+  `config/branch-groups.json` now allows Яармаг's link in the `other_branch_in` rows only, like
+  `say_phones` (and `fixed reply nearest_branch` joins `other_branch_in`). Proven on the copy: today's
+  code reports the leaks, this code passes; both gates 73/73 and 74/74 (19 and 55 model cases). The
+  matcher also requires no «цаг», «зогсоол», «хугацаа», «нээх»: «ойрын сул цаг» (earliest time), «ойрын
+  хугацаанд» (soon) and parking near a branch are not this question (review); four control cases hold that.
+- **Парк Од's Facebook link** (`profile.php?id=100067391025472`, in Яармаг's `park_od_branch`): not
+  changed. It is the link the founder copied from her Page at onboarding; Page ID 108583528037449 is
+  the Graph id, and Яармаг's own public link (`…100067872726164`) also differs from her Page id
+  (1520409424715591), as Meta's newer Pages show a profile id. Neither link could be opened from a
+  session (facebook.com 403). The founder's check: open both logged out; if `facebook.com/108583528037449`
+  is the one that opens her Page and the other does not, say so and the sheet follows.

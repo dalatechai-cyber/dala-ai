@@ -37,6 +37,12 @@ export type ReplyStyle = {
   priceLine: string | null;
   /** At most this many emoji in the model's own words; null is no cap. */
   maxEmoji: number | null;
+  /**
+   * `stylist_named: true` (D-184): a hairdresser named alone or with a booking ask is answered
+   * from the rows (`reception/stylistNamed.ts`). Off unless set, so the composed answer reaches a
+   * tenant's customers only after the founder has read it (`prompt/drafts/tara_stylist_named_2026-10-09.mn.txt`).
+   */
+  stylistNamed?: boolean;
 };
 
 /** `tenants.reply_style` → a style, or null for none or a malformed one (then nothing changes). */
@@ -49,10 +55,14 @@ export function replyStyleOf(raw: unknown): ReplyStyle | null {
   const line = text(r['price_line'], '{price}');
   const max = typeof r['max_emoji'] === 'number' && Number.isInteger(r['max_emoji']) && r['max_emoji'] >= 0
     ? r['max_emoji'] : null;
-  if (header === null && line === null && max === null) return null;
+  const stylistNamed = r['stylist_named'] === true;
+  if (header === null && line === null && max === null && !stylistNamed) return null;
   // Both templates or neither: a header with no option line would lose the prices.
   const both = header !== null && line !== null;
-  return { priceHeader: both ? header : null, priceLine: both ? line : null, maxEmoji: max };
+  return {
+    priceHeader: both ? header : null, priceLine: both ? line : null, maxEmoji: max,
+    ...(stylistNamed ? { stylistNamed: true } : {}),
+  };
 }
 
 type Row = { service: string; option: string | null; price: string };
