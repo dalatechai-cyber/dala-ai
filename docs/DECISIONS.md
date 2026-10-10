@@ -12196,13 +12196,17 @@ stubbed, and fixed the same way for both Tara branches.
   or about $0.16 for the four alone.
 - **Addendum (founder, 2026-10-09 afternoon): «Аль салбар нь ойр вэ».** It reached the model, which gave
   Яармаг's address only. Now a fixed reply `nearest_branch`, the same bytes on both branches: both
-  addresses, Яармаг's Maps link (Парк Од has none yet), and one new question line (unsigned sheet
-  `prompt/drafts/tara_nearest_branch_2026-10-09.mn.txt`; SQL `tara-both-nearest-branch-2026-10-09.sql`).
+  addresses and Яармаг's Maps link (Парк Од has none yet), three lines that are each a branch's own
+  row (SQL `tara-both-nearest-branch-2026-10-09.sql`). A fourth line asking where the customer comes
+  from was proposed and dropped (founder, 2026-10-10), so there is no new wording and no sheet to sign
+  (`prompt/drafts/tara_nearest_branch_2026-10-09.mn.txt` is withdrawn). The control cases mark the
+  reply by its whole three-line text, which no other row puts together.
   The matcher is «салбар» (stem) with «ойр…» as whole words (three letters is below the stem floor).
   The branch gate refused another branch's Maps link everywhere; `say_links` in
   `config/branch-groups.json` now allows Яармаг's link in the `other_branch_in` rows only, like
   `say_phones` (and `fixed reply nearest_branch` joins `other_branch_in`). Proven on the copy: today's
-  code reports the leaks, this code passes; both gates 73/73 and 74/74 (19 and 55 model cases). The
+  code reports the leaks, this code passes; both gates 73/73 and 74/74 (19 and 55 model cases),
+  measured 2026-10-09 with the four-line body (the counts do not depend on that line). The
   matcher also requires no «цаг», «зогсоол», «хугацаа», «нээх»: «ойрын сул цаг» (earliest time), «ойрын
   хугацаанд» (soon) and parking near a branch are not this question (review); four control cases hold that.
 - **Парк Од's Facebook link** (`profile.php?id=100067391025472`, in Яармаг's `park_od_branch`): not

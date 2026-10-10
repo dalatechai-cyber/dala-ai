@@ -1,16 +1,20 @@
 -- NOT APPLIED. Both Tara branches (matrix-eco-salon = Яармаг, tara-park-od = Парк Од): «Аль салбар нь
--- ойр вэ» / «al salbar ni oir ve» gets BOTH branches' addresses, Яармаг's Maps link (Парк Од has none
--- yet) and a question where the customer is coming from, as a fixed reply (no model). Founder, 2026-10-09.
--- Today it reaches the model, which answered with Яармаг's address only.
+-- ойр вэ» / «al salbar ni oir ve» gets BOTH branches' addresses and Яармаг's Maps link (Парк Од has none
+-- yet) as a fixed reply (no model). Founder, 2026-10-09. Today it reaches the model, which answered with
+-- Яармаг's address only.
 --
--- RUN ONLY AFTER the founder has signed prompt/drafts/tara_nearest_branch_2026-10-09.mn.txt (its last
--- line is new wording) and the pull request that adds `say_links` to config/branch-groups.json is
--- deployed (without it the branch gate refuses Парк Од's publish: Яармаг's Maps link in her rows).
+-- Three lines, each a branch's own row; no question after them (founder, 2026-10-10: the proposed
+-- fourth line asking where the customer comes from is dropped). No new wording, so no sheet to sign
+-- (prompt/drafts/tara_nearest_branch_2026-10-09.mn.txt is withdrawn).
+-- Needs `say_links` in config/branch-groups.json, deployed with #299 (ee76e5c, 2026-10-10): without it
+-- the branch gate refuses Парк Од's publish (Яармаг's Maps link in her rows).
 -- The same bytes on both branches. A fixed reply is read per message: no publish is needed for it,
 -- but publish both afterwards anyway if the dry run says the prefix changed.
 -- Expected after it (with tara-both-stylist-and-child-2026-10-09.sql applied first): reply gate
 -- matrix-eco-salon 73/73 · 19 need the model, tara-park-od 74/74 · 55 (92 and 129 active cases); prefixes unchanged
--- («Nothing to publish»); branch gate clean on both (needs `say_links`; without it: LEAK).
+-- («Nothing to publish»); branch gate clean on both.
+-- Яармаг's November move: tara-yarmag-move-2026-11.sql must then also rewrite this reply and its six
+-- exact cases on both branches (they carry her old address and Maps link); its final check refuses until it does.
 -- Refuses a second run. Undo: the -revert.sql beside it.
 begin;
 
@@ -35,16 +39,14 @@ end $$;
 insert into deterministic_replies (tenant_id, intent, body, enabled, match_mode, stems, requires_empty_history, provenance, placement, matcher)
 select t.id, 'nearest_branch', 'Яармаг салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун талд
 Байршлын холбоос: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16
-Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот
-Та аль хэсгээс ирэх вэ?', true, 'matcher', '{}'::text[], false, 'tenant_confirmed', 'replace',
+Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот', true, 'matcher', '{}'::text[], false, 'tenant_confirmed', 'replace',
        '{"mode": "all_of", "matchers": [{"mode": "contains_stem", "stems": ["салбар", "salbar"]}, {"mode": "has_word", "words": ["ойр", "ойрхон", "ойрхонд", "ойрт", "ойрын", "ойролцоо", "oir", "oirhon", "oirhond", "oirxon", "oirkhon", "oirt", "oirolcoo"]}, {"mode": "not", "matcher": {"mode": "has_word", "words": ["цаг", "цагаа", "цагт", "tsag", "tsagaa", "tsagt", "зогсоол", "zogsool"]}}, {"mode": "not", "matcher": {"mode": "contains_stem", "stems": ["хугацаа", "hugatsaa", "нээх", "нээгд", "neeh", "neegd"]}}]}'::jsonb
   from tenants t where t.slug in ('matrix-eco-salon', 'tara-park-od');
 
 insert into reply_cases (tenant_id, customer_message, expected_body, note, active, channel)
 select t.id, m.msg, 'Яармаг салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун талд
 Байршлын холбоос: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16
-Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот
-Та аль хэсгээс ирэх вэ?', 'nearest branch 2026-10-09 (exact): ' || m.why, true, 'facebook_page'
+Парк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот', 'nearest branch 2026-10-09 (exact): ' || m.why, true, 'facebook_page'
   from tenants t
  cross join (values
     ('Аль салбар нь ойр вэ', 'the founder''s message; the model gave Яармаг''s address only'),
@@ -54,9 +56,10 @@ select t.id, m.msg, 'Яармаг салбарын хаяг: Яармагийн 
  where t.slug in ('matrix-eco-salon', 'tara-park-od');
 
 -- «ойр…» also means «soon / earliest»: these are NOT this question (review, 2026-10-09). Model cases:
--- whatever answers them, it is not the two-address reply.
+-- whatever answers them, it is not the two-address reply. Its mark is the whole reply, all three lines
+-- in order: no other row puts them together, and a model reply quoting one branch's rows cannot match it.
 insert into reply_cases (tenant_id, customer_message, must_not_include, note, active, channel)
-select t.id, m.msg, ARRAY['Та аль хэсгээс ирэх вэ?'], 'nearest branch 2026-10-09 (control): ' || m.why, true, 'facebook_page'
+select t.id, m.msg, ARRAY[E'Яармаг салбарын хаяг: Яармагийн Номин Хайпермаркетын баруун талд\nБайршлын холбоос: https://maps.app.goo.gl/ckEXBLoq4FnxJHq16\nПарк Од салбарын хаяг: Баянзүрх дүүрэг, 26-р хороо, Парк-Од молл, 4 давхар, 405 тоот'], 'nearest branch 2026-10-09 (control): ' || m.why, true, 'facebook_page'
   from tenants t
  cross join (values
     ('Яармаг салбарт ойрын сул цаг хэзээ байна', 'the earliest free time'),

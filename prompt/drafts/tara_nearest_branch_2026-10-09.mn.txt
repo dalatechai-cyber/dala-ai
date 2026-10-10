@@ -1,3 +1,7 @@
+# WITHDRAWN 2026-10-10 (founder): line 4 («Та аль хэсгээс ирэх вэ?») is dropped. The fixed reply is
+# only the three branch lines below, each the branch's own row, so there is no new wording and nothing
+# to sign. Kept as the record of what was proposed. Nothing loads this file.
+#
 # NOT SIGNED. Proposed 2026-10-09 (founder's request the same day). Both Tara branches, the same bytes.
 #
 # «Аль салбар нь ойр вэ» / «al salbar ni oir ve» / «Аль салбар нь ойрхон бэ?» today reach the model,
